@@ -160,6 +160,25 @@ If the ask returns a `workItem` / `workId`, treat that as the durable handle for
 
 When the Scout MCP tools are available, use `work_update` to keep that handle current.
 
+## Broker reply mode
+
+When a turn contains `SCOUT BROKER REPLY MODE`, a `ScoutReplyContext` block,
+or an active Scout MCP reply context, you are answering an inbound broker ask.
+This is a reply lifecycle, not a new outbound message.
+
+Default behavior for direct broker-invoked asks:
+
+- your final assistant response is the broker-visible reply
+- do not call `scout send`, `messages_send`, or `invocations_ask` to answer the requester
+- only use Scout tools if you need to ask or delegate to another agent while solving the request
+- return only the reply intended for the requester
+
+If the active reply context says `replyPath: mcp_reply`, use the provided
+reply tool (for example `messages_reply` or `scout_reply`) instead of relying
+on final-response capture. If there is no active reply context, use normal
+Scout routing: `messages_send`/`scout send` for tells and
+`invocations_ask`/`scout ask` for asks.
+
 ## Tell vs Ask
 
 Scout has two coordination modes. Choose intentionally.

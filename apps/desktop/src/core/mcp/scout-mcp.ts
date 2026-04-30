@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -10,6 +11,7 @@ import {
   type AgentIdentityCandidate,
   type AgentState,
   type ScoutAgentCard,
+  type ScoutReplyContext,
 } from "@openscout/protocol";
 import {
   findNearestProjectRoot,
@@ -29,6 +31,7 @@ import {
   resolveScoutSenderId,
   sendScoutMessage,
   sendScoutMessageToAgentIds,
+  replyToScoutMessage,
   type ScoutManagedLocalSessionAttachment,
   updateScoutWorkItem,
   waitForScoutFlight,
@@ -36,6 +39,7 @@ import {
   type ScoutAskResult,
   type ScoutFlightRecord,
   type ScoutMessagePostResult,
+  type ScoutReplyPostResult,
   type ScoutTrackedWorkItem,
   type ScoutWorkItemUpdate,
   type ScoutWorkItemInput,
@@ -296,6 +300,15 @@ type ScoutMcpDependencies = {
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutStructuredMessagePostResult>;
+  replyMessage: (input: {
+    senderId: string;
+    body: string;
+    conversationId: string;
+    replyToMessageId: string;
+    shouldSpeak?: boolean;
+    currentDirectory: string;
+    source?: string;
+  }) => Promise<ScoutReplyPostResult>;
   askQuestion: (input: {
     senderId: string;
     targetLabel: string;
@@ -499,6 +512,40 @@ const sendResultSchema = z.object({
   routingError: z.enum(MESSAGE_ROUTING_ERROR_VALUES).nullable(),
 });
 
+const replyContextSchema = z.object({
+  mode: z.literal("broker_reply"),
+  fromAgentId: z.string(),
+  toAgentId: z.string(),
+  conversationId: z.string(),
+  messageId: z.string(),
+  replyToMessageId: z.string(),
+  replyPath: z.enum(["final_response", "mcp_reply"]),
+  action: z.string().optional(),
+});
+
+const currentReplyContextResultSchema = z.object({
+  active: z.boolean(),
+  context: replyContextSchema.nullable(),
+});
+
+const replyResultSchema = z.object({
+  currentDirectory: z.string(),
+  senderId: z.string(),
+  usedBroker: z.boolean(),
+  conversationId: z.string().nullable(),
+  messageId: z.string().nullable(),
+  replyToMessageId: z.string().nullable(),
+  notifiedActorIds: z.array(z.string()),
+  routingError: z
+    .enum([
+      "missing_reply_context",
+      "unknown_conversation",
+      "unknown_reply_target",
+      "reply_target_conversation_mismatch",
+    ])
+    .nullable(),
+});
+
 const cardCreateResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
@@ -552,6 +599,74 @@ const workUpdateResultSchema = z.object({
   workId: z.string().nullable(),
   workUrl: z.string().nullable(),
 });
+
+
+function parseScoutReplyContextFromEnv(env: NodeJS.ProcessEnv): ScoutReplyContext | null {
+  const contextFile = env.OPENSCOUT_REPLY_CONTEXT_FILE?.trim();
+  if (contextFile) {
+    try {
+      const rawFileJson = readFileSync(contextFile, "utf8").trim();
+      if (rawFileJson) {
+        const parsed = JSON.parse(rawFileJson) as Partial<ScoutReplyContext>;
+        if (isScoutReplyContext(parsed)) {
+          return parsed;
+        }
+      }
+    } catch {
+      // A missing or partially-written reply context file just means there is no
+      // active broker reply turn for this long-lived MCP server right now.
+    }
+  }
+
+  const rawJson = env.OPENSCOUT_REPLY_CONTEXT?.trim();
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson) as Partial<ScoutReplyContext>;
+      if (isScoutReplyContext(parsed)) {
+        return parsed;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  const mode = env.OPENSCOUT_REPLY_MODE?.trim();
+  const fromAgentId = env.OPENSCOUT_REPLY_FROM_AGENT_ID?.trim();
+  const toAgentId = env.OPENSCOUT_REPLY_TO_AGENT_ID?.trim();
+  const conversationId = env.OPENSCOUT_REPLY_CONVERSATION_ID?.trim();
+  const messageId = env.OPENSCOUT_REPLY_MESSAGE_ID?.trim();
+  const replyToMessageId = env.OPENSCOUT_REPLY_TO_MESSAGE_ID?.trim() || messageId;
+  const replyPath = env.OPENSCOUT_REPLY_PATH?.trim() || "mcp_reply";
+  if (mode === "broker_reply" && fromAgentId && toAgentId && conversationId && messageId && replyToMessageId && (replyPath === "final_response" || replyPath === "mcp_reply")) {
+    return {
+      mode: "broker_reply",
+      fromAgentId,
+      toAgentId,
+      conversationId,
+      messageId,
+      replyToMessageId,
+      replyPath,
+      ...(env.OPENSCOUT_REPLY_ACTION?.trim() ? { action: env.OPENSCOUT_REPLY_ACTION.trim() as ScoutReplyContext["action"] } : {}),
+    };
+  }
+
+  return null;
+}
+
+function isScoutReplyContext(value: Partial<ScoutReplyContext>): value is ScoutReplyContext {
+  return value.mode === "broker_reply"
+    && typeof value.fromAgentId === "string"
+    && value.fromAgentId.length > 0
+    && typeof value.toAgentId === "string"
+    && value.toAgentId.length > 0
+    && typeof value.conversationId === "string"
+    && value.conversationId.length > 0
+    && typeof value.messageId === "string"
+    && value.messageId.length > 0
+    && typeof value.replyToMessageId === "string"
+    && value.replyToMessageId.length > 0
+    && (value.replyPath === "final_response" || value.replyPath === "mcp_reply");
+}
 
 function createTextContent(value: unknown): [{ type: "text"; text: string }] {
   return [{ type: "text", text: JSON.stringify(value, null, 2) }];
@@ -1394,6 +1509,24 @@ function defaultScoutMcpDependencies(
         currentDirectory,
         source,
       }),
+    replyMessage: ({
+      senderId,
+      body,
+      conversationId,
+      replyToMessageId,
+      shouldSpeak,
+      currentDirectory,
+      source,
+    }) =>
+      replyToScoutMessage({
+        senderId,
+        body,
+        conversationId,
+        replyToMessageId,
+        shouldSpeak,
+        currentDirectory,
+        source,
+      }),
     askQuestion: ({
       senderId,
       targetLabel,
@@ -1503,6 +1636,129 @@ export function createScoutMcpServer(options: {
       };
     },
   );
+
+
+
+  server.registerTool(
+    "current_reply_context",
+    {
+      title: "Current Scout Reply Context",
+      description:
+        "Inspect whether this MCP host has an active Scout broker reply context. Use this to distinguish replying to an inbound Scout ask from sending a new message.",
+      inputSchema: z.object({}),
+      outputSchema: currentReplyContextResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const context = parseScoutReplyContextFromEnv(env);
+      const structuredContent = {
+        active: Boolean(context),
+        context,
+      };
+      return {
+        content: createTextContent(structuredContent),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "messages_reply",
+    {
+      title: "Reply to Scout Message",
+      description:
+        "Reply to the active inbound Scout broker ask. If conversationId and replyToMessageId are omitted, this uses the active ScoutReplyContext. If there is no active context, use messages_send for a new message or pass both ids explicitly.",
+      inputSchema: z.object({
+        body: z.string().min(1),
+        currentDirectory: z.string().optional(),
+        senderId: z.string().optional(),
+        conversationId: z.string().optional(),
+        replyToMessageId: z.string().optional(),
+        shouldSpeak: z.boolean().optional(),
+      }),
+      outputSchema: replyResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({
+      body,
+      currentDirectory,
+      senderId,
+      conversationId,
+      replyToMessageId,
+      shouldSpeak,
+    }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const context = parseScoutReplyContextFromEnv(env);
+      const resolvedConversationId = conversationId?.trim() || context?.conversationId || "";
+      const resolvedReplyToMessageId = replyToMessageId?.trim() || context?.replyToMessageId || "";
+      const resolvedSenderId = await deps.resolveSenderId(
+        senderId ?? context?.toAgentId,
+        resolvedCurrentDirectory,
+        env,
+      );
+
+      if (!resolvedConversationId || !resolvedReplyToMessageId) {
+        const structuredContent = {
+          currentDirectory: resolvedCurrentDirectory,
+          senderId: resolvedSenderId,
+          usedBroker: true,
+          conversationId: resolvedConversationId || null,
+          messageId: null,
+          replyToMessageId: resolvedReplyToMessageId || null,
+          notifiedActorIds: [],
+          routingError: "missing_reply_context" as const,
+        };
+        return {
+          content: createPlainTextContent(
+            "No active Scout broker reply context. Use messages_send for a new message, or pass conversationId and replyToMessageId explicitly.",
+          ),
+          structuredContent,
+        };
+      }
+
+      const result = await deps.replyMessage({
+        senderId: resolvedSenderId,
+        body,
+        conversationId: resolvedConversationId,
+        replyToMessageId: resolvedReplyToMessageId,
+        shouldSpeak,
+        currentDirectory: resolvedCurrentDirectory,
+        source: "scout-mcp",
+      });
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        senderId: resolvedSenderId,
+        usedBroker: result.usedBroker,
+        conversationId: result.conversationId ?? resolvedConversationId,
+        messageId: result.messageId ?? null,
+        replyToMessageId: result.replyToMessageId ?? resolvedReplyToMessageId,
+        notifiedActorIds: result.notifiedActorIds,
+        routingError: result.routingError ?? null,
+      };
+      return {
+        content: createPlainTextContent(
+          result.routingError
+            ? `Reply was not sent: ${result.routingError}.`
+            : `Reply sent in ${structuredContent.conversationId}${structuredContent.messageId ? ` (${structuredContent.messageId})` : ""}.`,
+        ),
+        structuredContent,
+      };
+    },
+  );
+
 
   server.registerTool(
     "session_attach_current",

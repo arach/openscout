@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -12,6 +15,7 @@ import {
 
 const openClients = new Set<Client>();
 const openServers = new Set<ReturnType<typeof createScoutMcpServer>>();
+const tempPaths = new Set<string>();
 
 afterEach(async () => {
   await Promise.all(
@@ -26,10 +30,15 @@ afterEach(async () => {
       openServers.delete(server);
     }),
   );
+  for (const path of tempPaths) {
+    rmSync(path, { recursive: true, force: true });
+  }
+  tempPaths.clear();
 });
 
 async function connectTestServer(
   dependencies: Parameters<typeof createScoutMcpServer>[0]["dependencies"],
+  envOverrides: NodeJS.ProcessEnv = {},
 ) {
   const server = createScoutMcpServer({
     defaultCurrentDirectory: "/tmp/openscout-test",
@@ -37,6 +46,7 @@ async function connectTestServer(
       ...process.env,
       OPENSCOUT_BROKER_URL: "http://broker.test",
       CODEX_THREAD_ID: "019ddb1b-test-thread",
+      ...envOverrides,
     },
     dependencies,
   });
@@ -89,6 +99,8 @@ describe("createScoutMcpServer", () => {
     const result = await client.listTools();
     expect(result.tools.map((tool) => tool.name)).toEqual([
       "whoami",
+      "current_reply_context",
+      "messages_reply",
       "session_attach_current",
       "card_create",
       "agents_search",
@@ -101,8 +113,151 @@ describe("createScoutMcpServer", () => {
       .toContain("Use this when host or workspace context is unclear");
     expect(result.tools.find((tool) => tool.name === "messages_send")?.description)
       .toContain("For owned work or a reply lifecycle, use invocations_ask instead.");
+    expect(result.tools.find((tool) => tool.name === "messages_reply")?.description)
+      .toContain("active ScoutReplyContext");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)
       .toContain("progress, waiting, review, and done transitions");
+  });
+
+
+  test("surfaces and uses active Scout reply context", async () => {
+    let receivedReply: {
+      senderId: string;
+      body: string;
+      conversationId: string;
+      replyToMessageId: string;
+      currentDirectory: string;
+    } | undefined;
+    const { client } = await connectTestServer(
+      {
+        resolveSenderId: async (senderId, currentDirectory) =>
+          `${senderId ?? "operator"}@${currentDirectory}`,
+        replyMessage: async (input) => {
+          receivedReply = input;
+          return {
+            usedBroker: true,
+            conversationId: input.conversationId,
+            messageId: "msg-reply-1",
+            replyToMessageId: input.replyToMessageId,
+            notifiedActorIds: ["sender.agent"],
+          };
+        },
+      },
+      {
+        OPENSCOUT_REPLY_CONTEXT: JSON.stringify({
+          mode: "broker_reply",
+          fromAgentId: "sender.agent",
+          toAgentId: "target.agent",
+          conversationId: "dm.sender.target",
+          messageId: "msg-original",
+          replyToMessageId: "msg-original",
+          replyPath: "mcp_reply",
+          action: "consult",
+        }),
+      },
+    );
+
+    const contextResult = await client.callTool({
+      name: "current_reply_context",
+      arguments: {},
+    });
+    expect(contextResult.structuredContent).toMatchObject({
+      active: true,
+      context: {
+        mode: "broker_reply",
+        fromAgentId: "sender.agent",
+        toAgentId: "target.agent",
+        conversationId: "dm.sender.target",
+        replyToMessageId: "msg-original",
+        replyPath: "mcp_reply",
+      },
+    });
+
+    const replyResult = await client.callTool({
+      name: "messages_reply",
+      arguments: {
+        body: "Broker-visible reply",
+        currentDirectory: "/worktree/app",
+      },
+    });
+
+    expect(receivedReply).toEqual({
+      senderId: "target.agent@/worktree/app",
+      body: "Broker-visible reply",
+      conversationId: "dm.sender.target",
+      replyToMessageId: "msg-original",
+      currentDirectory: "/worktree/app",
+      source: "scout-mcp",
+    });
+    expect(replyResult.structuredContent).toMatchObject({
+      conversationId: "dm.sender.target",
+      messageId: "msg-reply-1",
+      replyToMessageId: "msg-original",
+      notifiedActorIds: ["sender.agent"],
+      routingError: null,
+    });
+  });
+
+  test("reads active Scout reply context from a long-lived context file", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-mcp-reply-context-"));
+    tempPaths.add(tempRoot);
+    const replyContextPath = join(tempRoot, "active-reply-context.json");
+    writeFileSync(replyContextPath, JSON.stringify({
+      mode: "broker_reply",
+      fromAgentId: "sender.agent",
+      toAgentId: "target.agent",
+      conversationId: "dm.sender.target",
+      messageId: "msg-original",
+      replyToMessageId: "msg-original",
+      replyPath: "mcp_reply",
+      action: "consult",
+    }));
+
+    const { client } = await connectTestServer(
+      {
+        resolveSenderId: async () => "operator",
+      },
+      {
+        OPENSCOUT_REPLY_CONTEXT_FILE: replyContextPath,
+      },
+    );
+
+    const contextResult = await client.callTool({
+      name: "current_reply_context",
+      arguments: {},
+    });
+
+    expect(contextResult.structuredContent).toMatchObject({
+      active: true,
+      context: {
+        conversationId: "dm.sender.target",
+        replyToMessageId: "msg-original",
+        replyPath: "mcp_reply",
+      },
+    });
+  });
+
+  test("messages_reply explains missing reply context", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+    });
+
+    const result = await client.callTool({
+      name: "messages_reply",
+      arguments: { body: "No context" },
+    });
+
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "No active Scout broker reply context. Use messages_send for a new message, or pass conversationId and replyToMessageId explicitly.",
+      },
+    ]);
+    expect(result.structuredContent).toMatchObject({
+      routingError: "missing_reply_context",
+      conversationId: null,
+      replyToMessageId: null,
+    });
   });
 
   test("attaches the current Codex session when CODEX_THREAD_ID is available", async () => {

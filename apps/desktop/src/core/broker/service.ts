@@ -202,6 +202,19 @@ export type ScoutStructuredMessagePostResult = {
     | "multi_target_requires_explicit_channel";
 };
 
+export type ScoutReplyPostResult = {
+  usedBroker: boolean;
+  conversationId?: string;
+  messageId?: string;
+  replyToMessageId?: string;
+  notifiedActorIds: string[];
+  routingError?:
+    | "missing_reply_context"
+    | "unknown_conversation"
+    | "unknown_reply_target"
+    | "reply_target_conversation_mismatch";
+};
+
 export type ScoutFlightRecord = {
   id: string;
   invocationId: string;
@@ -2290,6 +2303,112 @@ export async function sendScoutMessage(input: {
     invokedTargets: validTargets,
     unresolvedTargets,
     routeKind: relayRouteKind(conversation),
+  };
+}
+
+export async function replyToScoutMessage(input: {
+  senderId: string;
+  body: string;
+  conversationId: string;
+  replyToMessageId: string;
+  shouldSpeak?: boolean;
+  createdAtMs?: number;
+  currentDirectory?: string;
+  source?: string;
+}): Promise<ScoutReplyPostResult> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    return { usedBroker: false, notifiedActorIds: [] };
+  }
+
+  const conversationId = input.conversationId.trim();
+  const replyToMessageId = input.replyToMessageId.trim();
+  if (!conversationId || !replyToMessageId) {
+    return {
+      usedBroker: true,
+      notifiedActorIds: [],
+      routingError: "missing_reply_context",
+    };
+  }
+
+  const conversation = broker.snapshot.conversations[conversationId];
+  if (!conversation) {
+    return {
+      usedBroker: true,
+      conversationId,
+      replyToMessageId,
+      notifiedActorIds: [],
+      routingError: "unknown_conversation",
+    };
+  }
+
+  const replyTarget = broker.snapshot.messages[replyToMessageId];
+  if (!replyTarget) {
+    return {
+      usedBroker: true,
+      conversationId,
+      replyToMessageId,
+      notifiedActorIds: [],
+      routingError: "unknown_reply_target",
+    };
+  }
+  if (replyTarget.conversationId !== conversationId) {
+    return {
+      usedBroker: true,
+      conversationId,
+      replyToMessageId,
+      notifiedActorIds: [],
+      routingError: "reply_target_conversation_mismatch",
+    };
+  }
+
+  const currentDirectory = input.currentDirectory ?? process.cwd();
+  const source = input.source?.trim() || "scout-mcp";
+  const senderId = await resolveConversationActorId(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.senderId,
+    currentDirectory,
+  );
+  const createdAtMs = input.createdAtMs ?? Date.now();
+  const messageId = `m-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const notifiedActorIds = replyTarget.actorId !== senderId ? [replyTarget.actorId] : [];
+  const speechText = input.shouldSpeak ? input.body.trim() : "";
+  const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
+    conversationId,
+    replyToMessageId: messageId,
+  });
+
+  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
+    id: messageId,
+    conversationId,
+    replyToMessageId,
+    actorId: senderId,
+    originNodeId: broker.node.id,
+    class: conversation.kind === "system" ? "system" : "agent",
+    body: input.body,
+    speech: speechText ? { text: speechText } : undefined,
+    audience: notifiedActorIds.length > 0
+      ? { notify: notifiedActorIds, reason: "thread_reply" }
+      : undefined,
+    visibility: conversation.visibility,
+    policy: "durable",
+    createdAt: createdAtMs,
+    metadata: {
+      source,
+      relayChannel: relayChannelMetadata(conversation),
+      relayMessageId: messageId,
+      returnAddress,
+    },
+  } satisfies MessageRecord);
+
+  return {
+    usedBroker: true,
+    conversationId,
+    messageId,
+    replyToMessageId,
+    notifiedActorIds,
   };
 }
 

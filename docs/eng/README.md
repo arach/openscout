@@ -36,6 +36,7 @@ implementation specs.
 - [sco-015-pi-scout-integration.md](./sco-015-pi-scout-integration.md)
   - [sco-015-implementation-plan.md](./sco-015-implementation-plan.md)
 - [sco-016-external-endpoint-registration-api.md](./sco-016-external-endpoint-registration-api.md)
+- [sco-017-scout-broker-reply-context.md](./sco-017-scout-broker-reply-context.md)
 
 ## Operations
 

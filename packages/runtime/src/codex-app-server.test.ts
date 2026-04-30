@@ -332,6 +332,68 @@ for await (const line of rl) {
   return { executablePath, responsePath };
 }
 
+function writeReplyContextFakeCodexExecutable(baseDirectory: string): {
+  executablePath: string;
+  observedContextPath: string;
+} {
+  const executablePath = join(baseDirectory, "fake-codex-reply-context");
+  const observedContextPath = join(baseDirectory, "observed-reply-context.json");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import readline from "node:readline";
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+let activeThreadId = "thread-unknown";
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  if (method === "thread/resume") {
+    activeThreadId = String(params.threadId ?? "thread-unknown");
+    const thread = { id: activeThreadId, path: \`/tmp/\${activeThreadId}.jsonl\` };
+    console.log(JSON.stringify({ id, result: { thread } }));
+    console.log(JSON.stringify({ method: "thread/started", params: { thread } }));
+    continue;
+  }
+
+  if (method === "turn/start") {
+    const contextPath = process.env.OPENSCOUT_REPLY_CONTEXT_FILE ?? "";
+    const observed = {
+      contextPath,
+      exists: contextPath ? existsSync(contextPath) : false,
+      context: contextPath && existsSync(contextPath) ? JSON.parse(readFileSync(contextPath, "utf8")) : null,
+    };
+    writeFileSync(${JSON.stringify(observedContextPath)}, JSON.stringify(observed, null, 2));
+    activeThreadId = String(params.threadId ?? activeThreadId);
+    console.log(JSON.stringify({ id, result: { turn: { id: "turn-1" } } }));
+    console.log(JSON.stringify({ method: "turn/started", params: { threadId: activeThreadId, turn: { id: "turn-1", status: "inProgress", items: [] } } }));
+    console.log(JSON.stringify({ method: "item/started", params: { threadId: activeThreadId, turnId: "turn-1", item: { type: "agentMessage", id: "msg-1", text: "" } } }));
+    console.log(JSON.stringify({ method: "item/agentMessage/delta", params: { threadId: activeThreadId, turnId: "turn-1", itemId: "msg-1", delta: "Reply context observed" } }));
+    console.log(JSON.stringify({ method: "item/completed", params: { threadId: activeThreadId, turnId: "turn-1", item: { type: "agentMessage", id: "msg-1", text: "Reply context observed" } } }));
+    console.log(JSON.stringify({ method: "turn/completed", params: { threadId: activeThreadId, turn: { id: "turn-1", status: "completed", error: null } } }));
+    continue;
+  }
+
+  console.log(JSON.stringify({ id, result: {} }));
+}
+`, "utf8");
+  chmodSync(executablePath, 0o755);
+  return { executablePath, observedContextPath };
+}
 describe("buildCodexAppServerSessionSnapshot", () => {
   test("projects agent messages and tool activity from app-server history", () => {
     const raw = [
@@ -745,7 +807,7 @@ describe("ensureCodexAppServerAgentOnline", () => {
     const options = {
       agentName: "codex-launch-args",
       sessionId: "attached-codex-launch-args",
-      cwd: "/Users/arach/dev/openscout",
+      cwd: process.cwd(),
       systemPrompt: "Resume the existing session without changing its identity or prior context.",
       runtimeDirectory,
       logsDirectory,
@@ -777,7 +839,7 @@ describe("ensureCodexAppServerAgentOnline", () => {
     const options = {
       agentName: "codex-here",
       sessionId: "attached-codex-here",
-      cwd: "/Users/arach/dev/openscout",
+      cwd: process.cwd(),
       systemPrompt: "Resume the existing session without changing its identity or prior context.",
       runtimeDirectory,
       logsDirectory,
@@ -815,7 +877,7 @@ describe("ensureCodexAppServerAgentOnline", () => {
     const options = {
       agentName: "codex-here",
       sessionId: "attached-codex-here",
-      cwd: "/Users/arach/dev/openscout",
+      cwd: process.cwd(),
       systemPrompt: "Resume the existing session without changing its identity or prior context.",
       runtimeDirectory,
       logsDirectory,
@@ -855,7 +917,7 @@ describe("ensureCodexAppServerAgentOnline", () => {
     const options = {
       agentName: "codex-late",
       sessionId: "attached-codex-late",
-      cwd: "/Users/arach/dev/openscout",
+      cwd: process.cwd(),
       systemPrompt: "Resume the existing session without changing its identity or prior context.",
       runtimeDirectory,
       logsDirectory,
@@ -888,7 +950,7 @@ describe("ensureCodexAppServerAgentOnline", () => {
     const options = {
       agentName: "codex-here",
       sessionId: "attached-codex-here",
-      cwd: "/Users/arach/dev/openscout",
+      cwd: process.cwd(),
       systemPrompt: "Resume the existing session without changing its identity or prior context.",
       runtimeDirectory,
       logsDirectory,
@@ -916,6 +978,64 @@ describe("ensureCodexAppServerAgentOnline", () => {
     expect(response.error).toEqual({
       code: -32000,
       message: "dynamic tool call `read_thread_terminal` is not supported by openscout-runtime",
+    });
+
+    await shutdownCodexAppServerAgent(options);
+  });
+
+  test("writes per-turn Scout reply context for the long-lived MCP server", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-reply-context-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "runtime");
+    const logsDirectory = join(tempRoot, "logs");
+    const { executablePath, observedContextPath } = writeReplyContextFakeCodexExecutable(tempRoot);
+    process.env.OPENSCOUT_CODEX_BIN = executablePath;
+
+    const options = {
+      agentName: "codex-here",
+      sessionId: "attached-codex-reply-context",
+      cwd: process.cwd(),
+      systemPrompt: "Resume the existing session without changing its identity or prior context.",
+      runtimeDirectory,
+      logsDirectory,
+      threadId: "thread-reply-context-1",
+      requireExistingThread: true,
+      launchArgs: [],
+    } as const;
+
+    const result = await invokeCodexAppServerAgent({
+      ...options,
+      prompt: "observe reply context",
+      timeoutMs: 5_000,
+      replyContext: {
+        mode: "broker_reply",
+        fromAgentId: "sender.agent",
+        toAgentId: "codex-here",
+        conversationId: "dm.sender.codex",
+        messageId: "msg-original",
+        replyToMessageId: "msg-original",
+        replyPath: "mcp_reply",
+        action: "consult",
+      },
+    });
+
+    expect(result.output).toBe("Reply context observed");
+
+    const observed = JSON.parse(readFileSync(observedContextPath, "utf8")) as {
+      contextPath?: string;
+      exists?: boolean;
+      context?: {
+        conversationId?: string;
+        replyToMessageId?: string;
+        replyPath?: string;
+      } | null;
+    };
+    expect(observed.exists).toBe(true);
+    expect(observed.contextPath).toBe(join(runtimeDirectory, "scout-reply-context.json"));
+    expect(observed.context).toMatchObject({
+      conversationId: "dm.sender.codex",
+      replyToMessageId: "msg-original",
+      replyPath: "mcp_reply",
     });
 
     await shutdownCodexAppServerAgent(options);
