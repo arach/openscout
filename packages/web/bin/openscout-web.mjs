@@ -39,6 +39,13 @@ Options:
   --cwd <dir>        Workspace root (optional override OPENSCOUT_SETUP_CWD)
   --vite-url <url>   Proxy non-API requests to a Vite dev server
   --static-root <d>  Override the static client directory
+  --public-origin <url>
+                     Public origin behind Caddy, e.g. https://scout.<host>.local
+  --advertised-host <h>
+                     LAN host to advertise/trust (default scout.<machine>.local)
+  --trusted-host <h> Additional trusted API host; may be repeated
+  --trusted-origin <url>
+                     Additional trusted browser origin; may be repeated
 
 Static UI: ${client}
 Server:    ${server}
@@ -52,6 +59,10 @@ if (!existsSync(join(client, "index.html")) || !existsSync(server)) {
 }
 
 const env = { ...process.env };
+
+function appendEnvList(key, value) {
+  env[key] = env[key] ? `${env[key]},${value}` : value;
+}
 
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -89,6 +100,42 @@ for (let i = 0; i < argv.length; i++) {
       process.exit(1);
     }
     env.OPENSCOUT_WEB_STATIC_ROOT = v;
+    continue;
+  }
+  if (a === "--public-origin") {
+    const v = argv[++i];
+    if (!v) {
+      console.error("openscout-web: --public-origin requires a value");
+      process.exit(1);
+    }
+    env.OPENSCOUT_WEB_PUBLIC_ORIGIN = v;
+    continue;
+  }
+  if (a === "--advertised-host") {
+    const v = argv[++i];
+    if (!v) {
+      console.error("openscout-web: --advertised-host requires a value");
+      process.exit(1);
+    }
+    env.OPENSCOUT_WEB_ADVERTISED_HOST = v;
+    continue;
+  }
+  if (a === "--trusted-host") {
+    const v = argv[++i];
+    if (!v) {
+      console.error("openscout-web: --trusted-host requires a value");
+      process.exit(1);
+    }
+    appendEnvList("OPENSCOUT_WEB_TRUSTED_HOSTS", v);
+    continue;
+  }
+  if (a === "--trusted-origin") {
+    const v = argv[++i];
+    if (!v) {
+      console.error("openscout-web: --trusted-origin requires a value");
+      process.exit(1);
+    }
+    appendEnvList("OPENSCOUT_WEB_TRUSTED_ORIGINS", v);
     continue;
   }
   console.error(`openscout-web: unknown argument: ${a}`);

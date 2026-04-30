@@ -20,10 +20,13 @@ bun add -g @openscout/web
 ```bash
 openscout-web
 openscout-web --port 8080 --cwd /path/to/workspace
+openscout-web --public-origin https://scout.my-mac.local
 openscout-web --help
 ```
 
 Then open the URL printed in the terminal (default port `3200`).
+
+The Bun/Hono application server derives `scout.<machine>.local` as its default LAN-facing name. When placing Caddy in front of it, set `--public-origin https://scout.<machine>.local` (or `OPENSCOUT_WEB_PUBLIC_ORIGIN`) so API requests from the proxied browser origin are trusted intentionally.
 
 ## vs `@openscout/scout`
 
@@ -83,6 +86,15 @@ The public route table stays small and explicit:
 - everything else is client traffic
 
 In the installed package, Bun serves the bundled static client directly. In source/dev mode, Bun remains the public server but forwards client asset requests and `/ws/hmr` to Vite.
+
+For a local edge proxy, keep Bun as the application server and reverse-proxy to it:
+
+```caddyfile
+https://scout.my-mac.local {
+  tls internal
+  reverse_proxy 127.0.0.1:3200
+}
+```
 
 ### Cleanup
 

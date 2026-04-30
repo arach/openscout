@@ -9,6 +9,7 @@ describe("server command helpers", () => {
   test("documents the open workflow", () => {
     expect(renderServerCommandHelp()).toContain("scout server open [options]");
     expect(renderServerCommandHelp()).toContain("scout server control-plane open [options]");
+    expect(renderServerCommandHelp()).toContain("--public-origin URL");
   });
 
   test("normalizes relative browser paths", () => {

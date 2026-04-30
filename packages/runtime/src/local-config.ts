@@ -5,7 +5,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname as osHostname } from "node:os";
 import { dirname, join } from "node:path";
 
 export const LOCAL_CONFIG_VERSION = 1;
@@ -31,6 +31,25 @@ export const DEFAULT_LOCAL_CONFIG = {
     pairing: 7888,
   },
 } as const;
+
+export function normalizeLocalHostnameLabel(value: string | undefined): string {
+  const firstLabel = value
+    ?.trim()
+    .replace(/\.local\.?$/i, "")
+    .split(".")
+    .find((part) => part.trim().length > 0)
+    ?.trim();
+  const normalized = firstLabel
+    ?.toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+  return normalized || "localhost";
+}
+
+export function resolveScoutWebMdnsHostname(hostname = osHostname()): string {
+  return `scout.${normalizeLocalHostnameLabel(hostname)}.local`;
+}
 
 export function localConfigHome(): string {
   return process.env.OPENSCOUT_HOME ?? join(homedir(), ".openscout");
