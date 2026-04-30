@@ -1,9 +1,5 @@
 import { createConnection, type Socket } from "node:net";
-import type {
-  FlightRecord,
-  RuntimeRegistrySnapshot,
-  ScoutDeliverResponse,
-} from "@openscout/protocol";
+import type { FlightRecord, ScoutDeliverResponse } from "@openscout/protocol";
 import type { BrokerSnapshot, DeliverParams, ScoutEvent } from "../types.ts";
 import { resolveSocketPath, resolveBrokerHttpUrl } from "../config.ts";
 
@@ -116,14 +112,20 @@ export const brokerClient = {
 
     let snapshot: BrokerSnapshot;
     try {
-      const raw = await socketRequest<RuntimeRegistrySnapshot>(
+      const raw = await socketRequest<{
+        agents: Record<string, unknown>;
+        endpoints: Record<string, unknown>;
+      }>(
         resolveSocketPath(),
         "GET",
         "/v1/snapshot",
       );
       snapshot = { agents: raw.agents, endpoints: raw.endpoints };
     } catch {
-      const raw = await httpFallback<RuntimeRegistrySnapshot>(
+      const raw = await httpFallback<{
+        agents: Record<string, unknown>;
+        endpoints: Record<string, unknown>;
+      }>(
         resolveBrokerHttpUrl(),
         "GET",
         "/v1/snapshot",
@@ -180,10 +182,13 @@ export const brokerClient = {
           "GET",
           `/v1/deliveries?ids=${encodeURIComponent(flightId)}`,
         );
-        const flight = raw.deliveries?.find((f) => f.id === flightId);
+        const flight = raw.deliveries.find((f) => f.id === flightId);
         if (flight?.state === "completed") return flight;
         if (flight?.state === "failed") {
           throw new Error(`Flight failed: ${flight.summary ?? flightId}`);
+        }
+        if (flight?.state === "cancelled") {
+          throw new Error(`Flight cancelled: ${flight.summary ?? flightId}`);
         }
       } catch {
         const raw = await httpFallback<{ deliveries: FlightRecord[] }>(
@@ -191,10 +196,13 @@ export const brokerClient = {
           "GET",
           `/v1/deliveries?ids=${encodeURIComponent(flightId)}`,
         );
-        const flight = raw.deliveries?.find((f) => f.id === flightId);
+        const flight = raw.deliveries.find((f) => f.id === flightId);
         if (flight?.state === "completed") return flight;
         if (flight?.state === "failed") {
           throw new Error(`Flight failed: ${flight.summary ?? flightId}`);
+        }
+        if (flight?.state === "cancelled") {
+          throw new Error(`Flight cancelled: ${flight.summary ?? flightId}`);
         }
       }
 
@@ -250,6 +258,8 @@ export const brokerClient = {
         socket.destroy();
       },
     };
+  },
+
   async upsertEndpoint(req: {
     id: string;
     agentId: string;
@@ -325,6 +335,7 @@ export const brokerClient = {
       return raw.cards;
     }
   },
+
   async deleteEndpoint(id: string): Promise<{ ok: boolean }> {
     try {
       return await socketRequest<{ ok: boolean }>(
@@ -340,5 +351,4 @@ export const brokerClient = {
       );
     }
   },
-
 };

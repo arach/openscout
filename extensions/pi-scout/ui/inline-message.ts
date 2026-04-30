@@ -35,7 +35,7 @@ export class InlineScoutMessage implements Component {
 
     lines.push(
       border(
-        `┌─ ${this.theme.bold("Scout Message from")} ${this.theme.fg("green", sender)}${ageStr}${"─".repeat(Math.max(0, contentWidth - labelWidth - 4))}┐`,
+        `┌─ ${this.theme.bold("Scout Message from")} ${this.theme.fg("success", sender)}${ageStr}${"─".repeat(Math.max(0, contentWidth - labelWidth - 4))}┐`,
       ),
     );
 

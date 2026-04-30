@@ -1,6 +1,7 @@
 import type {
   AgentEndpoint,
   AgentDefinition,
+  ControlEvent,
   ScoutDeliverRequest,
   ScoutDeliverResponse,
   FlightRecord,
@@ -36,10 +37,7 @@ export interface DeliverParams {
   workItem?: { title: string };
 }
 
-export interface ScoutEvent {
-  kind: string;
-  [key: string]: unknown;
-}
+export type ScoutEvent = ControlEvent;
 
 // ─── TUI Components ──────────────────────────────────────────────────────────
 

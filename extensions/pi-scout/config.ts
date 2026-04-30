@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir, join } from "node:path";
+import { join } from "node:path";
 
 export type PiScoutConfig = {
   socketPath: string | null;
@@ -21,16 +21,9 @@ export function loadConfig(): PiScoutConfig {
   if (_config) return _config;
   _config = { ...DEFAULT_CONFIG };
 
-
   try {
-    const configPath = join(
-      process.env.HOME ?? homedir(),
-      ".pi",
-      "agent",
-      "extensions",
-      "pi-scout",
-      "config.json",
-    );
+    const home = process.env.HOME ?? "/Users/art";
+    const configPath = join(home, ".pi", "agent", "extensions", "pi-scout", "config.json");
     if (existsSync(configPath)) {
       const raw = JSON.parse(readFileSync(configPath, "utf8"));
       _config = { ..._config, ...raw };
@@ -39,8 +32,7 @@ export function loadConfig(): PiScoutConfig {
     // Use defaults on parse error
   }
 
-
-  return _config;
+  return _config ?? DEFAULT_CONFIG;
 }
 
 export function resolveSocketPath(): string {
@@ -49,10 +41,9 @@ export function resolveSocketPath(): string {
   return (
     process.env.OPENSCOUT_BROKER_SOCKET_PATH ??
     join(
-      process.env.OPENSCOUT_CONTROL_HOME ??
-        join(homedir(), ".openscout", "control-plane"),
+      process.env.OPENSCOUT_CONTROL_HOME ?? join(process.env.HOME ?? "/Users/art", ".openscout", "control-plane"),
       "runtime",
-      "broker.sock"
+      "broker.sock",
     )
   );
 }

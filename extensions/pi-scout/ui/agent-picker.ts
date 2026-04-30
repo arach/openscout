@@ -31,27 +31,28 @@ export class AgentPickerOverlay implements Component {
       this.done({ selected: null, cancelled: true });
       return;
     }
-
-    if (this.agents.length === 0) return;
+    const filtered = this.filteredAgents();
 
     if (this.keybindings.matches(data, "tui.select.up")) {
+      if (filtered.length === 0) return;
       this.selectedIndex =
-        this.selectedIndex === 0
-          ? this.filteredAgents().length - 1
+        this.selectedIndex <= 0
+          ? filtered.length - 1
           : this.selectedIndex - 1;
       return;
     }
 
     if (this.keybindings.matches(data, "tui.select.down")) {
+      if (filtered.length === 0) return;
       this.selectedIndex =
-        this.selectedIndex === this.filteredAgents().length - 1
+        this.selectedIndex >= filtered.length - 1
           ? 0
           : this.selectedIndex + 1;
       return;
     }
 
     if (this.keybindings.matches(data, "tui.select.confirm")) {
-      const agent = this.filteredAgents()[this.selectedIndex];
+      const agent = filtered[this.selectedIndex];
       if (agent) {
         this.done({ selected: agent, cancelled: false });
       }
@@ -135,7 +136,7 @@ export class AgentPickerOverlay implements Component {
         const label = truncateToWidth(agent.label, Math.max(8, contentWidth - 2), "");
         const stateColor =
           agent.state === "active"
-            ? this.theme.fg("green", agent.state)
+            ? this.theme.fg("success", agent.state)
             : this.theme.fg("dim", agent.state);
         const info = [
           agent.harness ? `· ${agent.harness}` : "",

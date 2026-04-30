@@ -109,7 +109,7 @@ export class ComposeOverlay implements Component {
 
     if (this.mode === "confirm") {
       lines.push(row());
-      lines.push(row(`  ${this.theme.fg("yellow", "Confirm send?")}`));
+      lines.push(row(`  ${this.theme.fg("warning", "Confirm send?")}`));
       lines.push(row());
       const preview = truncateToWidth(
         this.body || "(empty)",
@@ -121,7 +121,7 @@ export class ComposeOverlay implements Component {
       lines.push(border(`├${"─".repeat(contentWidth)}┤`));
       lines.push(
         row(
-          ` ${this.theme.fg("green", `${this.keybindings.getKeys("tui.select.confirm").join("/")}: Send`)} • ${this.keybindings.getKeys("tui.select.cancel").join("/")}: Cancel`,
+          ` ${this.theme.fg("success", `${this.keybindings.getKeys("tui.select.confirm").join("/")}: Send`)} • ${this.keybindings.getKeys("tui.select.cancel").join("/")}: Cancel`,
         ),
       );
       lines.push(border(`╰${"─".repeat(contentWidth)}╯`));
@@ -148,7 +148,7 @@ export class ComposeOverlay implements Component {
 
     lines.push(
       row(
-        ` ${prompt}${before}${this.theme.fg("cursor", "█")}${after}${" ".repeat(Math.max(0, inputAreaWidth - visibleWidth(before) - visibleWidth(after) - 1))}`,
+        ` ${prompt}${before}${this.theme.fg("accent", "█")}${after}${" ".repeat(Math.max(0, inputAreaWidth - visibleWidth(before) - visibleWidth(after) - 1))}`,
       ),
     );
 
