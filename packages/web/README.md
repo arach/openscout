@@ -92,9 +92,11 @@ For a local edge proxy, keep Bun as the application server and reverse-proxy to 
 ```caddyfile
 https://scout.my-mac.local {
   tls internal
-  reverse_proxy 127.0.0.1:3200
+  reverse_proxy 127.0.0.1:PORT_NUMBER
 }
 ```
+
+Use the port number the Bun app server is listening on. The default is `3200`, or the value passed with `--port` / `OPENSCOUT_WEB_PORT`.
 
 ### Cleanup
 
