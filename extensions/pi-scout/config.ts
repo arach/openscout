@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export type PiScoutConfig = {
@@ -36,16 +37,26 @@ export function loadConfig(): PiScoutConfig {
 }
 
 export function resolveSocketPath(): string {
+  return resolveSocketPaths()[0];
+}
+
+export function resolveSocketPaths(): string[] {
   const config = loadConfig();
-  if (config.socketPath) return config.socketPath;
-  return (
-    process.env.OPENSCOUT_BROKER_SOCKET_PATH ??
-    join(
-      process.env.OPENSCOUT_CONTROL_HOME ?? join(process.env.HOME ?? "/Users/art", ".openscout", "control-plane"),
-      "runtime",
-      "broker.sock",
-    )
-  );
+  if (config.socketPath) return [config.socketPath];
+
+  const explicitSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH;
+  if (explicitSocketPath) return [explicitSocketPath];
+
+  const home = process.env.HOME ?? homedir() ?? "/Users/art";
+  const supportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY
+    ?? join(home, "Library", "Application Support", "OpenScout");
+  const controlHome = process.env.OPENSCOUT_CONTROL_HOME
+    ?? join(home, ".openscout", "control-plane");
+
+  return Array.from(new Set([
+    join(supportDirectory, "runtime", "broker.sock"),
+    join(controlHome, "runtime", "broker.sock"),
+  ]));
 }
 
 export function resolveBrokerHttpUrl(): string {

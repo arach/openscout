@@ -20,6 +20,12 @@ const BROKER_STATUS_CACHE_TTL_MS = 2_000;
 let cachedBrokerStatus: { value: BrokerServiceStatus; expiresAt: number } | null = null;
 let inflightBrokerStatus: Promise<BrokerServiceStatus> | null = null;
 
+type ResolveRuntimeServiceEntrypointOptions = {
+  env?: NodeJS.ProcessEnv;
+  moduleUrl?: string | URL;
+  currentWorkingDirectory?: string;
+};
+
 function resolveJavaScriptRuntimeExecutable(): string {
   const runtime = resolveJavaScriptRuntime({
     env: process.env,
@@ -40,18 +46,22 @@ function resolveJavaScriptRuntimeExecutable(): string {
  * Path to the `openscout-runtime` entry (wrapper .mjs or an executable on PATH).
  * Does not import broker logic; it only locates the runtime control entrypoint.
  */
-export function resolveRuntimeServiceEntrypoint(): string {
-  const installedExecutable = resolveExecutableFromSearch({
-    env: process.env,
+export function resolveRuntimeServiceEntrypoint(options: ResolveRuntimeServiceEntrypointOptions = {}): string {
+  const env = options.env ?? process.env;
+  const moduleUrl = options.moduleUrl ?? import.meta.url;
+  const currentWorkingDirectory = options.currentWorkingDirectory ?? process.cwd();
+
+  const explicitRuntimeEntrypoint = resolveExecutableFromSearch({
+    env,
     envKeys: ["OPENSCOUT_RUNTIME_BIN"],
-    names: ["openscout-runtime"],
+    names: [],
   });
-  if (installedExecutable) {
-    return installedExecutable.path;
+  if (explicitRuntimeEntrypoint) {
+    return explicitRuntimeEntrypoint.path;
   }
 
   const fromNodeModules = resolveNodeModulesPackageEntrypoint(
-    import.meta.url,
+    moduleUrl,
     ["@openscout", "runtime"],
     "bin/openscout-runtime.mjs",
   );
@@ -61,14 +71,22 @@ export function resolveRuntimeServiceEntrypoint(): string {
 
   const repoRoot = resolveOpenScoutRepoRoot({
     startDirectories: [
-      process.env.OPENSCOUT_SETUP_CWD,
-      process.cwd(),
-      dirname(fileURLToPath(import.meta.url)),
+      env.OPENSCOUT_SETUP_CWD,
+      currentWorkingDirectory,
+      dirname(fileURLToPath(moduleUrl)),
     ],
   });
   const repoEntrypoint = resolveRepoEntrypoint(repoRoot, "packages/runtime/bin/openscout-runtime.mjs");
   if (repoEntrypoint) {
     return repoEntrypoint;
+  }
+
+  const installedExecutable = resolveExecutableFromSearch({
+    env,
+    names: ["openscout-runtime"],
+  });
+  if (installedExecutable) {
+    return installedExecutable.path;
   }
 
   throw new Error(

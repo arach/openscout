@@ -3,6 +3,7 @@ import { brokerClient } from "../broker/client.ts";
 import { loadConfig } from "../config.ts";
 import type { FlightRecord, ScoutDeliverResponse } from "@openscout/protocol";
 import type { ScoutRuntime } from "../runtime.ts";
+import { resolveScoutTarget } from "../target.ts";
 
 export function createScoutAskTool(runtime: ScoutRuntime) {
   return {
@@ -51,6 +52,12 @@ export function createScoutAskTool(runtime: ScoutRuntime) {
       ctx: ExtensionContext,
     ) {
       await runtime.ensureEngaged(ctx);
+      const resolvedTarget = await resolveScoutTarget(params.target);
+      if (!resolvedTarget) {
+        return {
+          content: [{ type: "text" as const, text: "Pick a Scout target first." }],
+        };
+      }
 
       const config = loadConfig();
       const replyMode = params.replyMode ?? config.defaultReplyMode;
@@ -58,7 +65,7 @@ export function createScoutAskTool(runtime: ScoutRuntime) {
       const response = await brokerClient.deliver({
         intent: "consult",
         body: params.body,
-        target: resolveTarget(params.target),
+        target: resolvedTarget.routeTarget,
         workItem: params.workItem,
       });
 
@@ -67,7 +74,7 @@ export function createScoutAskTool(runtime: ScoutRuntime) {
           content: [
             {
               type: "text" as const,
-              text: describeDeliveryFailure(params.target, response),
+              text: describeDeliveryFailure(resolvedTarget.displayTarget, response),
             },
           ],
           details: response,
@@ -81,8 +88,8 @@ export function createScoutAskTool(runtime: ScoutRuntime) {
             {
               type: "text" as const,
               text: response.flight
-                ? `Ask queued for ${params.target}`
-                : `Ask sent to ${params.target}`,
+                ? `Ask queued for ${resolvedTarget.displayTarget}`
+                : `Ask sent to ${resolvedTarget.displayTarget}`,
             },
           ],
           details: response,
@@ -95,8 +102,8 @@ export function createScoutAskTool(runtime: ScoutRuntime) {
             {
               type: "text" as const,
               text: response.flight
-                ? `Ask queued for ${params.target}. You'll be notified when it's done.`
-                : `Ask sent to ${params.target}`,
+                ? `Ask queued for ${resolvedTarget.displayTarget}. You'll be notified when it's done.`
+                : `Ask sent to ${resolvedTarget.displayTarget}`,
             },
           ],
           details: response,
@@ -109,7 +116,7 @@ export function createScoutAskTool(runtime: ScoutRuntime) {
           content: [
             {
               type: "text" as const,
-              text: `Ask sent to ${params.target}`,
+              text: `Ask sent to ${resolvedTarget.displayTarget}`,
             },
           ],
           details: response,
@@ -132,12 +139,6 @@ export function createScoutAskTool(runtime: ScoutRuntime) {
       };
     },
   };
-}
-
-function resolveTarget(target: string) {
-  return target.includes(":")
-    ? { kind: "agent_id" as const, id: target }
-    : { kind: "agent_label" as const, label: target.replace(/^@/, "") };
 }
 
 function describeDeliveryFailure(

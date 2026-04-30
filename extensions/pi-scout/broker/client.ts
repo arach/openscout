@@ -1,82 +1,144 @@
-import { createConnection, type Socket } from "node:net";
+import { request as httpRequest, type ClientRequest, type IncomingMessage } from "node:http";
 import type { FlightRecord, ScoutDeliverResponse } from "@openscout/protocol";
 import type { BrokerSnapshot, DeliverParams, ScoutEvent } from "../types.ts";
-import { resolveSocketPath, resolveBrokerHttpUrl } from "../config.ts";
+import { resolveBrokerHttpUrl, resolveSocketPaths } from "../config.ts";
 
 // ─── HTTP-over-socket ─────────────────────────────────────────────────────────
-
-function buildRequest(
-  method: string,
-  path: string,
-  body?: unknown,
-): string {
-  const bodyStr = body ? JSON.stringify(body) : "";
-  return [
-    `${method} ${path} HTTP/1.1`,
-    "Host: localhost",
-    `Content-Length: ${Buffer.byteLength(bodyStr)}`,
-    bodyStr ? "Content-Type: application/json" : "",
-    "",
-    bodyStr,
-  ]
-    .filter((line) => line.length > 0)
-    .join("\r\n");
-}
-
-function parseResponse(buffer: Buffer): { status: number; body: string } {
-  const str = buffer.toString("utf8");
-  const headerEnd = str.indexOf("\r\n\r\n");
-  if (headerEnd === -1) {
-    throw new Error("Invalid HTTP response: no header/body separator");
-  }
-  const body = str.slice(headerEnd + 4);
-  const statusLine = str.slice(0, headerEnd).split("\r\n")[0];
-  const status = parseInt(statusLine.split(" ")[1], 10);
-  if (isNaN(status)) throw new Error("Invalid HTTP status line");
-  return { status, body };
-}
 
 async function socketRequest<T>(
   socketPath: string,
   method: string,
   path: string,
   body?: unknown,
+  opts?: { acceptedStatuses?: number[] },
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    const socket = createConnection(socketPath);
-    let data = Buffer.alloc(0);
+    const payload = body === undefined ? undefined : JSON.stringify(body);
+    const request = httpRequest(
+      {
+        socketPath,
+        method,
+        path,
+        headers: {
+          accept: "application/json",
+          ...(payload
+            ? {
+                "content-type": "application/json",
+                "content-length": Buffer.byteLength(payload).toString(),
+              }
+            : {}),
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        response.on("end", () => {
+          const status = response.statusCode ?? 0;
+          const bodyText = Buffer.concat(chunks).toString("utf8");
+          const acceptedStatuses = new Set(opts?.acceptedStatuses ?? []);
+          if (status >= 400 && !acceptedStatuses.has(status)) {
+            reject(new Error(`HTTP ${status}: ${bodyText.slice(0, 200)}`));
+            return;
+          }
+
+          try {
+            resolve(bodyText.length > 0 ? JSON.parse(bodyText) as T : undefined as T);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      },
+    );
 
     const timeout = setTimeout(() => {
-      socket.destroy();
-      reject(new Error(`Socket request timeout: ${method} ${path}`));
+      request.destroy(new Error(`Socket request timeout: ${method} ${path}`));
     }, 10_000);
 
-    socket.on("error", (err) => {
+    request.on("error", (err) => {
       clearTimeout(timeout);
       reject(err);
     });
-
-    socket.on("data", (chunk) => {
-      data = Buffer.concat([data, chunk]);
-    });
-
-    socket.on("end", () => {
+    request.on("close", () => {
       clearTimeout(timeout);
-      try {
-        const { status, body: bodyStr } = parseResponse(data);
-        if (status >= 400) {
-          reject(new Error(`HTTP ${status}: ${bodyStr.slice(0, 200)}`));
-          return;
-        }
-        resolve(JSON.parse(bodyStr) as T);
-      } catch (err) {
-        reject(err);
-      }
     });
 
-    socket.write(buildRequest(method, path, body));
-    socket.end();
+    if (payload) {
+      request.write(payload);
+    }
+    request.end();
   });
+}
+
+async function socketRequestWithFallbacks<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts?: { acceptedStatuses?: number[] },
+): Promise<T> {
+  let lastError: unknown;
+
+  for (const socketPath of resolveSocketPaths()) {
+    try {
+      return await socketRequest<T>(socketPath, method, path, body, opts);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError ?? new Error(`Socket request failed: ${method} ${path}`);
+}
+
+async function requestBroker<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts?: { acceptedStatuses?: number[] },
+): Promise<T> {
+  try {
+    return await socketRequestWithFallbacks<T>(method, path, body, opts);
+  } catch {
+    return await httpFallback<T>(resolveBrokerHttpUrl(), method, path, body, opts);
+  }
+}
+
+async function connectStreamSocket(paths: string[]): Promise<{
+  request: ClientRequest;
+  response: IncomingMessage;
+}> {
+  let lastError: unknown;
+
+  for (const socketPath of paths) {
+    try {
+      return await new Promise<{ request: ClientRequest; response: IncomingMessage }>((resolve, reject) => {
+        const request = httpRequest(
+          {
+            socketPath,
+            method: "GET",
+            path: "/v1/events/stream",
+            headers: { accept: "text/event-stream" },
+          },
+          (response) => {
+            const status = response.statusCode ?? 0;
+            if (status >= 400) {
+              reject(new Error(`HTTP ${status}: /v1/events/stream`));
+              request.destroy();
+              return;
+            }
+            resolve({ request, response });
+          },
+        );
+
+        request.on("error", reject);
+        request.end();
+      });
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError ?? new Error("Unable to connect to Scout broker socket");
 }
 
 async function httpFallback<T>(
@@ -84,6 +146,7 @@ async function httpFallback<T>(
   method: string,
   path: string,
   body?: unknown,
+  opts?: { acceptedStatuses?: number[] },
 ): Promise<T> {
   const base = url.replace(/\/$/, "");
   const res = await fetch(`${base}${path}`, {
@@ -91,7 +154,8 @@ async function httpFallback<T>(
     headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
+  const acceptedStatuses = new Set(opts?.acceptedStatuses ?? []);
+  if (!res.ok && !acceptedStatuses.has(res.status)) {
     const text = await res.text();
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
@@ -110,28 +174,14 @@ export const brokerClient = {
       return _snapshotCache;
     }
 
-    let snapshot: BrokerSnapshot;
-    try {
-      const raw = await socketRequest<{
-        agents: Record<string, unknown>;
-        endpoints: Record<string, unknown>;
-      }>(
-        resolveSocketPath(),
-        "GET",
-        "/v1/snapshot",
-      );
-      snapshot = { agents: raw.agents, endpoints: raw.endpoints };
-    } catch {
-      const raw = await httpFallback<{
-        agents: Record<string, unknown>;
-        endpoints: Record<string, unknown>;
-      }>(
-        resolveBrokerHttpUrl(),
-        "GET",
-        "/v1/snapshot",
-      );
-      snapshot = { agents: raw.agents, endpoints: raw.endpoints };
-    }
+    const raw = await requestBroker<{
+      agents: Record<string, unknown>;
+      endpoints: Record<string, unknown>;
+    }>(
+      "GET",
+      "/v1/snapshot",
+    );
+    const snapshot = { agents: raw.agents, endpoints: raw.endpoints };
 
     _snapshotCache = snapshot;
     _snapshotCacheAt = now;
@@ -147,21 +197,12 @@ export const brokerClient = {
       workItem: params.workItem,
     };
 
-    try {
-      return await socketRequest<ScoutDeliverResponse>(
-        resolveSocketPath(),
-        "POST",
-        "/v1/deliver",
-        payload,
-      );
-    } catch {
-      return await httpFallback<ScoutDeliverResponse>(
-        resolveBrokerHttpUrl(),
-        "POST",
-        "/v1/deliver",
-        payload,
-      );
-    }
+    return await requestBroker<ScoutDeliverResponse>(
+      "POST",
+      "/v1/deliver",
+      payload,
+      { acceptedStatuses: [409, 422] },
+    );
   },
 
   async waitForFlight(
@@ -176,34 +217,17 @@ export const brokerClient = {
         throw new Error("waitForFlight aborted");
       }
 
-      try {
-        const raw = await socketRequest<{ deliveries: FlightRecord[] }>(
-          resolveSocketPath(),
-          "GET",
-          `/v1/deliveries?ids=${encodeURIComponent(flightId)}`,
-        );
-        const flight = raw.deliveries.find((f) => f.id === flightId);
-        if (flight?.state === "completed") return flight;
-        if (flight?.state === "failed") {
-          throw new Error(`Flight failed: ${flight.summary ?? flightId}`);
-        }
-        if (flight?.state === "cancelled") {
-          throw new Error(`Flight cancelled: ${flight.summary ?? flightId}`);
-        }
-      } catch {
-        const raw = await httpFallback<{ deliveries: FlightRecord[] }>(
-          resolveBrokerHttpUrl(),
-          "GET",
-          `/v1/deliveries?ids=${encodeURIComponent(flightId)}`,
-        );
-        const flight = raw.deliveries.find((f) => f.id === flightId);
-        if (flight?.state === "completed") return flight;
-        if (flight?.state === "failed") {
-          throw new Error(`Flight failed: ${flight.summary ?? flightId}`);
-        }
-        if (flight?.state === "cancelled") {
-          throw new Error(`Flight cancelled: ${flight.summary ?? flightId}`);
-        }
+      const raw = await requestBroker<{ deliveries: FlightRecord[] }>(
+        "GET",
+        `/v1/deliveries?ids=${encodeURIComponent(flightId)}`,
+      );
+      const flight = raw.deliveries.find((f) => f.id === flightId);
+      if (flight?.state === "completed") return flight;
+      if (flight?.state === "failed") {
+        throw new Error(`Flight failed: ${flight.summary ?? flightId}`);
+      }
+      if (flight?.state === "cancelled") {
+        throw new Error(`Flight cancelled: ${flight.summary ?? flightId}`);
       }
 
       await new Promise((r) => setTimeout(r, 500));
@@ -216,38 +240,51 @@ export const brokerClient = {
     onEvent: (event: ScoutEvent) => void,
     onError?: (err: unknown) => void,
   ): { cancel: () => void } {
-    let socket: Socket;
+    let socketRequest: ClientRequest | null = null;
+    let socketResponse: IncomingMessage | null = null;
     let cancelled = false;
 
     const connect = () => {
-      socket = createConnection(resolveSocketPath());
-      socket.write(buildRequest("GET", "/v1/events/stream"));
-      let buffer = "";
-
-      socket.on("error", (err) => {
-        if (!cancelled) onError?.(err);
-      });
-
-      socket.on("data", (chunk) => {
-        buffer += chunk.toString("utf8");
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const event = JSON.parse(line.slice(6)) as ScoutEvent;
-              onEvent(event);
-            } catch {
-              // skip malformed SSE lines
-            }
+      connectStreamSocket(resolveSocketPaths())
+        .then(({ request, response }) => {
+          if (cancelled) {
+            request.destroy();
+            response.destroy();
+            return;
           }
-        }
-      });
 
-      socket.on("end", () => {
-        if (!cancelled) setTimeout(connect, 1_000);
-      });
+          socketRequest = request;
+          socketResponse = response;
+          let buffer = "";
+
+          socketRequest.on("error", (err) => {
+            if (!cancelled) onError?.(err);
+          });
+
+          socketResponse.on("data", (chunk) => {
+            buffer += chunk.toString("utf8");
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const event = JSON.parse(line.slice(6)) as ScoutEvent;
+                  onEvent(event);
+                } catch {
+                  // skip malformed SSE lines
+                }
+              }
+            }
+          });
+
+          socketResponse.on("end", () => {
+            if (!cancelled) setTimeout(connect, 1_000);
+          });
+        })
+        .catch((err) => {
+          if (!cancelled) onError?.(err);
+        });
     };
 
     connect();
@@ -255,7 +292,8 @@ export const brokerClient = {
     return {
       cancel() {
         cancelled = true;
-        socket.destroy();
+        socketRequest?.destroy();
+        socketResponse?.destroy();
       },
     };
   },
@@ -270,21 +308,11 @@ export const brokerClient = {
     displayName?: string;
     projectRoot?: string;
   }): Promise<{ ok: boolean; endpoint: unknown }> {
-    try {
-      return await socketRequest<{ ok: boolean; endpoint: unknown }>(
-        resolveSocketPath(),
-        "POST",
-        "/v1/endpoints",
-        req,
-      );
-    } catch {
-      return await httpFallback<{ ok: boolean; endpoint: unknown }>(
-        resolveBrokerHttpUrl(),
-        "POST",
-        "/v1/endpoints",
-        req,
-      );
-    }
+    return await requestBroker<{ ok: boolean; endpoint: unknown }>(
+      "POST",
+      "/v1/endpoints",
+      req,
+    );
   },
 
   async upsertAgentCard(card: {
@@ -301,54 +329,25 @@ export const brokerClient = {
     nodeId?: string;
     metadata?: Record<string, unknown>;
   }): Promise<{ ok: boolean; card: unknown }> {
-    try {
-      return await socketRequest<{ ok: boolean; card: unknown }>(
-        resolveSocketPath(),
-        "POST",
-        "/v1/agent-cards",
-        card,
-      );
-    } catch {
-      return await httpFallback<{ ok: boolean; card: unknown }>(
-        resolveBrokerHttpUrl(),
-        "POST",
-        "/v1/agent-cards",
-        card,
-      );
-    }
+    return await requestBroker<{ ok: boolean; card: unknown }>(
+      "POST",
+      "/v1/agent-cards",
+      card,
+    );
   },
 
   async getAgentCards(): Promise<unknown[]> {
-    try {
-      const raw = await socketRequest<{ cards: unknown[] }>(
-        resolveSocketPath(),
-        "GET",
-        "/v1/agent-cards",
-      );
-      return raw.cards;
-    } catch {
-      const raw = await httpFallback<{ cards: unknown[] }>(
-        resolveBrokerHttpUrl(),
-        "GET",
-        "/v1/agent-cards",
-      );
-      return raw.cards;
-    }
+    const raw = await requestBroker<{ cards: unknown[] }>(
+      "GET",
+      "/v1/agent-cards",
+    );
+    return raw.cards;
   },
 
   async deleteEndpoint(id: string): Promise<{ ok: boolean }> {
-    try {
-      return await socketRequest<{ ok: boolean }>(
-        resolveSocketPath(),
-        "DELETE",
-        `/v1/endpoints/${encodeURIComponent(id)}`,
-      );
-    } catch {
-      return await httpFallback<{ ok: boolean }>(
-        resolveBrokerHttpUrl(),
-        "DELETE",
-        `/v1/endpoints/${encodeURIComponent(id)}`,
-      );
-    }
+    return await requestBroker<{ ok: boolean }>(
+      "DELETE",
+      `/v1/endpoints/${encodeURIComponent(id)}`,
+    );
   },
 };

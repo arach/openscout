@@ -32,7 +32,7 @@ export interface AgentInfo {
 export interface DeliverParams {
   intent: "tell" | "consult";
   body: string;
-  target: { kind: "agent_label"; label: string } | { kind: "agent_id"; id: string };
+  target: { kind: "agent_label"; label: string } | { kind: "agent_id"; agentId: string };
   channel?: string;
   workItem?: { title: string };
 }

@@ -11,6 +11,7 @@ import { AgentPickerOverlay } from "./ui/agent-picker.ts";
 import { ComposeOverlay } from "./ui/compose.ts";
 import { loadConfig } from "./config.ts";
 import { createScoutRuntime } from "./runtime.ts";
+import { resolveScoutTarget, type ScoutTargetInput } from "./target.ts";
 import type { AgentInfo, BrokerSnapshot, ComposeResult, PickerResult } from "./types.ts";
 
 export default function registerPiScoutExtension(pi: ExtensionAPI) {
@@ -59,7 +60,7 @@ async function handleSendAsk(
   rawArgs: string,
   ctx: ExtensionCommandContext,
 ) {
-  const parsed = parseTargetAndBody(rawArgs);
+  const parsed = await parseTargetAndBody(rawArgs);
 
   if (parsed?.body) {
     const text = mode === "send"
@@ -79,7 +80,7 @@ async function handleSendAsk(
     return;
   }
 
-  let target = parsed?.target;
+  let target: ScoutTargetInput | undefined = parsed?.target;
 
   if (!target) {
     const snapshot = await brokerClient.getSnapshot();
@@ -93,11 +94,14 @@ async function handleSendAsk(
       return;
     }
 
-    target = result.selected.label ?? result.selected.id;
+    target = result.selected;
   }
 
+  const composeTarget = typeof target === "string"
+    ? target
+    : target.label ?? target.id;
   const composeResult = await ctx.ui.custom<ComposeResult | undefined>(
-    (_tui, theme, kb, done) => new ComposeOverlay(theme, kb, target, done),
+    (_tui, theme, kb, done) => new ComposeOverlay(theme, kb, composeTarget, done),
     { overlay: true },
   );
 
@@ -131,14 +135,21 @@ function formatAgents(agents: AgentInfo[]): string {
     .join("\n");
 }
 
-function parseTargetAndBody(
+async function parseTargetAndBody(
   rawArgs: string,
-): { target: string; body?: string } | null {
+): Promise<{ target: string; body?: string } | null> {
   const trimmed = rawArgs.trim();
   if (!trimmed) return null;
 
   const [first, ...rest] = trimmed.split(/\s+/);
   if (!first || !isLikelyTarget(first)) return null;
+
+  if (!startsWithExplicitTargetSyntax(first)) {
+    const snapshot = await brokerClient.getSnapshot();
+    if (!snapshot.agents[first]) {
+      return null;
+    }
+  }
 
   return {
     target: first,
@@ -147,61 +158,71 @@ function parseTargetAndBody(
 }
 
 function isLikelyTarget(value: string): boolean {
+  return startsWithExplicitTargetSyntax(value) || value.length > 0;
+}
+
+function startsWithExplicitTargetSyntax(value: string): boolean {
   return value.startsWith("@") || value.includes(":");
 }
 
-function resolveTarget(target: string) {
-  return target.includes(":")
-    ? { kind: "agent_id" as const, id: target }
-    : { kind: "agent_label" as const, label: target.replace(/^@/, "") };
-}
-
 async function sendScoutMessage(
-  target: string,
+  target: ScoutTargetInput,
   body: string,
 ): Promise<string> {
+  const resolvedTarget = await resolveScoutTarget(target);
+  if (!resolvedTarget) {
+    return "Pick a Scout target first.";
+  }
+
   const response = await brokerClient.deliver({
     intent: "tell",
     body,
-    target: resolveTarget(target),
+    target: resolvedTarget.routeTarget,
   });
 
   if (response.kind === "delivery") {
-    return `Message queued for ${target}`;
+    return `Message queued for ${resolvedTarget.displayTarget}`;
   }
 
-  return describeFailedDelivery(target, response);
+  return describeFailedDelivery(resolvedTarget.displayTarget, response);
 }
 
 async function askScoutAgent(
-  target: string,
+  target: ScoutTargetInput,
   body: string,
   signal?: AbortSignal,
 ): Promise<string> {
+  const resolvedTarget = await resolveScoutTarget(target);
+  if (!resolvedTarget) {
+    return "Pick a Scout target first.";
+  }
+
   const config = loadConfig();
   const replyMode = config.defaultReplyMode;
   const response = await brokerClient.deliver({
     intent: "consult",
     body,
-    target: resolveTarget(target),
+    target: resolvedTarget.routeTarget,
   });
 
   if (response.kind !== "delivery") {
-    return describeFailedDelivery(target, response);
+    return describeFailedDelivery(resolvedTarget.displayTarget, response);
   }
 
   if (replyMode === "none") {
-    return response.flight ? `Ask queued for ${target}` : `Ask sent to ${target}`;
+    return response.flight
+      ? `Ask queued for ${resolvedTarget.displayTarget}`
+      : `Ask sent to ${resolvedTarget.displayTarget}`;
   }
 
   if (replyMode === "notify") {
     return response.flight
-      ? `Ask queued for ${target}. You'll be notified when it's done.`
-      : `Ask sent to ${target}`;
+      ? `Ask queued for ${resolvedTarget.displayTarget}. You'll be notified when it's done.`
+      : `Ask sent to ${resolvedTarget.displayTarget}`;
   }
 
   if (!response.flight) {
-    return `Ask sent to ${target}`;
+    return `Ask sent to ${resolvedTarget.displayTarget}`;
   }
 
   const result = await brokerClient.waitForFlight(response.flight.id, {

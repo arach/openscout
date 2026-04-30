@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { brokerClient } from "../broker/client.ts";
 import type { ScoutDeliverResponse } from "@openscout/protocol";
 import type { ScoutRuntime } from "../runtime.ts";
+import { resolveScoutTarget } from "../target.ts";
 
 export function createScoutSendTool(runtime: ScoutRuntime) {
   return {
@@ -33,11 +34,17 @@ export function createScoutSendTool(runtime: ScoutRuntime) {
       ctx: ExtensionContext,
     ) {
       await runtime.ensureEngaged(ctx);
+      const resolvedTarget = await resolveScoutTarget(params.target);
+      if (!resolvedTarget) {
+        return {
+          content: [{ type: "text" as const, text: "Pick a Scout target first." }],
+        };
+      }
 
       const response = await brokerClient.deliver({
         intent: "tell",
         body: params.body,
-        target: resolveTarget(params.target),
+        target: resolvedTarget.routeTarget,
         channel: params.channel,
       });
 
@@ -45,19 +52,13 @@ export function createScoutSendTool(runtime: ScoutRuntime) {
         content: [
           {
             type: "text" as const,
-            text: describeDeliveryResponse(params.target, response),
+            text: describeDeliveryResponse(resolvedTarget.displayTarget, response),
           },
         ],
         details: response,
       };
     },
   };
-}
-
-function resolveTarget(target: string) {
-  return target.includes(":")
-    ? { kind: "agent_id" as const, id: target }
-    : { kind: "agent_label" as const, label: target.replace(/^@/, "") };
 }
 
 function describeDeliveryResponse(
