@@ -5,6 +5,11 @@ export type ScoutWebAssetMode = "vite-proxy" | "static";
 
 const LOOPBACK_IPV4_HOST_PATTERN = /^127(?:\.\d{1,3}){3}$/;
 
+export type ScoutApiTrustOptions = {
+  trustedHosts?: string[];
+  trustedOrigins?: string[];
+};
+
 function normalizeHostname(hostname: string): string {
   const trimmed = hostname.trim().toLowerCase();
   if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
@@ -21,9 +26,37 @@ function isTrustedLoopbackHostname(hostname: string): boolean {
     || LOOPBACK_IPV4_HOST_PATTERN.test(normalized);
 }
 
-function isTrustedApiRequest(c: Context): boolean {
+function normalizeOrigin(origin: string): string | null {
+  try {
+    return new URL(origin).origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function trustedHostSet(options: ScoutApiTrustOptions): Set<string> {
+  return new Set(
+    (options.trustedHosts ?? [])
+      .map(normalizeHostname)
+      .filter(Boolean),
+  );
+}
+
+function trustedOriginSet(options: ScoutApiTrustOptions): Set<string> {
+  return new Set(
+    (options.trustedOrigins ?? [])
+      .map(normalizeOrigin)
+      .filter((origin): origin is string => Boolean(origin)),
+  );
+}
+
+function isTrustedApiHostname(hostname: string, options: ScoutApiTrustOptions): boolean {
+  return isTrustedLoopbackHostname(hostname) || trustedHostSet(options).has(normalizeHostname(hostname));
+}
+
+function isTrustedApiRequest(c: Context, options: ScoutApiTrustOptions): boolean {
   const requestUrl = new URL(c.req.url);
-  if (!isTrustedLoopbackHostname(requestUrl.hostname)) {
+  if (!isTrustedApiHostname(requestUrl.hostname, options)) {
     return false;
   }
 
@@ -32,8 +65,11 @@ function isTrustedApiRequest(c: Context): boolean {
     try {
       const originUrl = new URL(origin);
       if (
-        !isTrustedLoopbackHostname(originUrl.hostname)
-        || originUrl.origin !== requestUrl.origin
+        !isTrustedApiHostname(originUrl.hostname, options)
+        || (
+          originUrl.origin !== requestUrl.origin
+          && !trustedOriginSet(options).has(originUrl.origin.toLowerCase())
+        )
       ) {
         return false;
       }
@@ -129,9 +165,13 @@ export function createCachedSnapshot<T>(load: () => Promise<T>, ttlMs: number) {
   };
 }
 
-export function installScoutApiMiddleware(app: Hono, label = "api"): void {
+export function installScoutApiMiddleware(
+  app: Hono,
+  label = "api",
+  options: ScoutApiTrustOptions = {},
+): void {
   app.use("/api/*", async (c, next) => {
-    if (!isTrustedApiRequest(c)) {
+    if (!isTrustedApiRequest(c, options)) {
       return c.json({ error: "forbidden" }, 403);
     }
 

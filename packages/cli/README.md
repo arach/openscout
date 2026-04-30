@@ -249,10 +249,13 @@ scout server open
 scout server start
 scout server start --port 3200
 scout server open --path /agents/arc-codex-2.master.mini
+scout server start --public-origin https://scout.my-mac.local
 scout server start --vite-url http://127.0.0.1:43173   # SPA dev server
 scout server start --static --static-root /custom/client
 ```
 
 `scout server open` reuses an already-running matching Scout server on that port, or starts one in the background and opens the browser for you. Use `scout server` or `scout server help` for full flags.
+
+The application server derives the LAN hostname `scout.<machine>.local` by default. For a Caddy or other edge proxy, set `--public-origin https://scout.<machine>.local` (or `OPENSCOUT_WEB_PUBLIC_ORIGIN`) so browser origins match the app server's trusted host model.
 
 For the same web UI without the full `scout` CLI package, use **`@openscout/web`** (`openscout-web`): it ships its own `dist/client`, bundled Bun server, and pairing supervisor.
