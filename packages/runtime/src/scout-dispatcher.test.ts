@@ -43,7 +43,11 @@ function makeAgent(input: {
   };
 }
 
-function makeSnapshot(agents: AgentDefinition[], endpoints: AgentEndpoint[] = []): RuntimeSnapshot {
+function makeSnapshot(
+  agents: AgentDefinition[],
+  endpoints: AgentEndpoint[] = [],
+  flights: RuntimeSnapshot["flights"] = {},
+): RuntimeSnapshot {
   const agentMap: Record<string, AgentDefinition> = {};
   for (const agent of agents) agentMap[agent.id] = agent;
   const endpointMap: Record<string, AgentEndpoint> = {};
@@ -55,7 +59,7 @@ function makeSnapshot(agents: AgentDefinition[], endpoints: AgentEndpoint[] = []
     nodes: {},
     conversations: {},
     bindings: {},
-    flights: {},
+    flights,
     messages: [],
     deliveries: [],
     collaborations: {},
@@ -255,6 +259,30 @@ describe("resolveBrokerRouteTarget", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe("arc.main");
+    }
+  });
+
+  test("resolves binding refs from flight id suffixes", () => {
+    const agent = makeAgent({ id: "openscout.main", definitionId: "openscout" });
+    const snapshot = makeSnapshot([agent], [], {
+      "flt-1234567890abcdef": {
+        id: "flt-1234567890abcdef",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: agent.id,
+        state: "completed",
+      },
+    });
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "binding_ref", ref: "90abcdef" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(agent.id);
     }
   });
 

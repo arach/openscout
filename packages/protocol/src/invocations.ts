@@ -19,6 +19,12 @@ export type FlightState =
 
 export interface InvocationExecutionPreference {
   harness?: AgentHarness;
+  /**
+   * Controls whether a handoff should enter fresh model context or continue an
+   * already-running session. Broker-owned label delivery should default to
+   * "new" so stable agent names do not silently inherit unrelated context.
+   */
+  session?: "new" | "existing" | "any";
 }
 
 export interface InvocationRequest {

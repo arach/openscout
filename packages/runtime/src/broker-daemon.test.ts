@@ -1005,10 +1005,12 @@ describe("broker daemon comms layer", () => {
         requesterNodeId: string;
         targetAgentId?: string;
         targetLabel?: string;
+        bindingRef?: string;
         messageId: string;
         flightId?: string;
       };
       targetAgentId?: string;
+      bindingRef?: string;
       conversation?: { id: string; kind: string };
       message?: { id: string; conversationId: string; actorId: string; body: string };
       flight?: { id: string; state: string; targetAgentId: string };
@@ -1042,6 +1044,36 @@ describe("broker daemon comms layer", () => {
     expect(response.flight?.state).toBe("waking");
     expect(response.flight?.targetAgentId).toBe("ghost");
     expect(response.receipt?.flightId).toBe(response.flight?.id);
+    expect(response.bindingRef).toBe(response.flight?.id.slice(-8));
+    expect(response.receipt?.bindingRef).toBe(response.bindingRef);
+
+    const followup = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      bindingRef?: string;
+      receipt?: { targetLabel?: string; bindingRef?: string };
+      flight?: { targetAgentId: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-test-ref",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "binding_ref",
+        ref: response.bindingRef,
+      },
+      body: "continue from the bound session",
+      intent: "consult",
+      createdAt: Date.now(),
+    });
+
+    expect(followup.kind).toBe("delivery");
+    expect(followup.accepted).toBe(true);
+    expect(followup.targetAgentId).toBe("ghost");
+    expect(followup.receipt?.targetLabel).toBe("@ghost");
+    expect(followup.receipt?.bindingRef).toBe(followup.bindingRef);
   }, 15_000);
 
   test("accepts broker-owned channel tells without caller-side route preflight", async () => {

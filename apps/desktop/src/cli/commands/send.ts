@@ -14,7 +14,7 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 export function renderSendCommandHelp(): string {
   return [
-    "Usage: scout send [--as <sender>] [--to <agent>] [--channel <name>] [--speak] [--harness <runtime>] [--message-file <path> | <message>]",
+    "Usage: scout send [--as <sender>] [--to <agent> | --ref <ref>] [--channel <name>] [--speak] [--harness <runtime>] [--message-file <path> | <message>]",
     "",
     "Tell or update another agent or an explicit channel.",
     "",
@@ -35,6 +35,7 @@ export function renderSendCommandHelp(): string {
     "",
     "Examples:",
     '  scout send --to hudson "ready for review; literal @codex stays text"',
+    '  scout send --ref 7f3a9c21 "follow-up for that bound session"',
     '  scout send --to lattices#codex?5.5 "ready for review"',
     "  scout send --channel triage --message-file ./status.md",
     '  scout send --as premotion.master.mini --to hudson "editor branch is green"',
@@ -126,6 +127,7 @@ export async function runSendCommand(
     senderId,
     body,
     targetLabel: options.targetLabel,
+    targetRef: options.targetRef,
     channel: options.channel,
     shouldSpeak: options.shouldSpeak,
     executionHarness: parseScoutHarness(options.harness),
@@ -147,6 +149,7 @@ export async function runSendCommand(
       senderId,
       conversationId: result.conversationId,
       message: body,
+      bindingRef: result.bindingRef,
       invokedTargets: result.invokedTargets,
       unresolvedTargets: result.unresolvedTargets,
       routeKind: result.routeKind,

@@ -5,7 +5,7 @@ export type ScoutDispatchKind = "ambiguous" | "unknown" | "unparseable" | "unava
 
 export type ScoutCandidateEndpointState = "online" | "offline" | "unknown";
 
-export type ScoutRouteTargetKind = "agent_id" | "agent_label" | "channel" | "broadcast";
+export type ScoutRouteTargetKind = "agent_id" | "agent_label" | "binding_ref" | "channel" | "broadcast";
 
 export type ScoutRouteAmbiguousPolicy = "reject" | "ask";
 
@@ -21,6 +21,7 @@ export interface ScoutCallerContext {
 export type ScoutRouteTarget =
   | { kind: "agent_id"; agentId: ScoutId; value?: string }
   | { kind: "agent_label"; label: string; value?: string }
+  | { kind: "binding_ref"; ref: string; value?: string }
   | { kind: "channel"; channel: string; value?: string }
   | { kind: "broadcast"; value?: string };
 

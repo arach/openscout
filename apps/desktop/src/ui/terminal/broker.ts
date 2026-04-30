@@ -51,6 +51,7 @@ export function renderScoutMessagePostResult(result: {
   message: string;
   senderId?: string;
   conversationId?: string;
+  bindingRef?: string;
   invokedTargets: string[];
   unresolvedTargets: string[];
   routeKind?: "dm" | "channel" | "broadcast";
@@ -67,6 +68,9 @@ export function renderScoutMessagePostResult(result: {
       ? "DM"
       : "Conversation";
     lines.push(`${route}: ${result.conversationId}`);
+  }
+  if (result.bindingRef) {
+    lines.push(`Ref: ref:${result.bindingRef}`);
   }
   if (result.invokedTargets.length > 0) {
     lines.push(`Routed to: ${result.invokedTargets.join(", ")}`);

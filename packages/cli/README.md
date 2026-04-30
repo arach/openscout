@@ -172,6 +172,28 @@ Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree
 
 If direct send/ask still comes back unresolved, treat that as a routing problem, not a mere "target is offline" problem. The right follow-up is to disambiguate the target, inspect broker context with `scout who` / `scout latest`, or create/register the missing identity. Do not default to pushing the bring-up step back onto the operator for a known target.
 
+By default, a label handoff such as `@openscout.harness:claude` should mean
+"use the OpenScout identity on the Claude harness in a fresh session/context."
+Reusing an existing session is an explicit continuity choice, not the default.
+The broker should keep the stable agent name as the address and record the
+concrete session binding in the delivery receipt/history.
+
+Session refs are separate route targets for continuing a concrete bound
+session. Use the bare `ref:<suffix>` form in receipts/history, and pass the
+suffix with `--ref`; do not encode refs into `@agent#harness?model` identity
+syntax.
+
+```bash
+scout ask --ref 7f3a9c21 "continue from that handoff"
+scout send --ref 7f3a9c21 "status for that same session"
+```
+
+Receipts should name both layers, for example:
+
+```text
+sent to @openscout#claude via DM (ref:7f3a9c21)
+```
+
 ## Current Commands
 
 ```bash

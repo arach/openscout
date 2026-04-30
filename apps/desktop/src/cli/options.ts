@@ -10,6 +10,7 @@ type ContextRootOptions = {
 type TargetableMessageOptions = ContextRootOptions & {
   agentName: string | null;
   targetLabel?: string;
+  targetRef?: string;
   channel?: string;
   harness?: string;
   shouldSpeak: boolean;
@@ -25,6 +26,7 @@ export type ScoutSetupCommandOptions = {
 export type ScoutAskCommandOptions = ContextRootOptions & {
   agentName: string | null;
   targetLabel: string;
+  targetRef?: string;
   channel?: string;
   harness?: string;
   timeoutSeconds?: number;
@@ -208,6 +210,7 @@ export function parseSendCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentName: string | null = null;
   let targetLabel: string | undefined;
+  let targetRef: string | undefined;
   let channel: string | undefined;
   let shouldSpeak = false;
   let harness: string | undefined;
@@ -225,6 +228,13 @@ export function parseSendCommandOptions(
     if (current === "--to" || current.startsWith("--to=")) {
       const value = parseFlagValue(parsed.args, index, "--to");
       targetLabel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--ref" || current.startsWith("--ref=")) {
+      const value = parseFlagValue(parsed.args, index, "--ref");
+      targetRef = value.value.replace(/^ref:/, "");
+      targetLabel = `ref:${targetRef}`;
       index = value.nextIndex;
       continue;
     }
@@ -270,6 +280,7 @@ export function parseSendCommandOptions(
     args: parsed.args,
     agentName,
     targetLabel,
+    targetRef,
     channel,
     shouldSpeak,
     harness,
@@ -285,6 +296,7 @@ export function parseAskCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentName: string | null = null;
   let targetLabel: string | null = null;
+  let targetRef: string | undefined;
   let channel: string | undefined;
   let harness: string | undefined;
   let timeoutSeconds: number | undefined;
@@ -302,6 +314,13 @@ export function parseAskCommandOptions(
     if (current === "--to" || current.startsWith("--to=")) {
       const value = parseFlagValue(parsed.args, index, "--to");
       targetLabel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--ref" || current.startsWith("--ref=")) {
+      const value = parseFlagValue(parsed.args, index, "--ref");
+      targetRef = value.value.replace(/^ref:/, "");
+      targetLabel = `ref:${targetRef}`;
       index = value.nextIndex;
       continue;
     }
@@ -356,6 +375,7 @@ export function parseAskCommandOptions(
     args: parsed.args,
     agentName,
     targetLabel,
+    targetRef,
     channel,
     harness,
     timeoutSeconds,

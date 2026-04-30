@@ -2671,15 +2671,16 @@ function activeLocalEndpointForAgent(agentId: string, harness?: AgentEndpoint["h
 
 async function resolveLocalEndpointForInvocation(invocation: InvocationRequest): Promise<AgentEndpoint | undefined> {
   const requestedHarness = invocation.execution?.harness;
+  const sessionPreference = invocation.execution?.session ?? "new";
   const existing = activeLocalEndpointForAgent(invocation.targetAgentId, requestedHarness);
-  if (existing) {
+  if (existing && sessionPreference !== "new") {
     return existing;
   }
 
   const staleEndpoints = runtime.endpointsForAgent(invocation.targetAgentId, {
     nodeId,
     harness: requestedHarness,
-  });
+  }).filter((endpoint) => endpoint.id !== existing?.id);
 
   for (const endpoint of staleEndpoints) {
     await persistEndpoint({
@@ -2696,6 +2697,10 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
   }
 
   if (!invocation.ensureAwake) {
+    return undefined;
+  }
+
+  if (sessionPreference === "existing") {
     return undefined;
   }
 
@@ -4337,6 +4342,7 @@ function buildDeliveryReceipt(input: {
   requesterNodeId: string;
   targetAgentId?: string;
   targetLabel: string;
+  bindingRef?: string;
   conversationId: string;
   messageId: string;
   flightId?: string;
@@ -4348,6 +4354,7 @@ function buildDeliveryReceipt(input: {
     requesterNodeId: input.requesterNodeId,
     targetAgentId: input.targetAgentId,
     targetLabel: input.targetLabel,
+    ...(input.bindingRef ? { bindingRef: input.bindingRef } : {}),
     conversationId: input.conversationId,
     messageId: input.messageId,
     ...(input.flightId ? { flightId: input.flightId } : {}),
@@ -4559,6 +4566,7 @@ async function acceptBrokerDelivery(
     },
   };
   const flight = await acceptInvocationDurably(invocation);
+  const bindingRef = flight.id.slice(-8);
   dispatchAcceptedInvocation(invocation).catch((error) => {
     console.error(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);
   });
@@ -4573,6 +4581,7 @@ async function acceptBrokerDelivery(
       requesterNodeId,
       targetAgentId: resolved.agent.id,
       targetLabel,
+      bindingRef,
       conversationId: conversation.id,
       messageId,
       flightId: flight.id,
@@ -4580,6 +4589,7 @@ async function acceptBrokerDelivery(
     conversation,
     message,
     targetAgentId: resolved.agent.id,
+    bindingRef,
     flight,
   };
 }

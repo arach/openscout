@@ -29,6 +29,17 @@ describe("parseSendCommandOptions", () => {
     expect(options.message).toBe("literal @codex stays text");
   });
 
+  test("accepts a binding ref target", () => {
+    const options = parseSendCommandOptions(
+      ["--ref", "7f3a9c21", "follow", "up"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("ref:7f3a9c21");
+    expect(options.targetRef).toBe("7f3a9c21");
+    expect(options.message).toBe("follow up");
+  });
+
   test("rejects mixing inline messages with a message file", () => {
     expect(() =>
       parseSendCommandOptions(
@@ -57,6 +68,17 @@ describe("parseAskCommandOptions", () => {
     );
 
     expect(options.promptFile).toBe("/tmp/handoff.md");
+  });
+
+  test("accepts a binding ref target", () => {
+    const options = parseAskCommandOptions(
+      ["--ref=7f3a9c21", "continue"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("ref:7f3a9c21");
+    expect(options.targetRef).toBe("7f3a9c21");
+    expect(options.message).toBe("continue");
   });
 
   test("rejects mixing inline questions with a prompt file", () => {

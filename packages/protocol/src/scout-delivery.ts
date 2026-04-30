@@ -17,7 +17,8 @@ export type ScoutDeliveryRemediationKind =
   | "choose_target"
   | "register_target"
   | "wake_target"
-  | "retry_later";
+  | "retry_later"
+  | "stale_reference";
 
 export type ScoutDeliverRejectReason =
   | "unknown_target"
@@ -54,6 +55,7 @@ export interface ScoutDeliveryReceipt {
   requesterNodeId: ScoutId;
   targetAgentId?: ScoutId;
   targetLabel?: string;
+  bindingRef?: string;
   conversationId: ScoutId;
   messageId: ScoutId;
   flightId?: ScoutId;
@@ -76,6 +78,7 @@ export interface ScoutDeliverAcceptedResponse {
   conversation: ConversationDefinition;
   message: MessageRecord;
   targetAgentId?: ScoutId;
+  bindingRef?: string;
   flight?: FlightRecord;
 }
 

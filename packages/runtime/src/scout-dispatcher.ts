@@ -50,6 +50,8 @@ function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined)
     ? target.agentId
     : target.kind === "agent_label"
     ? target.label
+    : target.kind === "binding_ref"
+    ? target.ref
     : target.kind === "channel"
     ? target.channel
     : target.value;
@@ -260,6 +262,34 @@ export function resolveBrokerRouteTarget(
     if (agent && !options.helpers.isStale(agent)) {
       return { kind: "resolved", agent };
     }
+  }
+
+  const bindingRef = routeTarget?.kind === "binding_ref"
+    ? normalizedRouteTargetValue(routeTarget)
+    : input.targetLabel?.trim().startsWith("ref:")
+    ? input.targetLabel.trim().slice("ref:".length)
+    : "";
+  if (bindingRef) {
+    const normalizedRef = bindingRef.toLowerCase();
+    const matches = Object.values(snapshot.flights ?? {}).filter((flight) =>
+      flight.id.toLowerCase() === normalizedRef
+      || flight.id.toLowerCase().endsWith(normalizedRef)
+      || String(flight.metadata?.["bindingRef"] ?? "").toLowerCase() === normalizedRef
+    );
+    if (matches.length === 1) {
+      const agent = snapshot.agents[matches[0]!.targetAgentId];
+      return agent ? { kind: "resolved", agent } : { kind: "unknown", label: `ref:${bindingRef}` };
+    }
+    if (matches.length > 1) {
+      return {
+        kind: "ambiguous",
+        label: `ref:${bindingRef}`,
+        candidates: matches
+          .map((flight) => snapshot.agents[flight.targetAgentId])
+          .filter((agent): agent is AgentDefinition => Boolean(agent)),
+      };
+    }
+    return { kind: "unknown", label: `ref:${bindingRef}` };
   }
 
   const label = routeTarget?.kind === "agent_label"

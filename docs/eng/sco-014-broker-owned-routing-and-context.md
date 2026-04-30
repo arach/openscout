@@ -157,6 +157,7 @@ export interface ScoutRoutePolicy {
 export type ScoutRouteTarget =
   | { kind: "agent_label"; label: string; value?: string }
   | { kind: "agent_id"; agentId: ScoutId; value?: string }
+  | { kind: "binding_ref"; ref: string; value?: string }
   | { kind: "channel"; channel: string; value?: string }
   | { kind: "broadcast"; value?: string };
 
@@ -187,6 +188,7 @@ Compatibility rules:
 
 - `targetLabel` maps to `{ kind: "agent_label" }`.
 - `targetAgentId` maps to `{ kind: "agent_id" }`.
+- Bare `ref:<suffix>` maps to `{ kind: "binding_ref" }`.
 - Missing `id` and `createdAt` are broker-generated.
 - Body mention scanning is disabled by default.
 - Legacy `scout send "@agent message"` is still a compatibility path. It
@@ -197,6 +199,83 @@ Compatibility rules:
   running brokers.
 - Role targets, harness targets, multi-target arrays, and inline `workItem`
   payloads are planned extensions, not part of the landed protocol yet.
+
+## Session Context Policy
+
+Routing has two separate questions:
+
+- `target`: which stable agent identity should own the work?
+- `execution.session`: should this delivery create fresh model context or reuse
+  an existing live session?
+
+Stable agent identity is durable. Session binding is per live or newly-created
+harness session. Default label delivery should use fresh context:
+
+```json
+{
+  "target": { "kind": "agent_label", "label": "@openscout.harness:claude" },
+  "execution": { "harness": "claude", "session": "new" }
+}
+```
+
+That means `@openscout` remains the stable human address, while the broker
+creates or selects a concrete session binding under it. Receipts and history
+should expose both layers: the stable target label / agent identity and the
+ephemeral session identity that actually handled the delivery.
+
+`execution.session` values:
+
+| Value | Meaning |
+| --- | --- |
+| `new` | Start a fresh session/context for the selected agent identity. This is the default for broker-owned label sends/asks because context-window pollution is more dangerous than startup cost. |
+| `existing` | Require an already-running session for continuity. If none is available, return a route question/action instead of silently creating fresh context. |
+| `any` | Prefer a live session when available, otherwise create or wake according to target policy. This is useful for low-stakes tells and status updates. |
+
+The session binding is not the user-facing address. A sender should be able to
+say `@openscout` or `@openscout.harness:claude`; the broker owns the mapping
+from that stable name to the concrete session started for this handoff.
+
+Within an interaction, the broker may also mint a reference for that specific
+binding. The reference is scoped to the conversation/work item/flight, not
+global agent identity. It should be mechanically derived and low-editorial, such
+as the last eight characters of the concrete binding/session/flight id. UIs may
+show friendly labels, but the routable primitive should stay boring and
+collision-resistant. The routable form is the bare reference target, for example
+`ref:7f3a9c21`.
+
+If the same durable identity is bound through multiple harnesses, each harness
+binding gets a distinct reference:
+
+```text
+@openscout            -> stable product/project identity
+@openscout#claude     -> harness-qualified stable identity
+ref:7f3a9c21          -> this interaction's concrete Claude session binding
+ref:b64e0d88          -> this interaction's concrete Codex session binding
+```
+
+Do not overload identity shorthand for references. `@openscout#7f3a9c21`
+already means a harness qualifier, and `@openscout#claude?7f3a9c21` already
+means harness plus model qualifier. References should live outside that grammar.
+Prefer the bare `ref:7f3a9c21` form and let receipts/history show the bound
+stable identity (`@openscout#claude`) beside it.
+
+Once the binding exists, follow-up messages in the same interaction can use the
+reference and preserve continuity without making future unrelated sends inherit
+that session's context. In other words, references are handles to interaction
+sessions, while agent names are handles to durable identities. A reference must
+point to exactly one binding; if it is missing, expired, or ambiguous, the
+broker should reject it with a choose-target or stale-reference action.
+
+CLI continuations should pass the ref as a route target:
+
+```bash
+scout ask --ref 7f3a9c21 "continue with the same Claude session"
+scout send --ref 7f3a9c21 "heads up for that concrete session"
+```
+
+When the target label includes a harness qualifier and no matching live session
+exists, the broker should treat that as a request to create a new session with
+that harness under the same stable agent identity, not as an unresolved target.
 
 ## Route Preview
 
@@ -240,6 +319,7 @@ export interface ScoutDeliveryReceipt {
   requesterNodeId: ScoutId;
   targetAgentId?: ScoutId;
   targetLabel?: string;
+  bindingRef?: string;
   conversationId: ScoutId;
   messageId: ScoutId;
   flightId?: ScoutId;
@@ -258,9 +338,9 @@ export interface ScoutDeliverAcceptedResponse {
 }
 ```
 
-`receiptText`, resolved caller summaries, target arrays, and work item records
-are target-state response fields. Today, CLI and MCP render compact text from
-the structured response.
+`receiptText`, resolved caller summaries, target arrays, stable target fields,
+binding refs, and work item records are target-state response fields. Today,
+CLI and MCP render compact text from the structured response.
 
 Virtual route receipts also need a concrete handler field before `@scout` can
 delegate internally without confusing senders. The landed receipt does not have
@@ -269,8 +349,13 @@ that field yet.
 Human-facing text should be short:
 
 ```text
-sent as ranger.main.mini from openscout to @scout-feedback via DM
+sent as ranger.main.mini from openscout to @scout-feedback via DM (ref:7f3a9c21)
 ```
+
+When a concrete binding handled the delivery, receipts should show both the
+stable target (`targetLabel` / `targetAgentId`) and the continuation reference
+(`bindingRef`). Refs are route targets for follow-up, not replacements for the
+stable identity.
 
 MCP tools should put this text in `content` and the full receipt in
 `structuredContent`.
@@ -374,6 +459,8 @@ CLI:
 - `scout send "@agent body"` remains a legacy shorthand and must be narrowed to
   leading-target-only before full broker-owned routing.
 - `scout ask --to <target> "body"` sends target as structured route intent.
+- `scout ask --ref <ref>` and `scout send --ref <ref>` continue the concrete
+  bound session for an existing interaction.
 - Target state: errors display `receiptText` and at most three
   broker-suggested actions. Current CLI errors still render from local
   `targetDiagnostic` data.

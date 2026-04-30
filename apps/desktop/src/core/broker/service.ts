@@ -179,6 +179,7 @@ export type ScoutMessagePostResult = {
   usedBroker: boolean;
   conversationId?: string;
   messageId?: string;
+  bindingRef?: string;
   invokedTargets: string[];
   unresolvedTargets: string[];
   targetDiagnostic?: ScoutTargetDiagnostic;
@@ -220,6 +221,7 @@ export type ScoutAskResult = {
   flight?: ScoutFlightRecord;
   conversationId?: string;
   messageId?: string;
+  bindingRef?: string;
   workItem?: ScoutTrackedWorkItem;
   unresolvedTarget?: string;
   targetDiagnostic?: ScoutAskTargetDiagnostic;
@@ -2052,6 +2054,7 @@ export async function sendScoutMessage(input: {
   senderId: string;
   body: string;
   targetLabel?: string;
+  targetRef?: string;
   channel?: string;
   shouldSpeak?: boolean;
   createdAtMs?: number;
@@ -2075,7 +2078,13 @@ export async function sendScoutMessage(input: {
   );
 
   const requestedTargetLabel = input.targetLabel?.trim();
-  if (requestedTargetLabel) {
+  const requestedTargetRef = input.targetRef?.trim()
+    || (requestedTargetLabel?.startsWith("ref:") ? requestedTargetLabel.slice("ref:".length) : "");
+  if (requestedTargetLabel || requestedTargetRef) {
+    const target = requestedTargetRef
+      ? { kind: "binding_ref" as const, ref: requestedTargetRef }
+      : { kind: "agent_label" as const, label: requestedTargetLabel! };
+    const renderedTarget = requestedTargetRef ? `ref:${requestedTargetRef}` : requestedTargetLabel!;
     const delivery = await brokerPostDeliver(broker.baseUrl, {
       caller: {
         actorId: senderId,
@@ -2083,11 +2092,8 @@ export async function sendScoutMessage(input: {
         currentDirectory,
         metadata: { source },
       },
-      target: {
-        kind: "agent_label",
-        label: requestedTargetLabel,
-      },
-      targetLabel: requestedTargetLabel,
+      target,
+      targetLabel: renderedTarget,
       body: input.body,
       intent: "tell",
       channel: input.channel,
@@ -2100,7 +2106,7 @@ export async function sendScoutMessage(input: {
       return {
         usedBroker: true,
         invokedTargets: [],
-        unresolvedTargets: [requestedTargetLabel],
+        unresolvedTargets: [renderedTarget],
         targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
       };
     }
@@ -2108,6 +2114,7 @@ export async function sendScoutMessage(input: {
       usedBroker: true,
       conversationId: delivery.conversation.id,
       messageId: delivery.message.id,
+      bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
       invokedTargets: delivery.targetAgentId ? [delivery.targetAgentId] : [],
       unresolvedTargets: [],
       routeKind: delivery.routeKind,
@@ -2564,9 +2571,10 @@ export async function sendScoutDirectMessage(input: {
     body: input.body.trim(),
     intent: "consult",
     replyToMessageId: input.replyToMessageId ?? undefined,
-    execution: input.executionHarness
-      ? { harness: input.executionHarness }
-      : undefined,
+    execution: {
+      ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      session: "new",
+    },
     ensureAwake: true,
     messageMetadata: {
       source,
@@ -2643,9 +2651,10 @@ export async function askScoutAgentById(input: {
     intent: "consult",
     channel: input.channel,
     speechText: input.shouldSpeak ? input.body.trim() : undefined,
-    execution: input.executionHarness
-      ? { harness: input.executionHarness }
-      : undefined,
+    execution: {
+      ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      session: "new",
+    },
     ensureAwake: true,
     messageMetadata: {
       source,
@@ -2685,6 +2694,7 @@ export async function askScoutAgentById(input: {
 export async function askScoutQuestion(input: {
   senderId: string;
   targetLabel: string;
+  targetRef?: string;
   body: string;
   workItem?: ScoutWorkItemInput;
   channel?: string;
@@ -2709,6 +2719,12 @@ export async function askScoutQuestion(input: {
   );
   const createdAt = input.createdAtMs ?? Date.now();
   const messageBody = input.body.trim();
+  const targetRef = input.targetRef?.trim()
+    || (input.targetLabel.trim().startsWith("ref:") ? input.targetLabel.trim().slice("ref:".length) : "");
+  const target = targetRef
+    ? { kind: "binding_ref" as const, ref: targetRef }
+    : { kind: "agent_label" as const, label: input.targetLabel };
+  const renderedTarget = targetRef ? `ref:${targetRef}` : input.targetLabel;
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     caller: {
       actorId: senderId,
@@ -2716,20 +2732,18 @@ export async function askScoutQuestion(input: {
       currentDirectory,
       metadata: { source },
     },
-    target: {
-      kind: "agent_label",
-      label: input.targetLabel,
-    },
-    targetLabel: input.targetLabel,
+    target,
+    targetLabel: renderedTarget,
     body: messageBody,
     intent: "consult",
     channel: input.channel,
     speechText: input.shouldSpeak
       ? stripScoutAgentSelectorLabels(messageBody)
       : undefined,
-    execution: input.executionHarness
-      ? { harness: input.executionHarness }
-      : undefined,
+    execution: {
+      ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      session: targetRef ? "existing" : "new",
+    },
     ensureAwake: true,
     messageMetadata: {
       source,
@@ -2742,7 +2756,7 @@ export async function askScoutQuestion(input: {
   if (delivery.kind !== "delivery") {
     return {
       usedBroker: true,
-      unresolvedTarget: input.targetLabel,
+      unresolvedTarget: renderedTarget,
       targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
     };
   }
@@ -2764,6 +2778,7 @@ export async function askScoutQuestion(input: {
     flight: delivery.flight,
     conversationId: delivery.conversation.id,
     messageId: delivery.message.id,
+    bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
     workItem,
   };
 }

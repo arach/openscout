@@ -18,7 +18,7 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask --to <agent> [--as <sender>] [--channel <name>] [--timeout <seconds>] [--harness <runtime>] [--prompt-file <path> | <message>]",
+    "Usage: scout ask (--to <agent> | --ref <ref>) [--as <sender>] [--channel <name>] [--timeout <seconds>] [--harness <runtime>] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -37,6 +37,7 @@ export function renderAskCommandHelp(): string {
     "",
     "Examples:",
     '  scout ask --to hudson "review the parser"',
+    '  scout ask --ref 7f3a9c21 "continue from that result"',
     "  scout ask --to hudson --prompt-file ./handoff.md",
     '  scout ask --as premotion.master.mini --to hudson "build the editor"',
     '  scout ask --to vox.harness:codex "take another pass on the runtime fix"',
@@ -150,6 +151,7 @@ export async function runAskWithOptions(
   const result = await askScoutQuestion({
     senderId,
     targetLabel: options.targetLabel,
+    targetRef: options.targetRef,
     body,
     channel: options.channel,
     executionHarness: parseScoutHarness(options.harness),
@@ -180,6 +182,7 @@ export async function runAskWithOptions(
       senderId,
       conversationId: result.conversationId ?? null,
       messageId: result.messageId ?? null,
+      bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
       flight: completed,
       output: completed.output ?? completed.summary ?? "",
     },
