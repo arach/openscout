@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Lockstep bumper for the published npm packages.
+// Lockstep bumper for the release version and published npm packages.
 //
 // Usage:
 //   node scripts/bump-version.mjs <new-version>   # e.g. 0.2.39
@@ -7,10 +7,11 @@
 //   node scripts/bump-version.mjs minor           # 0.2.38 -> 0.3.0
 //   node scripts/bump-version.mjs major           # 0.2.38 -> 1.0.0
 //
-// Walks every package listed in PACKAGES (lockstep — they all share one version),
-// rewrites its `version` field, and rewrites any pinned cross-package dep ranges
-// ("@openscout/protocol": "0.2.38" -> "0.2.39"). Also clears stale publish backups
-// that could silently revert bumps on the next publish.
+// Walks the root release manifest plus every package listed in PUBLISHED_PACKAGES
+// (lockstep — they all share one version), rewrites their `version` fields, and
+// rewrites any pinned cross-package dep ranges ("@openscout/protocol": "0.2.38"
+// -> "0.2.39"). Also clears stale publish backups that could silently revert
+// bumps on the next publish.
 
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -18,12 +19,16 @@ import path from "node:path";
 
 const REPO_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "..");
 
-const PACKAGES = [
+const PUBLISHED_PACKAGES = [
   "packages/protocol",
   "packages/agent-sessions",
   "packages/runtime",
   "packages/cli",
   "packages/web",
+];
+const VERSIONED_MANIFESTS = [
+  ".",
+  ...PUBLISHED_PACKAGES,
 ];
 
 const DEP_SECTIONS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
@@ -57,8 +62,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Read current version from the first package — they move in lockstep.
-  const anchor = await readPkg(path.join(REPO_ROOT, PACKAGES[0]));
+  // Read current version from the first published package — release packages move
+  // in lockstep, while the root manifest is synced to that stream for app builds.
+  const anchor = await readPkg(path.join(REPO_ROOT, PUBLISHED_PACKAGES[0]));
   const currentVersion = anchor.version;
 
   const nextVersion = ["patch", "minor", "major"].includes(arg)
@@ -77,15 +83,16 @@ async function main() {
 
   // Map of package-name -> new-version (for pinned cross-package rewrites).
   const rewriteMap = new Map();
-  for (const rel of PACKAGES) {
+  for (const rel of PUBLISHED_PACKAGES) {
     const pkg = await readPkg(path.join(REPO_ROOT, rel));
     if (pkg.name) rewriteMap.set(pkg.name, nextVersion);
   }
 
   let touched = 0;
-  for (const rel of PACKAGES) {
+  for (const rel of VERSIONED_MANIFESTS) {
     const dir = path.join(REPO_ROOT, rel);
     const pkg = await readPkg(dir);
+    const priorVersion = pkg.version;
     let changed = false;
 
     if (pkg.version !== nextVersion) {
@@ -112,7 +119,7 @@ async function main() {
     if (changed) {
       if (!dryRun) await writePkg(dir, pkg);
       touched += 1;
-      console.log(`  ${rel}: ${currentVersion} -> ${nextVersion}${dryRun ? " (dry)" : ""}`);
+      console.log(`  ${rel}: ${priorVersion} -> ${nextVersion}${dryRun ? " (dry)" : ""}`);
     }
 
     if (!dryRun) {

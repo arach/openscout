@@ -7,9 +7,10 @@ REPO_ROOT="$(cd "$APP_DIR/../.." && pwd)"
 DIST_DIR="$APP_DIR/dist"
 APP_NAME="OpenScoutMenu.app"
 APP_BUNDLE="$DIST_DIR/$APP_NAME"
-DMG_NAME="OpenScoutMenu.dmg"
-DMG_PATH="$DIST_DIR/$DMG_NAME"
 VERSION="${VERSION:-${1:-$(node -p "require('$REPO_ROOT/package.json').version" 2>/dev/null || echo '0.1.0')}}"
+DMG_NAME="OpenScoutMenu-${VERSION}.dmg"
+DMG_PATH="$DIST_DIR/$DMG_NAME"
+LATEST_DMG_PATH="$DIST_DIR/OpenScoutMenu.dmg"
 
 SIGN_IDENTITY="${OPENSCOUT_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application:[^"]*"' | head -1 | tr -d '"' || echo "")}"
 NOTARY_PROFILE="${OPENSCOUT_NOTARY_PROFILE:-notarytool}"
@@ -38,7 +39,7 @@ if [ ! -d "$APP_BUNDLE" ]; then
 fi
 
 echo "==> Creating DMG"
-rm -f "$DMG_PATH"
+rm -f "$DMG_PATH" "$LATEST_DMG_PATH"
 DMG_STAGING="$(mktemp -d)"
 cp -R "$APP_BUNDLE" "$DMG_STAGING/"
 ln -s /Applications "$DMG_STAGING/Applications"
@@ -69,7 +70,10 @@ else
     xcrun stapler staple "$DMG_PATH"
 fi
 
+cp "$DMG_PATH" "$LATEST_DMG_PATH"
+
 echo ""
 echo "==> Done: $DMG_PATH"
 ls -lh "$DMG_PATH"
+echo "==> Latest alias: $LATEST_DMG_PATH"
 spctl --assess --type open --context context:primary-signature -v "$DMG_PATH" 2>&1 || true

@@ -38,6 +38,7 @@ If you want the shortest path to understanding the project:
 - [`ask-scout-implementation.md`](./ask-scout-implementation.md) adds implementation detail for the ask flow
 - [`tail-firehose.md`](./tail-firehose.md) explains the machine-wide harness transcript stream for observing agent activity
 - [`native-runtime.md`](./native-runtime.md) captures historical context for the desktop-host/runtime split
+- [`releases.md`](./releases.md) explains the coordinated npm, DMG, GitHub release, and optional iOS ship path
 
 ## Engineering Docs And Proposals
 
@@ -56,4 +57,5 @@ If you want the shortest path to understanding the project:
 - "How do I watch harness activity across the machine?" Read [`tail-firehose.md`](./tail-firehose.md).
 - "Where do proposals and implementation plans live?" Start in [`eng/README.md`](./eng/README.md).
 - "How do I use Scout from a pi session?" Read [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md).
+- "How do I ship npm and the macOS DMG together?" Read [`releases.md`](./releases.md).
 - "What should I read first as a newcomer?" Use the current orientation docs, then move to deeper product docs only if you need implementation or historical context.

@@ -48,7 +48,8 @@
     "ios:push": "bash apps/ios/scripts/push-device.sh",
     "ship:ios": "bash apps/ios/scripts/release.sh",
     "ship:npm": "bash scripts/ship-npm.sh",
-    "ship": "bun run ship:ios & bun run ship:npm & wait",
+    "ship:release": "node scripts/ship-release.mjs",
+    "ship": "node scripts/ship-release.mjs",
     "bump": "node scripts/bump-version.mjs"
   },
   "ignoreScripts": [
