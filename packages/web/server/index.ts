@@ -7,6 +7,7 @@ import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
 import {
   createOpenScoutWebServer,
 } from "./create-openscout-web-server.ts";
+import { resolveOpenScoutWebApplicationServerIdentity } from "./app-server-origin.ts";
 import {
   createRelayWebSocketProxy,
   handleRelayUpload,
@@ -52,6 +53,7 @@ function resolveStaticRoot(): string | undefined {
 const staticRoot = resolveStaticRoot();
 const viteDevUrl = process.env.OPENSCOUT_WEB_VITE_URL?.trim() || undefined;
 const useViteProxy = Boolean(viteDevUrl) || !staticRoot;
+const applicationServerIdentity = resolveOpenScoutWebApplicationServerIdentity(process.env);
 const idleTimeoutSeconds = Number.parseInt(
   process.env.OPENSCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim()
     || (useViteProxy ? "180" : "30"),
@@ -83,6 +85,10 @@ const { app, warmupCaches } = await createOpenScoutWebServer({
   assetMode: useViteProxy ? "vite-proxy" : "static",
   viteDevUrl,
   staticRoot,
+  advertisedHost: applicationServerIdentity.advertisedHost,
+  publicOrigin: applicationServerIdentity.publicOrigin,
+  trustedHosts: applicationServerIdentity.trustedHosts,
+  trustedOrigins: applicationServerIdentity.trustedOrigins,
   runTerminalCommand: terminalRelay?.queueCommand,
   terminalRelayHealthcheck: terminalRelay?.healthcheck,
 });
@@ -163,5 +169,6 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 console.log(`OpenScout Web -> http://${hostname}:${server.port}`);
+console.log(`OpenScout LAN -> ${applicationServerIdentity.publicOrigin ?? `http://${applicationServerIdentity.advertisedHost}:${server.port}`}`);
 console.log(`Relay WebSocket -> ws://${hostname}:${server.port}${routes.terminalRelayPath}`);
 void warmupCaches();

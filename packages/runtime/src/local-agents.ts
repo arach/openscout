@@ -13,6 +13,7 @@ import type {
   AgentEndpoint,
   AgentHarness,
   InvocationRequest,
+  ScoutReplyContext,
 } from "@openscout/protocol";
 import { BUILT_IN_AGENT_DEFINITION_IDS, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
@@ -1313,6 +1314,8 @@ function endpointInvocationPrompt(
 
   if (
     invocation.action === "consult"
+    && !invocation.conversationId
+    && !invocation.messageId
     && (
       sessionBacked
       || source === "local-session"
@@ -1532,6 +1535,51 @@ function buildInvocationHeadline(agentName: string, invocation: InvocationReques
   ].join(" ");
 }
 
+export function buildScoutReplyContext(agentName: string, invocation: InvocationRequest): ScoutReplyContext | null {
+  if (!invocation.conversationId || !invocation.messageId) {
+    return null;
+  }
+
+  return {
+    mode: "broker_reply",
+    fromAgentId: invocation.requesterId,
+    toAgentId: agentName,
+    conversationId: invocation.conversationId,
+    messageId: invocation.messageId,
+    replyToMessageId: invocation.messageId,
+    replyPath: "final_response",
+    action: invocation.action,
+  };
+}
+
+function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string[] {
+  const header = [
+    "SCOUT BROKER REPLY MODE",
+    "",
+    "You are answering a Scout ask. Your final assistant message will be delivered back through the Scout broker.",
+    "Do not call scout send, messages_send, or invocations_ask to answer this request.",
+    "Only use Scout tools if you need to ask or delegate to another agent.",
+  ];
+
+  if (!context) {
+    return header;
+  }
+
+  return [
+    ...header,
+    "",
+    "ScoutReplyContext:",
+    `- mode: ${context.mode}`,
+    `- fromAgentId: ${context.fromAgentId}`,
+    `- toAgentId: ${context.toAgentId}`,
+    `- conversationId: ${context.conversationId}`,
+    `- messageId: ${context.messageId}`,
+    `- replyToMessageId: ${context.replyToMessageId}`,
+    `- replyPath: ${context.replyPath}`,
+    ...(context.action ? [`- action: ${context.action}`] : []),
+  ];
+}
+
 function buildInvocationMetadataLines(agentName: string, invocation: InvocationRequest): string[] {
   const referenceParts = [
     invocation.conversationId ? `convo=${invocation.conversationId}` : undefined,
@@ -1553,13 +1601,17 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
     ? "You may inspect and modify the workspace when needed. End with the concise broker-visible reply for the requester."
     : "Do not modify files unless the request explicitly requires it. End with the concise broker-visible reply for the requester.";
 
+  const replyContext = buildScoutReplyContext(agentName, invocation);
+
   return [
+    ...buildScoutReplyContextPrompt(replyContext),
+    "",
     buildInvocationHeadline(agentName, invocation),
     ...buildInvocationMetadataLines(agentName, invocation),
     "",
     actionRules,
     collaborationContract,
-    "Return only the reply that should be delivered back through the broker.",
+    "Return only the broker-visible reply for the requester.",
     "",
     collaborationContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
@@ -1573,11 +1625,14 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
 export function buildAttachedSessionInvocationPrompt(invocation: InvocationRequest, agentName = invocation.targetAgentId): string {
   const contextLines = Object.entries(invocation.context ?? {})
     .map(([key, value]) => `- ${key}: ${String(value)}`);
+  const replyContext = buildScoutReplyContext(agentName, invocation);
 
   return [
+    ...buildScoutReplyContextPrompt(replyContext),
+    "",
     buildInvocationHeadline(agentName, invocation),
     ...buildInvocationMetadataLines(agentName, invocation),
-    "Treat this as a direct message to the current session and reply normally as yourself in this session.",
+    "Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.",
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
     "",
     invocation.task,
@@ -2828,6 +2883,7 @@ export async function invokeLocalAgentEndpoint(
   const agentRuntimeId = endpoint.agentId;
   const definitionId = String(endpoint.metadata?.definitionId ?? endpoint.metadata?.agentName ?? endpoint.agentId);
   const prompt = endpointInvocationPrompt(endpoint, definitionId, invocation);
+  const replyContext = buildScoutReplyContext(agentRuntimeId, invocation);
   const registry = await readLocalAgentRegistry();
   const existing = registry[agentRuntimeId];
 
@@ -2840,6 +2896,7 @@ export async function invokeLocalAgentEndpoint(
       ...buildCodexEndpointSessionOptions(endpoint),
       prompt,
       timeoutMs: invocation.timeoutMs,
+      replyContext,
     });
 
     return {
@@ -2919,6 +2976,7 @@ export async function invokeLocalAgentEndpoint(
       ),
       prompt,
       timeoutMs: invocation.timeoutMs,
+      replyContext,
     });
 
     return {

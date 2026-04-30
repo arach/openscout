@@ -88,6 +88,10 @@ export type CreateOpenScoutWebServerOptions = {
   assetMode: ScoutWebAssetMode;
   viteDevUrl?: string;
   staticRoot?: string;
+  publicOrigin?: string;
+  advertisedHost?: string;
+  trustedHosts?: string[];
+  trustedOrigins?: string[];
   runTerminalCommand?: (command: string) => Promise<void>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
 };
@@ -249,7 +253,10 @@ export async function createOpenScoutWebServer(
     shellTtl,
   );
 
-  installScoutApiMiddleware(app, "openscout-web api");
+  installScoutApiMiddleware(app, "openscout-web api", {
+    trustedHosts: options.trustedHosts,
+    trustedOrigins: options.trustedOrigins,
+  });
 
   app.get(routes.bootstrapScriptPath, (c) =>
     new Response(serializeOpenScoutWebBootstrap(process.env), {
@@ -264,6 +271,8 @@ export async function createOpenScoutWebServer(
       ok: true,
       surface: "openscout-web",
       currentDirectory,
+      advertisedHost: options.advertisedHost,
+      publicOrigin: options.publicOrigin,
     }),
   );
   app.get(routes.terminalRelayHealthPath, async (c) => {

@@ -53,6 +53,14 @@ export function renderServerCommandHelp(): string {
     "  --static          Serve built UI from disk",
     "  --static-root DIR Static client root (optional override OPENSCOUT_WEB_STATIC_ROOT)",
     "  --vite-url URL    Dev proxy target for non-API routes (optional override OPENSCOUT_WEB_VITE_URL)",
+    "  --public-origin URL",
+    "                    Public origin behind Caddy, e.g. https://scout.<host>.local",
+    "  --advertised-host HOST",
+    "                    LAN host to advertise/trust (default scout.<machine>.local)",
+    "  --trusted-host HOST",
+    "                    Additional trusted API host; may be repeated",
+    "  --trusted-origin URL",
+    "                    Additional trusted browser origin; may be repeated",
     "  --cwd DIR         Workspace / setup root (optional override OPENSCOUT_SETUP_CWD)",
     "  --path PATH       Browser path for `open` (default /)",
     "",
@@ -122,6 +130,30 @@ function parseServerFlags(args: string[]): {
       env.OPENSCOUT_WEB_VITE_URL = v;
       continue;
     }
+    if (a === "--public-origin") {
+      const v = args[++i];
+      if (!v) throw new ScoutCliError("--public-origin requires a value");
+      env.OPENSCOUT_WEB_PUBLIC_ORIGIN = v;
+      continue;
+    }
+    if (a === "--advertised-host") {
+      const v = args[++i];
+      if (!v) throw new ScoutCliError("--advertised-host requires a value");
+      env.OPENSCOUT_WEB_ADVERTISED_HOST = v;
+      continue;
+    }
+    if (a === "--trusted-host") {
+      const v = args[++i];
+      if (!v) throw new ScoutCliError("--trusted-host requires a value");
+      appendEnvList(env, "OPENSCOUT_WEB_TRUSTED_HOSTS", v);
+      continue;
+    }
+    if (a === "--trusted-origin") {
+      const v = args[++i];
+      if (!v) throw new ScoutCliError("--trusted-origin requires a value");
+      appendEnvList(env, "OPENSCOUT_WEB_TRUSTED_ORIGINS", v);
+      continue;
+    }
     if (a === "--cwd") {
       const v = args[++i];
       if (!v) throw new ScoutCliError("--cwd requires a value");
@@ -146,6 +178,22 @@ function parseServerFlags(args: string[]): {
       env.OPENSCOUT_WEB_VITE_URL = a.slice("--vite-url=".length);
       continue;
     }
+    if (a.startsWith("--public-origin=")) {
+      env.OPENSCOUT_WEB_PUBLIC_ORIGIN = a.slice("--public-origin=".length);
+      continue;
+    }
+    if (a.startsWith("--advertised-host=")) {
+      env.OPENSCOUT_WEB_ADVERTISED_HOST = a.slice("--advertised-host=".length);
+      continue;
+    }
+    if (a.startsWith("--trusted-host=")) {
+      appendEnvList(env, "OPENSCOUT_WEB_TRUSTED_HOSTS", a.slice("--trusted-host=".length));
+      continue;
+    }
+    if (a.startsWith("--trusted-origin=")) {
+      appendEnvList(env, "OPENSCOUT_WEB_TRUSTED_ORIGINS", a.slice("--trusted-origin=".length));
+      continue;
+    }
     if (a.startsWith("--cwd=")) {
       env.OPENSCOUT_SETUP_CWD = a.slice("--cwd=".length);
       continue;
@@ -158,6 +206,10 @@ function parseServerFlags(args: string[]): {
   }
 
   return { env, openPath };
+}
+
+function appendEnvList(env: Record<string, string>, key: string, value: string): void {
+  env[key] = env[key] ? `${env[key]},${value}` : value;
 }
 
 function resolveBundledStaticClientRoot(entry: string, _mode: ScoutServerMode): string | null {
