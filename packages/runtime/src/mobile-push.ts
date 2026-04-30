@@ -355,8 +355,10 @@ export function deleteMobilePushRegistrationByToken(pushToken: string): void {
   ).run(token);
 }
 
-function base64UrlEncode(input: string | Buffer): string {
-  const buffer = typeof input === "string" ? Buffer.from(input, "utf8") : input;
+function base64UrlEncode(input: string | ArrayLike<number>): string {
+  const buffer = typeof input === "string"
+    ? Buffer.from(input, "utf8")
+    : Buffer.from(Array.from(input));
   return buffer
     .toString("base64")
     .replace(/\+/g, "-")
@@ -418,7 +420,7 @@ function apnsJwt(credentials: ApnsCredentials): string {
   }));
   const unsignedToken = `${header}.${claims}`;
   const privateKey = createPrivateKey(credentials.privateKeyPem);
-  const signature = signWithKey("sha256", Buffer.from(unsignedToken), privateKey);
+  const signature = signWithKey("sha256", new TextEncoder().encode(unsignedToken), privateKey);
   const token = `${unsignedToken}.${base64UrlEncode(signature)}`;
 
   cachedApnsJwt = {
@@ -479,7 +481,7 @@ async function sendApnsAlertToRegistration(
 
     let status: number | null = null;
     let apnsId: string | null = null;
-    const chunks: Buffer[] = [];
+    const chunks: string[] = [];
 
     request.setEncoding("utf8");
 
@@ -489,13 +491,13 @@ async function sendApnsAlertToRegistration(
       apnsId = typeof headers["apns-id"] === "string" ? headers["apns-id"] : null;
     });
 
-    request.on("data", (chunk: string | Buffer) => {
-      chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk);
+    request.on("data", (chunk: string) => {
+      chunks.push(chunk);
     });
 
     request.on("end", () => {
       client.close();
-      const rawBody = chunks.length > 0 ? Buffer.concat(chunks).toString("utf8") : "";
+      const rawBody = chunks.join("");
       let reason: string | null = null;
 
       if (rawBody.trim().length > 0) {

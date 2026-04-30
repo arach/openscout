@@ -38,7 +38,7 @@ function createBridgeStub() {
     },
     replay(sessionId: string, afterSeq: number) {
       replayCalls.push(sessionId);
-      return [{ seq: afterSeq + 1, event: { event: `replay:${sessionId}` }, timestamp: 1_000 }] as const;
+      return [{ seq: afterSeq + 1, event: { event: "session:closed", sessionId }, timestamp: 1_000 }];
     },
     currentSeq(sessionId: string) {
       currentSeqCalls.push(sessionId);
@@ -106,7 +106,7 @@ describe("bridgeRouter sync compatibility", () => {
     const result = await createCaller(stub.bridge).sync.replay({ lastSeq: 11 });
 
     expect(result.events).toEqual([
-      { seq: 12, event: { event: "replay:latest-session" }, timestamp: 1_000 },
+      { seq: 12, event: { event: "session:closed", sessionId: "latest-session" }, timestamp: 1_000 },
     ]);
     expect(stub.replayCalls).toEqual(["latest-session"]);
   });

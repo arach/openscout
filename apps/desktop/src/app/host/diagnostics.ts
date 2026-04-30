@@ -491,12 +491,12 @@ async function readVisibleLogFile(filePath: string, tailLines: number): Promise<
     let position = stats.size;
     let newlineCount = 0;
     let totalBytes = 0;
-    const chunks: Buffer[] = [];
+    const chunks: Uint8Array[] = [];
 
     while (position > 0 && newlineCount <= tailLines) {
       const readSize = Math.min(LOG_TAIL_CHUNK_BYTES, position);
       position -= readSize;
-      const buffer = Buffer.allocUnsafe(readSize);
+      const buffer = new Uint8Array(readSize);
       const { bytesRead } = await file.read(buffer, 0, readSize, position);
       if (bytesRead <= 0) {
         break;
@@ -511,7 +511,7 @@ async function readVisibleLogFile(filePath: string, tailLines: number): Promise<
       }
     }
 
-    const raw = Buffer.concat(chunks, totalBytes).toString("utf8");
+    const raw = decodeByteChunks(chunks, totalBytes);
     const lines = splitLogLines(raw);
     return {
       lines: lines.length > tailLines ? lines.slice(-tailLines) : lines,
@@ -521,6 +521,16 @@ async function readVisibleLogFile(filePath: string, tailLines: number): Promise<
   } finally {
     await file.close();
   }
+}
+
+function decodeByteChunks(chunks: Uint8Array[], totalBytes: number): string {
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 async function tailScoutLogSource(

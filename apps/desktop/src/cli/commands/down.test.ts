@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { ScoutOutput } from "../output.ts";
 
 afterEach(() => {
   mock.restore();
@@ -34,6 +35,11 @@ describe("runDownCommand", () => {
       return null;
     });
     const writeValue = mock(() => {});
+    const output: ScoutOutput = {
+      mode: "plain",
+      writeText: mock(() => {}),
+      writeValue,
+    };
 
     mock.module("@openscout/runtime/local-agents", () => ({
       resolveLocalAgentByName,
@@ -53,7 +59,7 @@ describe("runDownCommand", () => {
       env: {},
       stdout: () => {},
       stderr: () => {},
-      output: { writeValue },
+      output,
       isTty: false,
     }, ["openscout"]);
 

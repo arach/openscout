@@ -8,7 +8,7 @@ describe("createScoutAgentCard", () => {
   test("registers a card without forcing the creating process to own the live session", async () => {
     const actualLocalAgents = await import("@openscout/runtime/local-agents");
     const actualBrokerService = await import("../broker/service.ts");
-    const startLocalAgent = mock(async () => ({
+    const startLocalAgent = mock(async (_input: unknown) => ({
       agentId: "meshreview-opus.main.mini",
       definitionId: "meshreview-opus",
       projectName: "Openscout",

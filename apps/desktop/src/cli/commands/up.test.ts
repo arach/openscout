@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { ScoutOutput } from "../output.ts";
 
 afterEach(() => {
   mock.restore();
@@ -6,12 +7,12 @@ afterEach(() => {
 
 describe("runUpCommand", () => {
   test("passes the resolved agent definition through when starting by name", async () => {
-    const resolveLocalAgentByName = mock(async () => ({
+    const resolveLocalAgentByName = mock(async (_name: string) => ({
       agentId: "smoke.main.mini",
       definitionId: "smoke",
       projectRoot: "/tmp/openscout",
     }));
-    const upScoutAgent = mock(async () => ({
+    const upScoutAgent = mock(async (_input: unknown) => ({
       agentId: "smoke.main.mini",
       definitionId: "smoke",
       projectName: "Openscout",
@@ -24,6 +25,11 @@ describe("runUpCommand", () => {
       source: "manual",
     }));
     const writeValue = mock(() => {});
+    const output: ScoutOutput = {
+      mode: "plain",
+      writeText: mock(() => {}),
+      writeValue,
+    };
 
     mock.module("@openscout/runtime/local-agents", () => ({
       resolveLocalAgentByName,
@@ -41,7 +47,7 @@ describe("runUpCommand", () => {
       env: {},
       stdout: () => {},
       stderr: () => {},
-      output: { writeValue },
+      output,
       isTty: false,
     }, ["smoke"]);
 
@@ -85,12 +91,17 @@ describe("runUpCommand", () => {
     }));
 
     const { runUpCommand } = await import("./up.ts");
+    const output: ScoutOutput = {
+      mode: "plain",
+      writeText: () => {},
+      writeValue: () => {},
+    };
     await expect(runUpCommand({
       cwd: "/tmp/current",
       env: {},
       stdout: () => {},
       stderr: () => {},
-      output: { writeValue: () => {} },
+      output,
       isTty: false,
     }, ["openscout"])).rejects.toThrow(
       'unknown agent "openscout" — that matches project "/tmp/openscout", but the registered agent is "smoke.main.mini". Use `scout up smoke.main.mini` or `scout up "/tmp/openscout"`.',

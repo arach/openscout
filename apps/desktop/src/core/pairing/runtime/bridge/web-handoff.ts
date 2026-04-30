@@ -36,10 +36,12 @@ function scopesMatch(left: WebHandoffScope, right: WebHandoffScope): boolean {
   if (left.sessionId !== right.sessionId) {
     return false;
   }
-  if (left.kind === "session") {
-    return true;
+  switch (left.kind) {
+    case "session":
+      return true;
+    case "file_change":
+      return right.kind === "file_change" && left.turnId === right.turnId && left.blockId === right.blockId;
   }
-  return left.turnId === right.turnId && left.blockId === right.blockId;
 }
 
 export function pathForWebHandoffScope(scope: WebHandoffScope): string {
