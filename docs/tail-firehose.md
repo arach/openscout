@@ -71,7 +71,7 @@ C→S: { type: 'subscribe', since?: cursor /* TailEvent.id */, sources?: string[
 
 ## Lane A scope — Codex
 
-- Extract `packages/web/server/core/tail/` → `@openscout/tail` (pure logic, no transport)
+- Move `packages/web/server/core/tail/` into `@openscout/runtime/tail` (pure logic, no transport)
 - Host watcher in broker; expose WS endpoint above
 - Bridge subscribes once, re-yields as tRPC `tail.events` for phones
 - Web client swap SSE → WS; delete `/api/tail/stream` proxy
@@ -87,7 +87,7 @@ C→S: { type: 'subscribe', since?: cursor /* TailEvent.id */, sources?: string[
 
 ## Order of operations within Lane A
 
-1. Extract `@openscout/tail` (mechanical move, no behavior change)
+1. Move tail logic into `@openscout/runtime/tail` (mechanical move, no behavior change)
 2. Wire broker to host it + expose `/v1/tail/stream` WebSocket
 3. Bridge: subscribe to broker WS, expose `tail.events` tRPC subscription
 4. Web client: swap SSE → WS, delete `/api/tail/stream` proxy

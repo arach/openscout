@@ -703,5 +703,8 @@ if (
   fileURLToPath(import.meta.url) === process.argv[1] &&
   !process.argv[1].endsWith("/main.mjs")
 ) {
-  await main();
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }

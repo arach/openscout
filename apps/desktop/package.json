@@ -48,7 +48,6 @@
     "@openscout/runtime": "workspace:*",
     "@openscout/session-trace": "workspace:*",
     "@openscout/session-trace-react": "workspace:*",
-    "@openscout/tail": "workspace:*",
     "@trpc/client": "^11.16.0",
     "@opentui/core": "^0.1.88",
     "@opentui/react": "^0.1.88",

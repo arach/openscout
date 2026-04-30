@@ -2,7 +2,7 @@ import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from
 import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 
-import { discoverClaudeProcesses } from "./discover";
+import { discoverClaudeProcesses } from "./discover.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -11,7 +11,7 @@ import type {
   TailEvent,
   TailEventKind,
   TranscriptSource,
-} from "./types";
+} from "./types.js";
 
 const SOURCE_NAME = "claude";
 const MAX_SUMMARY_LEN = 200;
@@ -91,9 +91,9 @@ function readFileHead(filePath: string): string {
   let fd: number | null = null;
   try {
     fd = openSync(filePath, "r");
-    const buffer = Buffer.alloc(HEAD_READ_BYTES);
+    const buffer = new Uint8Array(HEAD_READ_BYTES);
     const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
-    return buffer.toString("utf8", 0, bytesRead);
+    return Buffer.from(buffer.subarray(0, bytesRead)).toString("utf8");
   } catch {
     return "";
   } finally {

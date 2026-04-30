@@ -1,7 +1,7 @@
 import { open, stat, type FileHandle } from "node:fs/promises";
 
-import { ClaudeSource } from "./claude-source";
-import { CodexSource } from "./codex-source";
+import { ClaudeSource } from "./claude-source.js";
+import { CodexSource } from "./codex-source.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -9,7 +9,7 @@ import type {
   TailDiscoveryScope,
   TailEvent,
   TranscriptSource,
-} from "./types";
+} from "./types.js";
 
 function readPositiveIntEnv(name: string, fallback: number): number {
   const raw = Number.parseInt(process.env[name] ?? "", 10);

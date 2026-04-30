@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ClaudeSource } from "./claude-source";
-import { CodexSource } from "./codex-source";
-import type { DiscoveredProcess, DiscoveredTranscript, TailContext } from "./types";
+import { ClaudeSource } from "./claude-source.js";
+import { CodexSource } from "./codex-source.js";
+import type { DiscoveredProcess, DiscoveredTranscript, TailContext } from "./types.js";
 
 const originalClaudeRoot = process.env.OPENSCOUT_TAIL_CLAUDE_PROJECTS_ROOT;
 const originalCodexRoot = process.env.OPENSCOUT_TAIL_CODEX_SESSIONS_ROOT;

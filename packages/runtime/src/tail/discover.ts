@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { DiscoveredProcess, TailAttribution } from "./types";
+import type { DiscoveredProcess, TailAttribution } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 

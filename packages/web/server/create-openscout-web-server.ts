@@ -43,7 +43,7 @@ import {
 import {
   getTailDiscovery,
   snapshotRecentEvents,
-} from "@openscout/tail";
+} from "@openscout/runtime/tail";
 import {
   announceMeshVisibility,
   controlTailscale,

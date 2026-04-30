@@ -21,7 +21,7 @@ import { log } from "./log.ts";
 import { resolveConfig } from "./config.ts";
 import type { Bridge } from "./bridge.ts";
 import { getTailFanout } from "./tail-fanout.ts";
-import type { TailEvent } from "@openscout/tail";
+import type { TailEvent } from "@openscout/runtime/tail";
 import type { AgentHarness } from "@openscout/protocol";
 import {
   createScoutSession,

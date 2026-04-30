@@ -20,7 +20,7 @@ import {
   snapshotRecentEvents,
   subscribeTail,
   type TailEvent,
-} from "@openscout/tail";
+} from "./tail/index.js";
 
 const t = initTRPC.create();
 
