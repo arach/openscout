@@ -13,7 +13,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
-import { renderWithMentions } from "../lib/mentions.tsx";
+import { MessageMarkup } from "../lib/message-markup.tsx";
 import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
 import {
   agentIdFromConversation,
@@ -1882,7 +1882,7 @@ export function ConversationScreen({
                         </div>
 
                         <div className="s-thread-msg-body" title={absoluteTime}>
-                          {renderWithMentions(message.body)}
+                          <MessageMarkup text={message.body} />
                         </div>
 
                         {dispatch && dispatch.candidates.length > 0 && (
