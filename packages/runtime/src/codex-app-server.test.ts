@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
 import {
   buildCodexAppServerSessionSnapshot,
@@ -9,6 +9,7 @@ import {
   getCodexAppServerAgentSnapshot,
   invokeCodexAppServerAgent,
   normalizeCodexAppServerLaunchArgs,
+  resolveCodexExecutableCandidates,
   sendCodexAppServerAgent,
   shutdownCodexAppServerAgent,
 } from "./codex-app-server";
@@ -701,6 +702,31 @@ describe("buildCodexAppServerSessionSnapshot", () => {
 });
 
 describe("ensureCodexAppServerAgentOnline", () => {
+  test("prefers standalone Codex CLI candidates before the bundled Codex app binary", () => {
+    const candidates = resolveCodexExecutableCandidates({
+      HOME: "/Users/tester",
+      PATH: ["/custom/bin", "/opt/homebrew/bin"].join(delimiter),
+    });
+
+    expect(candidates.indexOf("/custom/bin/codex")).toBeGreaterThan(-1);
+    expect(candidates.indexOf("/Applications/Codex.app/Contents/Resources/codex")).toBeGreaterThan(-1);
+    expect(candidates.indexOf("/custom/bin/codex")).toBeLessThan(
+      candidates.indexOf("/Applications/Codex.app/Contents/Resources/codex"),
+    );
+  });
+
+  test("keeps explicit Codex binary overrides first", () => {
+    expect(resolveCodexExecutableCandidates({
+      HOME: "/Users/tester",
+      PATH: "/custom/bin",
+      OPENSCOUT_CODEX_BIN: "/explicit/codex",
+      CODEX_BIN: "/fallback/codex",
+    }).slice(0, 2)).toEqual([
+      "/explicit/codex",
+      "/fallback/codex",
+    ]);
+  });
+
   test("normalizes legacy model launch args for app-server sessions", () => {
     expect(normalizeCodexAppServerLaunchArgs(["--model", "gpt-5.4-mini"])).toEqual([
       "-c",

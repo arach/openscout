@@ -7,6 +7,7 @@ const VOX_CLIENT_ID = "openscout-web";
 const DEFAULT_VOX_RPC_PORT = 42137;
 const DEFAULT_VOX_RPC_HOST = "127.0.0.1";
 const VOX_RPC_TIMEOUT_MS = 30_000;
+const DEFAULT_VOX_SYNTHESIS_MODEL_ID = "avspeech:system";
 const OPENSCOUT_VOX_ORIGINS = [
   "http://127.0.0.1:*",
   "http://localhost:*",
@@ -24,17 +25,25 @@ export type VoxSpeechResult = {
   audioBytes: number;
 };
 
+export type VoxSpeechDefaults = {
+  modelId: string;
+  voiceId?: string;
+};
+
 export async function synthesizeVoxSpeech(input: {
   text: string;
   modelId?: string;
   voiceId?: string;
   speed?: number;
 }): Promise<VoxSpeechResult> {
+  const defaults = resolveVoxSpeechDefaults();
+  const modelId = input.modelId ?? defaults.modelId;
+  const voiceId = input.voiceId ?? (modelId === defaults.modelId ? defaults.voiceId : undefined);
   const result = await callVoxRpc("synthesize.generate", {
     clientId: VOX_CLIENT_ID,
     text: input.text,
-    modelId: input.modelId ?? "avspeech:system",
-    voiceId: input.voiceId,
+    modelId,
+    voiceId,
     format: "wav",
     speed: input.speed,
   });
@@ -47,9 +56,38 @@ export async function synthesizeVoxSpeech(input: {
   return {
     contentType: stringValue(result.contentType) || "audio/wav",
     audioBase64,
-    modelId: stringValue(result.modelId) || input.modelId || "avspeech:system",
-    voiceId: stringValue(result.voiceId) || input.voiceId || "",
+    modelId: stringValue(result.modelId) || modelId,
+    voiceId: stringValue(result.voiceId) || voiceId || "",
     audioBytes: Number(result.audioBytes ?? 0),
+  };
+}
+
+export function resolveVoxSpeechDefaults(env: NodeJS.ProcessEnv = process.env): VoxSpeechDefaults {
+  const modelOverride = firstNonEmptyString(
+    env.OPENSCOUT_VOX_TTS_MODEL_ID,
+    env.VOX_TTS_MODEL_ID,
+  );
+  const voiceOverride = firstNonEmptyString(
+    env.OPENSCOUT_VOX_TTS_VOICE_ID,
+    env.VOX_TTS_VOICE_ID,
+  );
+  const voxHome = resolveVoxHome(env);
+  const preferences = readJsonRecord(join(voxHome, "preferences.json"));
+  const preferredModel = modelOverride
+    ?? nestedString(preferences, "speech", "preferredSynthesisModelId");
+  const preferredVoice = voiceOverride
+    ?? nestedString(preferences, "speech", "preferredSynthesisVoiceId");
+  const providers = readVoxTtsProviders(join(voxHome, "providers.json"));
+  const modelId = preferredModel
+    ?? modelForPreferredVoice(providers, preferredVoice)
+    ?? firstConfiguredNonAppleTtsModel(providers)
+    ?? DEFAULT_VOX_SYNTHESIS_MODEL_ID;
+  const voiceId = preferredVoice
+    ?? defaultVoiceForModel(providers, modelId);
+
+  return {
+    modelId,
+    ...(voiceId ? { voiceId } : {}),
   };
 }
 
@@ -74,8 +112,8 @@ function resolveOpenScoutVoxOriginsPath(): string {
   return join(resolveVoxHome(), "origins.d", "openscout.json");
 }
 
-function resolveVoxHome(): string {
-  return process.env.VOX_HOME ?? join(homedir(), ".vox");
+function resolveVoxHome(env: NodeJS.ProcessEnv = process.env): string {
+  return env.VOX_HOME ?? join(homedir(), ".vox");
 }
 
 export function resolveVoxRpcPort(): number {
@@ -162,4 +200,118 @@ function parseRpcPayload(data: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function firstNonEmptyString(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function readJsonRecord(filePath: string): Record<string, unknown> | null {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function nestedString(
+  record: Record<string, unknown> | null,
+  section: string,
+  key: string,
+): string | undefined {
+  const parent = record?.[section];
+  if (!parent || typeof parent !== "object" || Array.isArray(parent)) {
+    return undefined;
+  }
+  const value = (parent as Record<string, unknown>)[key];
+  return typeof value === "string" ? firstNonEmptyString(value) : undefined;
+}
+
+type VoxProviderConfig = {
+  kind?: string;
+  models: string[];
+  env: Record<string, string>;
+};
+
+function readVoxTtsProviders(filePath: string): VoxProviderConfig[] {
+  const parsed = readJsonRecord(filePath);
+  const providers = Array.isArray(parsed?.providers) ? parsed.providers : [];
+  const ttsProviders: VoxProviderConfig[] = [];
+
+  for (const provider of providers) {
+    if (!provider || typeof provider !== "object" || Array.isArray(provider)) {
+      continue;
+    }
+
+    const record = provider as Record<string, unknown>;
+    const kind = firstNonEmptyString(String(record.kind ?? ""));
+    if ((kind ?? "asr") !== "tts") {
+      continue;
+    }
+
+    const models = Array.isArray(record.models)
+      ? record.models.map((model) => String(model).trim()).filter(Boolean)
+      : [];
+    const env = record.env && typeof record.env === "object" && !Array.isArray(record.env)
+      ? Object.fromEntries(
+        Object.entries(record.env as Record<string, unknown>)
+          .map(([key, value]) => [key, String(value).trim()])
+          .filter(([, value]) => Boolean(value)),
+      )
+      : {};
+
+    ttsProviders.push({ kind, models, env });
+  }
+
+  return ttsProviders;
+}
+
+function modelForPreferredVoice(
+  providers: VoxProviderConfig[],
+  preferredVoice: string | undefined,
+): string | undefined {
+  if (!preferredVoice) {
+    return undefined;
+  }
+
+  for (const provider of providers) {
+    if (provider.env.VOX_MLX_AUDIO_TTS_DEFAULT_VOICE === preferredVoice && provider.models[0]) {
+      return provider.models[0];
+    }
+  }
+
+  if (/^(af|am)_/.test(preferredVoice)) {
+    return providers
+      .flatMap((provider) => provider.models)
+      .find((model) => model.toLowerCase().includes("kokoro"));
+  }
+
+  return undefined;
+}
+
+function firstConfiguredNonAppleTtsModel(providers: VoxProviderConfig[]): string | undefined {
+  return providers
+    .flatMap((provider) => provider.models)
+    .find((model) => model !== DEFAULT_VOX_SYNTHESIS_MODEL_ID);
+}
+
+function defaultVoiceForModel(
+  providers: VoxProviderConfig[],
+  modelId: string,
+): string | undefined {
+  const provider = providers.find((entry) => entry.models.includes(modelId));
+  return firstNonEmptyString(provider?.env.VOX_MLX_AUDIO_TTS_DEFAULT_VOICE);
 }

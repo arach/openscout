@@ -21,6 +21,7 @@ function agent(input: Partial<Agent> & { id: string }): Agent {
     project: input.project ?? null,
     branch: input.branch ?? null,
     role: input.role ?? null,
+    model: input.model ?? null,
     harnessSessionId: input.harnessSessionId ?? null,
     harnessLogPath: input.harnessLogPath ?? null,
     conversationId: input.conversationId ?? `dm.operator.${input.id}`,

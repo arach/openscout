@@ -17,6 +17,7 @@ export type Agent = {
   project: string | null;
   branch: string | null;
   role: string | null;
+  model: string | null;
   harnessSessionId: string | null;
   harnessLogPath: string | null;
   conversationId: string;

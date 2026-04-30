@@ -10,6 +10,17 @@ type SendResult = {
   conversationId?: string;
 };
 
+type RangerAgentConfig = {
+  editable: boolean;
+  model: string | null;
+  systemPrompt: string;
+};
+
+type RangerAgentConfigUpdateResult = {
+  config: RangerAgentConfig;
+  restarted: boolean;
+};
+
 type VoiceProbeState = "idle" | "probing" | "launching";
 
 const STATE_PROMPT =
@@ -21,6 +32,7 @@ export function RangerPanel() {
     rangerAgentId,
     rangerConversationId,
     applyRangerUiAction,
+    reload,
   } = useScout();
   const rangerAgent = useMemo(
     () => agents.find((agent) => agent.id === rangerAgentId) ?? agents.find(isRangerAgent) ?? null,
@@ -41,10 +53,67 @@ export function RangerPanel() {
   const [lastAsk, setLastAsk] = useState<string | null>(null);
   const [lastReply, setLastReply] = useState<string | null>(null);
   const [askStatus, setAskStatus] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [configStatus, setConfigStatus] = useState<string | null>(null);
+  const [modelDraft, setModelDraft] = useState("");
+  const [promptDraft, setPromptDraft] = useState("");
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
   const voiceRepliesRef = useRef(voiceReplies);
   voiceRepliesRef.current = voiceReplies;
+
+  const loadRangerConfig = useCallback(async () => {
+    setConfigLoading(true);
+    setConfigError(null);
+    try {
+      const config = await api<RangerAgentConfig>(
+        `/api/agents/${encodeURIComponent(rangerAgentId)}/config`,
+      );
+      setModelDraft(config.model ?? "");
+      setPromptDraft(config.systemPrompt);
+      setConfigStatus(null);
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "Could not load Ranger settings.");
+    } finally {
+      setConfigLoading(false);
+    }
+  }, [rangerAgentId]);
+
+  useEffect(() => {
+    if (settingsOpen) {
+      void loadRangerConfig();
+    }
+  }, [loadRangerConfig, settingsOpen]);
+
+  const saveRangerConfig = useCallback(async () => {
+    setConfigSaving(true);
+    setConfigError(null);
+    setConfigStatus(null);
+    try {
+      const result = await api<RangerAgentConfigUpdateResult>(
+        `/api/agents/${encodeURIComponent(rangerAgentId)}/config`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            model: modelDraft,
+            systemPrompt: promptDraft,
+            restart: true,
+          }),
+        },
+      );
+      setModelDraft(result.config.model ?? "");
+      setPromptDraft(result.config.systemPrompt);
+      setConfigStatus(result.restarted ? "Saved and restarted" : "Saved");
+      await reload();
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "Could not save Ranger settings.");
+    } finally {
+      setConfigSaving(false);
+    }
+  }, [modelDraft, promptDraft, rangerAgentId, reload]);
 
   const probeVoice = useCallback(async () => {
     const client = clientRef.current ?? new VoxBrowserClient();
@@ -216,8 +285,21 @@ export function RangerPanel() {
           </div>
           <p className="mt-1 truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
             {rangerAgent?.name ?? rangerAgentId} · {agentStatus}
+            {rangerAgent?.model ? ` · ${rangerAgent.model}` : ""}
           </p>
         </div>
+        <button
+          type="button"
+          title="Ranger settings"
+          onClick={() => setSettingsOpen((open) => !open)}
+          className={`rounded border p-1.5 transition-colors ${
+            settingsOpen
+              ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+              : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+          }`}
+        >
+          <Settings size={13} />
+        </button>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -243,6 +325,62 @@ export function RangerPanel() {
           onClick={() => setVoiceReplies(!voiceReplies)}
         />
       </div>
+
+      {settingsOpen && (
+        <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 p-3">
+          <div className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              Model
+              <input
+                value={modelDraft}
+                onChange={(event) => setModelDraft(event.target.value)}
+                placeholder="gpt-5.4-mini"
+                className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] normal-case tracking-normal text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]"
+                disabled={configLoading || configSaving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              System Prompt
+              <textarea
+                value={promptDraft}
+                onChange={(event) => setPromptDraft(event.target.value)}
+                rows={6}
+                className="w-full resize-y rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[10px] normal-case leading-relaxed tracking-normal text-[var(--scout-chrome-ink)]"
+                disabled={configLoading || configSaving}
+              />
+            </label>
+            {configError && (
+              <div className="font-mono text-[10px] leading-relaxed text-red-300">
+                {configError}
+              </div>
+            )}
+            {configStatus && (
+              <div className="font-mono text-[10px] leading-relaxed text-lime-200">
+                {configStatus}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void saveRangerConfig()}
+                disabled={configLoading || configSaving || !promptDraft.trim()}
+                className="flex items-center justify-center gap-2 rounded bg-lime-300/90 px-2.5 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {(configLoading || configSaving) && <Loader2 size={13} className="animate-spin" />}
+                {configSaving ? "Saving" : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void loadRangerConfig()}
+                disabled={configLoading || configSaving}
+                className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Reload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {voiceAvailable === false && (
         <VoxSetupPanel

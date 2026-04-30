@@ -108,6 +108,21 @@ function parseOptionalPositiveInt(
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function stringList(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+  return value.map((entry) => String(entry).trim()).filter(Boolean);
+}
+
+function hasOwn(object: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 function inferDirectTargetAgentId(
   conversationId: string | undefined,
   session: {
@@ -303,6 +318,53 @@ export async function createOpenScoutWebServer(
   app.get("/api/agents/:id/observe", async (c) => {
     const payload = await loadAgentObservePayload(c.req.param("id"));
     return payload ? c.json(payload) : c.json({ error: "not found" }, 404);
+  });
+  app.get("/api/agents/:agentId/config", async (c) => {
+    const agentId = c.req.param("agentId");
+    const { getLocalAgentConfig } = await import("@openscout/runtime/local-agents");
+    const config = await getLocalAgentConfig(agentId);
+    return config ? c.json(config) : c.json({ error: "agent config not found" }, 404);
+  });
+  app.post("/api/agents/:agentId/config", async (c) => {
+    const agentId = c.req.param("agentId");
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const { getLocalAgentConfig, restartLocalAgent, updateLocalAgentConfig } =
+      await import("@openscout/runtime/local-agents");
+    const existing = await getLocalAgentConfig(agentId);
+    if (!existing) {
+      return c.json({ error: "agent config not found" }, 404);
+    }
+
+    const runtime = body.runtime && typeof body.runtime === "object"
+      ? body.runtime as Record<string, unknown>
+      : {};
+    const model = hasOwn(body, "model")
+      ? optionalString(body.model)?.trim() || null
+      : existing.model;
+    const nextConfig = await updateLocalAgentConfig(agentId, {
+      runtime: {
+        cwd: optionalString(runtime.cwd) ?? existing.runtime.cwd,
+        harness: optionalString(runtime.harness) ?? existing.runtime.harness,
+        transport: optionalString(runtime.transport) ?? existing.runtime.transport,
+        sessionId: optionalString(runtime.sessionId) ?? existing.runtime.sessionId,
+      },
+      systemPrompt: optionalString(body.systemPrompt) ?? existing.systemPrompt,
+      launchArgs: stringList(body.launchArgs, existing.launchArgs),
+      model,
+      capabilities: stringList(body.capabilities, existing.capabilities),
+    });
+    if (!nextConfig) {
+      return c.json({ error: "agent config not found" }, 404);
+    }
+
+    let restarted = false;
+    if (body.restart === true) {
+      const restartedRecord = await restartLocalAgent(agentId);
+      restarted = Boolean(restartedRecord);
+    }
+    shellStateCache.invalidate();
+    const config = await getLocalAgentConfig(agentId);
+    return c.json({ config: config ?? nextConfig, restarted });
   });
   app.get("/api/agents/:id/session-catalog", (c) => {
     const agentId = c.req.param("id");

@@ -96,6 +96,7 @@ type LocalAgentRecord = {
 export type LocalAgentConfigState = {
   agentId: string;
   editable: boolean;
+  model: string | null;
   systemPrompt: string;
   runtime: {
     cwd: string;
@@ -759,6 +760,28 @@ function applyRequestedModelToLaunchArgs(
   ];
 }
 
+function setLaunchModelForHarness(
+  harness: AgentHarness,
+  launchArgs: unknown,
+  model: string | null | undefined,
+): string[] {
+  const normalized = normalizeLaunchArgsForHarness(harness, launchArgs);
+  if (model === undefined) {
+    return normalized;
+  }
+
+  const stripped = stripLaunchModelForHarness(harness, normalized);
+  const requestedModel = normalizeRequestedModel(model ?? undefined);
+  if (!requestedModel) {
+    return stripped;
+  }
+
+  return [
+    ...stripped,
+    ...buildLaunchArgsForRequestedModel(harness, requestedModel),
+  ];
+}
+
 function defaultHarnessForOverride(
   override: RelayAgentOverride,
   fallback: ManagedAgentHarness = "claude",
@@ -1039,21 +1062,21 @@ function relayAgentOverrideFromLocalAgentRecord(
 }
 
 function buildLocalAgentConfigState(agentId: string, record: LocalAgentRecord): LocalAgentConfigState {
+  const harness = normalizeLocalAgentHarness(record.harness);
+  const launchArgs = normalizeLaunchArgsForHarness(harness, record.launchArgs);
   return {
     agentId,
     editable: true,
+    model: readLaunchModelForHarness(harness, launchArgs) ?? null,
     systemPrompt: record.systemPrompt || buildLocalAgentSystemPromptTemplate(),
     runtime: {
       cwd: compactHomePath(record.cwd),
-      harness: normalizeLocalAgentHarness(record.harness),
-      transport: normalizeLocalAgentTransport(record.transport, normalizeLocalAgentHarness(record.harness)),
+      harness,
+      transport: normalizeLocalAgentTransport(record.transport, harness),
       sessionId: record.tmuxSession,
       wakePolicy: "on_demand",
     },
-    launchArgs: normalizeLaunchArgsForHarness(
-      normalizeLocalAgentHarness(record.harness),
-      record.launchArgs,
-    ),
+    launchArgs,
     capabilities: normalizeLocalAgentCapabilities(record.capabilities),
     applyMode: "restart",
     templateHint: LOCAL_AGENT_SYSTEM_PROMPT_TEMPLATE_HINT,
@@ -1169,6 +1192,7 @@ export async function updateLocalAgentConfig(
     };
     systemPrompt: string;
     launchArgs: string[];
+    model?: string | null;
     capabilities: string[];
   },
 ): Promise<LocalAgentConfigState | null> {
@@ -1190,6 +1214,11 @@ export async function updateLocalAgentConfig(
     input.runtime.transport ?? record.transport,
     nextHarness,
   );
+  const nextLaunchArgs = setLaunchModelForHarness(
+    nextHarness,
+    input.launchArgs,
+    input.model,
+  );
 
   const nextRecord = normalizeLocalAgentRecord(agentId, {
     ...record,
@@ -1203,12 +1232,12 @@ export async function updateLocalAgentConfig(
         cwd,
         transport: nextTransport,
         sessionId: normalizeTmuxSessionName(input.runtime.sessionId, `${agentId}-${normalizeManagedHarness(input.runtime.harness, "claude")}`),
-        launchArgs: input.launchArgs,
+        launchArgs: nextLaunchArgs,
       },
     },
     transport: nextTransport,
     systemPrompt: input.systemPrompt.trim() || undefined,
-    launchArgs: input.launchArgs,
+    launchArgs: nextLaunchArgs,
     capabilities: input.capabilities as AgentCapability[],
   });
 

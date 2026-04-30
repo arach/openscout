@@ -1,12 +1,22 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  buildRelayAgentInstance,
+  writeRelayAgentOverrides,
+} from "@openscout/runtime/setup";
 
 const originalFetch = globalThis.fetch;
+const originalHome = process.env.HOME;
+const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
+const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
+const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
 const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
 const askScoutQuestionCalls: Array<Record<string, unknown>> = [];
+const testDirectories = new Set<string>();
 
 let querySessionByIdImpl: (conversationId: string) => {
   kind: string;
@@ -39,7 +49,6 @@ let askScoutQuestionResult: unknown = {
     state: "queued",
   },
 };
-
 mock.module("./db-queries.ts", () => ({
   queryAgents: () => [],
   queryActivity: () => [],
@@ -92,6 +101,7 @@ const { createOpenScoutWebServer } =
 
 function makeStaticRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "openscout-web-static-"));
+  testDirectories.add(root);
   mkdirSync(root, { recursive: true });
   writeFileSync(
     join(root, "index.html"),
@@ -101,8 +111,40 @@ function makeStaticRoot(): string {
   return root;
 }
 
+function useIsolatedOpenScoutHome(): string {
+  const home = mkdtempSync(join(tmpdir(), "openscout-web-server-"));
+  testDirectories.add(home);
+  process.env.HOME = home;
+  process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+  process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+  process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+  process.env.OPENSCOUT_NODE_QUALIFIER = "test-node";
+  return home;
+}
+
 beforeEach(() => {
   globalThis.fetch = originalFetch;
+  process.env.HOME = originalHome;
+  if (originalSupportDirectory === undefined) {
+    delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+  } else {
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = originalSupportDirectory;
+  }
+  if (originalControlHome === undefined) {
+    delete process.env.OPENSCOUT_CONTROL_HOME;
+  } else {
+    process.env.OPENSCOUT_CONTROL_HOME = originalControlHome;
+  }
+  if (originalRelayHub === undefined) {
+    delete process.env.OPENSCOUT_RELAY_HUB;
+  } else {
+    process.env.OPENSCOUT_RELAY_HUB = originalRelayHub;
+  }
+  if (originalNodeQualifier === undefined) {
+    delete process.env.OPENSCOUT_NODE_QUALIFIER;
+  } else {
+    process.env.OPENSCOUT_NODE_QUALIFIER = originalNodeQualifier;
+  }
   querySessionByIdImpl = () => null;
   sendScoutMessageResult = {
     usedBroker: true,
@@ -133,6 +175,35 @@ beforeEach(() => {
   sendScoutMessageCalls.length = 0;
   sendScoutDirectMessageCalls.length = 0;
   askScoutQuestionCalls.length = 0;
+});
+
+afterEach(() => {
+  process.env.HOME = originalHome;
+  if (originalSupportDirectory === undefined) {
+    delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+  } else {
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = originalSupportDirectory;
+  }
+  if (originalControlHome === undefined) {
+    delete process.env.OPENSCOUT_CONTROL_HOME;
+  } else {
+    process.env.OPENSCOUT_CONTROL_HOME = originalControlHome;
+  }
+  if (originalRelayHub === undefined) {
+    delete process.env.OPENSCOUT_RELAY_HUB;
+  } else {
+    process.env.OPENSCOUT_RELAY_HUB = originalRelayHub;
+  }
+  if (originalNodeQualifier === undefined) {
+    delete process.env.OPENSCOUT_NODE_QUALIFIER;
+  } else {
+    process.env.OPENSCOUT_NODE_QUALIFIER = originalNodeQualifier;
+  }
+
+  for (const directory of testDirectories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  testDirectories.clear();
 });
 
 describe("createOpenScoutWebServer", () => {
@@ -198,6 +269,74 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"terminalRelayPath":"/ws/terminal"');
     expect(body).toContain('"terminalRelayHealthPath":"/ws/terminal/health"');
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
+  });
+
+  test("loads and updates local agent config through the web API", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const projectRoot = join(home, "dev", "openscout");
+    mkdirSync(projectRoot, { recursive: true });
+    await writeRelayAgentOverrides({
+      ranger: {
+        agentId: "ranger",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        systemPrompt: "Ranger prompt",
+        launchArgs: ["--color", "never", "--model", "gpt-5.3-codex"],
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "ranger-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+    const agentId = buildRelayAgentInstance("ranger", projectRoot).id;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: projectRoot,
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const getResponse = await server.app.request(
+      `http://localhost/api/agents/${agentId}/config`,
+    );
+    expect(getResponse.status).toBe(200);
+    expect(await getResponse.json()).toMatchObject({
+      model: "gpt-5.3-codex",
+      systemPrompt: "Ranger prompt",
+    });
+
+    const postResponse = await server.app.request(
+      `http://localhost/api/agents/${agentId}/config`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-5.4-mini",
+          systemPrompt: "Updated Ranger prompt",
+          restart: false,
+        }),
+      },
+    );
+
+    expect(postResponse.status).toBe(200);
+    const postJson = await postResponse.json() as {
+      config: { model: string | null; systemPrompt: string; launchArgs: string[] };
+      restarted: boolean;
+    };
+    expect(postJson).toMatchObject({
+      restarted: false,
+      config: {
+        model: "gpt-5.4-mini",
+        systemPrompt: "Updated Ranger prompt",
+      },
+    });
+    expect(postJson.config.launchArgs.join("\n")).toContain("gpt-5.4-mini");
+    expect(postJson.config.launchArgs.join("\n")).not.toContain("gpt-5.3-codex");
   });
 
   test("derives the relay health route from the configured relay path by default", async () => {

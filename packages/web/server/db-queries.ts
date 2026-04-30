@@ -31,6 +31,7 @@ export type WebAgent = {
   project: string | null;
   branch: string | null;
   role: string | null;
+  model: string | null;
   harnessSessionId: string | null;
   harnessLogPath: string | null;
   conversationId: string;
@@ -510,6 +511,7 @@ export function queryAgents(limit = 50): WebAgent[] {
       project: (meta.project as string) ?? null,
       branch: (meta.branch as string) ?? null,
       role: (meta.role as string) ?? null,
+      model: (meta.model as string) ?? metadataString(endpointMeta, "model"),
       harnessSessionId: resolveHarnessSessionId(r.transport, r.session_id, endpointMeta),
       harnessLogPath: resolveHarnessLogPath(r.id, r.transport, r.session_id, endpointMeta),
       conversationId: conversationIdForAgent(r.id),

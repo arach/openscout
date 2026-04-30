@@ -31,6 +31,7 @@ export type ScoutDesktopAgentConfigToolUse = {
 export type ScoutDesktopAgentConfigState = {
   agentId: string;
   editable: boolean;
+  model: string | null;
   title: string;
   typeLabel: string | null;
   applyModeLabel: string | null;
@@ -45,6 +46,7 @@ export type ScoutDesktopAgentConfigState = {
 
 export type ScoutDesktopUpdateAgentConfigInput = {
   agentId: string;
+  model?: string | null;
   runtime: {
     cwd: string;
     harness: string;
@@ -125,6 +127,7 @@ function buildUnavailableAgentState(agentId: string): ScoutDesktopAgentConfigSta
   return {
     agentId,
     editable: false,
+    model: null,
     title: agentId,
     typeLabel: "Agent",
     applyModeLabel: null,
@@ -158,6 +161,7 @@ function buildLocalAgentConfigState(
   return {
     agentId,
     editable: agentConfig.editable,
+    model: agentConfig.model,
     title: agentId,
     typeLabel: "Relay Agent",
     applyModeLabel: "Save changes, then restart to apply runtime, prompt, and capability updates.",
@@ -201,6 +205,11 @@ function buildBrokerAgentConfigState(
   return {
     agentId,
     editable: false,
+    model: typeof endpoint?.metadata?.model === "string"
+      ? String(endpoint.metadata.model)
+      : typeof agent.metadata?.model === "string"
+        ? String(agent.metadata.model)
+        : null,
     title: agent.displayName ?? agentId,
     typeLabel: agentTypeLabel(agent),
     applyModeLabel: null,
@@ -256,6 +265,7 @@ export async function updateScoutDesktopAgentConfig(
     },
     systemPrompt: input.systemPrompt,
     launchArgs: splitLines(input.toolUse.launchArgsText),
+    model: input.model,
     capabilities: splitDelimitedTokens(input.capabilitiesText) as AgentCapability[],
   });
 
