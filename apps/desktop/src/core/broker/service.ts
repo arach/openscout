@@ -85,6 +85,16 @@ export type ScoutBrokerContext = {
   snapshot: ScoutBrokerSnapshot;
 };
 
+export type ScoutManagedLocalSessionTransport = "codex_app_server";
+
+export type ScoutManagedLocalSessionAttachment = {
+  ok: boolean;
+  agentId: string;
+  selector: string | null;
+  endpointId: string;
+  sessionId: string;
+};
+
 export type ScoutBrokerHealthState = {
   baseUrl: string;
   reachable: boolean;
@@ -2499,6 +2509,31 @@ export async function openScoutPeerSession(input: {
     sourceId,
     targetId,
   };
+}
+
+export async function attachScoutManagedLocalSession(input: {
+  externalSessionId: string;
+  transport: ScoutManagedLocalSessionTransport;
+  currentDirectory: string;
+  projectRoot?: string;
+  agentId?: string;
+  alias?: string;
+  displayName?: string;
+}): Promise<ScoutManagedLocalSessionAttachment> {
+  const broker = await requireScoutBrokerContext();
+  return brokerPostJson<ScoutManagedLocalSessionAttachment>(
+    broker.baseUrl,
+    scoutBrokerPaths.v1.localSessionsAttach,
+    {
+      externalSessionId: input.externalSessionId,
+      transport: input.transport,
+      cwd: input.currentDirectory,
+      ...(input.projectRoot ? { projectRoot: input.projectRoot } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.alias ? { alias: input.alias } : {}),
+      ...(input.displayName ? { displayName: input.displayName } : {}),
+    },
+  );
 }
 
 export async function sendScoutDirectMessage(input: {

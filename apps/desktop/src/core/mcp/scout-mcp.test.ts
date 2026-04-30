@@ -36,6 +36,7 @@ async function connectTestServer(
     env: {
       ...process.env,
       OPENSCOUT_BROKER_URL: "http://broker.test",
+      CODEX_THREAD_ID: "019ddb1b-test-thread",
     },
     dependencies,
   });
@@ -88,6 +89,7 @@ describe("createScoutMcpServer", () => {
     const result = await client.listTools();
     expect(result.tools.map((tool) => tool.name)).toEqual([
       "whoami",
+      "session_attach_current",
       "card_create",
       "agents_search",
       "agents_resolve",
@@ -101,6 +103,49 @@ describe("createScoutMcpServer", () => {
       .toContain("For owned work or a reply lifecycle, use invocations_ask instead.");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)
       .toContain("progress, waiting, review, and done transitions");
+  });
+
+  test("attaches the current Codex session when CODEX_THREAD_ID is available", async () => {
+    let receivedExternalSessionId: string | undefined;
+    const { client } = await connectTestServer({
+      attachCurrentLocalSession: async (input) => {
+        receivedExternalSessionId = input.externalSessionId;
+        return {
+          ok: true,
+          agentId: "codex.current.mini",
+          selector: "@codex-current",
+          endpointId: "endpoint.codex.current",
+          sessionId: "pairing-019ddb1b",
+        };
+      },
+    });
+
+    const result = await client.callTool({
+      name: "session_attach_current",
+      arguments: {
+        currentDirectory: "/worktree/app",
+        alias: "@codex-current",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      currentDirectory: string;
+      externalSessionId: string;
+      transport: string;
+      agentId: string;
+      selector: string | null;
+      endpointId: string;
+      sessionId: string;
+    };
+
+    expect(receivedExternalSessionId).toBe("019ddb1b-test-thread");
+    expect(structured.currentDirectory).toBe("/worktree/app");
+    expect(structured.externalSessionId).toBe("019ddb1b-test-thread");
+    expect(structured.transport).toBe("codex_app_server");
+    expect(structured.agentId).toBe("codex.current.mini");
+    expect(structured.selector).toBe("@codex-current");
+    expect(structured.endpointId).toBe("endpoint.codex.current");
+    expect(structured.sessionId).toBe("pairing-019ddb1b");
   });
 
   test("advertises host-consumable agent picker metadata for Scout routing fields", async () => {

@@ -7,10 +7,12 @@ describe("renderMcpCommandHelp", () => {
     const help = renderMcpCommandHelp();
 
     expect(help).toContain("whoami");
+    expect(help).toContain("session_attach_current");
     expect(help).toContain("agents_search");
     expect(help).toContain("messages_send");
     expect(help).toContain("invocations_ask");
     expect(help).toContain("work_update");
     expect(help).toContain("card_create");
+    expect(help).toContain("scout mcp install");
   });
 });

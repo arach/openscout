@@ -17,6 +17,10 @@ export const scoutBrokerPaths = {
     activity: "/v1/activity",
     collaborationRecords: "/v1/collaboration/records",
     collaborationEvents: "/v1/collaboration/events",
+    pairingAttach: "/v1/pairing/attach",
+    pairingDetach: "/v1/pairing/detach",
+    localSessionsAttach: "/v1/local-sessions/attach",
+    localSessionsDetach: "/v1/local-sessions/detach",
   },
 } as const;
 

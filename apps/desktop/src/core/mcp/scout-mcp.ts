@@ -22,12 +22,14 @@ import { createScoutAgentCard } from "../agents/service.ts";
 import {
   askScoutAgentById,
   askScoutQuestion,
+  attachScoutManagedLocalSession,
   listScoutAgents,
   loadScoutBrokerContext,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
   sendScoutMessage,
   sendScoutMessageToAgentIds,
+  type ScoutManagedLocalSessionAttachment,
   updateScoutWorkItem,
   waitForScoutFlight,
   type ScoutAskByIdResult,
@@ -267,6 +269,15 @@ type ScoutMcpDependencies = {
     currentDirectory: string;
     createdById?: string;
   }) => Promise<ScoutAgentCard>;
+  attachCurrentLocalSession: (input: {
+    externalSessionId: string;
+    transport: "codex_app_server";
+    currentDirectory: string;
+    projectRoot?: string;
+    agentId?: string;
+    alias?: string;
+    displayName?: string;
+  }) => Promise<ScoutManagedLocalSessionAttachment>;
   sendMessage: (input: {
     senderId: string;
     body: string;
@@ -494,6 +505,16 @@ const cardCreateResultSchema = z.object({
   card: scoutAgentCardSchema,
 });
 
+const currentSessionAttachResultSchema = z.object({
+  currentDirectory: z.string(),
+  externalSessionId: z.string(),
+  transport: z.literal("codex_app_server"),
+  agentId: z.string(),
+  selector: z.string().nullable(),
+  endpointId: z.string(),
+  sessionId: z.string(),
+});
+
 const askResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
@@ -612,6 +633,16 @@ function resolveAskReplyMode(input: {
 
 function workUrlFor(workItem: ScoutTrackedWorkItem | null | undefined): string | null {
   return workItem ? `/api/work/${encodeURIComponent(workItem.id)}` : null;
+}
+
+function resolveCurrentCodexThreadId(env: NodeJS.ProcessEnv): string {
+  const threadId = env.CODEX_THREAD_ID?.trim();
+  if (!threadId) {
+    throw new Error(
+      "The current host session is not an attachable Codex session. Expected CODEX_THREAD_ID in the environment.",
+    );
+  }
+  return threadId;
 }
 
 function sendScoutReplyNotification(
@@ -1309,6 +1340,24 @@ function defaultScoutMcpDependencies(
         currentDirectory,
         createdById,
       }),
+    attachCurrentLocalSession: ({
+      externalSessionId,
+      transport,
+      currentDirectory,
+      projectRoot,
+      agentId,
+      alias,
+      displayName,
+    }) =>
+      attachScoutManagedLocalSession({
+        externalSessionId,
+        transport,
+        currentDirectory,
+        projectRoot,
+        agentId,
+        alias,
+        displayName,
+      }),
     sendMessage: ({
       senderId,
       body,
@@ -1450,6 +1499,62 @@ export function createScoutMcpServer(options: {
       };
       return {
         content: createTextContent(structuredContent),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "session_attach_current",
+    {
+      title: "Attach Current Codex Session",
+      description:
+        "Attach the current live Codex session to Scout so other agents can route direct messages and asks back to it. This requires a Codex host that exposes CODEX_THREAD_ID; Claude and other hosts do not support this attach path yet.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        projectPath: z.string().optional(),
+        agentId: z.string().optional(),
+        alias: z.string().optional(),
+        displayName: z.string().optional(),
+      }),
+      outputSchema: currentSessionAttachResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ currentDirectory, projectPath, agentId, alias, displayName }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const externalSessionId = resolveCurrentCodexThreadId(env);
+      const attached = await deps.attachCurrentLocalSession({
+        externalSessionId,
+        transport: "codex_app_server",
+        currentDirectory: resolvedCurrentDirectory,
+        projectRoot: projectPath?.trim() ? resolve(projectPath.trim()) : undefined,
+        agentId: agentId?.trim() || undefined,
+        alias: alias?.trim() || undefined,
+        displayName: displayName?.trim() || undefined,
+      });
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        externalSessionId,
+        transport: "codex_app_server" as const,
+        agentId: attached.agentId,
+        selector: attached.selector ?? null,
+        endpointId: attached.endpointId,
+        sessionId: attached.sessionId,
+      };
+      return {
+        content: createPlainTextContent(
+          attached.selector
+            ? `Current Codex session attached as ${attached.selector}.`
+            : `Current Codex session attached as ${attached.agentId}.`,
+        ),
         structuredContent,
       };
     },
