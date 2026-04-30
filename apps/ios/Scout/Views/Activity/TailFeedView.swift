@@ -5,8 +5,8 @@
 //   2. tail.events subscription — machine-wide harness transcripts (Lane A)
 //   3. turn projections — Scout in-app conversation events
 //
-// Rows show a leading attribution dot (scout-managed / hudson-managed /
-// unattributed), a kind glyph, an engine tag (claude / codex / scout), the
+// Rows show a leading attribution dot (Scout-managed / Hudson-managed /
+// native), a kind glyph, a runtime harness tag (claude / codex / scout), the
 // actor, and a snippet. A `↳` prefix indicates the row's parentPid is in the
 // recently-seen process map (cross-harness spawn hint).
 //

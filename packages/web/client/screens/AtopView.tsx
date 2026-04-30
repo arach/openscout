@@ -42,7 +42,6 @@ import type {
   TailDiscoverySnapshot,
   TailDiscoveredProcess,
   TailEvent,
-  TailHarness,
 } from "../lib/types.ts";
 
 /* ── Tunables ── */
@@ -64,7 +63,8 @@ type AtopRow = {
   pid: number;
   ppid: number;
   sessionId: string | null;
-  harness: TailHarness;
+  harness: string;
+  attribution: TailEvent["harness"];
   project: string;
   cwd: string;
   command: string;
@@ -101,16 +101,16 @@ type AtopSummary = {
   running: number; // run | tool
   tooling: number; // tool only
   idle: number;
-  scout: number;
-  hudson: number;
-  ghost: number;
+  harnesses: Array<{ harness: string; count: number }>;
   reqsPerMin: number;
 };
 
-const HARNESS_LABEL: Record<TailHarness, string> = {
+type TailAttribution = TailEvent["harness"];
+
+const ATTRIBUTION_LABEL: Record<TailAttribution, string> = {
   "scout-managed": "scout",
   "hudson-managed": "hudson",
-  unattributed: "ghost",
+  unattributed: "native",
 };
 
 const STATUS_LABEL: Record<AtopStatus, string> = {
@@ -193,6 +193,18 @@ function formatTimestamp(ts: number): string {
 function shortSession(sessionId: string | null): string {
   if (!sessionId) return "—";
   return sessionId.slice(0, 8);
+}
+
+function displayHarness(source: string | null | undefined): string {
+  return source?.trim().toLowerCase() || "unknown";
+}
+
+function classPart(value: string): string {
+  return displayHarness(value).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "unknown";
+}
+
+function harnessChipClass(harness: string): string {
+  return `s-atop-chip s-atop-chip--harness s-atop-chip--harness-${classPart(harness)}`;
 }
 
 /* ── Derive ──
@@ -300,7 +312,8 @@ function deriveRows(
       pid: proc.pid,
       ppid: proc.ppid,
       sessionId: stats?.sessionId ?? null,
-      harness: proc.harness,
+      harness: displayHarness(proc.source),
+      attribution: proc.harness,
       project: proc.cwd ? basename(proc.cwd) : "(unknown)",
       cwd: proc.cwd ?? "",
       command: proc.command,
@@ -366,11 +379,10 @@ function summarize(rows: AtopRow[], events: TailEvent[], now: number): AtopSumma
     running: 0,
     tooling: 0,
     idle: 0,
-    scout: 0,
-    hudson: 0,
-    ghost: 0,
+    harnesses: [],
     reqsPerMin: reqEvents,
   };
+  const harnessCounts = new Map<string, number>();
   for (const row of rows) {
     if (row.status === "tool") {
       summary.tooling++;
@@ -380,10 +392,11 @@ function summarize(rows: AtopRow[], events: TailEvent[], now: number): AtopSumma
     } else {
       summary.idle++;
     }
-    if (row.harness === "scout-managed") summary.scout++;
-    else if (row.harness === "hudson-managed") summary.hudson++;
-    else summary.ghost++;
+    harnessCounts.set(row.harness, (harnessCounts.get(row.harness) ?? 0) + 1);
   }
+  summary.harnesses = [...harnessCounts.entries()]
+    .map(([harness, count]) => ({ harness, count }))
+    .sort((a, b) => b.count - a.count || a.harness.localeCompare(b.harness));
   return summary;
 }
 
@@ -470,7 +483,7 @@ export function AtopView() {
   const [now, setNow] = useState(() => Date.now());
 
   const [search, setSearch] = useState("");
-  const [harnessFilter, setHarnessFilter] = useState<Set<TailHarness>>(() => new Set());
+  const [harnessFilter, setHarnessFilter] = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<Set<AtopStatus>>(() => new Set());
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [sortDir, setSortDir] = useState<1 | -1>(1);
@@ -548,7 +561,7 @@ export function AtopView() {
 
   /* available filter options (only show pills for axes that have variety) */
   const harnessOptions = useMemo(() => {
-    const set = new Set<TailHarness>();
+    const set = new Set<string>();
     rows.forEach((row) => set.add(row.harness));
     return [...set];
   }, [rows]);
@@ -566,7 +579,8 @@ export function AtopView() {
       if (harnessFilter.size > 0 && !harnessFilter.has(row.harness)) return false;
       if (statusFilter.size > 0 && !statusFilter.has(row.status)) return false;
       if (!q) return true;
-      const hay = `${row.pid} ${row.project} ${row.command} ${row.harness} ${row.sessionId ?? ""} ${row.lastSummary ?? ""}`.toLowerCase();
+      const attribution = ATTRIBUTION_LABEL[row.attribution];
+      const hay = `${row.pid} ${row.project} ${row.command} ${row.harness} ${row.attribution} ${attribution} ${row.sessionId ?? ""} ${row.lastSummary ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
     return filtered.slice().sort((a, b) => {
@@ -623,7 +637,7 @@ export function AtopView() {
     }
   };
 
-  const toggleHarness = (harness: TailHarness) => {
+  const toggleHarness = (harness: string) => {
     setHarnessFilter((prev) => {
       const next = new Set(prev);
       if (next.has(harness)) next.delete(harness);
@@ -737,11 +751,15 @@ function SummaryStrip({
       <div className="s-atop-summary-cell s-atop-summary-cell--breakdown">
         <span className="s-atop-summary-lbl">harness</span>
         <div className="s-atop-summary-row">
-          <span className="s-atop-chip s-atop-chip--scout">scout {summary.scout}</span>
-          <span className="s-atop-chip s-atop-chip--hudson">hudson {summary.hudson}</span>
-          <span className={`s-atop-chip s-atop-chip--ghost${summary.ghost > 0 ? "" : " s-atop-chip--mute"}`}>
-            ghost {summary.ghost}
-          </span>
+          {summary.harnesses.length > 0 ? (
+            summary.harnesses.slice(0, 4).map((entry) => (
+              <span key={entry.harness} className={harnessChipClass(entry.harness)}>
+                {entry.harness} {entry.count}
+              </span>
+            ))
+          ) : (
+            <span className="s-atop-chip s-atop-chip--mute">none</span>
+          )}
         </div>
       </div>
       <div className="s-atop-summary-spacer" />
@@ -769,19 +787,16 @@ function FilterBar({
 }: {
   search: string;
   onSearch: (v: string) => void;
-  harnessOptions: TailHarness[];
-  harnessFilter: Set<TailHarness>;
-  onToggleHarness: (h: TailHarness) => void;
+  harnessOptions: string[];
+  harnessFilter: Set<string>;
+  onToggleHarness: (h: string) => void;
   statusOptions: AtopStatus[];
   statusFilter: Set<AtopStatus>;
   onToggleStatus: (s: AtopStatus) => void;
   summary: AtopSummary;
 }) {
-  const harnessCount = (harness: TailHarness): number => {
-    if (harness === "scout-managed") return summary.scout;
-    if (harness === "hudson-managed") return summary.hudson;
-    return summary.ghost;
-  };
+  const harnessCount = (harness: string): number =>
+    summary.harnesses.find((entry) => entry.harness === harness)?.count ?? 0;
   const statusCount = (status: AtopStatus): number => {
     if (status === "tool") return summary.tooling;
     if (status === "run") return summary.running - summary.tooling;
@@ -826,10 +841,10 @@ function FilterBar({
             return (
               <button
                 key={harness}
-                className={`s-atop-pill s-atop-pill--${harness}${on ? " s-atop-pill--on" : ""}`}
+                className={`s-atop-pill s-atop-pill--harness${on ? " s-atop-pill--on" : ""}`}
                 onClick={() => onToggleHarness(harness)}
               >
-                {HARNESS_LABEL[harness]}
+                {harness}
                 <span className="s-atop-pill-ct">{harnessCount(harness)}</span>
               </button>
             );
@@ -980,8 +995,11 @@ function AgentTable({
                   </span>
                 </td>
                 <td className="s-atop-col-agent">
-                  <span className={`s-atop-chip s-atop-chip--${row.harness}`}>
-                    {HARNESS_LABEL[row.harness]}
+                  <span
+                    className={harnessChipClass(row.harness)}
+                    title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
+                  >
+                    {row.harness}
                   </span>
                   <span className="s-atop-agent-id" title={row.sessionId ?? `pid ${row.pid}`}>
                     {shortSession(row.sessionId)}
@@ -1067,8 +1085,11 @@ function DetailDrawer({
               {STATUS_LABEL[row.status]}
             </span>
             <span className="s-atop-drawer-pid">pid {row.pid}</span>
-            <span className={`s-atop-chip s-atop-chip--${row.harness}`}>
-              {HARNESS_LABEL[row.harness]}
+            <span
+              className={harnessChipClass(row.harness)}
+              title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
+            >
+              {row.harness}
             </span>
             <span className="s-atop-drawer-session">session {shortSession(row.sessionId)}</span>
           </div>
@@ -1153,6 +1174,8 @@ function DetailDrawer({
               <dd>{row.parentLabel} (ppid {row.ppid})</dd>
               <dt>Process etime</dt>
               <dd>{row.procEtime}</dd>
+              <dt>Origin</dt>
+              <dd>{ATTRIBUTION_LABEL[row.attribution]}</dd>
               <dt>CWD</dt>
               <dd>{row.cwd || "(none)"}</dd>
             </dl>

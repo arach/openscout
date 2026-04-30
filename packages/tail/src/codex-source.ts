@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 
 import {
   buildParentChain,
-  classifyHarness,
+  classifyAttribution,
   commandBasename,
   listProcesses,
   readCwd,
@@ -89,7 +89,7 @@ export async function discoverCodexProcesses(): Promise<DiscoveredProcess[]> {
         command: proc.command,
         etime: proc.etime,
         cwd,
-        harness: classifyHarness(parentChain),
+        harness: classifyAttribution(parentChain),
         parentChain,
         source: SOURCE_NAME,
       });

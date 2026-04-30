@@ -452,7 +452,14 @@ export type OpsMode = "plan" | "conductor" | "warroom" | "mission" | "agents" | 
 
 /* ── Tail (Ops > Tail) types ── */
 
-export type TailHarness = "scout-managed" | "hudson-managed" | "unattributed";
+/**
+ * Launch attribution for a tailed transcript. The runtime/harness name shown
+ * in the UI is `source` ("claude", "codex", "quad", ...).
+ */
+export type TailAttribution = "scout-managed" | "hudson-managed" | "unattributed";
+
+/** @deprecated Use TailAttribution for the `harness` field. */
+export type TailHarness = TailAttribution;
 export type TailEventKind =
   | "user"
   | "assistant"
@@ -464,12 +471,14 @@ export type TailEventKind =
 export type TailEvent = {
   id: string;
   ts: number;
+  /** Runtime harness/source name, e.g. "claude", "codex", "quad". */
   source: string;
   sessionId: string;
   pid: number;
   parentPid: number | null;
   project: string;
   cwd: string;
+  /** Launch attribution; retained as `harness` for wire compatibility. */
   harness: TailHarness;
   kind: TailEventKind;
   summary: string;
@@ -482,8 +491,10 @@ export type TailDiscoveredProcess = {
   command: string;
   etime: string;
   cwd: string | null;
+  /** Launch attribution; retained as `harness` for wire compatibility. */
   harness: TailHarness;
   parentChain: { pid: number; command: string }[];
+  /** Runtime harness/source name, e.g. "claude", "codex", "quad". */
   source: string;
 };
 
@@ -493,6 +504,7 @@ export type TailDiscoveredTranscript = {
   sessionId: string | null;
   cwd: string | null;
   project: string;
+  /** Launch attribution; retained as `harness` for wire compatibility. */
   harness: TailHarness;
   mtimeMs: number;
   size: number;

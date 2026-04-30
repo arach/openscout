@@ -2,8 +2,8 @@
 //
 // Mirrors packages/web/server/core/tail/types.ts on the producer side.
 // Two attribution dimensions:
-//   - source:  engine identifier ("claude", "codex", future "ghost")
-//   - harness: scout-managed | hudson-managed | unattributed
+//   - source:  runtime harness identifier ("claude", "codex", future "quad")
+//   - harness: launch attribution (scout-managed | hudson-managed | unattributed/native)
 //
 // See docs/tail-firehose.md for the contract and lane split.
 
