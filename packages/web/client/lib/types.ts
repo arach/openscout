@@ -441,6 +441,7 @@ export type Route =
     }
   | { view: "fleet" }
   | { view: "sessions"; sessionId?: string }
+  | { view: "channels"; channelId?: string }
   | { view: "mesh" }
   | { view: "activity" }
   | { view: "work"; workId: string }

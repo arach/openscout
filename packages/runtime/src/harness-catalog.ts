@@ -207,6 +207,40 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     },
     capabilities: ["chat", "invoke", "deliver", "review", "execute"],
   },
+  {
+    name: "cursor",
+    harness: "cursor",
+    label: "Cursor Agent SDK",
+    description: "Programmatic agent execution via the Cursor Agent SDK",
+    homepage: "https://cursor.com",
+    tags: ["coding", "sdk", "cursor"],
+    featured: true,
+    order: 3,
+    support: {
+      ...DEFAULT_SUPPORT,
+      workspace: true,
+      collaboration: true,
+      files: true,
+    },
+    install: {
+      binary: "mw",
+      requires: ["bun"],
+      macos: "bun install -g missionwriter",
+      linux: "bun install -g missionwriter",
+      windows: "bun install -g missionwriter",
+    },
+    readiness: {
+      anyOf: [
+        { kind: "env", key: "CURSOR_API_KEY" },
+      ],
+      notReadyMessage: "Cursor Agent SDK is available but CURSOR_API_KEY is not set.",
+    },
+    capabilities: ["invoke", "deliver", "execute"],
+    metadata: {
+      sdkType: "cursor",
+      invocationModel: "one_shot",
+    },
+  },
 ];
 
 function expandHomePath(value: string): string {

@@ -158,6 +158,23 @@ body { margin: 0; }
   50% { opacity: 0.6; transform: scale(1.15); }
 }
 
+/* ── Canvas chrome slots ── */
+
+.scout-canvas-minimap-shell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.scout-canvas-minimap-shell--floating {
+  position: fixed;
+  left: 12px;
+  bottom: 28px;
+  z-index: 40;
+  width: fit-content;
+  margin: 0;
+}
+
 /* ── Left panel: agent roster ── */
 
 .s-left-roster {
@@ -1821,6 +1838,9 @@ details[open] > .s-conv-meta-toggle::before {
 }
 
 .scout-nav-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.25rem 0.5rem;
   border-radius: 0.125rem;
   border: 1px solid var(--scout-chrome-border-soft);
@@ -1843,6 +1863,10 @@ details[open] > .s-conv-meta-toggle::before {
   color: var(--hud-accent);
   border-color: color-mix(in srgb, var(--hud-accent) 36%, transparent);
   background: color-mix(in srgb, var(--hud-accent) 7%, transparent);
+}
+
+.scout-nav-action--settings svg {
+  color: var(--scout-chrome-ink);
 }
 
 .scout-nav-action:hover {

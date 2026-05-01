@@ -1079,6 +1079,55 @@ describe("broker daemon comms layer", () => {
   test("accepts broker-owned channel tells without caller-side route preflight", async () => {
     const harness = await startBroker();
 
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "fabric",
+      kind: "agent",
+      definitionId: "fabric",
+      displayName: "Fabric",
+      handle: "fabric",
+      labels: ["test"],
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "offline",
+      kind: "agent",
+      definitionId: "offline",
+      displayName: "Offline",
+      handle: "offline",
+      labels: ["test"],
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-fabric",
+      agentId: "fabric",
+      nodeId: harness.nodeId,
+      harness: "codex",
+      transport: "pairing_bridge",
+      state: "active",
+    });
+    await postJson(harness.baseUrl, "/v1/conversations", {
+      id: "channel.ops",
+      kind: "channel",
+      title: "ops",
+      visibility: "workspace",
+      shareMode: "local",
+      authorityNodeId: harness.nodeId,
+      participantIds: ["operator", "fabric", "offline"],
+      metadata: { surface: "test" },
+    });
+
     const response = await postJson<{
       kind: string;
       accepted: boolean;
@@ -1093,11 +1142,17 @@ describe("broker daemon comms layer", () => {
         messageId: string;
       };
       conversation?: { id: string; kind: string };
-      message?: { id: string; actorId: string; conversationId: string; createdAt: number };
+      message?: {
+        id: string;
+        actorId: string;
+        conversationId: string;
+        createdAt: number;
+        audience?: { notify?: string[]; reason?: string };
+      };
     }>(harness.baseUrl, "/v1/deliver", {
       target: {
         kind: "channel",
-        channel: "shared",
+        channel: "ops",
       },
       targetLabel: "@ghost",
       body: "build status update",
@@ -1106,17 +1161,70 @@ describe("broker daemon comms layer", () => {
 
     expect(response.kind).toBe("delivery");
     expect(response.accepted).toBe(true);
-    expect(response.routeKind).toBe("broadcast");
+    expect(response.routeKind).toBe("channel");
     expect(response.targetAgentId).toBeUndefined();
-    expect(response.conversation?.id).toBe("channel.shared");
-    expect(response.message?.conversationId).toBe("channel.shared");
+    expect(response.conversation?.id).toBe("channel.ops");
+    expect(response.message?.conversationId).toBe("channel.ops");
     expect(response.message?.createdAt).toBeGreaterThan(0);
+    expect(response.message?.audience?.reason).toBe("conversation_visibility");
+    expect(response.message?.audience?.notify).toEqual(["fabric"]);
     expect(response.receipt?.requestId.startsWith("deliver-")).toBe(true);
     expect(response.receipt?.requesterId).toBe("operator");
     expect(response.receipt?.requesterNodeId).toBe(harness.nodeId);
-    expect(response.receipt?.targetLabel).toBe("shared");
-    expect(response.receipt?.conversationId).toBe("channel.shared");
+    expect(response.receipt?.targetLabel).toBe("ops");
+    expect(response.receipt?.conversationId).toBe("channel.ops");
     expect(response.receipt?.messageId).toBe(response.message?.id);
+
+    const deliveries = await getJson<Array<{ targetId: string; reason: string; policy: string }>>(
+      harness.baseUrl,
+      `/v1/deliveries?messageId=${encodeURIComponent(response.message?.id ?? "")}&targetId=fabric`,
+    );
+    expect(deliveries).toContainEqual(expect.objectContaining({
+      targetId: "fabric",
+      reason: "conversation_visibility",
+      policy: "durable",
+    }));
+
+    const claim = await postJson<{ claimed?: { id: string; status: string; leaseOwner?: string } | null }>(
+      harness.baseUrl,
+      "/v1/deliveries/claim",
+      {
+        messageId: response.message?.id,
+        targetId: "fabric",
+        reasons: ["conversation_visibility"],
+        leaseOwner: "test-instance",
+        leaseMs: 30_000,
+      },
+    );
+    expect(claim.claimed?.status).toBe("leased");
+    expect(claim.claimed?.leaseOwner).toBe("test-instance");
+
+    const duplicateClaim = await postJson<{ claimed?: { id: string } | null }>(
+      harness.baseUrl,
+      "/v1/deliveries/claim",
+      {
+        messageId: response.message?.id,
+        targetId: "fabric",
+        reasons: ["conversation_visibility"],
+        leaseOwner: "other-instance",
+      },
+    );
+    expect(duplicateClaim.claimed).toBeNull();
+
+    await postJson(harness.baseUrl, "/v1/deliveries/status", {
+      deliveryId: claim.claimed?.id,
+      status: "acknowledged",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
+    const acknowledged = await getJson<Array<{ id: string; status: string }>>(
+      harness.baseUrl,
+      `/v1/deliveries?messageId=${encodeURIComponent(response.message?.id ?? "")}&targetId=fabric&status=acknowledged`,
+    );
+    expect(acknowledged).toContainEqual(expect.objectContaining({
+      id: claim.claimed?.id,
+      status: "acknowledged",
+    }));
   }, 15_000);
 
   test("returns a broker question for manual offline targets it cannot wake", async () => {

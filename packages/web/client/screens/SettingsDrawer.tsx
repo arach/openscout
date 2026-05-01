@@ -474,12 +474,3 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
     </>
   );
 }
-
-export function SettingsLauncher({ onOpen }: { onOpen: () => void }) {
-  return (
-    <button className="s-settings-launcher" onClick={onOpen}>
-      <span className="s-settings-launcher-icon">{"⚙"}</span>
-      <span>settings</span>
-    </button>
-  );
-}

@@ -19,7 +19,7 @@ import {
 } from "../broker/service.ts";
 import { scoutBrokerPaths } from "../broker/paths.ts";
 import { SCOUT_APP_VERSION } from "../../shared/product.ts";
-import type { MessageRecord } from "@openscout/protocol";
+import type { DeliveryIntent, DeliveryReason, MessageRecord } from "@openscout/protocol";
 
 type ControlEvent = {
   kind: string;
@@ -38,7 +38,7 @@ async function resolveAgentId(
 function startBrokerSubscription(
   broker: ScoutBrokerContext,
   agentId: string,
-  onMessage: (message: MessageRecord) => void,
+  onMessage: (message: MessageRecord) => Promise<boolean> | boolean,
   signal: AbortSignal,
 ): void {
   const connect = async () => {
@@ -99,7 +99,28 @@ function startBrokerSubscription(
               message.audience?.notify?.includes(agentId);
 
             if (mentionsMe || audienceIncludesMe) {
-              onMessage(message);
+              const claim = await claimMessageDelivery(broker, {
+                messageId: message.id,
+                targetId: agentId,
+                reasons: [
+                  "conversation_visibility",
+                  "mention",
+                  "direct_message",
+                ],
+              });
+              if (!claim && audienceIncludesMe) {
+                continue;
+              }
+
+              const delivered = await onMessage(message);
+              if (claim) {
+                await updateDeliveryStatus(broker, {
+                  deliveryId: claim.id,
+                  status: delivered ? "acknowledged" : "pending",
+                  leaseOwner: null,
+                  leaseExpiresAt: null,
+                });
+              }
             }
           }
         }
@@ -114,6 +135,65 @@ function startBrokerSubscription(
   };
 
   void connect();
+}
+
+async function postBrokerJson<T>(
+  broker: ScoutBrokerContext,
+  path: string,
+  payload: unknown,
+): Promise<T | null> {
+  try {
+    const response = await fetch(new URL(path, broker.baseUrl), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) return null;
+    return await response.json() as T;
+  } catch {
+    return null;
+  }
+}
+
+async function claimMessageDelivery(
+  broker: ScoutBrokerContext,
+  input: {
+    messageId: string;
+    targetId: string;
+    reasons: DeliveryReason[];
+  },
+): Promise<DeliveryIntent | null> {
+  const result = await postBrokerJson<{ claimed?: DeliveryIntent | null }>(
+    broker,
+    "/v1/deliveries/claim",
+    {
+      messageId: input.messageId,
+      targetId: input.targetId,
+      reasons: input.reasons,
+      leaseOwner: `scout-channel:${input.targetId}`,
+      leaseMs: 30_000,
+    },
+  );
+  return result?.claimed ?? null;
+}
+
+async function updateDeliveryStatus(
+  broker: ScoutBrokerContext,
+  input: {
+    deliveryId: string;
+    status: DeliveryIntent["status"];
+    leaseOwner: string | null;
+    leaseExpiresAt: number | null;
+  },
+): Promise<void> {
+  await postBrokerJson(
+    broker,
+    "/v1/deliveries/status",
+    input,
+  );
 }
 
 export async function runScoutChannelServer(options: {
@@ -295,8 +375,10 @@ export async function runScoutChannelServer(options: {
             meta,
           },
         });
+        return true;
       } catch {
         // Session may not be ready yet; drop silently.
+        return false;
       }
     },
     abortController.signal,

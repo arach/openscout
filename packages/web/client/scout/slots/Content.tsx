@@ -3,10 +3,12 @@ import { useScout } from "../Provider.tsx";
 import { ActivityScreen } from "../../screens/ActivityScreen.tsx";
 import { AgentInfoScreen } from "../../screens/AgentInfoScreen.tsx";
 import { AgentsScreen } from "../../screens/AgentsScreen.tsx";
+import { ChannelsScreen } from "../../screens/ChannelsScreen.tsx";
 import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
 import { HomeScreen } from "../../screens/HomeScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
 import { SessionsScreen } from "../../screens/SessionsScreen.tsx";
+import { SessionRefScreen } from "../../screens/SessionRefScreen.tsx";
 import { SettingsScreen } from "../../screens/SettingsScreen.tsx";
 import { OpsScreen } from "../../screens/OpsScreen.tsx";
 import { TerminalScreen } from "../../screens/TerminalScreen.tsx";
@@ -73,13 +75,15 @@ function renderScreen(
     case "sessions":
       if (route.sessionId) {
         return (
-          <ConversationScreen
-            conversationId={route.sessionId}
+          <SessionRefScreen
+            sessionRef={route.sessionId}
             navigate={navigate}
           />
         );
       }
       return <SessionsScreen navigate={navigate} />;
+    case "channels":
+      return <ChannelsScreen channelId={route.channelId} navigate={navigate} />;
     case "mesh":
       return <MeshScreen navigate={navigate} />;
     case "activity":

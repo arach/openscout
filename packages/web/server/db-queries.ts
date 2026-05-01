@@ -503,7 +503,7 @@ export function queryAgents(limit = 50): WebAgent[] {
       state: summarizeAgentState(r.state, executingAgentIds.has(r.id)),
       projectRoot: compact(r.project_root),
       cwd: compact(r.cwd),
-      updatedAt: r.updated_at,
+      updatedAt: normalizeTimestampMs(r.updated_at),
       transport: r.transport,
       selector: r.default_selector,
       wakePolicy: r.wake_policy,
@@ -1618,7 +1618,7 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
       state,
       statusLabel,
       sessionId: conversationIdForAgent(r.id),
-      lastActiveAt: lastMessageAt.get(r.id) ?? null,
+      lastActiveAt: normalizeTimestampMs(lastMessageAt.get(r.id) ?? null),
     };
   });
 }

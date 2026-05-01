@@ -6,6 +6,10 @@ import { Assistant, type HudsonApp, type CommandOption, usePersistentState, useP
 import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudson/sdk/chrome";
 import { CommandPalette, TerminalDrawer } from "@hudson/sdk/overlays";
 
+import {
+  CanvasMinimapProvider,
+  useCanvasMinimap,
+} from "./lib/canvas-minimap.tsx";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 
 interface OpenScoutAppShellProps {
@@ -16,7 +20,9 @@ interface OpenScoutAppShellProps {
 export function OpenScoutAppShell({ app, assistant = true }: OpenScoutAppShellProps) {
   return (
     <app.Provider>
-      <OpenScoutAppShellInner app={app} assistantEnabled={assistant} />
+      <CanvasMinimapProvider>
+        <OpenScoutAppShellInner app={app} assistantEnabled={assistant} />
+      </CanvasMinimapProvider>
     </app.Provider>
   );
 }
@@ -58,11 +64,13 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const takeoverOnDismiss = takeover?.onDismiss;
   const TakeoverSlot = app.slots.Takeover;
   const statusBar = useScoutStatusBarState();
+  const canvasMinimap = useCanvasMinimap();
 
   const [leftCollapsed, setLeftCollapsed] = usePersistentState(`appshell.${app.id}.left`, false);
   const [rightCollapsed, setRightCollapsed] = usePersistentState(`appshell.${app.id}.right`, false);
   const [leftWidth, setLeftWidth] = usePersistentState(`appshell.${app.id}.leftW`, 260);
   const [rightWidth, setRightWidth] = usePersistentState(`appshell.${app.id}.rightW`, 280);
+  const [minimapCollapsed, setMinimapCollapsed] = usePersistentState("openscout.ops.minimap.collapsed", false);
 
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
@@ -238,12 +246,23 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     </>
   );
 
-  const leftFooter = (
-    <>
-      {app.slots.LeftFooter && <app.slots.LeftFooter />}
-      <CommandDock onOpenCommandPalette={() => setShowCommandPalette(true)} />
-    </>
+  const rightFooter = (
+    <CommandDock onOpenCommandPalette={() => setShowCommandPalette(true)} />
   );
+  const minimapChrome = useMemo(() => ({
+    isCollapsed: minimapCollapsed,
+    onToggleCollapse: () => setMinimapCollapsed((collapsed) => !collapsed),
+  }), [minimapCollapsed, setMinimapCollapsed]);
+  const canvasMinimapNode = canvasMinimap ? (
+    <div className={`scout-canvas-minimap-shell${minimapCollapsed ? " scout-canvas-minimap-shell--collapsed" : ""}`}>
+      {canvasMinimap.render(minimapChrome)}
+    </div>
+  ) : null;
+  const floatingCanvasMinimapNode = canvasMinimap ? (
+    <div className={`scout-canvas-minimap-shell scout-canvas-minimap-shell--floating${minimapCollapsed ? " scout-canvas-minimap-shell--collapsed" : ""}`}>
+      {canvasMinimap.render(minimapChrome)}
+    </div>
+  ) : null;
 
   const backgroundRef = useRef<HTMLDivElement>(null);
   const takeoverRef = useRef<HTMLDivElement>(null);
@@ -314,11 +333,13 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
                 width={leftWidth}
                 onResizeStart={handleResizeStart("left")}
-                footer={leftFooter}
+                footer={!leftCollapsed ? canvasMinimapNode : undefined}
                 headerActions={app.leftPanel?.headerActions && <app.leftPanel.headerActions />}
               >
                 {app.slots.LeftPanel && <app.slots.LeftPanel />}
               </SidePanel>
+
+              {leftCollapsed ? floatingCanvasMinimapNode : null}
 
               <SidePanel
                 side="right"
@@ -328,6 +349,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
                 width={rightWidth}
                 onResizeStart={handleResizeStart("right")}
+                footer={rightFooter}
                 headerActions={app.rightPanel?.headerActions && <app.rightPanel.headerActions />}
               >
                 {rightContent}
@@ -368,7 +390,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                     />
                   )}
                 >
-                  {resolvedTab === "terminal" && (
+                  {showTerminal && resolvedTab === "terminal" && (
                     app.slots.Terminal ? (
                       <app.slots.Terminal />
                     ) : (
@@ -377,7 +399,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       </div>
                     )
                   )}
-                  {resolvedTab === "assistant" && (
+                  {showTerminal && resolvedTab === "assistant" && (
                     <Assistant app={app} commands={appCommands} />
                   )}
                 </TerminalDrawer>

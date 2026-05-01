@@ -59,6 +59,18 @@ function resolveInvocationAudience(message: MessageRecord): ScoutId[] {
   return unique((message.audience?.invoke ?? []).filter((actorId) => actorId !== message.actorId));
 }
 
+function notifyDeliveryReason(message: MessageRecord): DeliveryReason {
+  return message.audience?.reason === "conversation_visibility"
+    ? "conversation_visibility"
+    : "mention";
+}
+
+function notifyDeliveryPolicy(message: MessageRecord): DeliveryPolicy {
+  return notifyDeliveryReason(message) === "conversation_visibility"
+    ? "durable"
+    : "must_ack";
+}
+
 function planTargetDelivery(
   message: MessageRecord,
   route: DeliveryRoute,
@@ -104,6 +116,7 @@ export function planMessageDeliveries(input: DeliveryPlanningInput): DeliveryInt
     }
 
     if (notifyIds.has(route.targetId)) {
+      const reason = notifyDeliveryReason(input.message);
       const intent = planTargetDelivery(
         input.message,
         {
@@ -112,8 +125,8 @@ export function planMessageDeliveries(input: DeliveryPlanningInput): DeliveryInt
             ? "peer_broker"
             : route.transport,
         },
-        "mention",
-        "must_ack",
+        reason,
+        notifyDeliveryPolicy(input.message),
       );
       deliveries.set(intent.id, intent);
     }

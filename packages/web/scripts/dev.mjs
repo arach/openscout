@@ -209,6 +209,7 @@ Examples:
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const packageDirectory = resolve(scriptDirectory, "..");
 const viteBin = resolve(packageDirectory, "node_modules/vite/bin/vite.js");
+const viteSocketGuard = resolve(scriptDirectory, "vite-socket-guard.mjs");
 const serverEntry = resolve(packageDirectory, "server/index.ts");
 
 if (!existsSync(viteBin)) {
@@ -302,22 +303,38 @@ console.log(
   + `  pairing: ${portLabel(pairingPort)}`,
 );
 
-const children = [
-  spawn(
+function spawnVite() {
+  const viteEnv = {
+    ...env,
+    NODE_OPTIONS: [
+      env.NODE_OPTIONS,
+      `--import=${viteSocketGuard}`,
+    ].filter(Boolean).join(" "),
+  };
+
+  return spawn(
     process.execPath,
     [viteBin, "--host", viteHost, "--port", portLabel(vitePort), "--strictPort"],
     {
       cwd: packageDirectory,
-      env,
+      env: viteEnv,
       stdio: "inherit",
     },
-  ),
-  spawn("bun", ["run", "--hot", serverEntry], {
+  );
+}
+
+function spawnServer() {
+  return spawn("bun", ["run", "--hot", serverEntry], {
     cwd: packageDirectory,
     env,
     stdio: "inherit",
-  }),
-];
+  });
+}
+
+const children = {
+  vite: spawnVite(),
+  server: spawnServer(),
+};
 
 try {
   await mkdir(resolve(stateRoot, "runs"), { recursive: true });
@@ -344,8 +361,8 @@ try {
       },
       processes: {
         manager: process.pid,
-        vite: children[0]?.pid ?? null,
-        server: children[1]?.pid ?? null,
+        vite: children.vite?.pid ?? null,
+        server: children.server?.pid ?? null,
       },
       pairingHome: env.OPENSCOUT_PAIRING_HOME || null,
     }, null, 2),
@@ -360,13 +377,16 @@ try {
 }
 
 let exiting = false;
+const viteRestartWindowMs = 30_000;
+const viteRestartLimit = 5;
+let viteRestartTimestamps = [];
 
 async function shutdown(code = 0) {
   if (exiting) {
     return;
   }
   exiting = true;
-  for (const child of children) {
+  for (const child of Object.values(children)) {
     if (!child.killed) {
       child.kill("SIGTERM");
     }
@@ -375,10 +395,10 @@ async function shutdown(code = 0) {
   process.exit(code);
 }
 
-for (const child of children) {
+function attachChildHandlers(name, child) {
   child.on("error", (error) => {
     console.error(
-      `@openscout/web: failed to start dev process: ${error.message}`,
+      `@openscout/web: failed to start ${name} dev process: ${error.message}`,
     );
     void shutdown(1);
   });
@@ -390,9 +410,28 @@ for (const child of children) {
       void shutdown(0);
       return;
     }
+
+    if (name === "vite") {
+      const now = Date.now();
+      viteRestartTimestamps = viteRestartTimestamps.filter((ts) => now - ts < viteRestartWindowMs);
+      viteRestartTimestamps.push(now);
+      if (viteRestartTimestamps.length <= viteRestartLimit) {
+        console.warn(
+          `@openscout/web: vite exited (${signal ?? `code ${code ?? 0}`}); restarting so the Bun API server stays up.`,
+        );
+        children.vite = spawnVite();
+        attachChildHandlers("vite", children.vite);
+        return;
+      }
+      console.error("@openscout/web: vite is crash-looping; shutting down dev stack.");
+    }
+
     void shutdown(code ?? 1);
   });
 }
+
+attachChildHandlers("vite", children.vite);
+attachChildHandlers("server", children.server);
 
 process.on("SIGINT", () => void shutdown(0));
 process.on("SIGTERM", () => void shutdown(0));

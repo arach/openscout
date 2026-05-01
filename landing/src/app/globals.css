@@ -254,44 +254,6 @@ html[data-site-theme="dark"] .dot-grid {
   border-bottom: 1px solid var(--site-border);
 }
 
-.operator-strip {
-  border-bottom: 1px solid var(--site-border);
-  background: var(--site-panel-rail);
-}
-
-.operator-strip__inner {
-  display: flex;
-  align-items: stretch;
-  height: 26px;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--site-muted);
-  overflow-x: auto;
-  white-space: nowrap;
-}
-
-.operator-strip__cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0 0.75rem;
-  border-right: 1px solid var(--site-border-soft);
-  white-space: nowrap;
-}
-
-.operator-strip__cell:first-child {
-  padding-left: 0;
-}
-
-.operator-strip__brand {
-  color: var(--site-ink);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-
-
 .status-dot {
   display: inline-block;
   width: 6px;
@@ -338,15 +300,6 @@ html[data-site-theme="dark"] .dot-grid {
   margin-right: 1px;
   transition: color 0.15s ease;
 }
-
-/* Remove trailing border on the rightmost strip cell */
-.operator-strip__inner > .operator-strip__cell:last-child {
-  border-right: none;
-}
-
-/* tiny scrolling marquee on smaller screens — graceful overflow */
-.operator-strip__inner::-webkit-scrollbar { display: none; }
-.operator-strip__inner { scrollbar-width: none; }
 
 /* ── status footer (Cursor-style IDE status bar) ── */
 
@@ -433,6 +386,13 @@ html[data-site-theme="dark"] .dot-grid {
   color: var(--site-muted-soft);
   transition: color 0.12s ease;
 }
+
+.status-bar__brand {
+  color: var(--site-ink);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
 
 /* ──────────────────────────────────────────────────────────
    RFC hero — front matter on the left, broker stream on the right
@@ -550,24 +510,25 @@ html[data-site-theme="dark"] .dot-grid {
   color: var(--site-accent);
 }
 
-.rfc-hero__toc {
+.rfc-toc-strip {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 2.5rem;
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 12.5px;
-  margin-top: 1.75rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--site-border-soft);
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 1.5rem;
-  color: var(--site-copy);
+  gap: 0 2.5rem;
+  color: var(--site-muted);
 }
 
-.rfc-hero__toc a {
-  color: var(--site-copy);
+.rfc-toc-strip a {
+  color: var(--site-muted);
   transition: color 0.18s ease;
+  white-space: nowrap;
 }
 
-.rfc-hero__toc a:hover {
+.rfc-toc-strip a:hover {
   color: var(--site-ink);
 }
 
@@ -583,24 +544,40 @@ html[data-site-theme="dark"] .dot-grid {
 
 .rfc-section {
   border-top: 1px solid var(--site-border-soft);
-  padding-top: 4.5rem;
+  padding-top: 4rem;
   padding-bottom: 4.5rem;
 }
 
+/* Eyebrow + title + lead read as one composed section opener.
+   Proximity ladder: eyebrow → title is tight (label attaches to title);
+   title → lead is looser but still grouped; a thin accent rule anchors
+   the eyebrow to the section column so it doesn't float. */
 .rfc-section-eyebrow {
   font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 11.5px;
-  letter-spacing: 0.07em;
+  font-size: 11px;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--site-muted);
   display: inline-flex;
-  align-items: baseline;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--site-border-soft);
 }
 
 .rfc-section-eyebrow__num {
   color: var(--site-accent);
   font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Visual divider between §N and label — replaces the bare gap so the
+   number reads as a marker, not a separate word. */
+.rfc-section-eyebrow__num::after {
+  content: "·";
+  color: var(--site-border-strong);
+  margin-left: 0.55rem;
+  font-weight: 400;
 }
 
 .rfc-section-title {
@@ -611,7 +588,7 @@ html[data-site-theme="dark"] .dot-grid {
   letter-spacing: -0.012em;
   color: var(--site-ink);
   max-width: 26ch;
-  margin-top: 1.25rem;
+  margin-top: 0.85rem;
 }
 
 .rfc-section-lead {
@@ -619,7 +596,7 @@ html[data-site-theme="dark"] .dot-grid {
   font-size: 13.5px;
   line-height: 1.7;
   color: var(--site-copy);
-  margin-top: 1.25rem;
+  margin-top: 1.1rem;
   max-width: 58ch;
 }
 
@@ -800,6 +777,26 @@ html[data-site-theme="dark"] .dot-grid {
   transform: scale(1.05);
 }
 
+.broker-stream__peer--sender.is-active .broker-stream__peer-mark {
+  animation: peer-emit 1.4s ease-out;
+}
+
+.broker-stream__peer--recipient.is-active .broker-stream__peer-mark {
+  animation: peer-receive 1.4s ease-out 0.4s;
+}
+
+@keyframes peer-emit {
+  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--site-accent) 55%, transparent); transform: scale(1.05); }
+  60%  { box-shadow: 0 0 0 10px color-mix(in srgb, var(--site-accent) 0%, transparent); transform: scale(1.0); }
+  100% { box-shadow: 0 0 0 4px  color-mix(in srgb, var(--site-accent) 25%, transparent); transform: scale(1.05); }
+}
+
+@keyframes peer-receive {
+  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--site-accent) 0%, transparent); }
+  50%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--site-accent) 35%, transparent); }
+  100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--site-accent) 25%, transparent); }
+}
+
 .broker-stream__peer--bridge.is-active .broker-stream__peer-mark {
   border-color: var(--site-accent);
 }
@@ -833,15 +830,55 @@ html[data-site-theme="dark"] .dot-grid {
 }
 
 .broker-stream__record {
-  animation: stream-in 0.45s ease-out;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  position: relative;
+  padding-left: 0.5rem;
+  margin-left: -0.5rem;
+  border-left: 2px solid transparent;
+  transition: border-color 1.4s ease, background 1.4s ease;
 }
 
-@keyframes stream-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.broker-stream__record--latest {
+  animation: stream-land 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  border-left-color: var(--site-accent);
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--site-accent) 9%, transparent),
+    transparent 55%
+  );
+}
+
+@keyframes stream-land {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.broker-stream__cursor {
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  margin-left: 3px;
+  vertical-align: -1px;
+  background: var(--site-accent);
+  animation: cursor-blink 0.9s steps(2, end) infinite;
+}
+
+@keyframes cursor-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.broker-stream__record--latest .broker-stream__arrow {
+  color: var(--site-accent);
+  animation: arrow-shift 1.2s ease-out;
+}
+
+@keyframes arrow-shift {
+  0%   { transform: translateX(-3px); opacity: 0.4; }
+  50%  { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(0); opacity: 1; }
 }
 
 .broker-stream__record-line {
@@ -900,8 +937,395 @@ html[data-site-theme="dark"] .dot-grid {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .broker-stream__record { animation: none; }
+  .broker-stream__record,
+  .broker-stream__record--latest,
+  .broker-stream__cursor,
+  .broker-stream__record--latest .broker-stream__arrow,
+  .broker-stream__peer--sender.is-active .broker-stream__peer-mark,
+  .broker-stream__peer--recipient.is-active .broker-stream__peer-mark {
+    animation: none;
+  }
   .broker-stream__peer-mark { transition: none; }
+}
+
+/* ──────────────────────────────────────────────────────────
+   Live mocks — Topology + Tail firehose (off-landing — kept
+   for blog / ops surface usage)
+   ────────────────────────────────────────────────────────── */
+
+/* Topology */
+
+.topo-mock {
+  background: var(--site-surface-strong);
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  box-shadow: var(--site-card-shadow);
+}
+
+.topo-mock__chrome {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0.875rem;
+  height: 32px;
+  border-bottom: 1px solid var(--site-border-soft);
+  background: var(--site-panel-rail);
+  color: var(--site-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.topo-mock__chrome-id { color: var(--site-copy); }
+
+.topo-mock__chrome-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--site-status-online);
+}
+
+.topo-mock__chrome-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--site-status-online);
+  box-shadow: 0 0 0 3px var(--site-status-online-soft);
+}
+
+.topo-mock__body { padding: 0.5rem 0.5rem 0.75rem; }
+
+.topo-mock__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.topo-mock__edge {
+  stroke: var(--site-border-strong);
+  stroke-width: 1;
+  transition: stroke 0.4s ease, stroke-width 0.4s ease;
+}
+
+.topo-mock__edge--active {
+  stroke: var(--site-accent);
+  stroke-width: 1.4;
+}
+
+.topo-mock__pulse {
+  fill: var(--site-accent);
+  filter: drop-shadow(0 0 4px var(--site-accent));
+}
+
+.topo-mock__node {
+  fill: var(--site-surface-strong);
+  stroke: var(--site-copy);
+  stroke-width: 1.5;
+  transition: stroke 0.3s ease, fill 0.3s ease;
+}
+
+.topo-mock__node--broker {
+  fill: var(--site-accent);
+  stroke: var(--site-accent);
+}
+
+.topo-mock__node--bridge {
+  stroke: var(--site-copy);
+  stroke-dasharray: 2 2;
+}
+
+.topo-mock__node--self {
+  fill: var(--site-ink);
+  stroke: var(--site-ink);
+}
+
+.topo-mock__node.is-active {
+  stroke: var(--site-accent);
+  fill: var(--site-accent-soft);
+}
+
+.topo-mock__node-core {
+  fill: var(--site-surface-strong);
+  pointer-events: none;
+}
+
+.topo-mock__label {
+  fill: var(--site-copy);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  letter-spacing: 0.02em;
+  transition: fill 0.3s ease;
+}
+
+.topo-mock__label.is-active {
+  fill: var(--site-ink);
+}
+
+.topo-mock__sub {
+  fill: var(--site-muted-soft);
+  font-size: 8px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.topo-mock__legend {
+  display: flex;
+  justify-content: center;
+  gap: 1.4rem;
+  padding: 0.4rem 0 0.2rem;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--site-muted-soft);
+}
+
+.topo-mock__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.topo-mock__legend-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1.5px solid var(--site-copy);
+  background: var(--site-surface-strong);
+}
+
+.topo-mock__legend-mark--online {
+  background: var(--site-accent);
+  border-color: var(--site-accent);
+}
+
+.topo-mock__legend-mark--bridge {
+  background: var(--site-surface-strong);
+  border-style: dashed;
+}
+
+.topo-mock__legend-mark--self {
+  background: var(--site-ink);
+  border-color: var(--site-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topo-mock__pulse { display: none; }
+  .topo-mock__edge--active { stroke: var(--site-border-strong); stroke-width: 1; }
+}
+
+/* Tail firehose */
+
+.tail-mock {
+  background: #14151a;
+  color: #ebe6dc;
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  box-shadow: var(--site-card-shadow);
+}
+
+.tail-mock__strip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 28px;
+  padding: 0 0.5rem;
+  border-bottom: 1px solid rgba(214, 200, 170, 0.13);
+  background: #181a20;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(196, 189, 169, 0.7);
+}
+
+.tail-mock__strip-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.6rem;
+  border-right: 1px solid rgba(214, 200, 170, 0.08);
+  height: 100%;
+}
+
+.tail-mock__strip-cell:last-child { border-right: 0; }
+
+.tail-mock__strip-cell b {
+  color: #f4b860;
+  font-weight: 600;
+}
+
+.tail-mock__strip-brand {
+  color: #f4b860;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.tail-mock__strip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #6dd49a;
+  box-shadow: 0 0 0 3px rgba(109, 212, 154, 0.18);
+}
+
+.tail-mock__strip-cell--warn b { color: #ff8d7b; }
+
+.tail-mock__strip-cell--mute {
+  color: rgba(196, 189, 169, 0.4);
+  border-right: 0;
+}
+
+.tail-mock__strip-spacer {
+  flex: 1;
+  border-right: 0;
+}
+
+.tail-mock__procs {
+  border-bottom: 1px solid rgba(214, 200, 170, 0.13);
+  padding: 0.4rem 0.6rem;
+}
+
+.tail-mock__proc-head,
+.tail-mock__proc {
+  display: grid;
+  grid-template-columns: minmax(0, 6.5rem) 4rem 7rem 1fr 7rem;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.18rem 0;
+  font-size: 11px;
+}
+
+.tail-mock__proc-head {
+  color: rgba(196, 189, 169, 0.45);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding-bottom: 0.3rem;
+}
+
+.tail-mock__proc--idle { opacity: 0.5; }
+
+.tail-mock__proc-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 500;
+  color: #ebe6dc;
+}
+
+.tail-mock__proc-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #6dd49a;
+  box-shadow: 0 0 0 3px rgba(109, 212, 154, 0.16);
+}
+
+.tail-mock__proc--idle .tail-mock__proc-mark {
+  background: rgba(196, 189, 169, 0.4);
+  box-shadow: none;
+}
+
+.tail-mock__proc-pid {
+  color: rgba(196, 189, 169, 0.55);
+}
+
+.tail-mock__proc-repo {
+  color: rgba(196, 189, 169, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tail-mock__proc-rate {
+  position: relative;
+  height: 14px;
+  background: rgba(214, 200, 170, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tail-mock__proc-bar {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, rgba(244, 184, 96, 0.35), rgba(244, 184, 96, 0.6));
+  transition: width 0.6s ease;
+}
+
+.tail-mock__proc-rate-val {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.4rem;
+  font-size: 9.5px;
+  color: #ebe6dc;
+  letter-spacing: 0.04em;
+}
+
+.tail-mock__tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 500;
+  background: rgba(214, 200, 170, 0.1);
+  color: rgba(196, 189, 169, 0.8);
+}
+
+.tail-mock__tag--scout         { background: rgba(244, 184, 96, 0.16); color: #f4b860; }
+.tail-mock__tag--hudson        { background: rgba(91, 132, 255, 0.18); color: #8aa6ff; }
+.tail-mock__tag--codex-gui     { background: rgba(109, 212, 154, 0.16); color: #6dd49a; }
+.tail-mock__tag--claude-cli    { background: rgba(212, 140, 70, 0.18); color: #d48c46; }
+.tail-mock__tag--unattributed  { background: rgba(255, 141, 123, 0.16); color: #ff8d7b; }
+
+.tail-mock__stream {
+  padding: 0.4rem 0.6rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-height: 200px;
+}
+
+.tail-mock__line {
+  display: grid;
+  grid-template-columns: 5.2rem minmax(0, 5rem) 7rem 1fr;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  animation: tail-line-in 0.35s ease-out;
+}
+
+@keyframes tail-line-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.tail-mock__col-ts        { color: rgba(196, 189, 169, 0.45); }
+.tail-mock__col-agent     { color: #ebe6dc; font-weight: 500; }
+.tail-mock__col-body      { color: rgba(196, 189, 169, 0.85); overflow: hidden; text-overflow: ellipsis; }
+
+.tail-mock__line--sys  .tail-mock__col-body { color: rgba(196, 189, 169, 0.55); }
+.tail-mock__line--tool .tail-mock__col-body { color: #6dd49a; }
+.tail-mock__line--warn .tail-mock__col-body { color: #f4b860; }
+.tail-mock__line--err  .tail-mock__col-body { color: #ff8d7b; }
+.tail-mock__line--user .tail-mock__col-body { color: #8aa6ff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tail-mock__line { animation: none; }
+  .tail-mock__proc-bar { transition: none; }
 }
 
 /* ── hero accent gradient ── */
@@ -1102,6 +1526,43 @@ html[data-site-theme="dark"] .dot-grid {
 
 .docs-markdown p {
   margin-bottom: 0.6em;
+}
+
+.blog-index-post:first-child {
+  padding-top: 0;
+}
+
+.blog-article-markdown {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-size: 18px;
+  line-height: 1.78;
+  color: var(--site-copy);
+}
+
+.blog-article-markdown p {
+  margin-bottom: 1.15em;
+}
+
+.blog-article-markdown p:first-child {
+  color: var(--site-ink);
+  font-size: 20px;
+  line-height: 1.65;
+}
+
+.blog-article-markdown strong {
+  color: var(--site-ink);
+  font-weight: 600;
+}
+
+.blog-article-markdown img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 2rem 0;
+  border: 1px solid var(--site-border);
+  border-radius: 6px;
+  background: var(--site-panel-muted);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--site-ink) 10%, transparent);
 }
 
 .docs-markdown h2 {

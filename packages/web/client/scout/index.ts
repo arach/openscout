@@ -4,7 +4,6 @@ import type { HudsonApp, AppIntent } from "@hudson/sdk";
 import { ScoutProvider } from "./Provider.tsx";
 import { ScoutContent } from "./slots/Content.tsx";
 import { ScoutInspector } from "./slots/Inspector.tsx";
-import { ScoutLeftFooter } from "./slots/LeftFooter.tsx";
 import { ScoutLeftPanel } from "./slots/LeftPanel.tsx";
 import { ScoutTerminal } from "./slots/Terminal.tsx";
 import { OnboardingTakeover } from "./takeover/OnboardingTakeover.tsx";
@@ -53,12 +52,20 @@ const intents: AppIntent[] = [
     shortcut: "Cmd+4",
   },
   {
+    commandId: "nav:channels",
+    title: "Go to Channels",
+    description: "Navigate to the channels browser for group conversations",
+    category: "navigation",
+    keywords: ["channels", "channel", "group", "broadcast"],
+    shortcut: "Cmd+5",
+  },
+  {
     commandId: "nav:activity",
     title: "Go to Activity",
     description: "Navigate to the activity feed showing recent events",
     category: "navigation",
     keywords: ["activity", "feed", "events", "log"],
-    shortcut: "Cmd+5",
+    shortcut: "Cmd+6",
   },
   {
     commandId: "nav:mesh",
@@ -66,7 +73,7 @@ const intents: AppIntent[] = [
     description: "Navigate to the mesh network view showing nodes and topology",
     category: "navigation",
     keywords: ["mesh", "network", "nodes", "peers", "topology"],
-    shortcut: "Cmd+6",
+    shortcut: "Cmd+7",
   },
   {
     commandId: "nav:settings",
@@ -179,7 +186,7 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
       createElement(ScoutProvider, { initialTheme }, children),
 
     leftPanel: {
-      title: "Agents",
+      title: "Navigation",
     },
 
     rightPanel: {
@@ -189,7 +196,6 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
     slots: {
       Content: ScoutContent,
       LeftPanel: ScoutLeftPanel,
-      LeftFooter: ScoutLeftFooter,
       Inspector: ScoutInspector,
       Takeover: OnboardingTakeover,
       Terminal: ScoutTerminal,

@@ -291,6 +291,29 @@ The rules are:
 This preserves a normal conversational feel while keeping the control state
 deterministic.
 
+## Agent Attention and Read Semantics
+
+Agents need a stronger contract than a human chat sidebar.
+
+For V1, Scout should separate three cases:
+
+| Case | Broker behavior | Agent expectation |
+| --- | --- | --- |
+| Ambient channel note | Persist to channel history and create durable visibility deliveries. | Available when the agent asks what it missed. |
+| Online participant activity | Add online participants to `audience.notify` with reason `conversation_visibility`. | Notify an already-running session without waking a new one. |
+| Mission-critical turn | Create a handoff, invocation, or ack-required delivery. | The named owner must act or explicitly hand off. |
+
+Online channel notifications are not mentions. They should not automatically
+become `must_ack` deliveries, and they should not start offline agents. They are
+only a low-cost hint that the channel changed while the agent was already
+present.
+
+Delivery claims provide the shared "read" primitive for running instances. An
+agent bridge should claim the delivery before handing a message to its harness
+and acknowledge it after successful handoff. If a sibling instance tries to
+claim the same delivery, it should see that the work has already been consumed
+and avoid replaying the same channel note.
+
 ## Minimal Product Contract
 
 Every mission channel should be able to render this compact status:

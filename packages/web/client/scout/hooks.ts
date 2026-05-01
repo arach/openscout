@@ -1,4 +1,5 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Settings } from "lucide-react";
 import type { CommandOption, StatusColor, TakeoverState } from "@hudson/sdk";
 import { api } from "../lib/api.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
@@ -70,22 +71,28 @@ export function useScoutCommands(): CommandOption[] {
         shortcut: "Cmd+4",
       },
       {
+        id: "nav:channels",
+        label: "Go to Channels",
+        action: () => navigate({ view: "channels" }),
+        shortcut: "Cmd+5",
+      },
+      {
         id: "nav:activity",
         label: "Go to Activity",
         action: () => navigate({ view: "activity" }),
-        shortcut: "Cmd+5",
+        shortcut: "Cmd+6",
       },
       {
         id: "nav:mesh",
         label: "Go to Mesh",
         action: () => navigate({ view: "mesh" }),
-        shortcut: "Cmd+6",
+        shortcut: "Cmd+7",
       },
       ...(opsEnabled ? [{
         id: "nav:ops",
         label: "Go to Ops",
         action: () => navigate({ view: "ops" }),
-        shortcut: "Cmd+7",
+        shortcut: "Cmd+8",
       }] : []),
       {
         id: "nav:settings",
@@ -227,6 +234,7 @@ const VIEW_LABELS: Record<string, string> = {
   agents: "Agents",
   fleet: "Fleet",
   sessions: "Sessions",
+  channels: "Channels",
   activity: "Activity",
   mesh: "Mesh",
   settings: "Settings",
@@ -241,6 +249,7 @@ export function useScoutNavCenter(): ReactNode | null {
     { label: "Fleet", view: "inbox" },
     { label: "Agents", view: "agents" },
     { label: "Sessions", view: "sessions" },
+    { label: "Channels", view: "channels" },
     { label: "Mesh", view: "mesh" },
     ...(opsEnabled ? [{ label: "Ops" as const, view: "ops" as Route["view"] }] : []),
   ];
@@ -250,6 +259,7 @@ export function useScoutNavCenter(): ReactNode | null {
     : route.view === "conversation" ? "agents"
     : route.view === "agent-info" ? "agents"
     : route.view === "work" ? (opsEnabled ? "ops" : "inbox")
+    : route.view === "channels" ? "channels"
     : route.view;
 
   const breadcrumb = route.view === "conversation" || route.view === "agent-info" || route.view === "work"
@@ -269,7 +279,7 @@ export function useScoutNavCenter(): ReactNode | null {
   );
 }
 
-/* ── useNavActions — "Pair device" button ──────────────────────────────── */
+/* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings, navigate, rangerConversationId } = useScout();
   return createElement("div", { className: "scout-nav-actions" },
@@ -285,9 +295,11 @@ export function useScoutNavActions(): ReactNode | null {
       "button",
       {
         onClick: () => openSettings(),
-        className: "scout-nav-action",
+        className: "scout-nav-action scout-nav-action--settings",
+        title: "Settings",
       },
-      "Pair device",
+      createElement(Settings, { size: 12, strokeWidth: 1.6, "aria-hidden": true }),
+      createElement("span", null, "Settings"),
     ),
   );
 }
