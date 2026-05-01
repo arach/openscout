@@ -18,8 +18,9 @@ function parseAgentTab(value: string | null): AgentTab | undefined {
 function parseOpsMode(value: string | undefined): OpsMode | undefined {
   switch (value) {
     case "command":
+      return "command";
     case "warroom":
-      return "warroom";
+      return "command";
     case "control":
     case "mission":
       return "mission";
@@ -38,7 +39,7 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
 
 function opsModePath(mode: OpsMode): string {
   switch (mode) {
-    case "warroom":
+    case "command":
       return "command";
     case "mission":
       return "control";

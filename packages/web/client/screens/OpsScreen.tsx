@@ -7,11 +7,11 @@ import { OpsAgentsView } from "./OpsAgentsView.tsx";
 import { PlanView } from "./PlanView.tsx";
 import { AtopView } from "./AtopView.tsx";
 import { TailView } from "./TailView.tsx";
-import { WarRoomView } from "./WarRoomView.tsx";
+import { CommandView } from "./commandView.tsx";
 import type { OpsMode, Route } from "../lib/types.ts";
 
 const TABS: { id: OpsMode; label: string }[] = [
-  { id: "warroom", label: "Command" },
+  { id: "command", label: "Command" },
   { id: "mission", label: "Control" },
   { id: "plan", label: "Plan" },
   { id: "conductor", label: "Conduct" },
@@ -22,7 +22,7 @@ const TABS: { id: OpsMode; label: string }[] = [
 
 export function OpsScreen({
   navigate,
-  mode = "warroom",
+  mode = "command",
 }: {
   navigate: (r: Route) => void;
   mode?: OpsMode;
@@ -50,7 +50,7 @@ export function OpsScreen({
         {mode === "agents" && <OpsAgentsView navigate={navigate} agents={agents} />}
         {mode === "plan" && <PlanView navigate={navigate} agents={agents} />}
         {mode === "conductor" && <ConductorView navigate={navigate} agents={agents} />}
-        {mode === "warroom" && <WarRoomView navigate={navigate} agents={agents} />}
+        {mode === "command" && <CommandView navigate={navigate} agents={agents} />}
         {mode === "tail" && <TailView navigate={navigate} />}
         {mode === "atop" && <AtopView />}
       </div>

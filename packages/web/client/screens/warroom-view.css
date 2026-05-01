@@ -249,7 +249,7 @@
   min-height: 22px;
 }
 
-.s-warroom-decision {
+.s-warroom-attention-item {
   width: 100%;
   min-width: 0;
   min-height: 108px;
@@ -261,39 +261,77 @@
   background: var(--surface);
   color: var(--ink);
   text-align: left;
-  cursor: pointer;
-  appearance: none;
   transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 
-.s-warroom-decision:hover {
+.s-warroom-attention-item:hover,
+.s-warroom-attention-item:focus-within {
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
   background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 
-.s-warroom-decision--selected {
+.s-warroom-attention-item--selected {
   border-color: var(--accent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-.s-warroom-decision--critical {
+.s-warroom-attention-item--critical {
   border-color: color-mix(in srgb, var(--amber) 66%, var(--border));
   background: color-mix(in srgb, var(--amber) 6%, var(--surface));
 }
 
-.s-warroom-decision--warning {
+.s-warroom-attention-item--warning {
   border-color: color-mix(in srgb, var(--amber) 42%, var(--border));
 }
 
-.s-warroom-decision--info {
+.s-warroom-attention-item--info {
   border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
 }
 
-.s-warroom-decision-top {
+.s-warroom-attention-item-top {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.s-warroom-attention-item-main {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+
+.s-warroom-attention-item-primary {
+  width: max-content;
+  max-width: 100%;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 56%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  appearance: none;
+  white-space: nowrap;
+}
+
+.s-warroom-attention-item-primary:hover,
+.s-warroom-attention-item-primary:focus-visible {
+  background: var(--accent);
+  color: var(--bg);
 }
 
 .s-warroom-pill {
@@ -327,7 +365,7 @@
   white-space: nowrap;
 }
 
-.s-warroom-decision-title,
+.s-warroom-attention-item-title,
 .s-warroom-board-card-title,
 .s-warroom-inspector-title {
   min-width: 0;
@@ -339,12 +377,12 @@
   text-overflow: ellipsis;
 }
 
-.s-warroom-decision-title,
+.s-warroom-attention-item-title,
 .s-warroom-board-card-title {
   white-space: nowrap;
 }
 
-.s-warroom-decision-summary,
+.s-warroom-attention-item-summary,
 .s-warroom-board-card-summary,
 .s-warroom-inspector-body {
   min-width: 0;
@@ -354,7 +392,7 @@
   overflow-wrap: anywhere;
 }
 
-.s-warroom-decision-summary,
+.s-warroom-attention-item-summary,
 .s-warroom-board-card-summary {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -362,7 +400,7 @@
   overflow: hidden;
 }
 
-.s-warroom-decision-meta,
+.s-warroom-attention-item-meta,
 .s-warroom-board-card-foot,
 .s-warroom-inspector-meta {
   min-width: 0;
@@ -376,7 +414,7 @@
   overflow: hidden;
 }
 
-.s-warroom-decision-meta > *,
+.s-warroom-attention-item-meta > *,
 .s-warroom-board-card-foot > *,
 .s-warroom-inspector-meta > * {
   min-width: 0;
@@ -695,6 +733,16 @@
 
 .s-warroom-map-node {
   color: var(--accent);
+}
+
+.s-warroom-map-node--actionable {
+  cursor: pointer;
+}
+
+.s-warroom-map-node--actionable:focus-visible .s-warroom-map-node-core,
+.s-warroom-map-node--actionable:hover .s-warroom-map-node-core {
+  stroke: var(--accent);
+  stroke-width: 3;
 }
 
 .s-warroom-map-node--operator {
@@ -1277,32 +1325,6 @@ button.s-warroom-ask-card:hover {
   .s-warroom-kpis {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-
-  .s-warroom-layout,
-  .s-warroom-grid {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(520px, 1fr) auto;
-    overflow: visible;
-  }
-
-  .s-warroom-queue {
-    overflow: visible;
-  }
-
-  .s-warroom-inspector {
-    grid-column: auto;
-  }
-
-  .s-warroom-command-stack {
-    grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .s-warroom-command-stack .s-warroom-section-head,
-  .s-warroom-command-stack .s-warroom-queue-list {
-    grid-column: 2;
-  }
-
 }
 
 @container (max-width: 720px) {
@@ -1415,7 +1437,7 @@ button.s-warroom-ask-card:hover {
     flex: 0 0 auto;
   }
 
-  .s-warroom-decision,
+  .s-warroom-attention-item,
   .s-warroom-board-card {
     min-height: 0;
   }
@@ -1443,32 +1465,6 @@ button.s-warroom-ask-card:hover {
   .s-warroom-kpis {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-
-  .s-warroom-layout,
-  .s-warroom-grid {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(520px, 1fr) auto;
-    overflow: visible;
-  }
-
-  .s-warroom-queue {
-    overflow: visible;
-  }
-
-  .s-warroom-inspector {
-    grid-column: auto;
-  }
-
-  .s-warroom-command-stack {
-    grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .s-warroom-command-stack .s-warroom-section-head,
-  .s-warroom-command-stack .s-warroom-queue-list {
-    grid-column: 2;
-  }
-
 }
 
 @media (max-width: 860px) {
@@ -1560,7 +1556,7 @@ button.s-warroom-ask-card:hover {
     max-width: 100%;
   }
 
-  .s-warroom-decision,
+  .s-warroom-attention-item,
   .s-warroom-board-card {
     min-height: 0;
   }
