@@ -8,12 +8,29 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { ChevronDown, ChevronUp, Crosshair, Maximize2 } from "lucide-react";
 import { actorColor } from "../lib/colors.ts";
+import { api } from "../lib/api.ts";
+import { useCanvasMinimapRegistration } from "../lib/canvas-minimap.tsx";
 import { normalizeAgentState, agentStateLabel } from "../lib/agent-state.ts";
-import { summarizeObserveEvent, useObservePolling } from "../lib/observe.ts";
+import {
+  summarizeObserveEvent,
+  useObservePolling,
+  type ObserveCacheEntry,
+} from "../lib/observe.ts";
 import { conversationForAgent } from "../lib/router.ts";
+import { useTailEvents } from "../lib/tail-events.ts";
 import { SessionObserve, type SessionObserveData } from "./SessionObserve.tsx";
-import type { Agent, Route } from "../lib/types.ts";
+import type {
+  Agent,
+  ObserveData,
+  ObserveEvent,
+  Route,
+  SessionEntry,
+  TailDiscoveredTranscript,
+  TailDiscoverySnapshot,
+  TailEvent,
+} from "../lib/types.ts";
 
 /* ── Constants ── */
 
@@ -25,8 +42,14 @@ const GROUP_GAP_Y = 36;
 const GROUP_LABEL_H = 28;
 const CANVAS_PAD = 40;
 
-const MINIMAP_W = 180;
-const MINIMAP_MAX_H = 140;
+const MINIMAP_FALLBACK_W = 244;
+const MINIMAP_MAX_H = 160;
+const ACTIVE_EVENT_WINDOW_MS = 2 * 60_000;
+const RECENT_WINDOW_OPTIONS = [
+  { label: "15m", value: 15 * 60_000 },
+  { label: "1h", value: 60 * 60_000 },
+  { label: "24h", value: 24 * 60 * 60_000 },
+] as const;
 
 /* ── Viewport persistence ── */
 
@@ -59,9 +82,27 @@ function loadViewport(): { pan: { x: number; y: number }; zoom: number } | null 
 type LayoutTile = { agentId: string; x: number; y: number };
 type LayoutGroup = { label: string; x: number; y: number; w: number; h: number; tiles: LayoutTile[] };
 type CanvasLayout = { groups: LayoutGroup[]; canvasW: number; canvasH: number };
+type MissionActivityFilter = "all" | "active" | "recent";
+type MissionSourceFilter = "all" | "scout" | "native";
+type CanvasSubject = {
+  id: string;
+  name: string;
+  group: string;
+  stateRank: number;
+};
+type NativeSessionModel = {
+  id: string;
+  transcript: TailDiscoveredTranscript;
+  events: TailEvent[];
+  agent: Agent;
+  observe: ObserveData;
+  lastActiveAt: number;
+  current: boolean;
+  recent: boolean;
+};
 
-function computeLayout(agents: Agent[]): CanvasLayout {
-  const groups = groupAgents(agents);
+function computeLayout(subjects: CanvasSubject[]): CanvasLayout {
+  const groups = groupSubjects(subjects);
   if (groups.length === 0) return { groups: [], canvasW: 0, canvasH: 0 };
 
   const targetCols = Math.max(1, Math.round(Math.sqrt(groups.length * 1.2)));
@@ -76,13 +117,13 @@ function computeLayout(agents: Agent[]): CanvasLayout {
     const x = colX[shortestCol];
     const y = colHeights[shortestCol];
 
-    const cols = Math.min(2, group.agents.length);
-    const rows = Math.ceil(group.agents.length / cols);
+    const cols = Math.min(2, group.subjects.length);
+    const rows = Math.ceil(group.subjects.length / cols);
     const groupW = cols * TILE_W + (cols - 1) * TILE_GAP;
     const groupH = GROUP_LABEL_H + rows * TILE_H + (rows - 1) * TILE_GAP;
 
-    const tiles: LayoutTile[] = group.agents.map((a, i) => ({
-      agentId: a.id,
+    const tiles: LayoutTile[] = group.subjects.map((subject, i) => ({
+      agentId: subject.id,
       x: x + (i % cols) * (TILE_W + TILE_GAP),
       y: y + GROUP_LABEL_H + Math.floor(i / cols) * (TILE_H + TILE_GAP),
     }));
@@ -96,30 +137,201 @@ function computeLayout(agents: Agent[]): CanvasLayout {
   return { groups: laid, canvasW, canvasH };
 }
 
-type AgentGroup = { label: string; agents: Agent[] };
+type SubjectGroup = { label: string; subjects: CanvasSubject[] };
 
-function groupAgents(agents: Agent[]): AgentGroup[] {
-  const stateOrder: Record<string, number> = { working: 0, available: 1, offline: 2 };
-  const sorted = [...agents].sort((a, b) => {
-    const sa = stateOrder[normalizeAgentState(a.state)] ?? 1;
-    const sb = stateOrder[normalizeAgentState(b.state)] ?? 1;
-    if (sa !== sb) return sa - sb;
+function groupSubjects(subjects: CanvasSubject[]): SubjectGroup[] {
+  const sorted = [...subjects].sort((a, b) => {
+    if (a.stateRank !== b.stateRank) return a.stateRank - b.stateRank;
     return a.name.localeCompare(b.name);
   });
 
-  const byProject = new Map<string, Agent[]>();
-  for (const a of sorted) {
-    const key = a.project ?? "unassigned";
-    if (!byProject.has(key)) byProject.set(key, []);
-    byProject.get(key)!.push(a);
+  const byGroup = new Map<string, CanvasSubject[]>();
+  for (const subject of sorted) {
+    if (!byGroup.has(subject.group)) byGroup.set(subject.group, []);
+    byGroup.get(subject.group)!.push(subject);
   }
 
-  const groups: AgentGroup[] = [];
-  for (const [project, group] of byProject) {
-    groups.push({ label: project, agents: group });
+  const groups: SubjectGroup[] = [];
+  for (const [label, group] of byGroup) {
+    groups.push({ label, subjects: group });
   }
-  groups.sort((a, b) => b.agents.length - a.agents.length);
+  groups.sort((a, b) => b.subjects.length - a.subjects.length);
   return groups;
+}
+
+function agentSubject(agent: Agent): CanvasSubject {
+  const stateOrder: Record<string, number> = { working: 0, available: 1, offline: 2 };
+  const state = normalizeAgentState(agent.state);
+  return {
+    id: agent.id,
+    name: agent.name,
+    group: agent.project ?? "unassigned",
+    stateRank: stateOrder[state] ?? 1,
+  };
+}
+
+function nativeSubject(session: NativeSessionModel): CanvasSubject {
+  return {
+    id: session.id,
+    name: session.agent.name,
+    group: `native ${session.transcript.source}`,
+    stateRank: session.current ? 0 : 1,
+  };
+}
+
+function sessionCountsByAgent(sessions: SessionEntry[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const session of sessions) {
+    if (!session.agentId) continue;
+    counts.set(session.agentId, (counts.get(session.agentId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function sessionLastActivityByAgent(sessions: SessionEntry[]): Map<string, number> {
+  const activity = new Map<string, number>();
+  for (const session of sessions) {
+    if (!session.agentId || !session.lastMessageAt) continue;
+    activity.set(
+      session.agentId,
+      Math.max(activity.get(session.agentId) ?? 0, session.lastMessageAt),
+    );
+  }
+  return activity;
+}
+
+function agentLastActivityAt(
+  agent: Agent,
+  observe: ObserveCacheEntry | undefined,
+  sessionsLastAt: Map<string, number>,
+): number {
+  return Math.max(
+    sessionsLastAt.get(agent.id) ?? 0,
+    observe?.updatedAt ?? 0,
+    normalizeAgentState(agent.state) === "working" ? agent.updatedAt ?? 0 : 0,
+  );
+}
+
+function isAgentCurrentlyActive(
+  agent: Agent,
+  observe: ObserveCacheEntry | undefined,
+  lastActiveAt: number,
+  now: number,
+): boolean {
+  return (
+    normalizeAgentState(agent.state) === "working" ||
+    observe?.data.live === true ||
+    (lastActiveAt > 0 && now - lastActiveAt <= ACTIVE_EVENT_WINDOW_MS)
+  );
+}
+
+function shortId(value: string | null | undefined): string {
+  if (!value) return "session";
+  return value.replace(/\.jsonl$/u, "").slice(0, 8);
+}
+
+function titleCase(value: string): string {
+  return value ? `${value[0]?.toUpperCase()}${value.slice(1)}` : "Native";
+}
+
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function nativeSessionId(transcript: TailDiscoveredTranscript): string {
+  const sessionId = transcript.sessionId?.trim() || "session";
+  return `native:${transcript.source}:${sessionId}:${stableHash(transcript.transcriptPath)}`;
+}
+
+function tailEventKindToObserveKind(kind: TailEvent["kind"]): ObserveEvent["kind"] {
+  switch (kind) {
+    case "assistant":
+      return "message";
+    case "tool":
+    case "tool-result":
+      return "tool";
+    case "user":
+      return "ask";
+    case "system":
+      return "system";
+    default:
+      return "note";
+  }
+}
+
+function nativeObserveData(
+  transcript: TailDiscoveredTranscript,
+  events: TailEvent[],
+  current: boolean,
+): ObserveData {
+  const tail = events.slice(-12);
+  const observeEvents = tail.map((event, index): ObserveEvent => ({
+    id: event.id,
+    t: index,
+    kind: tailEventKindToObserveKind(event.kind),
+    text: event.summary,
+    tool: event.kind === "tool" || event.kind === "tool-result" ? event.source : undefined,
+    detail: `${event.source} · ${event.harness}`,
+    live: current && index === tail.length - 1,
+  }));
+
+  return {
+    events: observeEvents.length > 0
+      ? observeEvents
+      : [{
+          id: `${nativeSessionId(transcript)}:discovered`,
+          t: 0,
+          kind: "system",
+          text: `Native ${transcript.source} transcript discovered.`,
+          detail: transcript.cwd ?? transcript.transcriptPath,
+        }],
+    files: [],
+    live: current,
+    metadata: {
+      session: {
+        adapterType: transcript.source,
+        externalSessionId: transcript.sessionId ?? undefined,
+        threadPath: transcript.transcriptPath,
+        cwd: transcript.cwd ?? undefined,
+        originator: transcript.harness,
+        source: "tail",
+      },
+    },
+  };
+}
+
+function nativeSessionAgent(
+  transcript: TailDiscoveredTranscript,
+  lastActiveAt: number,
+  current: boolean,
+): Agent {
+  return {
+    id: nativeSessionId(transcript),
+    name: `${titleCase(transcript.source)} · ${transcript.project}`,
+    handle: shortId(transcript.sessionId),
+    agentClass: "native-session",
+    harness: transcript.source,
+    state: current ? "working" : "available",
+    projectRoot: transcript.cwd,
+    cwd: transcript.cwd,
+    updatedAt: lastActiveAt,
+    transport: "tail",
+    selector: null,
+    wakePolicy: null,
+    capabilities: [],
+    project: transcript.project,
+    branch: transcript.harness === "unattributed" ? "native session" : transcript.harness,
+    role: "native session",
+    model: null,
+    harnessSessionId: transcript.sessionId,
+    harnessLogPath: transcript.transcriptPath,
+    conversationId: nativeSessionId(transcript),
+  };
 }
 
 /* ── Mini event helpers ── */
@@ -154,7 +366,59 @@ export function MissionControlView({
   agents: Agent[];
 }) {
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [activityFilter, setActivityFilter] = useState<MissionActivityFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<MissionSourceFilter>("all");
+  const [recentWindowMs, setRecentWindowMs] = useState<(typeof RECENT_WINDOW_OPTIONS)[number]["value"]>(
+    RECENT_WINDOW_OPTIONS[1].value,
+  );
+  const [sessions, setSessions] = useState<SessionEntry[]>([]);
+  const [tailDiscovery, setTailDiscovery] = useState<TailDiscoverySnapshot | null>(null);
+  const [tailEvents, setTailEvents] = useState<TailEvent[]>([]);
+  const [now, setNow] = useState(Date.now());
   const observeCache = useObservePolling(agents);
+
+  useTailEvents((event) => {
+    setTailEvents((previous) => {
+      const next = previous.length >= 500
+        ? [...previous.slice(previous.length - 499), event]
+        : [...previous, event];
+      return next;
+    });
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [sessionResult, discoveryResult, recentTailResult] = await Promise.allSettled([
+          api<SessionEntry[]>("/api/sessions"),
+          api<TailDiscoverySnapshot>("/api/tail/discover"),
+          api<{ events: TailEvent[] }>("/api/tail/recent?limit=500"),
+        ]);
+        if (cancelled) return;
+        if (sessionResult.status === "fulfilled") setSessions(sessionResult.value);
+        else setSessions([]);
+        if (discoveryResult.status === "fulfilled") setTailDiscovery(discoveryResult.value);
+        if (recentTailResult.status === "fulfilled") setTailEvents(recentTailResult.value.events ?? []);
+      } catch {
+        if (!cancelled) {
+          setSessions([]);
+          setTailDiscovery(null);
+        }
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   /* ── Pan / zoom ── */
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -176,7 +440,90 @@ export function MissionControlView({
     return () => ro.disconnect();
   }, []);
 
-  const layout = useMemo(() => computeLayout(agents), [agents]);
+  const sessionCounts = useMemo(() => sessionCountsByAgent(sessions), [sessions]);
+  const sessionsLastAt = useMemo(() => sessionLastActivityByAgent(sessions), [sessions]);
+
+  const activityByAgent = useMemo(() => {
+    const map = new Map<string, { lastActiveAt: number; current: boolean; recent: boolean }>();
+    for (const agent of agents) {
+      const observe = observeCache[agent.id];
+      const lastActiveAt = agentLastActivityAt(agent, observe, sessionsLastAt);
+      const current = isAgentCurrentlyActive(agent, observe, lastActiveAt, now);
+      map.set(agent.id, {
+        lastActiveAt,
+        current,
+        recent: current || (lastActiveAt > 0 && now - lastActiveAt <= recentWindowMs),
+      });
+    }
+    return map;
+  }, [agents, now, observeCache, recentWindowMs, sessionsLastAt]);
+
+  const nativeSessions = useMemo(() => {
+    const agentSessionIds = new Set(
+      agents
+        .map((agent) => agent.harnessSessionId?.trim())
+        .filter((sessionId): sessionId is string => Boolean(sessionId)),
+    );
+    const eventsBySession = new Map<string, TailEvent[]>();
+    for (const event of tailEvents) {
+      const bucket = eventsBySession.get(event.sessionId) ?? [];
+      bucket.push(event);
+      eventsBySession.set(event.sessionId, bucket);
+    }
+
+    return (tailDiscovery?.transcripts ?? [])
+      .filter((transcript) => transcript.harness !== "scout-managed")
+      .filter((transcript) => {
+        const sessionId = transcript.sessionId?.trim();
+        return !sessionId || !agentSessionIds.has(sessionId);
+      })
+      .slice(0, 80)
+      .map((transcript): NativeSessionModel => {
+        const events = transcript.sessionId ? eventsBySession.get(transcript.sessionId) ?? [] : [];
+        const eventLastAt = Math.max(0, ...events.map((event) => event.ts));
+        const lastActiveAt = Math.max(eventLastAt, transcript.mtimeMs);
+        const current = lastActiveAt > 0 && now - lastActiveAt <= ACTIVE_EVENT_WINDOW_MS;
+        const recent = current || (lastActiveAt > 0 && now - lastActiveAt <= recentWindowMs);
+        const observe = nativeObserveData(transcript, events, current);
+        return {
+          id: nativeSessionId(transcript),
+          transcript,
+          events,
+          agent: nativeSessionAgent(transcript, lastActiveAt, current),
+          observe,
+          lastActiveAt,
+          current,
+          recent,
+        };
+      });
+  }, [agents, now, recentWindowMs, tailDiscovery?.transcripts, tailEvents]);
+
+  const visibleAgents = useMemo(() => {
+    if (sourceFilter === "native") return [];
+    if (activityFilter === "all") return agents;
+    return agents.filter((agent) => {
+      const activity = activityByAgent.get(agent.id);
+      return activityFilter === "active" ? activity?.current : activity?.recent;
+    });
+  }, [activityByAgent, activityFilter, agents, sourceFilter]);
+
+  const visibleNativeSessions = useMemo(() => {
+    if (sourceFilter === "scout") return [];
+    if (activityFilter === "all") return nativeSessions;
+    return nativeSessions.filter((session) =>
+      activityFilter === "active" ? session.current : session.recent
+    );
+  }, [activityFilter, nativeSessions, sourceFilter]);
+
+  const canvasSubjects = useMemo(
+    () => [
+      ...visibleAgents.map(agentSubject),
+      ...visibleNativeSessions.map(nativeSubject),
+    ],
+    [visibleAgents, visibleNativeSessions],
+  );
+
+  const layout = useMemo(() => computeLayout(canvasSubjects), [canvasSubjects]);
 
   const animTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -207,6 +554,23 @@ export function MissionControlView({
 
     const t2 = setTimeout(() => setIsTransitioning(false), 1700);
     animTimers.current = [t1, t2];
+  }, [layout, vpSize]);
+
+  const fitAll = useCallback(() => {
+    if (layout.canvasW === 0 || vpSize.w === 0) return;
+    animTimers.current.forEach(clearTimeout);
+
+    const fitZoom = Math.min(1, vpSize.w / layout.canvasW, vpSize.h / layout.canvasH);
+    const overviewZoom = Math.max(0.15, Math.min(1, fitZoom * 0.92));
+    setIsTransitioning(true);
+    setZoom(overviewZoom);
+    setPan({
+      x: (vpSize.w - layout.canvasW * overviewZoom) / 2,
+      y: Math.max(8, (vpSize.h - layout.canvasH * overviewZoom) / 2),
+    });
+
+    const timeout = setTimeout(() => setIsTransitioning(false), 500);
+    animTimers.current = [timeout];
   }, [layout, vpSize]);
 
   useEffect(() => {
@@ -280,21 +644,15 @@ export function MissionControlView({
 
   /* ── Minimap click ── */
   const onMinimapClick = useCallback(
-    (e: ReactMouseEvent<HTMLDivElement>) => {
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const mmScale = Math.min(MINIMAP_W / layout.canvasW, MINIMAP_MAX_H / layout.canvasH);
-      const canvasX = mx / mmScale;
-      const canvasY = my / mmScale;
+    (point: { x: number; y: number }) => {
       const vp = viewportRef.current;
       if (!vp) return;
       setPan({
-        x: vp.clientWidth / 2 - canvasX * zoom,
-        y: vp.clientHeight / 2 - canvasY * zoom,
+        x: vp.clientWidth / 2 - point.x * zoom,
+        y: vp.clientHeight / 2 - point.y * zoom,
       });
     },
-    [layout, zoom],
+    [zoom],
   );
 
   const tilePositions = useMemo(() => {
@@ -305,20 +663,116 @@ export function MissionControlView({
     return map;
   }, [layout]);
 
-  const liveCount = agents.filter((a) => normalizeAgentState(a.state) === "working").length;
+  const activeCount =
+    visibleAgents.filter((agent) => activityByAgent.get(agent.id)?.current).length +
+    visibleNativeSessions.filter((session) => session.current).length;
+  const recentCount =
+    (sourceFilter === "native" ? 0 : agents.filter((agent) => activityByAgent.get(agent.id)?.recent).length) +
+    (sourceFilter === "scout" ? 0 : nativeSessions.filter((session) => session.recent).length);
+  const visibleSessionCount =
+    visibleAgents.reduce((count, agent) => count + (sessionCounts.get(agent.id) ?? 0), 0) +
+    visibleNativeSessions.length;
+  const visibleTileCount = visibleAgents.length + visibleNativeSessions.length;
+  const totalTileCount = agents.length + nativeSessions.length;
+  const minimapAgents = useMemo(
+    () => [...visibleAgents, ...visibleNativeSessions.map((session) => session.agent)],
+    [visibleAgents, visibleNativeSessions],
+  );
+  const minimapRegistration = useMemo(
+    () => visibleTileCount > 0 ? {
+      id: "ops-control",
+      render: ({ isCollapsed, onToggleCollapse }: { isCollapsed: boolean; onToggleCollapse: () => void }) => (
+        <Minimap
+          layout={layout}
+          agents={minimapAgents}
+          pan={pan}
+          zoom={zoom}
+          viewportRef={viewportRef}
+          isCollapsed={isCollapsed}
+          onToggleCollapse={onToggleCollapse}
+          onFitAll={fitAll}
+          onHome={() => triggerEntry(false)}
+          onClick={onMinimapClick}
+        />
+      ),
+    } : null,
+    [fitAll, layout, minimapAgents, onMinimapClick, pan, triggerEntry, visibleTileCount, zoom],
+  );
+  useCanvasMinimapRegistration(minimapRegistration);
 
   return (
     <div className="s-mission">
       <div className="s-mission-bar">
         <span className="s-mission-bar-label">
-          {agents.length} agent{agents.length !== 1 ? "s" : ""} ·{" "}
+          {visibleTileCount}/{totalTileCount} tile{totalTileCount !== 1 ? "s" : ""} ·{" "}
+          {visibleSessionCount} session{visibleSessionCount !== 1 ? "s" : ""} ·{" "}
           {layout.groups.length} workspace{layout.groups.length !== 1 ? "s" : ""}
         </span>
-        {liveCount > 0 && (
+        {activeCount > 0 && (
           <span className="s-mission-bar-live">
             <span className="s-mission-bar-live-dot" />
-            {liveCount} active
+            {activeCount} active
           </span>
+        )}
+        <div className="s-mission-controls" role="group" aria-label="Agent activity filter">
+          <button
+            type="button"
+            className={`s-mission-filter${activityFilter === "all" ? " s-mission-filter--active" : ""}`}
+            onClick={() => setActivityFilter("all")}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className={`s-mission-filter${activityFilter === "active" ? " s-mission-filter--active" : ""}`}
+            onClick={() => setActivityFilter("active")}
+          >
+            Active now
+          </button>
+          <button
+            type="button"
+            className={`s-mission-filter${activityFilter === "recent" ? " s-mission-filter--active" : ""}`}
+            onClick={() => setActivityFilter("recent")}
+          >
+            Recent {recentCount}
+          </button>
+        </div>
+        <div className="s-mission-controls" role="group" aria-label="Session source filter">
+          <button
+            type="button"
+            className={`s-mission-filter${sourceFilter === "all" ? " s-mission-filter--active" : ""}`}
+            onClick={() => setSourceFilter("all")}
+          >
+            All sources
+          </button>
+          <button
+            type="button"
+            className={`s-mission-filter${sourceFilter === "scout" ? " s-mission-filter--active" : ""}`}
+            onClick={() => setSourceFilter("scout")}
+          >
+            Scout
+          </button>
+          <button
+            type="button"
+            className={`s-mission-filter${sourceFilter === "native" ? " s-mission-filter--active" : ""}`}
+            onClick={() => setSourceFilter("native")}
+          >
+            Native {nativeSessions.length}
+          </button>
+        </div>
+        {activityFilter === "recent" && (
+          <div className="s-mission-controls" role="group" aria-label="Recent activity window">
+            {RECENT_WINDOW_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`s-mission-filter s-mission-filter--compact${recentWindowMs === option.value ? " s-mission-filter--active" : ""}`}
+                onClick={() => setRecentWindowMs(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         )}
         <div className="s-mission-hotkeys">
           <button
@@ -340,11 +794,18 @@ export function MissionControlView({
         onMouseUp={onPointerUp}
         onMouseLeave={onPointerUp}
       >
-        {agents.length === 0 ? (
+        {totalTileCount === 0 ? (
           <div className="s-mission-empty">
             <div className="s-mission-empty-title">Control</div>
             <div className="s-mission-empty-sub">
-              Connect agents to observe their sessions here.
+              Connect agents or start local harness sessions to observe them here.
+            </div>
+          </div>
+        ) : visibleTileCount === 0 ? (
+          <div className="s-mission-empty">
+            <div className="s-mission-empty-title">No matching sessions</div>
+            <div className="s-mission-empty-sub">
+              Try another activity filter or recent window.
             </div>
           </div>
         ) : (
@@ -367,7 +828,7 @@ export function MissionControlView({
               </div>
             ))}
 
-            {agents.map((agent) => {
+            {visibleAgents.map((agent) => {
               const pos = tilePositions[agent.id];
               if (!pos) return null;
               const cached = observeCache[agent.id];
@@ -382,19 +843,23 @@ export function MissionControlView({
                 />
               );
             })}
+            {visibleNativeSessions.map((session) => {
+              const pos = tilePositions[session.id];
+              if (!pos) return null;
+              return (
+                <ObserveTile
+                  key={session.id}
+                  agent={session.agent}
+                  observe={session.observe}
+                  x={pos.x}
+                  y={pos.y}
+                  onClick={() => navigate({ view: "ops", mode: "tail" })}
+                />
+              );
+            })}
           </div>
         )}
 
-        {agents.length > 0 && (
-          <Minimap
-            layout={layout}
-            agents={agents}
-            pan={pan}
-            zoom={zoom}
-            viewportRef={viewportRef}
-            onClick={onMinimapClick}
-          />
-        )}
       </div>
 
       {focusedAgent && (
@@ -609,6 +1074,10 @@ function Minimap({
   pan,
   zoom,
   viewportRef,
+  isCollapsed,
+  onToggleCollapse,
+  onFitAll,
+  onHome,
   onClick,
 }: {
   layout: CanvasLayout;
@@ -616,13 +1085,32 @@ function Minimap({
   pan: { x: number; y: number };
   zoom: number;
   viewportRef: React.RefObject<HTMLDivElement | null>;
-  onClick: (e: ReactMouseEvent<HTMLDivElement>) => void;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+  onFitAll: () => void;
+  onHome: () => void;
+  onClick: (point: { x: number; y: number }) => void;
 }) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const [measuredMapW, setMeasuredMapW] = useState(0);
+  useEffect(() => {
+    const element = mapRef.current;
+    if (!element) return;
+
+    const updateWidth = () => setMeasuredMapW(element.getBoundingClientRect().width);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   if (layout.canvasW === 0) return null;
 
-  const mmScale = Math.min(MINIMAP_W / layout.canvasW, MINIMAP_MAX_H / layout.canvasH);
+  const mapW = measuredMapW || MINIMAP_FALLBACK_W;
+  const mmScale = Math.min(mapW / layout.canvasW, MINIMAP_MAX_H / layout.canvasH);
   const mmW = layout.canvasW * mmScale;
   const mmH = layout.canvasH * mmScale;
+  const mapOffsetX = Math.max(0, (mapW - mmW) / 2);
 
   const vp = viewportRef.current;
   const vpW = vp?.clientWidth ?? 0;
@@ -631,46 +1119,106 @@ function Minimap({
   const vy = (-pan.y / zoom) * mmScale;
   const vw = (vpW / zoom) * mmScale;
   const vh = (vpH / zoom) * mmScale;
+  const handleCanvasClick = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mx = Math.max(0, Math.min(mmW, e.clientX - rect.left - mapOffsetX));
+      const my = Math.max(0, Math.min(mmH, e.clientY - rect.top));
+      onClick({ x: mx / mmScale, y: my / mmScale });
+    },
+    [mapOffsetX, mmH, mmScale, mmW, onClick],
+  );
+
+  if (isCollapsed) {
+    return (
+      <div className="s-mission-minimap s-mission-minimap--collapsed">
+        <div className="s-mission-minimap-header">
+          <span className="s-mission-minimap-title">
+            <span className="s-mission-minimap-title-mark" aria-hidden />
+            MAP
+          </span>
+          <button
+            type="button"
+            className="s-mission-minimap-action"
+            title="Expand map"
+            aria-label="Expand map"
+            onClick={onToggleCollapse}
+          >
+            <ChevronUp size={12} strokeWidth={1.5} />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="s-mission-minimap" style={{ width: mmW, height: mmH }} onClick={onClick}>
-      {layout.groups.map((g) => (
-        <div
-          key={g.label}
-          className="s-mission-minimap-group"
-          style={{ left: g.x * mmScale, top: g.y * mmScale }}
-        >
-          {g.label}
+    <div className="s-mission-minimap">
+      <div className="s-mission-minimap-header">
+        <span className="s-mission-minimap-title">
+          <span className="s-mission-minimap-title-mark" aria-hidden />
+          MAP
+        </span>
+        <div className="s-mission-minimap-actions">
+          <button
+            type="button"
+            className="s-mission-minimap-action"
+            title="Fit all"
+            aria-label="Fit all"
+            onClick={onFitAll}
+          >
+            <Maximize2 size={12} strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            className="s-mission-minimap-action"
+            title="Recenter"
+            aria-label="Recenter"
+            onClick={onHome}
+          >
+            <Crosshair size={12} strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            className="s-mission-minimap-action"
+            title="Minimize map"
+            aria-label="Minimize map"
+            onClick={onToggleCollapse}
+          >
+            <ChevronDown size={12} strokeWidth={1.5} />
+          </button>
         </div>
-      ))}
-      {layout.groups.flatMap((g) =>
-        g.tiles.map((t) => {
-          const agent = agents.find((a) => a.id === t.agentId);
-          return (
-            <div
-              key={t.agentId}
-              className="s-mission-minimap-tile"
-              style={{
-                left: t.x * mmScale,
-                top: t.y * mmScale,
-                width: TILE_W * mmScale,
-                height: TILE_H * mmScale,
-                background: agent ? actorColor(agent.name) : "var(--dim)",
-                opacity: agent && normalizeAgentState(agent.state) === "working" ? 0.8 : 0.35,
-              }}
-            />
-          );
-        }),
-      )}
-      <div
-        className="s-mission-minimap-viewport"
-        style={{
-          left: Math.max(0, vx),
-          top: Math.max(0, vy),
-          width: Math.min(vw, mmW),
-          height: Math.min(vh, mmH),
-        }}
-      />
+      </div>
+      <div ref={mapRef} className="s-mission-minimap-canvas" style={{ height: mmH }} onClick={handleCanvasClick}>
+        {layout.groups.flatMap((g) =>
+          g.tiles.map((t) => {
+            const agent = agents.find((a) => a.id === t.agentId);
+            return (
+              <div
+                key={t.agentId}
+                className="s-mission-minimap-tile"
+                style={{
+                  left: mapOffsetX + t.x * mmScale,
+                  top: t.y * mmScale,
+                  width: TILE_W * mmScale,
+                  height: TILE_H * mmScale,
+                  background: agent ? actorColor(agent.name) : "var(--dim)",
+                  opacity: agent && normalizeAgentState(agent.state) === "working" ? 0.8 : 0.35,
+                }}
+              />
+            );
+          }),
+        )}
+        <div
+          className="s-mission-minimap-viewport"
+          style={{
+            left: mapOffsetX + Math.max(0, vx),
+            top: Math.max(0, vy),
+            width: Math.min(vw, mmW),
+            height: Math.min(vh, mmH),
+          }}
+        >
+        </div>
+      </div>
     </div>
   );
 }

@@ -223,8 +223,9 @@ function normalizeRoute(raw: unknown): Route | null {
 function normalizeOpsMode(mode: string): OpsMode | undefined {
   switch (mode) {
     case "command":
+      return "command";
     case "warroom":
-      return "warroom";
+      return "command";
     case "control":
     case "mission":
       return "mission";

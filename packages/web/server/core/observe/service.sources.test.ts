@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,27 @@ let queryAgentsResult: WebAgent[] = [];
 let brokerContextResult: { snapshot: { endpoints: Record<string, Record<string, unknown>> } } | null = null;
 let localSnapshotResult: SessionState | null = null;
 let pairingSnapshotResult: SessionState | null = null;
+let tailDiscoveryResult: {
+  generatedAt: number;
+  processes: unknown[];
+  transcripts: Array<{
+    source: string;
+    transcriptPath: string;
+    sessionId: string | null;
+    cwd: string | null;
+    project: string;
+    harness: "scout-managed" | "hudson-managed" | "unattributed";
+    mtimeMs: number;
+    size: number;
+  }>;
+  totals: {
+    total: number;
+    scoutManaged: number;
+    hudsonManaged: number;
+    unattributed: number;
+    transcripts: number;
+  };
+} | null = null;
 
 mock.module("../../db-queries.ts", () => ({
   queryAgents: () => queryAgentsResult,
@@ -23,13 +44,30 @@ mock.module("@openscout/runtime/local-agents", () => ({
   getLocalAgentEndpointSessionSnapshot: async () => localSnapshotResult,
 }));
 
+mock.module("@openscout/runtime/tail", () => ({
+  getTailDiscovery: async () => tailDiscoveryResult ?? {
+    generatedAt: Date.now(),
+    processes: [],
+    transcripts: [],
+    totals: {
+      total: 0,
+      scoutManaged: 0,
+      hudsonManaged: 0,
+      unattributed: 0,
+      transcripts: 0,
+    },
+  },
+}));
+
 mock.module("../../pairing.ts", () => ({
   getScoutWebPairingSessionSnapshot: async () => pairingSnapshotResult,
 }));
 
-const { loadAgentObservePayload } = await import("./service.ts");
+const { loadAgentObservePayload, loadSessionRefObservePayload } = await import("./service.ts");
 
 const tempRoots = new Set<string>();
+const originalHome = process.env.HOME;
+const originalClaudeProjectsRoot = process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT;
 
 function makeTempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -99,9 +137,12 @@ beforeEach(() => {
   brokerContextResult = null;
   localSnapshotResult = null;
   pairingSnapshotResult = null;
+  tailDiscoveryResult = null;
 });
 
 afterEach(() => {
+  process.env.HOME = originalHome;
+  process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT = originalClaudeProjectsRoot;
   for (const root of tempRoots) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -239,5 +280,63 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.historyPath).toBe(historyPath);
     expect(payload?.sessionId).toBe("codex-live-session-1");
     expect(payload?.data.events.some((event) => event.text.includes("from live snapshot"))).toBe(true);
+  });
+
+  test("maps a Claude session ref id directly to its history file", async () => {
+    const home = makeTempDir("openscout-observe-home-");
+    process.env.HOME = home;
+    const projectDir = join(home, ".claude", "projects", "-Users-arach-dev-openscout");
+    process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT = join(home, ".claude", "projects");
+    mkdirSync(projectDir, { recursive: true });
+    const historyPath = join(projectDir, "3b0fcaa9-024a-4e67-88f7-08a72d75fbbb.jsonl");
+    writeClaudeHistory(historyPath, "hello from ref lookup");
+
+    const payload = await loadSessionRefObservePayload("3b0fcaa9-024a-4e67-88f7-08a72d75fbbb");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.kind).toBe("history");
+    expect(payload?.source).toBe("history");
+    expect(payload?.historyPath).toBe(historyPath);
+    expect(payload?.sessionId).toBe("3b0fcaa9-024a-4e67-88f7-08a72d75fbbb");
+    expect(payload?.data.events.some((event) => event.text.includes("hello from ref lookup"))).toBe(true);
+  });
+
+  test("maps a Tail-discovered raw session ref to its transcript file", async () => {
+    const tempRoot = makeTempDir("openscout-observe-tail-");
+    process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT = join(tempRoot, "empty-projects");
+    const historyPath = join(tempRoot, "tail-session.jsonl");
+    writeClaudeHistory(historyPath, "hello from tail discovery");
+    tailDiscoveryResult = {
+      generatedAt: Date.now(),
+      processes: [],
+      transcripts: [
+        {
+          source: "claude",
+          transcriptPath: historyPath,
+          sessionId: "tail-session",
+          cwd: "/Users/arach/dev/openscout",
+          project: "openscout",
+          harness: "unattributed",
+          mtimeMs: Date.now(),
+          size: 100,
+        },
+      ],
+      totals: {
+        total: 0,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 0,
+        transcripts: 1,
+      },
+    };
+
+    const payload = await loadSessionRefObservePayload("tail-session");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.kind).toBe("history");
+    expect(payload?.source).toBe("history");
+    expect(payload?.historyPath).toBe(historyPath);
+    expect(payload?.sessionId).toBe("tail-session");
+    expect(payload?.data.events.some((event) => event.text.includes("hello from tail discovery"))).toBe(true);
   });
 });

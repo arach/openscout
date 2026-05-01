@@ -23,6 +23,7 @@ import {
   type ConversationBinding,
   type ConversationDefinition,
   type DeliveryIntent,
+  type DeliveryReason,
   type FlightRecord,
   type InvocationRequest,
   type MessageRecord,
@@ -759,6 +760,71 @@ async function updateDeliveryStatusDurably(input: {
       },
       async () => {},
     );
+  });
+}
+
+function isDeliveryClaimable(delivery: DeliveryIntent, now: number): boolean {
+  if (delivery.status === "pending" || delivery.status === "accepted" || delivery.status === "deferred") {
+    return true;
+  }
+  return delivery.status === "leased"
+    && typeof delivery.leaseExpiresAt === "number"
+    && delivery.leaseExpiresAt <= now;
+}
+
+async function claimDeliveryDurably(input: {
+  messageId: string;
+  targetId: string;
+  reasons?: DeliveryReason[];
+  leaseOwner?: string;
+  leaseMs?: number;
+}): Promise<DeliveryIntent | null> {
+  return runDurableWrite(async () => {
+    const now = Date.now();
+    const reasons = input.reasons?.length ? new Set(input.reasons) : null;
+    const delivery = journal
+      .listDeliveries({ limit: 5000 })
+      .find((candidate) => (
+        candidate.messageId === input.messageId
+        && candidate.targetId === input.targetId
+        && (!reasons || reasons.has(candidate.reason))
+        && isDeliveryClaimable(candidate, now)
+      ));
+
+    if (!delivery) {
+      return null;
+    }
+
+    const leaseOwner = input.leaseOwner?.trim() || `delivery-claim-${nodeId}`;
+    const leaseMs = Number.isFinite(input.leaseMs) && input.leaseMs! > 0 ? input.leaseMs! : 30_000;
+    const leaseExpiresAt = now + leaseMs;
+    const metadata = {
+      claimedAt: now,
+      claimedBy: leaseOwner,
+    };
+
+    await commitDurableEntries(
+      {
+        kind: "delivery.status.update",
+        deliveryId: delivery.id,
+        status: "leased",
+        leaseOwner,
+        leaseExpiresAt,
+        metadata,
+      },
+      async () => {},
+    );
+
+    return {
+      ...delivery,
+      status: "leased",
+      leaseOwner,
+      leaseExpiresAt,
+      metadata: {
+        ...(delivery.metadata ?? {}),
+        ...metadata,
+      },
+    };
   });
 }
 
@@ -2669,6 +2735,21 @@ function activeLocalEndpointForAgent(agentId: string, harness?: AgentEndpoint["h
   ));
 }
 
+function onlineConversationNotifyTargets(
+  conversation: ConversationDefinition,
+  requesterId: string,
+): string[] {
+  return conversation.participantIds.filter((participantId) => {
+    if (participantId === requesterId) {
+      return false;
+    }
+    if (!runtime.agent(participantId)) {
+      return false;
+    }
+    return Boolean(activeLocalEndpointForAgent(participantId));
+  });
+}
+
 async function resolveLocalEndpointForInvocation(invocation: InvocationRequest): Promise<AgentEndpoint | undefined> {
   const requestedHarness = invocation.execution?.harness;
   const sessionPreference = invocation.execution?.session ?? "new";
@@ -3525,11 +3606,42 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "GET" && url.pathname === "/v1/deliveries") {
     const transport = url.searchParams.get("transport") ?? undefined;
     const statusFilter = url.searchParams.get("status") ?? undefined;
-    json(response, 200, journal.listDeliveries({
+    const targetId = url.searchParams.get("targetId")?.trim();
+    const messageId = url.searchParams.get("messageId")?.trim();
+    const reason = url.searchParams.get("reason")?.trim();
+    const deliveries = journal.listDeliveries({
       limit: parseLimit(url),
       transport: transport as DeliveryIntent["transport"] | undefined,
       status: statusFilter as DeliveryIntent["status"] | undefined,
-    }));
+    }).filter((delivery) => (
+      (!targetId || delivery.targetId === targetId)
+      && (!messageId || delivery.messageId === messageId)
+      && (!reason || delivery.reason === reason)
+    ));
+    json(response, 200, deliveries);
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/deliveries/claim") {
+    try {
+      const body = await readRequestBody<{
+        messageId: string;
+        targetId: string;
+        reasons?: DeliveryReason[];
+        leaseOwner?: string;
+        leaseMs?: number;
+      }>(request);
+      const claimed = await claimDeliveryDurably({
+        messageId: body.messageId,
+        targetId: body.targetId,
+        reasons: body.reasons,
+        leaseOwner: body.leaseOwner,
+        leaseMs: body.leaseMs,
+      });
+      json(response, 200, { ok: true, claimed });
+    } catch (error) {
+      badRequest(response, error);
+    }
     return;
   }
 
@@ -4387,6 +4499,9 @@ async function acceptBrokerDelivery(
     const snapshot = runtime.snapshot();
     const messageId = createRuntimeId("msg");
     const routeKind = brokerRouteKind(conversation);
+    const notifyTargets = conversation.kind === "direct"
+      ? []
+      : onlineConversationNotifyTargets(conversation, requesterId);
     const message: MessageRecord = {
       id: messageId,
       conversationId: conversation.id,
@@ -4398,6 +4513,7 @@ async function acceptBrokerDelivery(
       ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
       audience: {
         reason: conversation.kind === "direct" ? "direct_message" : "conversation_visibility",
+        ...(notifyTargets.length > 0 ? { notify: notifyTargets } : {}),
       },
       visibility: messageVisibilityForConversation(conversation),
       policy: "durable",

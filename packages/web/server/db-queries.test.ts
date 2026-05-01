@@ -310,6 +310,7 @@ describe("web db query agents", () => {
       expect(agents.map((agent) => agent.transport)).toEqual(["codex_app_server", "codex_app_server"]);
       expect(agents.map((agent) => agent.state)).toEqual(["available", "working"]);
       expect(agents.map((agent) => agent.projectRoot)).toEqual(["/tmp/agent-2-new", "/tmp/agent-1-new"]);
+      expect(agents.map((agent) => agent.updatedAt)).toEqual([30_000, 20_000]);
       expect(agents.map((agent) => agent.conversationId)).toEqual(["dm.operator.agent-2", "dm.operator.agent-1"]);
     } finally {
       store.close();

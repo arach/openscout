@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,18 +28,42 @@ if (!(command in sourceMain)) {
   process.exit(1);
 }
 
+function runEntrypoint(entry, entryArgs) {
+  const captureOutput = command === "service";
+  const result = spawnSync(process.execPath, [entry, ...entryArgs], captureOutput
+    ? {
+        encoding: "utf8",
+        stdio: ["inherit", "pipe", "pipe"],
+      }
+    : {
+        stdio: "inherit",
+      });
+
+  if (captureOutput) {
+    if (result.stdout) {
+      process.stdout.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+  }
+
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+
+  if (result.signal) {
+    process.kill(process.pid, result.signal);
+    return;
+  }
+
+  process.exit(result.status ?? 0);
+}
+
 const distEntry = distMain[command];
 if (existsSync(distEntry)) {
-  const child = spawn(process.execPath, [distEntry, ...args], {
-    stdio: "inherit",
-  });
-  child.on("exit", (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-    } else {
-      process.exit(code ?? 0);
-    }
-  });
+  runEntrypoint(distEntry, args);
 } else {
   const buildResult = spawnSync(npmCommand, ["run", "build"], {
     cwd: packageDir,
@@ -56,14 +80,5 @@ if (existsSync(distEntry)) {
     process.exit(1);
   }
 
-  const child = spawn(process.execPath, [rebuiltEntry, ...args], {
-    stdio: "inherit",
-  });
-  child.on("exit", (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-    } else {
-      process.exit(code ?? 0);
-    }
-  });
+  runEntrypoint(rebuiltEntry, args);
 }

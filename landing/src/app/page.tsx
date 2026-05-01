@@ -245,12 +245,12 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
 const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
   general: [
     {
-      src: "/scout/pair-mode.png",
-      alt: "Scout pairing view — connect your iPhone to your desktop.",
-      eyebrow: "iPhone + Desktop",
-      title: "Pairing",
+      src: "/scout/ios-thread.png",
+      alt: "Scout iOS app — agent conversation thread on iPhone.",
+      eyebrow: "iPhone",
+      title: "Mobile",
       description:
-        "Pair your iPhone to your Mac in one step. Once connected, every agent is reachable from your pocket.",
+        "The full Scout experience on your phone. Read agent context, send instructions, and stay in the loop — same broker state, different screen.",
     },
     {
       src: "/relay/home-command-center.png",
@@ -303,12 +303,12 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
   ],
   technical: [
     {
-      src: "/scout/pair-mode.png",
-      alt: "Scout pairing view — connect your iPhone to your desktop.",
-      eyebrow: "iPhone + Desktop",
-      title: "Pairing",
+      src: "/scout/ios-thread.png",
+      alt: "Scout iOS app — agent conversation thread on iPhone.",
+      eyebrow: "iPhone",
+      title: "Mobile",
       description:
-        "One-step device pairing. Your iPhone connects to the local broker and projects the same durable state.",
+        "The full broker state on your phone. Conversations, agent context, and work records project from the same local source of truth.",
     },
     {
       src: "/relay/home-command-center.png",
@@ -401,9 +401,9 @@ const audienceContent: Record<
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
       "Scout on your Mac is the operator surface for fleet views, agent profiles, sessions, threads, mesh health, and ops. Scout on your iPhone is a full app — not a notification viewer. Same thread, different screen.",
-    surfacesNoteTitle: "Why both?",
+    surfacesNoteTitle: "Desktop and phone, together.",
     surfacesNoteDescription:
-      "Your agent finishes a task at 2am. You see it on your phone at breakfast and approve the PR before you open your laptop. The phone is as real as the desktop.",
+      "Heavy work on the desktop. Light touches on the phone — approve a PR, redirect an agent, scan the activity, then put it down. Scout keeps your place either way.",
     getStartedTitle: "One package. Up and running in seconds.",
     getStartedDescription:
       "Install the CLI, run setup, and Scout auto-discovers everything. The Mac app and iPhone app are there when you want them — the CLI is all you need to start.",
@@ -532,9 +532,14 @@ function GithubStars() {
   }, []);
   if (stars == null) return null;
   return (
-    <span className="operator-strip__cell hidden md:inline-flex">
+    <a
+      href="https://github.com/arach/openscout/stargazers"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="status-bar__cell status-bar__cell--link hidden md:inline-flex"
+    >
       ★&nbsp;<b>{stars}</b>
-    </span>
+    </a>
   );
 }
 
@@ -637,33 +642,8 @@ export default function Home() {
     <div className="site-marketing relative isolate min-h-screen overflow-x-clip bg-[var(--site-page-bg)] text-[var(--site-ink)]">
       {/* ── Operator Console (header) ── */}
       <header className="operator-console">
-        {/* live status strip — broker identity + ambient telemetry */}
-        <div className="operator-strip">
-          <div className="mx-auto flex max-w-[90rem] items-center px-6">
-            <div className="operator-strip__inner">
-              <span className="operator-strip__cell">
-                <span className="operator-strip__brand">SCOUT/Ø</span>
-              </span>
-              <span className="operator-strip__cell">
-                <span className="status-dot" aria-hidden />
-                <span>experimental</span>
-              </span>
-              <span className="operator-strip__cell hidden sm:inline-flex">
-                proto <b>Ø.1</b>
-              </span>
-              <span className="operator-strip__cell">
-                <b>v0.2.61</b>
-              </span>
-              <span className="operator-strip__cell hidden sm:inline-flex">
-                MIT
-              </span>
-              <GithubStars />
-            </div>
-          </div>
-        </div>
-
         {/* main row — wordmark + minimal mono nav + theme toggle */}
-        <div className="mx-auto flex max-w-[90rem] items-center px-6 operator-row">
+        <div className="mx-auto flex max-w-6xl items-center px-6 operator-row">
           <Link
             href="/"
             onClick={onNavigationClick("Scout", "/", "header_logo")}
@@ -711,6 +691,13 @@ export default function Home() {
             >
               <span className="operator-link__sigil">:</span>docs
             </Link>
+            <Link
+              href="/blog"
+              onClick={onCtaClick("Read the blog", "/blog", "header_nav", "blog")}
+              className="operator-link"
+            >
+              <span className="operator-link__sigil">:</span>blog
+            </Link>
             <SiteThemeToggle />
           </div>
         </div>
@@ -720,7 +707,7 @@ export default function Home() {
         <>
           <main ref={scrollRef} className="relative z-10">
             {/* ── Hero (RFC front matter + live broker stream) ── */}
-            <section className="overflow-hidden pb-12 pt-12 md:pt-16">
+            <section className="overflow-hidden pb-10 pt-12 md:pt-16">
               <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] lg:items-start lg:gap-16">
                 <div className="hero-animate" style={{ animationDelay: "0s" }}>
                   <div className="rfc-hero__bar">
@@ -754,42 +741,11 @@ export default function Home() {
                     ), and remain reachable across process restarts and bridge transports.
                   </p>
 
-                  <p className="rfc-hero__memo">
-                    Reference implementation, MIT-licensed:
-                  </p>
-
                   <RfcInstall command={copy.heroCommand} />
                 </div>
 
                 <div className="hero-animate" style={{ animationDelay: "0.12s" }}>
                   <BrokerStreamDemo />
-
-                  <nav className="rfc-hero__toc" aria-label="Document sections">
-                    <a
-                      href="#mesh"
-                      onClick={onNavigationClick("§1 Topology", "#mesh", "rfc_toc")}
-                    >
-                      <span className="rfc-hero__toc-num">§1</span>Topology
-                    </a>
-                    <a
-                      href="#capabilities"
-                      onClick={onNavigationClick("§2 Records", "#capabilities", "rfc_toc")}
-                    >
-                      <span className="rfc-hero__toc-num">§2</span>Records
-                    </a>
-                    <a
-                      href="#surfaces"
-                      onClick={onNavigationClick("§3 Reference Implementation", "#surfaces", "rfc_toc")}
-                    >
-                      <span className="rfc-hero__toc-num">§3</span>Reference Implementation
-                    </a>
-                    <a
-                      href="#get-started"
-                      onClick={onNavigationClick("§4 Discovery", "#get-started", "rfc_toc")}
-                    >
-                      <span className="rfc-hero__toc-num">§4</span>Discovery
-                    </a>
-                  </nav>
                 </div>
               </div>
 
@@ -807,6 +763,22 @@ export default function Home() {
                 dangerouslySetInnerHTML={{ __html: JSON.stringify(OPENSCOUT_SELF_MANIFEST) }}
               />
             </section>
+
+            {/* ── TOC strip ── */}
+            <nav className="rfc-toc-strip" aria-label="Document sections">
+              <a href="#mesh" onClick={onNavigationClick("§1 Topology", "#mesh", "rfc_toc")}>
+                <span className="rfc-hero__toc-num">§1</span>Topology
+              </a>
+              <a href="#capabilities" onClick={onNavigationClick("§2 Records", "#capabilities", "rfc_toc")}>
+                <span className="rfc-hero__toc-num">§2</span>Records
+              </a>
+              <a href="#surfaces" onClick={onNavigationClick("§3 Reference Implementation", "#surfaces", "rfc_toc")}>
+                <span className="rfc-hero__toc-num">§3</span>Reference Implementation
+              </a>
+              <a href="#get-started" onClick={onNavigationClick("§4 Discovery", "#get-started", "rfc_toc")}>
+                <span className="rfc-hero__toc-num">§4</span>Discovery
+              </a>
+            </nav>
 
             {/* ── §1 Topology ── */}
             <section id="mesh" className="rfc-section">
@@ -920,7 +892,7 @@ export default function Home() {
                 <div className="reveal-stagger grid gap-6 sm:grid-cols-2">
                   {surfaceGallery
                     .filter((s) =>
-                      ["Fleet briefing", "Conversation thread", "Mesh"].includes(
+                      ["Mobile", "Fleet briefing", "Conversation thread", "Mesh"].includes(
                         s.title,
                       ),
                     )
@@ -1028,28 +1000,32 @@ export default function Home() {
 
           {/* ── Status footer (Cursor-style IDE status bar) ── */}
           <footer className="status-bar">
-            <div className="mx-auto flex max-w-[90rem] items-stretch px-6">
+            <div className="mx-auto flex max-w-6xl items-stretch px-6">
               <div className="status-bar__inner w-full">
-                {/* Left group: broker status */}
+                {/* Left group: identity + broker status */}
                 <span className="status-bar__cell">
-                  <span className="status-dot" aria-hidden />
-                  <span>ready</span>
-                </span>
-                <span className="status-bar__cell">
-                  <b>v0.2.61</b>
+                  <span className="status-bar__brand">SCOUT/Ø</span>
                 </span>
                 <span className="status-bar__cell hidden sm:inline-flex">
                   proto&nbsp;<b>Ø.1</b>
+                </span>
+                <span className="status-bar__cell">
+                  <span className="status-dot" aria-hidden />
+                  <span>online</span>
+                </span>
+                <span className="status-bar__cell">
+                  <b>v0.2.61</b>
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
                   MIT
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
-                  local-first
+                  local
                 </span>
 
                 {/* Right group: link cells */}
                 <span className="status-bar__zone--right">
+                  <GithubStars />
                   <a
                     href="/docs"
                     onClick={onNavigationClick("Docs", "/docs", "footer")}

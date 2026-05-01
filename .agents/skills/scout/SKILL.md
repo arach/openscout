@@ -1,11 +1,11 @@
 ---
-name: scout
-description: Use Scout for agent-to-agent chat via the broker. Trigger this whenever an agent needs to tell, ask, or fan out a message to another agent — including any `/scout` request with one or more `@agent` mentions.
+name: "Scout CLI"
+description: Use the Scout CLI for agent-to-agent chat via the broker. Trigger this whenever an agent needs to tell, ask, or fan out a message to another agent from the shell, including any `/scout` request with one or more `@agent` mentions.
 metadata:
-  short-description: Agent-to-agent chat via the Scout broker
+  short-description: Use the scout command from the shell
 ---
 
-# scout
+# Scout CLI
 
 Use Scout when you need shared coordination state, not just message delivery.
 

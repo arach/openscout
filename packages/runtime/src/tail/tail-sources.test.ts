@@ -92,11 +92,12 @@ describe("tail transcript sources", () => {
       JSON.stringify({
         type: "assistant",
         timestamp: "2026-04-27T15:00:01.000Z",
-        message: { content: [{ type: "text", text: "hello from claude" }] },
+        message: { id: "msg-1", content: [{ type: "text", text: "hello from claude" }] },
       }),
       makeContext("claude", transcripts[0]!),
     );
     expect(event?.source).toBe("claude");
+    expect(event?.sessionId).toBe("claude-session");
     expect(event?.kind).toBe("assistant");
     expect(event?.summary).toBe("hello from claude");
   });

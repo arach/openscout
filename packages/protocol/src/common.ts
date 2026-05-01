@@ -67,7 +67,8 @@ export type DeliveryTransport =
   | "codex_app_server"
   | "codex_exec"
   | "claude_resume"
-  | "tmux";
+  | "tmux"
+  | "cursor_exec";
 
 export type DeliveryReason =
   | "conversation_visibility"

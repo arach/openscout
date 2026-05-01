@@ -22,11 +22,11 @@ import { ensureHarnessCatalogOverrideFile } from "./harness-catalog.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
-export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "tmux";
+export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "tmux" | "cursor_exec";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
 export const SCOUT_PRIMARY_CONVERSATION_ID = "dm.scout.primary";
-export const MANAGED_AGENT_HARNESSES = ["claude", "codex"] as const;
+export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor"] as const;
 export type ManagedAgentHarness = typeof MANAGED_AGENT_HARNESSES[number];
 
 export type RelayHarnessProfile = {
@@ -422,6 +422,10 @@ const PROJECT_HARNESS_MARKERS: Record<ManagedAgentHarness, readonly string[]> = 
     "CODEX.md",
     ".codex",
   ],
+  cursor: [
+    ".cursor",
+    ".cursorrules",
+  ],
 };
 
 function partitionFlatAndNestedMarkers(markers: readonly string[]): { flat: string[]; nested: string[] } {
@@ -762,7 +766,7 @@ function normalizeCapabilities(value: unknown): AgentCapability[] {
 }
 
 function normalizeHarness(value: string | undefined, fallback: AgentHarness): AgentHarness {
-  return value === "codex" ? "codex" : value === "claude" ? "claude" : fallback;
+  return value === "codex" ? "codex" : value === "claude" ? "claude" : value === "cursor" ? "cursor" : fallback;
 }
 
 function normalizeTransport(
@@ -772,6 +776,10 @@ function normalizeTransport(
 ): RelayRuntimeTransport {
   if (harness === "codex") {
     return "codex_app_server";
+  }
+
+  if (harness === "cursor") {
+    return "cursor_exec";
   }
 
   if (value === "claude_stream_json") {
@@ -1412,6 +1420,7 @@ async function detectHarnessMarkers(projectRoot: string): Promise<Record<Managed
   const detected: Record<ManagedAgentHarness, string[]> = {
     claude: [],
     codex: [],
+    cursor: [],
   };
 
   for (const harness of MANAGED_AGENT_HARNESSES) {
@@ -2463,7 +2472,7 @@ async function buildProjectInventoryEntry(
     }
   }
 
-  if (manifestDefaultHarness === "claude" || manifestDefaultHarness === "codex") {
+  if (manifestDefaultHarness === "claude" || manifestDefaultHarness === "codex" || manifestDefaultHarness === "cursor") {
     harnesses.set(manifestDefaultHarness, {
       harness: manifestDefaultHarness,
       source: "manifest",

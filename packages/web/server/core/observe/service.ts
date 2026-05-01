@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import {
   createHistorySessionSnapshot,
@@ -13,6 +13,7 @@ import {
 import {
   getLocalAgentEndpointSessionSnapshot,
 } from "@openscout/runtime/local-agents";
+import { getTailDiscovery } from "@openscout/runtime/tail";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import type { AgentEndpoint } from "@openscout/protocol";
 
@@ -161,6 +162,46 @@ type HistorySnapshotCacheEntry = HistorySnapshotResult & {
 const HISTORY_SNAPSHOT_CACHE_LIMIT = 128;
 const historySnapshotCache = new Map<string, HistorySnapshotCacheEntry>();
 const OBSERVE_SUMMARY_TAIL_SIZE = 8;
+const SESSION_REF_LOOKUP_TTL_MS = 10_000;
+
+type SessionRefLookupEntry = {
+  refId: string;
+  historyPath: string;
+  adapterType: "claude-code" | "codex";
+  mtimeMs: number;
+  size: number;
+};
+
+type SessionRefLookupCache = {
+  generatedAt: number;
+  entries: Map<string, SessionRefLookupEntry>;
+};
+
+let sessionRefLookupCache: SessionRefLookupCache | null = null;
+
+export type SessionRefObservePayload =
+  | {
+      kind: "agent";
+      refId: string;
+      agentId: string;
+      source: AgentObservePayload["source"];
+      fidelity: AgentObservePayload["fidelity"];
+      historyPath: string | null;
+      sessionId: string | null;
+      updatedAt: number;
+      data: ObserveData;
+    }
+  | {
+      kind: "history";
+      refId: string;
+      agentId: null;
+      source: "history";
+      fidelity: "timestamped" | "synthetic";
+      historyPath: string;
+      sessionId: string;
+      updatedAt: number;
+      data: ObserveData;
+    };
 
 function activeEndpoint(
   snapshot: RuntimeRegistrySnapshot,
@@ -246,6 +287,121 @@ function findMostRecentJsonl(dir: string): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizeSessionRefId(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const leaf = basename(trimmed);
+  return leaf.endsWith(".jsonl") ? leaf.slice(0, -".jsonl".length) : leaf;
+}
+
+function addSessionRefLookupEntry(
+  entries: Map<string, SessionRefLookupEntry>,
+  entry: SessionRefLookupEntry,
+): void {
+  const current = entries.get(entry.refId);
+  if (!current || entry.mtimeMs > current.mtimeMs) {
+    entries.set(entry.refId, entry);
+  }
+}
+
+function buildClaudeSessionRefLookup(): Map<string, SessionRefLookupEntry> {
+  const entries = new Map<string, SessionRefLookupEntry>();
+  const projectsRoot = process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT?.trim()
+    || join(homedir(), ".claude", "projects");
+  if (!existsSync(projectsRoot)) {
+    return entries;
+  }
+
+  try {
+    for (const projectEntry of readdirSync(projectsRoot, { withFileTypes: true })) {
+      if (!projectEntry.isDirectory()) {
+        continue;
+      }
+      const projectDir = join(projectsRoot, projectEntry.name);
+      for (const historyEntry of readdirSync(projectDir, { withFileTypes: true })) {
+        if (!historyEntry.isFile() || !historyEntry.name.endsWith(".jsonl")) {
+          continue;
+        }
+        const refId = normalizeSessionRefId(historyEntry.name);
+        if (!refId) {
+          continue;
+        }
+        const historyPath = join(projectDir, historyEntry.name);
+        const stat = statSync(historyPath);
+        addSessionRefLookupEntry(entries, {
+          refId,
+          historyPath,
+          adapterType: "claude-code",
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+        });
+      }
+    }
+  } catch {
+    return entries;
+  }
+
+  return entries;
+}
+
+function sessionRefLookup(): Map<string, SessionRefLookupEntry> {
+  const now = Date.now();
+  if (
+    sessionRefLookupCache
+    && now - sessionRefLookupCache.generatedAt < SESSION_REF_LOOKUP_TTL_MS
+  ) {
+    return sessionRefLookupCache.entries;
+  }
+  const entries = buildClaudeSessionRefLookup();
+  sessionRefLookupCache = { generatedAt: now, entries };
+  return entries;
+}
+
+function adapterTypeFromTailSource(source: string): "claude-code" | "codex" | null {
+  const normalized = source.trim().toLowerCase();
+  if (normalized === "claude" || normalized === "claude-code") {
+    return "claude-code";
+  }
+  if (normalized === "codex") {
+    return "codex";
+  }
+  return null;
+}
+
+async function findTailSessionRefLookupEntry(
+  normalizedRef: string,
+): Promise<SessionRefLookupEntry | null> {
+  const discovery = await getTailDiscovery().catch(() => null);
+  if (!discovery?.transcripts.length) {
+    return null;
+  }
+
+  for (const transcript of discovery.transcripts) {
+    const adapterType = adapterTypeFromTailSource(transcript.source);
+    if (!adapterType || !supportsHistorySessionSnapshotForPath(transcript.transcriptPath, adapterType)) {
+      continue;
+    }
+    const refs = [
+      normalizeSessionRefId(transcript.sessionId),
+      normalizeSessionRefId(transcript.transcriptPath),
+    ].filter((ref): ref is string => Boolean(ref));
+    if (!refs.includes(normalizedRef)) {
+      continue;
+    }
+    return {
+      refId: normalizedRef,
+      historyPath: transcript.transcriptPath,
+      adapterType,
+      mtimeMs: transcript.mtimeMs,
+      size: transcript.size,
+    };
+  }
+
+  return null;
 }
 
 function historyAdapterAlias(
@@ -1119,4 +1275,63 @@ export async function loadAgentObservePayload(
 ): Promise<AgentObservePayload | null> {
   const payloads = await loadAgentObservePayloadsInternal([agentId]);
   return payloads[0] ?? null;
+}
+
+export async function loadSessionRefObservePayload(
+  refId: string,
+): Promise<SessionRefObservePayload | null> {
+  const normalizedRef = normalizeSessionRefId(refId);
+  if (!normalizedRef) {
+    return null;
+  }
+
+  const matchedAgent = queryAgents(200).find(
+    (agent) => normalizeSessionRefId(agent.harnessSessionId) === normalizedRef,
+  );
+  if (matchedAgent) {
+    const payload = await loadAgentObservePayload(matchedAgent.id);
+    if (payload) {
+      return {
+        kind: "agent",
+        refId: normalizedRef,
+        agentId: matchedAgent.id,
+        source: payload.source,
+        fidelity: payload.fidelity,
+        historyPath: payload.historyPath,
+        sessionId: payload.sessionId,
+        updatedAt: payload.updatedAt,
+        data: payload.data,
+      };
+    }
+  }
+
+  let historyEntry = sessionRefLookup().get(normalizedRef) ?? null;
+  if (!historyEntry) {
+    historyEntry = await findTailSessionRefLookupEntry(normalizedRef);
+  }
+  const historySnapshot = historyEntry
+    ? readHistorySnapshot({
+        path: historyEntry.historyPath,
+        adapterType: historyEntry.adapterType,
+      })
+    : null;
+  if (!historyEntry || !historySnapshot) {
+    return null;
+  }
+
+  return {
+    kind: "history",
+    refId: normalizedRef,
+    agentId: null,
+    source: "history",
+    fidelity: historySnapshot.timedEvents.length > 0 ? "timestamped" : "synthetic",
+    historyPath: historySnapshot.historyPath,
+    sessionId: normalizedRef,
+    updatedAt: Date.now(),
+    data: buildObserveDataFromSnapshot(
+      historySnapshot.snapshot,
+      historySnapshot.timedEvents,
+      false,
+    ),
+  };
 }

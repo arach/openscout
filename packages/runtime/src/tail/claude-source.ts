@@ -331,10 +331,10 @@ function parseClaudeLine(line: string, ctx: TailContext): TailEvent | null {
   const rawType = typeof obj.type === "string" ? obj.type : "other";
   const message = obj.message as Record<string, unknown> | undefined;
   const blocks = message?.content ?? obj.content;
-  const sessionId = typeof obj.sessionId === "string"
+  const explicitSessionId = typeof obj.sessionId === "string"
     ? obj.sessionId
-    : typeof message?.id === "string"
-      ? (message.id as string)
+    : typeof obj.session_id === "string"
+      ? obj.session_id
       : "";
 
   const ts = pickTimestamp(obj);
@@ -342,8 +342,9 @@ function parseClaudeLine(line: string, ctx: TailContext): TailEvent | null {
   const summary = summaryForType(rawType, obj, blocks)
     || `[${rawType}]`;
 
-  const finalSessionId = sessionId
+  const finalSessionId = explicitSessionId
     || ctx.transcript.sessionId
+    || (typeof message?.id === "string" ? (message.id as string) : "")
     || basename(ctx.transcriptPath).replace(/\.jsonl$/, "");
   const cwd = ctx.transcript.cwd ?? ctx.process.cwd ?? "";
   const project = cwd ? basename(cwd) : ctx.transcript.project;

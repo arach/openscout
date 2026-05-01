@@ -37,6 +37,8 @@ implementation specs.
   - [sco-015-implementation-plan.md](./sco-015-implementation-plan.md)
 - [sco-016-external-endpoint-registration-api.md](./sco-016-external-endpoint-registration-api.md)
 - [sco-017-scout-broker-reply-context.md](./sco-017-scout-broker-reply-context.md)
+- [sco-018-a2a-aligned-agent-manpages.md](./sco-018-a2a-aligned-agent-manpages.md)
+- [sco-019-lightweight-mission-channels.md](./sco-019-lightweight-mission-channels.md)
 
 ## Operations
 

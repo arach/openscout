@@ -15,18 +15,18 @@ import type {
   Route,
 } from "../lib/types.ts";
 
-type WarRoomSeverity = "critical" | "warning" | "info";
-type WarRoomLane = "attention" | "running" | "failed" | "done";
+type CommandSeverity = "critical" | "warning" | "info";
+type CommandLane = "attention" | "running" | "failed" | "done";
 
-type WarRoomAction = {
+type CommandAction = {
   label: string;
   route: Route;
 };
 
-type WarRoomItemBase = {
+type CommandItemBase = {
   key: string;
-  lane: WarRoomLane;
-  severity: WarRoomSeverity;
+  lane: CommandLane;
+  severity: CommandSeverity;
   pill: string;
   title: string;
   summary: string;
@@ -35,27 +35,21 @@ type WarRoomItemBase = {
   updatedAt: number;
   startedAt: number | null;
   completedAt: number | null;
-  actions: WarRoomAction[];
+  actions: CommandAction[];
   meta: string[];
 };
 
-type AttentionWarRoomItem = WarRoomItemBase & {
+type AttentionCommandItem = CommandItemBase & {
   source: "attention";
   item: FleetAttentionItem;
 };
 
-type AskWarRoomItem = WarRoomItemBase & {
+type AskCommandItem = CommandItemBase & {
   source: "ask";
   item: FleetAsk;
 };
 
-type AgentWarRoomItem = WarRoomItemBase & {
-  source: "agent";
-  item: Agent;
-  health: "offline" | "stale";
-};
-
-type WarRoomItem = AttentionWarRoomItem | AskWarRoomItem | AgentWarRoomItem;
+type CommandItem = AttentionCommandItem | AskCommandItem;
 
 type AgentHealthRow = {
   key: string;
@@ -63,7 +57,7 @@ type AgentHealthRow = {
   state: string;
   detail: string;
   route: Route;
-  severity: WarRoomSeverity;
+  severity: CommandSeverity;
   rank: number;
   updatedAt: number | null;
 };
@@ -169,6 +163,10 @@ function formatWindow(ms: number): string {
   return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
 }
 
+function formatCueCount(count: number): string {
+  return count === 1 ? "1 cue" : `${count} cues`;
+}
+
 function clampFlowWindowMs(ms: number): number {
   const roundedMinutes = Math.max(1, Math.round(ms / 60_000));
   return Math.min(MAX_FLOW_WINDOW_MS, Math.max(MIN_FLOW_WINDOW_MS, roundedMinutes * 60_000));
@@ -188,7 +186,7 @@ function parseFlowWindowInput(value: string): number | null {
   return clampFlowWindowMs(amount * multiplier);
 }
 
-function severityRank(severity: WarRoomSeverity): number {
+function severityRank(severity: CommandSeverity): number {
   switch (severity) {
     case "critical":
       return 0;
@@ -199,13 +197,13 @@ function severityRank(severity: WarRoomSeverity): number {
   }
 }
 
-function itemSort(left: WarRoomItem, right: WarRoomItem): number {
+function itemSort(left: CommandItem, right: CommandItem): number {
   const bySeverity = severityRank(left.severity) - severityRank(right.severity);
   if (bySeverity !== 0) return bySeverity;
   return left.updatedAt - right.updatedAt;
 }
 
-function recentSort(left: WarRoomItem, right: WarRoomItem): number {
+function recentSort(left: CommandItem, right: CommandItem): number {
   const bySeverity = severityRank(left.severity) - severityRank(right.severity);
   if (bySeverity !== 0) return bySeverity;
   return right.updatedAt - left.updatedAt;
@@ -389,18 +387,77 @@ function buildNetworkModel(activity: ActivityLike[], agents: Agent[]): NetworkMo
   };
 }
 
-function actionsForAttention(item: FleetAttentionItem): WarRoomAction[] {
-  const actions: WarRoomAction[] = [];
-  if (item.recordId) actions.push({ label: "Open work", route: { view: "work", workId: item.recordId } });
-  if (item.conversationId) {
-    actions.push({ label: "Open conversation", route: { view: "conversation", conversationId: item.conversationId } });
+function routeKeyForAction(route: Route): string {
+  switch (route.view) {
+    case "work":
+      return `work:${route.workId}`;
+    case "conversation":
+      return `conversation:${route.conversationId}`;
+    case "agents":
+      return `agent:${route.agentId ?? ""}`;
+    default:
+      return route.view;
   }
-  if (item.agentId) actions.push({ label: "Open agent", route: { view: "agents", agentId: item.agentId } });
+}
+
+function actionLabelForAttention(item: FleetAttentionItem): string {
+  if (item.kind === "question") return "Answer";
+  if (item.state === "review") return "Review";
+  if (item.acceptanceState === "pending") return "Acknowledge";
+  return "Open work";
+}
+
+function primaryActionForAttention(item: FleetAttentionItem): CommandAction | null {
+  if (item.kind === "question") {
+    if (item.conversationId) {
+      return { label: "Answer", route: { view: "conversation", conversationId: item.conversationId } };
+    }
+    if (item.recordId) {
+      return { label: "Open question", route: { view: "work", workId: item.recordId } };
+    }
+    return null;
+  }
+
+  if (item.recordId) {
+    return { label: actionLabelForAttention(item), route: { view: "work", workId: item.recordId } };
+  }
+  if (item.conversationId) {
+    return { label: "Open conversation", route: { view: "conversation", conversationId: item.conversationId } };
+  }
+  if (item.agentId) {
+    return { label: "Open agent", route: { view: "agents", agentId: item.agentId } };
+  }
+  return null;
+}
+
+function actionsForAttention(item: FleetAttentionItem): CommandAction[] {
+  const actions: CommandAction[] = [];
+  const primary = primaryActionForAttention(item);
+  if (primary) actions.push(primary);
+  const seen = new Set(actions.map((action) => routeKeyForAction(action.route)));
+
+  if (item.recordId && !seen.has(`work:${item.recordId}`)) {
+    actions.push({ label: item.kind === "question" ? "Open question" : "Open work", route: { view: "work", workId: item.recordId } });
+    seen.add(`work:${item.recordId}`);
+  }
+  if (item.conversationId) {
+    const routeKey = `conversation:${item.conversationId}`;
+    if (!seen.has(routeKey)) {
+      actions.push({ label: "Open conversation", route: { view: "conversation", conversationId: item.conversationId } });
+      seen.add(routeKey);
+    }
+  }
+  if (item.agentId) {
+    const routeKey = `agent:${item.agentId}`;
+    if (!seen.has(routeKey)) {
+      actions.push({ label: "Open agent", route: { view: "agents", agentId: item.agentId } });
+    }
+  }
   return actions;
 }
 
-function actionsForAsk(ask: FleetAsk): WarRoomAction[] {
-  const actions: WarRoomAction[] = [];
+function actionsForAsk(ask: FleetAsk): CommandAction[] {
+  const actions: CommandAction[] = [];
   if (ask.collaborationRecordId) {
     actions.push({ label: "Open work", route: { view: "work", workId: ask.collaborationRecordId } });
   }
@@ -411,12 +468,9 @@ function actionsForAsk(ask: FleetAsk): WarRoomAction[] {
   return actions;
 }
 
-function actionForAgent(agent: Agent): WarRoomAction[] {
-  return [{ label: "Open agent", route: { view: "agents", agentId: agent.id } }];
-}
-
-function attentionItem(item: FleetAttentionItem): WarRoomItem {
+function attentionItem(item: FleetAttentionItem): CommandItem {
   const isQuestion = item.kind === "question";
+  const actions = actionsForAttention(item);
   return {
     source: "attention",
     item,
@@ -431,7 +485,7 @@ function attentionItem(item: FleetAttentionItem): WarRoomItem {
     updatedAt: item.updatedAt,
     startedAt: null,
     completedAt: null,
-    actions: actionsForAttention(item),
+    actions,
     meta: [
       item.agentName ?? "Unassigned",
       kindLabel(item.kind),
@@ -441,20 +495,20 @@ function attentionItem(item: FleetAttentionItem): WarRoomItem {
   };
 }
 
-function askLane(ask: FleetAsk): WarRoomLane {
+function askLane(ask: FleetAsk): CommandLane {
   if (ask.status === "failed") return "failed";
   if (ask.status === "completed") return "done";
   return "running";
 }
 
-function askSeverity(ask: FleetAsk): WarRoomSeverity {
+function askSeverity(ask: FleetAsk): CommandSeverity {
   if (ask.status === "failed") return "critical";
   if (ask.attention === "interrupt") return "critical";
   if (ask.attention === "badge" || ask.status === "needs_attention") return "warning";
   return "info";
 }
 
-function askItem(ask: FleetAsk): WarRoomItem {
+function askItem(ask: FleetAsk): CommandItem {
   return {
     source: "ask",
     item: ask,
@@ -478,48 +532,12 @@ function askItem(ask: FleetAsk): WarRoomItem {
   };
 }
 
-function agentHealthItem(agent: Agent, nowMs: number): WarRoomItem | null {
-  const state = normalizeAgentState(agent.state);
-  const stale = isAgentStale(agent, nowMs);
-  const recentlyOffline = state === "offline" && hasRecentAgentUpdate(agent, nowMs);
-  if (!recentlyOffline && !stale) return null;
-
-  const health = state === "offline" ? "offline" : "stale";
-  return {
-    source: "agent",
-    item: agent,
-    health,
-    key: `agent:${health}:${agent.id}`,
-    lane: "attention",
-    severity: "warning",
-    pill: state === "offline" ? "Offline" : "Stale",
-    title: agent.name,
-    summary: state === "offline"
-      ? "Agent endpoint is offline."
-      : `No endpoint update for ${formatAge(agent.updatedAt, nowMs)}.`,
-    agentId: agent.id,
-    agentName: agent.name,
-    updatedAt: agent.updatedAt ?? nowMs,
-    startedAt: null,
-    completedAt: null,
-    actions: actionForAgent(agent),
-    meta: [
-      agentStateLabel(agent.state),
-      agent.project ?? agent.role ?? agent.agentClass,
-      agent.harness ?? "unknown harness",
-    ],
-  };
-}
-
-function deriveWarRoomItems(fleet: FleetState | null, agents: Agent[], nowMs: number): WarRoomItem[] {
+function deriveCommandItems(fleet: FleetState | null): CommandItem[] {
   const attention = (fleet?.needsAttention ?? []).map(attentionItem);
   const active = (fleet?.activeAsks ?? []).map(askItem);
   const recent = (fleet?.recentCompleted ?? []).map(askItem);
-  const health = agents
-    .map((agent) => agentHealthItem(agent, nowMs))
-    .filter((item): item is WarRoomItem => Boolean(item));
 
-  return [...attention, ...active, ...recent, ...health];
+  return [...attention, ...active, ...recent];
 }
 
 function deriveHealthRows(agents: Agent[], nowMs: number): AgentHealthRow[] {
@@ -528,7 +546,7 @@ function deriveHealthRows(agents: Agent[], nowMs: number): AgentHealthRow[] {
       const state = normalizeAgentState(agent.state);
       const stale = isAgentStale(agent, nowMs);
       const recent = hasRecentAgentUpdate(agent, nowMs);
-      const severity: WarRoomSeverity = stale || (state === "offline" && recent) ? "warning" : "info";
+      const severity: CommandSeverity = stale || (state === "offline" && recent) ? "warning" : "info";
       const label = stale && state !== "offline" ? "Stale" : agentStateLabel(agent.state);
       const rank = stale
         ? 0
@@ -555,12 +573,12 @@ function deriveHealthRows(agents: Agent[], nowMs: number): AgentHealthRow[] {
     });
 }
 
-function classForDecision(item: WarRoomItem, selected: boolean): string {
+function classForAttentionItem(item: CommandItem, selected: boolean): string {
   const classes = [
-    "s-warroom-decision",
-    `s-warroom-decision--${item.severity}`,
+    "s-warroom-attention-item",
+    `s-warroom-attention-item--${item.severity}`,
   ];
-  if (selected) classes.push("s-warroom-decision--selected");
+  if (selected) classes.push("s-warroom-attention-item--selected");
   return classes.join(" ");
 }
 
@@ -571,7 +589,7 @@ function kpiClass(warn: boolean, hot = false): string {
   return classes.join(" ");
 }
 
-export function WarRoomView({
+export function CommandView({
   navigate,
   agents,
 }: {
@@ -582,7 +600,8 @@ export function WarRoomView({
   const [fallbackActivity, setFallbackActivity] = useState<ActivityItem[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
-  const [inspectorFocus, setInspectorFocus] = useState<"flow" | "item">("flow");
+  const [inspectorFocus, setInspectorFocus] = useState<"flow" | "item">("item");
+  const [inspectorPinned, setInspectorPinned] = useState(false);
   const [flowWindowMs, setFlowWindowMs] = useState<number>(DEFAULT_FLOW_WINDOW_MS);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -636,19 +655,19 @@ export function WarRoomView({
   const eventsInWindow = networkModel.messageRate;
 
   const items = useMemo(
-    () => deriveWarRoomItems(fleet, agents, nowMs),
-    [agents, fleet, nowMs],
+    () => deriveCommandItems(fleet),
+    [fleet],
   );
 
   const queueItems = useMemo(
     () =>
       items
-        .filter((item) => item.lane === "attention" || item.lane === "failed")
+        .filter((item): item is AttentionCommandItem => item.source === "attention" && item.actions.length > 0)
         .sort(itemSort),
     [items],
   );
 
-  const lanes = useMemo<Record<WarRoomLane, WarRoomItem[]>>(() => ({
+  const lanes = useMemo<Record<CommandLane, CommandItem[]>>(() => ({
     attention: items.filter((item) => item.lane === "attention").sort(itemSort),
     running: items.filter((item) => item.lane === "running").sort(recentSort),
     failed: items.filter((item) => item.lane === "failed").sort(itemSort),
@@ -661,19 +680,21 @@ export function WarRoomView({
       if (selectedKey !== null) setSelectedKey(null);
       return;
     }
-    if (!selectedKey || !items.some((item) => item.key === selectedKey)) {
+    const selectedExists = Boolean(selectedKey && items.some((item) => item.key === selectedKey));
+    if (!selectedExists || !inspectorPinned) {
       setSelectedKey(nextKey);
+      if (!inspectorPinned) setInspectorFocus("item");
     }
-  }, [items, lanes.done, lanes.running, queueItems, selectedKey]);
+  }, [inspectorPinned, items, lanes.done, lanes.running, queueItems, selectedKey]);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.key === selectedKey) ?? queueItems[0] ?? lanes.running[0] ?? lanes.done[0] ?? null,
     [items, lanes.done, lanes.running, queueItems, selectedKey],
   );
 
-  const failedCount = lanes.failed.length;
   const onlineCount = agents.filter((agent) => normalizeAgentState(agent.state) !== "offline").length;
   const actionNeededCount = queueItems.filter((item) => item.severity !== "info").length;
+  const urgentCueCount = queueItems.filter((item) => item.severity === "critical").length;
   const healthRows = useMemo(() => deriveHealthRows(agents, nowMs), [agents, nowMs]);
   const flowNodeLabels = useMemo(
     () => new Map(networkModel.nodes.map((node) => [node.id, node.label])),
@@ -693,13 +714,13 @@ export function WarRoomView({
       <header className="s-warroom-command">
         <div className="s-warroom-command-main">
           <div className="s-warroom-title">Command</div>
-          <div className="s-warroom-subtitle">Live fleet decisions, message flow, and handoffs.</div>
+          <div className="s-warroom-subtitle">Live fleet attention, message flow, and handoffs.</div>
           <div className="s-warroom-statusline">
             Freshness {freshness} / Local time {formatClock(nowMs)}
           </div>
         </div>
         <div className="s-warroom-kpis">
-          <Kpi label="Action needed" value={String(actionNeededCount)} detail={`${queueItems.length} queued`} warn={actionNeededCount > 0} hot={failedCount > 0} />
+          <Kpi label="Action needed" value={String(actionNeededCount)} detail={formatCueCount(queueItems.length)} warn={actionNeededCount > 0} hot={urgentCueCount > 0} />
           <Kpi label="Online" value={`${onlineCount}/${agents.length}`} detail="agents" warn={onlineCount < agents.length} />
           <Kpi label="Messages" value={String(eventsInWindow)} detail={`last ${formatWindow(flowWindowMs)}`} />
         </div>
@@ -707,12 +728,14 @@ export function WarRoomView({
 
       <div className="s-warroom-layout">
         <aside className="s-warroom-queue">
-          <SectionHead title="State" meta={queueItems.length === 0 ? "clear" : `${queueItems.length} priority`} />
+          <SectionHead title="State" meta={queueItems.length === 0 ? "clear" : formatCueCount(queueItems.length)} />
           <CommandStack
             queueItems={queueItems}
             selectedKey={selectedItem?.key ?? null}
             nowMs={nowMs}
+            navigate={navigate}
             onSelect={(key) => {
+              setInspectorPinned(true);
               setSelectedKey(key);
               setInspectorFocus("item");
             }}
@@ -726,8 +749,10 @@ export function WarRoomView({
             nowMs={nowMs}
             flowWindowMs={flowWindowMs}
             selectedFlowId={inspectorFocus === "flow" ? selectedFlow?.id ?? null : null}
+            navigate={navigate}
             onFlowWindowChange={setFlowWindowMs}
             onSelectFlow={(flowId) => {
+              setInspectorPinned(true);
               setSelectedFlowId(flowId);
               setInspectorFocus("flow");
             }}
@@ -813,11 +838,13 @@ function CommandStack({
   queueItems,
   selectedKey,
   nowMs,
+  navigate,
   onSelect,
 }: {
-  queueItems: WarRoomItem[];
+  queueItems: AttentionCommandItem[];
   selectedKey: string | null;
   nowMs: number;
+  navigate: (route: Route) => void;
   onSelect: (key: string) => void;
 }) {
   return (
@@ -826,24 +853,25 @@ function CommandStack({
         <div className="s-warroom-readiness-mark">{queueItems.length === 0 ? "CLEAR" : "ACTION"}</div>
         <div className="s-warroom-readiness-body">
           {queueItems.length === 0
-            ? "No operator decisions are blocking the fleet. The topology remains the primary signal."
-            : "Operator input is needed before the fleet can fully drain."}
+            ? "No action items are blocking the fleet. The topology remains the primary signal."
+            : "Operator action is available for each cue below."}
         </div>
       </div>
 
       {queueItems.length > 0 && (
         <>
           <div className="s-warroom-section-head s-warroom-section-head--tight">
-            <div className="s-warroom-section-title">Decision Queue</div>
-            <div className="s-warroom-section-meta">{queueItems.length} priority</div>
+            <div className="s-warroom-section-title">Attention Cue</div>
+            <div className="s-warroom-section-meta">{formatCueCount(queueItems.length)}</div>
           </div>
           <div className="s-warroom-queue-list">
             {queueItems.slice(0, 4).map((item) => (
-              <DecisionButton
+              <AttentionItemButton
                 key={item.key}
                 item={item}
                 nowMs={nowMs}
                 selected={item.key === selectedKey}
+                navigate={navigate}
                 onSelect={() => onSelect(item.key)}
               />
             ))}
@@ -854,35 +882,49 @@ function CommandStack({
   );
 }
 
-function DecisionButton({
+function AttentionItemButton({
   item,
   nowMs,
   selected,
+  navigate,
   onSelect,
 }: {
-  item: WarRoomItem;
+  item: AttentionCommandItem;
   nowMs: number;
   selected: boolean;
+  navigate: (route: Route) => void;
   onSelect: () => void;
 }) {
+  const primaryAction = item.actions[0];
+  if (!primaryAction) return null;
+
   return (
-    <button
-      type="button"
-      className={classForDecision(item, selected)}
-      onClick={onSelect}
-    >
-      <div className="s-warroom-decision-top">
-        <span className="s-warroom-pill">{item.pill}</span>
-        <span className="s-warroom-age">{formatAge(item.updatedAt, nowMs)} ago</span>
-      </div>
-      <div className="s-warroom-decision-title">{item.title}</div>
-      <div className="s-warroom-decision-summary">{item.summary}</div>
-      <div className="s-warroom-decision-meta">
-        {item.meta.filter(Boolean).map((part, index) => (
-          <span key={`${item.key}:meta:${index}`}>{part}</span>
-        ))}
-      </div>
-    </button>
+    <div className={classForAttentionItem(item, selected)}>
+      <button
+        type="button"
+        className="s-warroom-attention-item-main"
+        onClick={onSelect}
+      >
+        <div className="s-warroom-attention-item-top">
+          <span className="s-warroom-pill">{item.pill}</span>
+          <span className="s-warroom-age">{formatAge(item.updatedAt, nowMs)} ago</span>
+        </div>
+        <div className="s-warroom-attention-item-title">{item.title}</div>
+        <div className="s-warroom-attention-item-summary">{item.summary}</div>
+        <div className="s-warroom-attention-item-meta">
+          {item.meta.filter(Boolean).map((part, index) => (
+            <span key={`${item.key}:meta:${index}`}>{part}</span>
+          ))}
+        </div>
+      </button>
+      <button
+        type="button"
+        className="s-warroom-attention-item-primary"
+        onClick={() => navigate(primaryAction.route)}
+      >
+        {primaryAction.label}
+      </button>
+    </div>
   );
 }
 
@@ -891,6 +933,7 @@ function MessageTopology({
   nowMs,
   flowWindowMs,
   selectedFlowId,
+  navigate,
   onFlowWindowChange,
   onSelectFlow,
 }: {
@@ -898,6 +941,7 @@ function MessageTopology({
   nowMs: number;
   flowWindowMs: number;
   selectedFlowId: string | null;
+  navigate: (route: Route) => void;
   onFlowWindowChange: (windowMs: number) => void;
   onSelectFlow: (flowId: string) => void;
 }) {
@@ -1048,15 +1092,33 @@ function MessageTopology({
           </g>
 
           <g className="s-warroom-map-nodes">
-            {visibleNodes.map((node) => (
-              <g key={node.id} className={`s-warroom-map-node s-warroom-map-node--${node.kind}`} transform={`translate(${node.x}, ${node.y})`}>
-                <circle className="s-warroom-map-node-glow" r={22 + Math.min(16, node.weight * 2)} />
-                <circle className="s-warroom-map-node-core" r={node.kind === "operator" || node.kind === "broker" ? 20 : 15} fill={actorColor(node.label)} />
-                <text className="s-warroom-map-node-initial" y="4" textAnchor="middle">{node.label[0]?.toUpperCase()}</text>
-                <text className="s-warroom-map-node-label" y={node.kind === "agent" || node.kind === "external" ? 33 : 40} textAnchor="middle">{node.label}</text>
-                <text className="s-warroom-map-node-detail" y={node.kind === "agent" || node.kind === "external" ? 47 : 54} textAnchor="middle">{node.detail}</text>
-              </g>
-            ))}
+            {visibleNodes.map((node) => {
+              const isActionable = Boolean(node.route);
+              return (
+                <g
+                  key={node.id}
+                  className={`s-warroom-map-node s-warroom-map-node--${node.kind}${isActionable ? " s-warroom-map-node--actionable" : ""}`}
+                  transform={`translate(${node.x}, ${node.y})`}
+                  role={isActionable ? "button" : undefined}
+                  tabIndex={isActionable ? 0 : undefined}
+                  onClick={node.route ? () => navigate(node.route!) : undefined}
+                  onKeyDown={node.route
+                    ? (event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        navigate(node.route!);
+                      }
+                    : undefined}
+                >
+                  <title>{node.route ? `Open ${node.label}` : node.label}</title>
+                  <circle className="s-warroom-map-node-glow" r={22 + Math.min(16, node.weight * 2)} />
+                  <circle className="s-warroom-map-node-core" r={node.kind === "operator" || node.kind === "broker" ? 20 : 15} fill={actorColor(node.label)} />
+                  <text className="s-warroom-map-node-initial" y="4" textAnchor="middle">{node.label[0]?.toUpperCase()}</text>
+                  <text className="s-warroom-map-node-label" y={node.kind === "agent" || node.kind === "external" ? 33 : 40} textAnchor="middle">{node.label}</text>
+                  <text className="s-warroom-map-node-detail" y={node.kind === "agent" || node.kind === "external" ? 47 : 54} textAnchor="middle">{node.detail}</text>
+                </g>
+              );
+            })}
           </g>
         </svg>
 
@@ -1171,7 +1233,7 @@ function Inspector({
   nowMs,
   navigate,
 }: {
-  item: WarRoomItem;
+  item: CommandItem;
   nowMs: number;
   navigate: (route: Route) => void;
 }) {

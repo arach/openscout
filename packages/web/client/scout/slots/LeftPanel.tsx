@@ -4,6 +4,7 @@ import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-sta
 import { stateColor, actorColor } from "../../lib/colors.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent } from "../../lib/types.ts";
+import { ScoutChannelsLeftPanel } from "./ChannelsLeftPanel.tsx";
 
 type ParentGroup = {
   key: string;
@@ -108,6 +109,14 @@ function navigateToAgent(
 }
 
 export function ScoutLeftPanel() {
+  const { route } = useScout();
+  if (route.view === "channels") {
+    return <ScoutChannelsLeftPanel />;
+  }
+  return <ScoutAgentsLeftPanel />;
+}
+
+function ScoutAgentsLeftPanel() {
   const { agents, route, navigate } = useScout();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [query, setQuery] = useState("");

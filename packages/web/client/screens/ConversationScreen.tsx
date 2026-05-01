@@ -866,6 +866,12 @@ export function ConversationScreen({
   const lastForegroundRefreshAtRef = useRef(0);
   const appliedInitialDraftKeyRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    if (conversationId.startsWith("channel.")) {
+      navigate({ view: "channels", channelId: conversationId });
+    }
+  }, [conversationId, navigate]);
+
   const legacyAgentId = agentIdFromConversation(conversationId);
   const agentId = sessionMeta?.agentId ?? legacyAgentId;
   const isDm = sessionMeta?.kind === "direct" || legacyAgentId !== null;

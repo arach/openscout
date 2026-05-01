@@ -410,30 +410,6 @@
   line-height: 1.5;
 }
 
-/* ── Launcher button (left panel footer) ── */
-.s-settings-launcher {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 12px 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-.s-settings-launcher:hover {
-  background: var(--bg);
-  color: var(--ink);
-}
-.s-settings-launcher-icon { font-size: 13px; }
-
 /* Responsive: collapse to full-width on narrow screens */
 @media (max-width: 800px) {
   .s-settings-drawer {

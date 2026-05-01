@@ -205,18 +205,24 @@ export async function registerScoutWebAssets(
       target.search = new URL(c.req.url).search;
       const headers = new Headers(c.req.header());
       headers.delete("host");
-      const response = await fetch(target.toString(), {
-        method: c.req.method,
-        headers,
-        body:
-          c.req.method !== "GET" && c.req.method !== "HEAD"
-            ? c.req.raw.body
-            : undefined,
-      });
-      return new Response(response.body, {
-        status: response.status,
-        headers: response.headers,
-      });
+      try {
+        const response = await fetch(target.toString(), {
+          method: c.req.method,
+          headers,
+          body:
+            c.req.method !== "GET" && c.req.method !== "HEAD"
+              ? c.req.raw.body
+              : undefined,
+        });
+        return new Response(response.body, {
+          status: response.status,
+          headers: response.headers,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[openscout-web] vite proxy failed for ${target.toString()}: ${message}`);
+        return c.text("Vite dev server unavailable", 502);
+      }
     });
     return;
   }

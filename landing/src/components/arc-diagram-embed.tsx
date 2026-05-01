@@ -36,6 +36,16 @@ export function ArcDiagramEmbed({
 }) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const check = () =>
+      setIsDark(document.documentElement.getAttribute("data-site-theme") === "dark");
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-site-theme"] });
+    return () => observer.disconnect();
+  }, []);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState<{ x: number; y: number } | null>(null);
 
@@ -99,8 +109,8 @@ export function ArcDiagramEmbed({
         <ArcDiagram
           data={data}
           className="w-full h-full !rounded-none !border-0 !shadow-none !bg-transparent"
-          mode="light"
-          theme="cool"
+          mode={isDark ? "dark" : "light"}
+          theme={isDark ? "warm" : "cool"}
           interactive={interactive}
           showArcToggle={false}
           label={formatDiagramLabel(src)}

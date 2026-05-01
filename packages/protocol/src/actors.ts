@@ -29,6 +29,7 @@ export type AgentCapability =
 export type AgentHarness =
   | "codex"
   | "claude"
+  | "cursor"
   | "native"
   | "worker"
   | "bridge"
@@ -75,7 +76,7 @@ export interface AgentEndpoint {
   agentId: ScoutId;
   nodeId: ScoutId;
   harness: AgentHarness;
-  transport: "local_socket" | "http" | "websocket" | "pairing_bridge" | "claude_stream_json" | "codex_app_server" | "codex_exec" | "claude_resume" | "tmux";
+  transport: "local_socket" | "http" | "websocket" | "pairing_bridge" | "claude_stream_json" | "codex_app_server" | "codex_exec" | "claude_resume" | "tmux" | "cursor_exec";
   state: AgentState;
   address?: string;
   sessionId?: string;

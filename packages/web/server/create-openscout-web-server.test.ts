@@ -424,6 +424,7 @@ describe("createOpenScoutWebServer", () => {
       {
         senderId: "operator",
         body: "Team update",
+        channel: "ops",
         currentDirectory: "/tmp/openscout",
       },
     ]);

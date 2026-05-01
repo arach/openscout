@@ -79,6 +79,8 @@ export function BrokerStreamDemo() {
   }
 
   const latest = records[head % records.length];
+  const senderId = latest.from ?? latest.agent;
+  const recipientId = latest.to;
   const activePeerIds = new Set(
     [latest.from, latest.to, latest.agent].filter((id): id is string => Boolean(id)),
   );
@@ -92,33 +94,43 @@ export function BrokerStreamDemo() {
       <div className="broker-stream__body">
         <aside className="broker-stream__peers">
           <div className="broker-stream__col-label">PEERS</div>
-          {peers.map((p) => (
-            <div
-              key={p.id}
-              className={[
-                "broker-stream__peer",
-                `broker-stream__peer--${p.status}`,
-                activePeerIds.has(p.id) ? "is-active" : "",
-              ].join(" ")}
-            >
-              <span className="broker-stream__peer-mark" aria-hidden />
-              <span className="broker-stream__peer-id">{p.id}</span>
-              {p.runtime && (
-                <span className="broker-stream__peer-runtime">←{p.runtime}</span>
-              )}
-            </div>
-          ))}
+          {peers.map((p) => {
+            const role =
+              p.id === senderId
+                ? "sender"
+                : p.id === recipientId
+                  ? "recipient"
+                  : "";
+            return (
+              <div
+                key={p.id}
+                className={[
+                  "broker-stream__peer",
+                  `broker-stream__peer--${p.status}`,
+                  activePeerIds.has(p.id) ? "is-active" : "",
+                  role ? `broker-stream__peer--${role}` : "",
+                ].join(" ")}
+              >
+                <span className="broker-stream__peer-mark" aria-hidden />
+                <span className="broker-stream__peer-id">{p.id}</span>
+                {p.runtime && (
+                  <span className="broker-stream__peer-runtime">←{p.runtime}</span>
+                )}
+              </div>
+            );
+          })}
           <div className="broker-stream__join">[ JOIN ]</div>
         </aside>
         <div className="broker-stream__records">
           <div className="broker-stream__col-label">STREAM</div>
           <ol className="broker-stream__list">
-            {visible.map((r) => (
+            {visible.map((r, vi) => (
               <li
                 key={r._idx}
                 className={[
                   "broker-stream__record",
                   r.failed ? "broker-stream__record--failed" : "",
+                  vi === visible.length - 1 ? "broker-stream__record--latest" : "",
                 ].join(" ")}
               >
                 <div className="broker-stream__record-line">
@@ -142,6 +154,9 @@ export function BrokerStreamDemo() {
                   <div className="broker-stream__body-text">
                     <span className="broker-stream__body-mark">┊</span>
                     {r.body}
+                    {vi === visible.length - 1 && (
+                      <span className="broker-stream__cursor" aria-hidden />
+                    )}
                   </div>
                 )}
               </li>

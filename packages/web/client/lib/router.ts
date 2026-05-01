@@ -18,8 +18,9 @@ function parseAgentTab(value: string | null): AgentTab | undefined {
 function parseOpsMode(value: string | undefined): OpsMode | undefined {
   switch (value) {
     case "command":
+      return "command";
     case "warroom":
-      return "warroom";
+      return "command";
     case "control":
     case "mission":
       return "mission";
@@ -38,7 +39,7 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
 
 function opsModePath(mode: OpsMode): string {
   switch (mode) {
-    case "warroom":
+    case "command":
       return "command";
     case "mission":
       return "control";
@@ -99,6 +100,10 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return { view: "sessions", sessionId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "sessions") return { view: "sessions" };
+  if (parts[0] === "channels" && parts[1]) {
+    return { view: "channels", channelId: decodeURIComponent(parts[1]) };
+  }
+  if (parts[0] === "channels") return { view: "channels" };
   if (parts[0] === "mesh") return { view: "mesh" };
   if (parts[0] === "activity") return { view: "activity" };
   if (parts[0] === "work" && parts[1]) {
@@ -172,6 +177,10 @@ export function routePath(r: Route): string {
       return r.sessionId
         ? `/sessions/${encodeURIComponent(r.sessionId)}`
         : "/sessions";
+    case "channels":
+      return r.channelId
+        ? `/channels/${encodeURIComponent(r.channelId)}`
+        : "/channels";
     case "mesh":
       return "/mesh";
     case "activity":
@@ -201,6 +210,8 @@ function routeKey(r: Route): string {
           : "agents";
     case "sessions":
       return r.sessionId ? `session:${r.sessionId}` : "sessions";
+    case "channels":
+      return r.channelId ? `channel:${r.channelId}` : "channels";
     case "work":
       return `work:${r.workId}`;
     case "ops":

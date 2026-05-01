@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type {
   ObserveData,
@@ -240,11 +240,25 @@ function SystemLine({ event }: { event: SessionEvent }) {
   );
 }
 
-function LiveIndicator() {
+function LiveIndicator({
+  liveSession,
+  isFollowing,
+}: {
+  liveSession: boolean;
+  isFollowing: boolean;
+}) {
+  const badge = isFollowing ? "[LIVE]" : "[PAUSED]";
+  const label = isFollowing
+    ? liveSession
+      ? "following live session"
+      : "following latest trace"
+    : "scrubbed back";
+
   return (
-    <div className="s-observe-live">
+    <div className={`s-observe-live${isFollowing ? "" : " s-observe-live--paused"}`}>
+      <span className="s-observe-live-badge">{badge}</span>
       <span className="s-observe-live-dot" />
-      <span className="s-observe-live-label">LIVE · tailing session</span>
+      <span className="s-observe-live-label">{label}</span>
     </div>
   );
 }
@@ -252,9 +266,11 @@ function LiveIndicator() {
 function TailStatus({
   liveSession,
   isLive,
+  isFollowing,
 }: {
   liveSession: boolean;
   isLive: boolean;
+  isFollowing: boolean;
 }) {
   const tone = liveSession
     ? isLive
@@ -265,7 +281,9 @@ function TailStatus({
     ? isLive
       ? "LIVE · tail mode on"
       : "LIVE · tail paused"
-    : "REPLAY · saved trace";
+    : isFollowing
+      ? "FOLLOWING · latest trace"
+      : "REPLAY · scrubbed trace";
 
   return (
     <div className={`s-observe-tail-state s-observe-tail-state--${tone}`}>
@@ -311,16 +329,16 @@ function StreamRow({
 
 function ReplayStream({
   events,
-  isLive,
+  followEnd,
 }: {
   events: SessionEvent[];
-  isLive: boolean;
+  followEnd: boolean;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (isLive) endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events.length, isLive]);
+  useLayoutEffect(() => {
+    if (followEnd) endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [events.length, followEnd]);
 
   return (
     <div className="s-observe-stream">
@@ -666,12 +684,15 @@ export function SessionObserve({
   }, [playing, duration, speed]);
 
   const visible = events.filter((e) => e.t <= cursor);
-  const isLive = liveSession && isCursorAtLiveEdge(cursor, duration);
+  const isFollowing = isCursorAtLiveEdge(cursor, duration);
+  const isLive = liveSession && isFollowing;
   const jumpButtonLabel = liveSession
     ? isLive
       ? "Following live"
       : "Jump to live ↦"
-    : "Jump to end ↦";
+    : isFollowing
+      ? "Following end"
+      : "Jump to end ↦";
 
   const metadata = observeData.metadata;
   const sessionMeta = metadata?.session;
@@ -809,12 +830,10 @@ export function SessionObserve({
     <div className="s-observe">
       {/* Main timeline */}
       <main className="s-observe-main">
-        {isLive && (
-          <div className="s-observe-live-sticky">
-            <LiveIndicator />
-          </div>
-        )}
-        <ReplayStream events={visible} isLive={isLive} />
+        <div className="s-observe-live-sticky">
+          <LiveIndicator liveSession={liveSession} isFollowing={isFollowing} />
+        </div>
+        <ReplayStream events={visible} followEnd={isFollowing} />
       </main>
 
       {/* Right rail */}
@@ -949,7 +968,7 @@ export function SessionObserve({
           ))}
         </div>
 
-        <TailStatus liveSession={liveSession} isLive={isLive} />
+        <TailStatus liveSession={liveSession} isLive={isLive} isFollowing={isFollowing} />
 
         <button
           className={`s-observe-jump-btn${isLive ? " s-observe-jump-btn--active" : ""}`}

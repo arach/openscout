@@ -441,6 +441,7 @@ export type Route =
     }
   | { view: "fleet" }
   | { view: "sessions"; sessionId?: string }
+  | { view: "channels"; channelId?: string }
   | { view: "mesh" }
   | { view: "activity" }
   | { view: "work"; workId: string }
@@ -449,7 +450,7 @@ export type Route =
   | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
-export type OpsMode = "plan" | "conductor" | "warroom" | "mission" | "agents" | "tail" | "atop";
+export type OpsMode = "command" | "plan" | "conductor" | "mission" | "agents" | "tail" | "atop";
 
 /* ── Tail (Ops > Tail) types ── */
 

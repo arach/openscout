@@ -39,6 +39,7 @@ import {
 import {
   loadAgentObservePayload,
   loadAgentObserveSummaries,
+  loadSessionRefObservePayload,
 } from "./core/observe/service.ts";
 import {
   getTailDiscovery,
@@ -186,8 +187,30 @@ function inferDirectSenderId(
   return "operator";
 }
 
+function channelNameFromConversationId(conversationId: string | undefined): string | null {
+  if (!conversationId?.startsWith("channel.")) {
+    return null;
+  }
+  const channel = conversationId.slice("channel.".length).trim();
+  return channel || null;
+}
+
+function inferChannelName(
+  conversationId: string | undefined,
+  session: { kind: string } | null,
+): string | null {
+  if (session?.kind === "channel" || session?.kind === "system") {
+    return channelNameFromConversationId(conversationId);
+  }
+
+  // Let direct channel URLs create or post to a channel even before the session
+  // projection has caught up.
+  return channelNameFromConversationId(conversationId);
+}
+
 function resolveConversationRouting(conversationId: string | undefined): {
   directAgentId: string | null;
+  channel: string | null;
   senderId: string;
 } {
   const fallbackSenderId = "operator";
@@ -202,7 +225,10 @@ function resolveConversationRouting(conversationId: string | undefined): {
     fallbackSenderId,
     directAgentId,
   );
-  return { directAgentId, senderId };
+  const channel = directAgentId
+    ? null
+    : inferChannelName(conversationId, session);
+  return { directAgentId, channel, senderId };
 }
 
 function resolveBundledStaticClientRoot(
@@ -451,6 +477,47 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/sessions", (c) => c.json(querySessions()));
+  app.get("/api/session-ref/:id", async (c) => {
+    const refId = c.req.param("id");
+    const conversation = querySessionById(refId);
+    if (conversation) {
+      return c.json({
+        kind: "conversation",
+        refId,
+        conversationId: conversation.id,
+        session: conversation,
+      });
+    }
+
+    const harnessSession = querySessions(200).find((session) =>
+      session.harnessSessionId === refId
+      || (session.harnessSessionId?.endsWith(".jsonl") === true
+        && session.harnessSessionId.slice(0, -".jsonl".length) === refId)
+    );
+    if (harnessSession?.agentId) {
+      const payload = await loadSessionRefObservePayload(refId);
+      if (payload) {
+        return c.json({
+          kind: "observe",
+          refId,
+          session: harnessSession,
+          observe: payload,
+        });
+      }
+    }
+
+    const payload = await loadSessionRefObservePayload(refId);
+    if (payload) {
+      return c.json({
+        kind: "observe",
+        refId,
+        session: null,
+        observe: payload,
+      });
+    }
+
+    return c.json({ error: "not found" }, 404);
+  });
   app.get("/api/session/:id", (c) => {
     const session = querySessionById(c.req.param("id"));
     return session ? c.json(session) : c.json({ error: "not found" }, 404);
@@ -670,7 +737,7 @@ export async function createOpenScoutWebServer(
       return c.json({ error: "body is required" }, 400);
     }
 
-    const { directAgentId, senderId } =
+    const { directAgentId, channel, senderId } =
       resolveConversationRouting(conversationId);
 
     if (directAgentId) {
@@ -686,6 +753,7 @@ export async function createOpenScoutWebServer(
     const result = await sendScoutMessage({
       senderId,
       body: body.trim(),
+      ...(channel ? { channel } : {}),
       currentDirectory,
     });
 
