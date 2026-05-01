@@ -149,15 +149,20 @@ function runtimePackageDir(): string {
   const explicit = process.env.OPENSCOUT_RUNTIME_PACKAGE_DIR?.trim();
   if (explicit) return explicit;
 
-  // 2. Global install (bun ~/.bun/node_modules, npm fallback)
-  const fromGlobal = findGlobalRuntimeDir();
-  if (fromGlobal) return fromGlobal;
+  // 2. Prefer the package that bundled this code. In published installs this
+  // is @openscout/scout, which carries a private openscout-runtime shim.
+  const fromBundledPackage = findBundledRuntimeDir();
+  if (fromBundledPackage) return fromBundledPackage;
 
   // 3. Monorepo workspace fallback (dev only)
   const fromCwd = findWorkspaceRuntimeDir(process.cwd());
   if (fromCwd) return fromCwd;
 
-  // 4. Last resort: relative to this module (bundled context)
+  // 4. Compatibility with old installs that still have a separate runtime pkg.
+  const fromGlobal = findGlobalRuntimeDir();
+  if (fromGlobal) return fromGlobal;
+
+  // 5. Last resort: relative to this module.
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   return resolve(moduleDir, "..");
 }
@@ -185,8 +190,11 @@ function findGlobalRuntimeDir(): string | null {
     const result = spawnSync("which", ["scout"], { encoding: "utf8", timeout: 3000 });
     const scoutBin = result.stdout?.trim();
     if (scoutBin) {
-      // scout bin → ../../lib/node_modules/@openscout/scout/node_modules/@openscout/runtime
+      // scout bin → ../../lib/node_modules/@openscout/scout
       const scoutPkg = resolve(scoutBin, "..", "..");
+      if (isInstalledRuntimePackageDir(scoutPkg)) return scoutPkg;
+
+      // Legacy layouts: scout bin → ../../lib/node_modules/@openscout/scout/node_modules/@openscout/runtime
       const nested = join(scoutPkg, "node_modules", "@openscout", "runtime");
       if (isInstalledRuntimePackageDir(nested)) return nested;
       // or runtime is a sibling: ../../lib/node_modules/@openscout/runtime
@@ -198,6 +206,12 @@ function findGlobalRuntimeDir(): string | null {
   }
 
   return null;
+}
+
+function findBundledRuntimeDir(): string | null {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidate = resolve(moduleDir, "..");
+  return isInstalledRuntimePackageDir(candidate) ? candidate : null;
 }
 
 function findWorkspaceRuntimeDir(startDir: string): string | null {

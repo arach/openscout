@@ -1,6 +1,7 @@
 {
   "name": "@openscout/web",
   "version": "0.2.64",
+  "private": true,
   "description": "Standalone lightweight Scout web UI with its own bundled Bun server",
   "license": "UNLICENSED",
   "type": "module",
@@ -23,11 +24,9 @@
     "dev:client": "vite --host 127.0.0.1 --port 5180 --strictPort",
     "dev:server": "OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 bun run --hot server/index.ts",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "postpack": "node ../../scripts/restore-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs .",
     "test:happy": "node --test test/*.test.mjs"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.107",
@@ -46,9 +45,9 @@
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
-    "@openscout/agent-sessions": "0.2.64",
-    "@openscout/protocol": "0.2.64",
-    "@openscout/runtime": "0.2.64",
+    "@openscout/agent-sessions": "workspace:*",
+    "@openscout/protocol": "workspace:*",
+    "@openscout/runtime": "workspace:*",
     "@tailwindcss/vite": "^4.1.18",
     "@trpc/client": "^11.16.0",
     "@trpc/server": "^11.16.0",

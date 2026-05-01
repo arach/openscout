@@ -1,7 +1,7 @@
 {
   "name": "@openscout/scout",
   "version": "0.2.64",
-  "description": "Published Scout package that installs the `scout` command",
+  "description": "Public Scout package that installs the `scout` command and bundled local runtime",
   "license": "UNLICENSED",
   "type": "module",
   "bin": {
@@ -13,16 +13,17 @@
     "README.md"
   ],
   "scripts": {
-    "build": "npm --prefix ../runtime run build && node ./scripts/build.mjs",
+    "build": "npm --prefix ../protocol run build && npm --prefix ../runtime run build && node ./scripts/build.mjs",
     "dev": "bun ../../apps/desktop/bin/scout.ts",
     "test:happy": "node --test test/*.test.mjs",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "postpack": "node ../../scripts/restore-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
-    "@openscout/runtime": "0.2.64"
+  "devDependencies": {
+    "@openscout/runtime": "workspace:*"
   }
 }

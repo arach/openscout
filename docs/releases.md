@@ -11,14 +11,14 @@ The default mode is a dry run. It prints the version plan and the commands that
 would run. Passing `--execute --yes` performs the release.
 
 The orchestrator keeps the root `package.json` release version in sync with the
-published npm package versions, then runs the release train:
+public `@openscout/scout` package version, then runs the release train:
 
-- bump root and published package manifests
-- verify npm package builds and packed manifests
+- bump root and `@openscout/scout` manifests
+- verify the internal builds and packed public manifest
 - build the signed/notarized macOS DMG as `OpenScoutMenu-<version>.dmg`
 - commit the version bump and create `v<version>`
 - push the branch and tag
-- publish npm packages
+- publish `@openscout/scout`
 - create the GitHub release and upload the DMG
 
 iOS remains opt-in because it touches App Store Connect:

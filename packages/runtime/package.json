@@ -1,6 +1,7 @@
 {
   "name": "@openscout/runtime",
   "version": "0.2.64",
+  "private": true,
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
   "bin": {
@@ -129,19 +130,17 @@
     "test:e2e:local-agent-pass": "bash ../../scripts/run-live-local-agent-pass.sh",
     "test:live:local-agent-pass": "bash ../../scripts/run-live-local-agent-pass.sh",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "postpack": "node ../../scripts/restore-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "dependencies": {
-    "@openscout/agent-sessions": "0.2.64",
-    "@openscout/protocol": "0.2.64",
+    "@openscout/agent-sessions": "workspace:*",
+    "@openscout/protocol": "workspace:*",
     "@trpc/server": "^11.16.0",
     "drizzle-orm": "^0.45.2",
     "smol-toml": "^1.6.1",
     "ws": "^8.18.3",
     "zod": "^4.3.6"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^22",

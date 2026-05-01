@@ -1,6 +1,7 @@
 {
   "name": "@openscout/session-trace",
   "version": "0.2.45",
+  "private": true,
   "description": "Framework-agnostic live session trace model for OpenScout",
   "type": "module",
   "exports": {
@@ -18,9 +19,6 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "dependencies": {
     "@openscout/agent-sessions": "workspace:*"

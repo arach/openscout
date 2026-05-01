@@ -14,17 +14,13 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 
-const PUBLISHED_PACKAGES = [
-  "packages/protocol",
-  "packages/agent-sessions",
-  "packages/runtime",
+const PUBLIC_PACKAGES = [
   "packages/cli",
-  "packages/web",
 ];
 
 const VERSION_MANIFESTS = [
   ".",
-  ...PUBLISHED_PACKAGES,
+  ...PUBLIC_PACKAGES,
 ];
 
 function usage() {
@@ -278,7 +274,7 @@ function stagedChangesExist() {
 
 function main() {
   const { target, options } = parseArgs(process.argv.slice(2));
-  const currentPackageVersion = packageVersion(PUBLISHED_PACKAGES[0]);
+  const currentPackageVersion = packageVersion(PUBLIC_PACKAGES[0]);
   const nextVersion = ["patch", "minor", "major"].includes(target)
     ? bumpSemver(currentPackageVersion, target)
     : target;

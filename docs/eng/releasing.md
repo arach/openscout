@@ -1,18 +1,15 @@
 # Releasing OpenScout
 
-Scope: how to cut a release of the npm packages and the macOS menu bar helper.
+Scope: how to cut a release of the public npm package and the macOS menu bar helper.
 
-The npm packages and the `.dmg` are independent artifacts but are typically
+The npm package and the `.dmg` are independent artifacts but are typically
 shipped at the same version so the helper app matches the runtime it pairs
 with.
 
 ## Artifacts
 
-- **npm packages** (published to the public registry)
-  - `@openscout/protocol`
-  - `@openscout/runtime`
-  - `@openscout/web`
-  - `@openscout/scout` (the `scout` CLI)
+- **npm package** (published to the public registry)
+  - `@openscout/scout` (the `scout` CLI, bundled broker/runtime, and web UI)
 - **macOS helper**
   - `apps/macos/dist/OpenScoutMenu.app`
   - `apps/macos/dist/OpenScoutMenu.dmg` (signed + notarized)
@@ -81,44 +78,37 @@ event log, prompts, and ask transcripts when investigating a failure.
 
 ## Version bump
 
-All four npm packages are versioned in lockstep. Bump them together in a
-single commit.
+The root manifest and public `@openscout/scout` package are versioned in
+lockstep. Internal workspace packages remain private implementation boundaries
+and do not need public release bumps.
 
 ```bash
-# Edit each package.json manually, or use a helper:
-for f in packages/{protocol,runtime,web,cli}/package.json; do
-  sed -i '' 's/"version": "0.2.40"/"version": "0.2.41"/' "$f"
-done
-
-git add packages/{protocol,runtime,web,cli}/package.json
-git commit -m "🔖 Bump all packages to 0.2.41"
+npm run bump -- patch
+git add package.json packages/cli/package.json
+git commit -m "Release v0.2.41"
 ```
 
-Intra-workspace deps use `workspace:*`; the `prepack` script runs
-`scripts/prepare-publish-manifest.mjs` to rewrite those to the concrete
-version at pack time, and `postpublish` restores the workspace form.
+Intra-workspace deps use `workspace:*`. Private packages can stay modular
+inside the repo without becoming public npm artifacts.
 
-## Publishing npm packages
+## Publishing npm
 
-Publish in dependency order so a consumer that pulls `@openscout/runtime`
-can always resolve a matching `@openscout/protocol`.
+The release helper builds the internal packages, verifies the packed public
+manifest, and publishes only `@openscout/scout`.
 
 ```bash
-cd packages/protocol && npm publish --access public
-cd ../runtime         && npm publish --access public
-cd ../web             && npm publish --access public
-cd ../cli             && npm publish --access public  # @openscout/scout
+bash scripts/ship-npm.sh --dry-run
+bash scripts/ship-npm.sh
 ```
 
-Each package's `prepack` runs `npm run build` (`rm -rf dist && tsc`), so you
-do not need a separate build step.
+The public package carries the bundled broker/runtime and web UI. Installing it
+does not start anything automatically; `scout setup`, `scout up`, and
+`scout server start` are explicit activation paths.
 
 Verify:
 
 ```bash
-for pkg in @openscout/protocol @openscout/runtime @openscout/web @openscout/scout; do
-  echo -n "$pkg: "; npm view "$pkg" version
-done
+npm view @openscout/scout version
 ```
 
 ## Building the macOS DMG
@@ -173,7 +163,7 @@ fails fast when signing or notarization is misconfigured.
   ```bash
   bun install -g @openscout/scout
   ```
-- **Restart the local broker** so it picks up the newly built runtime dist:
+- **Restart the local broker** so it picks up the newly bundled runtime:
   ```bash
   launchctl kickstart -k gui/$(id -u)/dev.openscout.broker
   curl -s http://localhost:65535/health | jq
@@ -182,10 +172,10 @@ fails fast when signing or notarization is misconfigured.
 ## Semver conventions
 
 Pre-1.0. Current practice is to bump the **patch** (`0.2.x`) for additive
-protocol or runtime changes. Reserve a **minor** bump for control-plane
-schema changes that require a migration users cannot skip, or for protocol
-changes that break 0.2.x consumers. Keep bumps lockstep across the four
-packages.
+protocol, runtime, CLI, or UI changes. Reserve a **minor** bump for
+control-plane schema changes that require a migration users cannot skip, or for
+protocol changes that break 0.2.x consumers. Keep the root manifest and
+`@openscout/scout` lockstep.
 
 ## Troubleshooting
 

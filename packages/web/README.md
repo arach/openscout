@@ -1,41 +1,26 @@
-# @openscout/web
+# packages/web
 
-Published package that ships a lightweight standalone Scout web UI: pairing QR, current activity, inbox, and direct messaging. The package builds and ships its own Bun server plus bundled static client assets.
+Internal workspace for the Scout web UI: pairing QR, current activity, inbox, and direct messaging. The package builds a Bun/Hono application server plus bundled static client assets, and the public `@openscout/scout` package vendors those build outputs.
 
 ## Requirements
 
 - [Node.js](https://nodejs.org) on your `PATH`
 - [Bun](https://bun.sh) on your `PATH`
 
-## Install
+## Run From Source
 
 ```bash
-npm i -g @openscout/web
-# or
-bun add -g @openscout/web
-```
-
-## Run
-
-```bash
-openscout-web
-openscout-web --port 8080 --cwd /path/to/workspace
-openscout-web --public-origin https://scout.my-mac.local
-openscout-web --help
+bun --cwd packages/web dev
+bun --cwd packages/web dev:server
 ```
 
 Then open the URL printed in the terminal (default port `3200`).
 
 The Bun/Hono application server derives `scout.<machine>.local` as its default LAN-facing name. When placing Caddy in front of it, set `--public-origin https://scout.<machine>.local` (or `OPENSCOUT_WEB_PUBLIC_ORIGIN`) so API requests from the proxied browser origin are trusted intentionally.
 
-## vs `@openscout/scout`
+## Public Package
 
-| | `@openscout/scout` | `@openscout/web` |
-|---|-------------------|------------------|
-| Command | `scout` (full CLI + bundled current web UI) | `openscout-web` (standalone Bun server + bundled client) |
-| Static UI | Vendored next to `main.mjs` in the CLI package | This package’s `dist/client` |
-| Server | CLI wrapper around the web package | Web-package-owned |
-| Broker / setup | Yes (`scout setup`, etc.) | Uses the same broker/runtime data, but does not boot through the CLI |
+The standalone npm release surface is `@openscout/scout`. It includes the `scout` CLI, the local broker/runtime, and this web application server/client. Keep this package modular internally, but avoid adding a separate public npm package unless there is a clear external integration story.
 
 ## Build (maintainers)
 

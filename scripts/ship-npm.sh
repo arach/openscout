@@ -1,13 +1,16 @@
 #!/bin/bash
-# Build and publish all OpenScout npm packages in dependency order.
+# Build internal workspaces and publish the single public OpenScout npm package.
 # Reads NPM_TOKEN from .env (no 2FA needed).
 #
 # Usage:
-#   ./scripts/ship-npm.sh           # build + publish all
+#   ./scripts/ship-npm.sh           # build + publish @openscout/scout
 #   ./scripts/ship-npm.sh --dry-run # build only, skip publish
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+export npm_config_cache="${npm_config_cache:-${TMPDIR:-/tmp}/openscout-npm-cache}"
+mkdir -p "$npm_config_cache"
 
 # Load .env if present
 [[ -f .env.local ]] && set -a && source .env.local && set +a
@@ -66,13 +69,9 @@ echo "  web…"
 echo "Checking packed manifests…"
 node scripts/check-packed-manifests.mjs
 
-# ── Publish in dependency order ────────────────────────────────────────────────
+# ── Publish public product package ─────────────────────────────────────────────
 
-publish protocol
-publish agent-sessions
-publish runtime
 publish cli
-publish web
 
 echo ""
-echo "✓ All packages published."
+echo "✓ Public npm package published."

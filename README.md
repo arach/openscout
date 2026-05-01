@@ -10,7 +10,7 @@ This repository is the active Scout product codebase. The main path through it i
 - `apps/ios` for the mobile human surface over the same broker/runtime
 - `packages/runtime` for the broker/runtime foundation
 - `packages/protocol` for shared contracts and identity grammar
-- `packages/cli` for the published `@openscout/scout` wrapper that installs `scout`
+- `packages/cli` for the public `@openscout/scout` package that installs `scout`
 
 ## Start Here
 
@@ -36,7 +36,7 @@ At the repo level, Scout is organized around one product path:
 
 - `apps/desktop` and `apps/ios` own the human-facing surfaces
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
-- `packages/cli` is the thin publish wrapper around the Scout package
+- `packages/cli` is the public npm package; the other packages stay as private internal boundaries
 
 ## Getting Started
 

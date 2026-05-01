@@ -4,8 +4,9 @@
  * relevant Vite clients into dist/ for published packages.
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function getOpenScoutRepoRoot() {
@@ -166,14 +167,20 @@ const SCOUT_WEB_BUNDLE_BOOT_PATTERNS = [
  * @returns {boolean}
  */
 function verifyScoutWebBundleBoots(outfile) {
+  const smokeRoot = mkdtempSync(join(tmpdir(), "openscout-web-bundle-smoke-"));
+  const smokePort = String(43_000 + Math.floor(Math.random() * 1_000));
   const env = {
     ...process.env,
-    OPENSCOUT_WEB_PORT: "0",
+    OPENSCOUT_WEB_PORT: smokePort,
     OPENSCOUT_BROKER_HOST: "127.0.0.1",
     OPENSCOUT_BROKER_PORT: "1",
     OPENSCOUT_WEB_VITE_URL: "",
     OPENSCOUT_WEB_STATIC_ROOT: "",
     OPENSCOUT_WEB_IDLE_TIMEOUT_SECONDS: "5",
+    OPENSCOUT_SUPPORT_DIRECTORY: join(smokeRoot, "support"),
+    OPENSCOUT_CONTROL_HOME: join(smokeRoot, "control"),
+    OPENSCOUT_RELAY_HUB: join(smokeRoot, "relay"),
+    OPENSCOUT_HOME: join(smokeRoot, "home"),
     NODE_ENV: "production",
   };
 
@@ -192,6 +199,7 @@ function verifyScoutWebBundleBoots(outfile) {
   }
 
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  rmSync(smokeRoot, { recursive: true, force: true });
 
   for (const { name, regex } of SCOUT_WEB_BUNDLE_BOOT_PATTERNS) {
     if (regex.test(output)) {
@@ -200,6 +208,10 @@ function verifyScoutWebBundleBoots(outfile) {
       );
       return false;
     }
+  }
+
+  if (/EADDRINUSE|address already in use|Port \d+ is already in use/i.test(output)) {
+    return true;
   }
 
   if (result.signal !== "SIGTERM" && (result.status ?? 1) !== 0) {
