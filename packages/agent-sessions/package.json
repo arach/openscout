@@ -1,6 +1,7 @@
 {
   "name": "@openscout/agent-sessions",
   "version": "0.2.64",
+  "private": true,
   "description": "Browser-safe session boundary for OpenScout agent sessions",
   "type": "module",
   "exports": {
@@ -28,10 +29,8 @@
     "adapter:validate-specs": "node ./src/adapters/spec/tools/validate-adapter-specs.mjs",
     "codex:extract-protocol": "node ./src/adapters/codex/tools/extract-rust-protocol-spec.mjs",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "postpack": "node ../../scripts/restore-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^22",

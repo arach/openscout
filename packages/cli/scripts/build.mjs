@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync, existsSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +22,7 @@ const outputFile = resolve(outputDirectory, "main.mjs");
 const webServerOutput = resolve(outputDirectory, "scout-web-server.mjs");
 const controlPlaneWebOutput = resolve(outputDirectory, "scout-control-plane-web.mjs");
 const pairSupervisorOutput = resolve(outputDirectory, "pair-supervisor.mjs");
+const runtimeOutputDirectory = resolve(outputDirectory, "runtime");
 const clientDir = resolve(outputDirectory, "client");
 
 mkdirSync(outputDirectory, { recursive: true });
@@ -42,6 +43,50 @@ if (!bundleScoutControlPlaneWebServerBun(repoRoot, controlPlaneWebOutput)) {
 }
 
 if (!bundleScoutWebServerBun(repoRoot, webServerOutput)) {
+  process.exit(1);
+}
+
+function bundleRuntimeEntrypoint(label, entryFile, outputFile) {
+  const result = spawnSync(
+    "bun",
+    ["build", entryFile, "--target=bun", "--format=esm", "--outfile", outputFile],
+    { cwd: repoRoot, stdio: "inherit" },
+  );
+
+  if ((result.status ?? 1) !== 0) {
+    return false;
+  }
+
+  if (!verifyBundleStaticChecks(outputFile)) {
+    return false;
+  }
+
+  console.log(`  bundled runtime ${label} -> ${outputFile}`);
+  return true;
+}
+
+function bundleRuntimeEntrypoints() {
+  rmSync(runtimeOutputDirectory, { recursive: true, force: true });
+  mkdirSync(runtimeOutputDirectory, { recursive: true });
+
+  const entries = [
+    ["broker", "broker-daemon.ts", "broker-daemon.mjs"],
+    ["service", "broker-process-manager.ts", "broker-process-manager.mjs"],
+    ["discover", "mesh-discover.ts", "mesh-discover.mjs"],
+  ];
+
+  for (const [label, source, output] of entries) {
+    const entryFile = resolve(repoRoot, "packages", "runtime", "src", source);
+    const outputFile = resolve(runtimeOutputDirectory, output);
+    if (!bundleRuntimeEntrypoint(label, entryFile, outputFile)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+if (!bundleRuntimeEntrypoints()) {
   process.exit(1);
 }
 

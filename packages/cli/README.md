@@ -9,7 +9,7 @@ bun add -g @openscout/scout
 scout --help
 ```
 
-`@openscout/scout` is the published package name. It installs the `scout` command and depends on `@openscout/runtime` for the local broker service.
+`@openscout/scout` is the public package name. It installs the `scout` command and carries the bundled broker/runtime and web UI. Installing it does not start services; commands such as `scout setup`, `scout up`, and `scout server start` activate them explicitly.
 
 ## Canonical Flow
 
@@ -258,4 +258,4 @@ scout server start --static --static-root /custom/client
 
 The application server derives the LAN hostname `scout.<machine>.local` by default. For a Caddy or other edge proxy, set `--public-origin https://scout.<machine>.local` (or `OPENSCOUT_WEB_PUBLIC_ORIGIN`) so browser origins match the app server's trusted host model.
 
-For the same web UI without the full `scout` CLI package, use **`@openscout/web`** (`openscout-web`): it ships its own `dist/client`, bundled Bun server, and pairing supervisor.
+`packages/web` remains the internal web workspace. Published installs get that same server and client through `@openscout/scout`.

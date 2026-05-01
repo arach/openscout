@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Lockstep bumper for the release version and published npm packages.
+// Bumper for the release version and public npm package.
 //
 // Usage:
 //   node scripts/bump-version.mjs <new-version>   # e.g. 0.2.39
@@ -7,11 +7,10 @@
 //   node scripts/bump-version.mjs minor           # 0.2.38 -> 0.3.0
 //   node scripts/bump-version.mjs major           # 0.2.38 -> 1.0.0
 //
-// Walks the root release manifest plus every package listed in PUBLISHED_PACKAGES
-// (lockstep — they all share one version), rewrites their `version` fields, and
-// rewrites any pinned cross-package dep ranges ("@openscout/protocol": "0.2.38"
-// -> "0.2.39"). Also clears stale publish backups that could silently revert
-// bumps on the next publish.
+// Walks the root release manifest plus every package listed in PUBLIC_PACKAGES
+// (lockstep — they share one product version), rewrites their `version` fields,
+// and rewrites pinned public package dependency ranges when needed. Internal
+// workspace packages stay private and keep their own local versions.
 
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -19,16 +18,12 @@ import path from "node:path";
 
 const REPO_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "..");
 
-const PUBLISHED_PACKAGES = [
-  "packages/protocol",
-  "packages/agent-sessions",
-  "packages/runtime",
+const PUBLIC_PACKAGES = [
   "packages/cli",
-  "packages/web",
 ];
 const VERSIONED_MANIFESTS = [
   ".",
-  ...PUBLISHED_PACKAGES,
+  ...PUBLIC_PACKAGES,
 ];
 
 const DEP_SECTIONS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
@@ -62,9 +57,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Read current version from the first published package — release packages move
-  // in lockstep, while the root manifest is synced to that stream for app builds.
-  const anchor = await readPkg(path.join(REPO_ROOT, PUBLISHED_PACKAGES[0]));
+  // Read current version from the public Scout package. The root manifest is
+  // synced to that stream for app builds.
+  const anchor = await readPkg(path.join(REPO_ROOT, PUBLIC_PACKAGES[0]));
   const currentVersion = anchor.version;
 
   const nextVersion = ["patch", "minor", "major"].includes(arg)
@@ -83,7 +78,7 @@ async function main() {
 
   // Map of package-name -> new-version (for pinned cross-package rewrites).
   const rewriteMap = new Map();
-  for (const rel of PUBLISHED_PACKAGES) {
+  for (const rel of PUBLIC_PACKAGES) {
     const pkg = await readPkg(path.join(REPO_ROOT, rel));
     if (pkg.name) rewriteMap.set(pkg.name, nextVersion);
   }

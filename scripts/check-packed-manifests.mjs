@@ -2,7 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,9 +22,21 @@ function npmTarballName(name, version) {
 }
 
 function findWorkspaceDirs() {
-  return ["packages/protocol", "packages/agent-sessions", "packages/runtime", "packages/cli", "packages/web"]
+  return [
+    "packages/protocol",
+    "packages/agent-sessions",
+    "packages/runtime",
+    "packages/cli",
+    "packages/web",
+    "packages/session-trace",
+    "packages/session-trace-react",
+  ]
     .map((relativePath) => path.join(repoRoot, relativePath))
-    .filter((dir) => existsSync(path.join(dir, "package.json")));
+    .filter((dir) => existsSync(path.join(dir, "package.json")))
+    .filter((dir) => {
+      const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
+      return pkg.private !== true;
+    });
 }
 
 function findWorkspaceLeaks(pkg) {
@@ -49,9 +61,15 @@ function findWorkspaceLeaks(pkg) {
 async function inspectPackedManifest(packageDir, tempDir) {
   const pkg = JSON.parse(await fs.readFile(path.join(packageDir, "package.json"), "utf8"));
   const tarballPath = path.join(tempDir, npmTarballName(pkg.name, pkg.version));
+  const npmCache = process.env.npm_config_cache || path.join(os.tmpdir(), "openscout-npm-cache");
+  await fs.mkdir(npmCache, { recursive: true });
 
   execFileSync("npm", ["pack", "--pack-destination", tempDir], {
     cwd: packageDir,
+    env: {
+      ...process.env,
+      npm_config_cache: npmCache,
+    },
     stdio: "inherit",
   });
 

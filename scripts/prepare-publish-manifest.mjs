@@ -100,6 +100,15 @@ function rewriteWorkspaceDependencies(pkg, versions) {
         continue;
       }
 
+      if (section === "devDependencies") {
+        delete deps[name];
+        if (Object.keys(deps).length === 0) {
+          delete pkg[section];
+        }
+        changed = true;
+        continue;
+      }
+
       const resolvedVersion = versions.get(name);
       if (!resolvedVersion) {
         continue;
