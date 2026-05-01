@@ -1,13 +1,13 @@
 ---
-name: scout-broker
-description: Use Scout's broker-backed MCP tools for agent discovery, precise handle resolution, direct messages, and ask-style invocations. Trigger this when the user wants to contact another Scout agent, delegate work, inspect who is online, or check Scout routing state.
+name: "MCP"
+description: Use Scout MCP tools for agent discovery, precise handle resolution, direct messages, and ask-style invocations. Trigger this when the user wants to contact another Scout agent, delegate work, inspect who is online, or check Scout routing state from Codex.
 metadata:
-  short-description: Broker-native Scout coordination from Codex
+  short-description: Use Codex tools for Scout messaging and coordination
 ---
 
-# Scout Broker
+# Scout MCP
 
-Use this plugin when the task is about Scout-native coordination rather than local shell delegation.
+Use this plugin when the task is about Scout coordination through Codex MCP tools rather than local shell delegation.
 
 Fast path:
 
