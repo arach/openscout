@@ -79,6 +79,20 @@
     0 0 0 1px var(--hud-chrome-border) !important;
 }
 
+[data-scout-theme] [data-frame-panel="manifest"],
+[data-scout-theme] [data-frame-panel="inspector"],
+[data-scout-theme] [data-frame-panel="status-bar"] {
+  border-color: var(--hud-chrome-border) !important;
+}
+
+[data-scout-theme] [data-frame-panel="manifest"] [class*="border-b"],
+[data-scout-theme] [data-frame-panel="manifest"] [class*="border-t"],
+[data-scout-theme] [data-frame-panel="inspector"] [class*="border-b"],
+[data-scout-theme] [data-frame-panel="inspector"] [class*="border-t"],
+[data-scout-theme] [data-frame-panel="status-bar"] [class*="border"] {
+  border-color: var(--hud-chrome-border) !important;
+}
+
 /* Keyboard focus affordance for interactive elements. :focus-visible only
  * fires for keyboard navigation, so mouse clicks stay clean. Components that
  * need a different treatment override this with higher specificity. */

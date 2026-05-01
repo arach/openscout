@@ -95,7 +95,7 @@ const DARK_THEME_VARS: ThemeVars = {
   "--hud-accent": "oklch(0.86 0.17 125)",
   "--hud-accent-soft": "oklch(0.86 0.17 125 / 0.08)",
   "--hud-shadow-soft": "oklch(0.10 0.006 75 / 0.4)",
-  "--hud-chrome-border": "oklch(0.96 0.008 80 / 0.016)",
+  "--hud-chrome-border": "oklch(0.96 0.008 80 / 0.009)",
   "--hud-shadow-panel": "0 12px 34px oklch(0.08 0.006 75 / 0.45)",
   "--hud-shadow-panel-hover": "0 14px 38px oklch(0.08 0.006 75 / 0.52)",
   "--hud-shadow-bar": "0 -10px 28px oklch(0.08 0.006 75 / 0.38)",
