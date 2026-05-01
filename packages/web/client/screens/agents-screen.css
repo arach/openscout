@@ -1011,7 +1011,7 @@
 /* ── Repo card: master container ── */
 
 .s-repo-card {
-  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface);
   overflow: hidden;
@@ -1325,7 +1325,7 @@
 .s-agent-card {
   appearance: none;
   text-align: left;
-  border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 3%, var(--surface));
   padding: 9px 11px 8px;
@@ -1339,7 +1339,7 @@
 }
 
 .s-agent-card:hover {
-  border-color: color-mix(in srgb, var(--ink) 42%, transparent);
+  border-color: color-mix(in srgb, var(--ink) 12%, var(--border));
   background: color-mix(in srgb, var(--ink) 6%, var(--surface));
 }
 
@@ -1428,7 +1428,7 @@
 }
 
 .s-agents-library-card:hover {
-  border-color: color-mix(in srgb, var(--ink) 25%, var(--border));
+  border-color: color-mix(in srgb, var(--ink) 12%, var(--border));
   transform: translateY(-1px);
 }
 

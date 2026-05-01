@@ -36,7 +36,47 @@
   --font-sans: var(--hud-font-sans);
   --font-mono: var(--hud-font-mono);
   --font-serif: var(--hud-font-serif);
+
+  /* Hudson's Tailwind utilities read --color-* variables, while Scout's
+   * component CSS keeps legacy aliases such as --border and --accent as full
+   * CSS colors. Bridge the two contracts here so classes like border-border
+   * do not try to wrap a full color in oklch(...), which produces harsh
+   * browser fallback borders. */
+  --color-background: var(--hud-bg);
+  --color-foreground: var(--hud-ink);
+  --color-card: var(--hud-surface);
+  --color-card-foreground: var(--hud-ink);
+  --color-popover: var(--hud-surface);
+  --color-popover-foreground: var(--hud-ink);
+  --color-primary: var(--hud-ink);
+  --color-primary-foreground: var(--hud-bg);
+  --color-secondary: color-mix(in srgb, var(--hud-surface) 82%, var(--hud-bg));
+  --color-secondary-foreground: var(--hud-ink);
+  --color-muted: color-mix(in srgb, var(--hud-surface) 82%, var(--hud-bg));
+  --color-muted-foreground: var(--hud-muted);
+  --color-accent: var(--hud-accent);
+  --color-accent-foreground: var(--hud-bg);
+  --color-border: var(--hud-border);
+  --color-input: var(--hud-border);
+  --color-ring: var(--hud-accent);
+  --color-success: var(--hud-status-ok);
+  --color-warning: var(--hud-status-warn);
+  --color-destructive: var(--hud-status-error);
   color: var(--ink);
+}
+
+/* Hudson chrome is imported from the local SDK and can still emit hard
+ * frame seams via Tailwind utilities. Keep those shell borders quieter than
+ * Scout's content cards. */
+[data-scout-theme] [data-frame-panel="navigation"] > div {
+  border-bottom-color: transparent !important;
+}
+
+[data-scout-theme] button[title^="Expand "] {
+  border-color: transparent !important;
+  box-shadow:
+    0 10px 26px oklch(0.08 0.006 75 / 0.42),
+    0 0 0 1px var(--hud-chrome-border) !important;
 }
 
 /* Keyboard focus affordance for interactive elements. :focus-visible only
