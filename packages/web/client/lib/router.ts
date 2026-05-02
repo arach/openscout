@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
-import type { AgentTab, OpsMode, Route } from "./types.ts";
+import type { AgentTab, FollowPreferredView, OpsMode, Route } from "./types.ts";
 
 /* ── URL ↔ Route mapping ── */
 
@@ -37,6 +37,18 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
   }
 }
 
+function parseFollowPreferredView(value: string | null): FollowPreferredView | undefined {
+  switch (value) {
+    case "tail":
+    case "session":
+    case "chat":
+    case "work":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
 function opsModePath(mode: OpsMode): string {
   switch (mode) {
     case "command":
@@ -48,6 +60,16 @@ function opsModePath(mode: OpsMode): string {
     default:
       return mode;
   }
+}
+
+function isOpsEnabledForUrl(url: URL): boolean {
+  if (url.searchParams.has("no-ops")) {
+    return false;
+  }
+  if (typeof window === "undefined") {
+    return true;
+  }
+  return isOpsEnabled();
 }
 
 export function routeFromUrl(urlLike: string | URL): Route {
@@ -109,17 +131,46 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "work" && parts[1]) {
     return { view: "work", workId: decodeURIComponent(parts[1]) };
   }
+  if (parts[0] === "follow") {
+    const preferredView = parseFollowPreferredView(url.searchParams.get("view"));
+    const route: Extract<Route, { view: "follow" }> = {
+      view: "follow",
+      ...(preferredView ? { preferredView } : {}),
+    };
+    const kind = parts[1];
+    const id = parts[2] ? decodeURIComponent(parts[2]) : "";
+    if (kind === "flight" && id) route.flightId = id;
+    if (kind === "invocation" && id) route.invocationId = id;
+    if (kind === "conversation" && id) route.conversationId = id;
+    if (kind === "work" && id) route.workId = id;
+    if (kind === "session" && id) route.sessionId = id;
+    if (kind === "agent" && id) route.targetAgentId = id;
+    const flightId = url.searchParams.get("flightId");
+    const invocationId = url.searchParams.get("invocationId");
+    const conversationId = url.searchParams.get("conversationId");
+    const workId = url.searchParams.get("workId");
+    const sessionId = url.searchParams.get("sessionId");
+    const targetAgentId = url.searchParams.get("targetAgentId");
+    if (flightId) route.flightId = flightId;
+    if (invocationId) route.invocationId = invocationId;
+    if (conversationId) route.conversationId = conversationId;
+    if (workId) route.workId = workId;
+    if (sessionId) route.sessionId = sessionId;
+    if (targetAgentId) route.targetAgentId = targetAgentId;
+    return route;
+  }
   if (parts[0] === "settings") return { view: "settings" };
   if (parts[0] === "terminal") {
     return { view: "terminal", ...(parts[1] ? { agentId: decodeURIComponent(parts[1]) } : {}) };
   }
   if (parts[0] === "ops") {
-    if (!isOpsEnabled()) {
+    if (!isOpsEnabledForUrl(url)) {
       return { view: "inbox" };
     }
     const mode = parseOpsMode(parts[1]);
     if (mode) {
-      return { view: "ops", mode };
+      const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
+      return { view: "ops", mode, ...(tailQuery ? { tailQuery } : {}) };
     }
     return { view: "ops" };
   }
@@ -157,7 +208,7 @@ export function routePath(r: Route): string {
           : "profile";
       if (isDmConv) {
         // DM conversation is implied by `?tab=message`; omit /c/ segment.
-        params.set("tab", "message");
+        params.set("tab", r.tab ?? "message");
       } else if (r.tab && r.tab !== defaultTab) {
         params.set("tab", r.tab);
       }
@@ -190,7 +241,23 @@ export function routePath(r: Route): string {
     case "settings":
       return "/settings";
     case "ops":
-      return r.mode ? `/ops/${opsModePath(r.mode)}` : "/ops";
+      if (!r.mode) return "/ops";
+      if (r.mode === "tail" && r.tailQuery) {
+        return `/ops/${opsModePath(r.mode)}?q=${encodeURIComponent(r.tailQuery)}`;
+      }
+      return `/ops/${opsModePath(r.mode)}`;
+    case "follow": {
+      const params = new URLSearchParams();
+      if (r.preferredView) params.set("view", r.preferredView);
+      if (r.flightId) params.set("flightId", r.flightId);
+      if (r.invocationId) params.set("invocationId", r.invocationId);
+      if (r.conversationId) params.set("conversationId", r.conversationId);
+      if (r.workId) params.set("workId", r.workId);
+      if (r.sessionId) params.set("sessionId", r.sessionId);
+      if (r.targetAgentId) params.set("targetAgentId", r.targetAgentId);
+      const search = params.toString();
+      return `/follow${search ? `?${search}` : ""}`;
+    }
     case "terminal":
       return r.agentId ? `/terminal/${encodeURIComponent(r.agentId)}` : "/terminal";
   }
@@ -215,7 +282,9 @@ function routeKey(r: Route): string {
     case "work":
       return `work:${r.workId}`;
     case "ops":
-      return `ops:${r.mode ?? "plan"}`;
+      return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}`;
+    case "follow":
+      return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     default:
       return r.view;
   }

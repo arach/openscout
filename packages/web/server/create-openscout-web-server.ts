@@ -29,6 +29,7 @@ import {
   queryWorkItemById,
   querySessions,
   querySessionById,
+  queryFollowTarget,
   queryHeartrate,
 } from "./db-queries.ts";
 import {
@@ -475,6 +476,18 @@ export async function createOpenScoutWebServer(
       }),
     );
   });
+  app.get("/api/follow", (c) =>
+    c.json(
+      queryFollowTarget({
+        flightId: c.req.query("flightId") || undefined,
+        invocationId: c.req.query("invocationId") || undefined,
+        conversationId: c.req.query("conversationId") || undefined,
+        workId: c.req.query("workId") || undefined,
+        sessionId: c.req.query("sessionId") || undefined,
+        targetAgentId: c.req.query("targetAgentId") || undefined,
+      }),
+    ),
+  );
 
   app.get("/api/sessions", (c) => c.json(querySessions()));
   app.get("/api/session-ref/:id", async (c) => {

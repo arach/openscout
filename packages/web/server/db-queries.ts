@@ -630,6 +630,15 @@ export type WebFlight = {
   completedAt: number | null;
 };
 
+export type WebFollowTarget = {
+  flightId: string | null;
+  invocationId: string | null;
+  conversationId: string | null;
+  workId: string | null;
+  sessionId: string | null;
+  targetAgentId: string | null;
+};
+
 export function queryFlights(opts?: {
   agentId?: string;
   conversationId?: string;
@@ -694,6 +703,103 @@ export function queryFlights(opts?: {
     startedAt: r.started_at,
     completedAt: r.completed_at,
   }));
+}
+
+export function queryFollowTarget(opts: {
+  flightId?: string;
+  invocationId?: string;
+  conversationId?: string;
+  workId?: string;
+  sessionId?: string;
+  targetAgentId?: string;
+}): WebFollowTarget {
+  const target: WebFollowTarget = {
+    flightId: opts.flightId?.trim() || null,
+    invocationId: opts.invocationId?.trim() || null,
+    conversationId: opts.conversationId?.trim() || null,
+    workId: opts.workId?.trim() || null,
+    sessionId: opts.sessionId?.trim() || null,
+    targetAgentId: opts.targetAgentId?.trim() || null,
+  };
+
+  if (target.flightId || target.invocationId) {
+    const flightJoin = target.flightId
+      ? "JOIN flights f ON f.invocation_id = inv.id"
+      : `LEFT JOIN flights f ON f.id = (
+           SELECT f2.id
+           FROM flights f2
+           WHERE f2.invocation_id = inv.id
+           ORDER BY COALESCE(f2.completed_at, f2.started_at, 0) DESC
+           LIMIT 1
+         )`;
+    const where = target.flightId ? "f.id = ?" : "inv.id = ?";
+    const param = target.flightId ?? target.invocationId ?? "";
+    const row = db().prepare(
+      `SELECT
+         f.id AS flight_id,
+         inv.id AS invocation_id,
+         inv.conversation_id,
+         inv.collaboration_record_id,
+         inv.target_agent_id,
+         ep.transport,
+         ep.session_id,
+         ep.metadata_json AS endpoint_metadata_json
+       FROM invocations inv
+       ${flightJoin}
+       LEFT JOIN agent_endpoints ep ON ep.id = (
+         SELECT ep2.id
+         FROM agent_endpoints ep2
+         WHERE ep2.agent_id = inv.target_agent_id
+         ORDER BY ep2.updated_at DESC
+         LIMIT 1
+       )
+       WHERE ${where}
+       LIMIT 1`,
+    ).get(param) as {
+      flight_id: string | null;
+      invocation_id: string;
+      conversation_id: string | null;
+      collaboration_record_id: string | null;
+      target_agent_id: string | null;
+      transport: string | null;
+      session_id: string | null;
+      endpoint_metadata_json: string | null;
+    } | null;
+
+    if (row) {
+      let endpointMeta: Record<string, unknown> = {};
+      try {
+        endpointMeta = row.endpoint_metadata_json
+          ? JSON.parse(row.endpoint_metadata_json)
+          : {};
+      } catch {
+        endpointMeta = {};
+      }
+      target.flightId = target.flightId ?? row.flight_id;
+      target.invocationId = target.invocationId ?? row.invocation_id;
+      target.conversationId = target.conversationId ?? row.conversation_id;
+      target.workId = target.workId ?? row.collaboration_record_id;
+      target.targetAgentId = target.targetAgentId ?? row.target_agent_id;
+      target.sessionId = target.sessionId ?? resolveHarnessSessionId(
+        row.transport,
+        row.session_id,
+        endpointMeta,
+      );
+    }
+  }
+
+  if (target.workId && !target.conversationId) {
+    const work = queryWorkItemById(target.workId);
+    target.conversationId = work?.conversationId ?? target.conversationId;
+  }
+
+  if (target.conversationId && (!target.sessionId || !target.targetAgentId)) {
+    const session = querySessionById(target.conversationId);
+    target.sessionId = target.sessionId ?? session?.harnessSessionId ?? null;
+    target.targetAgentId = target.targetAgentId ?? session?.agentId ?? null;
+  }
+
+  return target;
 }
 
 export type WebWorkTimelineKind =

@@ -127,6 +127,7 @@ describe("createScoutMcpServer", () => {
       conversationId: string;
       replyToMessageId: string;
       currentDirectory: string;
+      source?: string;
     } | undefined;
     const { client } = await connectTestServer(
       {
@@ -851,58 +852,63 @@ describe("createScoutMcpServer", () => {
           source?: string;
         }
       | undefined;
-    const { client } = await connectTestServer({
-      resolveSenderId: async (senderId, currentDirectory) => {
-        resolveSenderCalls.push({ senderId, currentDirectory });
-        return "operator.main.mini";
-      },
-      resolveBrokerUrl: () => "http://broker.test",
-      searchAgents: async () => {
-        throw new Error("unexpected agents_search preflight");
-      },
-      resolveAgent: async () => {
-        throw new Error("unexpected agents_resolve preflight");
-      },
-      sendMessage: async () => ({
-        usedBroker: true,
-        invokedTargets: [],
-        unresolvedTargets: [],
-      }),
-      sendMessageToAgentIds: async () => ({
-        usedBroker: true,
-        invokedTargetIds: [],
-        unresolvedTargetIds: [],
-      }),
-      askQuestion: async ({
-        senderId,
-        targetLabel,
-        currentDirectory,
-        source,
-      }) => {
-        receivedAsk = { senderId, targetLabel, currentDirectory, source };
-        return {
+    const { client } = await connectTestServer(
+      {
+        resolveSenderId: async (senderId, currentDirectory) => {
+          resolveSenderCalls.push({ senderId, currentDirectory });
+          return "operator.main.mini";
+        },
+        resolveBrokerUrl: () => "http://broker.test",
+        searchAgents: async () => {
+          throw new Error("unexpected agents_search preflight");
+        },
+        resolveAgent: async () => {
+          throw new Error("unexpected agents_resolve preflight");
+        },
+        sendMessage: async () => ({
           usedBroker: true,
-          conversationId: "dm.operator.hudson",
-          messageId: "msg-1",
-          flight: {
-            id: "flight-1",
-            invocationId: "inv-1",
-            requesterId: senderId,
-            targetAgentId: "hudson.main",
-            state: "running",
-          },
-        };
+          invokedTargets: [],
+          unresolvedTargets: [],
+        }),
+        sendMessageToAgentIds: async () => ({
+          usedBroker: true,
+          invokedTargetIds: [],
+          unresolvedTargetIds: [],
+        }),
+        askQuestion: async ({
+          senderId,
+          targetLabel,
+          currentDirectory,
+          source,
+        }) => {
+          receivedAsk = { senderId, targetLabel, currentDirectory, source };
+          return {
+            usedBroker: true,
+            conversationId: "dm.operator.hudson",
+            messageId: "msg-1",
+            flight: {
+              id: "flight-1",
+              invocationId: "inv-1",
+              requesterId: senderId,
+              targetAgentId: "hudson.main",
+              state: "running",
+            },
+          };
+        },
+        askAgentById: async () => {
+          throw new Error("unexpected askAgentById path");
+        },
+        updateWorkItem: async () => {
+          throw new Error("not used");
+        },
+        waitForFlight: async () => {
+          throw new Error("not used");
+        },
       },
-      askAgentById: async () => {
-        throw new Error("unexpected askAgentById path");
+      {
+        OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
       },
-      updateWorkItem: async () => {
-        throw new Error("not used");
-      },
-      waitForFlight: async () => {
-        throw new Error("not used");
-      },
-    });
+    );
 
     const result = await client.callTool({
       name: "invocations_ask",
@@ -922,6 +928,19 @@ describe("createScoutMcpServer", () => {
       messageId: string | null;
       flightId: string | null;
       delivery: string;
+      followUrl: string | null;
+      ids: {
+        flightId: string | null;
+        invocationId: string | null;
+        conversationId: string | null;
+        targetAgentId: string | null;
+      };
+      links: {
+        follow: string | null;
+        tail: string | null;
+        chat: string | null;
+        agent: string | null;
+      };
     };
 
     expect(resolveSenderCalls).toEqual([
@@ -941,10 +960,25 @@ describe("createScoutMcpServer", () => {
     expect(structured.messageId).toBe("msg-1");
     expect(structured.flightId).toBe("flight-1");
     expect(structured.delivery).toBe("none");
+    expect(structured.ids).toMatchObject({
+      flightId: "flight-1",
+      invocationId: "inv-1",
+      conversationId: "dm.operator.hudson",
+      targetAgentId: "hudson.main",
+    });
+    expect(structured.followUrl).toBe(
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    );
+    expect(structured.links).toMatchObject({
+      follow: structured.followUrl,
+      tail: structured.followUrl,
+      chat: "http://scout.test/c/dm.operator.hudson",
+      agent: "http://scout.test/agents/hudson.main?tab=message",
+    });
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]).toEqual({
       type: "text",
-      text: "Ask sent to hudson.main; flight flight-1.",
+      text: "Ask sent to hudson.main; flight flight-1. Follow: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
     });
   });
 

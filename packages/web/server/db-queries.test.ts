@@ -9,6 +9,7 @@ import {
   queryActivity,
   queryAgents,
   queryFleet,
+  queryFollowTarget,
   queryFlights,
   queryHeartrate,
   queryMobileAgentDetail,
@@ -166,6 +167,36 @@ describe("web db query flights", () => {
           completedAt: null,
         },
       ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("resolves follow context from a flight id", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertEndpoint({
+        id: "agent-1-endpoint",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "active",
+        sessionId: "codex-thread-1",
+        metadata: {
+          threadId: "codex-thread-1",
+        },
+      });
+
+      expect(queryFollowTarget({ flightId: "flight-1" })).toEqual({
+        flightId: "flight-1",
+        invocationId: "inv-1",
+        conversationId: "conv-1",
+        workId: "work-1",
+        sessionId: "codex-thread-1",
+        targetAgentId: "agent-1",
+      });
     } finally {
       store.close();
     }
