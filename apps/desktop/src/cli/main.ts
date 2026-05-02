@@ -94,7 +94,10 @@ async function ensureBrokerUptodate(): Promise<void> {
 
     if (shouldRestartBrokerForCliMtime(mtime, lastMtime)) {
       // CLI was updated — bounce the broker
-      const uid = process.getuid();
+      const uid = typeof process.getuid === "function" ? process.getuid() : null;
+      if (uid === null) {
+        return;
+      }
       const plistPath = join(homedir(), "Library", "LaunchAgents", "dev.openscout.broker.plist");
       spawnSync("launchctl", ["bootout", `gui/${uid}/dev.openscout.broker`], { stdio: "ignore" });
       await new Promise<void>((resolve) => setTimeout(resolve, 1500));

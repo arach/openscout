@@ -1020,7 +1020,7 @@ describe("resolveScoutSenderId", () => {
     expect(senderId.startsWith("openscout-canvas-nav.")).toBe(false);
   });
 
-  test("prefers an explicit project-default sender over a differently named manifest agent", async () => {
+  test("prefers the manifest agent as the project default sender", async () => {
     const home = useIsolatedOpenScoutHome();
     const repo = join(home, "dev", "openscout");
 
@@ -1055,8 +1055,8 @@ describe("resolveScoutSenderId", () => {
 
     const senderId = await resolveScoutSenderId(null, repo);
 
-    expect(senderId.startsWith("openscout.")).toBe(true);
-    expect(senderId.startsWith("ranger.")).toBe(false);
+    expect(senderId.startsWith("ranger.")).toBe(true);
+    expect(senderId.startsWith("openscout.")).toBe(false);
   });
 });
 

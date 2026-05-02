@@ -427,9 +427,9 @@ async function inferSenderIdForProjectRoot(
     projectConfig?.agent?.id?.trim() ?? "",
   );
   const projectDefaultDefinitionIds = [
+    configuredDefinitionId,
     projectConfig?.project?.id,
     basename(projectRoot),
-    configuredDefinitionId,
   ].filter((value): value is string => Boolean(value));
   const configuredSenderId = resolveConfiguredSenderIdForProjectRoot(
     overrides,

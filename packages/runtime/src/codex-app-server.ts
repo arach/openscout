@@ -411,6 +411,106 @@ async function readOptionalJsonRecord(filePath: string): Promise<Record<string, 
   return raw ? parseJsonRecord(raw) : null;
 }
 
+type CodexSessionCatalogEntry = {
+  id: string;
+  startedAt: number;
+  endedAt?: number;
+  cwd: string;
+  harness?: string;
+  transport?: string;
+  model?: string | null;
+};
+
+type CodexSessionCatalog = {
+  activeSessionId: string | null;
+  sessions: CodexSessionCatalogEntry[];
+};
+
+const SESSION_CATALOG_FILENAME = "session-catalog.json";
+const SESSION_CATALOG_MAX_ENTRIES = 64;
+
+async function readCodexSessionCatalog(runtimeDirectory: string): Promise<CodexSessionCatalog> {
+  const raw = await readOptionalFile(join(runtimeDirectory, SESSION_CATALOG_FILENAME));
+  if (!raw) {
+    return { activeSessionId: null, sessions: [] };
+  }
+
+  const parsed = parseCodexMaybeJson(raw) as Partial<CodexSessionCatalog> | null;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { activeSessionId: null, sessions: [] };
+  }
+
+  return {
+    activeSessionId: typeof parsed.activeSessionId === "string" ? parsed.activeSessionId : null,
+    sessions: Array.isArray(parsed.sessions) ? parsed.sessions.filter((entry): entry is CodexSessionCatalogEntry => (
+      Boolean(entry)
+      && typeof entry === "object"
+      && typeof (entry as CodexSessionCatalogEntry).id === "string"
+      && typeof (entry as CodexSessionCatalogEntry).startedAt === "number"
+      && typeof (entry as CodexSessionCatalogEntry).cwd === "string"
+    )) : [],
+  };
+}
+
+async function writeCodexSessionCatalog(runtimeDirectory: string, catalog: CodexSessionCatalog): Promise<void> {
+  await mkdir(runtimeDirectory, { recursive: true });
+  await writeFile(join(runtimeDirectory, SESSION_CATALOG_FILENAME), JSON.stringify(catalog, null, 2) + "\n");
+}
+
+async function recordCodexSessionCatalog(
+  runtimeDirectory: string,
+  threadId: string,
+  input: {
+    cwd: string;
+    harness: string;
+    transport: string;
+    model: string | null;
+  },
+): Promise<void> {
+  const catalog = await readCodexSessionCatalog(runtimeDirectory);
+  const now = Date.now();
+  const sessions = catalog.sessions.map((session) =>
+    session.id === catalog.activeSessionId && session.id !== threadId && !session.endedAt
+      ? { ...session, endedAt: now }
+      : session
+  );
+
+  if (!sessions.some((session) => session.id === threadId)) {
+    sessions.push({
+      id: threadId,
+      startedAt: now,
+      cwd: input.cwd,
+      harness: input.harness,
+      transport: input.transport,
+      model: input.model,
+    });
+  }
+
+  while (sessions.length > SESSION_CATALOG_MAX_ENTRIES) {
+    sessions.shift();
+  }
+
+  await writeCodexSessionCatalog(runtimeDirectory, {
+    activeSessionId: threadId,
+    sessions,
+  });
+}
+
+async function closeCodexSessionCatalog(runtimeDirectory: string, threadId: string | null): Promise<void> {
+  const catalog = await readCodexSessionCatalog(runtimeDirectory);
+  const now = Date.now();
+  const activeSessionId = threadId ?? catalog.activeSessionId;
+  const sessions = catalog.sessions.map((session) =>
+    session.id === activeSessionId && !session.endedAt
+      ? { ...session, endedAt: now }
+      : session
+  );
+  await writeCodexSessionCatalog(runtimeDirectory, {
+    activeSessionId: null,
+    sessions,
+  });
+}
+
 function codexThreadStatusToSessionStatus(status: string | undefined): SessionState["session"]["status"] {
   switch (status) {
     case "active":
@@ -1532,6 +1632,7 @@ class CodexAppServerSession {
     }
 
     if (options.resetThread) {
+      await closeCodexSessionCatalog(this.options.runtimeDirectory, this.threadId);
       this.threadId = null;
       this.threadPath = null;
       await rm(this.threadIdPath, { force: true });
@@ -1658,6 +1759,7 @@ class CodexAppServerSession {
         this.threadId = resumed.thread.id;
         this.threadPath = resumed.thread.path ?? null;
         await this.persistThreadId();
+        await recordCodexSessionCatalog(this.options.runtimeDirectory, this.threadId, this.catalogRuntimeMeta());
         return;
       } catch (error) {
         await appendFile(
@@ -1692,6 +1794,21 @@ class CodexAppServerSession {
     this.threadId = started.thread.id;
     this.threadPath = started.thread.path ?? null;
     await this.persistThreadId();
+    await recordCodexSessionCatalog(this.options.runtimeDirectory, this.threadId, this.catalogRuntimeMeta());
+  }
+
+  private catalogRuntimeMeta(): {
+    cwd: string;
+    harness: string;
+    transport: string;
+    model: string | null;
+  } {
+    return {
+      cwd: this.options.cwd,
+      harness: "codex",
+      transport: "codex_app_server",
+      model: readCodexAppServerModelFromLaunchArgs(this.options.launchArgs),
+    };
   }
 
   private createActiveTurn(
@@ -2225,6 +2342,8 @@ export async function shutdownCodexAppServerAgent(
   if (!session) {
     if (shutdownOptions.resetThread) {
       const runtimeDirectory = options.runtimeDirectory;
+      const threadId = await readOptionalFile(join(runtimeDirectory, "codex-thread-id.txt"));
+      await closeCodexSessionCatalog(runtimeDirectory, threadId);
       await rm(join(runtimeDirectory, "codex-thread-id.txt"), { force: true });
     }
     return;

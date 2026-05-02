@@ -73,6 +73,19 @@ async function startBroker(input: {
   return harness;
 }
 
+function writeRelayAgentRegistry(
+  supportDirectory: string,
+  agents: Record<string, unknown>,
+): void {
+  mkdirSync(supportDirectory, { recursive: true });
+  writeFileSync(join(supportDirectory, "rpc-runtime-cutover-v1"), "test\n", "utf8");
+  writeFileSync(
+    join(supportDirectory, "relay-agents.json"),
+    `${JSON.stringify({ version: 1, agents }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 async function drainProcessOutput(stream: ReadableStream<Uint8Array> | null): Promise<void> {
   if (!stream) return;
   await new Response(stream).arrayBuffer().catch(() => undefined);
@@ -1074,6 +1087,69 @@ describe("broker daemon comms layer", () => {
     expect(followup.targetAgentId).toBe("ghost");
     expect(followup.receipt?.targetLabel).toBe("@ghost");
     expect(followup.receipt?.bindingRef).toBe(followup.bindingRef);
+  }, 15_000);
+
+  test("refreshes registered local agents before resolving broker-owned delivery", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "openscout");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    writeRelayAgentRegistry(supportDirectory, {
+      ranger: {
+        agentId: "ranger",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-ranger-codex",
+          wakePolicy: "on_demand",
+        },
+        capabilities: ["chat", "invoke", "deliver"],
+      },
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-ranger-after-registry-change",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@ranger",
+      },
+      body: "@ranger registry changed while the broker was already running",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toBe("ranger.test-node");
+    expect(response.receipt?.targetAgentId).toBe("ranger.test-node");
   }, 15_000);
 
   test("accepts broker-owned channel tells without caller-side route preflight", async () => {

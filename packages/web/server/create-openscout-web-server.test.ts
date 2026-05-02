@@ -61,6 +61,7 @@ mock.module("./db-queries.ts", () => ({
     needsAttention: [],
     activity: [],
   }),
+  queryFollowTarget: () => null,
   queryFlights: () => [],
   queryRecentMessages: () => [],
   querySessions: () => [],

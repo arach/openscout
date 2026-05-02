@@ -212,6 +212,23 @@ function createToolUiMeta(fields?: Record<string, ScoutMcpAgentPickerFieldMeta>)
   } satisfies Record<string, unknown>;
 }
 
+function hasExplicitAgentSender(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env.OPENSCOUT_AGENT?.trim());
+}
+
+async function resolveMcpSenderId(
+  deps: Pick<ScoutMcpDependencies, "resolveSenderId">,
+  senderId: string | null | undefined,
+  currentDirectory: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  return deps.resolveSenderId(
+    senderId ?? (hasExplicitAgentSender(env) ? undefined : "operator"),
+    currentDirectory,
+    env,
+  );
+}
+
 const targetLabelInputSchema = z
   .string()
   .describe("Scout agent handle to contact, such as @talkie or @talkie#codex?5.5")
@@ -791,8 +808,13 @@ function resolveAskReplyMode(input: {
   return input.awaitReply ? "inline" : "none";
 }
 
-function workUrlFor(workItem: ScoutTrackedWorkItem | null | undefined): string | null {
-  return workItem ? `/api/work/${encodeURIComponent(workItem.id)}` : null;
+function workUrlFor(
+  workItem: ScoutTrackedWorkItem | null | undefined,
+  env: NodeJS.ProcessEnv,
+): string | null {
+  return workItem
+    ? buildScoutPath(resolveScoutWebOrigin(env), `/work/${encodeURIComponent(workItem.id)}`)
+    : null;
 }
 
 function trimTrailingSlash(value: string): string {
@@ -1755,7 +1777,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const defaultSenderId = await deps.resolveSenderId(
+      const defaultSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -1839,7 +1862,8 @@ export function createScoutMcpServer(options: {
       const context = parseScoutReplyContextFromEnv(env);
       const resolvedConversationId = conversationId?.trim() || context?.conversationId || "";
       const resolvedReplyToMessageId = replyToMessageId?.trim() || context?.replyToMessageId || "";
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId ?? context?.toAgentId,
         resolvedCurrentDirectory,
         env,
@@ -1987,7 +2011,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -2150,7 +2175,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -2327,7 +2353,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -2374,7 +2401,7 @@ export function createScoutMcpServer(options: {
               flightId: result.flight.id,
               workItem: trackedWorkItem,
               workId: trackedWorkItem?.id ?? null,
-              workUrl: workUrlFor(trackedWorkItem),
+              workUrl: workUrlFor(trackedWorkItem, env),
             },
           });
         }
@@ -2415,7 +2442,7 @@ export function createScoutMcpServer(options: {
           unresolvedTargetLabel: null,
           workItem: trackedWorkItem,
           workId: trackedWorkItem?.id ?? null,
-          workUrl: workUrlFor(trackedWorkItem),
+          workUrl: workUrlFor(trackedWorkItem, env),
           ids: followArtifacts.ids,
           links: followArtifacts.links,
           followUrl: followArtifacts.followUrl,
@@ -2468,7 +2495,7 @@ export function createScoutMcpServer(options: {
             flightId: result.flight.id,
             workItem: trackedWorkItem,
             workId: trackedWorkItem?.id ?? null,
-            workUrl: workUrlFor(trackedWorkItem),
+            workUrl: workUrlFor(trackedWorkItem, env),
           },
         });
       }
@@ -2510,7 +2537,7 @@ export function createScoutMcpServer(options: {
         unresolvedTargetLabel: result.unresolvedTarget ?? null,
         workItem: trackedWorkItem,
         workId: trackedWorkItem?.id ?? null,
-        workUrl: workUrlFor(trackedWorkItem),
+        workUrl: workUrlFor(trackedWorkItem, env),
         ids: followArtifacts.ids,
         links: followArtifacts.links,
         followUrl: followArtifacts.followUrl,
@@ -2549,7 +2576,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -2565,9 +2593,7 @@ export function createScoutMcpServer(options: {
         usedBroker: workItem !== null,
         workItem,
         workId: workItem?.id ?? null,
-        workUrl: workItem
-          ? `/api/work/${encodeURIComponent(workItem.id)}`
-          : null,
+        workUrl: workUrlFor(workItem, env),
       };
       return {
         content: createTextContent(structuredContent),

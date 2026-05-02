@@ -6,6 +6,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
+import { conversationForAgent } from "../lib/router.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type {
@@ -70,6 +71,20 @@ function directSessionMaps(sessions: SessionEntry[]): {
     }
   }
   return { conversationByAgentId, sessionByAgentId };
+}
+
+function resolveSelectedAgent(agents: Agent[], selectedAgentId?: string): Agent | null {
+  if (!selectedAgentId) return null;
+
+  const exact = agents.find((a) => a.id === selectedAgentId);
+  if (exact) return exact;
+
+  const handle = selectedAgentId.split(".")[0];
+  if (!handle) return null;
+
+  return [...agents]
+    .filter((a) => a.handle === handle || a.id.startsWith(`${handle}.`))
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
 }
 
 
@@ -752,19 +767,43 @@ export function AgentsScreen({
     void load();
   });
 
-  const selectedAgent = selectedAgentId
-    ? agents.find((a) => a.id === selectedAgentId) ?? null
-    : null;
+  const selectedAgent = resolveSelectedAgent(agents, selectedAgentId);
+  const selectedAgentWasAliased = Boolean(
+    selectedAgentId && selectedAgent && selectedAgent.id !== selectedAgentId,
+  );
 
   const { conversationByAgentId, sessionByAgentId } =
     directSessionMaps(sessions);
 
+  useEffect(() => {
+    if (!selectedAgentId || !selectedAgent || !selectedAgentWasAliased) return;
+    const staleDirectConversationId = conversationForAgent(selectedAgentId);
+    const canonicalConversationId =
+      activeConversationId === staleDirectConversationId
+        ? selectedAgent.conversationId
+        : activeConversationId;
+    navigate({
+      view: "agents",
+      agentId: selectedAgent.id,
+      ...(canonicalConversationId ? { conversationId: canonicalConversationId } : {}),
+      ...(activeTab ? { tab: activeTab } : {}),
+    });
+  }, [activeConversationId, activeTab, navigate, selectedAgent, selectedAgentId, selectedAgentWasAliased]);
+
   if (selectedAgent) {
+    const staleDirectConversationId =
+      selectedAgentWasAliased && selectedAgentId
+        ? conversationForAgent(selectedAgentId)
+        : null;
     const resolvedConversationId =
-      activeConversationId ??
-      conversationByAgentId.get(selectedAgent.id) ??
-      selectedAgent.conversationId ??
-      null;
+      activeConversationId === staleDirectConversationId
+        ? selectedAgent.conversationId
+        : (
+          activeConversationId ??
+          conversationByAgentId.get(selectedAgent.id) ??
+          selectedAgent.conversationId ??
+          null
+        );
     const resolvedTab = activeTab
       ?? (activeConversationId ? "message" : "profile");
     return (

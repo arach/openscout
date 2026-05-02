@@ -741,6 +741,41 @@ export async function createOpenScoutWebServer(
     return c.json({ ok: true });
   });
 
+  app.post("/api/agents/:agentId/session/reset", async (c) => {
+    const agentId = c.req.param("agentId");
+    const { getLocalAgentConfig, restartLocalAgent } =
+      await import("@openscout/runtime/local-agents");
+    const config = await getLocalAgentConfig(agentId);
+    if (!config) {
+      return c.json({ error: "agent config not found" }, 404);
+    }
+
+    const restarted = await restartLocalAgent(agentId);
+    if (!restarted) {
+      return c.json({ error: "agent not found or not restartable" }, 404);
+    }
+
+    shellStateCache.invalidate();
+    const runtimeDir = relayAgentRuntimeDirectory(agentId);
+    const catalog = readSessionCatalogSync(runtimeDir);
+    const sessionId = catalog.activeSessionId;
+    const harnessEntry = findHarnessEntry(config.runtime.harness);
+    const resumeCommand = sessionId && harnessEntry
+      ? buildHarnessResumeCommand(harnessEntry, sessionId, config.runtime.cwd)
+      : null;
+
+    return c.json({
+      ok: true,
+      agentId,
+      catalog: {
+        ...catalog,
+        agentId,
+        harness: config.runtime.harness,
+        resumeCommand,
+      },
+    });
+  });
+
   app.post("/api/send", async (c) => {
     const { body, conversationId } = (await c.req.json()) as {
       body: string;

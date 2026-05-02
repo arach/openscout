@@ -105,6 +105,9 @@ export type SessionCatalogEntry = {
   startedAt: number;
   endedAt?: number;
   cwd: string;
+  harness?: string;
+  transport?: string;
+  model?: string | null;
 };
 
 export type SessionCatalog = {

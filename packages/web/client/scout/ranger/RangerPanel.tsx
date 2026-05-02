@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, Compass, Loader2, Map, Mic, Radio, RefreshCw, Rocket, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
+import type { SessionCatalogWithResume } from "../../lib/types.ts";
 import { isRangerActorId, isRangerAgent } from "../../lib/ranger.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
-import { speakWithVox, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState } from "../../lib/vox.ts";
+import { isVoxSpeechStopped, startVoxSpeech, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle } from "../../lib/vox.ts";
 import { useScout } from "../Provider.tsx";
 
 type SendResult = {
@@ -19,6 +20,12 @@ type RangerAgentConfig = {
 type RangerAgentConfigUpdateResult = {
   config: RangerAgentConfig;
   restarted: boolean;
+};
+
+type RangerSessionResetResult = {
+  ok: boolean;
+  agentId: string;
+  catalog: SessionCatalogWithResume;
 };
 
 type VoiceProbeState = "idle" | "probing" | "launching";
@@ -54,6 +61,8 @@ export function RangerPanel() {
   const [lastReply, setLastReply] = useState<string | null>(null);
   const [askStatus, setAskStatus] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const [resettingSession, setResettingSession] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -62,8 +71,32 @@ export function RangerPanel() {
   const [promptDraft, setPromptDraft] = useState("");
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
+  const speechRef = useRef<VoxSpeakHandle | null>(null);
   const voiceRepliesRef = useRef(voiceReplies);
   voiceRepliesRef.current = voiceReplies;
+
+  const stopSpeech = useCallback(() => {
+    speechRef.current?.stop();
+    speechRef.current = null;
+    setSpeaking(false);
+  }, []);
+
+  useEffect(() => () => stopSpeech(), [stopSpeech]);
+
+  const loadSessionCatalog = useCallback(async () => {
+    try {
+      const catalog = await api<SessionCatalogWithResume>(
+        `/api/agents/${encodeURIComponent(rangerAgentId)}/session-catalog`,
+      );
+      setSessionCatalog(catalog);
+    } catch {
+      setSessionCatalog(null);
+    }
+  }, [rangerAgentId]);
+
+  useEffect(() => {
+    void loadSessionCatalog();
+  }, [loadSessionCatalog]);
 
   const loadRangerConfig = useCallback(async () => {
     setConfigLoading(true);
@@ -108,12 +141,36 @@ export function RangerPanel() {
       setPromptDraft(result.config.systemPrompt);
       setConfigStatus(result.restarted ? "Saved and restarted" : "Saved");
       await reload();
+      await loadSessionCatalog();
     } catch (err) {
       setConfigError(err instanceof Error ? err.message : "Could not save Ranger settings.");
     } finally {
       setConfigSaving(false);
     }
-  }, [modelDraft, promptDraft, rangerAgentId, reload]);
+  }, [loadSessionCatalog, modelDraft, promptDraft, rangerAgentId, reload]);
+
+  const resetRangerSession = useCallback(async () => {
+    setResettingSession(true);
+    setError(null);
+    setAskStatus("Starting fresh Ranger session");
+    stopSpeech();
+    try {
+      const result = await api<RangerSessionResetResult>(
+        `/api/agents/${encodeURIComponent(rangerAgentId)}/session/reset`,
+        { method: "POST" },
+      );
+      setSessionCatalog(result.catalog);
+      setLastAsk(null);
+      setLastReply(null);
+      setAskStatus("Fresh Ranger session ready");
+      await reload();
+    } catch (err) {
+      setAskStatus(null);
+      setError(err instanceof Error ? err.message : "Could not start a fresh Ranger session.");
+    } finally {
+      setResettingSession(false);
+    }
+  }, [rangerAgentId, reload, stopSpeech]);
 
   const probeVoice = useCallback(async () => {
     const client = clientRef.current ?? new VoxBrowserClient();
@@ -258,10 +315,22 @@ export function RangerPanel() {
     if (!voiceRepliesRef.current) {
       return;
     }
+    stopSpeech();
+    const speech = startVoxSpeech(replyText);
+    speechRef.current = speech;
     setSpeaking(true);
-    void speakWithVox(replyText)
-      .catch((err) => setError(err instanceof Error ? err.message : "Vox speech failed."))
-      .finally(() => setSpeaking(false));
+    void speech.promise
+      .catch((err) => {
+        if (!isVoxSpeechStopped(err)) {
+          setError(err instanceof Error ? err.message : "Vox speech failed.");
+        }
+      })
+      .finally(() => {
+        if (speechRef.current === speech) {
+          speechRef.current = null;
+          setSpeaking(false);
+        }
+      });
   });
 
   const voiceLabel = recording
@@ -272,6 +341,14 @@ export function RangerPanel() {
   const agentStatus = rangerAgent
     ? rangerAgent.state ?? "registered"
     : "default target";
+  const activeSessionId = sessionCatalog?.activeSessionId ?? null;
+  const activeSession = sessionCatalog?.sessions.find((session) => session.id === activeSessionId) ?? null;
+  const sessionStartedLabel = activeSession?.startedAt
+    ? new Date(activeSession.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : null;
+  const sessionRuntimeLabel = activeSession?.model
+    ?? activeSession?.harness
+    ?? null;
 
   return (
     <section className="flex flex-col gap-3 border-b border-[var(--scout-chrome-border-soft)] p-4">
@@ -286,6 +363,7 @@ export function RangerPanel() {
           <p className="mt-1 truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
             {rangerAgent?.name ?? rangerAgentId} · {agentStatus}
             {rangerAgent?.model ? ` · ${rangerAgent.model}` : ""}
+            {activeSessionId ? ` · session ${activeSessionId.slice(0, 8)}` : ""}
           </p>
         </div>
         <button
@@ -322,9 +400,35 @@ export function RangerPanel() {
         <RangerActionButton
           icon={voiceReplies ? <Volume2 size={13} /> : <VolumeX size={13} />}
           label={voiceReplies ? "Replies On" : "Replies Off"}
-          onClick={() => setVoiceReplies(!voiceReplies)}
+          onClick={() => {
+            const next = !voiceReplies;
+            setVoiceReplies(next);
+            if (!next) stopSpeech();
+          }}
+        />
+        <RangerActionButton
+          icon={resettingSession ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+          label="New Session"
+          onClick={() => void resetRangerSession()}
+          disabled={resettingSession || sending}
         />
       </div>
+
+      {activeSessionId && (
+        <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
+          <div className="min-w-0">
+            <span className="uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">Current Session</span>
+            <span className="ml-2 text-lime-200" title={activeSessionId}>{activeSessionId.slice(0, 8)}</span>
+            {sessionStartedLabel ? <span className="ml-2">started {sessionStartedLabel}</span> : null}
+            {sessionRuntimeLabel ? <span className="ml-2">{sessionRuntimeLabel}</span> : null}
+          </div>
+          {sessionCatalog && sessionCatalog.sessions.length > 1 ? (
+            <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">
+              {sessionCatalog.sessions.length - 1} older
+            </span>
+          ) : null}
+        </div>
+      )}
 
       {settingsOpen && (
         <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 p-3">
@@ -424,8 +528,18 @@ export function RangerPanel() {
       </div>
 
       {(partial || speaking) && (
-        <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-          {speaking ? "Speaking Ranger reply…" : partial}
+        <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+          <span className="min-w-0 truncate">{speaking ? "Speaking Ranger reply…" : partial}</span>
+          {speaking && (
+            <button
+              type="button"
+              title="Stop spoken reply"
+              onClick={stopSpeech}
+              className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
+            >
+              <Square size={11} className="fill-current" />
+            </button>
+          )}
         </div>
       )}
 

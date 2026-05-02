@@ -633,6 +633,8 @@ describe("createScoutMcpServer", () => {
       updateWorkItem: async () => {
         throw new Error("not used");
       },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
     });
 
     const result = await client.callTool({
@@ -660,7 +662,7 @@ describe("createScoutMcpServer", () => {
     expect(structured.flightId).toBe("flight-1");
     expect(structured.targetAgentId).toBe("hudson.main");
     expect(structured.workId).toBe("work-1");
-    expect(structured.workUrl).toBe("/api/work/work-1");
+    expect(structured.workUrl).toBe("http://scout.test/work/work-1");
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]).toEqual({ type: "text", text: "done" });
   });
@@ -712,6 +714,8 @@ describe("createScoutMcpServer", () => {
       updateWorkItem: async () => {
         throw new Error("not used");
       },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
     });
 
     const notificationPromise = new Promise<{
@@ -812,6 +816,8 @@ describe("createScoutMcpServer", () => {
       waitForFlight: async () => {
         throw new Error("not used");
       },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
     });
 
     const result = await client.callTool({
@@ -834,7 +840,7 @@ describe("createScoutMcpServer", () => {
 
     expect(structured.senderId).toBe("hudson.main");
     expect(structured.workId).toBe("work-1");
-    expect(structured.workUrl).toBe("/api/work/work-1");
+    expect(structured.workUrl).toBe("http://scout.test/work/work-1");
     expect(structured.workItem?.state).toBe("review");
     expect(structured.workItem?.summary).toBe("Ready for review");
   });
@@ -944,7 +950,7 @@ describe("createScoutMcpServer", () => {
     };
 
     expect(resolveSenderCalls).toEqual([
-      { senderId: undefined, currentDirectory: "/tmp/openscout-test" },
+      { senderId: "operator", currentDirectory: "/tmp/openscout-test" },
     ]);
     expect(receivedAsk).toEqual({
       senderId: "operator.main.mini",
@@ -1051,5 +1057,63 @@ describe("createScoutMcpServer", () => {
       type: "text",
       text: "Message sent to hudson.main in dm.operator.hudson (msg-1).",
     });
+  });
+
+  test("preserves managed agent identity from the MCP environment", async () => {
+    let receivedSenderId: string | null | undefined;
+    let receivedMessageSenderId: string | undefined;
+    const { client } = await connectTestServer(
+      {
+        resolveSenderId: async (senderId) => {
+          receivedSenderId = senderId;
+          return "ranger.main.mini";
+        },
+        sendMessage: async ({ senderId }) => {
+          receivedMessageSenderId = senderId;
+          return {
+            usedBroker: true,
+            conversationId: "dm.hudson.main.mini.ranger.main.mini",
+            messageId: "msg-1",
+            invokedTargets: ["hudson.main.mini"],
+            unresolvedTargets: [],
+            routeKind: "dm",
+          };
+        },
+        resolveBrokerUrl: () => "http://broker.test",
+        searchAgents: async () => [],
+        resolveAgent: async () => ({
+          kind: "unresolved",
+          candidate: null,
+          candidates: [],
+        }),
+        sendMessageToAgentIds: async () => ({
+          usedBroker: true,
+          invokedTargetIds: [],
+          unresolvedTargetIds: [],
+        }),
+        askQuestion: async () => ({ usedBroker: true }),
+        askAgentById: async () => ({ usedBroker: true }),
+        updateWorkItem: async () => {
+          throw new Error("not used");
+        },
+        waitForFlight: async () => {
+          throw new Error("not used");
+        },
+      },
+      {
+        OPENSCOUT_AGENT: "ranger.main.mini",
+      },
+    );
+
+    await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Status update",
+        targetLabel: "@hudson",
+      },
+    });
+
+    expect(receivedSenderId).toBeUndefined();
+    expect(receivedMessageSenderId).toBe("ranger.main.mini");
   });
 });
