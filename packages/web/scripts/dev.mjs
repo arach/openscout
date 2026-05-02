@@ -2,9 +2,11 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, rmSync } from "node:fs";
+import { lookup } from "node:dns/promises";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { homedir, hostname as osHostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
@@ -14,6 +16,7 @@ const DEFAULT_PORTS = {
   vite: 5180,
   pairing: 7888,
 };
+const DEFAULT_SCOUT_WEB_DOMAIN = "scout.local";
 const WORKTREE_PORT_BASES = {
   web: 3300,
   vite: 5300,
@@ -46,6 +49,8 @@ function parseFlags(argv) {
       flags.pairingPort = value;
     } else if (name === "--host") {
       flags.host = value;
+    } else if (name === "--local-name") {
+      flags.localName = value;
     }
   }
   return flags;
@@ -129,6 +134,60 @@ function portLabel(port) {
   return String(port);
 }
 
+function normalizeLocalHostnameLabel(value) {
+  const firstLabel = value
+    ?.trim()
+    .replace(/\.local\.?$/i, "")
+    .split(".")
+    .find((part) => part.trim().length > 0)
+    ?.trim();
+  const normalized = firstLabel
+    ?.toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+  return normalized || "localhost";
+}
+
+function defaultScoutNodeHostname() {
+  return `${normalizeLocalHostnameLabel(osHostname())}.${DEFAULT_SCOUT_WEB_DOMAIN}`;
+}
+
+function normalizeLocalHostname(value) {
+  const trimmed = value?.trim().replace(/\.$/, "").toLowerCase();
+  const labels = trimmed
+    ?.split(".")
+    .map((label) =>
+      label
+        .trim()
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .replace(/-{2,}/g, "-")
+    )
+    .filter(Boolean);
+  return labels && labels.length > 0 ? labels.join(".") : "localhost";
+}
+
+function resolveScoutWebNamedHostname(name) {
+  const normalized = normalizeLocalHostname(name);
+  return normalized.includes(".") ? normalized : `${normalized}.${DEFAULT_SCOUT_WEB_DOMAIN}`;
+}
+
+function readLocalWebName() {
+  const configPath = resolve(process.env.OPENSCOUT_HOME || resolve(homedir(), ".openscout"), "config.json");
+  if (!existsSync(configPath)) {
+    return null;
+  }
+  try {
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    return typeof config.webLocalName === "string" && config.webLocalName.trim()
+      ? config.webLocalName.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function isPortOpenable(hostname, port) {
   return await new Promise((resolveOpenable) => {
     const server = createServer();
@@ -178,6 +237,15 @@ async function findAvailablePort(startPort, hostname, reservedPorts, options = {
   throw new Error(`Could not find an open port starting from ${startPort}.`);
 }
 
+async function canResolveHost(hostname) {
+  try {
+    await lookup(hostname);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const flags = parseFlags(process.argv);
 
 if (flags.help) {
@@ -190,7 +258,8 @@ Options:
       --vite-port <n>  Vite asset port
       --pairing-port <n>
                        Pairing bridge port
-      --host <h>       Bind host (default 127.0.0.1, env OPENSCOUT_WEB_HOST)
+      --host <h>       Bind host (default 0.0.0.0, env OPENSCOUT_WEB_HOST)
+      --local-name <n> Node hostname or short alias to advertise (default <machine>.scout.local)
   -h, --help           Show this help
 
 Notes:
@@ -224,8 +293,15 @@ const routes = resolveOpenScoutWebRoutes(process.env);
 const publicHost = flags.host
   || process.env.OPENSCOUT_WEB_HOST?.trim()
   || process.env.SCOUT_WEB_HOST?.trim()
-  || "127.0.0.1";
+  || "0.0.0.0";
 const internalHost = loopbackHost(publicHost);
+const configuredLocalName = flags.localName
+  || process.env.OPENSCOUT_WEB_LOCAL_NAME?.trim()
+  || readLocalWebName()
+  || defaultScoutNodeHostname();
+const portalHost = DEFAULT_SCOUT_WEB_DOMAIN;
+const advertisedHost = process.env.OPENSCOUT_WEB_ADVERTISED_HOST?.trim()
+  || resolveScoutWebNamedHostname(configuredLocalName);
 const explicitWebPort = parsePort(flags.port)
   ?? parsePort(process.env.OPENSCOUT_WEB_PORT)
   ?? parsePort(process.env.SCOUT_WEB_PORT);
@@ -285,6 +361,13 @@ const env = {
   OPENSCOUT_WEB_DEV_STATE_FILE: stateFile,
   OPENSCOUT_PAIRING_PORT: portLabel(pairingPort),
 };
+if (configuredLocalName) {
+  env.OPENSCOUT_WEB_LOCAL_NAME = configuredLocalName;
+}
+env.OPENSCOUT_WEB_PORTAL_HOST = portalHost;
+if (process.env.OPENSCOUT_WEB_ADVERTISED_HOST?.trim()) {
+  env.OPENSCOUT_WEB_ADVERTISED_HOST = process.env.OPENSCOUT_WEB_ADVERTISED_HOST.trim();
+}
 
 if (portDefaults.gitContext?.isWorktree && !process.env.OPENSCOUT_PAIRING_HOME?.trim()) {
   env.OPENSCOUT_PAIRING_HOME = resolve(
@@ -296,11 +379,22 @@ if (portDefaults.gitContext?.isWorktree && !process.env.OPENSCOUT_PAIRING_HOME?.
 const modeLabel = portDefaults.gitContext?.isWorktree
   ? `worktree ${portDefaults.gitContext.worktreeRoot}`
   : "main checkout";
+const openUrl = `http://${advertisedHost}:${portLabel(bunPort)}`;
+const portalUrl = `http://${portalHost}:${portLabel(bunPort)}`;
+const fallbackUrl = `http://127.0.0.1:${portLabel(bunPort)}`;
+const advertisedHostResolves = await canResolveHost(advertisedHost);
+const portalHostResolves = await canResolveHost(portalHost);
 console.log(
   `@openscout/web dev -> ${modeLabel}\n`
   + `  bun:     http://${publicHost}:${portLabel(bunPort)}\n`
-  + `  vite:    ${viteUrl.origin}\n`
-  + `  pairing: ${portLabel(pairingPort)}`,
+  + `  portal:  ${portalUrl}${portalHostResolves ? "" : "  (name not resolving yet)"}\n`
+  + `  node:    ${openUrl}${advertisedHostResolves ? "" : "  (name not resolving yet)"}\n`
+  + `  local:   ${fallbackUrl}\n`
+  + `  vite:    ${viteUrl.origin}  (internal asset server)\n`
+  + `  pairing: ${portLabel(pairingPort)}`
+  + (portalHostResolves && advertisedHostResolves
+    ? ""
+    : `\n  note:    configure DNS/hosts/Caddy for ${portalHost} and ${advertisedHost}; until then use ${fallbackUrl}`),
 );
 
 function spawnVite() {

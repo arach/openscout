@@ -35,14 +35,16 @@ Usage:
   openscout-web [options]
 
 Options:
+  --host <h>         Bind host (default 0.0.0.0 for LAN/mDNS access)
+  --local-name <n>   Node hostname or short alias to advertise (default <machine>.scout.local)
   --port <n>         Listen port (default 3200; optional override OPENSCOUT_WEB_PORT)
   --cwd <dir>        Workspace root (optional override OPENSCOUT_SETUP_CWD)
   --vite-url <url>   Proxy non-API requests to a Vite dev server
   --static-root <d>  Override the static client directory
   --public-origin <url>
-                     Public origin behind Caddy, e.g. https://scout.<host>.local
+                     Public origin behind Caddy, e.g. https://scout.local
   --advertised-host <h>
-                     LAN host to advertise/trust (default scout.<machine>.local)
+                     Explicit node host to advertise/trust (default <machine>.scout.local)
   --trusted-host <h> Additional trusted API host; may be repeated
   --trusted-origin <url>
                      Additional trusted browser origin; may be repeated
@@ -66,6 +68,24 @@ function appendEnvList(key, value) {
 
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
+  if (a === "--host") {
+    const v = argv[++i];
+    if (!v) {
+      console.error("openscout-web: --host requires a value");
+      process.exit(1);
+    }
+    env.OPENSCOUT_WEB_HOST = v;
+    continue;
+  }
+  if (a === "--local-name") {
+    const v = argv[++i];
+    if (!v) {
+      console.error("openscout-web: --local-name requires a value");
+      process.exit(1);
+    }
+    env.OPENSCOUT_WEB_LOCAL_NAME = v;
+    continue;
+  }
   if (a === "--port") {
     const v = argv[++i];
     if (!v) {

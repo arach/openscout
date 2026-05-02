@@ -93,6 +93,11 @@
       "bun": "./src/local-config.ts",
       "default": "./dist/local-config.js"
     },
+    "./local-edge": {
+      "types": "./src/local-edge.ts",
+      "bun": "./src/local-edge.ts",
+      "default": "./dist/local-edge.js"
+    },
     "./mobile-push": {
       "types": "./src/mobile-push.ts",
       "bun": "./src/mobile-push.ts",

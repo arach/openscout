@@ -10,9 +10,13 @@ function resolveHudsonSdk(): string {
   if (process.env.HUDSON_SDK_PATH) {
     return resolve(process.env.HUDSON_SDK_PATH);
   }
-  const direct = resolve(__dirname, "../../..", "hudson/packages/hudson-sdk");
+  const direct = resolve(__dirname, "../../..", "hudson/packages/web/hudsonkit");
   if (existsSync(direct)) {
     return direct;
+  }
+  const legacyDirect = resolve(__dirname, "../../..", "hudson/packages/hudson-sdk");
+  if (existsSync(legacyDirect)) {
+    return legacyDirect;
   }
   try {
     const commonGitDir = execSync("git rev-parse --git-common-dir", {
@@ -20,9 +24,13 @@ function resolveHudsonSdk(): string {
       encoding: "utf8",
     }).trim();
     const mainRepoRoot = resolve(commonGitDir, "..");
-    const fromCommon = resolve(mainRepoRoot, "..", "hudson/packages/hudson-sdk");
+    const fromCommon = resolve(mainRepoRoot, "..", "hudson/packages/web/hudsonkit");
     if (existsSync(fromCommon)) {
       return fromCommon;
+    }
+    const legacyFromCommon = resolve(mainRepoRoot, "..", "hudson/packages/hudson-sdk");
+    if (existsSync(legacyFromCommon)) {
+      return legacyFromCommon;
     }
   } catch {
     // git not available or not a repo — fall through

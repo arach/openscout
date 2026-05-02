@@ -16,7 +16,7 @@ bun --cwd packages/web dev:server
 
 Then open the URL printed in the terminal (default port `3200`).
 
-The Bun/Hono application server derives `scout.<machine>.local` as its default LAN-facing name. When placing Caddy in front of it, set `--public-origin https://scout.<machine>.local` (or `OPENSCOUT_WEB_PUBLIC_ORIGIN`) so API requests from the proxied browser origin are trusted intentionally.
+The Bun/Hono application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. The Scout local edge flow is name resolution first, then Caddy, then the application host handler: `scout server edge` publishes/resolves `scout.local` and `<node>.scout.local`, runs Caddy against the active web port, and serves both HTTP on port `80` and HTTPS on port `443`. HTTPS uses one Caddy local CA plus wildcard Scout certs, so browsers only need to trust one local root instead of one certificate per node.
 
 ## Public Package
 
@@ -72,10 +72,23 @@ The public route table stays small and explicit:
 
 In the installed package, Bun serves the bundled static client directly. In source/dev mode, Bun remains the public server but forwards client asset requests and `/ws/hmr` to Vite.
 
-For a local edge proxy, keep Bun as the application server and reverse-proxy to it:
+For a local edge proxy, keep Bun as the application server and reverse-proxy to it. The default generated config includes HTTP for zero-cert local browsing and HTTPS with Caddy's local CA:
 
 ```caddyfile
-https://scout.my-mac.local {
+http://scout.local {
+  reverse_proxy 127.0.0.1:PORT_NUMBER
+}
+
+http://*.scout.local {
+  reverse_proxy 127.0.0.1:PORT_NUMBER
+}
+
+scout.local {
+  tls internal
+  reverse_proxy 127.0.0.1:PORT_NUMBER
+}
+
+*.scout.local {
   tls internal
   reverse_proxy 127.0.0.1:PORT_NUMBER
 }

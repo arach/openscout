@@ -91,6 +91,7 @@ export type CreateOpenScoutWebServerOptions = {
   viteDevUrl?: string;
   staticRoot?: string;
   publicOrigin?: string;
+  portalHost?: string;
   advertisedHost?: string;
   trustedHosts?: string[];
   trustedOrigins?: string[];
@@ -232,10 +233,101 @@ function resolveConversationRouting(conversationId: string | undefined): {
   return { directAgentId, channel, senderId };
 }
 
+function buildAgentSessionCatalogPayload(input: {
+  agentId: string;
+  harness: string | null;
+  cwd: string;
+}) {
+  const runtimeDir = relayAgentRuntimeDirectory(input.agentId);
+  const catalog = readSessionCatalogSync(runtimeDir);
+  const sessionId = catalog.activeSessionId;
+  const harnessEntry = findHarnessEntry(input.harness);
+  const resumeCommand = sessionId && harnessEntry
+    ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
+    : null;
+  return {
+    ...catalog,
+    agentId: input.agentId,
+    harness: input.harness,
+    resumeCommand,
+  };
+}
+
 function resolveBundledStaticClientRoot(
   moduleUrl: string | URL = import.meta.url,
 ): string {
   return resolve(dirname(fileURLToPath(moduleUrl.toString())), "client");
+}
+
+function normalizeRequestHost(value: string | null | undefined): string {
+  return (value ?? "")
+    .trim()
+    .split(":")[0]
+    ?.replace(/^\[/, "")
+    .replace(/\]$/, "")
+    .toLowerCase() ?? "";
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderScoutLocalPortal(input: {
+  requestUrl: string;
+  portalHost: string;
+  nodeHost: string;
+}): string {
+  const url = new URL(input.requestUrl);
+  const port = url.port ? `:${url.port}` : "";
+  const nodeUrl = `${url.protocol}//${input.nodeHost}${port}/`;
+  const portalHost = escapeHtml(input.portalHost);
+  const nodeHost = escapeHtml(input.nodeHost);
+  const escapedNodeUrl = escapeHtml(nodeUrl);
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scout Local</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #080a07; color: #f5f1e8; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 32px; }
+      main { width: min(760px, 100%); }
+      .eyebrow { color: #a6e15e; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .12em; }
+      h1 { margin: 14px 0 10px; font-size: clamp(34px, 7vw, 58px); line-height: .98; font-weight: 650; letter-spacing: 0; }
+      p { max-width: 600px; margin: 0 0 28px; color: #aaa69b; line-height: 1.55; font-size: 16px; }
+      .node { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center; border: 1px solid #303729; color: #f5f1e8; text-decoration: none; padding: 18px 20px; background: #10130e; border-radius: 8px; }
+      .node:hover { border-color: #a6e15e; background: #141810; }
+      .node strong { display: block; font-size: 17px; font-weight: 620; letter-spacing: 0; }
+      .node span { color: #aaa69b; font-size: 13px; }
+      .open { color: #a6e15e; font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .08em; }
+      @media (max-width: 520px) {
+        body { padding: 22px; place-items: start center; }
+        .node { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="eyebrow">${portalHost}</div>
+      <h1>Scout local</h1>
+      <p>Registered machines on this local Scout mesh. Open a node to inspect agents, sessions, activity, and settings.</p>
+      <a class="node" href="${escapedNodeUrl}">
+        <span>
+          <strong>${nodeHost}</strong>
+          <span>Local web node</span>
+        </span>
+        <span class="open">Open</span>
+      </a>
+    </main>
+  </body>
+</html>`;
 }
 
 function resolveSourceStaticClientRoot(
@@ -299,9 +391,31 @@ export async function createOpenScoutWebServer(
       surface: "openscout-web",
       currentDirectory,
       advertisedHost: options.advertisedHost,
+      portalHost: options.portalHost,
       publicOrigin: options.publicOrigin,
     }),
   );
+  app.use("/", async (c, next) => {
+    const portalHost = options.portalHost?.trim().toLowerCase();
+    const nodeHost = options.advertisedHost?.trim().toLowerCase();
+    const requestHost = normalizeRequestHost(c.req.header("host"));
+    if (portalHost && nodeHost && requestHost === portalHost && portalHost !== nodeHost) {
+      return new Response(
+        renderScoutLocalPortal({
+          requestUrl: c.req.url,
+          portalHost,
+          nodeHost,
+        }),
+        {
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "text/html; charset=utf-8",
+          },
+        },
+      );
+    }
+    return next();
+  });
   app.get(routes.terminalRelayHealthPath, async (c) => {
     const ok = await (options.terminalRelayHealthcheck?.() ?? Promise.resolve(false));
     return c.json(
@@ -407,15 +521,18 @@ export async function createOpenScoutWebServer(
     const agents = queryAgents();
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return c.json({ error: "agent not found" }, 404);
-    const runtimeDir = relayAgentRuntimeDirectory(agent.id);
-    const catalog = readSessionCatalogSync(runtimeDir);
     const cwd = agent.cwd ?? agent.projectRoot ?? ".";
-    const sessionId = catalog.activeSessionId;
-    const harnessEntry = findHarnessEntry(agent.harness);
-    const resumeCommand = sessionId && harnessEntry
-      ? buildHarnessResumeCommand(harnessEntry, sessionId, cwd)
-      : null;
-    return c.json({ ...catalog, agentId, harness: agent.harness, resumeCommand });
+    return c.json(buildAgentSessionCatalogPayload({ agentId, harness: agent.harness, cwd }));
+  });
+  app.get("/api/agents/:agentId/session/context", async (c) => {
+    const agentId = c.req.param("agentId");
+    const { getLocalAgentContextState } =
+      await import("@openscout/runtime/local-agents");
+    const context = await getLocalAgentContextState(agentId);
+    if (!context) {
+      return c.json({ error: "agent config not found" }, 404);
+    }
+    return c.json(context);
   });
   app.get("/api/activity", (c) => c.json(queryActivity()));
   app.get("/api/heartrate", (c) => c.json(queryHeartrate()));

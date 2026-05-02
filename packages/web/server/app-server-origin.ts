@@ -1,9 +1,16 @@
 import { hostname as osHostname } from "node:os";
 
-import { resolveScoutWebMdnsHostname } from "@openscout/runtime/local-config";
+import {
+  DEFAULT_SCOUT_WEB_PORTAL_HOST,
+  loadLocalConfig,
+  resolveConfiguredScoutWebHostname,
+  resolveScoutWebNamedHostname,
+  type LocalConfig,
+} from "@openscout/runtime/local-config";
 
 export type OpenScoutWebApplicationServerIdentity = {
   advertisedHost: string;
+  portalHost: string;
   publicOrigin?: string;
   trustedHosts: string[];
   trustedOrigins: string[];
@@ -43,19 +50,25 @@ function uniq(values: Array<string | null | undefined>): string[] {
 
 export function resolveOpenScoutWebApplicationServerIdentity(
   env: NodeJS.ProcessEnv = process.env,
-  machineHostname = osHostname(),
+  _machineHostname = osHostname(),
+  config: Pick<LocalConfig, "webLocalName"> = loadLocalConfig(),
 ): OpenScoutWebApplicationServerIdentity {
+  const configuredName = env.OPENSCOUT_WEB_LOCAL_NAME?.trim();
+  const portalHost = resolveScoutWebNamedHostname(env.OPENSCOUT_WEB_PORTAL_HOST?.trim() || DEFAULT_SCOUT_WEB_PORTAL_HOST);
   const advertisedHost =
     env.OPENSCOUT_WEB_ADVERTISED_HOST?.trim()
-    || resolveScoutWebMdnsHostname(machineHostname);
+    || (configuredName ? resolveScoutWebNamedHostname(configuredName) : undefined)
+    || resolveConfiguredScoutWebHostname(config, _machineHostname);
   const publicOrigin = env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim() || undefined;
   const publicOriginHost = hostFromOrigin(publicOrigin);
 
   return {
     advertisedHost,
+    portalHost,
     publicOrigin,
     trustedHosts: uniq([
       advertisedHost,
+      portalHost,
       publicOriginHost,
       ...splitList(env.OPENSCOUT_WEB_TRUSTED_HOSTS),
     ]),

@@ -272,6 +272,45 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
   });
 
+  test("serves the local portal only for the portal host on the same app port", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      advertisedHost: "m1.scout.local",
+      portalHost: "scout.local",
+    });
+
+    const response = await server.app.request("http://127.0.0.1:4321/", {
+      headers: { host: "scout.local:4321" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    const body = await response.text();
+    expect(body).toContain("Scout local");
+    expect(body).toContain("m1.scout.local");
+    expect(body).toContain('href="http://m1.scout.local:4321/"');
+  });
+
+  test("serves the web app directly for the node host without a portal redirect", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      advertisedHost: "m1.scout.local",
+      portalHost: "scout.local",
+    });
+
+    const response = await server.app.request("http://127.0.0.1:4321/", {
+      headers: { host: "m1.scout.local:4321" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.redirected).toBe(false);
+    expect(await response.text()).toContain("<body>ok</body>");
+  });
+
   test("loads and updates local agent config through the web API", async () => {
     const home = useIsolatedOpenScoutHome();
     const projectRoot = join(home, "dev", "openscout");
