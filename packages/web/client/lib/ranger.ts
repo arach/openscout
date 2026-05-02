@@ -190,6 +190,8 @@ function normalizeRoute(raw: unknown): Route | null {
       };
     case "mesh":
       return { view: "mesh" };
+    case "broker":
+      return { view: "broker" };
     case "activity":
       return { view: "activity" };
     case "settings":

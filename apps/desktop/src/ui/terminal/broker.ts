@@ -56,24 +56,10 @@ export function renderScoutMessagePostResult(result: {
   unresolvedTargets: string[];
   routeKind?: "dm" | "channel" | "broadcast";
 }): string {
-  const lines = [result.message];
-  if (result.senderId) {
-    lines.push(`From: ${result.senderId}`);
-  }
-  if (result.routeKind) {
-    lines.push(`Route: ${result.routeKind}`);
-  }
-  if (result.conversationId) {
-    const route = result.conversationId.startsWith("dm.")
-      ? "DM"
-      : "Conversation";
-    lines.push(`${route}: ${result.conversationId}`);
-  }
+  const sentToScout = result.invokedTargets.some((target) => target === "scout");
+  const lines = [sentToScout ? "Sent to Scout." : "Sent."];
   if (result.bindingRef) {
     lines.push(`Ref: ref:${result.bindingRef}`);
-  }
-  if (result.invokedTargets.length > 0) {
-    lines.push(`Routed to: ${result.invokedTargets.join(", ")}`);
   }
   if (result.unresolvedTargets.length > 0) {
     lines.push(`Unresolved: ${result.unresolvedTargets.join(", ")}`);

@@ -1,6 +1,29 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderScoutActivityList } from "./broker.ts";
+import { renderScoutActivityList, renderScoutMessagePostResult } from "./broker.ts";
+
+describe("renderScoutMessagePostResult", () => {
+  test("hides broker internals for normal sends", () => {
+    expect(renderScoutMessagePostResult({
+      message: "hello",
+      senderId: "lattices.codex-event-tap-thread.mini",
+      conversationId: "dm.operator.hudson.main.mini",
+      invokedTargets: ["hudson.main.mini"],
+      unresolvedTargets: [],
+      routeKind: "dm",
+    })).toBe("Sent.");
+  });
+
+  test("renders the local product target as Scout", () => {
+    expect(renderScoutMessagePostResult({
+      message: "hello",
+      conversationId: "channel.shared",
+      invokedTargets: ["scout"],
+      unresolvedTargets: [],
+      routeKind: "broadcast",
+    })).toBe("Sent to Scout.");
+  });
+});
 
 describe("renderScoutActivityList", () => {
   test("handles empty activity", () => {

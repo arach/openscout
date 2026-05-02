@@ -44,6 +44,53 @@ export type ActivityItem = {
   workspaceRoot: string | null;
 };
 
+export type BrokerRouteAttempt = {
+  id: string;
+  kind: "success" | "failed_query" | "failed_delivery" | "delivery_attempt";
+  status: string;
+  ts: number;
+  actorName: string | null;
+  target: string | null;
+  route: string | null;
+  detail: string;
+  conversationId: string | null;
+  messageId: string | null;
+  deliveryId: string | null;
+  invocationId: string | null;
+};
+
+export type BrokerDialogueItem = {
+  id: string;
+  ts: number;
+  actorName: string | null;
+  conversationId: string;
+  body: string;
+  class: string;
+};
+
+export type BrokerDiagnostics = {
+  generatedAt: number;
+  windowMs: number;
+  totals: {
+    successfulDispatches: number;
+    failedQueries: number;
+    failedDeliveries: number;
+    deliveryAttempts: number;
+    failedDeliveryAttempts: number;
+    dialogueMessages: number;
+  };
+  rates: {
+    messagesPerHour: number;
+    failedQueriesPerHour: number;
+    failedDeliveriesPerHour: number;
+    failureRate: number;
+  };
+  attempts: BrokerRouteAttempt[];
+  failedQueries: BrokerRouteAttempt[];
+  failedDeliveries: BrokerRouteAttempt[];
+  dialogue: BrokerDialogueItem[];
+};
+
 export type FleetActivity = ActivityItem & {
   actorId: string | null;
   agentId: string | null;
@@ -446,6 +493,7 @@ export type Route =
   | { view: "sessions"; sessionId?: string }
   | { view: "channels"; channelId?: string }
   | { view: "mesh" }
+  | { view: "broker" }
   | { view: "activity" }
   | { view: "work"; workId: string }
   | { view: "settings" }

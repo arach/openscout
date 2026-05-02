@@ -5,6 +5,7 @@ import { useScout } from "../Provider.tsx";
 
 const VIEW_HINTS: Record<string, string> = {
   mesh: "Mesh nodes will appear here",
+  broker: "Broker diagnostics are in the main pane",
   activity: "Filters will appear here",
   ops: "Ops modes will appear here",
   work: "Work tree will appear here",

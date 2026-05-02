@@ -6,6 +6,10 @@
   max-width: 820px !important;
 }
 
+.sys-surface-page-wide {
+  max-width: 1080px !important;
+}
+
 .sys-page-head {
   display: flex;
   align-items: flex-start;
@@ -206,6 +210,87 @@
   background: color-mix(in srgb, var(--accent) 5%, transparent);
   border-color: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
+}
+
+.sys-tab-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.sys-tab {
+  appearance: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0 10px 11px;
+  cursor: pointer;
+}
+
+.sys-tab:hover {
+  color: var(--ink);
+}
+
+.sys-tab-active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+.sys-broker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.sys-broker-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.sys-broker-row-head,
+.sys-broker-meta,
+.sys-broker-row-side {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sys-broker-status,
+.sys-broker-time,
+.sys-broker-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sys-broker-title {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.sys-broker-row-side {
+  justify-content: flex-end;
+  align-content: flex-start;
+  max-width: 260px;
+}
+
+.sys-broker-row-side code {
+  color: var(--dim);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
 }
 
 .sys-state-card {

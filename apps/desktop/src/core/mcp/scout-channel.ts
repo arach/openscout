@@ -292,7 +292,7 @@ export async function runScoutChannelServer(options: {
         };
       }
 
-      const result = await sendScoutMessageToAgentIds({
+      await sendScoutMessageToAgentIds({
         senderId: agentId,
         body: text,
         targetAgentIds: [to],
@@ -304,7 +304,7 @@ export async function runScoutChannelServer(options: {
         content: [
           {
             type: "text",
-            text: `Replied to ${to}. Route: ${result.routeKind ?? "dm"}. Conversation: ${result.conversationId ?? "none"}.`,
+            text: `Replied to ${to}.`,
           },
         ],
       };
@@ -320,7 +320,7 @@ export async function runScoutChannelServer(options: {
         };
       }
 
-      const result = await sendScoutMessageToAgentIds({
+      await sendScoutMessageToAgentIds({
         senderId: agentId,
         body: text,
         targetAgentIds: [to],
@@ -332,7 +332,7 @@ export async function runScoutChannelServer(options: {
         content: [
           {
             type: "text",
-            text: `Sent to ${to}. Route: ${result.routeKind ?? "dm"}. Conversation: ${result.conversationId ?? "none"}.`,
+            text: `Sent to ${to}.`,
           },
         ],
       };

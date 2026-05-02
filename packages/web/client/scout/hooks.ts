@@ -237,6 +237,7 @@ const VIEW_LABELS: Record<string, string> = {
   channels: "Channels",
   activity: "Activity",
   mesh: "Mesh",
+  broker: "Broker",
   settings: "Settings",
   work: "Work",
   ops: "Ops",
@@ -251,6 +252,7 @@ export function useScoutNavCenter(): ReactNode | null {
     { label: "Sessions", view: "sessions" },
     { label: "Channels", view: "channels" },
     { label: "Mesh", view: "mesh" },
+    { label: "Broker", view: "broker" },
     ...(opsEnabled ? [{ label: "Ops" as const, view: "ops" as Route["view"] }] : []),
   ];
 

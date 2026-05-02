@@ -52,6 +52,28 @@ let askScoutQuestionResult: unknown = {
 mock.module("./db-queries.ts", () => ({
   queryAgents: () => [],
   queryActivity: () => [],
+  queryBrokerDiagnostics: () => ({
+    generatedAt: Date.now(),
+    windowMs: 86_400_000,
+    totals: {
+      successfulDispatches: 0,
+      failedQueries: 0,
+      failedDeliveries: 0,
+      deliveryAttempts: 0,
+      failedDeliveryAttempts: 0,
+      dialogueMessages: 0,
+    },
+    rates: {
+      messagesPerHour: 0,
+      failedQueriesPerHour: 0,
+      failedDeliveriesPerHour: 0,
+      failureRate: 0,
+    },
+    attempts: [],
+    failedQueries: [],
+    failedDeliveries: [],
+    dialogue: [],
+  }),
   queryHeartrate: () => [],
   queryFleet: () => ({
     generatedAt: Date.now(),
@@ -220,6 +242,28 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([]);
+  });
+
+  test("serves broker diagnostics", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/broker");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      totals: {
+        successfulDispatches: 0,
+        failedQueries: 0,
+        failedDeliveries: 0,
+      },
+      attempts: [],
+      failedQueries: [],
+      failedDeliveries: [],
+      dialogue: [],
+    });
   });
 
   test("routes direct DM tells through sendScoutDirectMessage", async () => {

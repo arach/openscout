@@ -1089,6 +1089,72 @@ describe("broker daemon comms layer", () => {
     expect(followup.receipt?.bindingRef).toBe(followup.bindingRef);
   }, 15_000);
 
+  test("routes local Scout product labels without exposing the coordinator name", async () => {
+    const harness = await startBroker();
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      routeKind: string;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string; targetLabel?: string };
+      conversation?: { id: string; title: string };
+      message?: {
+        mentions?: Array<{ actorId: string; label: string }>;
+      };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-scout-local",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "scout",
+      },
+      body: "local broker status",
+      intent: "tell",
+      createdAt: Date.now(),
+      messageMetadata: {
+        source: "scout-cli",
+      },
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toBe("scout");
+    expect(response.receipt?.targetAgentId).toBe("scout");
+    expect(response.receipt?.targetLabel).toBe("Scout");
+    expect(response.conversation?.id).toBe("channel.shared");
+    expect(response.conversation?.title).toBe("Scout");
+    expect(response.message?.mentions?.[0]).toEqual({ actorId: "scout", label: "@scout" });
+
+    const legacyAlias = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetLabel?: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-openscout-legacy-local",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "openscout",
+      },
+      body: "legacy local alias",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    expect(legacyAlias.kind).toBe("delivery");
+    expect(legacyAlias.accepted).toBe(true);
+    expect(legacyAlias.targetAgentId).toBe("scout");
+    expect(legacyAlias.receipt?.targetLabel).toBe("Scout");
+  }, 15_000);
+
   test("refreshes registered local agents before resolving broker-owned delivery", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");

@@ -22,6 +22,7 @@ import {
 import {
   queryAgents,
   queryActivity,
+  queryBrokerDiagnostics,
   queryFleet,
   queryFlights,
   queryRecentMessages,
@@ -535,6 +536,14 @@ export async function createOpenScoutWebServer(
     return c.json(context);
   });
   app.get("/api/activity", (c) => c.json(queryActivity()));
+  app.get("/api/broker", (c) =>
+    c.json(
+      queryBrokerDiagnostics({
+        limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
+        windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
+      }),
+    ),
+  );
   app.get("/api/heartrate", (c) => c.json(queryHeartrate()));
   app.get("/api/fleet", (c) =>
     c.json(

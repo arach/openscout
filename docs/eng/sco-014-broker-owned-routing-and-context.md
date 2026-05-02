@@ -213,15 +213,15 @@ harness session. Default label delivery should use fresh context:
 
 ```json
 {
-  "target": { "kind": "agent_label", "label": "@openscout.harness:claude" },
+  "target": { "kind": "agent_label", "label": "scout" },
   "execution": { "harness": "claude", "session": "new" }
 }
 ```
 
-That means `@openscout` remains the stable human address, while the broker
-creates or selects a concrete session binding under it. Receipts and history
-should expose both layers: the stable target label / agent identity and the
-ephemeral session identity that actually handled the delivery.
+That means `scout` remains the stable local human address, while the broker
+creates or selects a concrete session binding under it. Normal receipts stay
+user-facing; diagnostics can expose the stable target label / agent identity
+and the ephemeral session identity that actually handled the delivery.
 
 `execution.session` values:
 
@@ -231,9 +231,9 @@ ephemeral session identity that actually handled the delivery.
 | `existing` | Require an already-running session for continuity. If none is available, return a route question/action instead of silently creating fresh context. |
 | `any` | Prefer a live session when available, otherwise create or wake according to target policy. This is useful for low-stakes tells and status updates. |
 
-The session binding is not the user-facing address. A sender should be able to
-say `@openscout` or `@openscout.harness:claude`; the broker owns the mapping
-from that stable name to the concrete session started for this handoff.
+The session binding is not the user-facing address. A local sender should say
+`scout`; the broker owns any legacy/internal mapping from that stable name to
+the concrete session started for this handoff.
 
 Within an interaction, the broker may also mint a reference for that specific
 binding. The reference is scoped to the conversation/work item/flight, not
@@ -524,7 +524,7 @@ Smoke tests:
 1. Start or create a Claude-backed project agent.
 2. Ask it to send feedback to Scout using only `scout send --to scout`.
 3. Confirm it does not call `scout whoami`, `scout who`, or search first.
-4. Confirm the receipt names resolved caller, project, route, and handler.
+4. Confirm the normal receipt stays user-facing (`Sent to Scout.`) and the diagnostic broker view carries resolved caller, project, route, and handler.
 5. Ask it to mention `@codex` in the body and confirm the message still sends.
 
 ## Open Questions

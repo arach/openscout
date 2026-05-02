@@ -1176,6 +1176,29 @@ function brokerRouteKind(conversation: Pick<ConversationDefinition, "id" | "kind
   return conversation.id === BROKER_SHARED_CHANNEL_ID ? "broadcast" : "channel";
 }
 
+function normalizeBrokerProductTarget(value: string): string {
+  return value.trim().toLowerCase().replace(/^@+/, "");
+}
+
+function isLocalScoutProductTarget(payload: BrokerRouteTargetInput): boolean {
+  const target = payload.target;
+  if (target) {
+    if (target.kind !== "agent_label" && target.kind !== "agent_id") {
+      return false;
+    }
+    const value = target.kind === "agent_label" ? target.label : target.agentId;
+    const normalized = normalizeBrokerProductTarget(value);
+    return normalized === "scout" || normalized === "openscout";
+  }
+
+  const normalizedLabel = normalizeBrokerProductTarget(payload.targetLabel ?? "");
+  const normalizedAgentId = normalizeBrokerProductTarget(payload.targetAgentId ?? "");
+  return normalizedLabel === "scout"
+    || normalizedLabel === "openscout"
+    || normalizedAgentId === "scout"
+    || normalizedAgentId === "openscout";
+}
+
 function resolveConversationShareMode(
   snapshot: ReturnType<typeof runtime.snapshot>,
   participantIds: string[],
@@ -4548,6 +4571,67 @@ async function acceptBrokerDelivery(
     payload.target?.kind === "agent_id"
       || payload.target?.kind === "agent_label",
   ) || (!payload.target && Boolean(payload.targetAgentId?.trim() || payload.targetLabel?.trim()));
+
+  if (isLocalScoutProductTarget(payload)) {
+    await ensureBrokerActorForDelivery(requesterId);
+    await ensureBrokerActorForDelivery(SCOUT_DISPATCHER_AGENT_ID);
+    const conversation = await ensureBrokerDeliveryConversation({
+      requesterId,
+      targetAgentId: SCOUT_DISPATCHER_AGENT_ID,
+      channel: deliveryChannel,
+    });
+    const snapshot = runtime.snapshot();
+    const messageId = createRuntimeId("msg");
+    const routeKind = brokerRouteKind(conversation);
+    const message: MessageRecord = {
+      id: messageId,
+      conversationId: conversation.id,
+      actorId: requesterId,
+      originNodeId: requesterNodeId,
+      class: conversation.kind === "system" ? "system" : "agent",
+      body: payload.body.trim(),
+      ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
+      mentions: [{ actorId: SCOUT_DISPATCHER_AGENT_ID, label: "@scout" }],
+      ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
+      audience: {
+        notify: [],
+        reason: conversation.kind === "direct" ? "direct_message" : "mention",
+      },
+      visibility: messageVisibilityForConversation(conversation),
+      policy: "durable",
+      createdAt,
+      metadata: {
+        ...(payload.messageMetadata ?? {}),
+        relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
+        relayTarget: SCOUT_DISPATCHER_AGENT_ID,
+        relayTargetIds: [SCOUT_DISPATCHER_AGENT_ID],
+        relayMessageId: messageId,
+        returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
+          conversationId: conversation.id,
+          replyToMessageId: messageId,
+        }),
+      },
+    };
+    await postConversationMessage(message);
+    return {
+      kind: "delivery",
+      accepted: true,
+      routeKind,
+      receipt: buildDeliveryReceipt({
+        requestId,
+        routeKind,
+        requesterId,
+        requesterNodeId,
+        targetAgentId: SCOUT_DISPATCHER_AGENT_ID,
+        targetLabel: "Scout",
+        conversationId: conversation.id,
+        messageId,
+      }),
+      conversation,
+      message,
+      targetAgentId: SCOUT_DISPATCHER_AGENT_ID,
+    };
+  }
 
   if (deliveryChannel && (typedChannelTarget || !hasAgentTarget) && payload.intent === "tell") {
     await ensureBrokerActorForDelivery(requesterId);

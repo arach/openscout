@@ -58,6 +58,53 @@ export type WebMessage = {
   metadata: Record<string, unknown> | null;
 };
 
+export type WebBrokerRouteAttempt = {
+  id: string;
+  kind: "success" | "failed_query" | "failed_delivery" | "delivery_attempt";
+  status: string;
+  ts: number;
+  actorName: string | null;
+  target: string | null;
+  route: string | null;
+  detail: string;
+  conversationId: string | null;
+  messageId: string | null;
+  deliveryId: string | null;
+  invocationId: string | null;
+};
+
+export type WebBrokerDialogueItem = {
+  id: string;
+  ts: number;
+  actorName: string | null;
+  conversationId: string;
+  body: string;
+  class: string;
+};
+
+export type WebBrokerDiagnostics = {
+  generatedAt: number;
+  windowMs: number;
+  totals: {
+    successfulDispatches: number;
+    failedQueries: number;
+    failedDeliveries: number;
+    deliveryAttempts: number;
+    failedDeliveryAttempts: number;
+    dialogueMessages: number;
+  };
+  rates: {
+    messagesPerHour: number;
+    failedQueriesPerHour: number;
+    failedDeliveriesPerHour: number;
+    failureRate: number;
+  };
+  attempts: WebBrokerRouteAttempt[];
+  failedQueries: WebBrokerRouteAttempt[];
+  failedDeliveries: WebBrokerRouteAttempt[];
+  dialogue: WebBrokerDialogueItem[];
+};
+
 type WorkAttention = "silent" | "badge" | "interrupt";
 type AgentSummaryState = "offline" | "available" | "working";
 type SqlClause = string | null | undefined | false;
@@ -131,6 +178,17 @@ function compact(p: string | null): string | null {
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function parseJson<T>(value: string | null, fallback: T): T {
+  if (!value) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 function pairingHarnessLogPath(adapterType: string | null, sessionId: string | null): string | null {
@@ -629,6 +687,296 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
       metadata,
     };
   });
+}
+
+function metadataTarget(metadata: Record<string, unknown> | null): string | null {
+  const relayTarget = metadata?.relayTarget;
+  if (typeof relayTarget === "string" && relayTarget.trim()) {
+    return relayTarget.trim();
+  }
+  const targets = metadata?.relayTargetIds;
+  if (Array.isArray(targets)) {
+    const rendered = targets
+      .map((target) => typeof target === "string" ? target.trim() : "")
+      .filter(Boolean);
+    return rendered.length > 0 ? rendered.join(", ") : null;
+  }
+  return null;
+}
+
+function metadataRoute(metadata: Record<string, unknown> | null): string | null {
+  const relayChannel = metadata?.relayChannel;
+  return typeof relayChannel === "string" && relayChannel.trim()
+    ? relayChannel.trim()
+    : null;
+}
+
+function isBrokerRoutedMessage(metadata: Record<string, unknown> | null): boolean {
+  return metadata?.source === "scout-cli"
+    || typeof metadata?.relayTarget === "string"
+    || Array.isArray(metadata?.relayTargetIds)
+    || typeof metadata?.relayChannel === "string";
+}
+
+function shortBrokerBody(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
+}
+
+export function queryBrokerDiagnostics(opts?: {
+  limit?: number;
+  windowMs?: number;
+}): WebBrokerDiagnostics {
+  const limit = opts?.limit ?? 120;
+  const windowMs = opts?.windowMs ?? 24 * 60 * 60_000;
+  const now = Date.now();
+  const since = now - windowMs;
+
+  const messageRows = db()
+    .prepare(
+      `SELECT
+         m.id,
+         m.conversation_id,
+         m.actor_id,
+         ac.display_name AS actor_name,
+         m.body,
+         m.class,
+         m.metadata_json,
+         m.created_at
+       FROM messages m
+       LEFT JOIN actors ac ON ac.id = m.actor_id
+       WHERE m.created_at >= ?
+       ORDER BY m.created_at DESC
+       LIMIT ?`,
+    )
+    .all(since, Math.max(limit * 2, 200)) as Array<{
+    id: string;
+    conversation_id: string;
+    actor_id: string;
+    actor_name: string | null;
+    body: string;
+    class: string;
+    metadata_json: string | null;
+    created_at: number;
+  }>;
+
+  const dialogue: WebBrokerDialogueItem[] = messageRows.slice(0, limit).map((row) => ({
+    id: row.id,
+    ts: normalizeTimestampMs(row.created_at) ?? row.created_at,
+    actorName: row.actor_name ?? row.actor_id,
+    conversationId: row.conversation_id,
+    body: row.body,
+    class: row.class,
+  }));
+
+  const successfulDispatches: WebBrokerRouteAttempt[] = messageRows
+    .map((row) => {
+      const metadata = parseJson<Record<string, unknown> | null>(row.metadata_json, null);
+      if (!isBrokerRoutedMessage(metadata)) {
+        return null;
+      }
+      const ts = normalizeTimestampMs(row.created_at) ?? row.created_at;
+      return {
+        id: `message:${row.id}`,
+        kind: "success" as const,
+        status: "sent",
+        ts,
+        actorName: row.actor_name ?? row.actor_id,
+        target: metadataTarget(metadata),
+        route: metadataRoute(metadata) ?? (row.conversation_id.startsWith("dm.") ? "dm" : "channel"),
+        detail: shortBrokerBody(row.body),
+        conversationId: row.conversation_id,
+        messageId: row.id,
+        deliveryId: null,
+        invocationId: null,
+      };
+    })
+    .filter((item): item is WebBrokerRouteAttempt => Boolean(item));
+
+  const dispatchRows = db()
+    .prepare(
+      `SELECT
+         sd.id,
+         sd.kind,
+         sd.asked_label,
+         sd.detail,
+         sd.invocation_id,
+         sd.conversation_id,
+         sd.requester_id,
+         ac.display_name AS actor_name,
+         sd.dispatched_at
+       FROM scout_dispatches sd
+       LEFT JOIN actors ac ON ac.id = sd.requester_id
+       WHERE sd.dispatched_at >= ?
+       ORDER BY sd.dispatched_at DESC
+       LIMIT ?`,
+    )
+    .all(since, limit) as Array<{
+    id: string;
+    kind: string;
+    asked_label: string;
+    detail: string;
+    invocation_id: string | null;
+    conversation_id: string | null;
+    requester_id: string | null;
+    actor_name: string | null;
+    dispatched_at: number;
+  }>;
+
+  const failedQueries: WebBrokerRouteAttempt[] = dispatchRows.map((row) => ({
+    id: `dispatch:${row.id}`,
+    kind: "failed_query",
+    status: row.kind,
+    ts: normalizeTimestampMs(row.dispatched_at) ?? row.dispatched_at,
+    actorName: row.actor_name ?? row.requester_id,
+    target: row.asked_label,
+    route: null,
+    detail: row.detail,
+    conversationId: row.conversation_id,
+    messageId: null,
+    deliveryId: null,
+    invocationId: row.invocation_id,
+  }));
+
+  const deliveryRows = db()
+    .prepare(
+      `SELECT
+         d.id,
+         d.message_id,
+         d.invocation_id,
+         d.target_id,
+         d.transport,
+         d.reason,
+         d.status,
+         d.created_at,
+         m.conversation_id,
+         ac.display_name AS actor_name
+       FROM deliveries d
+       LEFT JOIN messages m ON m.id = d.message_id
+       LEFT JOIN actors ac ON ac.id = d.target_id
+       WHERE d.created_at >= ?
+       ORDER BY d.created_at DESC
+       LIMIT ?`,
+    )
+    .all(Math.floor(since / 1000), limit) as Array<{
+    id: string;
+    message_id: string | null;
+    invocation_id: string | null;
+    target_id: string;
+    transport: string;
+    reason: string;
+    status: string;
+    created_at: number;
+    conversation_id: string | null;
+    actor_name: string | null;
+  }>;
+
+  const failedDeliveryStatuses = new Set(["failed", "cancelled"]);
+  const failedDeliveries: WebBrokerRouteAttempt[] = deliveryRows
+    .filter((row) => failedDeliveryStatuses.has(row.status))
+    .map((row) => ({
+      id: `delivery:${row.id}`,
+      kind: "failed_delivery",
+      status: row.status,
+      ts: normalizeTimestampMs(row.created_at) ?? row.created_at,
+      actorName: row.actor_name,
+      target: row.target_id,
+      route: row.transport,
+      detail: row.reason,
+      conversationId: row.conversation_id,
+      messageId: row.message_id,
+      deliveryId: row.id,
+      invocationId: row.invocation_id,
+    }));
+
+  const attemptRows = db()
+    .prepare(
+      `SELECT
+         da.id,
+         da.delivery_id,
+         da.attempt,
+         da.status,
+         da.error,
+         da.created_at,
+         d.target_id,
+         d.transport,
+         d.message_id,
+         d.invocation_id,
+         m.conversation_id,
+         ac.display_name AS actor_name
+       FROM delivery_attempts da
+       JOIN deliveries d ON d.id = da.delivery_id
+       LEFT JOIN messages m ON m.id = d.message_id
+       LEFT JOIN actors ac ON ac.id = d.target_id
+       WHERE da.created_at >= ?
+       ORDER BY da.created_at DESC
+       LIMIT ?`,
+    )
+    .all(since, limit) as Array<{
+    id: string;
+    delivery_id: string;
+    attempt: number;
+    status: string;
+    error: string | null;
+    created_at: number;
+    target_id: string;
+    transport: string;
+    message_id: string | null;
+    invocation_id: string | null;
+    conversation_id: string | null;
+    actor_name: string | null;
+  }>;
+
+  const deliveryAttempts: WebBrokerRouteAttempt[] = attemptRows.map((row) => ({
+    id: `attempt:${row.id}`,
+    kind: "delivery_attempt",
+    status: row.status,
+    ts: normalizeTimestampMs(row.created_at) ?? row.created_at,
+    actorName: row.actor_name,
+    target: row.target_id,
+    route: row.transport,
+    detail: row.error ?? `attempt ${row.attempt}`,
+    conversationId: row.conversation_id,
+    messageId: row.message_id,
+    deliveryId: row.delivery_id,
+    invocationId: row.invocation_id,
+  }));
+
+  const attempts = [
+    ...successfulDispatches,
+    ...failedQueries,
+    ...failedDeliveries,
+    ...deliveryAttempts,
+  ]
+    .sort((left, right) => right.ts - left.ts)
+    .slice(0, limit);
+  const failedDeliveryAttempts = deliveryAttempts.filter((attempt) => attempt.status === "failed").length;
+  const hours = Math.max(windowMs / 3_600_000, 1);
+  const failureCount = failedQueries.length + failedDeliveries.length + failedDeliveryAttempts;
+  const attemptCount = successfulDispatches.length + failureCount;
+
+  return {
+    generatedAt: now,
+    windowMs,
+    totals: {
+      successfulDispatches: successfulDispatches.length,
+      failedQueries: failedQueries.length,
+      failedDeliveries: failedDeliveries.length,
+      deliveryAttempts: deliveryAttempts.length,
+      failedDeliveryAttempts,
+      dialogueMessages: dialogue.length,
+    },
+    rates: {
+      messagesPerHour: Number((dialogue.length / hours).toFixed(1)),
+      failedQueriesPerHour: Number((failedQueries.length / hours).toFixed(1)),
+      failedDeliveriesPerHour: Number(((failedDeliveries.length + failedDeliveryAttempts) / hours).toFixed(1)),
+      failureRate: attemptCount > 0 ? Number((failureCount / attemptCount).toFixed(3)) : 0,
+    },
+    attempts,
+    failedQueries,
+    failedDeliveries,
+    dialogue,
+  };
 }
 
 /* ── Flights (tasks) ── */
