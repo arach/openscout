@@ -81,7 +81,8 @@ pi-scout/
 │   ├── compose.ts           # Message compose overlay
 │   └── inline-message.ts   # Incoming Scout message renderer
 └── skills/
-    └── scout-coordination.md  # Bundled skill for patterns
+    └── scout-coordination/
+        └── SKILL.md  # Bundled skill for patterns
 ```
 
 ## TUI Stack Decision

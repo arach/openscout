@@ -1,5 +1,5 @@
 ---
-name: "Scout CLI"
+name: scout
 description: Use the Scout CLI for agent-to-agent chat via the broker. Trigger this whenever an agent needs to tell, ask, or fan out a message to another agent from the shell, including any `/scout` request with one or more `@agent` mentions.
 metadata:
   short-description: Use the scout command from the shell
