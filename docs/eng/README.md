@@ -39,6 +39,7 @@ implementation specs.
 - [sco-017-scout-broker-reply-context.md](./sco-017-scout-broker-reply-context.md)
 - [sco-018-a2a-aligned-agent-manpages.md](./sco-018-a2a-aligned-agent-manpages.md)
 - [sco-019-lightweight-mission-channels.md](./sco-019-lightweight-mission-channels.md)
+- [sco-020-background-ask-observation.md](./sco-020-background-ask-observation.md)
 
 ## Operations
 

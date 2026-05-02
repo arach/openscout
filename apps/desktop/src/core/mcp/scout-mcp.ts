@@ -27,6 +27,7 @@ import {
   askScoutQuestion,
   attachScoutManagedLocalSession,
   listScoutAgents,
+  loadScoutFlight,
   loadScoutBrokerContext,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
@@ -379,6 +380,10 @@ type ScoutMcpDependencies = {
       onUpdate?: (flight: ScoutFlightRecord, detail: string) => void;
     },
   ) => Promise<ScoutFlightRecord>;
+  getFlight: (
+    baseUrl: string,
+    flightId: string,
+  ) => Promise<ScoutFlightRecord | null>;
 };
 
 const flightSchema = z.object({
@@ -651,6 +656,20 @@ const askResultSchema = z.object({
   targetDiagnostic: z.object({}).catchall(z.unknown()).nullable(),
 });
 
+const invocationLookupResultSchema = z.object({
+  currentDirectory: z.string(),
+  flightId: z.string(),
+  found: z.boolean(),
+  waitStatus: z.enum(["not_requested", "completed", "terminal", "timeout"]).optional(),
+  terminal: z.boolean(),
+  flight: flightSchema.nullable(),
+  output: z.string().nullable(),
+  error: z.string().nullable(),
+  ids: followIdsSchema.optional(),
+  links: followLinksSchema.optional(),
+  followUrl: z.string().nullable().optional(),
+});
+
 const workUpdateResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
@@ -905,6 +924,67 @@ function buildScoutFollowArtifacts(
   };
 
   return { ids, links, followUrl: follow };
+}
+
+function isTerminalFlightState(state: string | null | undefined): boolean {
+  return state === "completed" || state === "failed" || state === "cancelled";
+}
+
+function buildInvocationLookupContent(input: {
+  currentDirectory: string;
+  flightId: string;
+  flight: ScoutFlightRecord | null;
+  waitStatus?: "not_requested" | "completed" | "terminal" | "timeout";
+  env: NodeJS.ProcessEnv;
+}) {
+  const followArtifacts = buildScoutFollowArtifacts(
+    {
+      flight: input.flight,
+      conversationId: null,
+      workItem: null,
+      targetAgentId: input.flight?.targetAgentId ?? null,
+    },
+    input.env,
+  );
+  const terminal = isTerminalFlightState(input.flight?.state);
+  return {
+    currentDirectory: input.currentDirectory,
+    flightId: input.flightId,
+    found: Boolean(input.flight),
+    waitStatus: input.waitStatus,
+    terminal,
+    flight: input.flight,
+    output: input.flight?.output ?? input.flight?.summary ?? null,
+    error: input.flight?.error ?? null,
+    ids: followArtifacts.ids,
+    links: followArtifacts.links,
+    followUrl: followArtifacts.followUrl,
+  };
+}
+
+function renderInvocationLookupSummary(result: {
+  flightId: string;
+  found: boolean;
+  waitStatus?: string;
+  flight: ScoutFlightRecord | null;
+  output: string | null;
+  error: string | null;
+  followUrl?: string | null;
+}): string {
+  if (!result.found || !result.flight) {
+    return `Flight ${result.flightId} was not found.`;
+  }
+  if (result.flight.state === "completed" && result.output) {
+    return result.output;
+  }
+  if ((result.flight.state === "failed" || result.flight.state === "cancelled") && result.error) {
+    return result.error;
+  }
+  const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
+  if (result.waitStatus === "timeout") {
+    return `Flight ${result.flightId} is still ${result.flight.state}.${followText}`;
+  }
+  return `Flight ${result.flightId} is ${result.flight.state}.${followText}`;
 }
 
 function resolveCurrentCodexThreadId(env: NodeJS.ProcessEnv): string {
@@ -1727,6 +1807,7 @@ function defaultScoutMcpDependencies(
     updateWorkItem: (input) => updateScoutWorkItem(input),
     waitForFlight: (baseUrl, flightId, options) =>
       waitForScoutFlight(baseUrl, flightId, options),
+    getFlight: (baseUrl, flightId) => loadScoutFlight(baseUrl, flightId),
   };
 }
 
@@ -2546,6 +2627,110 @@ export function createScoutMcpServer(options: {
       return {
         content: createPlainTextContent(
           renderMcpAskSummary(structuredContent),
+        ),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "invocations_get",
+    {
+      title: "Get Scout Ask",
+      description:
+        "Fetch the current broker flight state for a previously-created Scout ask. Use this with a flightId returned by invocations_ask to observe long-running work without blocking the original ask call.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        flightId: z.string().min(1),
+      }),
+      outputSchema: invocationLookupResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ currentDirectory, flightId }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const trimmedFlightId = flightId.trim();
+      const flight = await deps.getFlight(deps.resolveBrokerUrl(), trimmedFlightId);
+      const structuredContent = buildInvocationLookupContent({
+        currentDirectory: resolvedCurrentDirectory,
+        flightId: trimmedFlightId,
+        flight,
+        waitStatus: "not_requested",
+        env,
+      });
+      return {
+        content: createPlainTextContent(
+          renderInvocationLookupSummary(structuredContent),
+        ),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "invocations_wait",
+    {
+      title: "Wait For Scout Ask",
+      description:
+        "Wait briefly for a previously-created Scout ask flight to finish, then return the latest flight state. This is a bounded follow-up wait, not the long-running ask submission path.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        flightId: z.string().min(1),
+        timeoutSeconds: z.number().int().min(1).max(300).default(30),
+      }),
+      outputSchema: invocationLookupResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ currentDirectory, flightId, timeoutSeconds }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const trimmedFlightId = flightId.trim();
+      let flight: ScoutFlightRecord | null = null;
+      let waitStatus: "completed" | "terminal" | "timeout" = "timeout";
+
+      try {
+        flight = await deps.waitForFlight(
+          deps.resolveBrokerUrl(),
+          trimmedFlightId,
+          { timeoutSeconds },
+        );
+        waitStatus = "completed";
+      } catch (error) {
+        flight = await deps.getFlight(deps.resolveBrokerUrl(), trimmedFlightId);
+        if (isTerminalFlightState(flight?.state)) {
+          waitStatus = "terminal";
+        } else if (
+          !(error instanceof Error) ||
+          !error.message.includes("Timed out waiting for flight")
+        ) {
+          throw error;
+        }
+      }
+
+      const structuredContent = buildInvocationLookupContent({
+        currentDirectory: resolvedCurrentDirectory,
+        flightId: trimmedFlightId,
+        flight,
+        waitStatus,
+        env,
+      });
+      return {
+        content: createPlainTextContent(
+          renderInvocationLookupSummary(structuredContent),
         ),
         structuredContent,
       };
