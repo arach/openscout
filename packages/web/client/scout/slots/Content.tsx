@@ -5,6 +5,7 @@ import { AgentInfoScreen } from "../../screens/AgentInfoScreen.tsx";
 import { AgentsScreen } from "../../screens/AgentsScreen.tsx";
 import { ChannelsScreen } from "../../screens/ChannelsScreen.tsx";
 import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
+import { FollowScreen } from "../../screens/FollowScreen.tsx";
 import { HomeScreen } from "../../screens/HomeScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
 import { SessionsScreen } from "../../screens/SessionsScreen.tsx";
@@ -89,11 +90,13 @@ function renderScreen(
     case "activity":
       return <ActivityScreen navigate={navigate} />;
     case "ops":
-      return <OpsScreen navigate={navigate} mode={route.mode} />;
+      return <OpsScreen navigate={navigate} mode={route.mode} tailQuery={route.tailQuery} />;
     case "terminal":
       return <TerminalScreen agentId={route.agentId} navigate={navigate} />;
     case "work":
       return <WorkDetailScreen workId={route.workId} navigate={navigate} />;
+    case "follow":
+      return <FollowScreen route={route} navigate={navigate} />;
     default:
       return <HomeScreen navigate={navigate} />;
   }

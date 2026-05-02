@@ -403,8 +403,12 @@
 .s-atop-col-last { width: 86px; color: var(--dim); text-align: right; }
 .s-atop-col-runtime { width: 80px; color: var(--dim); text-align: right; }
 
-/* Agent column = harness chip + short session id */
-.s-atop-col-agent {
+/* Agent column = harness chip + short session id.
+ * The flex layout lives on an inner wrapper, NOT the <td>/<th> itself —
+ * applying `display: flex` directly to a table cell removes it from
+ * table-cell layout, which (with `table-layout: fixed`) breaks column
+ * width allocation and leaves a dead-air gap to the next column. */
+.s-atop-agent-cell {
   display: flex;
   align-items: center;
   gap: 6px;

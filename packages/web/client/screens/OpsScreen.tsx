@@ -23,9 +23,11 @@ const TABS: { id: OpsMode; label: string }[] = [
 export function OpsScreen({
   navigate,
   mode = "command",
+  tailQuery,
 }: {
   navigate: (r: Route) => void;
   mode?: OpsMode;
+  tailQuery?: string;
 }) {
   const { agents } = useScout();
 
@@ -51,7 +53,7 @@ export function OpsScreen({
         {mode === "plan" && <PlanView navigate={navigate} agents={agents} />}
         {mode === "conductor" && <ConductorView navigate={navigate} agents={agents} />}
         {mode === "command" && <CommandView navigate={navigate} agents={agents} />}
-        {mode === "tail" && <TailView navigate={navigate} />}
+        {mode === "tail" && <TailView navigate={navigate} initialFilter={tailQuery} />}
         {mode === "atop" && <AtopView />}
       </div>
     </div>

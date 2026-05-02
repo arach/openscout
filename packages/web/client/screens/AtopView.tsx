@@ -995,15 +995,17 @@ function AgentTable({
                   </span>
                 </td>
                 <td className="s-atop-col-agent">
-                  <span
-                    className={harnessChipClass(row.harness)}
-                    title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
-                  >
-                    {row.harness}
-                  </span>
-                  <span className="s-atop-agent-id" title={row.sessionId ?? `pid ${row.pid}`}>
-                    {shortSession(row.sessionId)}
-                  </span>
+                  <div className="s-atop-agent-cell">
+                    <span
+                      className={harnessChipClass(row.harness)}
+                      title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
+                    >
+                      {row.harness}
+                    </span>
+                    <span className="s-atop-agent-id" title={row.sessionId ?? `pid ${row.pid}`}>
+                      {shortSession(row.sessionId)}
+                    </span>
+                  </div>
                 </td>
                 <td className="s-atop-col-project" title={row.cwd}>{row.project}</td>
                 <Cell value={row.reqCount || null} />

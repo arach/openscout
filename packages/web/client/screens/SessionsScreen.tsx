@@ -1,4 +1,5 @@
 import "./ops-atop.css";
+import "../components/ResizableTable/resizable-columns.css";
 
 import {
   useCallback,
@@ -8,6 +9,7 @@ import {
   useState,
 } from "react";
 
+import { useResizableColumns } from "../components/ResizableTable/useResizableColumns.ts";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
 import type {
@@ -17,6 +19,24 @@ import type {
   TailDiscoverySnapshot,
   TailEvent,
 } from "../lib/types.ts";
+
+type SessionColumnKey = "status" | "session" | "project" | "updated" | "size" | "path";
+
+const COLUMNS: {
+  key: SessionColumnKey;
+  label: string;
+  cls?: string;
+  defaultWidth: number;
+  minWidth?: number;
+  maxWidth?: number;
+}[] = [
+  { key: "status", label: "status", cls: "s-atop-col-status", defaultWidth: 96, minWidth: 70 },
+  { key: "session", label: "session", cls: "s-atop-col-agent", defaultWidth: 168, minWidth: 110, maxWidth: 280 },
+  { key: "project", label: "project", cls: "s-atop-col-project", defaultWidth: 200, minWidth: 96, maxWidth: 360 },
+  { key: "updated", label: "updated", cls: "s-atop-col-last", defaultWidth: 86, minWidth: 64 },
+  { key: "size", label: "size", cls: "s-atop-col-runtime", defaultWidth: 80, minWidth: 64 },
+  { key: "path", label: "path", defaultWidth: 360, minWidth: 160, maxWidth: 800 },
+];
 
 const DISCOVERY_INTERVAL_MS = 10_000;
 const RECENT_REPLAY_LIMIT = 500;
@@ -302,6 +322,11 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
   const activeCount = rows.filter((row) => row.status === "run").length;
   const transcriptCount = discovery?.totals.transcripts ?? discovery?.transcripts?.length ?? 0;
 
+  const { getColumnProps, getResizeHandleProps } = useResizableColumns<SessionColumnKey>({
+    storageKey: "openscout.sessions.cols",
+    columns: COLUMNS,
+  });
+
   return (
     <div className="s-atop">
       <div className="s-atop-summary">
@@ -382,12 +407,16 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
         <table className="s-atop-table">
           <thead>
             <tr>
-              <th className="s-atop-col-status">status</th>
-              <th className="s-atop-col-agent">session</th>
-              <th className="s-atop-col-project">project</th>
-              <th className="s-atop-col-last">updated</th>
-              <th className="s-atop-col-runtime">size</th>
-              <th>path</th>
+              {COLUMNS.map((col) => (
+                <th
+                  key={col.key}
+                  className={col.cls}
+                  {...getColumnProps(col.key)}
+                >
+                  {col.label}
+                  <span {...getResizeHandleProps(col.key)} />
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -424,10 +453,12 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
                   </span>
                 </td>
                 <td className="s-atop-col-agent" title={row.sessionId ?? row.refId}>
-                  <span className={`s-atop-chip s-atop-chip--harness s-atop-chip--harness-${classPart(row.source)}`}>
-                    {row.source}
-                  </span>
-                  <span className="s-atop-agent-id">{row.refId.slice(0, 8)}</span>
+                  <div className="s-atop-agent-cell">
+                    <span className={`s-atop-chip s-atop-chip--harness s-atop-chip--harness-${classPart(row.source)}`}>
+                      {row.source}
+                    </span>
+                    <span className="s-atop-agent-id">{row.refId.slice(0, 8)}</span>
+                  </div>
                 </td>
                 <td className="s-atop-col-project" title={row.cwd ?? row.project}>
                   {row.project}

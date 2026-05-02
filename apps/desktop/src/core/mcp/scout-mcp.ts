@@ -18,6 +18,7 @@ import {
   loadResolvedRelayAgents,
   type ResolvedRelayAgentConfig,
 } from "@openscout/runtime/setup";
+import { resolveHost, resolveWebPort } from "@openscout/runtime/local-config";
 import * as z from "zod/v4";
 
 import { createScoutAgentCard } from "../agents/service.ts";
@@ -117,6 +118,26 @@ export type ScoutMcpToolUiMeta = {
 
 type ScoutMcpReplyMode = (typeof REPLY_MODE_VALUES)[number];
 
+type ScoutFollowPreferredView = "tail" | "session" | "chat" | "work";
+
+type ScoutFollowIds = {
+  flightId: string | null;
+  invocationId: string | null;
+  conversationId: string | null;
+  workId: string | null;
+  sessionId: string | null;
+  targetAgentId: string | null;
+};
+
+type ScoutFollowLinks = {
+  follow: string | null;
+  tail: string | null;
+  session: string | null;
+  chat: string | null;
+  work: string | null;
+  agent: string | null;
+};
+
 type ScoutReplyNotificationParams = {
   status: "completed" | "failed";
   currentDirectory: string;
@@ -125,6 +146,7 @@ type ScoutReplyNotificationParams = {
   targetLabel: string | null;
   conversationId: string | null;
   messageId: string | null;
+  bindingRef?: string | null;
   flightId: string;
   flight: ScoutFlightRecord | null;
   output: string | null;
@@ -188,6 +210,23 @@ function createToolUiMeta(fields?: Record<string, ScoutMcpAgentPickerFieldMeta>)
   return {
     [SCOUT_MCP_UI_META_KEY]: value,
   } satisfies Record<string, unknown>;
+}
+
+function hasExplicitAgentSender(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env.OPENSCOUT_AGENT?.trim());
+}
+
+async function resolveMcpSenderId(
+  deps: Pick<ScoutMcpDependencies, "resolveSenderId">,
+  senderId: string | null | undefined,
+  currentDirectory: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  return deps.resolveSenderId(
+    senderId ?? (hasExplicitAgentSender(env) ? undefined : "operator"),
+    currentDirectory,
+    env,
+  );
 }
 
 const targetLabelInputSchema = z
@@ -562,6 +601,24 @@ const currentSessionAttachResultSchema = z.object({
   sessionId: z.string(),
 });
 
+const followIdsSchema = z.object({
+  flightId: z.string().nullable(),
+  invocationId: z.string().nullable(),
+  conversationId: z.string().nullable(),
+  workId: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  targetAgentId: z.string().nullable(),
+});
+
+const followLinksSchema = z.object({
+  follow: z.string().nullable(),
+  tail: z.string().nullable(),
+  session: z.string().nullable(),
+  chat: z.string().nullable(),
+  work: z.string().nullable(),
+  agent: z.string().nullable(),
+});
+
 const askResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
@@ -588,6 +645,9 @@ const askResultSchema = z.object({
   workItem: trackedWorkItemSchema.nullable(),
   workId: z.string().nullable(),
   workUrl: z.string().nullable(),
+  ids: followIdsSchema.optional(),
+  links: followLinksSchema.optional(),
+  followUrl: z.string().nullable().optional(),
   targetDiagnostic: z.object({}).catchall(z.unknown()).nullable(),
 });
 
@@ -713,6 +773,7 @@ function renderMcpAskSummary(result: {
   unresolvedTargetLabel: string | null;
   output: string | null;
   delivery?: string;
+  followUrl?: string | null;
 }): string {
   if (!result.usedBroker) {
     return "Scout broker is not reachable; ask was not sent.";
@@ -727,13 +788,14 @@ function renderMcpAskSummary(result: {
     result.workId ? `work ${result.workId}` : null,
   ].filter(Boolean);
   const detailText = details.length > 0 ? `; ${details.join(", ")}` : "";
+  const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
   if (result.output) {
     return result.output;
   }
   if (result.delivery === "mcp_notification") {
-    return `Ask sent to ${target}; reply will be delivered by MCP notification${detailText}.`;
+    return `Ask sent to ${target}; reply will be delivered by MCP notification${detailText}.${followText}`;
   }
-  return `Ask sent to ${target}${detailText}.`;
+  return `Ask sent to ${target}${detailText}.${followText}`;
 }
 
 function resolveAskReplyMode(input: {
@@ -746,8 +808,103 @@ function resolveAskReplyMode(input: {
   return input.awaitReply ? "inline" : "none";
 }
 
-function workUrlFor(workItem: ScoutTrackedWorkItem | null | undefined): string | null {
-  return workItem ? `/api/work/${encodeURIComponent(workItem.id)}` : null;
+function workUrlFor(
+  workItem: ScoutTrackedWorkItem | null | undefined,
+  env: NodeJS.ProcessEnv,
+): string | null {
+  return workItem
+    ? buildScoutPath(resolveScoutWebOrigin(env), `/work/${encodeURIComponent(workItem.id)}`)
+    : null;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/g, "");
+}
+
+function resolveScoutWebOrigin(env: NodeJS.ProcessEnv): string {
+  const publicOrigin = env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim();
+  if (publicOrigin) {
+    return trimTrailingSlash(publicOrigin);
+  }
+
+  const configuredPort = Number.parseInt(
+    env.OPENSCOUT_WEB_PORT?.trim() || env.SCOUT_WEB_PORT?.trim() || "",
+    10,
+  );
+  const port = Number.isFinite(configuredPort)
+    ? configuredPort
+    : resolveWebPort();
+  const rawHost =
+    env.OPENSCOUT_WEB_HOST?.trim() ||
+    env.SCOUT_WEB_HOST?.trim() ||
+    resolveHost();
+  const host = rawHost === "0.0.0.0" || rawHost === "::"
+    ? "127.0.0.1"
+    : rawHost;
+  return `http://${host}:${port}`;
+}
+
+function buildScoutPath(origin: string, path: string): string {
+  return `${origin}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function buildFollowPath(
+  ids: ScoutFollowIds,
+  preferredView: ScoutFollowPreferredView,
+): string | null {
+  const params = new URLSearchParams();
+  params.set("view", preferredView);
+  if (ids.flightId) params.set("flightId", ids.flightId);
+  if (ids.invocationId) params.set("invocationId", ids.invocationId);
+  if (ids.conversationId) params.set("conversationId", ids.conversationId);
+  if (ids.workId) params.set("workId", ids.workId);
+  if (ids.sessionId) params.set("sessionId", ids.sessionId);
+  if (ids.targetAgentId) params.set("targetAgentId", ids.targetAgentId);
+  const query = params.toString();
+  return query === `view=${preferredView}` ? null : `/follow?${query}`;
+}
+
+function buildScoutFollowArtifacts(
+  input: {
+    flight: ScoutFlightRecord | null;
+    conversationId: string | null;
+    workItem: ScoutTrackedWorkItem | null;
+    targetAgentId: string | null;
+  },
+  env: NodeJS.ProcessEnv,
+): { ids: ScoutFollowIds; links: ScoutFollowLinks; followUrl: string | null } {
+  const ids: ScoutFollowIds = {
+    flightId: input.flight?.id ?? null,
+    invocationId: input.flight?.invocationId ?? null,
+    conversationId: input.conversationId,
+    workId: input.workItem?.id ?? null,
+    sessionId: null,
+    targetAgentId: input.targetAgentId ?? input.flight?.targetAgentId ?? null,
+  };
+  const origin = resolveScoutWebOrigin(env);
+  const followPath =
+    buildFollowPath(ids, "tail") ??
+    (ids.conversationId ? `/c/${encodeURIComponent(ids.conversationId)}` : null);
+
+  const follow = followPath ? buildScoutPath(origin, followPath) : null;
+  const tailPath = buildFollowPath(ids, "tail");
+  const sessionPath = buildFollowPath(ids, "session");
+  const links: ScoutFollowLinks = {
+    follow,
+    tail: tailPath ? buildScoutPath(origin, tailPath) : null,
+    session: sessionPath ? buildScoutPath(origin, sessionPath) : null,
+    chat: ids.conversationId
+      ? buildScoutPath(origin, `/c/${encodeURIComponent(ids.conversationId)}`)
+      : null,
+    work: ids.workId
+      ? buildScoutPath(origin, `/work/${encodeURIComponent(ids.workId)}`)
+      : null,
+    agent: ids.targetAgentId
+      ? buildScoutPath(origin, `/agents/${encodeURIComponent(ids.targetAgentId)}?tab=message`)
+      : null,
+  };
+
+  return { ids, links, followUrl: follow };
 }
 
 function resolveCurrentCodexThreadId(env: NodeJS.ProcessEnv): string {
@@ -1620,7 +1777,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const defaultSenderId = await deps.resolveSenderId(
+      const defaultSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -1704,7 +1862,8 @@ export function createScoutMcpServer(options: {
       const context = parseScoutReplyContextFromEnv(env);
       const resolvedConversationId = conversationId?.trim() || context?.conversationId || "";
       const resolvedReplyToMessageId = replyToMessageId?.trim() || context?.replyToMessageId || "";
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId ?? context?.toAgentId,
         resolvedCurrentDirectory,
         env,
@@ -1852,7 +2011,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -2015,7 +2175,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -2192,7 +2353,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -2239,10 +2401,19 @@ export function createScoutMcpServer(options: {
               flightId: result.flight.id,
               workItem: trackedWorkItem,
               workId: trackedWorkItem?.id ?? null,
-              workUrl: workUrlFor(trackedWorkItem),
+              workUrl: workUrlFor(trackedWorkItem, env),
             },
           });
         }
+        const followArtifacts = buildScoutFollowArtifacts(
+          {
+            flight: completedFlight ?? result.flight ?? null,
+            conversationId: result.conversationId ?? null,
+            workItem: trackedWorkItem,
+            targetAgentId: targetAgentId.trim(),
+          },
+          env,
+        );
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
@@ -2271,7 +2442,10 @@ export function createScoutMcpServer(options: {
           unresolvedTargetLabel: null,
           workItem: trackedWorkItem,
           workId: trackedWorkItem?.id ?? null,
-          workUrl: workUrlFor(trackedWorkItem),
+          workUrl: workUrlFor(trackedWorkItem, env),
+          ids: followArtifacts.ids,
+          links: followArtifacts.links,
+          followUrl: followArtifacts.followUrl,
           targetDiagnostic: result.targetDiagnostic ?? null,
         };
         return {
@@ -2321,10 +2495,19 @@ export function createScoutMcpServer(options: {
             flightId: result.flight.id,
             workItem: trackedWorkItem,
             workId: trackedWorkItem?.id ?? null,
-            workUrl: workUrlFor(trackedWorkItem),
+            workUrl: workUrlFor(trackedWorkItem, env),
           },
         });
       }
+      const followArtifacts = buildScoutFollowArtifacts(
+        {
+          flight: completedFlight ?? result.flight ?? null,
+          conversationId: result.conversationId ?? null,
+          workItem: trackedWorkItem,
+          targetAgentId: result.flight?.targetAgentId ?? null,
+        },
+        env,
+      );
       const structuredContent = {
         currentDirectory: resolvedCurrentDirectory,
         senderId: resolvedSenderId,
@@ -2354,7 +2537,10 @@ export function createScoutMcpServer(options: {
         unresolvedTargetLabel: result.unresolvedTarget ?? null,
         workItem: trackedWorkItem,
         workId: trackedWorkItem?.id ?? null,
-        workUrl: workUrlFor(trackedWorkItem),
+        workUrl: workUrlFor(trackedWorkItem, env),
+        ids: followArtifacts.ids,
+        links: followArtifacts.links,
+        followUrl: followArtifacts.followUrl,
         targetDiagnostic: result.targetDiagnostic ?? null,
       };
       return {
@@ -2390,7 +2576,8 @@ export function createScoutMcpServer(options: {
         currentDirectory,
         options.defaultCurrentDirectory,
       );
-      const resolvedSenderId = await deps.resolveSenderId(
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
         senderId,
         resolvedCurrentDirectory,
         env,
@@ -2406,9 +2593,7 @@ export function createScoutMcpServer(options: {
         usedBroker: workItem !== null,
         workItem,
         workId: workItem?.id ?? null,
-        workUrl: workItem
-          ? `/api/work/${encodeURIComponent(workItem.id)}`
-          : null,
+        workUrl: workUrlFor(workItem, env),
       };
       return {
         content: createTextContent(structuredContent),

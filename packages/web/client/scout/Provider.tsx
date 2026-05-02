@@ -82,6 +82,7 @@ const AGENT_REFRESH_EVENT_KINDS = [
   "scout.dispatched",
 ] as const;
 const AGENT_REFRESH_EVENT_KIND_SET = new Set<string>(AGENT_REFRESH_EVENT_KINDS);
+const AGENT_REFRESH_POLL_MS = 15_000;
 
 type ThemeVars = CSSProperties & Record<`--${string}`, string>;
 
@@ -169,11 +170,25 @@ export function ScoutProvider({
   const themeVars = initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
   const rangerAgentId = useMemo(() => resolveRangerAgentId(agents), [agents]);
   const rangerDmConversationId = useMemo(() => rangerConversationId(rangerAgentId), [rangerAgentId]);
+  const reloadInFlightRef = useRef<Promise<void> | null>(null);
 
   const reload = useCallback(async () => {
-    const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
-    if (agentsResult) {
-      setAgents(agentsResult);
+    if (reloadInFlightRef.current) {
+      return reloadInFlightRef.current;
+    }
+
+    const request = (async () => {
+      const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
+      if (agentsResult) {
+        setAgents(agentsResult);
+      }
+    })();
+
+    reloadInFlightRef.current = request;
+    try {
+      await request;
+    } finally {
+      reloadInFlightRef.current = null;
     }
   }, []);
 
@@ -199,6 +214,22 @@ export function ScoutProvider({
     void reload();
     void refreshOnboarding();
   }, [reload, refreshOnboarding]);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "hidden") return;
+      void reload();
+    };
+
+    const interval = window.setInterval(refreshIfVisible, AGENT_REFRESH_POLL_MS);
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [reload]);
 
   const onlineCount = useMemo(
     () => agents.filter((a) => isAgentOnline(a.state)).length,

@@ -37,6 +37,11 @@ export type VoxSpeakResult = {
   audioBytes: number;
 };
 
+export type VoxSpeakHandle = {
+  promise: Promise<VoxSpeakResult>;
+  stop: () => void;
+};
+
 export type VoxLaunchOptions = {
   source?: string;
   returnTo?: string;
@@ -152,11 +157,25 @@ export class VoxBrowserClient {
   }
 }
 
-export async function speakWithVox(text: string): Promise<VoxSpeakResult> {
+function stoppedSpeechError(): Error {
+  const error = new Error("Speech stopped.");
+  error.name = "AbortError";
+  return error;
+}
+
+export function isVoxSpeechStopped(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+export async function speakWithVox(
+  text: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<VoxSpeakResult> {
   const response = await fetch("/api/voice/speak", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text }),
+    signal: options.signal,
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -171,9 +190,55 @@ export async function speakWithVox(text: string): Promise<VoxSpeakResult> {
     }
   }
   const result = await response.json() as VoxSpeakResult;
+  if (options.signal?.aborted) {
+    throw stoppedSpeechError();
+  }
   const audio = new Audio(`data:${result.contentType};base64,${result.audioBase64}`);
+  const stopPlayback = () => {
+    audio.pause();
+    audio.currentTime = 0;
+  };
+  options.signal?.addEventListener("abort", stopPlayback, { once: true });
   await audio.play();
-  return result;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        audio.removeEventListener("ended", onEnded);
+        audio.removeEventListener("error", onError);
+        options.signal?.removeEventListener("abort", onAbort);
+      };
+      const onEnded = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("Vox audio playback failed."));
+      };
+      const onAbort = () => {
+        cleanup();
+        reject(stoppedSpeechError());
+      };
+      if (options.signal?.aborted) {
+        onAbort();
+        return;
+      }
+      audio.addEventListener("ended", onEnded, { once: true });
+      audio.addEventListener("error", onError, { once: true });
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+    });
+    return result;
+  } finally {
+    options.signal?.removeEventListener("abort", stopPlayback);
+  }
+}
+
+export function startVoxSpeech(text: string): VoxSpeakHandle {
+  const controller = new AbortController();
+  return {
+    promise: speakWithVox(text, { signal: controller.signal }),
+    stop: () => controller.abort(),
+  };
 }
 
 function bindLiveCallbacks(

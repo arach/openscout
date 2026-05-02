@@ -99,11 +99,17 @@ function matchesFilter(event: TailEvent, query: string): boolean {
   return haystack.includes(query.toLowerCase());
 }
 
-export function TailView({ navigate }: { navigate?: (r: Route) => void } = {}) {
+export function TailView({
+  navigate,
+  initialFilter,
+}: {
+  navigate?: (r: Route) => void;
+  initialFilter?: string;
+} = {}) {
   const [events, setEvents] = useState<TailEvent[]>([]);
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
-  const [filter, setFilter] = useState("");
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [filter, setFilter] = useState(initialFilter ?? "");
+  const [filterOpen, setFilterOpen] = useState(Boolean(initialFilter));
   const [paused, setPaused] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [rate, setRate] = useState(0);
@@ -125,6 +131,11 @@ export function TailView({ navigate }: { navigate?: (r: Route) => void } = {}) {
   }, []);
 
   useTailEvents(handleEvent);
+
+  useEffect(() => {
+    setFilter(initialFilter ?? "");
+    setFilterOpen(Boolean(initialFilter));
+  }, [initialFilter]);
 
   useEffect(() => {
     let cancelled = false;

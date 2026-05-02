@@ -5,6 +5,9 @@ import { stateColor, actorColor } from "../../lib/colors.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent } from "../../lib/types.ts";
 import { ScoutChannelsLeftPanel } from "./ChannelsLeftPanel.tsx";
+import { ScoutConversationLeftPanel } from "./ConversationLeftPanel.tsx";
+import { ScoutFleetLeftPanel } from "./FleetLeftPanel.tsx";
+import { ScoutEmptyLeftPanel } from "./EmptyLeftPanel.tsx";
 
 type ParentGroup = {
   key: string;
@@ -110,10 +113,20 @@ function navigateToAgent(
 
 export function ScoutLeftPanel() {
   const { route } = useScout();
-  if (route.view === "channels") {
-    return <ScoutChannelsLeftPanel />;
+  switch (route.view) {
+    case "agents":
+    case "agent-info":
+      return <ScoutAgentsLeftPanel />;
+    case "channels":
+      return <ScoutChannelsLeftPanel />;
+    case "conversation":
+      return <ScoutConversationLeftPanel />;
+    case "inbox":
+    case "fleet":
+      return <ScoutFleetLeftPanel />;
+    default:
+      return <ScoutEmptyLeftPanel />;
   }
-  return <ScoutAgentsLeftPanel />;
 }
 
 function ScoutAgentsLeftPanel() {

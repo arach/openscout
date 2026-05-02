@@ -25,7 +25,8 @@ Build a pi extension (`pi-scout`) that bridges pi sessions to Scout's broker for
 │   ├── compose.ts          # Message compose overlay
 │   └── inline-message.ts   # Incoming Scout message renderer
 └── skills/
-    └── scout-coordination.md  # Bundled skill for patterns
+    └── scout-coordination/
+        └── SKILL.md  # Bundled skill for patterns
 ```
 
 ## Implementation Steps

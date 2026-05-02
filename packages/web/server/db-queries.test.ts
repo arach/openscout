@@ -9,8 +9,10 @@ import {
   queryActivity,
   queryAgents,
   queryFleet,
+  queryFollowTarget,
   queryFlights,
   queryHeartrate,
+  queryMobileAgents,
   queryMobileAgentDetail,
   queryRecentMessages,
   querySessions,
@@ -22,6 +24,7 @@ import { SQLiteControlPlaneStore } from "../../runtime/src/sqlite-store.ts";
 
 const tempRoots = new Set<string>();
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
+const originalOperatorName = process.env.OPENSCOUT_OPERATOR_NAME;
 
 afterEach(() => {
   closeDb();
@@ -29,6 +32,11 @@ afterEach(() => {
     delete process.env.OPENSCOUT_CONTROL_HOME;
   } else {
     process.env.OPENSCOUT_CONTROL_HOME = originalControlHome;
+  }
+  if (originalOperatorName === undefined) {
+    delete process.env.OPENSCOUT_OPERATOR_NAME;
+  } else {
+    process.env.OPENSCOUT_OPERATOR_NAME = originalOperatorName;
   }
 
   for (const root of tempRoots) {
@@ -166,6 +174,36 @@ describe("web db query flights", () => {
           completedAt: null,
         },
       ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("resolves follow context from a flight id", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertEndpoint({
+        id: "agent-1-endpoint",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "active",
+        sessionId: "codex-thread-1",
+        metadata: {
+          threadId: "codex-thread-1",
+        },
+      });
+
+      expect(queryFollowTarget({ flightId: "flight-1" })).toEqual({
+        flightId: "flight-1",
+        invocationId: "inv-1",
+        conversationId: "conv-1",
+        workId: "work-1",
+        sessionId: "codex-thread-1",
+        targetAgentId: "agent-1",
+      });
     } finally {
       store.close();
     }
@@ -689,6 +727,140 @@ describe("web db query agents", () => {
       expect(listEntry?.state).toBe("available");
       expect(detail?.state).toBe("available");
       expect(detail?.activeFlights.map((flight) => flight.state)).toEqual(["queued"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("shows wake-on-demand agents as available even after their session drops", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "ranger.main.mini",
+        kind: "agent",
+        displayName: "Ranger",
+      });
+      store.upsertAgent({
+        id: "ranger.main.mini",
+        kind: "agent",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        agentClass: "general",
+        capabilities: ["chat", "invoke", "deliver"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertEndpoint({
+        id: "endpoint-ranger",
+        agentId: "ranger.main.mini",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "offline",
+        projectRoot: "/tmp/openscout",
+        metadata: {
+          lastError: "codex_app_server session unavailable: relay-ranger-codex",
+        },
+      });
+
+      const listEntry = queryAgents(20).find((entry) => entry.id === "ranger.main.mini");
+      const mobileEntry = queryMobileAgents(20).find((entry) => entry.id === "ranger.main.mini");
+      const detail = queryMobileAgentDetail("ranger.main.mini");
+
+      expect(listEntry?.state).toBe("available");
+      expect(mobileEntry?.state).toBe("available");
+      expect(detail?.state).toBe("available");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("does not surface stale wake-on-demand local agents as available choices", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "ranger.old-branch.mini",
+        kind: "agent",
+        displayName: "Ranger",
+      });
+      store.upsertAgent({
+        id: "ranger.old-branch.mini",
+        kind: "agent",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        agentClass: "general",
+        capabilities: ["chat", "invoke", "deliver"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+        metadata: {
+          staleLocalRegistration: true,
+          replacedByAgentId: "ranger.current-branch.mini",
+        },
+      });
+      store.upsertEndpoint({
+        id: "endpoint-ranger-old",
+        agentId: "ranger.old-branch.mini",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "offline",
+        projectRoot: "/tmp/openscout",
+        metadata: {
+          staleLocalRegistration: true,
+          replacedByAgentId: "ranger.current-branch.mini",
+        },
+      });
+
+      expect(queryAgents(20).some((entry) => entry.id === "ranger.old-branch.mini")).toBe(false);
+      expect(queryMobileAgents(20).some((entry) => entry.id === "ranger.old-branch.mini")).toBe(false);
+      expect(queryMobileAgentDetail("ranger.old-branch.mini")).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reads direct messages across operator identity aliases", () => {
+    const store = createSeededStore();
+    process.env.OPENSCOUT_OPERATOR_NAME = "arach";
+
+    try {
+      store.upsertActor({
+        id: "arach",
+        kind: "person",
+        displayName: "Arach",
+      });
+      store.upsertConversation({
+        id: "dm.arach.agent-1",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-1", "arach"],
+      });
+      store.recordMessage({
+        id: "msg-arach",
+        conversationId: "dm.arach.agent-1",
+        actorId: "arach",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Alias-visible message",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 300,
+      });
+
+      const messages = queryRecentMessages(10, {
+        conversationId: "dm.operator.agent-1",
+      });
+
+      expect(messages.map((message) => message.id)).toContain("msg-arach");
     } finally {
       store.close();
     }

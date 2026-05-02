@@ -285,6 +285,9 @@ export type SessionCatalogEntry = {
   startedAt: number;
   endedAt?: number;
   cwd: string;
+  harness?: string;
+  transport?: string;
+  model?: string | null;
 };
 
 export type SessionCatalog = {
@@ -446,11 +449,31 @@ export type Route =
   | { view: "activity" }
   | { view: "work"; workId: string }
   | { view: "settings" }
-  | { view: "ops"; mode?: OpsMode }
+  | { view: "ops"; mode?: OpsMode; tailQuery?: string }
+  | {
+      view: "follow";
+      preferredView?: FollowPreferredView;
+      flightId?: string;
+      invocationId?: string;
+      conversationId?: string;
+      workId?: string;
+      sessionId?: string;
+      targetAgentId?: string;
+    }
   | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
 export type OpsMode = "command" | "plan" | "conductor" | "mission" | "agents" | "tail" | "atop";
+export type FollowPreferredView = "tail" | "session" | "chat" | "work";
+
+export type FollowTarget = {
+  flightId: string | null;
+  invocationId: string | null;
+  conversationId: string | null;
+  workId: string | null;
+  sessionId: string | null;
+  targetAgentId: string | null;
+};
 
 /* ── Tail (Ops > Tail) types ── */
 

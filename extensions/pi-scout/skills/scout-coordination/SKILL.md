@@ -1,3 +1,8 @@
+---
+name: scout-coordination
+description: Use Scout from Pi to coordinate with other agents through broker-backed send, ask, and discovery tools.
+---
+
 # Scout Coordination
 
 ## Overview
@@ -7,6 +12,7 @@ This skill provides patterns for using Scout to coordinate with other agents (Co
 ## Tools
 
 ### `scout_send`
+
 Send a one-way message to a Scout agent.
 
 ```
@@ -16,6 +22,7 @@ channel: Optional channel
 ```
 
 ### `scout_ask`
+
 Ask an agent to do work and get the result back.
 
 ```
@@ -26,47 +33,57 @@ workItem: Optional work item with title
 ```
 
 ### `scout_who`
+
 List all known Scout agents with their state and harness.
 
 ## Commands
 
 ### `/scout who`
+
 List all known Scout agents.
 
 ### `/scout send <target> <message>`
+
 Send a message to a specific agent.
 
 ### `/scout ask <target> <task>`
+
 Ask an agent to do something and wait for the result.
 
 ### `/scout` (no args)
+
 Open the agent picker, select an agent, compose a message, and send.
 
 ## Patterns
 
 ### Direct agent messaging
+
 ```
 /scout send @hudson Can you review the parser changes?
 ```
 
 ### Asking for work
+
 ```
 /scout ask @codex Write tests for the broker client
 ```
 
 ### Work item with ask
+
 ```
 Use scout_ask with workItem: { title: "Review PR #42" }
 ```
 
 ### Inline reply for short tasks
+
 ```
 Use replyMode: "inline" for blocking waits under 5 minutes
 ```
 
 ### Notify reply for long tasks
+
 ```
-Use replyMode: "notify" for background tasks — you'll be notified when done
+Use replyMode: "notify" for background tasks - you'll be notified when done
 ```
 
 ## Agent Selectors

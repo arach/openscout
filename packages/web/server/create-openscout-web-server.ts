@@ -29,6 +29,7 @@ import {
   queryWorkItemById,
   querySessions,
   querySessionById,
+  queryFollowTarget,
   queryHeartrate,
 } from "./db-queries.ts";
 import {
@@ -475,6 +476,18 @@ export async function createOpenScoutWebServer(
       }),
     );
   });
+  app.get("/api/follow", (c) =>
+    c.json(
+      queryFollowTarget({
+        flightId: c.req.query("flightId") || undefined,
+        invocationId: c.req.query("invocationId") || undefined,
+        conversationId: c.req.query("conversationId") || undefined,
+        workId: c.req.query("workId") || undefined,
+        sessionId: c.req.query("sessionId") || undefined,
+        targetAgentId: c.req.query("targetAgentId") || undefined,
+      }),
+    ),
+  );
 
   app.get("/api/sessions", (c) => c.json(querySessions()));
   app.get("/api/session-ref/:id", async (c) => {
@@ -726,6 +739,41 @@ export async function createOpenScoutWebServer(
     if (!result.ok)
       return c.json({ error: "Agent not found or not interruptible" }, 404);
     return c.json({ ok: true });
+  });
+
+  app.post("/api/agents/:agentId/session/reset", async (c) => {
+    const agentId = c.req.param("agentId");
+    const { getLocalAgentConfig, restartLocalAgent } =
+      await import("@openscout/runtime/local-agents");
+    const config = await getLocalAgentConfig(agentId);
+    if (!config) {
+      return c.json({ error: "agent config not found" }, 404);
+    }
+
+    const restarted = await restartLocalAgent(agentId);
+    if (!restarted) {
+      return c.json({ error: "agent not found or not restartable" }, 404);
+    }
+
+    shellStateCache.invalidate();
+    const runtimeDir = relayAgentRuntimeDirectory(agentId);
+    const catalog = readSessionCatalogSync(runtimeDir);
+    const sessionId = catalog.activeSessionId;
+    const harnessEntry = findHarnessEntry(config.runtime.harness);
+    const resumeCommand = sessionId && harnessEntry
+      ? buildHarnessResumeCommand(harnessEntry, sessionId, config.runtime.cwd)
+      : null;
+
+    return c.json({
+      ok: true,
+      agentId,
+      catalog: {
+        ...catalog,
+        agentId,
+        harness: config.runtime.harness,
+        resumeCommand,
+      },
+    });
   });
 
   app.post("/api/send", async (c) => {

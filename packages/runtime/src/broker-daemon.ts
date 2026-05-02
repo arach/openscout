@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { lstat, mkdir, unlink } from "node:fs/promises";
+import { lstat, mkdir, stat, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -99,7 +99,7 @@ import {
 } from "./pairing-session-agents.js";
 import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
-import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
+import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   requestScoutBrokerJson,
   registerActiveScoutBrokerService,
@@ -114,7 +114,7 @@ import {
   resolveBrokerServiceConfig,
   resolveBrokerHost,
 } from "./broker-process-manager.js";
-import { readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
+import { clearGitBranchCache, readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
 
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -188,6 +188,9 @@ const configuredCoreAgentIds = (process.env.OPENSCOUT_CORE_AGENTS ?? "")
   .filter(Boolean);
 const discoveryIntervalMs = Number.parseInt(process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? "0", 10);
 const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
+const localAgentSyncIntervalMs = Number.parseInt(process.env.OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS ?? "5000", 10);
+let registeredLocalAgentsRegistrySignature: string | null = null;
+let registeredLocalAgentsSyncInFlight: Promise<void> | null = null;
 
 ensureOpenScoutCleanSlateSync();
 
@@ -323,6 +326,53 @@ const systemActor: ActorIdentity = {
 async function migrateUnqualifiedRelayAgentKeys(): Promise<void> {
   const canonical = await readRelayAgentOverrides();
   await writeRelayAgentOverrides(canonical);
+}
+
+async function relayAgentRegistrySignature(): Promise<string | null> {
+  try {
+    const registryPath = resolveOpenScoutSupportPaths().relayAgentsRegistryPath;
+    const info = await stat(registryPath);
+    return `${info.mtimeMs}:${info.size}`;
+  } catch (error) {
+    if (
+      error
+      && typeof error === "object"
+      && "code" in error
+      && (error as { code?: string }).code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function syncRegisteredLocalAgentsIfChanged(reason: string): Promise<void> {
+  const nextSignature = await relayAgentRegistrySignature();
+  if (nextSignature === registeredLocalAgentsRegistrySignature) {
+    return;
+  }
+
+  if (registeredLocalAgentsSyncInFlight) {
+    await registeredLocalAgentsSyncInFlight;
+    return;
+  }
+
+  registeredLocalAgentsSyncInFlight = (async () => {
+    const latestSignature = await relayAgentRegistrySignature();
+    if (latestSignature === registeredLocalAgentsRegistrySignature) {
+      return;
+    }
+
+    clearGitBranchCache();
+    console.log(`[openscout-runtime] local agent registry changed (${reason}); refreshing registered agents`);
+    await syncRegisteredLocalAgents();
+  })();
+
+  try {
+    await registeredLocalAgentsSyncInFlight;
+  } finally {
+    registeredLocalAgentsSyncInFlight = null;
+  }
 }
 
 async function bootstrapRegisteredLocalAgents(): Promise<void> {
@@ -2163,6 +2213,8 @@ async function syncRegisteredLocalAgents(): Promise<void> {
     });
     console.log(`[openscout-runtime] disabled synthetic endpoint ${endpoint.id}`);
   }
+
+  registeredLocalAgentsRegistrySignature = await relayAgentRegistrySignature();
 }
 
 async function retireLegacyPairingSessionAgents(): Promise<void> {
@@ -2523,9 +2575,14 @@ async function detachManagedLocalSession(input: {
 }
 
 async function ensureCoreLocalAgentsOnline(): Promise<void> {
+  if (configuredCoreAgentIds.length === 0) {
+    console.log("[openscout-runtime] no configured core local agents to warm");
+    return;
+  }
+
   const coreBindings = await loadRegisteredLocalAgentBindings(nodeId, {
     ensureOnline: true,
-    agentIds: configuredCoreAgentIds.length > 0 ? configuredCoreAgentIds : undefined,
+    agentIds: configuredCoreAgentIds,
   });
 
   if (coreBindings.length === 0) {
@@ -3363,6 +3420,7 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
 async function handleInvocationRequest(
   payload: InvocationRequest & BrokerRouteTargetInput,
 ) {
+  await syncRegisteredLocalAgentsIfChanged("invocation");
   const resolved = resolveInvocationTarget(payload);
   if (resolved.kind !== "resolved") {
     const envelope = buildDispatchEnvelope(
@@ -4477,6 +4535,7 @@ function buildDeliveryReceipt(input: {
 async function acceptBrokerDelivery(
   payload: ScoutDeliverRequest,
 ): Promise<ScoutDeliverResponse> {
+  await syncRegisteredLocalAgentsIfChanged("delivery");
   const requestId = payload.id?.trim() || createRuntimeId("deliver");
   const createdAt = typeof payload.createdAt === "number" && Number.isFinite(payload.createdAt)
     ? payload.createdAt
@@ -4814,6 +4873,14 @@ if (Number.isFinite(discoveryIntervalMs) && discoveryIntervalMs > 0) {
       console.error("[openscout-runtime] periodic mesh discovery failed:", error);
     });
   }, discoveryIntervalMs).unref();
+}
+
+if (Number.isFinite(localAgentSyncIntervalMs) && localAgentSyncIntervalMs > 0) {
+  setInterval(() => {
+    syncRegisteredLocalAgentsIfChanged("periodic").catch((error) => {
+      console.error("[openscout-runtime] periodic local agent sync failed:", error);
+    });
+  }, localAgentSyncIntervalMs).unref();
 }
 
 function closeServer(serverInstance: ReturnType<typeof createServer>): Promise<void> {

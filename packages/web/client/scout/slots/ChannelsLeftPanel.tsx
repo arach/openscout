@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
@@ -58,19 +59,19 @@ export function ScoutChannelsLeftPanel() {
   };
 
   return (
-    <div className="ch-left-panel">
-      <div className="ch-left-panel-search">
+    <div className="ctx-panel">
+      <div className="ctx-panel-search">
         <input
           type="text"
-          className="ch-left-panel-search-input"
+          className="ctx-panel-search-input"
           placeholder="Filter channels…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="ch-left-panel-list">
+      <div className="ctx-panel-list ctx-panel-list--scroll">
         {filtered.length === 0 ? (
-          <div className="ch-left-panel-empty">
+          <div className="ctx-panel-empty">
             {query ? "No match" : channels.length === 0 ? "No channels yet" : "No channels"}
           </div>
         ) : (
@@ -83,24 +84,24 @@ export function ScoutChannelsLeftPanel() {
                 key={ch.id}
                 type="button"
                 className={[
-                  "ch-left-panel-item",
-                  active && "ch-left-panel-item--active",
-                  unread && "ch-left-panel-item--unread",
+                  "ctx-panel-item",
+                  active && "ctx-panel-item--active",
+                  unread && "ctx-panel-item--unread",
                 ].filter(Boolean).join(" ")}
                 onClick={() => onSelect(ch.id)}
               >
-                <div className="ch-left-panel-hash">#</div>
-                <div className="ch-left-panel-body">
-                  <span className="ch-left-panel-name">{name}</span>
+                <div className="ctx-panel-hash">#</div>
+                <div className="ctx-panel-body">
+                  <span className="ctx-panel-name">{name}</span>
                   {ch.preview && (
-                    <span className="ch-left-panel-preview">{ch.preview}</span>
+                    <span className="ctx-panel-preview">{ch.preview}</span>
                   )}
                 </div>
-                <div className="ch-left-panel-trailing">
+                <div className="ctx-panel-trailing">
                   {ch.lastMessageAt && (
-                    <span className="ch-left-panel-time">{timeAgo(ch.lastMessageAt)}</span>
+                    <span className="ctx-panel-time">{timeAgo(ch.lastMessageAt)}</span>
                   )}
-                  {unread && <span className="ch-left-panel-dot" />}
+                  {unread && <span className="ctx-panel-dot" />}
                 </div>
               </button>
             );

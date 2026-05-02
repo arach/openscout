@@ -860,11 +860,30 @@ describe("ensureCodexAppServerAgentOnline", () => {
     expect(state.requestedThreadId).toBe(threadId);
     expect(state.requireExistingThread).toBe(true);
 
+    const catalog = JSON.parse(readFileSync(join(runtimeDirectory, "session-catalog.json"), "utf8")) as {
+      activeSessionId: string | null;
+      sessions: Array<{ id: string; cwd: string; harness?: string; transport?: string }>;
+    };
+    expect(catalog.activeSessionId).toBe(threadId);
+    expect(catalog.sessions).toContainEqual(expect.objectContaining({
+      id: threadId,
+      cwd: process.cwd(),
+      harness: "codex",
+      transport: "codex_app_server",
+    }));
+
     const snapshot = await getCodexAppServerAgentSnapshot(options);
     expect(snapshot).not.toBeNull();
     expect(snapshot?.session.providerMeta?.threadId).toBe(threadId);
 
-    await shutdownCodexAppServerAgent(options);
+    await shutdownCodexAppServerAgent(options, { resetThread: true });
+
+    const closedCatalog = JSON.parse(readFileSync(join(runtimeDirectory, "session-catalog.json"), "utf8")) as {
+      activeSessionId: string | null;
+      sessions: Array<{ id: string; endedAt?: number }>;
+    };
+    expect(closedCatalog.activeSessionId).toBeNull();
+    expect(closedCatalog.sessions.find((session) => session.id === threadId)?.endedAt).toBeNumber();
   });
 
   test("steers the current turn instead of starting a second one", async () => {
