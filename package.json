@@ -38,6 +38,7 @@
     "runtime:broker": "npm --prefix packages/runtime run broker",
     "runtime:discover": "npm --prefix packages/runtime run discover",
     "runtime:service": "npm --prefix packages/runtime run service",
+    "mesh:iroh:smoke": "bun scripts/mesh-iroh-smoke.mjs",
     "dev:cleanup": "bash scripts/dev-cleanup.sh",
     "dev:cleanup:ports": "bash scripts/dev-cleanup.sh --ports-only",
     "cloud:build": "cd apps/cloud && bun run build",

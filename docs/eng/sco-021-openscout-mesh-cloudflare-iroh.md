@@ -118,6 +118,29 @@ Exit criteria:
 - The web app surfaces the remote node/agent state from broker records.
 - Shutting off Iroh leaves existing HTTP/Tailscale forwarding usable.
 
+Smoke-test loop before Cloudflare:
+
+```bash
+# On both machines:
+bun scripts/mesh-iroh-smoke.mjs build-bridge
+bun scripts/mesh-iroh-smoke.mjs run-broker
+
+# In another shell on both machines:
+bun scripts/mesh-iroh-smoke.mjs export-node --out node.json
+
+# Copy each node.json to the other machine, then import the peer:
+bun scripts/mesh-iroh-smoke.mjs import-node --file peer-node.json
+
+# Confirm both local and peer records include kind: "iroh" entrypoints:
+bun scripts/mesh-iroh-smoke.mjs inspect
+```
+
+Until phase 2 adds Cloudflare rendezvous, exchanging `node.json` manually is the
+simple directory substitute for home/work tests where HTTP discovery is not
+available. The transport under test is still Iroh: once each broker knows the
+peer's Iroh entrypoint, mesh forwarding can use the sidecar and keep HTTP or
+Tailscale only as fallback.
+
 ### Phase 2: Cloudflare Front Door
 
 Goal: add a simple and safe public entrypoint without changing broker authority.
