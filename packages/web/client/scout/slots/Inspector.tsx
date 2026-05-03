@@ -4,6 +4,7 @@ import { AgentsInspector } from "../inspector/AgentsInspector.tsx";
 import { HomeAgentsInspector } from "../inspector/HomeAgentsInspector.tsx";
 import { SessionsInspector } from "../inspector/SessionsInspector.tsx";
 import { WorkInspector } from "../inspector/WorkInspector.tsx";
+import { MeshInspectorPanel } from "../inspector/MeshInspector.tsx";
 import { RangerPanel } from "../ranger/RangerPanel.tsx";
 
 export function ScoutInspector() {
@@ -26,6 +27,9 @@ export function ScoutInspector() {
       break;
     case "work":
       content = <WorkInspector />;
+      break;
+    case "mesh":
+      content = <MeshInspectorPanel />;
       break;
     case "ops":
       content = null;

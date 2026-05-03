@@ -8,6 +8,7 @@ import { ScoutChannelsLeftPanel } from "./ChannelsLeftPanel.tsx";
 import { ScoutConversationLeftPanel } from "./ConversationLeftPanel.tsx";
 import { ScoutFleetLeftPanel } from "./FleetLeftPanel.tsx";
 import { ScoutEmptyLeftPanel } from "./EmptyLeftPanel.tsx";
+import { MeshLeftPanel } from "./MeshLeftPanel.tsx";
 
 type ParentGroup = {
   key: string;
@@ -124,6 +125,8 @@ export function ScoutLeftPanel() {
     case "inbox":
     case "fleet":
       return <ScoutFleetLeftPanel />;
+    case "mesh":
+      return <MeshLeftPanel />;
     default:
       return <ScoutEmptyLeftPanel />;
   }
