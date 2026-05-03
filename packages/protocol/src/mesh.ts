@@ -68,6 +68,16 @@ export interface OpenScoutMeshPresence {
   metadata?: MetadataMap;
 }
 
+export interface OpenScoutMeshPresenceRecord extends OpenScoutMeshPresence {
+  observedAt: number;
+}
+
+export interface OpenScoutMeshRendezvousList {
+  v: typeof OPENSCOUT_MESH_PROTOCOL_VERSION;
+  meshId: ScoutId;
+  nodes: OpenScoutMeshPresenceRecord[];
+}
+
 export function buildUnsignedMeshPresence(input: {
   node: Pick<NodeDefinition, "id" | "meshId" | "name">;
   entrypoints: NodeMeshEntrypoint[];

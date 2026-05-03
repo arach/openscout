@@ -173,6 +173,29 @@ Exit criteria:
 - A client can reach a broker through a returned entrypoint.
 - Broker state remains local; Cloudflare stores only directory/presence data.
 
+First slice:
+
+- `apps/mesh-front-door` deploys a Cloudflare Worker at the rendezvous hostname.
+- The Worker stores short-lived node presence in a Durable Object scoped to the
+  configured directory owner for the first single-tenant deployment. Without
+  that owner, records are scoped to the authenticated Cloudflare Access identity
+  or shared node-publisher token.
+- The broker can opt in to publication with:
+
+```bash
+OPENSCOUT_MESH_RENDEZVOUS_URL=https://mesh.oscout.net
+OPENSCOUT_MESH_RENDEZVOUS_TOKEN=<wrangler-secret-value>
+OPENSCOUT_MESH_RENDEZVOUS_TTL_MS=60000
+OPENSCOUT_MESH_RENDEZVOUS_INTERVAL_MS=30000
+```
+
+The initial API surface is intentionally directory-only:
+
+- `POST /v1/presence`
+- `GET /v1/nodes?meshId=openscout`
+- `GET /v1/nodes/:nodeId?meshId=openscout`
+- `DELETE /v1/nodes/:nodeId?meshId=openscout`
+
 ### Phase 3: iOS App To Cloudflare
 
 Goal: the iOS app points at the Cloudflare front door and gets a usable Scout

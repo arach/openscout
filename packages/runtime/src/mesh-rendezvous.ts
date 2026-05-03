@@ -1,0 +1,159 @@
+import {
+  buildUnsignedMeshPresence,
+  type NodeDefinition,
+  type NodeMeshEntrypoint,
+  type OpenScoutMeshPresence,
+} from "@openscout/protocol";
+
+import { isLoopbackHost } from "./broker-process-manager.js";
+
+export interface MeshRendezvousPublishConfig {
+  url: string;
+  token?: string;
+  ttlMs: number;
+  intervalMs: number;
+}
+
+export interface MeshRendezvousPublisher {
+  publishNow(): Promise<void>;
+  stop(): void;
+}
+
+export interface MeshRendezvousPublisherOptions {
+  config: MeshRendezvousPublishConfig;
+  fetch?: typeof fetch;
+  logger?: Pick<Console, "log" | "warn">;
+}
+
+const DEFAULT_RENDEZVOUS_TTL_MS = 60_000;
+const DEFAULT_RENDEZVOUS_INTERVAL_MS = 30_000;
+
+export function resolveMeshRendezvousPublishConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): MeshRendezvousPublishConfig | undefined {
+  const rawUrl = env.OPENSCOUT_MESH_RENDEZVOUS_URL?.trim();
+  if (!rawUrl || rawUrl.toLowerCase() === "false" || rawUrl === "0") {
+    return undefined;
+  }
+
+  return {
+    url: rawUrl.replace(/\/$/, ""),
+    token: env.OPENSCOUT_MESH_RENDEZVOUS_TOKEN?.trim() || undefined,
+    ttlMs: readPositiveInteger(env.OPENSCOUT_MESH_RENDEZVOUS_TTL_MS, DEFAULT_RENDEZVOUS_TTL_MS),
+    intervalMs: readPositiveInteger(env.OPENSCOUT_MESH_RENDEZVOUS_INTERVAL_MS, DEFAULT_RENDEZVOUS_INTERVAL_MS),
+  };
+}
+
+export function buildMeshRendezvousPresence(
+  node: NodeDefinition,
+  options: { issuedAt?: number; ttlMs?: number } = {},
+): OpenScoutMeshPresence | undefined {
+  const entrypoints = reachableEntrypointsForNode(node);
+  if (entrypoints.length === 0) {
+    return undefined;
+  }
+
+  return buildUnsignedMeshPresence({
+    node,
+    entrypoints,
+    issuedAt: options.issuedAt,
+    ttlMs: options.ttlMs,
+    metadata: {
+      source: "openscout-runtime",
+    },
+  });
+}
+
+export async function publishMeshRendezvousPresence(
+  node: NodeDefinition,
+  options: MeshRendezvousPublisherOptions,
+): Promise<boolean> {
+  const presence = buildMeshRendezvousPresence(node, { ttlMs: options.config.ttlMs });
+  if (!presence) {
+    options.logger?.warn("[openscout-runtime] mesh rendezvous skipped: no reachable entrypoints to publish");
+    return false;
+  }
+
+  const fetchImpl = options.fetch ?? fetch;
+  const response = await fetchImpl(`${options.config.url}/v1/presence`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      ...(options.config.token ? { authorization: `Bearer ${options.config.token}` } : {}),
+    },
+    body: JSON.stringify(presence),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`rendezvous publish failed: ${response.status} ${response.statusText}${detail ? ` ${detail}` : ""}`);
+  }
+
+  return true;
+}
+
+export function startMeshRendezvousPublisher(
+  node: NodeDefinition,
+  options: MeshRendezvousPublisherOptions,
+): MeshRendezvousPublisher {
+  let stopped = false;
+  let inFlight: Promise<void> | null = null;
+
+  const publishNow = async () => {
+    if (stopped || inFlight) return;
+    inFlight = publishMeshRendezvousPresence(node, options)
+      .then((published) => {
+        if (published) {
+          options.logger?.log(`[openscout-runtime] published mesh rendezvous presence to ${options.config.url}`);
+        }
+      })
+      .catch((error) => {
+        options.logger?.warn(`[openscout-runtime] mesh rendezvous publish failed: ${error instanceof Error ? error.message : String(error)}`);
+      })
+      .finally(() => {
+        inFlight = null;
+      });
+    await inFlight;
+  };
+
+  const timer = setInterval(() => {
+    publishNow().catch(() => undefined);
+  }, options.config.intervalMs);
+  timer.unref();
+  publishNow().catch(() => undefined);
+
+  return {
+    publishNow,
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
+}
+
+function reachableEntrypointsForNode(node: NodeDefinition): NodeMeshEntrypoint[] {
+  const entrypoints = [...(node.meshEntrypoints ?? [])];
+  if (node.brokerUrl && isReachableHttpUrl(node.brokerUrl)) {
+    entrypoints.push({
+      kind: "http",
+      url: node.brokerUrl,
+      lastSeenAt: node.lastSeenAt,
+    });
+  }
+  return entrypoints;
+}
+
+function isReachableHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && !isLoopbackHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function readPositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}

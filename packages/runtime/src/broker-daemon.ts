@@ -130,6 +130,11 @@ import {
   resolveOpenScoutRepoRoot,
   resolveRepoEntrypoint,
 } from "./tool-resolution.js";
+import {
+  resolveMeshRendezvousPublishConfig,
+  startMeshRendezvousPublisher,
+  type MeshRendezvousPublisher,
+} from "./mesh-rendezvous.js";
 import { clearGitBranchCache, readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
 
 function createRuntimeId(prefix: string): string {
@@ -253,6 +258,7 @@ const WEB_START_POLL_TIMEOUT_MS = 15_000;
 const WEB_START_POLL_INTERVAL_MS = 250;
 let webServerProcess: ChildProcess | null = null;
 let webStartInFlight: Promise<WebSupervisorStatus> | null = null;
+let meshRendezvousPublisher: MeshRendezvousPublisher | null = null;
 
 type LegacyRelayMessage = {
   id: string;
@@ -5278,6 +5284,13 @@ try {
   await listenTcp(server);
   await listenUnixSocket(socketServer, brokerSocketPath);
   peerDelivery.start();
+  const meshRendezvousConfig = resolveMeshRendezvousPublishConfig();
+  if (meshRendezvousConfig) {
+    meshRendezvousPublisher = startMeshRendezvousPublisher(localNode, {
+      config: meshRendezvousConfig,
+      logger: console,
+    });
+  }
   console.log(`[openscout-runtime] broker listening on ${host}:${port} (scope: ${advertiseScope}, url: ${brokerUrl})`);
   console.log(`[openscout-runtime] broker local socket ${brokerSocketPath}`);
   if (advertiseScope === "mesh" && isLoopbackHost(host)) {
@@ -5351,6 +5364,7 @@ async function shutdownBroker(exitCode = 0): Promise<void> {
   }
   shuttingDown = true;
   peerDelivery.stop();
+  meshRendezvousPublisher?.stop();
   irohBridgeService?.stop();
   for (const client of eventClients) {
     client.end();
