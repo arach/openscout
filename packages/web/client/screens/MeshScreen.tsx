@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
+import { normalizeAgentState } from "../lib/agent-state.ts";
+import { stateColor } from "../lib/colors.ts";
 import type { MeshIssue, MeshStatus, Route } from "../lib/types.ts";
 import { MeshTopologyView } from "./MeshTopologyView.tsx";
+import { useScout } from "../scout/Provider.tsx";
+import { useMeshViewStore, setMeshViewMode, setMeshSnapshot } from "../lib/mesh-view-store.ts";
 import "./system-surfaces-redesign.css";
+import "./mesh-screen.css";
 
 function issueTone(issue: MeshIssue): "notice" | "warning" | "error" {
   if (issue.code === "local_only") {
@@ -98,6 +103,57 @@ function MeshIssueCard({ issue }: { issue: MeshIssue }) {
   );
 }
 
+const STATE_RANK: Record<string, number> = { working: 0, available: 1, offline: 2 };
+
+function MeshAgentTable() {
+  const { agents, navigate } = useScout();
+
+  if (agents.length === 0) {
+    return (
+      <div className="sys-list-empty">
+        <h3>No agents registered</h3>
+        <p>Agents connected to this broker will appear here.</p>
+      </div>
+    );
+  }
+
+  const sorted = [...agents].sort((a, b) => {
+    const ra = STATE_RANK[normalizeAgentState(a.state)] ?? 3;
+    const rb = STATE_RANK[normalizeAgentState(b.state)] ?? 3;
+    if (ra !== rb) return ra - rb;
+    return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+  });
+
+  return (
+    <div className="mesh-agent-table">
+      {sorted.map((agent) => {
+        const state = normalizeAgentState(agent.state);
+        return (
+          <button
+            key={agent.id}
+            type="button"
+            className="mesh-agent-row"
+            onClick={() => navigate({ view: "agents", agentId: agent.id })}
+          >
+            <span
+              className={`mesh-agent-dot mesh-agent-dot--${state}`}
+              style={{ background: stateColor(agent.state) }}
+            />
+            <span className="mesh-agent-name">{agent.handle ?? agent.name}</span>
+            <span className="mesh-agent-project">
+              {agent.project ?? "—"}{agent.branch ? ` · ${agent.branch}` : ""}
+            </span>
+            <span className={`mesh-agent-state mesh-agent-state--${state}`}>{state}</span>
+            <span className="mesh-agent-time">
+              {agent.updatedAt ? timeAgo(agent.updatedAt) : ""}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => void }) {
   const [mesh, setMesh] = useState<MeshStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,6 +173,8 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
   const [error, setError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
 
+  const { mode } = useMeshViewStore();
+
   const meshRef = useRef<MeshStatus | null>(null);
   const requestIdRef = useRef(0);
 
@@ -124,11 +182,11 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
     meshRef.current = mesh;
   }, [mesh]);
 
-  const load = useCallback(async (mode: "initial" | "background" | "manual" = "initial") => {
+  const load = useCallback(async (loadMode: "initial" | "background" | "manual" = "initial") => {
     const requestId = ++requestIdRef.current;
     const hasSnapshot = meshRef.current !== null;
 
-    if (!hasSnapshot && mode !== "background") {
+    if (!hasSnapshot && loadMode !== "background") {
       setLoading(true);
       setError(null);
     } else {
@@ -139,6 +197,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
       const data = await api<MeshStatus>("/api/mesh");
       if (requestId !== requestIdRef.current) return;
       setMesh(data);
+      setMeshSnapshot(data);
       setError(null);
       setLastLoadedAt(Date.now());
     } catch (loadError) {
@@ -173,6 +232,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
         body: "{}",
       });
       setMesh(data);
+      setMeshSnapshot(data);
       meshRef.current = data;
       setError(null);
       setLastLoadedAt(Date.now());
@@ -204,6 +264,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
         body: JSON.stringify({ action: "open_app" }),
       });
       setMesh(data);
+      setMeshSnapshot(data);
       meshRef.current = data;
       setError(null);
       setLastLoadedAt(Date.now());
@@ -289,12 +350,25 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
       <div className="sys-page-head">
         <div className="sys-page-title-group">
           <h2 className="sys-page-title">Mesh</h2>
-          <p className="sys-page-subtitle">
-            Who this broker is, whether peers can discover it, and what the current mesh can see.
-          </p>
         </div>
         <div className="sys-page-actions">
-          <span className={`sys-chip sys-chip-${tone}`}>{statusLabel}</span>
+          <div className="mesh-mode-toggle">
+            <button
+              type="button"
+              className={`mesh-mode-btn${mode === "map" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshViewMode("map")}
+            >
+              Map
+            </button>
+            <button
+              type="button"
+              className={`mesh-mode-btn${mode === "fleet" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshViewMode("fleet")}
+            >
+              Fleet
+            </button>
+          </div>
+          {mesh && <span className={`sys-chip sys-chip-${tone}`}>{statusLabel}</span>}
           {mesh?.tailscale.available && !mesh.tailscale.running && (
             <span className="sys-chip sys-chip-warning">Tailnet stopped</span>
           )}
@@ -346,155 +420,70 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
         </div>
       )}
 
-      {mesh && (
+      {/* ── MAP MODE ── */}
+      {mesh && mode === "map" && (
         <>
-          <section className="sys-panel sys-mesh-identity">
-            <div className="sys-section-head">
-              <div>
-                <h3 className="sys-section-title">This broker</h3>
-                <p className="sys-section-subtitle">
-                  The identity peers will learn if they discover this machine.
-                </p>
-              </div>
-              <span className={`sys-chip sys-chip-${discoverabilityTone(mesh)}`}>
-                {discoverabilityLabel(mesh)}
+          {mesh.tailscale.available && !mesh.tailscale.running && (
+            <div className="sys-banner sys-banner-warning">
+              <strong>Tailscale is stopped.</strong>
+              <span>
+                {mesh.tailscale.health[0]
+                  ?? "This machine is showing cached Tailnet peers, but the local Tailscale backend is not running."}
               </span>
-            </div>
-
-            {mesh.tailscale.available && !mesh.tailscale.running && (
-              <div className="sys-banner sys-banner-warning">
-                <strong>Tailscale is stopped.</strong>
-                <span>
-                  {mesh.tailscale.health[0]
-                    ?? "This machine is showing cached Tailnet peers, but the local Tailscale backend is not running."}
-                </span>
-              </div>
-            )}
-
-            {mesh.tailscale.available && !mesh.tailscale.running && (
               <div className="sys-inline-actions">
                 <button
                   type="button"
-                  className="s-btn"
+                  className="s-btn s-btn-sm"
                   disabled={tailscaleBusy}
                   onClick={() => void openTailscale()}
                 >
-                  {tailscaleBusy ? "Opening Tailscale..." : "Open Tailscale"}
+                  {tailscaleBusy ? "Opening..." : "Open Tailscale"}
                 </button>
-                <button
-                  type="button"
-                  className="s-btn"
-                  disabled={tailscaleBusy || refreshing}
-                  onClick={() => void load("manual")}
-                >
-                  {refreshing ? "Refreshing..." : "Refresh status"}
-                </button>
-              </div>
-            )}
-
-            <div className="sys-detail-grid">
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Who Am I</span>
-                <span className="sys-detail-value">{mesh.identity.name ?? mesh.localNode?.name ?? "Unavailable"}</span>
-              </div>
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Node ID</span>
-                <code className="sys-detail-value">{mesh.identity.nodeId ?? "Unavailable"}</code>
-              </div>
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Mesh</span>
-                <code className="sys-detail-value">{mesh.identity.meshId ?? "Unassigned"}</code>
-              </div>
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Mode</span>
-                <span className="sys-detail-value">{mesh.identity.modeLabel}</span>
-              </div>
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Discoverable</span>
-                <span className="sys-detail-value">{mesh.identity.discoverable ? "Yes" : "No"}</span>
-              </div>
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Announced As</span>
-                <code className="sys-detail-value">{mesh.identity.announceUrl ?? "Not announced"}</code>
               </div>
             </div>
+          )}
 
-            <div className={`sys-banner ${mesh.identity.discoverable ? "sys-banner-success" : "sys-banner-muted"}`}>
-              <strong>How peers find you.</strong>
-              <span>{mesh.identity.discoveryDetail}</span>
-            </div>
-
-            {!mesh.identity.discoverable && mesh.health.reachable && (
-              <div className="sys-inline-actions">
-                <button
-                  type="button"
-                  className="s-btn"
-                  disabled={announcing}
-                  onClick={() => void announce()}
-                >
-                  {announcing ? "Announcing..." : "Announce on mesh"}
-                </button>
-              </div>
-            )}
-
-            {announceFeedback && (
-              <div className={`sys-banner ${announceFeedback.tone === "success" ? "sys-banner-success" : "sys-banner-warning"}`}>
-                <strong>{announceFeedback.title}</strong>
-                <span>{announceFeedback.message}</span>
-              </div>
-            )}
-
-            {tailscaleFeedback && (
-              <div className={`sys-banner ${tailscaleFeedback.tone === "success" ? "sys-banner-success" : "sys-banner-warning"}`}>
-                <strong>{tailscaleFeedback.title}</strong>
-                <span>{tailscaleFeedback.message}</span>
-              </div>
-            )}
-          </section>
-
-          <div className="sys-stat-grid">
+          <div className="mesh-stat-strip">
             {healthCards.map((card) => (
-              <div key={card.label} className="sys-stat-card">
-                <span className="sys-stat-label">{card.label}</span>
-                <strong className="sys-stat-value">{card.value}</strong>
-                <span className="sys-stat-detail">{card.detail}</span>
+              <div key={card.label} className="mesh-stat-chip">
+                <span className="mesh-stat-chip-label">{card.label}</span>
+                <span className="mesh-stat-chip-value">{card.value}</span>
               </div>
             ))}
+            {issues.length > 0 && (
+              <span
+                className={`sys-chip sys-chip-${issues.some((i) => i.severity === "error") ? "failed" : "warning"} mesh-stat-issues-badge`}
+              >
+                {issues.length} {issues.length === 1 ? "issue" : "issues"}
+              </span>
+            )}
+            {!mesh.identity.discoverable && mesh.health.reachable && (
+              <button
+                type="button"
+                className="s-btn s-btn-sm"
+                disabled={announcing}
+                onClick={() => void announce()}
+              >
+                {announcing ? "Announcing..." : "Announce"}
+              </button>
+            )}
+            {announceFeedback && (
+              <span
+                className={`sys-chip sys-chip-${announceFeedback.tone === "success" ? "success" : "warning"}`}
+              >
+                {announceFeedback.title}
+              </span>
+            )}
+            {tailscaleFeedback && (
+              <span
+                className={`sys-chip sys-chip-${tailscaleFeedback.tone === "success" ? "success" : "warning"}`}
+              >
+                {tailscaleFeedback.title}
+              </span>
+            )}
           </div>
 
-          <section className="sys-panel">
-            <div className="sys-section-head">
-              <div>
-                <h3 className="sys-section-title">Health notices</h3>
-                <p className="sys-section-subtitle">
-                  Warnings and errors from the current broker and discovery snapshot.
-                </p>
-              </div>
-            </div>
-
-            {issues.length > 0 ? (
-              <div className="sys-issue-grid">
-                {issues.map((issue, index) => (
-                  <MeshIssueCard key={`${issue.code}-${index}`} issue={issue} />
-                ))}
-              </div>
-            ) : (
-              <div className="sys-list-empty">
-                <h3>No active mesh warnings</h3>
-                <p>The broker is reachable and discovery inputs look healthy from this page.</p>
-              </div>
-            )}
-          </section>
-
-          <section className="sys-panel">
-            <div className="sys-section-head">
-              <div>
-                <h3 className="sys-section-title">Topology</h3>
-                <p className="sys-section-subtitle">
-                  Current broker relationships plus visible tailnet peers from this machine.
-                </p>
-              </div>
-            </div>
+          <div className="mesh-map-hero">
             {mesh.localNode ? (
               <MeshTopologyView mesh={mesh} />
             ) : (
@@ -503,6 +492,27 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
                 <p>A local node record is required before the topology view can render.</p>
               </div>
             )}
+          </div>
+        </>
+      )}
+
+      {/* ── FLEET MODE ── */}
+      {mesh && mode === "fleet" && (
+        <>
+          <div className="mesh-fleet-mini">
+            {mesh.localNode && <MeshTopologyView mesh={mesh} />}
+          </div>
+
+          <section className="sys-panel">
+            <div className="sys-section-head">
+              <div>
+                <h3 className="sys-section-title">Agents</h3>
+                <p className="sys-section-subtitle">
+                  All agents registered with this broker.
+                </p>
+              </div>
+            </div>
+            <MeshAgentTable />
           </section>
 
           <section className="sys-panel">
@@ -519,7 +529,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
               <div className="sys-list-empty">
                 <h3>No remote brokers discovered</h3>
                 <p>
-                  This can be normal on a single-node setup. If you expect peers, check the health notices above.
+                  This can be normal on a single-node setup. If you expect peers, check mesh health in the inspector.
                 </p>
               </div>
             ) : (
@@ -598,6 +608,34 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
               </div>
             )}
           </section>
+
+          {mesh.tailscale.available && !mesh.tailscale.running && (
+            <div className="sys-banner sys-banner-warning">
+              <strong>Tailscale is stopped.</strong>
+              <span>
+                {mesh.tailscale.health[0]
+                  ?? "This machine is showing cached Tailnet peers, but the local Tailscale backend is not running."}
+              </span>
+              <div className="sys-inline-actions">
+                <button
+                  type="button"
+                  className="s-btn"
+                  disabled={tailscaleBusy}
+                  onClick={() => void openTailscale()}
+                >
+                  {tailscaleBusy ? "Opening Tailscale..." : "Open Tailscale"}
+                </button>
+                <button
+                  type="button"
+                  className="s-btn"
+                  disabled={tailscaleBusy || refreshing}
+                  onClick={() => void load("manual")}
+                >
+                  {refreshing ? "Refreshing..." : "Refresh status"}
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
