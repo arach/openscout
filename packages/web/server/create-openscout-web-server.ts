@@ -1,11 +1,13 @@
-import { existsSync, rmSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 
 import { Hono, type Context } from "hono";
 
 import {
   controlScoutWebPairingService,
+  decideScoutWebPairingApproval,
   getScoutWebPairingState,
   refreshScoutWebPairingState,
   removeScoutPairingTrustedPeer,
@@ -103,6 +105,46 @@ export type CreateOpenScoutWebServerOptions = {
 export type OpenScoutWebServer = {
   app: Hono;
   warmupCaches: () => Promise<void>;
+};
+
+type OperatorAttentionItem = {
+  id: string;
+  kind: "approval" | "configuration" | "ask" | "work_item" | "question";
+  title: string;
+  summary: string | null;
+  detail: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  conversationId: string | null;
+  updatedAt: number;
+  severity: "critical" | "warning" | "info";
+  sourceLabel: string;
+  approval?: ScoutPairingState["pendingApprovals"][number];
+  permissionRequest?: ClaudePermissionRequest;
+  actions: Array<{
+    kind: "approve" | "deny" | "open" | "configure" | "copy";
+    label: string;
+    route?: { view: string; [key: string]: string | undefined };
+    value?: string;
+  }>;
+};
+
+type ClaudePermissionRequest = {
+  id: string;
+  source: "claude-code";
+  status: "pending" | "decided" | "expired";
+  createdAt: number;
+  updatedAt: number;
+  expiresAt?: number;
+  sessionId: string | null;
+  transcriptPath: string | null;
+  cwd: string;
+  hookEventName: string;
+  toolName: string;
+  toolInput: unknown;
+  summary: string | null;
+  decision?: "allow" | "deny";
+  reason?: string;
 };
 
 function parseOptionalPositiveInt(
@@ -278,6 +320,338 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function severityRank(severity: OperatorAttentionItem["severity"]): number {
+  switch (severity) {
+    case "critical":
+      return 0;
+    case "warning":
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+function compactAttentionSummary(value: string | null | undefined, max = 220): string | null {
+  const compacted = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!compacted) {
+    return null;
+  }
+  return compacted.length > max ? `${compacted.slice(0, max - 1)}...` : compacted;
+}
+
+function controlHomeDirectory(): string {
+  return process.env.OPENSCOUT_CONTROL_HOME
+    || join(homedir(), ".openscout", "control-plane");
+}
+
+function permissionRequestDirectory(): string {
+  return join(controlHomeDirectory(), "permission-requests");
+}
+
+function permissionRequestPath(id: string): string {
+  return join(permissionRequestDirectory(), `${encodeURIComponent(id)}.json`);
+}
+
+function readPermissionJson(path: string): ClaudePermissionRequest | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<ClaudePermissionRequest>;
+    if (
+      typeof parsed.id !== "string"
+      || parsed.source !== "claude-code"
+      || typeof parsed.toolName !== "string"
+    ) {
+      return null;
+    }
+    return {
+      id: parsed.id,
+      source: "claude-code",
+      status: parsed.status === "decided" || parsed.status === "expired" ? parsed.status : "pending",
+      createdAt: typeof parsed.createdAt === "number" ? parsed.createdAt : Date.now(),
+      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
+      expiresAt: typeof parsed.expiresAt === "number" ? parsed.expiresAt : undefined,
+      sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : null,
+      transcriptPath: typeof parsed.transcriptPath === "string" ? parsed.transcriptPath : null,
+      cwd: typeof parsed.cwd === "string" ? parsed.cwd : "",
+      hookEventName: typeof parsed.hookEventName === "string" ? parsed.hookEventName : "PreToolUse",
+      toolName: parsed.toolName,
+      toolInput: parsed.toolInput ?? null,
+      summary: typeof parsed.summary === "string" ? parsed.summary : null,
+      ...(parsed.decision === "allow" || parsed.decision === "deny" ? { decision: parsed.decision } : {}),
+      ...(typeof parsed.reason === "string" ? { reason: parsed.reason } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function queryPendingClaudePermissionRequests(): ClaudePermissionRequest[] {
+  const dir = permissionRequestDirectory();
+  if (!existsSync(dir)) {
+    return [];
+  }
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => readPermissionJson(join(dir, name)))
+    .filter((request): request is ClaudePermissionRequest =>
+      Boolean(request) && request.status === "pending" && !request.decision)
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+function decideClaudePermissionRequest(input: {
+  id: string;
+  decision: "allow" | "deny";
+  reason?: string | null;
+}): ClaudePermissionRequest | null {
+  const path = permissionRequestPath(input.id);
+  const request = existsSync(path) ? readPermissionJson(path) : null;
+  if (!request) {
+    return null;
+  }
+  const next: ClaudePermissionRequest = {
+    ...request,
+    status: "decided",
+    decision: input.decision,
+    reason: input.reason?.trim() || `Scout operator ${input.decision}ed ${request.toolName}`,
+    updatedAt: Date.now(),
+  };
+  mkdirSync(permissionRequestDirectory(), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return next;
+}
+
+function summarizePermissionInput(input: unknown): string | null {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  for (const key of ["command", "file_path", "path", "description"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return compactAttentionSummary(value, 180);
+    }
+  }
+  return compactAttentionSummary(JSON.stringify(input), 180);
+}
+
+function permissionSetupHint(detail: string): OperatorAttentionItem | null {
+  const normalized = detail.toLowerCase();
+  const mentionsPermission = /permission|approval|allow|blocked/.test(normalized);
+  const mentionsScoutTool = /scout ask|mcp__?scout__invocations_ask|mcp.*invocations_ask|allowedtools|allowlist/.test(normalized);
+  if (!mentionsPermission || !mentionsScoutTool) {
+    return null;
+  }
+
+  const needsMcp = /mcp__?scout__invocations_ask|mcp.*invocations_ask/.test(normalized);
+  const command = needsMcp
+    ? "/allow mcp__scout__invocations_ask"
+    : `{ "allowedTools": ["Bash(scout ask:*)"] }`;
+  const title = needsMcp
+    ? "Claude needs Scout MCP permission"
+    : "Claude needs Scout CLI permission";
+
+  return {
+    id: `config:${needsMcp ? "mcp-scout-invocations-ask" : "scout-ask-cli"}`,
+    kind: "configuration",
+    title,
+    summary: compactAttentionSummary(detail),
+    detail: needsMcp
+      ? "Allow the Scout MCP invocation tool in the Claude session so routed asks can be delivered without stalling."
+      : "Allow the Scout ask command in the Claude session, or add it to Claude's allowed tools.",
+    agentId: null,
+    agentName: null,
+    conversationId: null,
+    updatedAt: Date.now(),
+    severity: "critical",
+    sourceLabel: "Claude permissions",
+    actions: [
+      {
+        kind: "copy",
+        label: "Copy fix",
+        value: command,
+      },
+      {
+        kind: "configure",
+        label: "Open settings",
+        route: { view: "settings" },
+      },
+    ],
+  };
+}
+
+function dedupeAttentionItems(items: OperatorAttentionItem[]): OperatorAttentionItem[] {
+  const byId = new Map<string, OperatorAttentionItem>();
+  for (const item of items) {
+    const existing = byId.get(item.id);
+    if (!existing || item.updatedAt > existing.updatedAt) {
+      byId.set(item.id, item);
+    }
+  }
+  return [...byId.values()].sort((left, right) => {
+    const bySeverity = severityRank(left.severity) - severityRank(right.severity);
+    if (bySeverity !== 0) {
+      return bySeverity;
+    }
+    return right.updatedAt - left.updatedAt;
+  });
+}
+
+async function buildOperatorAttentionState(currentDirectory: string) {
+  const [pairing, fleet, broker] = await Promise.all([
+    loadPairingState(currentDirectory, false).catch(() => null),
+    Promise.resolve(queryFleet({ limit: 24, activityLimit: 120 })),
+    Promise.resolve(queryBrokerDiagnostics({ limit: 160, windowMs: 24 * 60 * 60_000 })),
+  ]);
+
+  const items: OperatorAttentionItem[] = [];
+
+  for (const approval of pairing?.pendingApprovals ?? []) {
+    items.push({
+      id: `approval:${approval.sessionId}:${approval.turnId}:${approval.blockId}:v${approval.version}`,
+      kind: "approval",
+      title: approval.title,
+      summary: approval.description,
+      detail: approval.detail,
+      agentId: null,
+      agentName: approval.sessionName,
+      conversationId: null,
+      updatedAt: Date.now(),
+      severity: approval.risk === "high" ? "critical" : "warning",
+      sourceLabel: `${approval.adapterType} approval`,
+      approval,
+      actions: [
+        { kind: "approve", label: "Approve" },
+        { kind: "deny", label: "Deny" },
+      ],
+    });
+  }
+
+  for (const request of queryPendingClaudePermissionRequests()) {
+    const summary = request.summary ?? summarizePermissionInput(request.toolInput);
+    items.push({
+      id: `permission:${request.id}`,
+      kind: "approval",
+      title: `Allow Claude tool: ${request.toolName}`,
+      summary,
+      detail: request.cwd || request.sessionId,
+      agentId: null,
+      agentName: "Claude Code",
+      conversationId: null,
+      updatedAt: request.updatedAt,
+      severity: "warning",
+      sourceLabel: "Claude hook",
+      permissionRequest: request,
+      actions: [
+        { kind: "approve", label: "Allow" },
+        { kind: "deny", label: "Deny" },
+      ],
+    });
+  }
+
+  for (const work of fleet.needsAttention) {
+    const route = work.kind === "work_item"
+      ? { view: "work", workId: work.recordId }
+      : work.conversationId
+        ? { view: "conversation", conversationId: work.conversationId }
+        : undefined;
+    items.push({
+      id: `${work.kind}:${work.recordId}`,
+      kind: work.kind,
+      title: work.title,
+      summary: work.summary,
+      detail: work.acceptanceState !== "none"
+        ? work.acceptanceState.replace(/_/g, " ")
+        : work.state.replace(/_/g, " "),
+      agentId: work.agentId,
+      agentName: work.agentName,
+      conversationId: work.conversationId,
+      updatedAt: work.updatedAt,
+      severity: work.state === "waiting" || work.kind === "question" ? "warning" : "info",
+      sourceLabel: work.kind === "question" ? "Question" : "Work item",
+      actions: route ? [{ kind: "open", label: work.kind === "question" ? "Answer" : "Open", route }] : [],
+    });
+  }
+
+  for (const ask of fleet.recentCompleted.filter((item) => item.status === "failed")) {
+    items.push({
+      id: `ask:${ask.invocationId}`,
+      kind: "ask",
+      title: "Ask failed",
+      summary: compactAttentionSummary(ask.summary ?? ask.task),
+      detail: ask.task,
+      agentId: ask.agentId,
+      agentName: ask.agentName,
+      conversationId: ask.conversationId,
+      updatedAt: ask.updatedAt,
+      severity: "critical",
+      sourceLabel: "Ask delivery",
+      actions: ask.conversationId
+        ? [{ kind: "open", label: "Open thread", route: { view: "conversation", conversationId: ask.conversationId } }]
+        : [{ kind: "open", label: "Open agent", route: { view: "agents", agentId: ask.agentId } }],
+    });
+  }
+
+  for (const failure of [...broker.failedDeliveries, ...broker.failedQueries]) {
+    const hint = permissionSetupHint(failure.detail);
+    if (!hint) {
+      continue;
+    }
+    items.push({
+      ...hint,
+      id: `${hint.id}:${failure.id}`,
+      agentName: failure.target,
+      conversationId: failure.conversationId,
+      updatedAt: failure.ts,
+      actions: [
+        ...hint.actions,
+        ...(failure.conversationId
+          ? [{
+              kind: "open" as const,
+              label: "Open thread",
+              route: { view: "conversation", conversationId: failure.conversationId },
+            }]
+          : []),
+      ],
+    });
+  }
+
+  for (const message of broker.dialogue) {
+    if (message.actorName !== "Openscout") {
+      continue;
+    }
+    const hint = permissionSetupHint(message.body);
+    if (!hint) {
+      continue;
+    }
+    items.push({
+      ...hint,
+      id: `${hint.id}:${message.conversationId}`,
+      agentName: message.actorName,
+      conversationId: message.conversationId,
+      updatedAt: message.ts,
+      actions: [
+        ...hint.actions,
+        {
+          kind: "open" as const,
+          label: "Open thread",
+          route: { view: "conversation", conversationId: message.conversationId },
+        },
+      ],
+    });
+  }
+
+  const deduped = dedupeAttentionItems(items);
+  return {
+    generatedAt: Date.now(),
+    totals: {
+      all: deduped.length,
+      approvals: deduped.filter((item) => item.kind === "approval").length,
+      configuration: deduped.filter((item) => item.kind === "configuration").length,
+      collaboration: deduped.filter((item) => item.kind === "ask" || item.kind === "work_item" || item.kind === "question").length,
+    },
+    items: deduped,
+  };
+}
+
 function renderScoutLocalPortal(input: {
   requestUrl: string;
   portalHost: string;
@@ -433,6 +807,60 @@ export async function createOpenScoutWebServer(
   app.get("/api/pairing-state/refresh", async (c) =>
     c.json(await loadPairingState(currentDirectory, true)),
   );
+  app.get("/api/operator-attention", async (c) =>
+    c.json(await buildOperatorAttentionState(currentDirectory)),
+  );
+  app.post("/api/operator-attention/approvals/decide", async (c) => {
+    const body = (await c.req.json()) as {
+      sessionId?: string;
+      turnId?: string;
+      blockId?: string;
+      version?: number;
+      decision?: "approve" | "deny";
+      reason?: string | null;
+    };
+    if (!body.sessionId || !body.turnId || !body.blockId || typeof body.version !== "number") {
+      return c.json({ error: "sessionId, turnId, blockId, and version are required" }, 400);
+    }
+    if (body.decision !== "approve" && body.decision !== "deny") {
+      return c.json({ error: "decision must be approve or deny" }, 400);
+    }
+    await decideScoutWebPairingApproval(
+      {
+        sessionId: body.sessionId,
+        turnId: body.turnId,
+        blockId: body.blockId,
+        version: body.version,
+        decision: body.decision,
+        reason: body.reason ?? null,
+      },
+      currentDirectory,
+    );
+    shellStateCache.invalidate();
+    return c.json(await buildOperatorAttentionState(currentDirectory));
+  });
+  app.post("/api/operator-attention/permissions/decide", async (c) => {
+    const body = (await c.req.json()) as {
+      id?: string;
+      decision?: "allow" | "deny";
+      reason?: string | null;
+    };
+    if (!body.id) {
+      return c.json({ error: "id is required" }, 400);
+    }
+    if (body.decision !== "allow" && body.decision !== "deny") {
+      return c.json({ error: "decision must be allow or deny" }, 400);
+    }
+    const decided = decideClaudePermissionRequest({
+      id: body.id,
+      decision: body.decision,
+      reason: body.reason ?? null,
+    });
+    if (!decided) {
+      return c.json({ error: "permission request not found" }, 404);
+    }
+    return c.json(await buildOperatorAttentionState(currentDirectory));
+  });
   app.post("/api/pairing/control", async (c) => {
     const { action } = (await c.req.json()) as {
       action: ScoutPairingControlAction;
