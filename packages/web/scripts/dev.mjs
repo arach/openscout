@@ -3,7 +3,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { homedir, hostname as osHostname } from "node:os";
@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
 
 const DEFAULT_PORTS = {
+  broker: 65535,
   web: 3200,
   vite: 5180,
   pairing: 7888,
@@ -51,6 +52,19 @@ function parseFlags(argv) {
       flags.host = value;
     } else if (name === "--local-name") {
       flags.localName = value;
+    } else if (name === "--edge") {
+      flags.edge = true;
+    } else if (name === "--http") {
+      flags.edge = true;
+      flags.edgeScheme = "http";
+    } else if (name === "--https") {
+      flags.edge = true;
+      flags.edgeScheme = "https";
+    } else if (name === "--both") {
+      flags.edge = true;
+      flags.edgeScheme = "both";
+    } else if (name === "--caddy-bin") {
+      flags.caddyBin = value;
     }
   }
   return flags;
@@ -90,6 +104,7 @@ function resolvePortDefaults(packageDir) {
   if (!gitContext) {
     return {
       gitContext: null,
+      brokerPort: DEFAULT_PORTS.broker,
       webPort: DEFAULT_PORTS.web,
       vitePort: DEFAULT_PORTS.vite,
       pairingPort: DEFAULT_PORTS.pairing,
@@ -99,6 +114,7 @@ function resolvePortDefaults(packageDir) {
   if (!gitContext.isWorktree) {
     return {
       gitContext,
+      brokerPort: DEFAULT_PORTS.broker,
       webPort: DEFAULT_PORTS.web,
       vitePort: DEFAULT_PORTS.vite,
       pairingPort: DEFAULT_PORTS.pairing,
@@ -108,6 +124,7 @@ function resolvePortDefaults(packageDir) {
   const slot = worktreeSlot(gitContext.worktreeRoot);
   return {
     gitContext,
+    brokerPort: DEFAULT_PORTS.broker,
     webPort: WORKTREE_PORT_BASES.web + slot,
     vitePort: WORKTREE_PORT_BASES.vite + slot,
     pairingPort: WORKTREE_PORT_BASES.pairing + slot,
@@ -119,6 +136,10 @@ function resolveDevStateRoot(gitContext) {
     gitContext?.commonRoot || resolve(packageDirectory, "..", ".."),
     ".openscout/dev/web",
   );
+}
+
+function resolveDevLocalEdgeRoot() {
+  return resolve(homedir(), ".scout", "local-edge");
 }
 
 function loopbackHost(hostname) {
@@ -246,6 +267,310 @@ async function canResolveHost(hostname) {
   }
 }
 
+function resolveEdgeScheme(value) {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return "both";
+  }
+  if (normalized === "http" || normalized === "https" || normalized === "both") {
+    return normalized;
+  }
+  console.error("@openscout/web: --edge scheme must be http, https, or both.");
+  process.exit(1);
+}
+
+function edgeSchemes(scheme) {
+  return scheme === "both" ? ["http", "https"] : [scheme];
+}
+
+function preferredEdgeScheme(scheme) {
+  return scheme === "https" ? "https" : "http";
+}
+
+function renderDevStartPage() {
+  const pageConfig = JSON.stringify({ startPath: "/__openscout/web/start" });
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Start Scout</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1720;
+      color: #f5f7fb;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+      background:
+        radial-gradient(ellipse at 15% 30%, rgba(91, 141, 239, 0.16) 0%, transparent 50%),
+        radial-gradient(ellipse at 85% 70%, rgba(74, 222, 128, 0.06) 0%, transparent 40%),
+        #111827;
+    }
+    main {
+      width: min(400px, 100%);
+      padding: 28px 30px 26px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 10px;
+      background: rgba(15, 23, 32, 0.9);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 60px rgba(0, 0, 0, 0.45);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 18px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: rgba(74, 222, 128, 0.8);
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.2; }
+    }
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #4ade80;
+      flex-shrink: 0;
+      animation: blink 2.4s ease-in-out infinite;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 8px;
+      color: #f5f7fb;
+    }
+    p {
+      font-size: 14px;
+      color: rgba(245, 247, 251, 0.5);
+      line-height: 1.55;
+      margin-bottom: 22px;
+    }
+    button {
+      width: 100%;
+      min-height: 44px;
+      border: 0;
+      border-radius: 7px;
+      background: #f4d35e;
+      color: #17202a;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.1s, opacity 0.1s;
+    }
+    button:hover:not(:disabled) { background: #f7dc74; }
+    button:active:not(:disabled) { background: #e8c44a; }
+    button:disabled { cursor: progress; opacity: 0.6; }
+    .progress {
+      height: 2px;
+      margin-top: 14px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+    @keyframes sweep {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(500%); }
+    }
+    .progress-bar {
+      height: 100%;
+      width: 20%;
+      border-radius: 2px;
+      background: rgba(244, 211, 94, 0.7);
+      transform: translateX(-100%);
+    }
+    .progress-bar.running {
+      animation: sweep 1.5s ease-in-out infinite;
+    }
+    output {
+      display: block;
+      min-height: 16px;
+      margin-top: 10px;
+      color: rgba(245, 247, 251, 0.38);
+      font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Code", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="badge"><span class="badge-dot"></span>Broker online</div>
+    <h1>Start Scout</h1>
+    <p>The web app is not running yet. Click to start it on this machine.</p>
+    <button id="start" type="button">Start Scout</button>
+    <div class="progress"><div class="progress-bar" id="bar"></div></div>
+    <output id="status" role="status"></output>
+  </main>
+  <script>
+    const config = ${pageConfig};
+    const button = document.getElementById('start');
+    const bar = document.getElementById('bar');
+    const status = document.getElementById('status');
+    const targetPath = window.location.pathname + window.location.search + window.location.hash;
+    const healthUrl = new URL('/api/health', window.location.origin);
+    const startUrl = new URL(config.startPath, window.location.origin);
+
+    function setStatus(message) {
+      status.textContent = message;
+    }
+
+    function setWaiting(on) {
+      bar.classList.toggle('running', on);
+    }
+
+    async function waitForWeb() {
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        try {
+          const response = await fetch(healthUrl, { headers: { accept: 'application/json' }, cache: 'no-store' });
+          if (response.ok) {
+            const body = await response.json();
+            if (body && body.ok === true) {
+              window.location.replace(targetPath || '/');
+              return true;
+            }
+          }
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      return false;
+    }
+
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      setWaiting(true);
+      setStatus('Starting Scout web...');
+      try {
+        const response = await fetch(startUrl, {
+          method: 'POST',
+          headers: { accept: 'application/json' },
+        });
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error('Scout broker is not reachable yet.');
+        }
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || body.error) {
+          throw new Error(body.error || 'Scout web did not start.');
+        }
+        setStatus('Waiting for the web app...');
+        const ready = await waitForWeb();
+        if (!ready) {
+          setWaiting(false);
+          setStatus('Scout web did not become ready. Try again in a moment.');
+          button.disabled = false;
+        }
+      } catch (error) {
+        setWaiting(false);
+        setStatus(error instanceof Error ? error.message : String(error));
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>`;
+}
+
+function renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl }) {
+  const brokerUpstream = new URL(brokerUrl).host;
+  const startPage = renderDevStartPage();
+  return edgeSchemes(scheme)
+    .flatMap((currentScheme) =>
+      [portalHost, `*.${portalHost}`].map((host) => {
+        const caddyHost = currentScheme === "http" ? `http://${host}` : host;
+        return `${caddyHost} {\n`
+          + (currentScheme === "https" ? "  tls internal\n" : "")
+          + `  handle /__openscout/web/start {\n`
+          + `    rewrite * /v1/web/start\n`
+          + `    reverse_proxy ${brokerUpstream}\n`
+          + `  }\n`
+          + `  handle /__openscout/web/status {\n`
+          + `    rewrite * /v1/web/status\n`
+          + `    reverse_proxy ${brokerUpstream}\n`
+          + `  }\n`
+          + `  handle {\n`
+          + `    reverse_proxy ${upstream} {\n`
+          + `      lb_try_duration 1s\n`
+          + `      lb_try_interval 250ms\n`
+          + `    }\n`
+          + `  }\n`
+          + `  handle_errors {\n`
+          + `    header Content-Type "text/html; charset=utf-8"\n`
+          + `    respond <<HTML\n`
+          + `${startPage}\n`
+          + `HTML 200\n`
+          + `  }\n`
+          + `}`;
+      }),
+    )
+    .join("\n\n") + "\n";
+}
+
+function spawnMdnsProxy({ name, host, port, scheme }) {
+  return spawn("/usr/bin/dns-sd", [
+    "-P",
+    name,
+    scheme === "https" ? "_https._tcp" : "_http._tcp",
+    "local",
+    String(port),
+    host,
+    "127.0.0.1",
+    "path=/",
+  ], {
+    stdio: "ignore",
+  });
+}
+
+function spawnLocalEdge({ caddyBin, portalHost, advertisedHost, scheme, upstream, brokerUrl }) {
+  mkdirSync(resolveDevLocalEdgeRoot(), { recursive: true });
+  const caddyfilePath = resolve(resolveDevLocalEdgeRoot(), "dev-Caddyfile");
+  writeFileSync(caddyfilePath, renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl }), "utf8");
+
+  const mdns = edgeSchemes(scheme).flatMap((currentScheme) => {
+    const edgePort = currentScheme === "https" ? 443 : 80;
+    const suffix = currentScheme.toUpperCase();
+    return [
+      spawnMdnsProxy({
+        name: `Scout Local Dev ${suffix}`,
+        host: portalHost,
+        port: edgePort,
+        scheme: currentScheme,
+      }),
+      spawnMdnsProxy({
+        name: `Scout ${advertisedHost} Dev ${suffix}`,
+        host: advertisedHost,
+        port: edgePort,
+        scheme: currentScheme,
+      }),
+    ];
+  });
+
+  const caddy = spawn(caddyBin, [
+    "run",
+    "--config",
+    caddyfilePath,
+    "--adapter",
+    "caddyfile",
+  ], {
+    stdio: "inherit",
+  });
+
+  return { caddy, caddyfilePath, mdns };
+}
+
 const flags = parseFlags(process.argv);
 
 if (flags.help) {
@@ -260,15 +585,22 @@ Options:
                        Pairing bridge port
       --host <h>       Bind host (default 0.0.0.0, env OPENSCOUT_WEB_HOST)
       --local-name <n> Node hostname or short alias to advertise (default <machine>.scout.local)
+      --edge           Publish scout.local names and run Caddy against the chosen web port
+      --http           With --edge, serve only local HTTP on port 80
+      --https          With --edge, serve only local HTTPS on port 443
+      --both           With --edge, serve HTTP and HTTPS (default)
+      --caddy-bin <p>  Caddy executable (default caddy, env OPENSCOUT_CADDY_BIN)
   -h, --help           Show this help
 
 Notes:
   Main checkout prefers 3200/5180/7888.
   Extra git worktrees prefer isolated port bands automatically.
   If a preferred port is busy, dev mode increments until it finds an open one.
+  Local edge mode requires Caddy and macOS dns-sd.
 
 Examples:
   bun dev
+  bun dev --edge --local-name m1
   bun dev --port 3300
   bun dev --port 3300 --vite-port 5181 --pairing-port 7981
 `);
@@ -302,6 +634,18 @@ const configuredLocalName = flags.localName
 const portalHost = DEFAULT_SCOUT_WEB_DOMAIN;
 const advertisedHost = process.env.OPENSCOUT_WEB_ADVERTISED_HOST?.trim()
   || resolveScoutWebNamedHostname(configuredLocalName);
+const edgeEnabled = Boolean(flags.edge);
+const edgeScheme = resolveEdgeScheme(flags.edgeScheme || process.env.OPENSCOUT_WEB_EDGE_SCHEME);
+const edgePublicOrigin = edgeEnabled
+  ? `${preferredEdgeScheme(edgeScheme)}://${portalHost}`
+  : null;
+const edgeHmrScheme = preferredEdgeScheme(edgeScheme);
+const edgeHmrClientPort = edgeHmrScheme === "https" ? 443 : 80;
+const brokerPort = parsePort(process.env.OPENSCOUT_BROKER_PORT)
+  ?? portDefaults.brokerPort
+  ?? DEFAULT_PORTS.broker;
+const brokerUrl = process.env.OPENSCOUT_BROKER_URL?.trim()
+  || `http://127.0.0.1:${portLabel(brokerPort)}`;
 const explicitWebPort = parsePort(flags.port)
   ?? parsePort(process.env.OPENSCOUT_WEB_PORT)
   ?? parsePort(process.env.SCOUT_WEB_PORT);
@@ -361,6 +705,13 @@ const env = {
   OPENSCOUT_WEB_DEV_STATE_FILE: stateFile,
   OPENSCOUT_PAIRING_PORT: portLabel(pairingPort),
 };
+if (edgeEnabled) {
+  env.OPENSCOUT_WEB_VITE_HMR_PROTOCOL = edgeHmrScheme === "https" ? "wss" : "ws";
+  env.OPENSCOUT_WEB_VITE_HMR_CLIENT_PORT = portLabel(edgeHmrClientPort);
+}
+if (edgePublicOrigin && !process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim()) {
+  env.OPENSCOUT_WEB_PUBLIC_ORIGIN = edgePublicOrigin;
+}
 if (configuredLocalName) {
   env.OPENSCOUT_WEB_LOCAL_NAME = configuredLocalName;
 }
@@ -381,6 +732,9 @@ const modeLabel = portDefaults.gitContext?.isWorktree
   : "main checkout";
 const openUrl = `http://${advertisedHost}:${portLabel(bunPort)}`;
 const portalUrl = `http://${portalHost}:${portLabel(bunPort)}`;
+const edgeSchemeLabel = edgePublicOrigin?.startsWith("https:") ? "https" : "http";
+const edgePortalUrl = edgeEnabled ? `${edgeSchemeLabel}://${portalHost}` : null;
+const edgeNodeUrl = edgeEnabled ? `${edgeSchemeLabel}://${advertisedHost}` : null;
 const fallbackUrl = `http://127.0.0.1:${portLabel(bunPort)}`;
 const advertisedHostResolves = await canResolveHost(advertisedHost);
 const portalHostResolves = await canResolveHost(portalHost);
@@ -389,6 +743,10 @@ console.log(
   + `  bun:     http://${publicHost}:${portLabel(bunPort)}\n`
   + `  portal:  ${portalUrl}${portalHostResolves ? "" : "  (name not resolving yet)"}\n`
   + `  node:    ${openUrl}${advertisedHostResolves ? "" : "  (name not resolving yet)"}\n`
+  + (edgeEnabled
+    ? `  edge:    ${edgePortalUrl} -> 127.0.0.1:${portLabel(bunPort)}\n`
+      + `  edge node: ${edgeNodeUrl} -> 127.0.0.1:${portLabel(bunPort)}\n`
+    : "")
   + `  local:   ${fallbackUrl}\n`
   + `  vite:    ${viteUrl.origin}  (internal asset server)\n`
   + `  pairing: ${portLabel(pairingPort)}`
@@ -425,10 +783,23 @@ function spawnServer() {
   });
 }
 
+const localEdge = edgeEnabled
+  ? spawnLocalEdge({
+    caddyBin: flags.caddyBin || process.env.OPENSCOUT_CADDY_BIN?.trim() || "caddy",
+    portalHost,
+    advertisedHost,
+    scheme: edgeScheme,
+    upstream: `127.0.0.1:${portLabel(bunPort)}`,
+    brokerUrl,
+  })
+  : null;
+
 const children = {
   vite: spawnVite(),
   server: spawnServer(),
+  edge: localEdge?.caddy ?? null,
 };
+const mdnsProcesses = localEdge?.mdns ?? [];
 
 try {
   await mkdir(resolve(stateRoot, "runs"), { recursive: true });
@@ -457,6 +828,16 @@ try {
         manager: process.pid,
         vite: children.vite?.pid ?? null,
         server: children.server?.pid ?? null,
+        edge: children.edge?.pid ?? null,
+      },
+      localEdge: localEdge ? {
+        enabled: true,
+        scheme: edgeScheme,
+        caddyfilePath: localEdge.caddyfilePath,
+        portalUrl: edgePortalUrl,
+        nodeUrl: edgeNodeUrl,
+      } : {
+        enabled: false,
       },
       pairingHome: env.OPENSCOUT_PAIRING_HOME || null,
     }, null, 2),
@@ -480,8 +861,8 @@ async function shutdown(code = 0) {
     return;
   }
   exiting = true;
-  for (const child of Object.values(children)) {
-    if (!child.killed) {
+  for (const child of [...Object.values(children), ...mdnsProcesses]) {
+    if (child && !child.killed) {
       child.kill("SIGTERM");
     }
   }
@@ -526,6 +907,9 @@ function attachChildHandlers(name, child) {
 
 attachChildHandlers("vite", children.vite);
 attachChildHandlers("server", children.server);
+if (children.edge) {
+  attachChildHandlers("local edge", children.edge);
+}
 
 process.on("SIGINT", () => void shutdown(0));
 process.on("SIGTERM", () => void shutdown(0));

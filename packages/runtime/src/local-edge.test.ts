@@ -10,6 +10,7 @@ describe("OpenScout local edge", () => {
     expect(
       resolveOpenScoutLocalEdgeConfig({
         nodeHost: "m1.scout.local",
+        brokerPort: 65535,
         webPort: 3200,
       }),
     ).toEqual({
@@ -17,6 +18,7 @@ describe("OpenScout local edge", () => {
       nodeHost: "m1.scout.local",
       wildcardHost: "*.scout.local",
       scheme: "both",
+      brokerUpstream: "127.0.0.1:65535",
       routes: [
         { host: "scout.local", upstream: "127.0.0.1:3200" },
         { host: "*.scout.local", upstream: "127.0.0.1:3200" },
@@ -29,18 +31,56 @@ describe("OpenScout local edge", () => {
       renderOpenScoutCaddyfile(
         resolveOpenScoutLocalEdgeConfig({
           nodeHost: "m1.scout.local",
+          brokerPort: 65535,
           webPort: 3200,
         }),
       ),
-    ).toContain("http://*.scout.local {\n  reverse_proxy 127.0.0.1:3200\n}");
+    ).toContain("http://*.scout.local {");
     expect(
       renderOpenScoutCaddyfile(
         resolveOpenScoutLocalEdgeConfig({
           nodeHost: "m1.scout.local",
+          brokerPort: 65535,
           webPort: 3200,
         }),
       ),
-    ).toContain("*.scout.local {\n  tls internal\n  reverse_proxy 127.0.0.1:3200\n}");
+    ).toContain("reverse_proxy 127.0.0.1:3200 {");
+    expect(
+      renderOpenScoutCaddyfile(
+        resolveOpenScoutLocalEdgeConfig({
+          nodeHost: "m1.scout.local",
+          brokerPort: 65535,
+          webPort: 3200,
+        }),
+      ),
+    ).toContain("*.scout.local {\n  tls internal");
+    expect(
+      renderOpenScoutCaddyfile(
+        resolveOpenScoutLocalEdgeConfig({
+          nodeHost: "m1.scout.local",
+          brokerPort: 65535,
+          webPort: 3200,
+        }),
+      ),
+    ).toContain("Start Scout");
+    expect(
+      renderOpenScoutCaddyfile(
+        resolveOpenScoutLocalEdgeConfig({
+          nodeHost: "m1.scout.local",
+          brokerPort: 65535,
+          webPort: 3200,
+        }),
+      ),
+    ).toContain("reverse_proxy 127.0.0.1:65535");
+    expect(
+      renderOpenScoutCaddyfile(
+        resolveOpenScoutLocalEdgeConfig({
+          nodeHost: "m1.scout.local",
+          brokerPort: 65535,
+          webPort: 3200,
+        }),
+      ),
+    ).toContain("new URL(config.startPath, window.location.origin)");
   });
 
   test("renders an HTTP Caddyfile for browser stores that do not trust local TLS yet", () => {
@@ -48,10 +88,21 @@ describe("OpenScout local edge", () => {
       renderOpenScoutCaddyfile(
         resolveOpenScoutLocalEdgeConfig({
           nodeHost: "m1.scout.local",
+          brokerPort: 65535,
           scheme: "http",
           webPort: 4311,
         }),
       ),
-    ).toContain("http://*.scout.local {\n  reverse_proxy 127.0.0.1:4311\n}");
+    ).toContain("http://*.scout.local {");
+    expect(
+      renderOpenScoutCaddyfile(
+        resolveOpenScoutLocalEdgeConfig({
+          nodeHost: "m1.scout.local",
+          brokerPort: 65535,
+          scheme: "http",
+          webPort: 4311,
+        }),
+      ),
+    ).toContain("reverse_proxy 127.0.0.1:4311 {");
   });
 });

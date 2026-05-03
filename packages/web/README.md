@@ -11,6 +11,7 @@ Internal workspace for the Scout web UI: pairing QR, current activity, inbox, an
 
 ```bash
 bun --cwd packages/web dev
+bun --cwd packages/web dev:edge
 bun --cwd packages/web dev:server
 ```
 
@@ -53,6 +54,16 @@ bun --cwd packages/web dev
 
 `bun dev` prefers the standard Scout ports in the main checkout and worktree-specific port bands in extra git worktrees. If a preferred port is already taken, it increments until it finds an open one.
 
+To run the app through the local Scout names in one process, use:
+
+```bash
+bun --cwd packages/web dev:edge -- --local-name m1
+```
+
+`dev:edge` starts the Bun app server, Vite, Bonjour/mDNS name publication for `scout.local` and `<name>.scout.local`, and Caddy reverse proxying on local port `80` plus `443` by default. The Caddyfile is generated with the actual Bun port chosen for that run, so the edge stays correct when the default port is busy or a worktree gets an isolated port band.
+
+The local edge also owns the cold-start screen. If Caddy can resolve the Scout name but the web app health check fails, it serves a small "Start Scout" page from the same origin. The button posts to Caddy's internal `/__openscout/web/start` control path, which proxies to the always-on broker and starts the web server without exposing broker ports to the browser URL.
+
 If you need to run them separately:
 
 ```bash
@@ -72,25 +83,51 @@ The public route table stays small and explicit:
 
 In the installed package, Bun serves the bundled static client directly. In source/dev mode, Bun remains the public server but forwards client asset requests and `/ws/hmr` to Vite.
 
-For a local edge proxy, keep Bun as the application server and reverse-proxy to it. The default generated config includes HTTP for zero-cert local browsing and HTTPS with Caddy's local CA:
+For a local edge proxy, keep Bun as the application server and reverse-proxy to it. The default generated config includes HTTP for zero-cert local browsing, HTTPS with Caddy's local CA, and same-origin control paths for broker-owned startup:
 
 ```caddyfile
 http://scout.local {
-  reverse_proxy 127.0.0.1:PORT_NUMBER
+  handle /__openscout/web/start {
+    rewrite * /v1/web/start
+    reverse_proxy 127.0.0.1:BROKER_PORT
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:PORT_NUMBER
+  }
+
+  handle_errors {
+    respond "Start Scout fallback page" 200
+  }
 }
 
 http://*.scout.local {
-  reverse_proxy 127.0.0.1:PORT_NUMBER
+  handle /__openscout/web/start {
+    rewrite * /v1/web/start
+    reverse_proxy 127.0.0.1:BROKER_PORT
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:PORT_NUMBER
+  }
+
+  handle_errors {
+    respond "Start Scout fallback page" 200
+  }
 }
 
 scout.local {
   tls internal
-  reverse_proxy 127.0.0.1:PORT_NUMBER
+  handle {
+    reverse_proxy 127.0.0.1:PORT_NUMBER
+  }
 }
 
 *.scout.local {
   tls internal
-  reverse_proxy 127.0.0.1:PORT_NUMBER
+  handle {
+    reverse_proxy 127.0.0.1:PORT_NUMBER
+  }
 }
 ```
 

@@ -1385,9 +1385,12 @@ export function ConversationScreen({
 
   const visualRowCount = messages.length + (presence.showTyping ? 1 : 0);
   const previousVisualRowCount = useRef(0);
+  const initialScrollDoneRef = useRef(false);
   useEffect(() => {
     if (visualRowCount > previousVisualRowCount.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      const behavior = initialScrollDoneRef.current ? "smooth" : "instant";
+      bottomRef.current?.scrollIntoView({ behavior });
+      initialScrollDoneRef.current = true;
     }
     previousVisualRowCount.current = visualRowCount;
   }, [visualRowCount]);
@@ -1757,12 +1760,25 @@ export function ConversationScreen({
           <div className="s-thread-feed-spacer" />
           {messages.length === 0 ? (
             <div className="s-thread-empty">
-              <p>No messages yet</p>
+              <div className="s-thread-empty-glyph" aria-hidden="true">
+                {isDm ? "@" : "#"}
+              </div>
+              <p>{threadTitle}</p>
               <p>
                 {isDm
-                  ? "Use Tell for quick coordination or Ask for owned work with a reply."
-                  : "Start the thread below."}
+                  ? "No messages yet. Use Tell for quick updates or Ask to create owned work with a reply."
+                  : "No messages yet. Start the thread below."}
               </p>
+              {(workspaceName || sessionMeta?.currentBranch) && (
+                <div className="s-thread-empty-chips">
+                  {workspaceName && (
+                    <span className="s-thread-empty-chip">{workspaceName}</span>
+                  )}
+                  {sessionMeta?.currentBranch && (
+                    <span className="s-thread-empty-chip">{sessionMeta.currentBranch}</span>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             messages.map((message, index) => {

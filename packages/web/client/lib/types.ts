@@ -57,6 +57,7 @@ export type BrokerRouteAttempt = {
   messageId: string | null;
   deliveryId: string | null;
   invocationId: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type BrokerDialogueItem = {

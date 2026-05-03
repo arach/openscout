@@ -427,7 +427,7 @@
 }
 
 .s-mission-empty-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 20px;
   color: var(--ink);
   letter-spacing: -0.01em;
@@ -438,6 +438,26 @@
   font-size: 11px;
   color: var(--dim);
   letter-spacing: 0.04em;
+}
+
+.s-mission-empty-hint {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+.s-mission-empty-hint code {
+  display: inline-block;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
 }
 
 @media (max-width: 900px) {

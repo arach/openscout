@@ -168,12 +168,20 @@ export function WorkDetailScreen({
 
   if (!detail) {
     return (
-      <div>
+      <div className="s-work-not-found">
         <button type="button" className="s-back" onClick={() => navigate({ view: "inbox" })}>
-          &larr; Back
+          &larr; Back to inbox
         </button>
-        {error && <p className="s-error">{error}</p>}
-        <div className="s-empty"><p>Work item not found</p></div>
+        <div className="s-work-not-found-body">
+          <div className="s-work-not-found-glyph" aria-hidden="true">&#x25A1;</div>
+          <h2 className="s-work-not-found-title">Work item not found</h2>
+          <p className="s-work-not-found-sub">
+            This work item may have been removed or does not exist on this broker.
+          </p>
+          {error && (
+            <p className="s-work-not-found-detail">{error}</p>
+          )}
+        </div>
       </div>
     );
   }

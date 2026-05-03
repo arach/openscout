@@ -240,56 +240,33 @@ function SystemLine({ event }: { event: SessionEvent }) {
   );
 }
 
-function LiveIndicator({
-  liveSession,
+function FollowToggle({
   isFollowing,
-}: {
-  liveSession: boolean;
-  isFollowing: boolean;
-}) {
-  const badge = isFollowing ? "[LIVE]" : "[PAUSED]";
-  const label = isFollowing
-    ? liveSession
-      ? "following live session"
-      : "following latest trace"
-    : "scrubbed back";
-
-  return (
-    <div className={`s-observe-live${isFollowing ? "" : " s-observe-live--paused"}`}>
-      <span className="s-observe-live-badge">{badge}</span>
-      <span className="s-observe-live-dot" />
-      <span className="s-observe-live-label">{label}</span>
-    </div>
-  );
-}
-
-function TailStatus({
-  liveSession,
   isLive,
-  isFollowing,
+  onToggle,
 }: {
-  liveSession: boolean;
-  isLive: boolean;
   isFollowing: boolean;
+  isLive: boolean;
+  onToggle: () => void;
 }) {
-  const tone = liveSession
-    ? isLive
-      ? "live"
-      : "paused"
-    : "replay";
-  const label = liveSession
-    ? isLive
-      ? "LIVE · tail mode on"
-      : "LIVE · tail paused"
-    : isFollowing
-      ? "FOLLOWING · latest trace"
-      : "REPLAY · scrubbed trace";
-
   return (
-    <div className={`s-observe-tail-state s-observe-tail-state--${tone}`}>
-      <span className="s-observe-tail-state-dot" />
-      <span className="s-observe-tail-state-label">{label}</span>
-    </div>
+    <button
+      className={`s-observe-follow-btn${isFollowing ? " s-observe-follow-btn--on" : ""}`}
+      onClick={onToggle}
+      title={isFollowing ? "Pause auto-scroll" : "Jump to latest and follow"}
+    >
+      {isFollowing ? (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <rect x="1.5" y="1" width="3" height="8" rx="1" />
+          <rect x="5.5" y="1" width="3" height="8" rx="1" />
+        </svg>
+      ) : (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M2 1.5l7 3.5-7 3.5V1.5z" />
+        </svg>
+      )}
+      <span>{isFollowing ? (isLive ? "Live" : "Following") : "Follow"}</span>
+    </button>
   );
 }
 
@@ -335,9 +312,16 @@ function ReplayStream({
   followEnd: boolean;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const prevFollowEndRef = useRef(followEnd);
 
   useLayoutEffect(() => {
-    if (followEnd) endRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!followEnd) {
+      prevFollowEndRef.current = false;
+      return;
+    }
+    const justEnabled = !prevFollowEndRef.current;
+    prevFollowEndRef.current = true;
+    endRef.current?.scrollIntoView({ behavior: justEnabled ? "instant" : "smooth" });
   }, [events.length, followEnd]);
 
   return (
@@ -654,6 +638,7 @@ export function SessionObserve({
   const [cursor, setCursor] = useState(duration);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [autoFollow, setAutoFollow] = useState(true);
   const previousDurationRef = useRef(duration);
 
   useEffect(() => {
@@ -661,12 +646,12 @@ export function SessionObserve({
       const previousDuration = previousDurationRef.current;
       previousDurationRef.current = duration;
       const wasNearLiveEdge = isCursorAtLiveEdge(current, previousDuration);
-      if (current > duration || wasNearLiveEdge) {
+      if (current > duration || (wasNearLiveEdge && autoFollow)) {
         return duration;
       }
       return current;
     });
-  }, [duration]);
+  }, [duration, autoFollow]);
 
   useEffect(() => {
     if (!playing) return;
@@ -684,15 +669,18 @@ export function SessionObserve({
   }, [playing, duration, speed]);
 
   const visible = events.filter((e) => e.t <= cursor);
-  const isFollowing = isCursorAtLiveEdge(cursor, duration);
+  const isAtTail = isCursorAtLiveEdge(cursor, duration);
+  const isFollowing = isAtTail && autoFollow;
   const isLive = liveSession && isFollowing;
-  const jumpButtonLabel = liveSession
-    ? isLive
-      ? "Following live"
-      : "Jump to live ↦"
-    : isFollowing
-      ? "Following end"
-      : "Jump to end ↦";
+
+  const handleFollowToggle = useCallback(() => {
+    if (isFollowing) {
+      setAutoFollow(false);
+    } else {
+      setCursor(duration);
+      setAutoFollow(true);
+    }
+  }, [isFollowing, duration]);
 
   const metadata = observeData.metadata;
   const sessionMeta = metadata?.session;
@@ -831,7 +819,7 @@ export function SessionObserve({
       {/* Main timeline */}
       <main className="s-observe-main">
         <div className="s-observe-live-sticky">
-          <LiveIndicator liveSession={liveSession} isFollowing={isFollowing} />
+          <FollowToggle isFollowing={isFollowing} isLive={isLive} onToggle={handleFollowToggle} />
         </div>
         <ReplayStream events={visible} followEnd={isFollowing} />
       </main>
@@ -967,15 +955,6 @@ export function SessionObserve({
             </button>
           ))}
         </div>
-
-        <TailStatus liveSession={liveSession} isLive={isLive} isFollowing={isFollowing} />
-
-        <button
-          className={`s-observe-jump-btn${isLive ? " s-observe-jump-btn--active" : ""}`}
-          onClick={() => setCursor(duration)}
-        >
-          {jumpButtonLabel}
-        </button>
       </footer>
     </div>
   );

@@ -3,6 +3,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { BrokerDiagnostics, BrokerDialogueItem, BrokerRouteAttempt, Route } from "../lib/types.ts";
+import { useScout } from "../scout/Provider.tsx";
 import "./system-surfaces-redesign.css";
 
 type BrokerTab = "attempts" | "dialogue" | "failed_queries" | "failed_deliveries";
@@ -45,17 +46,19 @@ function attemptKindLabel(kind: BrokerRouteAttempt["kind"]): string {
 }
 
 export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
+  const { selectedBrokerAttempt, inspectBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
   const [activeTab, setActiveTab] = useState<BrokerTab>("attempts");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const brokerRef = useRef<BrokerDiagnostics | null>(null);
   const requestIdRef = useRef(0);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async (mode: "initial" | "background" | "manual" = "initial") => {
     const requestId = ++requestIdRef.current;
-    if (!broker && mode !== "background") {
+    if (!brokerRef.current && mode !== "background") {
       setLoading(true);
       setError(null);
     } else {
@@ -65,6 +68,7 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
     try {
       const next = await api<BrokerDiagnostics>("/api/broker?limit=160");
       if (requestId !== requestIdRef.current) return;
+      brokerRef.current = next;
       setBroker(next);
       setError(null);
     } catch (loadError) {
@@ -76,7 +80,7 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
         setRefreshing(false);
       }
     }
-  }, [broker]);
+  }, []);
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimerRef.current) return;
@@ -118,6 +122,20 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
         return broker.attempts;
     }
   }, [activeTab, broker]);
+
+  const selectedAttempt = useMemo(() => {
+    if (!broker || !selectedBrokerAttempt) return null;
+    return broker.attempts.find((attempt) => attempt.id === selectedBrokerAttempt.id)
+      ?? broker.failedQueries.find((attempt) => attempt.id === selectedBrokerAttempt.id)
+      ?? broker.failedDeliveries.find((attempt) => attempt.id === selectedBrokerAttempt.id)
+      ?? null;
+  }, [broker, selectedBrokerAttempt]);
+
+  useEffect(() => {
+    if (selectedAttempt && selectedAttempt !== selectedBrokerAttempt) {
+      inspectBrokerAttempt(selectedAttempt);
+    }
+  }, [inspectBrokerAttempt, selectedAttempt, selectedBrokerAttempt]);
 
   const metrics = broker ? [
     {
@@ -229,6 +247,8 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
             <BrokerAttemptList
               attempts={activeRows as BrokerRouteAttempt[]}
               navigate={navigate}
+              selectedAttemptId={selectedBrokerAttempt?.id ?? null}
+              onInspect={inspectBrokerAttempt}
             />
           )}
         </>
@@ -240,9 +260,13 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
 function BrokerAttemptList({
   attempts,
   navigate,
+  selectedAttemptId,
+  onInspect,
 }: {
   attempts: BrokerRouteAttempt[];
   navigate: (r: Route) => void;
+  selectedAttemptId: string | null;
+  onInspect: (attempt: BrokerRouteAttempt) => void;
 }) {
   if (attempts.length === 0) {
     return (
@@ -257,8 +281,26 @@ function BrokerAttemptList({
     <div className="sys-audit-list">
       {attempts.map((attempt) => {
         const tone = attemptTone(attempt.kind, attempt.status);
+        const inspect = () => {
+          onInspect(attempt);
+          window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
+            detail: { width: 420 },
+          }));
+        };
         return (
-          <article key={attempt.id} className="sys-broker-row">
+          <article
+            key={attempt.id}
+            className={`sys-broker-row${selectedAttemptId === attempt.id ? " sys-broker-row-selected" : ""}`}
+            tabIndex={0}
+            aria-label={`Inspect ${attempt.detail}`}
+            onClick={inspect}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                inspect();
+              }
+            }}
+          >
             <div className="sys-broker-row-main">
               <div className="sys-broker-row-head">
                 <span className={`sys-chip sys-chip-${tone}`}>{attemptKindLabel(attempt.kind)}</span>
@@ -278,7 +320,10 @@ function BrokerAttemptList({
                 <button
                   type="button"
                   className="s-btn s-btn-sm"
-                  onClick={() => navigate({ view: "conversation", conversationId: attempt.conversationId! })}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    navigate({ view: "conversation", conversationId: attempt.conversationId! });
+                  }}
                 >
                   Open thread
                 </button>
@@ -288,6 +333,76 @@ function BrokerAttemptList({
         );
       })}
     </div>
+  );
+}
+
+function brokerInspectorRows(attempt: BrokerRouteAttempt): Array<{ label: string; value: string | null }> {
+  return [
+    { label: "Status", value: attempt.status },
+    { label: "Kind", value: attemptKindLabel(attempt.kind) },
+    { label: "Time", value: fullTimestamp(attempt.ts) },
+    { label: "Actor", value: attempt.actorName },
+    { label: "Target", value: attempt.target },
+    { label: "Route", value: attempt.route },
+    { label: "Conversation", value: attempt.conversationId },
+    { label: "Message", value: attempt.messageId },
+    { label: "Delivery", value: attempt.deliveryId },
+    { label: "Invocation", value: attempt.invocationId },
+  ].filter((row) => row.value);
+}
+
+function metadataJson(value: Record<string, unknown> | null | undefined): string {
+  if (!value || Object.keys(value).length === 0) {
+    return "{}";
+  }
+  return JSON.stringify(value, null, 2);
+}
+
+export function BrokerAttemptInspector({
+  attempt,
+  navigate,
+  onClose,
+}: {
+  attempt: BrokerRouteAttempt;
+  navigate: (r: Route) => void;
+  onClose: () => void;
+}) {
+  const rows = brokerInspectorRows(attempt);
+  return (
+    <aside className="sys-panel sys-broker-inspector" aria-label="Broker route inspector">
+      <div className="sys-broker-inspector-head">
+        <div>
+          <div className="sys-kicker">Inspector</div>
+          <h3 className="sys-state-title">{attempt.detail}</h3>
+        </div>
+        <div className="sys-inline-actions">
+          {attempt.conversationId && (
+            <button
+              type="button"
+              className="s-btn s-btn-sm"
+              onClick={() => navigate({ view: "conversation", conversationId: attempt.conversationId! })}
+            >
+              Open thread
+            </button>
+          )}
+          <button type="button" className="s-btn s-btn-sm" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+      <div className="sys-detail-grid sys-broker-inspector-grid">
+        {rows.map((row) => (
+          <div key={row.label} className="sys-detail-card">
+            <span className="sys-detail-label">{row.label}</span>
+            <code className="sys-detail-value">{row.value}</code>
+          </div>
+        ))}
+      </div>
+      <div className="sys-broker-metadata">
+        <span className="sys-detail-label">Metadata</span>
+        <pre>{metadataJson(attempt.metadata)}</pre>
+      </div>
+    </aside>
   );
 }
 

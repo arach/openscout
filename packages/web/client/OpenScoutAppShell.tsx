@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { ChevronDown, ChevronRight, Sparkles, Terminal as TerminalIcon } from "lucide-react";
+import { ChevronDown, ChevronRight, Pin, PinOff, Sparkles, Terminal as TerminalIcon } from "lucide-react";
 import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatformLayout } from "@hudson/sdk";
 import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudson/sdk/chrome";
 import { CommandPalette, TerminalDrawer } from "@hudson/sdk/overlays";
@@ -15,6 +15,19 @@ import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.
 interface OpenScoutAppShellProps {
   app: HudsonApp;
   assistant?: boolean;
+}
+
+const SIDE_PANEL_MIN_WIDTH = 240;
+const SIDE_PANEL_MAX_WIDTH_HARD_CAP = 900;
+const SIDE_PANEL_MAX_WIDTH_VIEWPORT_RATIO = 0.45;
+const SIDE_PANEL_MAX_WIDTH_FLOOR = 500;
+
+// Cap at 45% of viewport, floored at 500 so small screens still get usable inspector.
+function computeSidePanelMaxWidth(viewportWidth: number) {
+  return Math.min(
+    SIDE_PANEL_MAX_WIDTH_HARD_CAP,
+    Math.max(SIDE_PANEL_MAX_WIDTH_FLOOR, Math.floor(viewportWidth * SIDE_PANEL_MAX_WIDTH_VIEWPORT_RATIO)),
+  );
 }
 
 export function OpenScoutAppShell({ app, assistant = true }: OpenScoutAppShellProps) {
@@ -68,9 +81,25 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
   const [leftCollapsed, setLeftCollapsed] = usePersistentState(`appshell.${app.id}.left`, false);
   const [rightCollapsed, setRightCollapsed] = usePersistentState(`appshell.${app.id}.right`, false);
+  const [rightOverlay, setRightOverlay] = usePersistentState(`appshell.${app.id}.rightOverlay`, false);
   const [leftWidth, setLeftWidth] = usePersistentState(`appshell.${app.id}.leftW`, 260);
   const [rightWidth, setRightWidth] = usePersistentState(`appshell.${app.id}.rightW`, 280);
   const [minimapCollapsed, setMinimapCollapsed] = usePersistentState("openscout.ops.minimap.collapsed", false);
+  const [sidePanelMaxWidth, setSidePanelMaxWidth] = useState(() =>
+    computeSidePanelMaxWidth(typeof window !== "undefined" ? window.innerWidth : 1280),
+  );
+
+  useEffect(() => {
+    const update = () => setSidePanelMaxWidth(computeSidePanelMaxWidth(window.innerWidth));
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  useEffect(() => {
+    setLeftWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
+    setRightWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
+  }, [sidePanelMaxWidth, setLeftWidth, setRightWidth]);
 
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
@@ -122,7 +151,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
     const onMouseMove = (ev: MouseEvent) => {
       const delta = (ev.clientX - startX) * direction;
-      setter(Math.max(200, Math.min(500, startWidth + delta)));
+      setter(Math.max(SIDE_PANEL_MIN_WIDTH, Math.min(sidePanelMaxWidth, startWidth + delta)));
     };
     const onMouseUp = () => {
       document.removeEventListener("mousemove", onMouseMove);
@@ -130,7 +159,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     };
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [leftWidth, rightWidth, setLeftWidth, setRightWidth]);
+  }, [leftWidth, rightWidth, setLeftWidth, setRightWidth, sidePanelMaxWidth]);
 
   const shellCommands: CommandOption[] = useMemo(() => {
     const commands: CommandOption[] = [
@@ -145,6 +174,12 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         label: "Toggle Right Panel",
         shortcut: "Cmd+]",
         action: () => setRightCollapsed((collapsed) => !collapsed),
+      },
+      {
+        id: "shell:toggle-right-overlay",
+        label: "Toggle Inspector Overlay",
+        shortcut: "Cmd+Shift+]",
+        action: () => setRightOverlay((overlay) => !overlay),
       },
       {
         id: "shell:toggle-terminal",
@@ -165,7 +200,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       });
     }
     return commands;
-  }, [assistantEnabled, activeTab, setActiveTab, setLeftCollapsed, setRightCollapsed]);
+  }, [assistantEnabled, activeTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay]);
 
   const allCommands = useMemo(() => [...appCommands, ...shellCommands], [appCommands, shellCommands]);
 
@@ -182,7 +217,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "]") {
         e.preventDefault();
-        setRightCollapsed((collapsed) => !collapsed);
+        if (e.shiftKey) {
+          setRightOverlay((overlay) => !overlay);
+        } else {
+          setRightCollapsed((collapsed) => !collapsed);
+        }
       }
       if (e.ctrlKey && e.key === "`") {
         e.preventDefault();
@@ -196,7 +235,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [assistantEnabled, resolvedTab, setActiveTab, setLeftCollapsed, setRightCollapsed, takeoverActive]);
+  }, [assistantEnabled, resolvedTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, takeoverActive]);
 
   useEffect(() => {
     const handler = () => {
@@ -208,6 +247,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     window.addEventListener("scout:open-terminal", handler);
     return () => window.removeEventListener("scout:open-terminal", handler);
   }, [setActiveTab, setTerminalHeight]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ width?: unknown }>).detail;
+      const width = typeof detail?.width === "number" ? detail.width : 420;
+      setRightCollapsed(false);
+      setRightWidth((current) =>
+        Math.max(current, Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, width))),
+      );
+    };
+    window.addEventListener("scout:set-inspector-width", handler);
+    return () => window.removeEventListener("scout:set-inspector-width", handler);
+  }, [setRightCollapsed, setRightWidth, sidePanelMaxWidth]);
 
   const InspectorSlot = app.slots.Inspector;
   const RightPanelSlot = app.slots.RightPanel;
@@ -297,12 +349,13 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("keydown", handler);
   }, [takeoverActive, takeoverDismissible, takeoverOnDismiss]);
 
+  const rightInset = rightCollapsed || rightOverlay ? 0 : rightWidth;
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
     top: navTotalHeight,
     bottom: 28,
     left: leftCollapsed ? 0 : leftWidth,
-    right: rightCollapsed ? 0 : rightWidth,
+    right: rightInset,
     overflow: "auto",
     transition: "left 200ms ease, right 200ms ease",
   } : {};
@@ -349,8 +402,27 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
                 width={rightWidth}
                 onResizeStart={handleResizeStart("right")}
+                style={rightOverlay ? {
+                  backgroundColor: "rgba(13, 14, 16, 0.72)",
+                  backdropFilter: "blur(24px) saturate(140%)",
+                  WebkitBackdropFilter: "blur(24px) saturate(140%)",
+                  boxShadow: "-18px 0 48px -12px rgba(0,0,0,0.7), inset 1px 0 0 0 rgba(255,255,255,0.06)",
+                } : undefined}
                 footer={rightFooter}
-                headerActions={app.rightPanel?.headerActions && <app.rightPanel.headerActions />}
+                headerActions={
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setRightOverlay((o) => !o)}
+                      title={rightOverlay ? "Pin inspector (push content)" : "Float inspector (overlay content)"}
+                      aria-label={rightOverlay ? "Pin inspector" : "Float inspector"}
+                      className="p-1 hover:bg-accent/10 rounded transition-colors text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    >
+                      {rightOverlay ? <PinOff size={12} /> : <Pin size={12} />}
+                    </button>
+                    {app.rightPanel?.headerActions && <app.rightPanel.headerActions />}
+                  </>
+                }
               >
                 {rightContent}
               </SidePanel>
@@ -367,7 +439,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 style={{
                   position: "fixed",
                   left: leftCollapsed ? 0 : leftWidth,
-                  right: rightCollapsed ? 0 : rightWidth,
+                  right: rightInset,
                   bottom: 0,
                   top: 0,
                   zIndex: 45,

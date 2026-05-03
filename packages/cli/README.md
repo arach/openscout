@@ -264,4 +264,8 @@ scout server start --static --static-root /custom/client
 
 The application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. `scout server edge` publishes `scout.local` plus the node host with Bonjour/mDNS and runs Caddy against the active web port. The managed edge serves HTTP on port `80` for zero-cert local browsing and HTTPS on port `443` with Caddy's local CA; the HTTPS path needs the local CA trusted once by browsers that enforce their own trust store.
 
+When the edge is up but the web app is down, Caddy serves a same-origin "Start Scout" page. The button calls Caddy's internal `/__openscout/web/start` path, which proxies to the always-on broker and starts the web server while keeping the user-facing URL at `scout.local` or `<name>.scout.local`.
+
 `packages/web` remains the internal web workspace. Published installs get that same server and client through `@openscout/scout`.
+
+For source development, `bun run dev:edge -- --local-name m1` starts the web dev stack and the local edge together. It generates Caddy config against the actual selected dev port, so worktree-specific ports and busy-port fallback still route through `scout.local`.

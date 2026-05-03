@@ -1,5 +1,8 @@
-import { useMeshViewStore, setMeshSelection } from "../../lib/mesh-view-store.ts";
+import { useState, useCallback } from "react";
+import { useMeshViewStore, setMeshSelection, setMeshSnapshot } from "../../lib/mesh-view-store.ts";
+import { api } from "../../lib/api.ts";
 import { timeAgo } from "../../lib/time.ts";
+import type { MeshStatus } from "../../lib/types.ts";
 import "../../screens/system-surfaces-redesign.css";
 import "../../screens/mesh-screen.css";
 
@@ -8,8 +11,23 @@ function shortHost(input?: string | null): string {
   return input.replace(/^https?:\/\//, "").split("/")[0] ?? input;
 }
 
+function cleanIp(addr: string): string {
+  return addr.split("/")[0];
+}
+
 export function MeshInspectorPanel() {
-  const { meshSnapshot, selectedId, selectedType } = useMeshViewStore();
+  const { meshSnapshot, selectedId, selectedType, probeCache } = useMeshViewStore();
+  const [announcing, setAnnouncing] = useState(false);
+
+  const handleAnnounce = useCallback(async () => {
+    setAnnouncing(true);
+    try {
+      const data = await api<MeshStatus>("/api/mesh/announce", { method: "POST", body: "{}" });
+      setMeshSnapshot(data);
+    } finally {
+      setAnnouncing(false);
+    }
+  }, []);
 
   if (!meshSnapshot) {
     return (
@@ -19,6 +37,121 @@ export function MeshInspectorPanel() {
     );
   }
 
+  // ── Tailnet peer selected ──
+  if (selectedId?.startsWith("tailnet:") && selectedType === "node") {
+    const peerId = selectedId.slice("tailnet:".length);
+    const peer = meshSnapshot.tailscale.peers.find((p) => p.id === peerId);
+    const entry = probeCache[selectedId] ?? null;
+    const tailnetIp = peer?.addresses?.[0] ? cleanIp(peer.addresses[0]) : null;
+    const label = peer?.hostName?.split(".")[0] ?? peer?.hostName ?? "Tailnet peer";
+
+    return (
+      <div className="sys-inspector-content">
+        <div className="sys-inspector-head">
+          <h3 className="sys-inspector-title">{label}</h3>
+          <span className={`sys-chip sys-chip-${peer?.online ? "success" : "failed"}`}>
+            {peer?.online ? "Online" : "Offline"}
+          </span>
+        </div>
+
+        <div className="sys-detail-grid">
+          {tailnetIp && (
+            <div className="sys-detail-card">
+              <span className="sys-detail-label">Address</span>
+              <code className="sys-detail-value">{tailnetIp}</code>
+            </div>
+          )}
+          {peer?.os && (
+            <div className="sys-detail-card">
+              <span className="sys-detail-label">Platform</span>
+              <span className="sys-detail-value">{peer.os}</span>
+            </div>
+          )}
+          {entry?.result?.node?.meshId && (
+            <div className="sys-detail-card">
+              <span className="sys-detail-label">Mesh ID</span>
+              <code className="sys-detail-value">{entry.result.node.meshId.slice(0, 14)}…</code>
+            </div>
+          )}
+          {entry?.result?.node?.name && (
+            <div className="sys-detail-card">
+              <span className="sys-detail-label">Node name</span>
+              <span className="sys-detail-value">{entry.result.node.name}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Broker probe state */}
+        {(!entry || entry.status === "loading") && (
+          <div className="sys-banner sys-banner-muted" style={{ marginTop: 8 }}>
+            <span>Connecting to Scout broker…</span>
+          </div>
+        )}
+
+        {entry?.status === "error" && (
+          <div className="sys-banner sys-banner-warning" style={{ marginTop: 8 }}>
+            <strong>Broker unreachable.</strong>
+            <span>{entry.result?.error ?? "Could not reach the remote broker."}</span>
+          </div>
+        )}
+
+        {entry?.status === "done" && entry.result?.node?.capabilities?.length && (
+          <div style={{ marginTop: 10 }}>
+            <div className="sys-inspector-section-label">Capabilities</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {entry.result.node.capabilities.map((cap) => (
+                <span key={cap} className="sys-chip sys-chip-neutral">{cap}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {entry?.status === "done" && entry.result?.home && (
+          <div style={{ marginTop: 14 }}>
+            <div className="sys-inspector-section-label">
+              Agents — {entry.result.home.agents.length} registered
+            </div>
+            {entry.result.home.agents.length === 0 ? (
+              <div className="sys-list-empty" style={{ marginTop: 4 }}>
+                <p>No agents registered on this broker.</p>
+              </div>
+            ) : (
+              <div className="mesh-agent-table" style={{ marginTop: 4 }}>
+                {entry.result.home.agents.map((agent) => {
+                  const state = agent.state === "working" ? "working"
+                    : agent.state === "available" ? "available"
+                    : "offline";
+                  return (
+                    <div key={agent.id} className="mesh-detail-agent" style={{ padding: "4px 0" }}>
+                      <span className={`mesh-detail-dot mesh-detail-dot--${state}`} />
+                      <div className="mesh-detail-agent-body">
+                        <span className="mesh-detail-agent-name" style={{ fontSize: 12 }}>{agent.title}</span>
+                        {agent.activeTask && (
+                          <span className="mesh-detail-agent-task">{agent.activeTask}</span>
+                        )}
+                      </div>
+                      <span className={`mesh-detail-agent-state mesh-detail-agent-state--${state}`}>{agent.statusLabel || state}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="s-btn"
+          style={{ marginTop: 14 }}
+          onClick={() => setMeshSelection(null, null)}
+        >
+          Clear selection
+        </button>
+      </div>
+    );
+  }
+
+  // ── Mesh / local node selected ──
   if (selectedId && selectedType === "node") {
     const allNodes = Object.values(meshSnapshot.nodes);
     const node =
@@ -112,6 +245,7 @@ export function MeshInspectorPanel() {
     );
   }
 
+  // ── Default: this broker ──
   const mesh = meshSnapshot;
   const hasIssues = mesh.issues.length > 0 || mesh.warnings.length > 0;
 
@@ -152,6 +286,19 @@ export function MeshInspectorPanel() {
         <strong>How peers find you.</strong>
         <span>{mesh.identity.discoveryDetail}</span>
       </div>
+
+      {!mesh.identity.discoverable && mesh.health.reachable && (
+        <div className="sys-inline-actions" style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            className="s-btn"
+            disabled={announcing}
+            onClick={() => void handleAnnounce()}
+          >
+            {announcing ? "Announcing…" : "Announce on mesh"}
+          </button>
+        </div>
+      )}
 
       {hasIssues && (
         <div style={{ marginTop: 12 }}>

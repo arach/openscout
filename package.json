@@ -9,6 +9,13 @@
   ],
   "scripts": {
     "dev": "bun run --cwd packages/web dev",
+    "dev:m1": "bun run --cwd packages/web dev:m1",
+    "dev:m1:http": "bun run --cwd packages/web dev:m1:http",
+    "dev:m1:https": "bun run --cwd packages/web dev:m1:https",
+    "dev:edge": "bun run --cwd packages/web dev:edge",
+    "dev:edge:m1": "bun run --cwd packages/web dev:edge:m1",
+    "dev:edge:m1:http": "bun run --cwd packages/web dev:edge:m1:http",
+    "dev:edge:m1:https": "bun run --cwd packages/web dev:edge:m1:https",
     "menu": "bun ./apps/macos/bin/openscout-menu.ts launch",
     "build": "npm run cli:build && npm run web:build",
     "check": "npm run protocol:check && bun run --cwd apps/desktop check && npm run runtime:check && bun run cloud:check",

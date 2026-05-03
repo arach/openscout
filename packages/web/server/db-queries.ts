@@ -71,6 +71,7 @@ export type WebBrokerRouteAttempt = {
   messageId: string | null;
   deliveryId: string | null;
   invocationId: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 export type WebBrokerDialogueItem = {
@@ -789,6 +790,12 @@ export function queryBrokerDiagnostics(opts?: {
         messageId: row.id,
         deliveryId: null,
         invocationId: null,
+        metadata: {
+          source: "messages",
+          actorId: row.actor_id,
+          class: row.class,
+          raw: metadata,
+        },
       };
     })
     .filter((item): item is WebBrokerRouteAttempt => Boolean(item));
@@ -836,6 +843,13 @@ export function queryBrokerDiagnostics(opts?: {
     messageId: null,
     deliveryId: null,
     invocationId: row.invocation_id,
+    metadata: {
+      source: "scout_dispatches",
+      dispatchId: row.id,
+      dispatchKind: row.kind,
+      requestedLabel: row.asked_label,
+      requesterId: row.requester_id,
+    },
   }));
 
   const deliveryRows = db()
@@ -887,6 +901,12 @@ export function queryBrokerDiagnostics(opts?: {
       messageId: row.message_id,
       deliveryId: row.id,
       invocationId: row.invocation_id,
+      metadata: {
+        source: "deliveries",
+        targetId: row.target_id,
+        transport: row.transport,
+        reason: row.reason,
+      },
     }));
 
   const attemptRows = db()
@@ -940,6 +960,14 @@ export function queryBrokerDiagnostics(opts?: {
     messageId: row.message_id,
     deliveryId: row.delivery_id,
     invocationId: row.invocation_id,
+    metadata: {
+      source: "delivery_attempts",
+      attemptId: row.id,
+      attempt: row.attempt,
+      targetId: row.target_id,
+      transport: row.transport,
+      error: row.error,
+    },
   }));
 
   const attempts = [

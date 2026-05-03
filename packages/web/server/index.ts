@@ -125,6 +125,7 @@ try {
           data: {
             upstream: null,
             pending: [],
+            upstreamProtocol: req.headers.get("sec-websocket-protocol"),
             upstreamUrl,
           },
         });

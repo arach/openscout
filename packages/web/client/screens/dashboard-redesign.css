@@ -370,7 +370,7 @@
 }
 
 .s-dashboard-hero-head h2 {
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 20px;
   font-weight: 600;
   color: var(--ink);

@@ -1195,6 +1195,34 @@ details[open] > .s-thread-meta-toggle::before {
   margin-top: 4px;
 }
 
+.s-thread-empty-glyph {
+  font-size: 28px;
+  font-weight: 100;
+  color: color-mix(in srgb, var(--border) 90%, var(--muted));
+  line-height: 1;
+  margin-bottom: 12px;
+  user-select: none;
+}
+
+.s-thread-empty-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.s-thread-empty-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  background: color-mix(in srgb, var(--border) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: 4px;
+  padding: 2px 7px;
+  letter-spacing: 0.04em;
+}
+
 .s-thread-error {
   margin: 14px 20px 0;
   padding: 10px 14px;

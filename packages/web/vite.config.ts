@@ -42,6 +42,12 @@ const hudsonSdk = resolveHudsonSdk();
 const webNodeModules = resolve(__dirname, "node_modules");
 const bunTarget = process.env.OPENSCOUT_WEB_BUN_URL?.trim() || "http://127.0.0.1:3200";
 const routes = resolveOpenScoutWebRoutes(process.env);
+const viteHmrProtocol = process.env.OPENSCOUT_WEB_VITE_HMR_PROTOCOL?.trim() || undefined;
+const viteHmrHost = process.env.OPENSCOUT_WEB_VITE_HMR_HOST?.trim() || undefined;
+const viteHmrClientPort = Number.parseInt(
+  process.env.OPENSCOUT_WEB_VITE_HMR_CLIENT_PORT?.trim() || "",
+  10,
+);
 
 export default defineConfig({
   root: resolve(__dirname, "client"),
@@ -50,6 +56,11 @@ export default defineConfig({
   server: {
     hmr: {
       path: routes.viteHmrPath,
+      ...(viteHmrProtocol ? { protocol: viteHmrProtocol } : {}),
+      ...(viteHmrHost ? { host: viteHmrHost } : {}),
+      ...(Number.isFinite(viteHmrClientPort) && viteHmrClientPort > 0
+        ? { clientPort: viteHmrClientPort }
+        : {}),
     },
     proxy: {
       "/api": { target: bunTarget, changeOrigin: false, ws: true },
@@ -67,6 +78,7 @@ export default defineConfig({
       "@hudson/sdk/shell": resolve(hudsonSdk, "src/shell.ts"),
       "@hudson/sdk/chrome": resolve(hudsonSdk, "src/chrome.ts"),
       "@hudson/sdk/controls": resolve(hudsonSdk, "src/controls.ts"),
+      "@hudson/sdk/canvas": resolve(hudsonSdk, "src/canvas.ts"),
       "@hudson/sdk/overlays": resolve(hudsonSdk, "src/overlays.ts"),
       "@hudson/sdk/styles": resolve(hudsonSdk, "src/styles/bundle.css"),
       "@hudson/sdk": resolve(hudsonSdk, "src/index.ts"),

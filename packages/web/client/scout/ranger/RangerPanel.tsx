@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, Compass, Loader2, Map, Mic, Radio, RefreshCw, Rocket, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Bot, ChevronDown, ChevronUp, Compass, Loader2, Map, Mic, Radio, RefreshCw, Rocket, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
+import { usePersistentBoolean } from "../../lib/persistent-state.ts";
 import type { SessionCatalogWithResume } from "../../lib/types.ts";
 import { isRangerActorId, isRangerAgent } from "../../lib/ranger.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -33,7 +34,7 @@ type VoiceProbeState = "idle" | "probing" | "launching";
 const STATE_PROMPT =
   "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.";
 
-export function RangerPanel() {
+export function RangerPanel({ height }: { height?: number } = {}) {
   const {
     agents,
     rangerAgentId,
@@ -46,6 +47,7 @@ export function RangerPanel() {
     [agents, rangerAgentId],
   );
 
+  const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -350,8 +352,39 @@ export function RangerPanel() {
     ?? activeSession?.harness
     ?? null;
 
+  if (collapsed) {
+    return (
+      <section className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Bot size={12} className="text-lime-300" />
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--scout-chrome-ink-strong)]">
+            Ranger
+          </span>
+          <span className="truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
+            · {agentStatus}
+            {activeSessionId ? ` · ${activeSessionId.slice(0, 8)}` : ""}
+          </span>
+        </div>
+        <button
+          type="button"
+          title="Expand Ranger"
+          aria-label="Expand Ranger"
+          onClick={() => setCollapsed(false)}
+          className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+        >
+          <ChevronUp size={12} />
+        </button>
+      </section>
+    );
+  }
+
+  const expandedClassName = height === undefined
+    ? "flex max-h-[60vh] shrink-0 flex-col gap-3 overflow-y-auto border-t border-[var(--scout-chrome-border-soft)] p-4"
+    : "flex shrink-0 flex-col gap-3 overflow-y-auto border-t border-[var(--scout-chrome-border-soft)] p-4";
+  const expandedStyle = height === undefined ? undefined : { height: `${height}px` };
+
   return (
-    <section className="flex flex-col gap-3 border-b border-[var(--scout-chrome-border-soft)] p-4">
+    <section className={expandedClassName} style={expandedStyle}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -366,18 +399,29 @@ export function RangerPanel() {
             {activeSessionId ? ` · session ${activeSessionId.slice(0, 8)}` : ""}
           </p>
         </div>
-        <button
-          type="button"
-          title="Ranger settings"
-          onClick={() => setSettingsOpen((open) => !open)}
-          className={`rounded border p-1.5 transition-colors ${
-            settingsOpen
-              ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-              : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-          }`}
-        >
-          <Settings size={13} />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            title="Ranger settings"
+            onClick={() => setSettingsOpen((open) => !open)}
+            className={`rounded border p-1.5 transition-colors ${
+              settingsOpen
+                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+            }`}
+          >
+            <Settings size={13} />
+          </button>
+          <button
+            type="button"
+            title="Minimize Ranger"
+            aria-label="Minimize Ranger"
+            onClick={() => setCollapsed(true)}
+            className="rounded border border-[var(--scout-chrome-border-soft)] p-1.5 text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+          >
+            <ChevronDown size={13} />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -599,7 +643,6 @@ export function RangerPanel() {
     </section>
   );
 }
-
 function stripRangerUiFences(body: string): string {
   return body
     .replace(/```(?:scout-ui|scout-ui-action|ranger-ui)\s*[\s\S]*?```/gi, "")
@@ -728,26 +771,4 @@ function VoxSetupButton({
       {label}
     </button>
   );
-}
-
-function usePersistentBoolean(key: string, initialValue: boolean): [boolean, (value: boolean) => void] {
-  const [value, setValue] = useState(() => {
-    try {
-      const stored = window.localStorage.getItem(key);
-      return stored === null ? initialValue : stored === "true";
-    } catch {
-      return initialValue;
-    }
-  });
-
-  const setPersistentValue = useCallback((next: boolean) => {
-    setValue(next);
-    try {
-      window.localStorage.setItem(key, next ? "true" : "false");
-    } catch {
-      /* storage may be unavailable */
-    }
-  }, [key]);
-
-  return [value, setPersistentValue];
 }

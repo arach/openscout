@@ -689,6 +689,40 @@ export async function createOpenScoutWebServer(
     }
   });
 
+  app.post("/api/mesh/tailnet-probe", async (c) => {
+    try {
+      const { ip } = (await c.req.json()) as { ip: string };
+      // Only allow Tailscale CGNAT range (100.64.0.0/10)
+      const parts = ip.split(".");
+      const oct1 = Number(parts[0]);
+      const oct2 = Number(parts[1]);
+      if (parts.length !== 4 || oct1 !== 100 || oct2 < 64 || oct2 > 127) {
+        return c.json({ error: "IP is not in the Tailscale address range" }, 403);
+      }
+
+      const brokerUrl = `http://${ip}:65535`;
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 8000);
+      try {
+        const [homeRes, nodeRes] = await Promise.all([
+          fetch(`${brokerUrl}/v1/home`, { signal: ac.signal }),
+          fetch(`${brokerUrl}/v1/node`, { signal: ac.signal }),
+        ]);
+        clearTimeout(timer);
+        const home = homeRes.ok ? await homeRes.json() : null;
+        const node = nodeRes.ok ? await nodeRes.json() : null;
+        return c.json({ reachable: true, home, node });
+      } catch (fetchErr) {
+        clearTimeout(timer);
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        return c.json({ reachable: false, error: msg });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+
   app.get("/api/user", (c) => {
     const config = loadUserConfig();
     return c.json({
