@@ -15,6 +15,8 @@ import {
 describe("mesh rendezvous publisher", () => {
   test("resolves opt-in publish config from env", () => {
     expect(resolveMeshRendezvousPublishConfig({})).toBeUndefined();
+    expect(resolveMeshRendezvousPublishConfig({ OPENSCOUT_MESH_RENDEZVOUS_URL: "false" })).toBeUndefined();
+    expect(resolveMeshRendezvousPublishConfig({ OPENSCOUT_MESH_RENDEZVOUS_URL: "0" })).toBeUndefined();
     expect(resolveMeshRendezvousPublishConfig({
       OPENSCOUT_MESH_RENDEZVOUS_URL: "https://mesh.oscout.net/",
       OPENSCOUT_MESH_RENDEZVOUS_TOKEN: "secret",
