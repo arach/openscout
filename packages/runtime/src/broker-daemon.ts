@@ -43,6 +43,8 @@ import {
   type ThreadWatchCloseRequest,
   type ThreadWatchOpenRequest,
   type ThreadWatchRenewRequest,
+  OPENSCOUT_IROH_MESH_ALPN,
+  OPENSCOUT_MESH_PROTOCOL_VERSION,
   SCOUT_DISPATCHER_AGENT_ID,
   normalizeAgentSelectorSegment,
 } from "@openscout/protocol";
@@ -60,6 +62,11 @@ import {
 } from "./scout-dispatcher.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
+import {
+  resolveIrohMeshEntrypointFromEnv,
+  startIrohBridgeServeFromEnv,
+  type IrohBridgeService,
+} from "./iroh-bridge.js";
 import {
   DEFAULT_MESH_FORWARD_TIMEOUT_MS,
   buildMeshCollaborationEventBundle,
@@ -123,6 +130,11 @@ import {
   resolveOpenScoutRepoRoot,
   resolveRepoEntrypoint,
 } from "./tool-resolution.js";
+import {
+  resolveMeshRendezvousPublishConfig,
+  startMeshRendezvousPublisher,
+  type MeshRendezvousPublisher,
+} from "./mesh-rendezvous.js";
 import { clearGitBranchCache, readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
 
 function createRuntimeId(prefix: string): string {
@@ -236,6 +248,7 @@ const threadEvents = new ThreadEventPlane({
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
 const knownInvocations = new Map<string, InvocationRequest>();
+let shuttingDown = false;
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
 const operatorActorId = "operator";
 const BROKER_SHARED_CHANNEL_ID = "channel.shared";
@@ -245,6 +258,7 @@ const WEB_START_POLL_TIMEOUT_MS = 15_000;
 const WEB_START_POLL_INTERVAL_MS = 250;
 let webServerProcess: ChildProcess | null = null;
 let webStartInFlight: Promise<WebSupervisorStatus> | null = null;
+let meshRendezvousPublisher: MeshRendezvousPublisher | null = null;
 
 type LegacyRelayMessage = {
   id: string;
@@ -324,6 +338,24 @@ if (sseKeepAliveIntervalMs > 0) {
   }, sseKeepAliveIntervalMs).unref();
 }
 
+let irohBridgeService: IrohBridgeService | undefined;
+let localIrohEntrypoint = resolveIrohMeshEntrypointFromEnv();
+if (!localIrohEntrypoint) {
+  try {
+    irohBridgeService = await startIrohBridgeServeFromEnv({ brokerUrl });
+    localIrohEntrypoint = irohBridgeService?.entrypoint;
+    if (irohBridgeService) {
+      irohBridgeService.child.on("exit", (code, signal) => {
+        if (!shuttingDown) {
+          console.warn(`[openscout-runtime] Iroh bridge exited (${code ?? signal ?? "unknown"}); HTTP/Tailscale forwarding remains available`);
+        }
+      });
+    }
+  } catch (error) {
+    console.warn(`[openscout-runtime] Iroh bridge unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 const localNode: NodeDefinition = {
   id: nodeId,
   meshId,
@@ -331,6 +363,7 @@ const localNode: NodeDefinition = {
   hostName: hostname(),
   advertiseScope,
   brokerUrl,
+  ...(localIrohEntrypoint ? { meshEntrypoints: [localIrohEntrypoint] } : {}),
   tailnetName,
   capabilities: ["broker", "mesh", "local_runtime"],
   registeredAt: Date.now(),
@@ -2929,6 +2962,18 @@ function messageVisibilityForConversation(conversation?: ConversationDefinition)
   }
 }
 
+function hasReachableMeshEntrypoint(node: NodeDefinition | undefined): boolean {
+  return Boolean(node?.meshEntrypoints?.some((entrypoint) =>
+    entrypoint.kind === "iroh"
+    && entrypoint.alpn === OPENSCOUT_IROH_MESH_ALPN
+    && entrypoint.bridgeProtocolVersion === OPENSCOUT_MESH_PROTOCOL_VERSION
+  ));
+}
+
+function isReachableMeshNode(node: NodeDefinition | undefined): node is NodeDefinition {
+  return Boolean(node?.brokerUrl || hasReachableMeshEntrypoint(node));
+}
+
 function authorityNodeForConversation(conversationId: string): {
   conversation: ConversationDefinition;
   authorityNode: NodeDefinition;
@@ -2939,7 +2984,7 @@ function authorityNodeForConversation(conversationId: string): {
   }
 
   const authorityNode = runtime.node(conversation.authorityNodeId);
-  if (!authorityNode?.brokerUrl) {
+  if (!isReachableMeshNode(authorityNode)) {
     throw new Error(`authority node ${conversation.authorityNodeId} is not reachable`);
   }
 
@@ -2960,7 +3005,7 @@ async function forwardConversationMessageToAuthority(message: MessageRecord): Pr
   const bundle = buildMeshMessageBundle(runtime.peek(), currentLocalNode(), message, {
     bindings: runtime.bindingsForConversation(authority.conversation.id),
   });
-  const result = await forwardMeshMessage(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshMessage(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -2984,7 +3029,7 @@ async function forwardCollaborationRecordToAuthority(record: CollaborationRecord
   }
 
   const bundle = buildMeshCollaborationRecordBundle(runtime.peek(), currentLocalNode(), record);
-  const result = await forwardMeshCollaborationRecord(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshCollaborationRecord(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -3008,7 +3053,7 @@ async function forwardCollaborationEventToAuthority(event: CollaborationEvent): 
   }
 
   const bundle = buildMeshCollaborationEventBundle(runtime.peek(), currentLocalNode(), event, record);
-  const result = await forwardMeshCollaborationEvent(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshCollaborationEvent(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -3024,6 +3069,9 @@ async function maybeForwardFlightToAuthority(flight: FlightRecord): Promise<void
 
   const authority = authorityNodeForConversation(invocation.conversationId);
   if (!authority) {
+    return;
+  }
+  if (!authority.authorityNode.brokerUrl) {
     return;
   }
 
@@ -3433,13 +3481,13 @@ async function forwardPeerBrokerCollaborationRecord(
 
   for (const targetNodeId of targetNodeIds) {
     const targetNode = runtime.node(targetNodeId);
-    if (!targetNode?.brokerUrl) {
+    if (!isReachableMeshNode(targetNode)) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      await forwardMeshCollaborationRecord(targetNode.brokerUrl, bundle);
+      await forwardMeshCollaborationRecord(targetNode, bundle);
       forwarded.push(targetNodeId);
     } catch {
       failed.push(targetNodeId);
@@ -3481,13 +3529,13 @@ async function forwardPeerBrokerCollaborationEvent(
 
   for (const targetNodeId of targetNodeIds) {
     const targetNode = runtime.node(targetNodeId);
-    if (!targetNode?.brokerUrl) {
+    if (!isReachableMeshNode(targetNode)) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      await forwardMeshCollaborationEvent(targetNode.brokerUrl, bundle);
+      await forwardMeshCollaborationEvent(targetNode, bundle);
       forwarded.push(targetNodeId);
     } catch {
       failed.push(targetNodeId);
@@ -5236,6 +5284,13 @@ try {
   await listenTcp(server);
   await listenUnixSocket(socketServer, brokerSocketPath);
   peerDelivery.start();
+  const meshRendezvousConfig = resolveMeshRendezvousPublishConfig();
+  if (meshRendezvousConfig) {
+    meshRendezvousPublisher = startMeshRendezvousPublisher(localNode, {
+      config: meshRendezvousConfig,
+      logger: console,
+    });
+  }
   console.log(`[openscout-runtime] broker listening on ${host}:${port} (scope: ${advertiseScope}, url: ${brokerUrl})`);
   console.log(`[openscout-runtime] broker local socket ${brokerSocketPath}`);
   if (advertiseScope === "mesh" && isLoopbackHost(host)) {
@@ -5303,14 +5358,14 @@ function closeServer(serverInstance: ReturnType<typeof createServer>): Promise<v
   });
 }
 
-let shuttingDown = false;
-
 async function shutdownBroker(exitCode = 0): Promise<void> {
   if (shuttingDown) {
     return;
   }
   shuttingDown = true;
   peerDelivery.stop();
+  meshRendezvousPublisher?.stop();
+  irohBridgeService?.stop();
   for (const client of eventClients) {
     client.end();
   }

@@ -83,6 +83,11 @@
       "bun": "./src/tailscale.ts",
       "default": "./dist/tailscale.js"
     },
+    "./mesh/iroh-bridge": {
+      "types": "./src/iroh-bridge.ts",
+      "bun": "./src/iroh-bridge.ts",
+      "default": "./dist/iroh-bridge.js"
+    },
     "./user-config": {
       "types": "./src/user-config.ts",
       "bun": "./src/user-config.ts",

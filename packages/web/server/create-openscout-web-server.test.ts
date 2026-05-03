@@ -50,6 +50,10 @@ let askScoutQuestionResult: unknown = {
   },
 };
 mock.module("./db-queries.ts", () => ({
+  configureReadonlyDb: (db: { exec(sql: string): void }) => {
+    db.exec("PRAGMA busy_timeout = 250");
+    db.exec("PRAGMA query_only = ON");
+  },
   queryAgents: () => [],
   queryActivity: () => [],
   queryBrokerDiagnostics: () => ({

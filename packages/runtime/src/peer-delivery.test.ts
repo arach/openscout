@@ -12,6 +12,7 @@ import {
   createPeerDeliveryWorker,
   type PeerDeliveryDeps,
 } from "./peer-delivery.js";
+import type { MeshForwardTarget } from "./mesh-forwarding.js";
 import {
   PeerRejectedError,
   PeerUnreachableError,
@@ -84,7 +85,7 @@ interface Harness {
   failedInvocations: Array<{ invocation: InvocationRequest; detail: string }>;
   setNow: (ms: number) => void;
   setForward: (
-    impl: (brokerUrl: string) => Promise<{ ok: true; flight: FlightRecord; duplicate?: boolean }>,
+    impl: (target: MeshForwardTarget) => Promise<{ ok: true; flight: FlightRecord; duplicate?: boolean }>,
   ) => void;
   setNode: (node: NodeDefinition | undefined) => void;
   setInvocation: (invocation: InvocationRequest | undefined) => void;
@@ -107,7 +108,7 @@ function makeHarness(opts: {
   let invocation = opts.invocation;
   let peer = opts.peer;
   let forwardImpl:
-    | ((brokerUrl: string) => Promise<{ ok: true; flight: FlightRecord; duplicate?: boolean }>)
+    | ((target: MeshForwardTarget) => Promise<{ ok: true; flight: FlightRecord; duplicate?: boolean }>)
     | undefined;
 
   const localNode = makeNode("origin", "http://127.0.0.1:65501");
@@ -176,6 +177,12 @@ function makeHarness(opts: {
   };
 }
 
+function targetErrorUrl(target: MeshForwardTarget): string {
+  return typeof target === "string"
+    ? target
+    : target.brokerUrl ?? `mesh:${target.id}`;
+}
+
 /* ── Tests ── */
 
 describe("peer-delivery outbox worker", () => {
@@ -216,8 +223,8 @@ describe("peer-delivery outbox worker", () => {
     const peer = makeNode("mini-node", "http://10.0.0.2:65501");
     const harness = makeHarness({ invocation, peer });
 
-    harness.setForward(async (url) => {
-      throw new PeerUnreachableError("ECONNREFUSED", url);
+    harness.setForward(async (target) => {
+      throw new PeerUnreachableError("ECONNREFUSED", targetErrorUrl(target));
     });
 
     const worker = createPeerDeliveryWorker(harness.deps, { tickIntervalMs: 999_999 });
@@ -238,8 +245,8 @@ describe("peer-delivery outbox worker", () => {
     const peer = makeNode("mini-node", "http://10.0.0.2:65501");
     const harness = makeHarness({ invocation, peer });
 
-    harness.setForward(async (url) => {
-      throw new PeerRejectedError("bad request", url, 400, "Bad Request", "{\"error\":\"unknown_node\"}");
+    harness.setForward(async (target) => {
+      throw new PeerRejectedError("bad request", targetErrorUrl(target), 400, "Bad Request", "{\"error\":\"unknown_node\"}");
     });
 
     const worker = createPeerDeliveryWorker(harness.deps, { tickIntervalMs: 999_999 });
@@ -258,8 +265,8 @@ describe("peer-delivery outbox worker", () => {
     const peer = makeNode("mini-node", "http://10.0.0.2:65501");
     const harness = makeHarness({ invocation, peer });
 
-    harness.setForward(async (url) => {
-      throw new PeerRejectedError("internal error", url, 503, "Service Unavailable");
+    harness.setForward(async (target) => {
+      throw new PeerRejectedError("internal error", targetErrorUrl(target), 503, "Service Unavailable");
     });
 
     const worker = createPeerDeliveryWorker(harness.deps, { tickIntervalMs: 999_999 });
@@ -277,8 +284,8 @@ describe("peer-delivery outbox worker", () => {
     const peer = makeNode("mini-node", "http://10.0.0.2:65501");
     const harness = makeHarness({ invocation, peer });
 
-    harness.setForward(async (url) => {
-      throw new PeerUnreachableError("still down", url);
+    harness.setForward(async (target) => {
+      throw new PeerUnreachableError("still down", targetErrorUrl(target));
     });
 
     const worker = createPeerDeliveryWorker(harness.deps, {
@@ -316,9 +323,9 @@ describe("peer-delivery outbox worker", () => {
     const harness = makeHarness({ invocation, peer });
 
     let calls = 0;
-    harness.setForward(async (url) => {
+    harness.setForward(async (target) => {
       calls += 1;
-      throw new PeerUnreachableError("down", url);
+      throw new PeerUnreachableError("down", targetErrorUrl(target));
     });
 
     const worker = createPeerDeliveryWorker(harness.deps, { tickIntervalMs: 999_999 });
@@ -367,8 +374,8 @@ describe("peer-delivery outbox worker", () => {
     const harness = makeHarness({ invocation, peer });
 
     let online = false;
-    harness.setForward(async (url) => {
-      if (!online) throw new PeerUnreachableError("down", url);
+    harness.setForward(async (target) => {
+      if (!online) throw new PeerUnreachableError("down", targetErrorUrl(target));
       return { ok: true, flight: {
         id: "flt-online",
         invocationId: invocation.id,
