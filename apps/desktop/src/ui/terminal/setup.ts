@@ -1,11 +1,13 @@
 import type {
   ScoutDoctorReport,
+  ScoutLocalEdgeDoctorReport,
+  ScoutLocalEdgeHostResolution,
   ScoutProjectInventoryEntry,
   ScoutRuntimesReport,
   ScoutSetupReport,
 } from "../../core/setup/service.ts";
 
-type LocalEdgeReport = ScoutDoctorReport["localEdge"];
+type LocalEdgeDependencyReport = ScoutSetupReport["localEdge"];
 
 export function renderScoutDoctorStreamingLead(input: { repoRoot: string; currentDirectory: string }): string {
   return [
@@ -83,7 +85,7 @@ export function renderScoutDoctorTailAfterStream(report: ScoutDoctorReport): str
     `  Broker stdout: ${report.broker.stdoutLogPath}`,
     `  Broker stderr: ${report.broker.stderrLogPath}`,
     "",
-    ...renderLocalEdgeReport(report.localEdge),
+    ...renderLocalEdgeDoctor(report.localEdge),
     "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
@@ -127,7 +129,7 @@ function renderProjectInventory(projects: ScoutProjectInventoryEntry[]): string[
   return lines;
 }
 
-function renderLocalEdgeReport(report: LocalEdgeReport): string[] {
+function renderLocalEdgeDependencyReport(report: LocalEdgeDependencyReport): string[] {
   const lines = [
     "Local edge:",
     `  Caddy: ${report.status}`,
@@ -142,6 +144,56 @@ function renderLocalEdgeReport(report: LocalEdgeReport): string[] {
   if (report.installCommand) {
     lines.push(`  Install: ${report.installCommand}`);
   }
+  lines.push(`  HTTPS trust: ${report.trust.status}`);
+  lines.push(`  Trust detail: ${report.trust.detail}`);
+  lines.push(`  Root CA: ${report.trust.rootCertificatePath}`);
+  if (report.trust.trustCommand) {
+    lines.push(`  Trust: ${report.trust.trustCommand}`);
+  }
+  return lines;
+}
+
+function formatLocalEdgeHostResolution(resolution: ScoutLocalEdgeHostResolution): string {
+  if (resolution.resolved) {
+    return `${resolution.host} -> ${resolution.addresses.join(", ")}`;
+  }
+  return `${resolution.host} -> not resolved${resolution.error ? ` (${resolution.error})` : ""}`;
+}
+
+function renderLocalEdgeDoctor(edge: ScoutLocalEdgeDoctorReport): string[] {
+  const lines = [
+    "Local web edge:",
+    `  State: ${edge.state}`,
+    `  Caddy: ${edge.dependency.status}`,
+    `  Detail: ${edge.dependency.detail}`,
+  ];
+  if (edge.dependency.caddyPath) {
+    lines.push(`  Path: ${edge.dependency.caddyPath}`);
+  }
+  if (edge.dependency.caddyVersion) {
+    lines.push(`  Version: ${edge.dependency.caddyVersion}`);
+  }
+  if (edge.dependency.installCommand) {
+    lines.push(`  Install: ${edge.dependency.installCommand}`);
+  }
+  lines.push(`  HTTPS trust: ${edge.dependency.trust.status}`);
+  lines.push(`  Trust detail: ${edge.dependency.trust.detail}`);
+  lines.push(`  Root CA: ${edge.dependency.trust.rootCertificatePath}`);
+  if (edge.dependency.trust.trustCommand) {
+    lines.push(`  Trust: ${edge.dependency.trust.trustCommand}`);
+  }
+  lines.push(
+    `  Portal host: ${formatLocalEdgeHostResolution(edge.dns.portal)}`,
+    `  Node host: ${formatLocalEdgeHostResolution(edge.dns.node)}`,
+    `  Caddyfile: ${edge.caddyfilePath}`,
+    `  HTTP listener: ${edge.listeners.http.listening ? "yes" : "no"} (127.0.0.1:${edge.listeners.http.port})`,
+    `  HTTPS listener: ${edge.listeners.https.listening ? "yes" : "no"} (127.0.0.1:${edge.listeners.https.port})`,
+  );
+
+  for (const hint of edge.hints) {
+    lines.push(`  Hint: ${hint}`);
+  }
+
   return lines;
 }
 
@@ -191,7 +243,7 @@ export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
     `  Broker stdout: ${report.broker.stdoutLogPath}`,
     `  Broker stderr: ${report.broker.stderrLogPath}`,
     "",
-    ...renderLocalEdgeReport(report.localEdge),
+    ...renderLocalEdgeDoctor(report.localEdge),
     "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
@@ -236,7 +288,7 @@ export function renderScoutSetupReport(report: ScoutSetupReport): string {
     lines.push(`  Warning: ${report.brokerWarning}`);
   }
 
-  lines.push("", ...renderLocalEdgeReport(report.localEdge));
+  lines.push("", ...renderLocalEdgeDependencyReport(report.localEdge));
 
   lines.push("", "Harnesses:");
   for (const entry of report.catalog.entries) {

@@ -38,6 +38,7 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
     const report = await loadScoutDoctorReport({
       currentDirectory: options.currentDirectory,
       repoRoot,
+      env: context.env,
       onProjectInventoryEntry: (entry) => {
         context.output.writeText(formatScoutDoctorStreamedProjectEntry(entry));
       },
@@ -58,6 +59,7 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
   const report = await loadScoutDoctorReport({
     currentDirectory: options.currentDirectory,
     repoRoot,
+    env: context.env,
     onProjectInventoryEntry: (entry) => {
       writeDoctorJsonLine(context, { phase: "project", project: entry });
     },
