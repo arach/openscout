@@ -1565,6 +1565,31 @@ html[data-site-theme="dark"] .dot-grid {
   box-shadow: 0 18px 48px color-mix(in srgb, var(--site-ink) 10%, transparent);
 }
 
+html[data-site-theme="dark"] .site-docs {
+  --site-copy: #e3ddcc;
+  --site-muted: #b8b09a;
+  --site-muted-soft: #c6bfac;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(p, li) {
+  color: var(--site-copy) !important;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(p, li) :is(strong, b) {
+  color: var(--site-ink) !important;
+  font-weight: 600;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(h1, h2, h3, h4) {
+  color: var(--site-ink) !important;
+}
+
+html[data-site-theme="dark"] .docs-markdown :not(pre) > code {
+  background: #262934 !important;
+  border-color: rgba(214, 200, 170, 0.18) !important;
+  color: #f3edd9 !important;
+}
+
 .docs-markdown h2 {
   margin-top: 2rem;
   margin-bottom: 0.6rem;
@@ -1604,6 +1629,10 @@ html[data-site-theme="dark"] .dot-grid {
   scroll-margin-top: 6rem;
   align-items: baseline;
   gap: 0.5rem;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(h2, h3, h4) {
+  border-top-color: var(--site-border-soft) !important;
 }
 
 .docs-markdown :is(h3, h4) {
@@ -1694,6 +1723,10 @@ html[data-site-theme="dark"] .dot-grid {
 /* heading anchor link — breathing room and baseline alignment */
 .docs-markdown :is(h1, h2, h3, h4) > a[title="Link to this section"] {
   flex-shrink: 0;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(h1, h2, h3, h4) > a[title="Link to this section"] {
+  color: var(--site-muted-soft) !important;
 }
 
 .docs-markdown .hljs-keyword { color: #9a6e4a; font-weight: 500; }

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import GithubSlugger from "github-slugger";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ChevronRight, ArrowRightIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowRightIcon } from "lucide-react";
 import { MarkdownContent } from "@arach/dewey";
 import { MDXRemote } from "next-mdx-remote";
 import type { MDXRemoteSerializeResult } from "next-mdx-remote";
@@ -23,6 +23,16 @@ type Heading = {
   title: string;
   depth: 2 | 3;
 };
+
+function readSiteTheme() {
+  if (typeof document === "undefined") {
+    return "light" as const;
+  }
+
+  return document.documentElement.dataset.siteTheme === "dark"
+    ? "dark" as const
+    : "light" as const;
+}
 
 function stripLeadHeading(content: string) {
   return content.replace(/^\s*#\s+.+\n+/, "");
@@ -165,7 +175,7 @@ function formatDiagramLabel(src: string) {
   return DIAGRAM_CODES[src] ?? `SCOUT-${src.toUpperCase().replace(/-/g, "")}`;
 }
 
-function ArcDiagramEmbed({ src }: { src: string }) {
+function ArcDiagramEmbed({ src, mode = "light" }: { src: string; mode?: "light" | "dark" }) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -180,17 +190,25 @@ function ArcDiagramEmbed({ src }: { src: string }) {
   }, [src]);
 
   if (error) return null;
-  if (!data) return <div className="mt-8 mb-2 aspect-[10/7] animate-pulse rounded-lg" style={{ background: 'rgba(0,0,0,0.02)' }} />;
+  if (!data) return (
+    <div
+      className="mt-8 mb-2 aspect-[10/7] animate-pulse rounded-lg"
+      style={{ background: "var(--site-border-soft)" }}
+    />
+  );
 
   const layout = data.layout as { width: number; height: number } | undefined;
   const aspectRatio = layout ? `${layout.width}/${layout.height}` : '10/7';
 
   return (
-    <div className="mt-8 mb-2 arc-docs-embed overflow-hidden rounded-lg border border-black/[0.08]" style={{ aspectRatio }}>
+    <div
+      className="mt-8 mb-2 arc-docs-embed overflow-hidden rounded-lg border border-[var(--site-border)]"
+      style={{ aspectRatio }}
+    >
       <ArcDiagram
         data={data}
         className="w-full h-full !rounded-none !border-0 !shadow-none !bg-[var(--site-docs-bg)]"
-        mode="light"
+        mode={mode}
         theme="cool"
         interactive={true}
         showArcToggle={false}
@@ -233,6 +251,7 @@ export function DocView({
 
   const [activeId, setActiveId] = useState<string>("");
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [siteTheme, setSiteTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
     if (headings.length === 0) return;
@@ -256,6 +275,21 @@ export function DocView({
     }
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const syncTheme = () => setSiteTheme(readSiteTheme());
+
+    syncTheme();
+
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-site-theme"],
+    });
+
+    return () => observer.disconnect();
   }, []);
 
   return (
@@ -411,11 +445,11 @@ export function DocView({
               ) : (
                 segments.map((seg, i) =>
                   seg.type === "arc" ? (
-                    <ArcDiagramEmbed key={i} src={seg.src} />
+                    <ArcDiagramEmbed key={i} src={seg.src} mode={siteTheme} />
                   ) : seg.type === "stateflow" ? (
                     <StateFlow key={i} states={seg.states} terminal={seg.terminal} />
                   ) : (
-                    <MarkdownContent key={i} content={seg.content} />
+                    <MarkdownContent key={i} content={seg.content} isDark={siteTheme === "dark"} />
                   ),
                 )
               )}
