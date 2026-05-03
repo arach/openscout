@@ -5,6 +5,8 @@ import type {
   ScoutSetupReport,
 } from "../../core/setup/service.ts";
 
+type LocalEdgeReport = ScoutDoctorReport["localEdge"];
+
 export function renderScoutDoctorStreamingLead(input: { repoRoot: string; currentDirectory: string }): string {
   return [
     "Scout doctor",
@@ -81,6 +83,8 @@ export function renderScoutDoctorTailAfterStream(report: ScoutDoctorReport): str
     `  Broker stdout: ${report.broker.stdoutLogPath}`,
     `  Broker stderr: ${report.broker.stderrLogPath}`,
     "",
+    ...renderLocalEdgeReport(report.localEdge),
+    "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
 
@@ -120,6 +124,24 @@ function renderProjectInventory(projects: ScoutProjectInventoryEntry[]): string[
     }
   }
 
+  return lines;
+}
+
+function renderLocalEdgeReport(report: LocalEdgeReport): string[] {
+  const lines = [
+    "Local edge:",
+    `  Caddy: ${report.status}`,
+    `  Detail: ${report.detail}`,
+  ];
+  if (report.caddyPath) {
+    lines.push(`  Path: ${report.caddyPath}`);
+  }
+  if (report.caddyVersion) {
+    lines.push(`  Version: ${report.caddyVersion}`);
+  }
+  if (report.installCommand) {
+    lines.push(`  Install: ${report.installCommand}`);
+  }
   return lines;
 }
 
@@ -169,6 +191,8 @@ export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
     `  Broker stdout: ${report.broker.stdoutLogPath}`,
     `  Broker stderr: ${report.broker.stderrLogPath}`,
     "",
+    ...renderLocalEdgeReport(report.localEdge),
+    "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
 
@@ -211,6 +235,8 @@ export function renderScoutSetupReport(report: ScoutSetupReport): string {
   if (report.brokerWarning) {
     lines.push(`  Warning: ${report.brokerWarning}`);
   }
+
+  lines.push("", ...renderLocalEdgeReport(report.localEdge));
 
   lines.push("", "Harnesses:");
   for (const entry of report.catalog.entries) {

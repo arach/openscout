@@ -29,7 +29,7 @@ scout ask --to dewey "can you review our docs?"
 - `~/Library/Application Support/OpenScout/relay-agents.json` for compatibility with the existing machine-local agent registry
 - `.openscout/project.json` for the current repo when needed
 
-It also discovers local and project-backed agents from your configured workspace roots, installs the broker service, and attempts to start it.
+It also discovers local and project-backed agents from your configured workspace roots, installs the broker service, attempts to start it, and ensures Caddy is available for the local `scout.local` edge. On macOS, setup installs missing Caddy with `brew install caddy`; otherwise install Caddy yourself or set `OPENSCOUT_CADDY_BIN`.
 
 `scout init` writes `~/.openscout/config.json` with the broker, web, and pairing ports that every Scout component reads. Run it once after install, or with `--force` to overwrite.
 
@@ -263,6 +263,8 @@ scout server start --static --static-root /custom/client
 `scout server open` reuses an already-running matching Scout server on that port, or starts one in the background and opens the browser for you. Use `scout server` or `scout server help` for full flags.
 
 The application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. `scout server edge` publishes `scout.local` plus the node host with Bonjour/mDNS and runs Caddy against the active web port. The managed edge serves HTTP on port `80` for zero-cert local browsing and HTTPS on port `443` with Caddy's local CA; the HTTPS path needs the local CA trusted once by browsers that enforce their own trust store.
+
+`scout setup` verifies Caddy for this path. The setup command installs it with Homebrew on macOS when `caddy` is not already available, but Scout still runs Caddy directly with the generated `~/.scout/local-edge/Caddyfile` instead of registering a separate Homebrew service.
 
 When the edge is up but the web app is down, Caddy serves a same-origin "Start Scout" page. The button calls Caddy's internal `/__openscout/web/start` path, which proxies to the always-on broker and starts the web server while keeping the user-facing URL at `scout.local` or `<name>.scout.local`.
 

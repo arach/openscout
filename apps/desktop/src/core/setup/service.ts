@@ -14,12 +14,18 @@ import {
 } from "../../app/host/runtime-service-client.ts";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { withScoutCoreCommandLock } from "./command-lock.ts";
+import {
+  ensureScoutLocalEdgeDependencies,
+  inspectScoutLocalEdgeDependencies,
+  type ScoutLocalEdgeDependencyReport,
+} from "./local-edge-dependencies.ts";
 
 export type ScoutDoctorReport = {
   currentDirectory: string;
   repoRoot: string;
   supportPaths: ReturnType<typeof resolveOpenScoutSupportPaths>;
   broker: BrokerServiceStatus;
+  localEdge: ScoutLocalEdgeDependencyReport;
   setup: Awaited<ReturnType<typeof loadResolvedRelayAgents>>;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
 };
@@ -29,6 +35,7 @@ export type ScoutSetupReport = {
   setup: Awaited<ReturnType<typeof initializeOpenScoutSetup>>;
   broker: BrokerServiceStatus;
   brokerWarning: string | null;
+  localEdge: ScoutLocalEdgeDependencyReport;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
   scoutSkill: ScoutSkillInstallReport;
 };
@@ -55,12 +62,14 @@ export async function loadScoutDoctorReport(input: {
       }),
       loadHarnessCatalogSnapshot(),
     ]);
+    const localEdge = inspectScoutLocalEdgeDependencies();
 
     return {
       currentDirectory: input.currentDirectory,
       repoRoot: input.repoRoot,
       supportPaths: resolveOpenScoutSupportPaths(),
       broker,
+      localEdge,
       setup,
       catalog,
     };
@@ -85,6 +94,7 @@ export async function runScoutSetup(input: {
     const setup = await initializeOpenScoutSetup({ currentDirectory: input.currentDirectory });
     const catalog = await loadHarnessCatalogSnapshot();
     const scoutSkill = await installScoutSkillToHarnesses();
+    const localEdge = ensureScoutLocalEdgeDependencies();
     let broker = await getRuntimeBrokerServiceStatus();
     let brokerWarning: string | null = null;
     try {
@@ -113,6 +123,7 @@ export async function runScoutSetup(input: {
       setup,
       broker,
       brokerWarning,
+      localEdge,
       catalog,
       scoutSkill,
     };
