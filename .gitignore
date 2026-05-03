@@ -31,6 +31,8 @@
 /native/engine/.derivedData
 /native/dist
 /native/engine/.swiftpm
+/crates/*/target/
+/target/
 
 # relay data (local state, not source)
 .openscout/

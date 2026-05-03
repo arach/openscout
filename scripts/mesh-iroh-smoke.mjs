@@ -9,7 +9,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const bridgeManifest = resolve(repoRoot, "crates/openscout-iroh-bridge/Cargo.toml");
 const bridgeBin = resolve(repoRoot, "crates/openscout-iroh-bridge/target/debug/openscout-iroh-bridge");
-const runtimeBin = resolve(repoRoot, "packages/runtime/bin/openscout-runtime.mjs");
+const runtimeSource = resolve(repoRoot, "packages/runtime/src/broker-daemon.ts");
 const defaultBrokerUrl = process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65501";
 
 const [, , command, ...args] = process.argv;
@@ -147,7 +147,7 @@ function runBroker(rest) {
     OPENSCOUT_IROH_BRIDGE_BIN: process.env.OPENSCOUT_IROH_BRIDGE_BIN ?? bridgeBin,
   };
   console.log(`OPENSCOUT_IROH_BRIDGE_BIN=${env.OPENSCOUT_IROH_BRIDGE_BIN}`);
-  run(process.execPath, [runtimeBin, "broker", ...rest], { env });
+  run(process.execPath, [runtimeSource, ...rest], { env });
 }
 
 async function inspect(options) {
