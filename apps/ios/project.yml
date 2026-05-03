@@ -9,6 +9,16 @@ options:
     iOS: "26.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
+schemes:
+  ScoutApp:
+    build:
+      targets:
+        ScoutApp: all
+        ScoutTests: [test]
+    test:
+      config: Debug
+      targets:
+        - ScoutTests
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -26,6 +36,10 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.openscout.scout
+            CFBundleURLSchemes:
+              - openscout
         ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -67,3 +81,8 @@ targets:
       - ScoutTests
     dependencies:
       - target: ScoutApp
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Scout.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Scout"
+        BUNDLE_LOADER: "$(TEST_HOST)"

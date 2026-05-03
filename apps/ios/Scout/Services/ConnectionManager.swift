@@ -75,6 +75,38 @@ func relayURLUsesTailnetRoute(_ rawValue: String) -> Bool {
     return isTailnetRelayHost(host)
 }
 
+func relayURLUsesOpenScoutNetworkRoute(_ rawValue: String) -> Bool {
+    guard let host = URLComponents(string: rawValue)?.host?.lowercased() else {
+        return false
+    }
+    return isOpenScoutNetworkRelayHost(host)
+}
+
+func tailnetRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
+    if userDefaults.object(forKey: "scout.tsn.enabled") == nil {
+        return true
+    }
+    return userDefaults.bool(forKey: "scout.tsn.enabled")
+}
+
+func openScoutNetworkRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
+    userDefaults.bool(forKey: "scout.osn.enabled")
+}
+
+func relayURLAllowedByRouteSettings(_ rawValue: String, userDefaults: UserDefaults = .standard) -> Bool {
+    if relayURLUsesTailnetRoute(rawValue) {
+        return tailnetRoutingEnabled(userDefaults: userDefaults)
+    }
+    if relayURLUsesOpenScoutNetworkRoute(rawValue) {
+        return openScoutNetworkRoutingEnabled(userDefaults: userDefaults)
+    }
+    return true
+}
+
+func relayURLsAllowedByRouteSettings(_ rawValues: [String], userDefaults: UserDefaults = .standard) -> [String] {
+    rawValues.filter { relayURLAllowedByRouteSettings($0, userDefaults: userDefaults) }
+}
+
 func relayURLDependsOnTailscale(_ rawValue: String) -> Bool {
     relayURLUsesTailnetRoute(rawValue)
 }
@@ -121,6 +153,10 @@ private func isLocalOnlyRelayHost(_ host: String) -> Bool {
 
 private func isTailnetRelayHost(_ host: String) -> Bool {
     host.hasSuffix(".ts.net") || isTailscaleAddress(host)
+}
+
+private func isOpenScoutNetworkRelayHost(_ host: String) -> Bool {
+    host == "oscout.net" || host.hasSuffix(".oscout.net")
 }
 
 private func isTailscaleAddress(_ host: String) -> Bool {
@@ -293,8 +329,10 @@ enum TransportKind: String {
     /// RFC1918 private LAN: 10/8, 192.168/16, 172.16-31/12; link-local 169.254/16.
     case lan
     /// Tailscale CGNAT 100.64.0.0/10 or `*.ts.net` MagicDNS host.
-    case mesh
-    /// Public IP / generic DNS hostname — neither LAN nor Tailscale.
+    case tailnet
+    /// OpenScout-managed front door hosts.
+    case oscout
+    /// Public IP / generic DNS hostname — neither LAN, Tailnet, nor OpenScout Network.
     case remote
     /// 127.0.0.0/8 loopback (mostly bridge-to-self, rare from phone).
     case loopback
@@ -304,8 +342,9 @@ enum TransportKind: String {
     var label: String {
         switch self {
         case .lan: return "LAN"
-        case .mesh: return "TS"
-        case .remote: return "REMOTE"
+        case .tailnet: return "TSN"
+        case .oscout: return "OSN"
+        case .remote: return "WAN"
         case .loopback: return "LOCAL"
         case .none: return ""
         }
@@ -319,7 +358,10 @@ private func classifyTransport(host: String) -> TransportKind {
     }
     // Tailscale MagicDNS hostnames look like `<machine>.<tailnet>.ts.net`.
     if lower.hasSuffix(".ts.net") {
-        return .mesh
+        return .tailnet
+    }
+    if isOpenScoutNetworkRelayHost(lower) {
+        return .oscout
     }
     // Bonjour / mDNS hostnames (`<host>.local`) are by definition link-local LAN.
     if lower.hasSuffix(".local") {
@@ -339,7 +381,7 @@ private func classifyTransport(host: String) -> TransportKind {
     if a == 172 && (16...31).contains(b) { return .lan }
     if a == 169 && b == 254 { return .lan }
     // Tailscale CGNAT: 100.64.0.0/10 → 100.64.x.x through 100.127.x.x.
-    if a == 100 && (64...127).contains(b) { return .mesh }
+    if a == 100 && (64...127).contains(b) { return .tailnet }
     return .remote
 }
 
@@ -380,7 +422,7 @@ final class ConnectionManager: @unchecked Sendable {
         return host
     }
 
-    /// Classified transport for the active relay host: LAN / MESH / REMOTE / loopback.
+    /// Classified transport for the active relay host: LAN / TSN / OSN / WAN / loopback.
     /// `.none` while disconnected or when the host isn't known yet.
     var transportKind: TransportKind {
         guard state == .connected, let host = bridgeHost else { return .none }
@@ -873,7 +915,10 @@ final class ConnectionManager: @unchecked Sendable {
                 throw ConnectionError.invalidQRPayload("Invalid bridge public key length")
             }
 
-            let relayURLs = qrPayload.orderedRelayURLs
+            let relayURLs = relayURLsAllowedByRouteSettings(qrPayload.orderedRelayURLs)
+            guard !relayURLs.isEmpty else {
+                throw ConnectionError.relayUnavailable
+            }
             let attempt = try await connectUsingAvailableRelayURLs(
                 relayURLs: relayURLs,
                 initialRoomId: qrPayload.room,
@@ -1125,10 +1170,11 @@ final class ConnectionManager: @unchecked Sendable {
     private func relayURLsForTrustedBridge(_ info: BridgeConnectionInfo) async -> [String] {
         let discoveredRelayURLs = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: info.publicKeyHex)
         let combinedRelayURLs = discoveredRelayURLs + info.relayURLs
-        guard let primary = combinedRelayURLs.first else {
+        let allowedRelayURLs = relayURLsAllowedByRouteSettings(combinedRelayURLs)
+        guard let primary = allowedRelayURLs.first else {
             return []
         }
-        return deduplicatedRelayURLs(primary: primary, fallbacks: Array(combinedRelayURLs.dropFirst()))
+        return deduplicatedRelayURLs(primary: primary, fallbacks: Array(allowedRelayURLs.dropFirst()))
     }
 
     private func discoveredConnectionInfoFromTrustedBridge() async -> BridgeConnectionInfo? {

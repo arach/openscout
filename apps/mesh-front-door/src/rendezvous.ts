@@ -4,8 +4,10 @@ import {
   type OpenScoutMeshPresenceRecord,
   type OpenScoutMeshRendezvousList,
 } from "@openscout/protocol";
+import { readOpenScoutSessionFromRequest, type OpenScoutAuthEnv } from "./auth.js";
+import { githubUserCanAccessMesh, type MeshMembershipEnv } from "./memberships.js";
 
-export interface MeshFrontDoorEnv {
+export interface MeshFrontDoorEnv extends OpenScoutAuthEnv, MeshMembershipEnv {
   OPENSCOUT_ALLOWED_MESH_IDS?: string;
   OPENSCOUT_DEV_AUTH_DISABLED?: string;
   OPENSCOUT_MESH_DIRECTORY_OWNER?: string;
@@ -17,7 +19,7 @@ export interface MeshFrontDoorEnv {
 export interface MeshFrontDoorAuth {
   key: string;
   label: string;
-  kind: "access_user" | "access_service" | "shared_token" | "dev";
+  kind: "github_user" | "access_user" | "access_service" | "shared_token" | "dev";
 }
 
 export interface MeshPresenceStore {
@@ -34,12 +36,21 @@ interface ErrorResponse {
 
 const DEFAULT_MAX_PRESENCE_TTL_MS = 5 * 60_000;
 
-export function resolveMeshFrontDoorAuth(request: Request, env: MeshFrontDoorEnv): MeshFrontDoorAuth | undefined {
+export async function resolveMeshFrontDoorAuth(request: Request, env: MeshFrontDoorEnv): Promise<MeshFrontDoorAuth | undefined> {
   const sharedToken = env.OPENSCOUT_MESH_SHARED_TOKEN?.trim();
   const authorization = request.headers.get("authorization")?.trim();
   if (sharedToken && authorization === `Bearer ${sharedToken}`) {
     const owner = env.OPENSCOUT_MESH_SHARED_OWNER?.trim() || "openscout-shared";
     return { key: `shared:${owner}`, label: owner, kind: "shared_token" };
+  }
+
+  const session = await readOpenScoutSessionFromRequest(request, env);
+  if (session) {
+    return {
+      key: `github:${session.providerUserId}`,
+      label: session.email,
+      kind: "github_user",
+    };
   }
 
   const accessEmail = request.headers.get("cf-access-authenticated-user-email")?.trim().toLowerCase();
@@ -94,6 +105,8 @@ export async function handleRendezvousRequest(
     const meshId = readMeshId(url);
     const allowed = assertAllowedMeshId(meshId, env);
     if (allowed) return allowed;
+    const authorized = await assertAuthorizedMeshMembership(auth, meshId, env);
+    if (authorized) return authorized;
     const nodes = await listActiveNodes(store, presenceKeyPrefix(auth.key, meshId));
     const payload: OpenScoutMeshRendezvousList = {
       v: OPENSCOUT_MESH_PROTOCOL_VERSION,
@@ -108,6 +121,8 @@ export async function handleRendezvousRequest(
     const meshId = readMeshId(url);
     const allowed = assertAllowedMeshId(meshId, env);
     if (allowed) return allowed;
+    const authorized = await assertAuthorizedMeshMembership(auth, meshId, env);
+    if (authorized) return authorized;
     const nodeId = decodeURIComponent(nodeMatch[1] ?? "");
     const record = await store.get(presenceKey(auth.key, meshId, nodeId));
     if (!record || record.expiresAt <= Date.now()) {
@@ -120,6 +135,8 @@ export async function handleRendezvousRequest(
     const meshId = readMeshId(url);
     const allowed = assertAllowedMeshId(meshId, env);
     if (allowed) return allowed;
+    const authorized = await assertAuthorizedMeshMembership(auth, meshId, env);
+    if (authorized) return authorized;
     const nodeId = decodeURIComponent(nodeMatch[1] ?? "");
     await store.delete(presenceKey(auth.key, meshId, nodeId));
     return json(200, { ok: true });
@@ -148,6 +165,8 @@ async function publishPresence(
 
   const allowed = assertAllowedMeshId(validation.presence.meshId, env);
   if (allowed) return allowed;
+  const authorized = await assertAuthorizedMeshMembership(auth, validation.presence.meshId, env);
+  if (authorized) return authorized;
 
   const now = Date.now();
   const maxTtlMs = readPositiveInteger(env.OPENSCOUT_MAX_PRESENCE_TTL_MS, DEFAULT_MAX_PRESENCE_TTL_MS);
@@ -217,6 +236,17 @@ function assertAllowedMeshId(meshId: string, env: MeshFrontDoorEnv): Response | 
     return undefined;
   }
   return json(403, { error: "mesh_not_allowed" });
+}
+
+async function assertAuthorizedMeshMembership(
+  auth: MeshFrontDoorAuth,
+  meshId: string,
+  env: MeshFrontDoorEnv,
+): Promise<Response | undefined> {
+  if (await githubUserCanAccessMesh(auth, meshId, env)) {
+    return undefined;
+  }
+  return json(403, { error: "mesh_access_denied" });
 }
 
 function readMeshId(url: URL): string {

@@ -98,8 +98,8 @@ describe("mesh front door rendezvous", () => {
     expect(disallowed.status).toBe(403);
   });
 
-  test("resolves Cloudflare Access and shared-token auth", () => {
-    const userAuth = resolveMeshFrontDoorAuth(
+  test("resolves Cloudflare Access and shared-token auth", async () => {
+    const userAuth = await resolveMeshFrontDoorAuth(
       new Request("https://mesh.openscout.app/v1/nodes", {
         headers: { "cf-access-authenticated-user-email": "Arach@Example.com" },
       }),
@@ -107,7 +107,7 @@ describe("mesh front door rendezvous", () => {
     );
     expect(userAuth).toEqual({ key: "user:arach@example.com", label: "arach@example.com", kind: "access_user" });
 
-    const tokenAuth = resolveMeshFrontDoorAuth(
+    const tokenAuth = await resolveMeshFrontDoorAuth(
       new Request("https://mesh.openscout.app/v1/nodes", {
         headers: { authorization: "Bearer secret" },
       }),

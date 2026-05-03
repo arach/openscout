@@ -76,11 +76,11 @@ struct ConnectionLED: View {
     }
 }
 
-// MARK: - Transport chip (LAN / MESH / REMOTE)
+// MARK: - Transport chip (LAN / TSN / OSN / WAN)
 
 /// Small pill showing how the iPhone is currently reaching the bridge:
-/// `LAN` (green LED) for RFC1918 private network, `MESH` (amber LED) for
-/// Tailscale CGNAT or `*.ts.net`, `REMOTE` (red LED) for anything else.
+/// `LAN` for RFC1918 private network, `TSN` for Tailscale, `OSN` for the
+/// OpenScout front door, and `WAN` for any other public route.
 /// Renders nothing when disconnected.
 struct TransportChip: View {
     @Environment(ConnectionManager.self) private var connection
@@ -90,7 +90,7 @@ struct TransportChip: View {
     private var ledColor: Color {
         switch kind {
         case .lan: return ScoutColors.ledGreen
-        case .mesh: return ScoutColors.ledAmber
+        case .tailnet, .oscout: return ScoutColors.ledAmber
         case .remote: return ScoutColors.ledRed
         case .loopback: return ScoutColors.textMuted
         case .none: return ScoutColors.textMuted

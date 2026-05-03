@@ -178,7 +178,7 @@ struct HomeView: View {
 
     // MARK: - Bridge Status Bar
 
-    /// Letters between the brackets — `LAN` / `TS` / `REMOTE` / `LOCAL` when
+    /// Letters between the brackets — `LAN` / `TSN` / `OSN` / `WAN` / `LOCAL` when
     /// connected, `…` while connecting, `OFF` when down.
     private var bridgeIndicatorLetters: String {
         if connection.state == .connected {
@@ -192,13 +192,13 @@ struct HomeView: View {
         }
     }
 
-    /// Color applied to the inner letters only — green for LAN, amber for TS,
-    /// red for REMOTE / disconnected. Brackets stay muted.
+    /// Color applied to the inner letters only — green for LAN, amber for routed
+    /// networks, red for WAN / disconnected. Brackets stay muted.
     private var bridgeIndicatorColor: Color {
         if connection.state == .connected {
             switch connection.transportKind {
             case .lan: return ScoutColors.ledGreen
-            case .mesh: return ScoutColors.ledAmber
+            case .tailnet, .oscout: return ScoutColors.ledAmber
             case .remote: return ScoutColors.ledRed
             case .loopback, .none: return ScoutColors.ledGreen
             }

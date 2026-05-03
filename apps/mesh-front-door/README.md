@@ -8,14 +8,25 @@ messages, conversations, flights, collaboration records, or replay state.
 ## Routes
 
 - `GET /health`
+- `GET /v1/auth/github/start`
+- `GET /v1/auth/github/callback`
+- `GET /v1/auth/session`
+- `POST /v1/auth/logout`
+- `GET /v1/meshes`
 - `POST /v1/presence`
 - `GET /v1/nodes?meshId=openscout`
 - `GET /v1/nodes/:nodeId?meshId=openscout`
 - `DELETE /v1/nodes/:nodeId?meshId=openscout`
 
-Cloudflare Access should protect the deployed hostname. The Worker trusts Access
-identity headers and also supports a shared bearer token for the initial node
-publisher path via `OPENSCOUT_MESH_SHARED_TOKEN`.
+The managed OSN auth path uses GitHub OAuth first. The Worker asks GitHub for
+only the `user:email` scope so it can read a verified account email, then stores
+an OpenScout-signed session cookie. GitHub access tokens are used only during
+the callback and are not stored.
+
+Cloudflare Access is still supported for internal/admin deployments, but it
+should not be the default customer auth path because Access is seat-billed. The
+Worker also supports a shared bearer token for the initial node publisher path
+via `OPENSCOUT_MESH_SHARED_TOKEN`.
 
 `OPENSCOUT_MESH_DIRECTORY_OWNER` makes this first deployment intentionally
 single-tenant: human Access requests and node publisher token requests share the
@@ -25,6 +36,24 @@ lands.
 Use Wrangler secrets for sensitive values:
 
 ```bash
+bunx wrangler secret put OPENSCOUT_GITHUB_CLIENT_ID
+bunx wrangler secret put OPENSCOUT_GITHUB_CLIENT_SECRET
+bunx wrangler secret put OPENSCOUT_SESSION_SECRET
 bunx wrangler secret put OPENSCOUT_MESH_SHARED_TOKEN
 bunx wrangler secret put OPENSCOUT_MESH_SHARED_OWNER
 ```
+
+The GitHub OAuth app callback URL should be:
+
+```text
+https://mesh.oscout.net/v1/auth/github/callback
+```
+
+For iOS, start GitHub sign-in with:
+
+```text
+https://mesh.oscout.net/v1/auth/github/start?return_to=/v1/auth/native/complete
+```
+
+GitHub still returns to the single HTTPS callback above; the Worker then returns
+the OpenScout session to the app with `openscout://osn-auth`.

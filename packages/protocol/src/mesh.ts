@@ -7,7 +7,8 @@ export const DEFAULT_OPENSCOUT_MESH_RENDEZVOUS_URL = "https://mesh.openscout.app
 export type NodeMeshEntrypoint =
   | IrohMeshEntrypoint
   | CloudflareTunnelMeshEntrypoint
-  | HttpMeshEntrypoint;
+  | HttpMeshEntrypoint
+  | MobilePairingMeshEntrypoint;
 
 export interface IrohMeshEntrypoint {
   kind: "iroh";
@@ -33,6 +34,17 @@ export interface HttpMeshEntrypoint {
   url: string;
   lastSeenAt?: number;
   expiresAt?: number;
+  metadata?: MetadataMap;
+}
+
+export interface MobilePairingMeshEntrypoint {
+  kind: "mobile_pairing";
+  relay: string;
+  fallbackRelays?: string[];
+  room: string;
+  publicKey: string;
+  expiresAt: number;
+  lastSeenAt?: number;
   metadata?: MetadataMap;
 }
 

@@ -45,4 +45,28 @@ describe("mesh entrypoint contract", () => {
       entrypoints: [entrypoint],
     });
   });
+
+  test("allows mobile pairing entrypoints for OSN discovery", () => {
+    const entrypoint: NodeMeshEntrypoint = {
+      kind: "mobile_pairing",
+      relay: "wss://relay.oscout.net",
+      fallbackRelays: ["wss://relay.tailnet.ts.net:7889"],
+      room: "room-1",
+      publicKey: "a".repeat(64),
+      expiresAt: 60_000,
+    };
+
+    expect(
+      buildUnsignedMeshPresence({
+        node: {
+          id: "node-1",
+          meshId: "mesh-1",
+          name: "MacBook Pro",
+        },
+        entrypoints: [entrypoint],
+        issuedAt: 1000,
+        ttlMs: 5000,
+      }).entrypoints[0],
+    ).toEqual(entrypoint);
+  });
 });

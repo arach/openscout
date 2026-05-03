@@ -93,6 +93,7 @@ export async function startScoutPairingSession(input: {
       payload: {
         v: 1,
         relay: pairing.relay,
+        ...(pairing.fallbackRelays?.length ? { fallbackRelays: pairing.fallbackRelays } : {}),
         room: pairing.room,
         publicKey: pairing.publicKey,
         expiresAt: pairing.expiresAt,
