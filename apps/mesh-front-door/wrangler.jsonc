@@ -3,6 +3,12 @@
   "name": "openscout-mesh-front-door",
   "main": "src/index.ts",
   "compatibility_date": "2026-05-03",
+  "routes": [
+    {
+      "pattern": "mesh.oscout.net",
+      "custom_domain": true
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {
