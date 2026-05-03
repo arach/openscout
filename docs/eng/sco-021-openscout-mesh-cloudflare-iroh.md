@@ -13,6 +13,33 @@ and web clients. For us, the work should land in phases that keep each boundary
 small: first make brokers Iroh-compatible, then add the Cloudflare front door,
 then route iOS through that front door.
 
+## Primordial Principle: Local First, Mesh Optional, Cloud Optional
+
+Scout works solo. Mesh works without cloud. Mesh works without Iroh.
+
+OpenScout must never require `oscout.net` or Iroh to be useful.
+
+The hosted front door is a convenience layer for users who want it, not a
+control-plane dependency. Iroh is a reachability transport, not a product
+boundary:
+
+- Solo mode must operate with zero `oscout.net` contact.
+- Mesh mode must operate with zero `oscout.net` contact.
+- Mesh mode must operate with zero Iroh support.
+- When a plan includes `oscout.net` rendezvous, the link must still be
+  definitively toggleable on and off.
+- When Iroh is available, it should improve NAT-friendly peer reachability, not
+  become the only peer transport.
+
+Practically, the local broker and mesh peers remain the authority. `oscout.net`
+may store short-lived directory presence for easier discovery, but it must not
+store broker replay state, conversations, messages, flights, or agent authority.
+If the hosted front door is disabled, blocked, expired, or unavailable, users
+should keep solo Scout and peer mesh behavior through local HTTP, Tailscale,
+manual seed URLs, Cloudflare Tunnel fallback, or any other reachable broker
+entrypoint. If Iroh is disabled, missing, or unavailable, those same non-Iroh
+paths must remain valid.
+
 ## Goal
 
 OpenScout Mesh should give users a batteries-included private agent mesh. The
@@ -84,6 +111,13 @@ Cloudflare handles in phase 2:
 - a stable rendezvous URL
 - short-lived node presence records
 - optional Cloudflare Tunnel fallback for low-volume broker control traffic
+
+Cloudflare does not handle:
+
+- required solo startup
+- required peer mesh startup
+- durable broker state
+- forced publication when the user or operator has toggled it off
 
 The iOS app handles in phase 3:
 
@@ -289,7 +323,10 @@ Responsibilities after the first slice:
 
 - Cloudflare does not store conversations, flights, messages, collaboration
   records, or replay state.
+- Solo mode and mesh mode cannot depend on `oscout.net` availability.
+- Mesh mode cannot depend on Iroh availability.
 - Iroh does not replace Scout agent identity or broker authority.
+- Iroh is not the only valid mesh transport.
 - iOS does not embed Iroh in these phases.
 - The first implementation does not operate a custom Iroh relay fleet.
 - Phase 1 does not require Cloudflare.
@@ -310,3 +347,10 @@ Responsibilities after the first slice:
 - Do not block the first mesh entrypoint on mobile wake. The first iPhone path
   should discover reachable nodes and clearly show offline/unreachable nodes.
   Push/wake can become the second reliability slice.
+- Keep `oscout.net` rendezvous opt-in and explicitly disableable. In runtime
+  terms, no `OPENSCOUT_MESH_RENDEZVOUS_URL` means no hosted publication, and
+  `OPENSCOUT_MESH_RENDEZVOUS_URL=false` or `0` is an explicit off switch.
+- Keep Iroh optional. It should be the preferred batteries-included peer
+  transport when enabled, but broker mesh routing must stay transport-pluggable
+  across HTTP/Tailscale/manual seeds, Cloudflare Tunnel fallback, and future
+  transports.
