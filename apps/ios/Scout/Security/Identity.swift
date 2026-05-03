@@ -39,6 +39,7 @@ final class ScoutIdentity: Sendable {
     private static let service = "com.openscout.scout.identity"
     private static let staticKeyAccount = "static-key-private"
     private static let trustedBridgesAccount = "trusted-bridges"
+    private static let osnSessionAccount = "osn-session"
 
     // MARK: - Static key pair
 
@@ -76,6 +77,27 @@ final class ScoutIdentity: Sendable {
     /// Delete the static key pair from Keychain (for testing or key rotation).
     static func deleteIdentity() throws {
         try keychainDelete(service: service, account: staticKeyAccount)
+    }
+
+    // MARK: - OpenScout Network session
+
+    static func saveOSNSessionToken(_ token: String) throws {
+        guard let tokenData = token.trimmedNonEmpty?.data(using: .utf8) else {
+            try deleteOSNSessionToken()
+            return
+        }
+        try keychainSave(service: service, account: osnSessionAccount, data: tokenData)
+    }
+
+    static func loadOSNSessionToken() throws -> String? {
+        guard let data = try keychainLoad(service: service, account: osnSessionAccount) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)?.trimmedNonEmpty
+    }
+
+    static func deleteOSNSessionToken() throws {
+        try keychainDelete(service: service, account: osnSessionAccount)
     }
 
     // MARK: - Trusted bridges

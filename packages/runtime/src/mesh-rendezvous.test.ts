@@ -8,8 +8,10 @@ import {
 
 import {
   buildMeshRendezvousPresence,
+  mobilePairingMeshEntrypointFromSnapshot,
   publishMeshRendezvousPresence,
   resolveMeshRendezvousPublishConfig,
+  startMeshRendezvousPublisher,
 } from "./mesh-rendezvous.js";
 
 describe("mesh rendezvous publisher", () => {
@@ -47,6 +49,41 @@ describe("mesh rendezvous publisher", () => {
     expect(presence?.entrypoints.map((entrypoint) => entrypoint.kind)).toEqual(["iroh", "http"]);
   });
 
+  test("extracts live mobile pairing entrypoint from pairing runtime snapshot", () => {
+    expect(mobilePairingMeshEntrypointFromSnapshot({
+      updatedAt: 12_000,
+      pairing: {
+        relay: "wss://relay.oscout.net",
+        room: "room-1",
+        publicKey: "a".repeat(64),
+        expiresAt: 70_000,
+        qrValue: JSON.stringify({
+          fallbackRelays: ["wss://relay.tailnet.ts.net:7889"],
+        }),
+      },
+    }, 10_000)).toEqual({
+      kind: "mobile_pairing",
+      relay: "wss://relay.oscout.net",
+      fallbackRelays: ["wss://relay.tailnet.ts.net:7889"],
+      room: "room-1",
+      publicKey: "a".repeat(64),
+      expiresAt: 70_000,
+      lastSeenAt: 12_000,
+      metadata: {
+        source: "openscout-pairing-runtime",
+      },
+    });
+
+    expect(mobilePairingMeshEntrypointFromSnapshot({
+      pairing: {
+        relay: "wss://relay.oscout.net",
+        room: "room-1",
+        publicKey: "a".repeat(64),
+        expiresAt: 9_999,
+      },
+    }, 10_000)).toBeUndefined();
+  });
+
   test("publishes signed-in-directory presence to the configured front door", async () => {
     const requests: Request[] = [];
     const ok = await publishMeshRendezvousPresence(makeNode(), {
@@ -69,13 +106,39 @@ describe("mesh rendezvous publisher", () => {
     const payload = await requests[0]!.json();
     expect(payload.nodeId).toBe("node-a");
   });
+
+  test("publisher resolves dynamic node source on each publish", async () => {
+    const requests: Request[] = [];
+    let name = "Node A";
+    const publisher = startMeshRendezvousPublisher(() => makeNode({ name }), {
+      config: {
+        url: "https://mesh.oscout.net",
+        token: "secret",
+        ttlMs: 60_000,
+        intervalMs: 60_000,
+      },
+      fetch: async (input, init) => {
+        requests.push(new Request(input, init));
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    });
+
+    await publisher.publishNow();
+    name = "Node B";
+    await publisher.publishNow();
+    publisher.stop();
+
+    expect(requests).toHaveLength(2);
+    await expect(requests[0]!.json()).resolves.toMatchObject({ nodeName: "Node A" });
+    await expect(requests[1]!.json()).resolves.toMatchObject({ nodeName: "Node B" });
+  });
 });
 
 function makeNode(input: Partial<NodeDefinition> = {}): NodeDefinition {
   return {
     id: "node-a",
     meshId: "openscout",
-    name: "Node A",
+    name: input.name ?? "Node A",
     advertiseScope: "mesh",
     registeredAt: 1,
     lastSeenAt: 2,

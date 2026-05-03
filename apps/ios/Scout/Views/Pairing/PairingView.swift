@@ -10,7 +10,11 @@ struct PairingView: View {
     @Environment(SessionStore.self) private var store
     @Environment(ConnectionManager.self) private var connection
 
+    @AppStorage("scout.tsn.enabled") private var tsnEnabled = true
+    @AppStorage("scout.osn.enabled") private var osnEnabled = false
+
     @State private var showingScanner = false
+    @State private var showingOSNDiscovery = false
     @State private var pairingState: PairingState = .idle
     @State private var errorMessage: String?
     @State private var cameraPermission: CameraPermission = .unknown
@@ -46,6 +50,18 @@ struct PairingView: View {
         .background(ScoutColors.backgroundAdaptive)
         .fullScreenCover(isPresented: $showingScanner) {
             scannerSheet
+        }
+        .sheet(isPresented: $showingOSNDiscovery) {
+            NavigationStack {
+                OSNDiscoveryView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { showingOSNDiscovery = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .onAppear {
             checkCameraPermission()
@@ -135,6 +151,29 @@ struct PairingView: View {
             }
             .accessibilityHint("Open the camera to scan a pairing QR code from your bridge")
 
+            Button {
+                showingOSNDiscovery = true
+            } label: {
+                HStack(spacing: ScoutSpacing.md) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .font(.system(size: 17, weight: .medium))
+                    Text("Find via OSN")
+                        .font(ScoutTypography.body(15, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, ScoutSpacing.md)
+                .background(ScoutColors.surfaceRaisedAdaptive)
+                .foregroundStyle(ScoutColors.textPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous)
+                        .strokeBorder(ScoutColors.border, lineWidth: 0.5)
+                )
+            }
+            .buttonStyle(.plain)
+
+            routeModes
+
             if cameraPermission == .denied {
                 cameraPermissionWarning
             }
@@ -146,6 +185,14 @@ struct PairingView: View {
                     .multilineTextAlignment(.center)
                     .transition(.opacity)
             }
+        }
+    }
+
+    private var routeModes: some View {
+        HStack(spacing: ScoutSpacing.sm) {
+            PairingRouteToken(label: "LAN", active: true)
+            PairingRouteToken(label: "TSN", active: tsnEnabled)
+            PairingRouteToken(label: "OSN", active: osnEnabled)
         }
     }
 
@@ -362,6 +409,21 @@ struct PairingView: View {
                 break
             }
         }
+    }
+}
+
+private struct PairingRouteToken: View {
+    let label: String
+    let active: Bool
+
+    var body: some View {
+        Text(label)
+            .font(ScoutTypography.code(11, weight: .semibold))
+            .foregroundStyle(active ? ScoutColors.textPrimary : ScoutColors.textMuted)
+            .frame(minWidth: 42)
+            .padding(.vertical, ScoutSpacing.xs)
+            .background(active ? ScoutColors.textPrimary.opacity(0.08) : ScoutColors.surfaceAdaptive)
+            .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
     }
 }
 

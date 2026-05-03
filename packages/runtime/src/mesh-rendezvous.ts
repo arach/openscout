@@ -1,9 +1,14 @@
 import {
   buildUnsignedMeshPresence,
+  type MobilePairingMeshEntrypoint,
   type NodeDefinition,
   type NodeMeshEntrypoint,
   type OpenScoutMeshPresence,
 } from "@openscout/protocol";
+
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { isLoopbackHost } from "./broker-process-manager.js";
 
@@ -24,6 +29,8 @@ export interface MeshRendezvousPublisherOptions {
   fetch?: typeof fetch;
   logger?: Pick<Console, "log" | "warn">;
 }
+
+export type MeshRendezvousNodeSource = NodeDefinition | (() => NodeDefinition);
 
 const DEFAULT_RENDEZVOUS_TTL_MS = 60_000;
 const DEFAULT_RENDEZVOUS_INTERVAL_MS = 30_000;
@@ -94,15 +101,19 @@ export async function publishMeshRendezvousPresence(
 }
 
 export function startMeshRendezvousPublisher(
-  node: NodeDefinition,
+  node: MeshRendezvousNodeSource,
   options: MeshRendezvousPublisherOptions,
 ): MeshRendezvousPublisher {
   let stopped = false;
   let inFlight: Promise<void> | null = null;
 
   const publishNow = async () => {
-    if (stopped || inFlight) return;
-    inFlight = publishMeshRendezvousPresence(node, options)
+    if (stopped) return;
+    if (inFlight) {
+      await inFlight;
+      return;
+    }
+    inFlight = publishMeshRendezvousPresence(resolveNodeSource(node), options)
       .then((published) => {
         if (published) {
           options.logger?.log(`[openscout-runtime] published mesh rendezvous presence to ${options.config.url}`);
@@ -132,6 +143,58 @@ export function startMeshRendezvousPublisher(
   };
 }
 
+export function readMobilePairingMeshEntrypoint(
+  env: NodeJS.ProcessEnv = process.env,
+  now: number = Date.now(),
+): MobilePairingMeshEntrypoint | undefined {
+  const runtimeStatePath = env.OPENSCOUT_PAIRING_RUNTIME_STATE_PATH
+    ?? join(env.HOME ?? homedir(), ".scout", "pairing", "runtime.json");
+  if (!existsSync(runtimeStatePath)) {
+    return undefined;
+  }
+
+  try {
+    return mobilePairingMeshEntrypointFromSnapshot(
+      JSON.parse(readFileSync(runtimeStatePath, "utf8")),
+      now,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export function mobilePairingMeshEntrypointFromSnapshot(
+  input: unknown,
+  now: number = Date.now(),
+): MobilePairingMeshEntrypoint | undefined {
+  if (!isRecord(input)) return undefined;
+  const pairing = isRecord(input["pairing"]) ? input["pairing"] : undefined;
+  if (!pairing) return undefined;
+
+  const relay = readString(pairing["relay"]);
+  const room = readString(pairing["room"]);
+  const publicKey = readString(pairing["publicKey"]);
+  const expiresAt = readNumber(pairing["expiresAt"]);
+  if (!relay || !room || !isPublicKeyHex(publicKey) || !expiresAt || expiresAt <= now) {
+    return undefined;
+  }
+
+  const fallbackRelays = readFallbackRelays(pairing);
+  const lastSeenAt = readNumber(input["updatedAt"]);
+  return {
+    kind: "mobile_pairing",
+    relay,
+    ...(fallbackRelays.length > 0 ? { fallbackRelays } : {}),
+    room,
+    publicKey,
+    expiresAt,
+    ...(lastSeenAt ? { lastSeenAt } : {}),
+    metadata: {
+      source: "openscout-pairing-runtime",
+    },
+  };
+}
+
 function reachableEntrypointsForNode(node: NodeDefinition): NodeMeshEntrypoint[] {
   const entrypoints = [...(node.meshEntrypoints ?? [])];
   if (node.brokerUrl && isReachableHttpUrl(node.brokerUrl)) {
@@ -142,6 +205,10 @@ function reachableEntrypointsForNode(node: NodeDefinition): NodeMeshEntrypoint[]
     });
   }
   return entrypoints;
+}
+
+function resolveNodeSource(source: MeshRendezvousNodeSource): NodeDefinition {
+  return typeof source === "function" ? source() : source;
 }
 
 function isReachableHttpUrl(value: string): boolean {
@@ -156,4 +223,45 @@ function isReachableHttpUrl(value: string): boolean {
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readFallbackRelays(pairing: Record<string, unknown>): string[] {
+  const direct = readStringArray(pairing["fallbackRelays"]);
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  const qrValue = readString(pairing["qrValue"]);
+  if (!qrValue) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(qrValue);
+    return isRecord(parsed) ? readStringArray(parsed["fallbackRelays"]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map(readString).filter((entry): entry is string => Boolean(entry))
+    : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPublicKeyHex(value: string | undefined): value is string {
+  return Boolean(value && /^[0-9a-fA-F]{64}$/.test(value));
 }

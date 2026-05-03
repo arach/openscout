@@ -5,6 +5,8 @@ import {
   type MeshFrontDoorEnv,
   type MeshPresenceStore,
 } from "./rendezvous.js";
+import { handleOpenScoutAuthRequest } from "./auth.js";
+import { handleMeshMembershipRequest, type D1Database } from "./memberships.js";
 import type { OpenScoutMeshPresenceRecord } from "@openscout/protocol";
 
 interface DurableObjectNamespace {
@@ -31,6 +33,7 @@ interface DurableObjectStorage {
 
 export interface Env extends MeshFrontDoorEnv {
   MESH_DIRECTORY: DurableObjectNamespace;
+  OSN_DB?: D1Database;
 }
 
 export default {
@@ -43,10 +46,16 @@ export default {
       });
     }
 
-    const auth = resolveMeshFrontDoorAuth(request, env);
+    const authResponse = await handleOpenScoutAuthRequest(request, env);
+    if (authResponse) return authResponse;
+
+    const auth = await resolveMeshFrontDoorAuth(request, env);
     if (!auth) {
       return json(401, { error: "unauthorized" });
     }
+
+    const membershipResponse = await handleMeshMembershipRequest(request, auth, env);
+    if (membershipResponse) return membershipResponse;
 
     const ownerKey = resolveMeshDirectoryOwnerKey(auth, env);
     const objectId = env.MESH_DIRECTORY.idFromName(ownerKey);
@@ -76,7 +85,7 @@ export class MeshDirectoryDurableObject {
   async fetch(request: Request): Promise<Response> {
     const auth = {
       key: request.headers.get("x-openscout-owner-key") ?? "unknown",
-      kind: (request.headers.get("x-openscout-auth-kind") ?? "dev") as "access_user" | "access_service" | "shared_token" | "dev",
+      kind: (request.headers.get("x-openscout-auth-kind") ?? "dev") as "github_user" | "access_user" | "access_service" | "shared_token" | "dev",
       label: request.headers.get("x-openscout-auth-label") ?? "unknown",
     };
     return handleRendezvousRequest(this.store, request, auth, this.env);

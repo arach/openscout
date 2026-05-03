@@ -176,6 +176,7 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
       relay: activeRelayUrl,
       pairing: {
         relay: payload.relay,
+        ...(payload.fallbackRelays?.length ? { fallbackRelays: payload.fallbackRelays } : {}),
         room: payload.room,
         publicKey: payload.publicKey,
         expiresAt: payload.expiresAt,

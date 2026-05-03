@@ -17,6 +17,13 @@
       }
     ]
   },
+  "d1_databases": [
+    {
+      "binding": "OSN_DB",
+      "database_name": "openscout-osn",
+      "database_id": "0b9b6f43-7358-4101-8b56-19873005224b"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -25,6 +32,10 @@
   ],
   "vars": {
     "OPENSCOUT_ALLOWED_MESH_IDS": "openscout",
+    "OPENSCOUT_BOOTSTRAP_FIRST_GITHUB_USER": "0",
+    "OPENSCOUT_BOOTSTRAP_MESH_ID": "openscout",
+    "OPENSCOUT_BOOTSTRAP_MESH_NAME": "OpenScout",
+    "OPENSCOUT_GITHUB_REDIRECT_URI": "https://mesh.oscout.net/v1/auth/github/callback",
     "OPENSCOUT_MESH_DIRECTORY_OWNER": "default",
     "OPENSCOUT_MAX_PRESENCE_TTL_MS": "300000"
   }

@@ -62,6 +62,7 @@ export type ScoutPairingPaths = {
 
 export type ScoutPairingSnapshot = {
   relay: string;
+  fallbackRelays?: string[];
   room: string;
   publicKey: string;
   expiresAt: number;

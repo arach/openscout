@@ -11,12 +11,17 @@ struct SettingsView: View {
     @ObservedObject private var logStore = LogStore.shared
 
     @AppStorage("scoutAppearance") private var appearanceMode: String = "system"
+    @AppStorage("scout.tsn.enabled") private var tsnEnabled = true
+    @AppStorage("scout.osn.enabled") private var osnEnabled = false
+    @AppStorage("scout.osn.meshId") private var osnMeshId = MeshRendezvousConfiguration.defaultMeshId
     @State private var showingLogs = false
+    @State private var showingOSNDiscovery = false
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: ScoutSpacing.xl) {
                 connectionSection
+                networkSection
                 voiceSection
                 appearanceSection
                 aboutSection
@@ -33,6 +38,20 @@ struct SettingsView: View {
                 LogView()
                     .navigationTitle("Logs")
                     .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingOSNDiscovery) {
+            NavigationStack {
+                OSNDiscoveryView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") {
+                                showingOSNDiscovery = false
+                            }
+                        }
+                    }
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -90,6 +109,54 @@ struct SettingsView: View {
                     connection.clearTrustedBridge()
                 }
             }
+        }
+    }
+
+    // MARK: - Network
+
+    private var networkSection: some View {
+        SettingsSectionCard(title: "Network", icon: "point.3.connected.trianglepath.dotted") {
+            SettingsRow(icon: "house", iconColor: ScoutColors.textMuted, label: "Local") {
+                Text("Always")
+                    .foregroundStyle(ScoutColors.textSecondary)
+            }
+
+            SettingsRow(icon: "point.3.connected.trianglepath.dotted", iconColor: ScoutColors.textMuted, label: "TSN") {
+                Toggle("", isOn: $tsnEnabled)
+                    .labelsHidden()
+                    .tint(ScoutColors.accent)
+            }
+
+            SettingsRow(icon: "cloud", iconColor: ScoutColors.textMuted, label: "OSN") {
+                Toggle("", isOn: $osnEnabled)
+                    .labelsHidden()
+                    .tint(ScoutColors.accent)
+            }
+
+            SettingsRow(icon: "person.2.badge.key", iconColor: ScoutColors.textMuted, label: "Mesh") {
+                Text(osnMeshId)
+                    .font(ScoutTypography.code(12, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            if connection.transportKind != .none {
+                SettingsRow(icon: "arrow.triangle.branch", iconColor: ScoutColors.textMuted, label: "Current") {
+                    Text(connection.transportKind.label)
+                        .font(ScoutTypography.code(12, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textSecondary)
+                }
+            }
+
+            SettingsButton(icon: "list.bullet.rectangle", label: "Mesh Nodes", role: .regular) {
+                showingOSNDiscovery = true
+            } trailing: {
+                Text(osnAccessLabel)
+                    .foregroundStyle(ScoutColors.textSecondary)
+            }
+        } footer: {
+            "Local is always available. TSN and OSN are independent remote routes."
         }
     }
 
@@ -230,10 +297,17 @@ struct SettingsView: View {
     private var transportLEDColor: Color {
         switch connection.transportKind {
         case .lan: return ScoutColors.ledGreen
-        case .mesh: return ScoutColors.ledAmber
+        case .tailnet, .oscout: return ScoutColors.ledAmber
         case .remote: return ScoutColors.ledRed
         case .loopback, .none: return ScoutColors.textMuted
         }
+    }
+
+    private var osnAccessLabel: String {
+        if (try? ScoutIdentity.loadOSNSessionToken()) != nil {
+            return "Open"
+        }
+        return "Sign In"
     }
 }
 
@@ -340,9 +414,11 @@ private struct SettingsNavRow<Trailing: View, Destination: View>: View {
                 trailing
                     .font(ScoutTypography.body(14))
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ScoutColors.textMuted)
+                if trailing != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textMuted)
+                }
             }
             .padding(.vertical, ScoutSpacing.xs)
         }
@@ -357,6 +433,29 @@ private struct SettingsButton: View {
     let label: String
     let role: Role
     let action: () -> Void
+    let trailing: AnyView?
+
+    init(icon: String, label: String, role: Role, action: @escaping () -> Void) {
+        self.icon = icon
+        self.label = label
+        self.role = role
+        self.action = action
+        self.trailing = nil
+    }
+
+    init<Trailing: View>(
+        icon: String,
+        label: String,
+        role: Role,
+        action: @escaping () -> Void,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.icon = icon
+        self.label = label
+        self.role = role
+        self.action = action
+        self.trailing = AnyView(trailing())
+    }
 
     var body: some View {
         Button(action: action) {
@@ -371,6 +470,15 @@ private struct SettingsButton: View {
                     .foregroundStyle(ScoutColors.textPrimary)
 
                 Spacer()
+
+                if let trailing {
+                    trailing
+                        .font(ScoutTypography.body(14))
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
             }
             .padding(.vertical, ScoutSpacing.xs)
             .contentShape(Rectangle())

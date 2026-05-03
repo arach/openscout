@@ -14,6 +14,7 @@ export type PairingRuntimeStatus =
 
 export type PairingSnapshot = {
   relay: string;
+  fallbackRelays?: string[];
   room: string;
   publicKey: string;
   expiresAt: number;

@@ -131,6 +131,7 @@ import {
   resolveRepoEntrypoint,
 } from "./tool-resolution.js";
 import {
+  readMobilePairingMeshEntrypoint,
   resolveMeshRendezvousPublishConfig,
   startMeshRendezvousPublisher,
   type MeshRendezvousPublisher,
@@ -501,6 +502,23 @@ async function discoverPeers(seeds: string[] = []): Promise<{
 
 function currentLocalNode(): NodeDefinition {
   return runtime.node(nodeId) ?? localNode;
+}
+
+function currentRendezvousNode(): NodeDefinition {
+  const node = currentLocalNode();
+  const mobilePairingEntrypoint = readMobilePairingMeshEntrypoint();
+  if (!mobilePairingEntrypoint) {
+    return node;
+  }
+
+  return {
+    ...node,
+    meshEntrypoints: [
+      ...(node.meshEntrypoints ?? []).filter((entrypoint) => entrypoint.kind !== "mobile_pairing"),
+      mobilePairingEntrypoint,
+    ],
+    lastSeenAt: Date.now(),
+  };
 }
 
 function normalizeJournalEntries(
@@ -5286,7 +5304,7 @@ try {
   peerDelivery.start();
   const meshRendezvousConfig = resolveMeshRendezvousPublishConfig();
   if (meshRendezvousConfig) {
-    meshRendezvousPublisher = startMeshRendezvousPublisher(localNode, {
+    meshRendezvousPublisher = startMeshRendezvousPublisher(currentRendezvousNode, {
       config: meshRendezvousConfig,
       logger: console,
     });
