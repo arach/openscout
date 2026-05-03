@@ -133,6 +133,12 @@ bun scripts/mesh-iroh-smoke.mjs import-node --file peer-node.json
 
 # Confirm both local and peer records include kind: "iroh" entrypoints:
 bun scripts/mesh-iroh-smoke.mjs inspect
+
+# Send a real authority-forwarded broker message through the peer node record:
+bun scripts/mesh-iroh-smoke.mjs send-message --peer-node-id <peer-node-id>
+
+# On the peer, verify that the authority received the message:
+bun scripts/mesh-iroh-smoke.mjs check-message --conversation-id <conversation-id>
 ```
 
 Until phase 2 adds Cloudflare rendezvous, exchanging `node.json` manually is the

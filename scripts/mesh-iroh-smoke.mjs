@@ -23,6 +23,8 @@ Usage:
   bun scripts/mesh-iroh-smoke.mjs inspect [--broker-url URL]
   bun scripts/mesh-iroh-smoke.mjs export-node [--broker-url URL] [--out FILE]
   bun scripts/mesh-iroh-smoke.mjs import-node --file FILE [--broker-url URL]
+  bun scripts/mesh-iroh-smoke.mjs send-message [--broker-url URL] [--peer-node-id ID] [--body TEXT]
+  bun scripts/mesh-iroh-smoke.mjs check-message --conversation-id ID [--broker-url URL]
 
 Two-machine loop before Cloudflare:
   1. On both machines: bun scripts/mesh-iroh-smoke.mjs build-bridge
@@ -31,6 +33,8 @@ Two-machine loop before Cloudflare:
   4. Copy each node.json to the other machine.
   5. On each machine: bun scripts/mesh-iroh-smoke.mjs import-node --file peer-node.json
   6. Run inspect on both machines and verify both nodes have iroh entrypoints.
+  7. From one machine: bun scripts/mesh-iroh-smoke.mjs send-message --peer-node-id PEER_ID
+  8. On the peer: bun scripts/mesh-iroh-smoke.mjs check-message --conversation-id CONVERSATION_ID
 `);
   process.exit(exitCode);
 }
@@ -188,6 +192,110 @@ async function importNode(options) {
   console.log(`Imported ${node.name} (${result.nodeId ?? node.id}) into ${brokerUrl}`);
 }
 
+function createId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function pickPeerNode(localNode, nodes, explicitPeerNodeId) {
+  if (explicitPeerNodeId) {
+    const peer = nodes[explicitPeerNodeId];
+    if (!peer) {
+      throw new Error(`unknown peer node ${explicitPeerNodeId}`);
+    }
+    return peer;
+  }
+
+  const peers = Object.values(nodes).filter((node) => node.id !== localNode.id);
+  const irohPeer = peers.find((node) => irohEntrypoints(node).length > 0);
+  const peer = irohPeer ?? peers[0];
+  if (!peer) {
+    throw new Error("no peer nodes are known; import a peer node first");
+  }
+  return peer;
+}
+
+async function sendMessage(options) {
+  const brokerUrl = brokerUrlFrom(options);
+  const localNode = await getJson(`${brokerUrl}/v1/node`);
+  const nodes = await getJson(`${brokerUrl}/v1/mesh/nodes`);
+  const peer = pickPeerNode(localNode, nodes, options["peer-node-id"]);
+  const agentId = options["actor-id"] ?? `mesh-smoke-${localNode.id}`;
+  const conversationId = options["conversation-id"] ?? `channel.mesh-smoke.${localNode.id}.${peer.id}`;
+  const messageId = options["message-id"] ?? createId("msg-mesh-smoke");
+  const now = Date.now();
+
+  await postJson(`${brokerUrl}/v1/agents`, {
+    id: agentId,
+    kind: "agent",
+    definitionId: agentId,
+    displayName: `Mesh Smoke ${localNode.name}`,
+    handle: agentId,
+    labels: ["mesh-smoke"],
+    selector: `@${agentId}`,
+    defaultSelector: `@${agentId}`,
+    metadata: { source: "mesh-iroh-smoke" },
+    agentClass: "general",
+    capabilities: ["chat"],
+    wakePolicy: "on_demand",
+    homeNodeId: localNode.id,
+    authorityNodeId: localNode.id,
+    advertiseScope: "mesh",
+  });
+
+  await postJson(`${brokerUrl}/v1/conversations`, {
+    id: conversationId,
+    kind: "channel",
+    title: "OpenScout Mesh Smoke",
+    visibility: "workspace",
+    shareMode: "shared",
+    authorityNodeId: peer.id,
+    participantIds: [agentId],
+    metadata: {
+      surface: "mesh-iroh-smoke",
+      peerNodeId: peer.id,
+    },
+  });
+
+  const result = await postJson(`${brokerUrl}/v1/messages`, {
+    id: messageId,
+    conversationId,
+    actorId: agentId,
+    originNodeId: localNode.id,
+    class: "agent",
+    body: options.body ?? `mesh smoke from ${localNode.name} to ${peer.name} at ${new Date(now).toISOString()}`,
+    visibility: "workspace",
+    policy: "durable",
+    createdAt: now,
+    metadata: {
+      source: "mesh-iroh-smoke",
+      peerNodeId: peer.id,
+    },
+  });
+
+  console.log(`Sent ${messageId} from ${localNode.name} to authority ${peer.name}`);
+  console.log(`Conversation: ${conversationId}`);
+  console.log(`Peer:         ${peer.id}`);
+  if (result.mesh) {
+    console.log(`Mesh result:  ${JSON.stringify(result.mesh)}`);
+  }
+  console.log("");
+  console.log("On the peer, run:");
+  console.log(`  bun scripts/mesh-iroh-smoke.mjs check-message --conversation-id ${conversationId}`);
+}
+
+async function checkMessage(options) {
+  if (!options["conversation-id"]) {
+    throw new Error("check-message requires --conversation-id ID");
+  }
+  const brokerUrl = brokerUrlFrom(options);
+  const conversationId = options["conversation-id"];
+  const messages = await getJson(`${brokerUrl}/v1/messages?conversationId=${encodeURIComponent(conversationId)}`);
+  console.log(`Messages for ${conversationId}: ${messages.length}`);
+  for (const message of messages) {
+    console.log(`- ${message.id} ${message.actorId}: ${message.body}`);
+  }
+}
+
 async function main() {
   if (!command || command === "--help" || command === "-h") {
     usage(0);
@@ -209,6 +317,12 @@ async function main() {
       break;
     case "import-node":
       await importNode(options);
+      break;
+    case "send-message":
+      await sendMessage(options);
+      break;
+    case "check-message":
+      await checkMessage(options);
       break;
     default:
       console.error(`Unknown command: ${command}`);
