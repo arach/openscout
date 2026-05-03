@@ -87,8 +87,6 @@ export function renderScoutDoctorTailAfterStream(report: ScoutDoctorReport): str
     "",
     ...renderLocalEdgeDoctor(report.localEdge),
     "",
-    ...renderClaudePermissionHook(report.claudePermissionHook),
-    "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
 
@@ -199,20 +197,6 @@ function renderLocalEdgeDoctor(edge: ScoutLocalEdgeDoctorReport): string[] {
   return lines;
 }
 
-function renderClaudePermissionHook(report: ScoutDoctorReport["claudePermissionHook"] | ScoutSetupReport["claudePermissionHook"]): string[] {
-  const lines = [
-    "Claude permission cockpit:",
-    `  State: ${report.state}`,
-    `  Detail: ${report.detail}`,
-    `  Settings: ${report.settingsPath}`,
-    `  Hook: ${report.hookPath}`,
-  ];
-  if (report.state !== "installed") {
-    lines.push("  Repair: scout setup");
-  }
-  return lines;
-}
-
 export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
   const roots = report.setup.settings.discovery.workspaceRoots;
   const lines = [
@@ -261,8 +245,6 @@ export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
     "",
     ...renderLocalEdgeDoctor(report.localEdge),
     "",
-    ...renderClaudePermissionHook(report.claudePermissionHook),
-    "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
 
@@ -307,7 +289,6 @@ export function renderScoutSetupReport(report: ScoutSetupReport): string {
   }
 
   lines.push("", ...renderLocalEdgeDependencyReport(report.localEdge));
-  lines.push("", ...renderClaudePermissionHook(report.claudePermissionHook));
 
   lines.push("", "Harnesses:");
   for (const entry of report.catalog.entries) {

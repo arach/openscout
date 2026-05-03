@@ -1,7 +1,7 @@
 import "./fleet-home.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, ExternalLink, RefreshCw, Settings, X } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -16,8 +16,6 @@ import type {
   FleetAsk,
   FleetAttentionItem,
   FleetState,
-  OperatorAttentionItem,
-  OperatorAttentionState,
   Route,
   SessionEntry,
 } from "../lib/types.ts";
@@ -140,7 +138,6 @@ export function HomeScreen({
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
-  const [attention, setAttention] = useState<OperatorAttentionState | null>(null);
   const [heartrate, setHeartrate] = useState<HeartrateBucketView[]>([]);
   const [heartrateWindow, setHeartrateWindow] = useState("trailing 7d");
   const [heartrateBucketLabel, setHeartrateBucketLabel] = useState("3h buckets");
@@ -168,12 +165,11 @@ export function HomeScreen({
       setRefreshing(true);
     }
 
-    const [activityResult, sessionsResult, fleetResult, attentionResult, heartrateResult, agentsResult] =
+    const [activityResult, sessionsResult, fleetResult, heartrateResult, agentsResult] =
       await Promise.allSettled([
         api<ActivityItem[]>("/api/activity"),
         api<SessionEntry[]>("/api/sessions"),
         api<FleetState>("/api/fleet"),
-        api<OperatorAttentionState>("/api/operator-attention"),
         api<{
           windowLabel: string;
           bucketLabel?: string;
@@ -196,9 +192,6 @@ export function HomeScreen({
       fleetRef.current = fleetResult.value;
       setFleet(fleetResult.value);
     }
-    if (attentionResult.status === "fulfilled") {
-      setAttention(attentionResult.value);
-    }
     if (heartrateResult.status === "fulfilled") {
       setHeartrate(heartrateResult.value.buckets);
       setHeartrateWindow(heartrateResult.value.windowLabel);
@@ -209,7 +202,6 @@ export function HomeScreen({
       settledError(activityResult),
       settledError(sessionsResult),
       settledError(fleetResult),
-      settledError(attentionResult),
       settledError(heartrateResult),
       settledError(agentsResult),
     ].filter((message): message is string => Boolean(message));
@@ -287,7 +279,7 @@ export function HomeScreen({
 
   const needsYouAsks = useMemo(
     () =>
-      [...(fleet?.activeAsks ?? []), ...(fleet?.recentCompleted ?? [])].filter(
+      (fleet?.activeAsks ?? []).filter(
         (a) => a.status === "needs_attention" || a.status === "failed",
       ),
     [fleet],
@@ -319,16 +311,13 @@ export function HomeScreen({
   );
 
   const totalNeedsYou = needsYouAsks.length + needsYouItems.length;
-  const attentionItems = attention?.items ?? [];
-  const totalOperatorQueue = attention?.totals.all ?? totalNeedsYou;
   const oldestNeedsTs = useMemo(() => {
     const stamps = [
       ...needsYouAsks.map((a) => a.updatedAt),
       ...needsYouItems.map((w) => w.updatedAt),
-      ...attentionItems.map((item) => item.updatedAt),
     ];
     return stamps.length > 0 ? Math.min(...stamps) : null;
-  }, [attentionItems, needsYouAsks, needsYouItems]);
+  }, [needsYouAsks, needsYouItems]);
 
   const activityPreview = useMemo(() => homeActivitySignals(activity), [activity]);
   const activityPreviewLabel = activityPreview.length === 0
@@ -348,14 +337,14 @@ export function HomeScreen({
       parts.push(`${active.length} agent${active.length === 1 ? " is" : "s are"} working now`);
     if (waiting.length > 0)
       parts.push(`${waiting.length} agent${waiting.length === 1 ? " is" : "s are"} available`);
-    if (totalOperatorQueue > 0)
-      parts.push(`${totalOperatorQueue} thing${totalOperatorQueue === 1 ? "" : "s"} need${totalOperatorQueue === 1 ? "s" : ""} you`);
+    if (totalNeedsYou > 0)
+      parts.push(`${totalNeedsYou} thing${totalNeedsYou === 1 ? "" : "s"} need${totalNeedsYou === 1 ? "s" : ""} you`);
     if (parts.length === 0 && agents.length > 0)
       parts.push(`${agents.length} agent${agents.length === 1 ? " is" : "s are"} registered`);
     if (parts.length === 0)
       parts.push("no agents are connected yet");
     return parts;
-  }, [active, waiting, totalOperatorQueue, agents]);
+  }, [active, waiting, totalNeedsYou, agents]);
   const syncLabel = loading
     ? "syncing"
     : error
@@ -400,7 +389,7 @@ export function HomeScreen({
               .
             </p>
             <div className="s-hero-actions">
-              {totalOperatorQueue > 0 && (
+              {totalNeedsYou > 0 && (
                 <button
                   className="s-btn-fleet s-btn-fleet--primary"
                   onClick={() => {
@@ -408,7 +397,7 @@ export function HomeScreen({
                     target?.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                 >
-                  Clear queue · {totalOperatorQueue}
+                  Clear queue · {totalNeedsYou}
                 </button>
               )}
               {opsEnabled && (
@@ -462,9 +451,9 @@ export function HomeScreen({
         {/* ── Needs you ──────────────────────────────────────────── */}
         <div className="s-fleet-section" id="home-needs-you">
           <SectionRule
-            label={`Needs you · ${totalOperatorQueue}`}
+            label={`Needs you · ${totalNeedsYou}`}
             right={
-              totalOperatorQueue > 0 && oldestNeedsTs !== null ? (
+              totalNeedsYou > 0 && oldestNeedsTs !== null ? (
                 <span style={{ color: "var(--amber)" }}>
                   oldest {timeAgo(oldestNeedsTs)}
                 </span>
@@ -474,13 +463,7 @@ export function HomeScreen({
             }
           />
 
-          {attentionItems.length > 0 ? (
-            <OperatorAttentionQueue
-              items={attentionItems}
-              navigate={navigate}
-              onResolved={(next) => setAttention(next)}
-            />
-          ) : needsYouAsks.length > 0 && (
+          {needsYouAsks.length > 0 && (
             <div className="s-ask-grid">
               {needsYouAsks.slice(0, 4).map((ask) => (
                 <AskBlock
@@ -495,7 +478,7 @@ export function HomeScreen({
             </div>
           )}
 
-          {attentionItems.length === 0 && needsYouItems.length > 0 && (
+          {needsYouItems.length > 0 && (
             <div className="s-attention-list">
               {needsYouItems.map((item) => (
                 <AttentionRow
@@ -507,7 +490,7 @@ export function HomeScreen({
             </div>
           )}
 
-          {totalOperatorQueue === 0 && (
+          {totalNeedsYou === 0 && (
             <FleetClearState
               agents={agents}
               activeCount={active.length}
@@ -845,194 +828,6 @@ function FleetMetric({
       <span className="s-fleet-metric-dot" style={{ background: color }} />
       <span className="s-eyebrow">{label}</span>
       <span className="s-fleet-metric-value">{value}</span>
-    </div>
-  );
-}
-
-function OperatorAttentionQueue({
-  items,
-  navigate,
-  onResolved,
-}: {
-  items: OperatorAttentionItem[];
-  navigate: (r: Route) => void;
-  onResolved: (next: OperatorAttentionState) => void;
-}) {
-  return (
-    <div className="s-operator-queue">
-      <div className="s-operator-queue-head">
-        <div>
-          <div className="s-operator-queue-title">Operator queue</div>
-          <div className="s-operator-queue-subtitle">
-            Permissions, questions, and setup blockers in one place.
-          </div>
-        </div>
-        <div className="s-operator-queue-count">{items.length}</div>
-      </div>
-      <div className="s-operator-queue-list">
-        {items.map((item) => (
-          <OperatorAttentionCard
-            key={item.id}
-            item={item}
-            navigate={navigate}
-            onResolved={onResolved}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function severityLabel(severity: OperatorAttentionItem["severity"]): string {
-  switch (severity) {
-    case "critical":
-      return "blocked";
-    case "warning":
-      return "needs input";
-    default:
-      return "review";
-  }
-}
-
-function routeFromAttention(item: OperatorAttentionItem): Route | null {
-  const routedAction = item.actions.find((action) => action.route)?.route;
-  if (routedAction) return routedAction;
-  if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
-  if (item.agentId) return { view: "agents", agentId: item.agentId };
-  return null;
-}
-
-function OperatorAttentionCard({
-  item,
-  navigate,
-  onResolved,
-}: {
-  item: OperatorAttentionItem;
-  navigate: (r: Route) => void;
-  onResolved: (next: OperatorAttentionState) => void;
-}) {
-  const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const route = routeFromAttention(item);
-  const copyAction = item.actions.find((action) => action.kind === "copy" && action.value);
-  const approve = item.actions.find((action) => action.kind === "approve");
-  const deny = item.actions.find((action) => action.kind === "deny");
-
-  const decide = async (decision: "approve" | "deny") => {
-    if (!item.approval && !item.permissionRequest) return;
-    setBusy(decision);
-    setError(null);
-    try {
-      const next = item.permissionRequest
-        ? await api<OperatorAttentionState>("/api/operator-attention/permissions/decide", {
-            method: "POST",
-            body: JSON.stringify({
-              id: item.permissionRequest.id,
-              decision: decision === "approve" ? "allow" : "deny",
-            }),
-          })
-        : await api<OperatorAttentionState>("/api/operator-attention/approvals/decide", {
-            method: "POST",
-            body: JSON.stringify({
-              sessionId: item.approval?.sessionId,
-              turnId: item.approval?.turnId,
-              blockId: item.approval?.blockId,
-              version: item.approval?.version,
-              decision,
-            }),
-          });
-      onResolved(next);
-    } catch (decisionError) {
-      setError(decisionError instanceof Error ? decisionError.message : String(decisionError));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const copyFix = () => {
-    if (!copyAction?.value) return;
-    void navigator.clipboard.writeText(copyAction.value).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
-    });
-  };
-
-  return (
-    <div className={`s-operator-card s-operator-card--${item.severity}`}>
-      <div className="s-operator-card-main">
-        <div className="s-operator-card-top">
-          <span className="s-eyebrow">{item.sourceLabel}</span>
-          <span className="s-operator-card-severity">{severityLabel(item.severity)}</span>
-          <span className="s-operator-card-age">{timeAgo(item.updatedAt)}</span>
-        </div>
-        <div className="s-operator-card-title">{item.title}</div>
-        {item.summary && <div className="s-operator-card-summary">{item.summary}</div>}
-        {item.detail && <div className="s-operator-card-detail">{item.detail}</div>}
-        {item.agentName && (
-          <div className="s-operator-card-meta">{item.agentName}</div>
-        )}
-        {error && <div className="s-operator-card-error">{error}</div>}
-      </div>
-      <div className="s-operator-card-actions">
-        {approve && (
-          <button
-            type="button"
-            className="s-icon-btn s-icon-btn--primary"
-            disabled={Boolean(busy)}
-            title="Approve"
-            onClick={() => void decide("approve")}
-          >
-            <Check size={14} aria-hidden="true" />
-            <span>{busy === "approve" ? "Approving" : approve.label}</span>
-          </button>
-        )}
-        {deny && (
-          <button
-            type="button"
-            className="s-icon-btn"
-            disabled={Boolean(busy)}
-            title="Deny"
-            onClick={() => void decide("deny")}
-          >
-            <X size={14} aria-hidden="true" />
-            <span>{busy === "deny" ? "Denying" : deny.label}</span>
-          </button>
-        )}
-        {copyAction && (
-          <button
-            type="button"
-            className="s-icon-btn"
-            title="Copy fix"
-            onClick={copyFix}
-          >
-            <Copy size={14} aria-hidden="true" />
-            <span>{copied ? "Copied" : copyAction.label}</span>
-          </button>
-        )}
-        {item.actions.some((action) => action.kind === "configure") && (
-          <button
-            type="button"
-            className="s-icon-btn"
-            title="Open settings"
-            onClick={() => navigate({ view: "settings" })}
-          >
-            <Settings size={14} aria-hidden="true" />
-            <span>Settings</span>
-          </button>
-        )}
-        {route && (
-          <button
-            type="button"
-            className="s-icon-btn"
-            title="Open source"
-            onClick={() => navigate(route)}
-          >
-            <ExternalLink size={14} aria-hidden="true" />
-            <span>Open</span>
-          </button>
-        )}
-      </div>
     </div>
   );
 }
