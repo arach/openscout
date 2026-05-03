@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
+  ensureScoutLocalEdgeTrust,
   ensureScoutLocalEdgeDependencies,
   inspectScoutLocalEdgeDependencies,
 } from "./local-edge-dependencies.ts";
@@ -24,6 +25,13 @@ function createExecutable(directory: string, name: string): string {
   return path;
 }
 
+function createCaddyRoot(directory: string): string {
+  const path = join(directory, "Library", "Application Support", "Caddy", "pki", "authorities", "local", "root.crt");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, "test root\n", "utf8");
+  return path;
+}
+
 describe("local edge dependencies", () => {
   test("reports Caddy as ready when it is on PATH", () => {
     const directory = mkdtempSync(join(tmpdir(), "openscout-caddy-ready-"));
@@ -39,6 +47,7 @@ describe("local edge dependencies", () => {
     expect(report.status).toBe("ready");
     expect(report.caddyPath).toBe(caddyPath);
     expect(report.caddyVersion).toBe("v2.10.2 h1:test");
+    expect(report.trust.status).toBe("unavailable");
   });
 
   test("installs Caddy with Homebrew on macOS when missing", () => {
@@ -67,7 +76,40 @@ describe("local edge dependencies", () => {
     expect(report.status).toBe("installed");
     expect(report.caddyPath).toBe(join(directory, "caddy"));
     expect(report.installCommand).toBe("brew install caddy");
+    expect(report.trust.status).toBe("unavailable");
     expect(calls.some((call) => call.endsWith("brew install caddy"))).toBe(true);
+  });
+
+  test("trusts the Caddy root through macOS authorization when the root exists", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openscout-caddy-trust-"));
+    testDirectories.add(directory);
+    const rootPath = createCaddyRoot(directory);
+    let trusted = false;
+    const calls: string[] = [];
+
+    const report = ensureScoutLocalEdgeTrust({
+      env: { PATH: directory, HOME: directory },
+      platform: "darwin",
+      commonDirectories: [],
+      runCommand: (command, args) => {
+        calls.push([command, ...args].join(" "));
+        if (command === "security" && args[0] === "verify-cert") {
+          return trusted
+            ? { status: 0, stdout: "", stderr: "" }
+            : { status: 1, stdout: "", stderr: "not trusted" };
+        }
+        if (command === "osascript") {
+          expect(args.join(" ")).toContain(rootPath);
+          trusted = true;
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: "unexpected command" };
+      },
+    });
+
+    expect(report.status).toBe("installed");
+    expect(report.rootCertificatePath).toBe(rootPath);
+    expect(calls.some((call) => call.startsWith("osascript "))).toBe(true);
   });
 
   test("does not attempt automatic install outside macOS", () => {

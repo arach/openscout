@@ -137,8 +137,12 @@ async function loadScoutLocalEdgeDoctorReport(env: NodeJS.ProcessEnv): Promise<S
 
   const hints: string[] = [];
   const caddyAvailable = dependency.status === "ready" || dependency.status === "installed";
+  const httpsTrustReady = dependency.trust.status === "trusted" || dependency.trust.status === "installed";
   if (!caddyAvailable) {
     hints.push(dependency.detail);
+  }
+  if (https.listening && !httpsTrustReady) {
+    hints.push(dependency.trust.detail);
   }
   if (!portalDns.resolved || !nodeDns.resolved || (!http.listening && !https.listening)) {
     hints.push("Start the local edge with `scout server edge`.");
@@ -148,6 +152,7 @@ async function loadScoutLocalEdgeDoctorReport(env: NodeJS.ProcessEnv): Promise<S
     && portalDns.resolved
     && nodeDns.resolved
     && (http.listening || https.listening)
+    && (!https.listening || httpsTrustReady)
     ? "ready"
     : caddyAvailable || portalDns.resolved || nodeDns.resolved || http.listening || https.listening
       ? "degraded"

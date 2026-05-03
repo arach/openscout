@@ -23,11 +23,15 @@ import {
 } from "@openscout/runtime/tool-resolution";
 import { resolveOpenScoutSetupContextRoot } from "@openscout/runtime/setup";
 
+import {
+  ensureScoutLocalEdgeTrust,
+  type ScoutLocalEdgeTrustReport,
+} from "../../core/setup/local-edge-dependencies.ts";
 import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 
 type ScoutServerMode = "openscout-web";
-type ScoutServerAction = "start" | "open" | "caddyfile" | "edge";
+type ScoutServerAction = "start" | "open" | "caddyfile" | "edge" | "trust";
 
 type ScoutServerHealth = {
   ok: true;
@@ -54,6 +58,7 @@ export function renderServerCommandHelp(): string {
     "  scout server open [options]",
     "  scout server caddyfile [options]",
     "  scout server edge [options]",
+    "  scout server trust [options]",
     "  scout server control-plane open [options]  # legacy alias",
     "",
     "Subcommands:",
@@ -61,6 +66,7 @@ export function renderServerCommandHelp(): string {
     "  open               Open the Scout web UI (starts server on demand if needed).",
     "  caddyfile          Print the local edge Caddyfile for scout.local.",
     "  edge               Publish local names and run the Caddy edge.",
+    "  trust              Trust Caddy's local CA root for Scout HTTPS.",
     "",
     "Options:",
     "  --host <h>        Bind host (default 0.0.0.0 for LAN/mDNS access)",
@@ -351,6 +357,14 @@ function parseServerSelection(args: string[]): {
       mode: "openscout-web",
     };
   }
+  if (args[0] === "trust") {
+    return {
+      action: "trust",
+      flagArgs: args.slice(1),
+      entry: resolveScoutControlPlaneWebServerEntry(),
+      mode: "openscout-web",
+    };
+  }
   if (args[0] === "control-plane") {
     const sub = args[1] === "start" || args[1] === "open" ? args[1] : "start";
     return {
@@ -433,6 +447,19 @@ function renderSurfaceLabel(surface: ScoutServerHealth["surface"]): string {
 
 function renderServerOpenResult(result: ScoutServerOpenResult): string {
   return `Opened Scout web at ${result.url}${result.reusedExistingServer ? "" : " (started server)"}`;
+}
+
+function renderLocalEdgeTrustResult(result: ScoutLocalEdgeTrustReport): string {
+  const lines = [
+    "Scout local HTTPS trust",
+    `Status: ${result.status}`,
+    `Detail: ${result.detail}`,
+    `Root CA: ${result.rootCertificatePath}`,
+  ];
+  if (result.trustCommand) {
+    lines.push(`Trust: ${result.trustCommand}`);
+  }
+  return lines.join("\n");
 }
 
 function isCurrentScoutWebSurface(surface: ScoutServerHealth["surface"]): boolean {
@@ -622,8 +649,21 @@ async function runScoutLocalEdge(env: NodeJS.ProcessEnv): Promise<void> {
       stdio: "inherit",
       env,
     });
+    const trustTimer = config.scheme === "http"
+      ? null
+      : setTimeout(() => {
+          const trust = ensureScoutLocalEdgeTrust({ env });
+          if (trust.status === "installed" || trust.status === "trusted") {
+            process.stderr.write(`Scout local HTTPS trust: ${trust.detail}\n`);
+            return;
+          }
+          process.stderr.write(`Scout local HTTPS trust: ${trust.detail}\n`);
+        }, 2_000);
 
     caddy.once("error", (error: NodeJS.ErrnoException) => {
+      if (trustTimer) {
+        clearTimeout(trustTimer);
+      }
       cleanup();
       if (error.code === "ENOENT") {
         rejectPromise(new ScoutCliError("Caddy is not installed. Install Caddy or set OPENSCOUT_CADDY_BIN."));
@@ -633,6 +673,9 @@ async function runScoutLocalEdge(env: NodeJS.ProcessEnv): Promise<void> {
     });
 
     caddy.once("exit", (code, signal) => {
+      if (trustTimer) {
+        clearTimeout(trustTimer);
+      }
       cleanup();
       if (signal === "SIGINT" || signal === "SIGTERM") {
         resolvePromise();
@@ -790,6 +833,11 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
 
   if (selection.action === "edge") {
     await runScoutLocalEdge(mergedEnv);
+    return;
+  }
+
+  if (selection.action === "trust") {
+    context.output.writeText(renderLocalEdgeTrustResult(ensureScoutLocalEdgeTrust({ env: mergedEnv })));
     return;
   }
 

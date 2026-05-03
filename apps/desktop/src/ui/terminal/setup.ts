@@ -144,6 +144,12 @@ function renderLocalEdgeDependencyReport(report: LocalEdgeDependencyReport): str
   if (report.installCommand) {
     lines.push(`  Install: ${report.installCommand}`);
   }
+  lines.push(`  HTTPS trust: ${report.trust.status}`);
+  lines.push(`  Trust detail: ${report.trust.detail}`);
+  lines.push(`  Root CA: ${report.trust.rootCertificatePath}`);
+  if (report.trust.trustCommand) {
+    lines.push(`  Trust: ${report.trust.trustCommand}`);
+  }
   return lines;
 }
 
@@ -169,6 +175,12 @@ function renderLocalEdgeDoctor(edge: ScoutLocalEdgeDoctorReport): string[] {
   }
   if (edge.dependency.installCommand) {
     lines.push(`  Install: ${edge.dependency.installCommand}`);
+  }
+  lines.push(`  HTTPS trust: ${edge.dependency.trust.status}`);
+  lines.push(`  Trust detail: ${edge.dependency.trust.detail}`);
+  lines.push(`  Root CA: ${edge.dependency.trust.rootCertificatePath}`);
+  if (edge.dependency.trust.trustCommand) {
+    lines.push(`  Trust: ${edge.dependency.trust.trustCommand}`);
   }
   lines.push(
     `  Portal host: ${formatLocalEdgeHostResolution(edge.dns.portal)}`,
