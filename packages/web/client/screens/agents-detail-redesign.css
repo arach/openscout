@@ -114,7 +114,7 @@
 
 .s-agent-roster-title {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 22px;
   letter-spacing: -0.03em;
 }
@@ -412,7 +412,7 @@
 .s-agent-profile-hero-title,
 .s-work-casefile-title {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 26px;
   font-weight: 600;
   line-height: 1.08;
@@ -931,7 +931,7 @@
 }
 
 .s-agent-overview-empty-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 20px;
   font-weight: 500;
   letter-spacing: -0.02em;
@@ -968,7 +968,7 @@
 
 .s-agent-detail-identity-name {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 22px;
   font-weight: 600;
   line-height: 1.15;
@@ -1294,4 +1294,52 @@
     text-align: left;
     justify-content: flex-start;
   }
+}
+
+/* ── WorkDetailScreen: not-found state ── */
+
+.s-work-not-found {
+  padding: 24px 32px;
+}
+
+.s-work-not-found-body {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 440px;
+}
+
+.s-work-not-found-glyph {
+  font-size: 32px;
+  font-weight: 100;
+  color: color-mix(in srgb, var(--border) 90%, var(--muted));
+  line-height: 1;
+  user-select: none;
+  margin-bottom: 4px;
+}
+
+.s-work-not-found-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.s-work-not-found-sub {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.s-work-not-found-detail {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  opacity: 0.8;
+  word-break: break-word;
 }

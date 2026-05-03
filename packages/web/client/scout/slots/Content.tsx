@@ -3,6 +3,7 @@ import { useScout } from "../Provider.tsx";
 import { ActivityScreen } from "../../screens/ActivityScreen.tsx";
 import { AgentInfoScreen } from "../../screens/AgentInfoScreen.tsx";
 import { AgentsScreen } from "../../screens/AgentsScreen.tsx";
+import { BrokerScreen } from "../../screens/BrokerScreen.tsx";
 import { ChannelsScreen } from "../../screens/ChannelsScreen.tsx";
 import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
 import { FollowScreen } from "../../screens/FollowScreen.tsx";
@@ -87,6 +88,8 @@ function renderScreen(
       return <ChannelsScreen channelId={route.channelId} navigate={navigate} />;
     case "mesh":
       return <MeshScreen navigate={navigate} />;
+    case "broker":
+      return <BrokerScreen navigate={navigate} />;
     case "activity":
       return <ActivityScreen navigate={navigate} />;
     case "ops":

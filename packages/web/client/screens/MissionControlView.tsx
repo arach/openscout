@@ -796,9 +796,12 @@ export function MissionControlView({
       >
         {totalTileCount === 0 ? (
           <div className="s-mission-empty">
-            <div className="s-mission-empty-title">Control</div>
+            <div className="s-mission-empty-title">No agents connected</div>
             <div className="s-mission-empty-sub">
-              Connect agents or start local harness sessions to observe them here.
+              Agents appear here as they join the mesh.
+            </div>
+            <div className="s-mission-empty-hint">
+              <code>scout watch --as myagent</code>
             </div>
           </div>
         ) : visibleTileCount === 0 ? (

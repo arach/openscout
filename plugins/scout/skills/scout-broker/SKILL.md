@@ -31,6 +31,8 @@ When there is one intended recipient and you know a handle such as `@hudson` or 
 
 - Set `awaitReply: true` only when the parent task is blocked on the answer now.
 - Leave `awaitReply` false when the request is background work or the user only asked you to hand it off.
+- For long-running asks, keep `replyMode: "none"` or `replyMode: "notify"` and use the returned `flightId` with `invocations_get` or `invocations_wait` later.
+- Use `invocations_get` to check current state without blocking; use `invocations_wait` only for a short bounded wait.
 
 ## Targeting rules
 

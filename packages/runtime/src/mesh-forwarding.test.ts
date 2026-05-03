@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import type { MessageRecord, NodeDefinition } from "@openscout/protocol";
+import type { IrohMeshEntrypoint, MessageRecord, NodeDefinition } from "@openscout/protocol";
+import {
+  OPENSCOUT_IROH_MESH_ALPN,
+  OPENSCOUT_MESH_PROTOCOL_VERSION,
+} from "@openscout/protocol";
 
 import {
   DEFAULT_MESH_FORWARD_TIMEOUT_MS,
@@ -27,6 +31,49 @@ function startHangingServer(): string {
   });
   servers.add(server);
   return `http://127.0.0.1:${server.port}`;
+}
+
+function startJsonServer(
+  handler: (request: Request) => Response | Promise<Response>,
+): string {
+  const server = Bun.serve({
+    port: 0,
+    fetch: handler,
+  });
+  servers.add(server);
+  return `http://127.0.0.1:${server.port}`;
+}
+
+function makeIrohEntrypoint(endpointId = "peer-iroh"): IrohMeshEntrypoint {
+  return {
+    kind: "iroh",
+    endpointId,
+    endpointAddr: { id: endpointId, addrs: [] },
+    alpn: OPENSCOUT_IROH_MESH_ALPN,
+    bridgeProtocolVersion: OPENSCOUT_MESH_PROTOCOL_VERSION,
+  };
+}
+
+function makePeerNode(input: {
+  brokerUrl?: string;
+  meshEntrypoints?: NodeDefinition["meshEntrypoints"];
+} = {}): NodeDefinition {
+  const node: NodeDefinition = {
+    id: "peer-node",
+    meshId: "openscout",
+    name: "Peer",
+    advertiseScope: "mesh",
+    capabilities: ["broker"],
+    registeredAt: 0,
+    lastSeenAt: 0,
+  };
+  if (input.brokerUrl) {
+    node.brokerUrl = input.brokerUrl;
+  }
+  if (input.meshEntrypoints) {
+    node.meshEntrypoints = input.meshEntrypoints;
+  }
+  return node;
 }
 
 function makeBundle(): MeshMessageBundle {
@@ -85,5 +132,62 @@ describe("mesh forwarding", () => {
       expect(peerError.url).toBe(`${brokerUrl}/v1/mesh/messages`);
       expect(Date.now() - startedAt).toBeLessThan(DEFAULT_MESH_FORWARD_TIMEOUT_MS);
     }
+  });
+
+  test("uses an advertised Iroh entrypoint when a bridge forwarder is available", async () => {
+    const entrypoint = makeIrohEntrypoint();
+    const peer = makePeerNode({ meshEntrypoints: [entrypoint] });
+    const calls: Array<{ route: string; payload: unknown; endpointId: string }> = [];
+
+    const result = await forwardMeshMessage(peer, makeBundle(), {
+      iroh: {
+        forwarder: async (receivedEntrypoint, route, payload) => {
+          calls.push({
+            route,
+            payload,
+            endpointId: receivedEntrypoint.endpointId,
+          });
+          return { status: 200, body: { ok: true as const, duplicate: true } };
+        },
+      },
+    });
+
+    expect(result).toEqual({ ok: true, duplicate: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.route).toBe("messages");
+    expect(calls[0]?.endpointId).toBe(entrypoint.endpointId);
+  });
+
+  test("falls back to HTTP when Iroh forwarding cannot reach a peer with a broker URL", async () => {
+    const brokerUrl = startJsonServer(async (request) => {
+      expect(new URL(request.url).pathname).toBe("/v1/mesh/messages");
+      return Response.json({ ok: true, duplicate: false });
+    });
+    const peer = makePeerNode({
+      brokerUrl,
+      meshEntrypoints: [makeIrohEntrypoint()],
+    });
+
+    const result = await forwardMeshMessage(peer, makeBundle(), {
+      iroh: {
+        forwarder: async () => {
+          throw new Error("iroh unavailable");
+        },
+      },
+    });
+
+    expect(result).toEqual({ ok: true, duplicate: false });
+  });
+
+  test("reports unreachable when an Iroh-only peer cannot be forwarded", async () => {
+    const peer = makePeerNode({ meshEntrypoints: [makeIrohEntrypoint()] });
+
+    await expect(forwardMeshMessage(peer, makeBundle(), {
+      iroh: {
+        forwarder: async () => {
+          throw new Error("iroh unavailable");
+        },
+      },
+    })).rejects.toBeInstanceOf(PeerUnreachableError);
   });
 });

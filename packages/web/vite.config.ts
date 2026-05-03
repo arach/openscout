@@ -10,9 +10,13 @@ function resolveHudsonSdk(): string {
   if (process.env.HUDSON_SDK_PATH) {
     return resolve(process.env.HUDSON_SDK_PATH);
   }
-  const direct = resolve(__dirname, "../../..", "hudson/packages/hudson-sdk");
+  const direct = resolve(__dirname, "../../..", "hudson/packages/web/hudsonkit");
   if (existsSync(direct)) {
     return direct;
+  }
+  const legacyDirect = resolve(__dirname, "../../..", "hudson/packages/hudson-sdk");
+  if (existsSync(legacyDirect)) {
+    return legacyDirect;
   }
   try {
     const commonGitDir = execSync("git rev-parse --git-common-dir", {
@@ -20,9 +24,13 @@ function resolveHudsonSdk(): string {
       encoding: "utf8",
     }).trim();
     const mainRepoRoot = resolve(commonGitDir, "..");
-    const fromCommon = resolve(mainRepoRoot, "..", "hudson/packages/hudson-sdk");
+    const fromCommon = resolve(mainRepoRoot, "..", "hudson/packages/web/hudsonkit");
     if (existsSync(fromCommon)) {
       return fromCommon;
+    }
+    const legacyFromCommon = resolve(mainRepoRoot, "..", "hudson/packages/hudson-sdk");
+    if (existsSync(legacyFromCommon)) {
+      return legacyFromCommon;
     }
   } catch {
     // git not available or not a repo — fall through
@@ -34,6 +42,12 @@ const hudsonSdk = resolveHudsonSdk();
 const webNodeModules = resolve(__dirname, "node_modules");
 const bunTarget = process.env.OPENSCOUT_WEB_BUN_URL?.trim() || "http://127.0.0.1:3200";
 const routes = resolveOpenScoutWebRoutes(process.env);
+const viteHmrProtocol = process.env.OPENSCOUT_WEB_VITE_HMR_PROTOCOL?.trim() || undefined;
+const viteHmrHost = process.env.OPENSCOUT_WEB_VITE_HMR_HOST?.trim() || undefined;
+const viteHmrClientPort = Number.parseInt(
+  process.env.OPENSCOUT_WEB_VITE_HMR_CLIENT_PORT?.trim() || "",
+  10,
+);
 
 export default defineConfig({
   root: resolve(__dirname, "client"),
@@ -42,6 +56,11 @@ export default defineConfig({
   server: {
     hmr: {
       path: routes.viteHmrPath,
+      ...(viteHmrProtocol ? { protocol: viteHmrProtocol } : {}),
+      ...(viteHmrHost ? { host: viteHmrHost } : {}),
+      ...(Number.isFinite(viteHmrClientPort) && viteHmrClientPort > 0
+        ? { clientPort: viteHmrClientPort }
+        : {}),
     },
     proxy: {
       "/api": { target: bunTarget, changeOrigin: false, ws: true },
@@ -59,6 +78,7 @@ export default defineConfig({
       "@hudson/sdk/shell": resolve(hudsonSdk, "src/shell.ts"),
       "@hudson/sdk/chrome": resolve(hudsonSdk, "src/chrome.ts"),
       "@hudson/sdk/controls": resolve(hudsonSdk, "src/controls.ts"),
+      "@hudson/sdk/canvas": resolve(hudsonSdk, "src/canvas.ts"),
       "@hudson/sdk/overlays": resolve(hudsonSdk, "src/overlays.ts"),
       "@hudson/sdk/styles": resolve(hudsonSdk, "src/styles/bundle.css"),
       "@hudson/sdk": resolve(hudsonSdk, "src/index.ts"),

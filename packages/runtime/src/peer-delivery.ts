@@ -27,6 +27,7 @@ import type { FileBackedBrokerJournal } from "./broker-journal.js";
 import {
   buildMeshInvocationBundle,
   forwardMeshInvocation,
+  type MeshForwardTarget,
   PeerRejectedError,
   PeerUnreachableError,
 } from "./mesh-forwarding.js";
@@ -109,7 +110,7 @@ export interface PeerDeliveryDeps {
    * tests inject a stub. Throws `PeerUnreachableError` for network failures
    * and `PeerRejectedError` for HTTP error responses.
    */
-  forward?: (brokerUrl: string, bundle: ReturnType<typeof buildMeshInvocationBundle>) =>
+  forward?: (target: MeshForwardTarget, bundle: ReturnType<typeof buildMeshInvocationBundle>) =>
     Promise<{ ok: true; flight: FlightRecord; duplicate?: boolean }>;
 
   /** Inject a clock for tests. */
@@ -143,6 +144,10 @@ function readNumber(metadata: Record<string, unknown> | undefined, key: string):
 function readString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function hasMeshEntrypoint(node: NodeDefinition | undefined): node is NodeDefinition {
+  return Boolean(node?.meshEntrypoints?.length);
 }
 
 function createId(prefix: string): string {
@@ -404,15 +409,19 @@ export function createPeerDeliveryWorker(
 
       const peer = deps.nodeFor(delivery.targetNodeId);
       const peerUrl = peer?.brokerUrl ?? readString(delivery.metadata, "peerBrokerUrl");
-      if (!peerUrl) {
+      const peerTarget: MeshForwardTarget | undefined = peerUrl || hasMeshEntrypoint(peer)
+        ? (peer ?? peerUrl)
+        : undefined;
+      if (!peerTarget) {
         // No URL on record — peer hasn't been discovered yet. Defer until
-        // a discovery cycle populates it; don't burn through the retry budget.
+        // a discovery cycle populates an HTTP URL or mesh entrypoint; don't
+        // burn through the retry budget.
         const waitMs = Math.min(cfg.maxBackoffMs, 5_000);
         await transition(delivery, {
           status: "deferred",
           metadata: {
             failureReason: "peer_unreachable",
-            failureDetail: `no broker URL known for node ${delivery.targetNodeId}`,
+            failureDetail: `no broker URL or mesh entrypoint known for node ${delivery.targetNodeId}`,
             nextAttemptAt: now() + waitMs,
           },
           leaseOwner: null,
@@ -436,7 +445,7 @@ export function createPeerDeliveryWorker(
 
       try {
         const bundle = buildMeshInvocationBundle(deps.snapshot(), deps.localNode(), invocation);
-        const result = await forward(peerUrl, bundle);
+        const result = await forward(peerTarget, bundle);
 
         await deps.recordDeliveryAttempt({
           id: createId("dlv-att"),
@@ -446,6 +455,7 @@ export function createPeerDeliveryWorker(
           createdAt: now(),
           metadata: {
             peerBrokerUrl: peerUrl,
+            peerTransport: typeof peerTarget === "string" ? "http" : "node_entrypoint",
             durationMs: now() - startedAt,
             duplicate: result.duplicate ?? false,
           },
@@ -455,7 +465,9 @@ export function createPeerDeliveryWorker(
           metadata: {
             peerAckedAt: now(),
             peerFlightId: result.flight?.id,
-            authorityStreamUrl: `${peerUrl.replace(/\/$/, "")}/v1/invocations/${encodeURIComponent(invocation.id)}/stream`,
+            authorityStreamUrl: peerUrl
+              ? `${peerUrl.replace(/\/$/, "")}/v1/invocations/${encodeURIComponent(invocation.id)}/stream`
+              : undefined,
           },
           leaseOwner: null,
           leaseExpiresAt: null,
@@ -463,7 +475,9 @@ export function createPeerDeliveryWorker(
         if (result.flight) {
           await deps.recordFlight(result.flight);
         }
-        ensureStatusMirror(delivery.id, peerUrl, invocation.id);
+        if (peerUrl) {
+          ensureStatusMirror(delivery.id, peerUrl, invocation.id);
+        }
       } catch (error) {
         const reason = pickFailureReason(error);
         const detail = error instanceof Error ? error.message : String(error);

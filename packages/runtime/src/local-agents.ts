@@ -23,6 +23,7 @@ import {
   getClaudeStreamJsonAgentSnapshot,
   invokeClaudeStreamJsonAgent,
   isClaudeStreamJsonAgentAlive,
+  readSessionCatalogSync,
   shutdownClaudeStreamJsonAgent,
 } from "./claude-stream-json.js";
 import {
@@ -112,6 +113,29 @@ export type LocalAgentConfigState = {
   templateHint: string;
 };
 
+export type LocalAgentContextPolicy = {
+  maxTurns: number;
+  maxAgeMs: number;
+  agingRatio: number;
+};
+
+export type LocalAgentContextState = {
+  agentId: string;
+  state: "fresh" | "aging" | "stale";
+  reason: string | null;
+  generatedAt: number;
+  activeSessionId: string | null;
+  sessionStartedAt: number | null;
+  sessionAgeMs: number | null;
+  turnCount: number;
+  currentTurnActive: boolean;
+  canAutoReset: boolean;
+  policy: LocalAgentContextPolicy;
+  model: string | null;
+  harness: AgentHarness;
+  transport: RelayRuntimeTransport;
+};
+
 export type LocalAgentBinding = {
   actor: ActorIdentity;
   agent: AgentDefinition;
@@ -191,6 +215,64 @@ function resolveBrokerUrl(): string {
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function resolveLocalAgentContextPolicy(): LocalAgentContextPolicy {
+  return {
+    maxTurns: parsePositiveInteger(process.env.OPENSCOUT_RANGER_CONTEXT_MAX_TURNS, 12),
+    maxAgeMs: parsePositiveInteger(process.env.OPENSCOUT_RANGER_CONTEXT_MAX_AGE_MS, 2 * 60 * 60 * 1000),
+    agingRatio: 0.75,
+  };
+}
+
+function normalizeContextTimestamp(value: number | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return value < 1_000_000_000_000 ? value * 1000 : value;
+}
+
+export function classifyLocalAgentContextState(input: {
+  turnCount: number;
+  sessionAgeMs: number | null;
+  currentTurnActive: boolean;
+  policy: LocalAgentContextPolicy;
+}): Pick<LocalAgentContextState, "state" | "reason" | "canAutoReset"> {
+  const staleReasons: string[] = [];
+  if (input.turnCount >= input.policy.maxTurns) {
+    staleReasons.push(`${input.turnCount}/${input.policy.maxTurns} turns`);
+  }
+  if (input.sessionAgeMs !== null && input.sessionAgeMs >= input.policy.maxAgeMs) {
+    staleReasons.push(`${Math.floor(input.sessionAgeMs / 60000)}m old`);
+  }
+  if (staleReasons.length > 0) {
+    return {
+      state: "stale",
+      reason: staleReasons.join(", "),
+      canAutoReset: !input.currentTurnActive,
+    };
+  }
+
+  const agingTurnLimit = Math.max(1, Math.floor(input.policy.maxTurns * input.policy.agingRatio));
+  const agingAgeLimit = Math.max(1, Math.floor(input.policy.maxAgeMs * input.policy.agingRatio));
+  const agingReasons: string[] = [];
+  if (input.turnCount >= agingTurnLimit) {
+    agingReasons.push(`${input.turnCount}/${input.policy.maxTurns} turns`);
+  }
+  if (input.sessionAgeMs !== null && input.sessionAgeMs >= agingAgeLimit) {
+    agingReasons.push(`${Math.floor(input.sessionAgeMs / 60000)}m old`);
+  }
+
+  return {
+    state: agingReasons.length > 0 ? "aging" : "fresh",
+    reason: agingReasons.length > 0 ? agingReasons.join(", ") : null,
+    canAutoReset: false,
+  };
 }
 
 function normalizeBrokerTimestamp(value: number): number {
@@ -1127,6 +1209,60 @@ export async function getLocalAgentSessionSnapshot(agentId: string): Promise<Ses
   }
 
   return null;
+}
+
+export async function getLocalAgentContextState(agentId: string): Promise<LocalAgentContextState | null> {
+  const record = await resolveConfiguredLocalAgentRecord(agentId);
+  if (!record) {
+    return null;
+  }
+
+  const harness = normalizeLocalAgentHarness(record.harness);
+  const transport = normalizeLocalAgentTransport(record.transport, harness);
+  const launchArgs = normalizeLaunchArgsForHarness(harness, record.launchArgs);
+  const runtimeDirectory = relayAgentRuntimeDirectory(agentId);
+  const catalog = readSessionCatalogSync(runtimeDirectory);
+  const activeSessionId = catalog.activeSessionId;
+  const activeSession = activeSessionId
+    ? catalog.sessions.find((session) => session.id === activeSessionId) ?? null
+    : null;
+  const snapshot = await getLocalAgentSessionSnapshot(agentId);
+  const threadId = typeof snapshot?.session.providerMeta?.threadId === "string"
+    ? snapshot.session.providerMeta.threadId
+    : null;
+  const resolvedActiveSessionId = activeSessionId ?? threadId ?? snapshot?.session.id ?? null;
+  const sessionStartedAt = normalizeContextTimestamp(activeSession?.startedAt)
+    ?? normalizeContextTimestamp(snapshot?.turns[0]?.startedAt)
+    ?? null;
+  const generatedAt = Date.now();
+  const sessionAgeMs = sessionStartedAt === null ? null : Math.max(0, generatedAt - sessionStartedAt);
+  const turnCount = snapshot?.turns.length ?? 0;
+  const currentTurn = snapshot?.currentTurnId
+    ? snapshot.turns.find((turn) => turn.id === snapshot.currentTurnId)
+    : null;
+  const currentTurnActive = Boolean(currentTurn && !["completed", "interrupted", "error"].includes(currentTurn.status));
+  const policy = resolveLocalAgentContextPolicy();
+  const classification = classifyLocalAgentContextState({
+    turnCount,
+    sessionAgeMs,
+    currentTurnActive,
+    policy,
+  });
+
+  return {
+    agentId,
+    ...classification,
+    generatedAt,
+    activeSessionId: resolvedActiveSessionId,
+    sessionStartedAt,
+    sessionAgeMs,
+    turnCount,
+    currentTurnActive,
+    policy,
+    model: readLaunchModelForHarness(harness, launchArgs) ?? snapshot?.session.model ?? null,
+    harness,
+    transport,
+  };
 }
 
 export async function getLocalAgentEndpointSessionSnapshot(endpoint: AgentEndpoint): Promise<SessionState | null> {

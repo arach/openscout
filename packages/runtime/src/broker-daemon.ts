@@ -1,9 +1,12 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { existsSync, mkdirSync, openSync } from "node:fs";
 import { lstat, mkdir, stat, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
+import { fileURLToPath } from "node:url";
 
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 
@@ -40,6 +43,8 @@ import {
   type ThreadWatchCloseRequest,
   type ThreadWatchOpenRequest,
   type ThreadWatchRenewRequest,
+  OPENSCOUT_IROH_MESH_ALPN,
+  OPENSCOUT_MESH_PROTOCOL_VERSION,
   SCOUT_DISPATCHER_AGENT_ID,
   normalizeAgentSelectorSegment,
 } from "@openscout/protocol";
@@ -57,6 +62,11 @@ import {
 } from "./scout-dispatcher.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
+import {
+  resolveIrohMeshEntrypointFromEnv,
+  startIrohBridgeServeFromEnv,
+  type IrohBridgeService,
+} from "./iroh-bridge.js";
 import {
   DEFAULT_MESH_FORWARD_TIMEOUT_MS,
   buildMeshCollaborationEventBundle,
@@ -114,6 +124,17 @@ import {
   resolveBrokerServiceConfig,
   resolveBrokerHost,
 } from "./broker-process-manager.js";
+import { resolveWebPort } from "./local-config.js";
+import {
+  resolveBunExecutable,
+  resolveOpenScoutRepoRoot,
+  resolveRepoEntrypoint,
+} from "./tool-resolution.js";
+import {
+  resolveMeshRendezvousPublishConfig,
+  startMeshRendezvousPublisher,
+  type MeshRendezvousPublisher,
+} from "./mesh-rendezvous.js";
 import { clearGitBranchCache, readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
 
 function createRuntimeId(prefix: string): string {
@@ -146,6 +167,14 @@ function json(response: ServerResponse, status: number, payload: unknown): void 
   response.end(JSON.stringify(payload, null, 2));
 }
 
+function jsonWithHeaders(response: ServerResponse, status: number, payload: unknown, headers: Record<string, string>): void {
+  response.writeHead(status, {
+    ...headers,
+    "content-type": "application/json; charset=utf-8",
+  });
+  response.end(JSON.stringify(payload, null, 2));
+}
+
 function notFound(response: ServerResponse): void {
   json(response, 404, { error: "not_found" });
 }
@@ -163,6 +192,10 @@ function threadWatchError(response: ServerResponse, error: unknown): void {
     return;
   }
   badRequest(response, error);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }
 
 const controlHome = resolveControlPlaneHome();
@@ -215,11 +248,17 @@ const threadEvents = new ThreadEventPlane({
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
 const knownInvocations = new Map<string, InvocationRequest>();
+let shuttingDown = false;
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
 const operatorActorId = "operator";
 const BROKER_SHARED_CHANNEL_ID = "channel.shared";
 const BROKER_VOICE_CHANNEL_ID = "channel.voice";
 const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
+const WEB_START_POLL_TIMEOUT_MS = 15_000;
+const WEB_START_POLL_INTERVAL_MS = 250;
+let webServerProcess: ChildProcess | null = null;
+let webStartInFlight: Promise<WebSupervisorStatus> | null = null;
+let meshRendezvousPublisher: MeshRendezvousPublisher | null = null;
 
 type LegacyRelayMessage = {
   id: string;
@@ -299,6 +338,24 @@ if (sseKeepAliveIntervalMs > 0) {
   }, sseKeepAliveIntervalMs).unref();
 }
 
+let irohBridgeService: IrohBridgeService | undefined;
+let localIrohEntrypoint = resolveIrohMeshEntrypointFromEnv();
+if (!localIrohEntrypoint) {
+  try {
+    irohBridgeService = await startIrohBridgeServeFromEnv({ brokerUrl });
+    localIrohEntrypoint = irohBridgeService?.entrypoint;
+    if (irohBridgeService) {
+      irohBridgeService.child.on("exit", (code, signal) => {
+        if (!shuttingDown) {
+          console.warn(`[openscout-runtime] Iroh bridge exited (${code ?? signal ?? "unknown"}); HTTP/Tailscale forwarding remains available`);
+        }
+      });
+    }
+  } catch (error) {
+    console.warn(`[openscout-runtime] Iroh bridge unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 const localNode: NodeDefinition = {
   id: nodeId,
   meshId,
@@ -306,6 +363,7 @@ const localNode: NodeDefinition = {
   hostName: hostname(),
   advertiseScope,
   brokerUrl,
+  ...(localIrohEntrypoint ? { meshEntrypoints: [localIrohEntrypoint] } : {}),
   tailnetName,
   capabilities: ["broker", "mesh", "local_runtime"],
   registeredAt: Date.now(),
@@ -507,6 +565,269 @@ async function brokerPostJson<TResponse>(
   }
 
   return await response.json() as TResponse;
+}
+
+type WebSupervisorStatus = {
+  ok: boolean;
+  running: boolean;
+  starting: boolean;
+  webUrl: string;
+  port: number;
+  pid: number | null;
+  error: string | null;
+};
+
+type WebStartContext = {
+  publicOrigin?: string;
+  trustedHost?: string;
+};
+
+function webServerPort(): number {
+  const envPort = Number.parseInt(process.env.OPENSCOUT_WEB_PORT ?? "", 10);
+  return Number.isInteger(envPort) && envPort > 0 && envPort < 65536
+    ? envPort
+    : resolveWebPort();
+}
+
+function webServerUrl(): string {
+  return `http://127.0.0.1:${webServerPort()}`;
+}
+
+async function isWebServerHealthy(): Promise<boolean> {
+  try {
+    const response = await fetch(`${webServerUrl()}/api/health`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(1_000),
+    });
+    if (!response.ok) {
+      return false;
+    }
+    const body = await response.json() as { ok?: boolean; surface?: string };
+    return body.ok === true && body.surface === "openscout-web";
+  } catch {
+    return false;
+  }
+}
+
+function resolveWebServerEntry(): string | null {
+  const explicit = process.env.OPENSCOUT_WEB_SERVER_ENTRY?.trim();
+  if (explicit && existsSync(explicit)) {
+    return explicit;
+  }
+
+  const repoRoot = resolveWebServerRepoRoot();
+  const repoEntry = resolveRepoEntrypoint(repoRoot, "packages/web/server/index.ts");
+  if (repoEntry) {
+    return repoEntry;
+  }
+
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolve(moduleDir, "..", "scout-control-plane-web.mjs"),
+    resolve(moduleDir, "..", "scout-web-server.mjs"),
+    resolve(moduleDir, "..", "..", "scout-control-plane-web.mjs"),
+    resolve(moduleDir, "..", "..", "scout-web-server.mjs"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function resolveWebServerRepoRoot(): string | null {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  return resolveOpenScoutRepoRoot({
+    startDirectories: [
+      process.env.OPENSCOUT_SETUP_CWD,
+      process.cwd(),
+      moduleDir,
+    ],
+  });
+}
+
+function resolveWebServerSetupCwd(): string {
+  return process.env.OPENSCOUT_SETUP_CWD?.trim() || resolveWebServerRepoRoot() || process.cwd();
+}
+
+function normalizeTrustedWebHost(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const candidate = trimmed.includes("://") ? new URL(trimmed) : new URL(`http://${trimmed}`);
+    const hostName = candidate.hostname.toLowerCase();
+    if (
+      hostName === "scout.local"
+      || hostName.endsWith(".scout.local")
+      || hostName === "localhost"
+      || hostName === "127.0.0.1"
+      || hostName === "::1"
+    ) {
+      return hostName;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function webStartContextFromRequest(request: IncomingMessage): WebStartContext {
+  const forwardedHost = Array.isArray(request.headers["x-forwarded-host"])
+    ? request.headers["x-forwarded-host"][0]
+    : request.headers["x-forwarded-host"];
+  const forwardedProto = Array.isArray(request.headers["x-forwarded-proto"])
+    ? request.headers["x-forwarded-proto"][0]
+    : request.headers["x-forwarded-proto"];
+  const trustedHost = normalizeTrustedWebHost(forwardedHost);
+  if (!trustedHost) {
+    return {};
+  }
+  const proto = forwardedProto?.trim().toLowerCase() === "https" ? "https" : "http";
+  return {
+    publicOrigin: `${proto}://${trustedHost}`,
+    trustedHost,
+  };
+}
+
+function appendCsvValue(input: string | undefined, value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return input;
+  }
+  const existing = (input ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (!existing.some((entry) => entry.toLowerCase() === normalized.toLowerCase())) {
+    existing.push(normalized);
+  }
+  return existing.length > 0 ? existing.join(",") : undefined;
+}
+
+function resolveWebServerLogPath(): string {
+  const config = resolveBrokerServiceConfig();
+  const logDirectory = join(config.supportDirectory, "logs", "web");
+  mkdirSync(logDirectory, { recursive: true });
+  return join(logDirectory, "supervised-web.log");
+}
+
+function spawnWebServer(context: WebStartContext = {}): ChildProcess {
+  const entry = resolveWebServerEntry();
+  if (!entry) {
+    throw new Error("Could not find the Scout web server entry.");
+  }
+  const bun = resolveBunExecutable();
+  if (!bun) {
+    throw new Error("Unable to locate Bun for Scout web startup.");
+  }
+
+  const logFd = openSync(resolveWebServerLogPath(), "a");
+  const env = {
+    ...process.env,
+    OPENSCOUT_WEB_HOST: process.env.OPENSCOUT_WEB_HOST?.trim() || "0.0.0.0",
+    OPENSCOUT_WEB_PORT: String(webServerPort()),
+    OPENSCOUT_WEB_BUN_URL: webServerUrl(),
+    ...(context.publicOrigin && !process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim()
+      ? { OPENSCOUT_WEB_PUBLIC_ORIGIN: context.publicOrigin }
+      : {}),
+    ...(context.trustedHost && context.trustedHost !== "scout.local" && !process.env.OPENSCOUT_WEB_ADVERTISED_HOST?.trim()
+      ? { OPENSCOUT_WEB_ADVERTISED_HOST: context.trustedHost }
+      : {}),
+    ...(context.trustedHost
+      ? { OPENSCOUT_WEB_TRUSTED_HOSTS: appendCsvValue(process.env.OPENSCOUT_WEB_TRUSTED_HOSTS, context.trustedHost) }
+      : {}),
+    OPENSCOUT_SETUP_CWD: resolveWebServerSetupCwd(),
+  };
+  console.log("[openscout-runtime] starting Scout web server", {
+    webUrl: webServerUrl(),
+    publicOrigin: env.OPENSCOUT_WEB_PUBLIC_ORIGIN,
+    advertisedHost: env.OPENSCOUT_WEB_ADVERTISED_HOST,
+    trustedHost: context.trustedHost,
+  });
+  const child = spawn(bun.path, ["run", entry], {
+    detached: true,
+    env,
+    stdio: ["ignore", logFd, logFd],
+  });
+  child.once("exit", () => {
+    if (webServerProcess === child) {
+      webServerProcess = null;
+    }
+  });
+  child.unref();
+  return child;
+}
+
+async function webSupervisorStatus(error: string | null = null): Promise<WebSupervisorStatus> {
+  const running = await isWebServerHealthy();
+  return {
+    ok: running,
+    running,
+    starting: Boolean(webStartInFlight),
+    webUrl: webServerUrl(),
+    port: webServerPort(),
+    pid: webServerProcess?.pid ?? null,
+    error,
+  };
+}
+
+async function startWebServerIfNeeded(context: WebStartContext = {}): Promise<WebSupervisorStatus> {
+  if (await isWebServerHealthy()) {
+    return webSupervisorStatus();
+  }
+  if (webStartInFlight) {
+    return webStartInFlight;
+  }
+
+  webStartInFlight = (async () => {
+    try {
+      if (!webServerProcess || webServerProcess.exitCode !== null) {
+        webServerProcess = spawnWebServer(context);
+      }
+      const deadline = Date.now() + WEB_START_POLL_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (await isWebServerHealthy()) {
+          return webSupervisorStatus();
+        }
+        await sleep(WEB_START_POLL_INTERVAL_MS);
+      }
+      return webSupervisorStatus("Timed out waiting for Scout web to become healthy.");
+    } catch (error) {
+      return webSupervisorStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      webStartInFlight = null;
+    }
+  })();
+
+  return webStartInFlight;
+}
+
+function scoutWebSupervisorCorsHeaders(request: IncomingMessage): Record<string, string> {
+  const origin = request.headers.origin;
+  if (typeof origin !== "string") {
+    return {};
+  }
+  let allowed = false;
+  try {
+    const originUrl = new URL(origin);
+    const hostName = originUrl.hostname.toLowerCase();
+    allowed = (
+      hostName === "scout.local"
+      || hostName.endsWith(".scout.local")
+      || hostName === "127.0.0.1"
+      || hostName === "localhost"
+    );
+  } catch {
+    allowed = false;
+  }
+  if (!allowed) {
+    return {};
+  }
+  return {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type, accept",
+    "access-control-max-age": "600",
+    vary: "Origin",
+  };
 }
 
 async function upsertNodeDurably(node: NodeDefinition): Promise<void> {
@@ -1174,6 +1495,29 @@ function brokerRouteKind(conversation: Pick<ConversationDefinition, "id" | "kind
     return "dm";
   }
   return conversation.id === BROKER_SHARED_CHANNEL_ID ? "broadcast" : "channel";
+}
+
+function normalizeBrokerProductTarget(value: string): string {
+  return value.trim().toLowerCase().replace(/^@+/, "");
+}
+
+function isLocalScoutProductTarget(payload: BrokerRouteTargetInput): boolean {
+  const target = payload.target;
+  if (target) {
+    if (target.kind !== "agent_label" && target.kind !== "agent_id") {
+      return false;
+    }
+    const value = target.kind === "agent_label" ? target.label : target.agentId;
+    const normalized = normalizeBrokerProductTarget(value);
+    return normalized === "scout" || normalized === "openscout";
+  }
+
+  const normalizedLabel = normalizeBrokerProductTarget(payload.targetLabel ?? "");
+  const normalizedAgentId = normalizeBrokerProductTarget(payload.targetAgentId ?? "");
+  return normalizedLabel === "scout"
+    || normalizedLabel === "openscout"
+    || normalizedAgentId === "scout"
+    || normalizedAgentId === "openscout";
 }
 
 function resolveConversationShareMode(
@@ -2618,6 +2962,18 @@ function messageVisibilityForConversation(conversation?: ConversationDefinition)
   }
 }
 
+function hasReachableMeshEntrypoint(node: NodeDefinition | undefined): boolean {
+  return Boolean(node?.meshEntrypoints?.some((entrypoint) =>
+    entrypoint.kind === "iroh"
+    && entrypoint.alpn === OPENSCOUT_IROH_MESH_ALPN
+    && entrypoint.bridgeProtocolVersion === OPENSCOUT_MESH_PROTOCOL_VERSION
+  ));
+}
+
+function isReachableMeshNode(node: NodeDefinition | undefined): node is NodeDefinition {
+  return Boolean(node?.brokerUrl || hasReachableMeshEntrypoint(node));
+}
+
 function authorityNodeForConversation(conversationId: string): {
   conversation: ConversationDefinition;
   authorityNode: NodeDefinition;
@@ -2628,7 +2984,7 @@ function authorityNodeForConversation(conversationId: string): {
   }
 
   const authorityNode = runtime.node(conversation.authorityNodeId);
-  if (!authorityNode?.brokerUrl) {
+  if (!isReachableMeshNode(authorityNode)) {
     throw new Error(`authority node ${conversation.authorityNodeId} is not reachable`);
   }
 
@@ -2649,7 +3005,7 @@ async function forwardConversationMessageToAuthority(message: MessageRecord): Pr
   const bundle = buildMeshMessageBundle(runtime.peek(), currentLocalNode(), message, {
     bindings: runtime.bindingsForConversation(authority.conversation.id),
   });
-  const result = await forwardMeshMessage(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshMessage(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -2673,7 +3029,7 @@ async function forwardCollaborationRecordToAuthority(record: CollaborationRecord
   }
 
   const bundle = buildMeshCollaborationRecordBundle(runtime.peek(), currentLocalNode(), record);
-  const result = await forwardMeshCollaborationRecord(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshCollaborationRecord(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -2697,7 +3053,7 @@ async function forwardCollaborationEventToAuthority(event: CollaborationEvent): 
   }
 
   const bundle = buildMeshCollaborationEventBundle(runtime.peek(), currentLocalNode(), event, record);
-  const result = await forwardMeshCollaborationEvent(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshCollaborationEvent(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -2713,6 +3069,9 @@ async function maybeForwardFlightToAuthority(flight: FlightRecord): Promise<void
 
   const authority = authorityNodeForConversation(invocation.conversationId);
   if (!authority) {
+    return;
+  }
+  if (!authority.authorityNode.brokerUrl) {
     return;
   }
 
@@ -3122,13 +3481,13 @@ async function forwardPeerBrokerCollaborationRecord(
 
   for (const targetNodeId of targetNodeIds) {
     const targetNode = runtime.node(targetNodeId);
-    if (!targetNode?.brokerUrl) {
+    if (!isReachableMeshNode(targetNode)) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      await forwardMeshCollaborationRecord(targetNode.brokerUrl, bundle);
+      await forwardMeshCollaborationRecord(targetNode, bundle);
       forwarded.push(targetNodeId);
     } catch {
       failed.push(targetNodeId);
@@ -3170,13 +3529,13 @@ async function forwardPeerBrokerCollaborationEvent(
 
   for (const targetNodeId of targetNodeIds) {
     const targetNode = runtime.node(targetNodeId);
-    if (!targetNode?.brokerUrl) {
+    if (!isReachableMeshNode(targetNode)) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      await forwardMeshCollaborationEvent(targetNode.brokerUrl, bundle);
+      await forwardMeshCollaborationEvent(targetNode, bundle);
       forwarded.push(targetNodeId);
     } catch {
       failed.push(targetNodeId);
@@ -3573,8 +3932,46 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     ? url.pathname.match(/^\/v1\/thread-watches\/([^/]+)\/stream$/)
     : null;
 
+  if ((url.pathname === "/v1/web/status" || url.pathname === "/v1/web/start") && method === "OPTIONS") {
+    response.writeHead(204, scoutWebSupervisorCorsHeaders(request));
+    response.end();
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/health") {
     json(response, 200, await brokerService.readHealth());
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/web/status") {
+    jsonWithHeaders(response, 200, await webSupervisorStatus(), scoutWebSupervisorCorsHeaders(request));
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/web/start") {
+    try {
+      jsonWithHeaders(
+        response,
+        200,
+        await startWebServerIfNeeded(webStartContextFromRequest(request)),
+        scoutWebSupervisorCorsHeaders(request),
+      );
+    } catch (error) {
+      jsonWithHeaders(
+        response,
+        500,
+        {
+          ok: false,
+          running: false,
+          starting: false,
+          webUrl: webServerUrl(),
+          port: webServerPort(),
+          pid: webServerProcess?.pid ?? null,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        scoutWebSupervisorCorsHeaders(request),
+      );
+    }
     return;
   }
 
@@ -4549,6 +4946,67 @@ async function acceptBrokerDelivery(
       || payload.target?.kind === "agent_label",
   ) || (!payload.target && Boolean(payload.targetAgentId?.trim() || payload.targetLabel?.trim()));
 
+  if (isLocalScoutProductTarget(payload)) {
+    await ensureBrokerActorForDelivery(requesterId);
+    await ensureBrokerActorForDelivery(SCOUT_DISPATCHER_AGENT_ID);
+    const conversation = await ensureBrokerDeliveryConversation({
+      requesterId,
+      targetAgentId: SCOUT_DISPATCHER_AGENT_ID,
+      channel: deliveryChannel,
+    });
+    const snapshot = runtime.snapshot();
+    const messageId = createRuntimeId("msg");
+    const routeKind = brokerRouteKind(conversation);
+    const message: MessageRecord = {
+      id: messageId,
+      conversationId: conversation.id,
+      actorId: requesterId,
+      originNodeId: requesterNodeId,
+      class: conversation.kind === "system" ? "system" : "agent",
+      body: payload.body.trim(),
+      ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
+      mentions: [{ actorId: SCOUT_DISPATCHER_AGENT_ID, label: "@scout" }],
+      ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
+      audience: {
+        notify: [],
+        reason: conversation.kind === "direct" ? "direct_message" : "mention",
+      },
+      visibility: messageVisibilityForConversation(conversation),
+      policy: "durable",
+      createdAt,
+      metadata: {
+        ...(payload.messageMetadata ?? {}),
+        relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
+        relayTarget: SCOUT_DISPATCHER_AGENT_ID,
+        relayTargetIds: [SCOUT_DISPATCHER_AGENT_ID],
+        relayMessageId: messageId,
+        returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
+          conversationId: conversation.id,
+          replyToMessageId: messageId,
+        }),
+      },
+    };
+    await postConversationMessage(message);
+    return {
+      kind: "delivery",
+      accepted: true,
+      routeKind,
+      receipt: buildDeliveryReceipt({
+        requestId,
+        routeKind,
+        requesterId,
+        requesterNodeId,
+        targetAgentId: SCOUT_DISPATCHER_AGENT_ID,
+        targetLabel: "Scout",
+        conversationId: conversation.id,
+        messageId,
+      }),
+      conversation,
+      message,
+      targetAgentId: SCOUT_DISPATCHER_AGENT_ID,
+    };
+  }
+
   if (deliveryChannel && (typedChannelTarget || !hasAgentTarget) && payload.intent === "tell") {
     await ensureBrokerActorForDelivery(requesterId);
     const conversation = await ensureBrokerDeliveryConversation({
@@ -4826,6 +5284,13 @@ try {
   await listenTcp(server);
   await listenUnixSocket(socketServer, brokerSocketPath);
   peerDelivery.start();
+  const meshRendezvousConfig = resolveMeshRendezvousPublishConfig();
+  if (meshRendezvousConfig) {
+    meshRendezvousPublisher = startMeshRendezvousPublisher(localNode, {
+      config: meshRendezvousConfig,
+      logger: console,
+    });
+  }
   console.log(`[openscout-runtime] broker listening on ${host}:${port} (scope: ${advertiseScope}, url: ${brokerUrl})`);
   console.log(`[openscout-runtime] broker local socket ${brokerSocketPath}`);
   if (advertiseScope === "mesh" && isLoopbackHost(host)) {
@@ -4893,14 +5358,14 @@ function closeServer(serverInstance: ReturnType<typeof createServer>): Promise<v
   });
 }
 
-let shuttingDown = false;
-
 async function shutdownBroker(exitCode = 0): Promise<void> {
   if (shuttingDown) {
     return;
   }
   shuttingDown = true;
   peerDelivery.stop();
+  meshRendezvousPublisher?.stop();
+  irohBridgeService?.stop();
   for (const client of eventClients) {
     client.end();
   }

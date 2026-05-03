@@ -139,21 +139,50 @@ export function SessionRefScreen({
     );
   }
 
+  if (loading) {
+    return (
+      <div className="s-sessions-screen s-inbox-thread-redesign">
+        <section className="s-thread-overview">
+          <div className="s-thread-overview-copy">
+            <div className="s-sessions-header s-thread-overview-heading">
+              <h2 className="s-page-title">Session</h2>
+              <span className="s-meta s-tabular">{sessionRef.slice(0, 8)}</span>
+            </div>
+            <p className="s-thread-overview-summary s-session-ref-loading">
+              <span className="s-session-ref-loading-dot" />
+              <span className="s-session-ref-loading-dot" />
+              <span className="s-session-ref-loading-dot" />
+              Resolving session reference
+            </p>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="s-sessions-screen s-inbox-thread-redesign">
       <section className="s-thread-overview">
         <div className="s-thread-overview-copy">
           <div className="s-sessions-header s-thread-overview-heading">
-            <h2 className="s-page-title">Session</h2>
+            <h2 className="s-page-title">Session not found</h2>
             <span className="s-meta s-tabular">{sessionRef.slice(0, 8)}</span>
           </div>
           <p className="s-thread-overview-summary">
-            {loading
-              ? "Resolving session reference..."
-              : error
-                ? "No matching conversation, agent session, or Claude history file."
-                : "No matching session reference."}
+            This session may have ended or the archive is not available on this machine.
           </p>
+          {error && (
+            <p className="s-session-ref-error-detail">{error}</p>
+          )}
+          <div className="s-session-ref-nav-hint">
+            <button
+              type="button"
+              className="s-back"
+              onClick={() => navigate({ view: "sessions" })}
+            >
+              &larr; Back to sessions
+            </button>
+          </div>
         </div>
       </section>
     </div>

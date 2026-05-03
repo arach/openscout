@@ -9,6 +9,8 @@ import { homedir, hostname as osHostname } from "node:os";
 import { dirname, join } from "node:path";
 
 export const LOCAL_CONFIG_VERSION = 1;
+export const DEFAULT_SCOUT_WEB_PORTAL_HOST = "scout.local";
+export const DEFAULT_SCOUT_WEB_LOCAL_NAME = DEFAULT_SCOUT_WEB_PORTAL_HOST;
 
 export type LocalPortsConfig = {
   broker?: number;
@@ -19,12 +21,14 @@ export type LocalPortsConfig = {
 export type LocalConfig = {
   version: number;
   host?: string;
+  webLocalName?: string;
   ports?: LocalPortsConfig;
 };
 
 export const DEFAULT_LOCAL_CONFIG = {
   version: LOCAL_CONFIG_VERSION,
   host: "127.0.0.1",
+  webLocalName: undefined,
   ports: {
     broker: 65535,
     web: 3200,
@@ -47,8 +51,42 @@ export function normalizeLocalHostnameLabel(value: string | undefined): string {
   return normalized || "localhost";
 }
 
+export function normalizeLocalHostname(value: string | undefined): string {
+  const trimmed = value?.trim().replace(/\.$/, "").toLowerCase();
+  const labels = trimmed
+    ?.split(".")
+    .map((label) =>
+      label
+        .trim()
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .replace(/-{2,}/g, "-")
+    )
+    .filter(Boolean);
+  return labels && labels.length > 0 ? labels.join(".") : "localhost";
+}
+
 export function resolveScoutWebMdnsHostname(hostname = osHostname()): string {
-  return `scout.${normalizeLocalHostnameLabel(hostname)}.local`;
+  return `${normalizeLocalHostnameLabel(hostname)}.local`;
+}
+
+export function resolveScoutWebNamedHostname(name: string): string {
+  const normalized = normalizeLocalHostname(name);
+  return normalized.includes(".") ? normalized : `${normalized}.${DEFAULT_SCOUT_WEB_PORTAL_HOST}`;
+}
+
+export function resolveConfiguredScoutWebHostname(
+  config: Pick<LocalConfig, "webLocalName"> = loadLocalConfig(),
+  machineHostname = osHostname(),
+): string {
+  if (config.webLocalName) {
+    return resolveScoutWebNamedHostname(config.webLocalName);
+  }
+  return `${normalizeLocalHostnameLabel(machineHostname)}.${DEFAULT_SCOUT_WEB_PORTAL_HOST}`;
+}
+
+export function resolveScoutWebVirtualHostname(hostname = osHostname()): string {
+  return `${normalizeLocalHostnameLabel(hostname)}.${DEFAULT_SCOUT_WEB_PORTAL_HOST}`;
 }
 
 export function localConfigHome(): string {
@@ -75,6 +113,9 @@ function validateLocalConfig(input: unknown): LocalConfig {
   const out: LocalConfig = { version: LOCAL_CONFIG_VERSION };
   if (typeof raw.host === "string" && raw.host.trim().length > 0) {
     out.host = raw.host.trim();
+  }
+  if (typeof raw.webLocalName === "string" && raw.webLocalName.trim().length > 0) {
+    out.webLocalName = raw.webLocalName.trim();
   }
   if (raw.ports && typeof raw.ports === "object") {
     const ports = raw.ports as Record<string, unknown>;

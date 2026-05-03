@@ -1,10 +1,20 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveWebPort } from "@openscout/runtime/local-config";
+import {
+  resolveConfiguredScoutWebHostname,
+  resolveScoutWebNamedHostname,
+  resolveWebPort,
+} from "@openscout/runtime/local-config";
+import {
+  renderOpenScoutCaddyfile,
+  resolveOpenScoutLocalEdgeConfig,
+  type OpenScoutLocalEdgeConfig,
+  type OpenScoutLocalEdgeScheme,
+} from "@openscout/runtime/local-edge";
 import {
   resolveBunExecutable as resolveResolvedBunExecutable,
   resolveBundledEntrypoint,
@@ -17,7 +27,7 @@ import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 
 type ScoutServerMode = "openscout-web";
-type ScoutServerAction = "start" | "open";
+type ScoutServerAction = "start" | "open" | "caddyfile" | "edge";
 
 type ScoutServerHealth = {
   ok: true;
@@ -42,21 +52,30 @@ export function renderServerCommandHelp(): string {
     "Usage:",
     "  scout server start [options]",
     "  scout server open [options]",
+    "  scout server caddyfile [options]",
+    "  scout server edge [options]",
     "  scout server control-plane open [options]  # legacy alias",
     "",
     "Subcommands:",
     "  start              Start the Scout web UI server.",
     "  open               Open the Scout web UI (starts server on demand if needed).",
+    "  caddyfile          Print the local edge Caddyfile for scout.local.",
+    "  edge               Publish local names and run the Caddy edge.",
     "",
     "Options:",
+    "  --host <h>        Bind host (default 0.0.0.0 for LAN/mDNS access)",
+    "  --local-name NAME Node hostname or short alias to advertise (default <machine>.scout.local)",
     "  --port <n>        Listen port (default 3200; optional override OPENSCOUT_WEB_PORT)",
     "  --static          Serve built UI from disk",
     "  --static-root DIR Static client root (optional override OPENSCOUT_WEB_STATIC_ROOT)",
     "  --vite-url URL    Dev proxy target for non-API routes (optional override OPENSCOUT_WEB_VITE_URL)",
     "  --public-origin URL",
-    "                    Public origin behind Caddy, e.g. https://scout.<host>.local",
+    "                    Public origin behind Caddy, e.g. https://scout.local",
+    "  --http            Run/print only the plain HTTP edge on port 80",
+    "  --https           Run/print only the HTTPS edge with Caddy local TLS",
+    "  --both            Run/print HTTP and HTTPS edges (default)",
     "  --advertised-host HOST",
-    "                    LAN host to advertise/trust (default scout.<machine>.local)",
+    "                    Explicit node host to advertise/trust (default <machine>.scout.local)",
     "  --trusted-host HOST",
     "                    Additional trusted API host; may be repeated",
     "  --trusted-origin URL",
@@ -114,6 +133,18 @@ function parseServerFlags(args: string[]): {
       env.OPENSCOUT_WEB_PORT = v;
       continue;
     }
+    if (a === "--host") {
+      const v = args[++i];
+      if (!v) throw new ScoutCliError("--host requires a value");
+      env.OPENSCOUT_WEB_HOST = v;
+      continue;
+    }
+    if (a === "--local-name") {
+      const v = args[++i];
+      if (!v) throw new ScoutCliError("--local-name requires a value");
+      env.OPENSCOUT_WEB_LOCAL_NAME = v;
+      continue;
+    }
     if (a === "--static") {
       env.NODE_ENV = "production";
       continue;
@@ -134,6 +165,18 @@ function parseServerFlags(args: string[]): {
       const v = args[++i];
       if (!v) throw new ScoutCliError("--public-origin requires a value");
       env.OPENSCOUT_WEB_PUBLIC_ORIGIN = v;
+      continue;
+    }
+    if (a === "--http") {
+      env.OPENSCOUT_WEB_EDGE_SCHEME = "http";
+      continue;
+    }
+    if (a === "--https") {
+      env.OPENSCOUT_WEB_EDGE_SCHEME = "https";
+      continue;
+    }
+    if (a === "--both") {
+      env.OPENSCOUT_WEB_EDGE_SCHEME = "both";
       continue;
     }
     if (a === "--advertised-host") {
@@ -170,6 +213,14 @@ function parseServerFlags(args: string[]): {
       env.OPENSCOUT_WEB_PORT = a.slice("--port=".length);
       continue;
     }
+    if (a.startsWith("--host=")) {
+      env.OPENSCOUT_WEB_HOST = a.slice("--host=".length);
+      continue;
+    }
+    if (a.startsWith("--local-name=")) {
+      env.OPENSCOUT_WEB_LOCAL_NAME = a.slice("--local-name=".length);
+      continue;
+    }
     if (a.startsWith("--static-root=")) {
       env.OPENSCOUT_WEB_STATIC_ROOT = a.slice("--static-root=".length);
       continue;
@@ -180,6 +231,14 @@ function parseServerFlags(args: string[]): {
     }
     if (a.startsWith("--public-origin=")) {
       env.OPENSCOUT_WEB_PUBLIC_ORIGIN = a.slice("--public-origin=".length);
+      continue;
+    }
+    if (a.startsWith("--edge-scheme=")) {
+      const v = a.slice("--edge-scheme=".length);
+      if (v !== "http" && v !== "https" && v !== "both") {
+        throw new ScoutCliError("--edge-scheme must be http, https, or both");
+      }
+      env.OPENSCOUT_WEB_EDGE_SCHEME = v;
       continue;
     }
     if (a.startsWith("--advertised-host=")) {
@@ -241,6 +300,13 @@ function buildMergedServerEnv(entry: string, mode: ScoutServerMode, flagEnv: Rec
   if (flagEnv.SCOUT_WEB_PORT) {
     autoEnv.OPENSCOUT_WEB_PORT = flagEnv.SCOUT_WEB_PORT;
   }
+  if (
+    !flagEnv.OPENSCOUT_WEB_HOST
+    && !process.env.OPENSCOUT_WEB_HOST?.trim()
+    && !process.env.SCOUT_WEB_HOST?.trim()
+  ) {
+    autoEnv.OPENSCOUT_WEB_HOST = "0.0.0.0";
+  }
   if (flagEnv.OPENSCOUT_SETUP_CWD) {
     autoEnv.OPENSCOUT_SETUP_CWD = flagEnv.OPENSCOUT_SETUP_CWD;
   }
@@ -264,6 +330,22 @@ function parseServerSelection(args: string[]): {
   if (args[0] === "open") {
     return {
       action: "open",
+      flagArgs: args.slice(1),
+      entry: resolveScoutControlPlaneWebServerEntry(),
+      mode: "openscout-web",
+    };
+  }
+  if (args[0] === "caddyfile") {
+    return {
+      action: "caddyfile",
+      flagArgs: args.slice(1),
+      entry: resolveScoutControlPlaneWebServerEntry(),
+      mode: "openscout-web",
+    };
+  }
+  if (args[0] === "edge") {
+    return {
+      action: "edge",
       flagArgs: args.slice(1),
       entry: resolveScoutControlPlaneWebServerEntry(),
       mode: "openscout-web",
@@ -307,6 +389,28 @@ function resolveServerPort(env: NodeJS.ProcessEnv): number {
   return resolveWebPort();
 }
 
+function resolveServerEdgeScheme(env: NodeJS.ProcessEnv): OpenScoutLocalEdgeScheme {
+  const value = env.OPENSCOUT_WEB_EDGE_SCHEME?.trim().toLowerCase();
+  if (!value) return "both";
+  if (value === "http" || value === "https" || value === "both") return value;
+  throw new ScoutCliError(`invalid edge scheme: ${value}`);
+}
+
+function resolveServerLocalEdgeConfig(env: NodeJS.ProcessEnv): OpenScoutLocalEdgeConfig {
+  const port = resolveServerPort(env);
+  const portalHost = env.OPENSCOUT_WEB_PORTAL_HOST?.trim() || "scout.local";
+  const nodeHost = env.OPENSCOUT_WEB_ADVERTISED_HOST?.trim()
+    || (env.OPENSCOUT_WEB_LOCAL_NAME?.trim()
+      ? resolveScoutWebNamedHostname(env.OPENSCOUT_WEB_LOCAL_NAME)
+      : resolveConfiguredScoutWebHostname());
+  return resolveOpenScoutLocalEdgeConfig({
+    portalHost,
+    nodeHost,
+    scheme: resolveServerEdgeScheme(env),
+    webPort: port,
+  });
+}
+
 function resolveExpectedCurrentDirectory(env: NodeJS.ProcessEnv): string {
   return resolveOpenScoutSetupContextRoot({
     env,
@@ -337,6 +441,15 @@ function isCurrentScoutWebSurface(surface: ScoutServerHealth["surface"]): boolea
 
 function healthUrlForPort(port: number): URL {
   return new URL(`/api/health`, `http://127.0.0.1:${port}`);
+}
+
+export function resolveServerBrowserUrl(env: NodeJS.ProcessEnv, port: number, openPath: string): string {
+  const publicOrigin = env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim();
+  const portalHost = env.OPENSCOUT_WEB_PORTAL_HOST?.trim() || "scout.local";
+  const base = publicOrigin
+    ? publicOrigin.replace(/\/+$/, "")
+    : `http://${resolveScoutWebNamedHostname(portalHost)}:${port}`;
+  return new URL(normalizeServerOpenPath(openPath), base).toString();
 }
 
 async function probeScoutServer(port: number): Promise<
@@ -435,6 +548,109 @@ function resolveScoutWebServerLogPath(): string {
   return join(dir, "web-server.log");
 }
 
+function resolveScoutLocalEdgeCaddyfilePath(): string {
+  const dir = join(homedir(), ".scout", "local-edge");
+  mkdirSync(dir, { recursive: true });
+  return join(dir, "Caddyfile");
+}
+
+function resolveCaddyExecutable(env: NodeJS.ProcessEnv): string {
+  return env.OPENSCOUT_CADDY_BIN?.trim() || "caddy";
+}
+
+function spawnMdnsProxy(input: {
+  name: string;
+  host: string;
+  port: number;
+  scheme: OpenScoutLocalEdgeScheme;
+}): ReturnType<typeof spawn> {
+  return spawn("/usr/bin/dns-sd", [
+    "-P",
+    input.name,
+    input.scheme === "https" ? "_https._tcp" : "_http._tcp",
+    "local",
+    String(input.port),
+    input.host,
+    "127.0.0.1",
+    "path=/",
+  ], {
+    stdio: "ignore",
+  });
+}
+
+async function runScoutLocalEdge(env: NodeJS.ProcessEnv): Promise<void> {
+  const config = resolveServerLocalEdgeConfig(env);
+  const schemes = config.scheme === "both" ? ["http", "https"] as const : [config.scheme] as const;
+  const caddyfilePath = resolveScoutLocalEdgeCaddyfilePath();
+  writeFileSync(caddyfilePath, renderOpenScoutCaddyfile(config), "utf8");
+
+  const mdnsProcesses = schemes.flatMap((scheme) => {
+    const edgePort = scheme === "https" ? 443 : 80;
+    const suffix = scheme.toUpperCase();
+    return [
+      spawnMdnsProxy({
+        name: `Scout Local ${suffix}`,
+        host: config.portalHost,
+        port: edgePort,
+        scheme,
+      }),
+      spawnMdnsProxy({
+        name: `Scout ${config.nodeHost} ${suffix}`,
+        host: config.nodeHost,
+        port: edgePort,
+        scheme,
+      }),
+    ];
+  });
+
+  const cleanup = () => {
+    for (const processRef of mdnsProcesses) {
+      if (!processRef.killed) {
+        processRef.kill("SIGTERM");
+      }
+    }
+  };
+
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    const caddy = spawn(resolveCaddyExecutable(env), [
+      "run",
+      "--config",
+      caddyfilePath,
+      "--adapter",
+      "caddyfile",
+    ], {
+      stdio: "inherit",
+      env,
+    });
+
+    caddy.once("error", (error: NodeJS.ErrnoException) => {
+      cleanup();
+      if (error.code === "ENOENT") {
+        rejectPromise(new ScoutCliError("Caddy is not installed. Install Caddy or set OPENSCOUT_CADDY_BIN."));
+        return;
+      }
+      rejectPromise(error);
+    });
+
+    caddy.once("exit", (code, signal) => {
+      cleanup();
+      if (signal === "SIGINT" || signal === "SIGTERM") {
+        resolvePromise();
+        return;
+      }
+      if (signal) {
+        rejectPromise(new ScoutCliError(`local edge exited on signal ${signal}`));
+        return;
+      }
+      if (code !== 0 && code !== null) {
+        rejectPromise(new ScoutCliError(`local edge exited with code ${code}`));
+        return;
+      }
+      resolvePromise();
+    });
+  });
+}
+
 async function spawnDetachedServer(entry: string, env: NodeJS.ProcessEnv): Promise<void> {
   const bunExecutable = resolveBunExecutable(env);
   const logPath = resolveScoutWebServerLogPath();
@@ -507,7 +723,7 @@ async function openScoutServer(options: {
 }): Promise<ScoutServerOpenResult> {
   const port = resolveServerPort(options.env);
   const expectedCurrentDirectory = resolveExpectedCurrentDirectory(options.env);
-  const browserUrl = new URL(normalizeServerOpenPath(options.openPath), `http://127.0.0.1:${port}`).toString();
+  const browserUrl = resolveServerBrowserUrl(options.env, port, options.openPath);
   const probe = await probeScoutServer(port);
 
   if (probe.status === "healthy") {
@@ -564,6 +780,16 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
       openPath,
     });
     context.output.writeValue(result, renderServerOpenResult);
+    return;
+  }
+
+  if (selection.action === "caddyfile") {
+    context.output.writeText(renderOpenScoutCaddyfile(resolveServerLocalEdgeConfig(mergedEnv)));
+    return;
+  }
+
+  if (selection.action === "edge") {
+    await runScoutLocalEdge(mergedEnv);
     return;
   }
 

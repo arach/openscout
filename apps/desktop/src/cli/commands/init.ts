@@ -15,6 +15,7 @@ type InitOptions = {
   webPort: number | null;
   pairingPort: number | null;
   host: string | null;
+  webLocalName: string | null;
 };
 
 function parseInitOptions(args: string[]): InitOptions {
@@ -24,6 +25,7 @@ function parseInitOptions(args: string[]): InitOptions {
     webPort: null,
     pairingPort: null,
     host: null,
+    webLocalName: null,
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -51,6 +53,11 @@ function parseInitOptions(args: string[]): InitOptions {
       case "--host":
         if (!value) throw new ScoutCliError(`${key} requires a value`);
         options.host = value;
+        if (consumeNext) i += 1;
+        break;
+      case "--web-local-name":
+        if (!value) throw new ScoutCliError(`${key} requires a value`);
+        options.webLocalName = value;
         if (consumeNext) i += 1;
         break;
       default:
@@ -88,6 +95,7 @@ export async function runInitCommand(context: ScoutCommandContext, args: string[
   const next: LocalConfig = {
     version: 1,
     host: options.host ?? DEFAULT_LOCAL_CONFIG.host,
+    webLocalName: options.webLocalName ?? DEFAULT_LOCAL_CONFIG.webLocalName,
     ports: {
       broker: options.brokerPort ?? DEFAULT_LOCAL_CONFIG.ports.broker,
       web: options.webPort ?? DEFAULT_LOCAL_CONFIG.ports.web,
@@ -108,6 +116,7 @@ function formatConfig(config: LocalConfig): string {
   const ports = config.ports ?? {};
   return [
     `  host:    ${host}`,
+    `  web URL: ${config.webLocalName ?? "(machine hostname under scout.local)"}`,
     `  broker:  ${ports.broker ?? DEFAULT_LOCAL_CONFIG.ports.broker}`,
     `  web:     ${ports.web ?? DEFAULT_LOCAL_CONFIG.ports.web}`,
     `  pairing: ${ports.pairing ?? DEFAULT_LOCAL_CONFIG.ports.pairing}`,

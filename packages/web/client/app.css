@@ -8,6 +8,8 @@
   --pill-failed-bg: color-mix(in srgb, var(--red) 14%, transparent);
 
   --sidebar-w: 280px;
+  --hud-canvas-dot-minor: rgba(255, 255, 255, 0.055);
+  --hud-canvas-dot-major: rgba(255, 255, 255, 0.10);
   font-family: var(--hud-font-sans);
   font-size: var(--hud-text-base);
   line-height: 1.5;
@@ -36,6 +38,7 @@
   --font-sans: var(--hud-font-sans);
   --font-mono: var(--hud-font-mono);
   --font-serif: var(--hud-font-serif);
+  --font-accent-title: var(--hud-font-accent-title);
 
   /* Hudson's Tailwind utilities read --color-* variables, while Scout's
    * component CSS keeps legacy aliases such as --border and --accent as full
@@ -533,7 +536,7 @@ body { margin: 0; }
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -691,7 +694,7 @@ body { margin: 0; }
 }
 
 .s-welcome h2 {
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 24px;
   font-weight: 600;
   color: var(--dim);
@@ -2324,7 +2327,7 @@ details[open] > .s-conv-meta-toggle::before {
 }
 
 .s-page-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-accent-title);
   font-size: 28px;
   font-weight: 500;
   line-height: 1.15;

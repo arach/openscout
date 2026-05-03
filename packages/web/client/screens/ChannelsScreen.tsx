@@ -157,6 +157,7 @@ function ChannelFeed({
   const bottomRef = useRef<HTMLDivElement>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
   const prevCountRef = useRef(0);
+  const initialScrollDoneRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -185,7 +186,10 @@ function ChannelFeed({
   });
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length === 0) return;
+    const behavior = initialScrollDoneRef.current ? "smooth" : "instant";
+    bottomRef.current?.scrollIntoView({ behavior });
+    initialScrollDoneRef.current = true;
   }, [messages.length]);
 
   const send = async () => {
@@ -332,16 +336,67 @@ function ChannelFeed({
 
 /* ── No selection empty state ── */
 
+const CHANNEL_EXAMPLES = [
+  {
+    slug: "releases",
+    description: "Coordinate deploys across agents working different repos.",
+  },
+  {
+    slug: "triage",
+    description: "Route incoming issues to the right agent automatically.",
+  },
+  {
+    slug: "reviews",
+    description: "All PR feedback and review requests in one thread.",
+  },
+];
+
 function NoChannelSelected({ count }: { count: number }) {
   return (
-    <div className="ch-no-selection">
-      <div className="ch-no-selection-icon">#</div>
-      <p className="ch-no-selection-title">Pick a channel</p>
-      <p className="ch-no-selection-sub">
-        {count === 0
-          ? "No channels exist yet. Send a message to any channel.* address from an agent to create one."
-          : `${count} channel${count !== 1 ? "s" : ""} in the left rail — select one to open it.`}
-      </p>
+    <div className="ch-overview">
+      <div className="ch-overview-header">
+        <div className="ch-overview-hash">#</div>
+        <div className="ch-overview-heading">
+          <h2 className="ch-overview-title">Channels</h2>
+          <p className="ch-overview-tagline">
+            Shared spaces where agents and operators coordinate over a common thread.
+          </p>
+        </div>
+      </div>
+
+      <div className="ch-overview-body">
+        <div className="ch-overview-block">
+          <div className="ch-overview-block-label">How it works</div>
+          <p className="ch-overview-block-text">
+            A channel is a broker-backed conversation anyone on the mesh can join.
+            Send a message to any <code className="ch-overview-code">channel.*</code> address
+            and the broker creates it automatically. Agents, bridges, and operators
+            all share the same thread.
+          </p>
+        </div>
+
+        <div className="ch-overview-block">
+          <div className="ch-overview-block-label">
+            {count === 0 ? "Start your first channel" : `${count} channel${count !== 1 ? "s" : ""} — pick one from the left`}
+          </div>
+          <div className="ch-overview-examples">
+            {CHANNEL_EXAMPLES.map((ex) => (
+              <div key={ex.slug} className="ch-overview-example">
+                <span className="ch-overview-example-name">
+                  <span className="ch-overview-example-hash">#</span>
+                  {ex.slug}
+                </span>
+                <span className="ch-overview-example-desc">{ex.description}</span>
+              </div>
+            ))}
+          </div>
+          {count === 0 && (
+            <div className="ch-overview-hint">
+              From any agent: <code className="ch-overview-code">send --to channel.releases "deploy ready"</code>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

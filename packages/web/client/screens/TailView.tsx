@@ -327,14 +327,24 @@ export function TailView({
       <div className="s-tail-body" ref={bodyRef} onScroll={handleScroll}>
         {filtered.length === 0 ? (
           <div className="s-tail-empty">
-            <span className="s-tail-empty-title">tail · waiting for transcripts</span>
-            <span>
-              {transcriptCount ? (
-                <>watching {transcriptCount} transcript{transcriptCount === 1 ? "" : "s"}</>
+            <span className="s-tail-empty-title">
+              Waiting for events<span className="s-tail-empty-cursor" aria-hidden="true" />
+            </span>
+            <span className="s-tail-empty-body">
+              {filter ? (
+                <>no events match filter <strong>{filter}</strong></>
+              ) : transcriptCount ? (
+                <>watching {transcriptCount} transcript{transcriptCount === 1 ? "" : "s"} · no events yet</>
               ) : (
-                <>no moving transcript logs detected · start a session to see traffic</>
+                <>agent tool calls, messages, and system events stream here</>
               )}
             </span>
+            {!transcriptCount && !filter && (
+              <span className="s-tail-empty-hint">
+                Start a session to see traffic<span className="s-tail-empty-hint-sep"> · </span>
+                <code>scout watch --tail</code>
+              </span>
+            )}
           </div>
         ) : (
           filtered.map((event) => (

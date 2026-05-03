@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveHost, resolveWebPort } from "@openscout/runtime/local-config";
+import { resolveWebPort } from "@openscout/runtime/local-config";
 import { resolveOpenScoutSetupContextRoot } from "@openscout/runtime/setup";
 import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
 import {
@@ -26,7 +26,7 @@ const port = Number.parseInt(
 );
 const hostname = process.env.OPENSCOUT_WEB_HOST?.trim()
   || process.env.SCOUT_WEB_HOST?.trim()
-  || resolveHost();
+  || "0.0.0.0";
 const currentDirectory = resolveOpenScoutSetupContextRoot({
   env: process.env,
   fallbackDirectory: process.cwd(),
@@ -86,6 +86,7 @@ const { app, warmupCaches } = await createOpenScoutWebServer({
   viteDevUrl,
   staticRoot,
   advertisedHost: applicationServerIdentity.advertisedHost,
+  portalHost: applicationServerIdentity.portalHost,
   publicOrigin: applicationServerIdentity.publicOrigin,
   trustedHosts: applicationServerIdentity.trustedHosts,
   trustedOrigins: applicationServerIdentity.trustedOrigins,
@@ -124,6 +125,7 @@ try {
           data: {
             upstream: null,
             pending: [],
+            upstreamProtocol: req.headers.get("sec-websocket-protocol"),
             upstreamUrl,
           },
         });
@@ -169,6 +171,6 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 console.log(`OpenScout Web -> http://${hostname}:${server.port}`);
-console.log(`OpenScout LAN -> ${applicationServerIdentity.publicOrigin ?? `http://${applicationServerIdentity.advertisedHost}:${server.port}`}`);
+console.log(`OpenScout URL -> ${applicationServerIdentity.publicOrigin ?? `http://${applicationServerIdentity.advertisedHost}:${server.port}`}`);
 console.log(`Relay WebSocket -> ws://${hostname}:${server.port}${routes.terminalRelayPath}`);
 void warmupCaches();

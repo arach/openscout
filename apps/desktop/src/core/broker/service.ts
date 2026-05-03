@@ -2912,6 +2912,13 @@ async function loadBrokerFlight(
   return snapshot.flights?.[flightId] ?? null;
 }
 
+export async function loadScoutFlight(
+  baseUrl: string,
+  flightId: string,
+): Promise<ScoutFlightRecord | null> {
+  return loadBrokerFlight(baseUrl, flightId);
+}
+
 export async function waitForScoutFlight(
   baseUrl: string,
   flightId: string,

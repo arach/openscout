@@ -23,6 +23,8 @@ export function renderMcpCommandHelp(): string {
     "  agents_resolve   pin one exact target when needed",
     "  messages_send    tell / update with explicit target fields or channel",
     "  invocations_ask  owned work / reply handoff with explicit target fields",
+    "  invocations_get  fetch current state for an existing ask flight",
+    "  invocations_wait bounded wait for an existing ask flight",
     "  work_update      progress / waiting / review / done for existing work",
     "",
     "Pass targets as tool fields. Message body text is payload, so quoted",

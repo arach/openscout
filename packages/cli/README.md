@@ -172,11 +172,16 @@ Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree
 
 If direct send/ask still comes back unresolved, treat that as a routing problem, not a mere "target is offline" problem. The right follow-up is to disambiguate the target, inspect broker context with `scout who` / `scout latest`, or create/register the missing identity. Do not default to pushing the bring-up step back onto the operator for a known target.
 
-By default, a label handoff such as `@openscout.harness:claude` should mean
-"use the OpenScout identity on the Claude harness in a fresh session/context."
-Reusing an existing session is an explicit continuity choice, not the default.
-The broker should keep the stable agent name as the address and record the
-concrete session binding in the delivery receipt/history.
+Local product handoffs use the public Scout address:
+
+```bash
+scout send --to scout "message for the local Scout inbox"
+```
+
+Broker names and concrete node or agent ids are diagnostic details. Normal send
+output should say whether the message was sent, not which broker or internal
+session handled it. Reusing an existing session is an explicit continuity
+choice, not the default.
 
 Session refs are separate route targets for continuing a concrete bound
 session. Use the bare `ref:<suffix>` form in receipts/history, and pass the
@@ -188,10 +193,10 @@ scout ask --ref 7f3a9c21 "continue from that handoff"
 scout send --ref 7f3a9c21 "status for that same session"
 ```
 
-Receipts should name both layers, for example:
+Diagnostic views may show both layers, for example:
 
 ```text
-sent to @openscout#claude via DM (ref:7f3a9c21)
+sent to Scout via DM (ref:7f3a9c21)
 ```
 
 ## Current Commands
@@ -249,13 +254,18 @@ scout server open
 scout server start
 scout server start --port 3200
 scout server open --path /agents/arc-codex-2.master.mini
-scout server start --public-origin https://scout.my-mac.local
+scout server start --public-origin https://scout.local
+scout server edge --local-name m1
 scout server start --vite-url http://127.0.0.1:43173   # SPA dev server
 scout server start --static --static-root /custom/client
 ```
 
 `scout server open` reuses an already-running matching Scout server on that port, or starts one in the background and opens the browser for you. Use `scout server` or `scout server help` for full flags.
 
-The application server derives the LAN hostname `scout.<machine>.local` by default. For a Caddy or other edge proxy, set `--public-origin https://scout.<machine>.local` (or `OPENSCOUT_WEB_PUBLIC_ORIGIN`) so browser origins match the app server's trusted host model.
+The application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. `scout server edge` publishes `scout.local` plus the node host with Bonjour/mDNS and runs Caddy against the active web port. The managed edge serves HTTP on port `80` for zero-cert local browsing and HTTPS on port `443` with Caddy's local CA; the HTTPS path needs the local CA trusted once by browsers that enforce their own trust store.
+
+When the edge is up but the web app is down, Caddy serves a same-origin "Start Scout" page. The button calls Caddy's internal `/__openscout/web/start` path, which proxies to the always-on broker and starts the web server while keeping the user-facing URL at `scout.local` or `<name>.scout.local`.
 
 `packages/web` remains the internal web workspace. Published installs get that same server and client through `@openscout/scout`.
+
+For source development, `bun run dev:edge -- --local-name m1` starts the web dev stack and the local edge together. It generates Caddy config against the actual selected dev port, so worktree-specific ports and busy-port fallback still route through `scout.local`.

@@ -50,8 +50,34 @@ let askScoutQuestionResult: unknown = {
   },
 };
 mock.module("./db-queries.ts", () => ({
+  configureReadonlyDb: (db: { exec(sql: string): void }) => {
+    db.exec("PRAGMA busy_timeout = 250");
+    db.exec("PRAGMA query_only = ON");
+  },
   queryAgents: () => [],
   queryActivity: () => [],
+  queryBrokerDiagnostics: () => ({
+    generatedAt: Date.now(),
+    windowMs: 86_400_000,
+    totals: {
+      successfulDispatches: 0,
+      failedQueries: 0,
+      failedDeliveries: 0,
+      deliveryAttempts: 0,
+      failedDeliveryAttempts: 0,
+      dialogueMessages: 0,
+    },
+    rates: {
+      messagesPerHour: 0,
+      failedQueriesPerHour: 0,
+      failedDeliveriesPerHour: 0,
+      failureRate: 0,
+    },
+    attempts: [],
+    failedQueries: [],
+    failedDeliveries: [],
+    dialogue: [],
+  }),
   queryHeartrate: () => [],
   queryFleet: () => ({
     generatedAt: Date.now(),
@@ -222,6 +248,28 @@ describe("createOpenScoutWebServer", () => {
     expect(await response.json()).toEqual([]);
   });
 
+  test("serves broker diagnostics", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/broker");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      totals: {
+        successfulDispatches: 0,
+        failedQueries: 0,
+        failedDeliveries: 0,
+      },
+      attempts: [],
+      failedQueries: [],
+      failedDeliveries: [],
+      dialogue: [],
+    });
+  });
+
   test("routes direct DM tells through sendScoutDirectMessage", async () => {
     querySessionByIdImpl = () => ({
       kind: "direct",
@@ -270,6 +318,45 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"terminalRelayPath":"/ws/terminal"');
     expect(body).toContain('"terminalRelayHealthPath":"/ws/terminal/health"');
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
+  });
+
+  test("serves the local portal only for the portal host on the same app port", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      advertisedHost: "m1.scout.local",
+      portalHost: "scout.local",
+    });
+
+    const response = await server.app.request("http://127.0.0.1:4321/", {
+      headers: { host: "scout.local:4321" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    const body = await response.text();
+    expect(body).toContain("Scout local");
+    expect(body).toContain("m1.scout.local");
+    expect(body).toContain('href="http://m1.scout.local:4321/"');
+  });
+
+  test("serves the web app directly for the node host without a portal redirect", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      advertisedHost: "m1.scout.local",
+      portalHost: "scout.local",
+    });
+
+    const response = await server.app.request("http://127.0.0.1:4321/", {
+      headers: { host: "m1.scout.local:4321" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.redirected).toBe(false);
+    expect(await response.text()).toContain("<body>ok</body>");
   });
 
   test("loads and updates local agent config through the web API", async () => {

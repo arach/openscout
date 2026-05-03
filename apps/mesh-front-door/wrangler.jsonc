@@ -1,0 +1,31 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "openscout-mesh-front-door",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-03",
+  "routes": [
+    {
+      "pattern": "mesh.oscout.net",
+      "custom_domain": true
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MESH_DIRECTORY",
+        "class_name": "MeshDirectoryDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MeshDirectoryDurableObject"]
+    }
+  ],
+  "vars": {
+    "OPENSCOUT_ALLOWED_MESH_IDS": "openscout",
+    "OPENSCOUT_MESH_DIRECTORY_OWNER": "default",
+    "OPENSCOUT_MAX_PRESENCE_TTL_MS": "300000"
+  }
+}

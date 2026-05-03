@@ -107,6 +107,8 @@ describe("createScoutMcpServer", () => {
       "agents_resolve",
       "messages_send",
       "invocations_ask",
+      "invocations_get",
+      "invocations_wait",
       "work_update",
     ]);
     expect(result.tools.find((tool) => tool.name === "whoami")?.description)
@@ -778,6 +780,139 @@ describe("createScoutMcpServer", () => {
     expect(notification.params.output).toBe("hudson replied");
     expect(notification.params.senderId).toBe("operator");
     expect(notification.params.targetAgentId).toBe("hudson.main");
+  });
+
+  test("fetches a previously-created ask flight without waiting", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      getFlight: async () => ({
+        id: "flight-1",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "hudson.main",
+        state: "running",
+        summary: "Reviewing auth module",
+      }),
+      waitForFlight: async () => {
+        throw new Error("invocations_get should not wait");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
+    });
+
+    const result = await client.callTool({
+      name: "invocations_get",
+      arguments: {
+        flightId: "flight-1",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      found: boolean;
+      terminal: boolean;
+      waitStatus: string;
+      output: string | null;
+      flight: { state: string } | null;
+      links: { follow: string | null };
+    };
+
+    expect(structured.found).toBe(true);
+    expect(structured.terminal).toBe(false);
+    expect(structured.waitStatus).toBe("not_requested");
+    expect(structured.output).toBe("Reviewing auth module");
+    expect(structured.flight?.state).toBe("running");
+    expect(structured.links.follow).toBe(
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&targetAgentId=hudson.main",
+    );
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]?.text).toContain("Flight flight-1 is running.");
+  });
+
+  test("bounded wait returns the latest flight state on timeout", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      getFlight: async () => ({
+        id: "flight-1",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "hudson.main",
+        state: "running",
+        summary: "Still working",
+      }),
+      waitForFlight: async () => {
+        throw new Error("Timed out waiting for flight flight-1.");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
+    });
+
+    const result = await client.callTool({
+      name: "invocations_wait",
+      arguments: {
+        flightId: "flight-1",
+        timeoutSeconds: 1,
+      },
+    });
+
+    const structured = result.structuredContent as {
+      found: boolean;
+      terminal: boolean;
+      waitStatus: string;
+      output: string | null;
+      flight: { state: string } | null;
+    };
+
+    expect(structured.found).toBe(true);
+    expect(structured.terminal).toBe(false);
+    expect(structured.waitStatus).toBe("timeout");
+    expect(structured.output).toBe("Still working");
+    expect(structured.flight?.state).toBe("running");
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]?.text).toContain("Flight flight-1 is still running.");
   });
 
   test("updates a work item through the dedicated MCP tool", async () => {

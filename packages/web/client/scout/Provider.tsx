@@ -22,7 +22,7 @@ import {
 } from "../lib/ranger.ts";
 import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
-import type { Agent, Route } from "../lib/types.ts";
+import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
 
 declare global {
@@ -66,6 +66,10 @@ export interface ScoutContextValue {
   rangerAgentId: string;
   rangerConversationId: string;
   applyRangerUiAction: (action: RangerUiAction) => void;
+
+  selectedBrokerAttempt: BrokerRouteAttempt | null;
+  inspectBrokerAttempt: (attempt: BrokerRouteAttempt) => void;
+  clearBrokerAttempt: () => void;
 }
 
 const ScoutContext = createContext<ScoutContextValue | null>(null);
@@ -117,6 +121,7 @@ const DARK_THEME_VARS: ThemeVars = {
   "--hud-font-sans": "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
   "--hud-font-serif": "'Instrument Serif', 'Spectral', Georgia, serif",
+  "--hud-font-accent-title": "var(--hud-font-sans)",
 };
 
 const LIGHT_THEME_VARS: ThemeVars = {
@@ -144,6 +149,7 @@ const LIGHT_THEME_VARS: ThemeVars = {
   "--hud-font-sans": "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
   "--hud-font-serif": "'Instrument Serif', 'Spectral', Georgia, serif",
+  "--hud-font-accent-title": "var(--hud-font-sans)",
 };
 
 export function useScout() {
@@ -165,8 +171,13 @@ export function ScoutProvider({
   const [onboardingSkipped, setOnboardingSkipped] = useState(false);
   const skipOnboarding = useCallback(() => setOnboardingSkipped(true), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedBrokerAttempt, setSelectedBrokerAttempt] = useState<BrokerRouteAttempt | null>(null);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const inspectBrokerAttempt = useCallback((attempt: BrokerRouteAttempt) => {
+    setSelectedBrokerAttempt(attempt);
+  }, []);
+  const clearBrokerAttempt = useCallback(() => setSelectedBrokerAttempt(null), []);
   const themeVars = initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
   const rangerAgentId = useMemo(() => resolveRangerAgentId(agents), [agents]);
   const rangerDmConversationId = useMemo(() => rangerConversationId(rangerAgentId), [rangerAgentId]);
@@ -313,12 +324,14 @@ export function ScoutProvider({
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
       rangerAgentId, rangerConversationId: rangerDmConversationId, applyRangerUiAction,
+      selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
     }),
     [
       route, navigate, agents, onlineCount, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
       rangerAgentId, rangerDmConversationId, applyRangerUiAction,
+      selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
     ],
   );
 
