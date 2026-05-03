@@ -9,54 +9,67 @@ Draft implementation plan for [issue #48](https://github.com/arach/openscout/iss
 Optimize for simplicity first.
 
 For users, OpenScout Mesh should feel like one stable place to point their phone
-and web clients. For us, the first implementation should reuse transport paths
-that already work well enough and leave room to grow into deeper Iroh
-infrastructure later.
+and web clients. For us, the work should land in phases that keep each boundary
+small: first make brokers Iroh-compatible, then add the Cloudflare front door,
+then route iOS through that front door.
 
 ## Goal
 
-OpenScout Mesh should give users a batteries-included private agent mesh. A phone
-or second machine should point at one stable OpenScout-controlled URL, discover
-the user's reachable Scout nodes, then use the simplest available transport that
-can safely reach the broker.
+OpenScout Mesh should give users a batteries-included private agent mesh. The
+first milestone is not mobile or Cloudflare. It is two or more desktop machines
+running Iroh-compatible Scout brokers where Scout routing and the web app work
+across machines.
 
 The product behavior is:
 
 ```text
-sign in -> nodes appear -> tap a node -> broker state is reachable
+start brokers -> nodes appear -> Scout and web app work across machines
 ```
 
-Users should not need to know about Tailscale, Iroh, IP addresses, ports, or
-relay topology.
+After that works, Cloudflare becomes the stable place to point phones and web
+clients. Users should not need to know about Tailscale, Iroh, IP addresses,
+ports, or relay topology.
 
 ## Architecture
 
-Cloudflare is the safe public entrypoint. Tailscale and existing local-edge HTTP
-paths are the initial data plane because they already work well enough to start.
-Iroh is the next transport to add when we are ready to own more of the mesh
-experience. The Scout broker remains the source of truth throughout.
+The Scout broker remains the source of truth throughout. Iroh is introduced at
+the broker-to-broker transport boundary first. Cloudflare is added later as a
+safe public entrypoint and rendezvous layer. iOS comes after Cloudflare because
+the phone needs one stable URL, not peer transport details.
 
 ```text
-iPhone / web client
-  -> Cloudflare Access
-  -> mesh.openscout.app rendezvous Worker
-  -> short-lived node presence
-  -> Tailscale/local-edge or Cloudflare Tunnel fallback
+Phase 1:
+Scout broker A
+  -> openscout-iroh-bridge
+  -> Iroh QUIC stream
+  -> openscout-iroh-bridge
+  -> Scout broker B /v1/mesh/*
+
+Phase 2:
+web / desktop client
+  -> Cloudflare Access + mesh.openscout.app
+  -> node directory / fallback route
   -> local Scout broker /v1/mesh/*
+
+Phase 3:
+iOS app
+  -> Cloudflare Access + mesh.openscout.app
+  -> node directory
+  -> reachable broker entrypoint
 ```
 
-Cloudflare handles:
+Iroh handles in phase 1:
 
-- human and service authentication
-- a stable rendezvous URL
-- short-lived node presence records
-- optional Cloudflare Tunnel fallback for low-volume broker control traffic
+- OpenScout-owned endpoint identity
+- QUIC streams for existing Scout mesh JSON bundles
+- NAT traversal and encrypted relay fallback through default Iroh relays
+- a future path away from requiring users to configure Tailscale
 
-Tailscale/local-edge handles the first practical transport:
+Tailscale remains useful during phase 1:
 
-- same-user device reachability that already works
-- current broker HTTP and mesh forwarding endpoints
-- a working bridge while users and the product learn the shape
+- it works well enough today
+- it gives us a comparison path while the Iroh sidecar matures
+- it can stay as an advanced/manual transport even after Iroh works
 
 Scout handles:
 
@@ -65,13 +78,86 @@ Scout handles:
 - durable journal and SQLite replay
 - delivery planning and retries
 
-Iroh later handles:
+Cloudflare handles in phase 2:
 
-- OpenScout-owned endpoint identity
-- QUIC streams
-- NAT traversal
-- encrypted relay fallback
-- managed relay infrastructure if product demand justifies it
+- human and service authentication
+- a stable rendezvous URL
+- short-lived node presence records
+- optional Cloudflare Tunnel fallback for low-volume broker control traffic
+
+The iOS app handles in phase 3:
+
+- sign-in through the Cloudflare front door
+- node discovery through the rendezvous URL
+- choosing the reachable broker entrypoint returned by rendezvous
+
+## Phases
+
+### Phase 1: P2P Machines On Iroh-Compatible Broker
+
+Goal: multiple desktop machines can run Scout, discover or exchange Iroh
+entrypoints, route broker mesh bundles over Iroh, and keep the web app working.
+
+Requirements:
+
+- `openscout-iroh-bridge` persists one Iroh identity per Scout node.
+- The bridge binds ALPN `openscout/mesh/0`.
+- The broker can learn the local Iroh `EndpointAddr`.
+- The broker can advertise an `iroh` entrypoint alongside existing `brokerUrl`
+  and Tailscale/local-edge URLs.
+- Existing `/v1/mesh/*` bundles can be forwarded through an Iroh stream.
+- The receiving bridge POSTs the decoded bundle into its local broker.
+- Existing HTTP/Tailscale mesh forwarding remains as fallback.
+- The web app reads broker state normally; it does not need to know whether a
+  peer bundle arrived over HTTP, Tailscale, or Iroh.
+
+Exit criteria:
+
+- Machine A can message/invoke an agent on Machine B over Iroh.
+- Machine B can reply and the conversation/flight records replay correctly.
+- The web app surfaces the remote node/agent state from broker records.
+- Shutting off Iroh leaves existing HTTP/Tailscale forwarding usable.
+
+### Phase 2: Cloudflare Front Door
+
+Goal: add a simple and safe public entrypoint without changing broker authority.
+
+Requirements:
+
+- `https://mesh.openscout.app` or equivalent is the stable rendezvous URL.
+- Cloudflare Access authenticates humans and service clients.
+- A Worker/Durable Object stores short-lived node presence records.
+- Nodes publish reachable entrypoints with short TTLs.
+- Clients can list the user's nodes through Cloudflare.
+- Cloudflare Tunnel fallback exists for low-volume broker control paths.
+- The first fallback shape is a single Worker-routed endpoint.
+
+Exit criteria:
+
+- A browser/client can authenticate through Cloudflare and list nodes.
+- A client can reach a broker through a returned entrypoint.
+- Broker state remains local; Cloudflare stores only directory/presence data.
+
+### Phase 3: iOS App To Cloudflare
+
+Goal: the iOS app points at the Cloudflare front door and gets a usable Scout
+entrypoint without QR codes, IPs, or Tailscale setup as the primary UX.
+
+Requirements:
+
+- iOS signs in through the Cloudflare-protected rendezvous URL.
+- iOS fetches authorized nodes and their entrypoints.
+- iOS chooses a reachable broker entrypoint and uses existing mobile broker
+  surfaces.
+- Offline/unreachable nodes are shown clearly.
+- Push/wake can be added after the first discover-and-connect path works.
+
+Exit criteria:
+
+- Fresh iOS install can sign in, see desktop Scout nodes, and open one.
+- Existing mobile session, activity, inbox, and approval flows work through the
+  selected entrypoint.
+- No user-facing setup mentions Iroh, Tailscale, IPs, ports, or relays.
 
 ## First Protocol Boundary
 
@@ -81,9 +167,9 @@ The first stable protocol identifiers are:
 - Iroh ALPN: `openscout/mesh/0`
 - default rendezvous URL: `https://mesh.openscout.app`
 
-Each broker publishes short-lived presence shaped like this. The first production
-records can omit the `iroh` entrypoint and publish Tailscale/local-edge or
-Cloudflare fallback URLs only.
+Each broker publishes short-lived presence shaped like this. Phase 1 can exchange
+this locally or through existing broker discovery. Phase 2 publishes it through
+Cloudflare.
 
 ```json
 {
@@ -122,8 +208,9 @@ it, existing local and HTTP mesh paths continue to work.
 The Rust sidecar is named `openscout-iroh-bridge`.
 
 It is intentionally not required for the first user-facing OpenScout Mesh
-release. It can live behind the same presence contract and become another
-entrypoint when ready.
+release to iOS, but it is required for phase 1 because phase 1 proves
+Iroh-compatible broker-to-broker transport before Cloudflare and iOS enter the
+path.
 
 Responsibilities for the first slice:
 
@@ -145,16 +232,17 @@ Responsibilities after the first slice:
 - Cloudflare does not store conversations, flights, messages, collaboration
   records, or replay state.
 - Iroh does not replace Scout agent identity or broker authority.
-- iOS does not embed Iroh until the sidecar path proves the protocol shape.
-- The first user-facing implementation does not require Iroh at all.
+- iOS does not embed Iroh in these phases.
 - The first implementation does not operate a custom Iroh relay fleet.
+- Phase 1 does not require Cloudflare.
+- Phase 2 does not require iOS.
+- Phase 3 does not require a custom Iroh relay fleet.
 
 ## Decisions
 
-- Do not operate an OpenScout Iroh relay fleet from day one. Start with
-  Tailscale/local-edge and Cloudflare fallback, then add Iroh using default
-  relays for experimentation before deciding whether managed relays are worth
-  owning.
+- Do not operate an OpenScout Iroh relay fleet from day one. Start Iroh with
+  default relays and keep Tailscale/local-edge as fallback while deciding
+  whether managed relays are worth owning.
 - Prefer the simplest Cloudflare fallback shape first: a single
   Worker-routed endpoint. Node subdomains can come later if routing,
   observability, or customer isolation needs justify them.
