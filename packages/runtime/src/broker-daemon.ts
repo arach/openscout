@@ -62,7 +62,11 @@ import {
 } from "./scout-dispatcher.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
-import { resolveIrohMeshEntrypointFromEnv } from "./iroh-bridge.js";
+import {
+  resolveIrohMeshEntrypointFromEnv,
+  startIrohBridgeServeFromEnv,
+  type IrohBridgeService,
+} from "./iroh-bridge.js";
 import {
   DEFAULT_MESH_FORWARD_TIMEOUT_MS,
   buildMeshCollaborationEventBundle,
@@ -239,6 +243,7 @@ const threadEvents = new ThreadEventPlane({
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
 const knownInvocations = new Map<string, InvocationRequest>();
+let shuttingDown = false;
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
 const operatorActorId = "operator";
 const BROKER_SHARED_CHANNEL_ID = "channel.shared";
@@ -327,7 +332,23 @@ if (sseKeepAliveIntervalMs > 0) {
   }, sseKeepAliveIntervalMs).unref();
 }
 
-const localIrohEntrypoint = resolveIrohMeshEntrypointFromEnv();
+let irohBridgeService: IrohBridgeService | undefined;
+let localIrohEntrypoint = resolveIrohMeshEntrypointFromEnv();
+if (!localIrohEntrypoint) {
+  try {
+    irohBridgeService = await startIrohBridgeServeFromEnv({ brokerUrl });
+    localIrohEntrypoint = irohBridgeService?.entrypoint;
+    if (irohBridgeService) {
+      irohBridgeService.child.on("exit", (code, signal) => {
+        if (!shuttingDown) {
+          console.warn(`[openscout-runtime] Iroh bridge exited (${code ?? signal ?? "unknown"}); HTTP/Tailscale forwarding remains available`);
+        }
+      });
+    }
+  } catch (error) {
+    console.warn(`[openscout-runtime] Iroh bridge unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
 const localNode: NodeDefinition = {
   id: nodeId,
@@ -5324,14 +5345,13 @@ function closeServer(serverInstance: ReturnType<typeof createServer>): Promise<v
   });
 }
 
-let shuttingDown = false;
-
 async function shutdownBroker(exitCode = 0): Promise<void> {
   if (shuttingDown) {
     return;
   }
   shuttingDown = true;
   peerDelivery.stop();
+  irohBridgeService?.stop();
   for (const client of eventClients) {
     client.end();
   }

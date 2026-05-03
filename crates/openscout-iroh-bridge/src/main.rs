@@ -307,7 +307,7 @@ fn alpn_string() -> String {
 fn print_json(value: &impl Serialize) -> Result<()> {
     println!(
         "{}",
-        serde_json::to_string_pretty(value).context("serialize output")?
+        serde_json::to_string(value).context("serialize output")?
     );
     Ok(())
 }

@@ -28,3 +28,7 @@ cargo run --manifest-path crates/openscout-iroh-bridge/Cargo.toml -- \
   --endpoint-addr-json '{"id":"remote-endpoint","addrs":[]}' \
   --route messages < mesh-bundle.json
 ```
+
+When `OPENSCOUT_IROH_BRIDGE_BIN` points at the compiled bridge, the TypeScript
+broker can start `serve` automatically, read the printed endpoint metadata, and
+publish that Iroh entrypoint on the local node.
