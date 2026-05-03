@@ -139,6 +139,12 @@ bun scripts/mesh-iroh-smoke.mjs send-message --peer-node-id <peer-node-id>
 
 # On the peer, verify that the authority received the message:
 bun scripts/mesh-iroh-smoke.mjs check-message --conversation-id <conversation-id>
+
+# Send a real peer-broker invocation through the outbox worker:
+bun scripts/mesh-iroh-smoke.mjs send-invocation --peer-node-id <peer-node-id>
+
+# On the peer, verify that the invocation and flight arrived:
+bun scripts/mesh-iroh-smoke.mjs check-invocation --invocation-id <invocation-id>
 ```
 
 Until phase 2 adds Cloudflare rendezvous, exchanging `node.json` manually is the

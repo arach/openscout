@@ -25,6 +25,8 @@ Usage:
   bun scripts/mesh-iroh-smoke.mjs import-node --file FILE [--broker-url URL]
   bun scripts/mesh-iroh-smoke.mjs send-message [--broker-url URL] [--peer-node-id ID] [--body TEXT]
   bun scripts/mesh-iroh-smoke.mjs check-message --conversation-id ID [--broker-url URL]
+  bun scripts/mesh-iroh-smoke.mjs send-invocation [--broker-url URL] [--peer-node-id ID] [--task TEXT]
+  bun scripts/mesh-iroh-smoke.mjs check-invocation --invocation-id ID [--broker-url URL]
 
 Two-machine loop before Cloudflare:
   1. On both machines: bun scripts/mesh-iroh-smoke.mjs build-bridge
@@ -35,6 +37,8 @@ Two-machine loop before Cloudflare:
   6. Run inspect on both machines and verify both nodes have iroh entrypoints.
   7. From one machine: bun scripts/mesh-iroh-smoke.mjs send-message --peer-node-id PEER_ID
   8. On the peer: bun scripts/mesh-iroh-smoke.mjs check-message --conversation-id CONVERSATION_ID
+  9. From one machine: bun scripts/mesh-iroh-smoke.mjs send-invocation --peer-node-id PEER_ID
+  10. On the peer: bun scripts/mesh-iroh-smoke.mjs check-invocation --invocation-id INVOCATION_ID
 `);
   process.exit(exitCode);
 }
@@ -283,6 +287,26 @@ async function sendMessage(options) {
   console.log(`  bun scripts/mesh-iroh-smoke.mjs check-message --conversation-id ${conversationId}`);
 }
 
+function agentDefinition(input) {
+  return {
+    id: input.id,
+    kind: "agent",
+    definitionId: input.id,
+    displayName: input.displayName,
+    handle: input.handle ?? input.id,
+    labels: ["mesh-smoke"],
+    selector: `@${input.id}`,
+    defaultSelector: `@${input.id}`,
+    metadata: { source: "mesh-iroh-smoke" },
+    agentClass: "general",
+    capabilities: input.capabilities ?? ["chat"],
+    wakePolicy: "on_demand",
+    homeNodeId: input.homeNodeId,
+    authorityNodeId: input.authorityNodeId,
+    advertiseScope: "mesh",
+  };
+}
+
 async function checkMessage(options) {
   if (!options["conversation-id"]) {
     throw new Error("check-message requires --conversation-id ID");
@@ -293,6 +317,101 @@ async function checkMessage(options) {
   console.log(`Messages for ${conversationId}: ${messages.length}`);
   for (const message of messages) {
     console.log(`- ${message.id} ${message.actorId}: ${message.body}`);
+  }
+}
+
+async function sendInvocation(options) {
+  const brokerUrl = brokerUrlFrom(options);
+  const localNode = await getJson(`${brokerUrl}/v1/node`);
+  const nodes = await getJson(`${brokerUrl}/v1/mesh/nodes`);
+  const peer = pickPeerNode(localNode, nodes, options["peer-node-id"]);
+  const requesterId = options["requester-id"] ?? `mesh-smoke-${localNode.id}`;
+  const targetAgentId = options["target-agent-id"] ?? `mesh-smoke-target-${peer.id}`;
+  const conversationId = options["conversation-id"] ?? `channel.mesh-smoke.invocations.${localNode.id}.${peer.id}`;
+  const invocationId = options["invocation-id"] ?? createId("inv-mesh-smoke");
+  const now = Date.now();
+
+  await postJson(`${brokerUrl}/v1/agents`, agentDefinition({
+    id: requesterId,
+    displayName: `Mesh Smoke ${localNode.name}`,
+    homeNodeId: localNode.id,
+    authorityNodeId: localNode.id,
+    capabilities: ["chat", "invoke"],
+  }));
+
+  await postJson(`${brokerUrl}/v1/agents`, agentDefinition({
+    id: targetAgentId,
+    displayName: `Mesh Smoke Target ${peer.name}`,
+    homeNodeId: peer.id,
+    authorityNodeId: peer.id,
+    capabilities: ["chat", "invoke"],
+  }));
+
+  await postJson(`${brokerUrl}/v1/conversations`, {
+    id: conversationId,
+    kind: "channel",
+    title: "OpenScout Mesh Invocation Smoke",
+    visibility: "workspace",
+    shareMode: "shared",
+    authorityNodeId: peer.id,
+    participantIds: [requesterId, targetAgentId],
+    metadata: {
+      surface: "mesh-iroh-smoke",
+      peerNodeId: peer.id,
+    },
+  });
+
+  const result = await postJson(`${brokerUrl}/v1/invocations`, {
+    id: invocationId,
+    requesterId,
+    requesterNodeId: localNode.id,
+    targetAgentId,
+    targetNodeId: peer.id,
+    action: "consult",
+    task: options.task ?? `mesh invocation smoke from ${localNode.name} to ${peer.name} at ${new Date(now).toISOString()}`,
+    conversationId,
+    ensureAwake: true,
+    stream: false,
+    createdAt: now,
+    metadata: {
+      source: "mesh-iroh-smoke",
+      peerNodeId: peer.id,
+    },
+  });
+
+  console.log(`Sent invocation ${invocationId} from ${localNode.name} to authority ${peer.name}`);
+  console.log(`Conversation: ${conversationId}`);
+  console.log(`Target:       ${targetAgentId}`);
+  console.log(`State:        ${result.state ?? "accepted"}`);
+  console.log("");
+  console.log("On the origin, inspect delivery status:");
+  console.log(`  curl ${brokerUrl}/v1/invocations/${encodeURIComponent(invocationId)}`);
+  console.log("");
+  console.log("On the peer, run:");
+  console.log(`  bun scripts/mesh-iroh-smoke.mjs check-invocation --invocation-id ${invocationId}`);
+}
+
+async function checkInvocation(options) {
+  if (!options["invocation-id"]) {
+    throw new Error("check-invocation requires --invocation-id ID");
+  }
+  const brokerUrl = brokerUrlFrom(options);
+  const invocationId = options["invocation-id"];
+  const snapshot = await getJson(`${brokerUrl}/v1/invocations/${encodeURIComponent(invocationId)}`);
+  const invocation = snapshot.invocation;
+  const flight = snapshot.flight;
+  const deliveries = snapshot.deliveries ?? [];
+  console.log(`Invocation: ${invocationId}`);
+  console.log(`Target:     ${invocation?.targetAgentId ?? flight?.targetAgentId ?? "unknown"}`);
+  console.log(`Flight:     ${flight?.state ?? "missing"}${flight?.id ? ` (${flight.id})` : ""}`);
+  if (deliveries.length > 0) {
+    console.log("Deliveries:");
+    for (const delivery of deliveries) {
+      console.log(`- ${delivery.id} ${delivery.transport} ${delivery.status}`);
+    }
+  }
+  if (!invocation && !flight) {
+    process.exitCode = 1;
   }
 }
 
@@ -323,6 +442,12 @@ async function main() {
       break;
     case "check-message":
       await checkMessage(options);
+      break;
+    case "send-invocation":
+      await sendInvocation(options);
+      break;
+    case "check-invocation":
+      await checkInvocation(options);
       break;
     default:
       console.error(`Unknown command: ${command}`);
