@@ -6,11 +6,22 @@ import type {
   ConversationBinding,
   ConversationDefinition,
   FlightRecord,
+  IrohMeshEntrypoint,
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
 } from "@openscout/protocol";
+import {
+  OPENSCOUT_IROH_MESH_ALPN,
+  OPENSCOUT_MESH_PROTOCOL_VERSION,
+} from "@openscout/protocol";
 import type { DeliveryIntent, ScoutId } from "@openscout/protocol";
+import {
+  canUseIrohBridge,
+  forwardIrohMeshEnvelope,
+  type IrohBridgeForwardOptions,
+  type IrohBridgeMeshRoute,
+} from "./iroh-bridge.js";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 
 export interface MeshMessageBundle {
@@ -291,6 +302,15 @@ export class PeerRejectedError extends Error {
 
 export interface MeshForwardRequestOptions {
   timeoutMs?: number;
+  iroh?: IrohBridgeForwardOptions & {
+    enabled?: boolean;
+    forwarder?: <TResponse>(
+      entrypoint: IrohMeshEntrypoint,
+      route: IrohBridgeMeshRoute,
+      payload: unknown,
+      options: IrohBridgeForwardOptions,
+    ) => Promise<{ status: number; body: TResponse }>;
+  };
 }
 
 export const DEFAULT_MESH_FORWARD_TIMEOUT_MS = 5_000;
@@ -346,36 +366,123 @@ async function postJson<TResponse>(
   return await response.json() as TResponse;
 }
 
+export type MeshForwardTarget = string | NodeDefinition;
+
+function isNodeDefinition(target: MeshForwardTarget): target is NodeDefinition {
+  return typeof target === "object" && target !== null && "id" in target;
+}
+
+function brokerUrlForTarget(target: MeshForwardTarget): string | undefined {
+  return typeof target === "string" ? target : target.brokerUrl;
+}
+
+function irohEntrypointForTarget(target: MeshForwardTarget): IrohMeshEntrypoint | undefined {
+  if (!isNodeDefinition(target)) {
+    return undefined;
+  }
+  return target.meshEntrypoints?.find((entrypoint): entrypoint is IrohMeshEntrypoint =>
+    entrypoint.kind === "iroh"
+    && entrypoint.alpn === OPENSCOUT_IROH_MESH_ALPN
+    && entrypoint.bridgeProtocolVersion === OPENSCOUT_MESH_PROTOCOL_VERSION
+  );
+}
+
+function shouldTryIrohForwarding(
+  entrypoint: IrohMeshEntrypoint | undefined,
+  options?: MeshForwardRequestOptions,
+): entrypoint is IrohMeshEntrypoint {
+  if (!entrypoint || options?.iroh?.enabled === false) {
+    return false;
+  }
+  return Boolean(options?.iroh?.forwarder || canUseIrohBridge(options?.iroh));
+}
+
+async function forwardMeshEnvelope<TResponse>(
+  target: MeshForwardTarget,
+  route: IrohBridgeMeshRoute,
+  path: string,
+  payload: unknown,
+  options?: MeshForwardRequestOptions,
+): Promise<TResponse> {
+  const brokerUrl = brokerUrlForTarget(target);
+  const irohEntrypoint = irohEntrypointForTarget(target);
+
+  if (shouldTryIrohForwarding(irohEntrypoint, options)) {
+    try {
+      const forwarder = options?.iroh?.forwarder ?? forwardIrohMeshEnvelope;
+      const response = await forwarder<TResponse>(
+        irohEntrypoint,
+        route,
+        payload,
+        options?.iroh ?? { timeoutMs: options?.timeoutMs },
+      );
+
+      if (response.status >= 200 && response.status < 300) {
+        return response.body;
+      }
+
+      throw new PeerRejectedError(
+        `peer broker rejected Iroh-forwarded request: ${response.status}`,
+        `iroh:${irohEntrypoint.endpointId}/${route}`,
+        response.status,
+        "Iroh Bridge Response",
+        JSON.stringify(response.body),
+      );
+    } catch (error) {
+      if (!brokerUrl) {
+        throw new PeerUnreachableError(
+          `Iroh peer unreachable and no HTTP broker URL is available: ${error instanceof Error ? error.message : String(error)}`,
+          `iroh:${irohEntrypoint.endpointId}/${route}`,
+          error,
+        );
+      }
+      if (error instanceof PeerRejectedError && !error.retryable) {
+        throw error;
+      }
+      // Fall through to the existing HTTP/Tailscale path. This keeps phase-one
+      // rollout non-disruptive while the sidecar matures.
+    }
+  }
+
+  if (!brokerUrl) {
+    throw new PeerUnreachableError(
+      `peer broker unreachable: no broker URL or usable Iroh entrypoint for route ${route}`,
+      `mesh:${route}`,
+    );
+  }
+  return postJson(`${brokerUrl.replace(/\/$/, "")}${path}`, payload, options);
+}
+
 export async function forwardMeshMessage(
-  brokerUrl: string,
+  target: MeshForwardTarget,
   bundle: MeshMessageBundle,
   options?: MeshForwardRequestOptions,
 ): Promise<{ ok: true; deliveries?: DeliveryIntent[]; duplicate?: boolean }> {
-  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/messages`, bundle, options);
+  return forwardMeshEnvelope(target, "messages", "/v1/mesh/messages", bundle, options);
 }
 
 export async function forwardMeshInvocation(
-  brokerUrl: string,
+  target: MeshForwardTarget,
   bundle: MeshInvocationBundle,
   options?: MeshForwardRequestOptions,
 ): Promise<{ ok: true; flight: FlightRecord; duplicate?: boolean }> {
-  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/invocations`, bundle, options);
+  return forwardMeshEnvelope(target, "invocations", "/v1/mesh/invocations", bundle, options);
 }
 
 export async function forwardMeshCollaborationRecord(
-  brokerUrl: string,
+  target: MeshForwardTarget,
   bundle: MeshCollaborationRecordBundle,
   options?: MeshForwardRequestOptions,
 ): Promise<{ ok: true; duplicate?: boolean }> {
-  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/records`, bundle, options);
+  return forwardMeshEnvelope(target, "collaboration/records", "/v1/mesh/collaboration/records", bundle, options);
 }
 
 export async function forwardMeshCollaborationEvent(
-  brokerUrl: string,
+  target: MeshForwardTarget,
   bundle: MeshCollaborationEventBundle,
   options?: MeshForwardRequestOptions,
 ): Promise<{ ok: true; duplicate?: boolean }> {
-  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/events`, bundle, options);
+  return forwardMeshEnvelope(target, "collaboration/events", "/v1/mesh/collaboration/events", bundle, options);
 }
 
 export async function fetchPeerAgents(

@@ -43,6 +43,8 @@ import {
   type ThreadWatchCloseRequest,
   type ThreadWatchOpenRequest,
   type ThreadWatchRenewRequest,
+  OPENSCOUT_IROH_MESH_ALPN,
+  OPENSCOUT_MESH_PROTOCOL_VERSION,
   SCOUT_DISPATCHER_AGENT_ID,
   normalizeAgentSelectorSegment,
 } from "@openscout/protocol";
@@ -60,6 +62,7 @@ import {
 } from "./scout-dispatcher.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
+import { resolveIrohMeshEntrypointFromEnv } from "./iroh-bridge.js";
 import {
   DEFAULT_MESH_FORWARD_TIMEOUT_MS,
   buildMeshCollaborationEventBundle,
@@ -324,6 +327,8 @@ if (sseKeepAliveIntervalMs > 0) {
   }, sseKeepAliveIntervalMs).unref();
 }
 
+const localIrohEntrypoint = resolveIrohMeshEntrypointFromEnv();
+
 const localNode: NodeDefinition = {
   id: nodeId,
   meshId,
@@ -331,6 +336,7 @@ const localNode: NodeDefinition = {
   hostName: hostname(),
   advertiseScope,
   brokerUrl,
+  ...(localIrohEntrypoint ? { meshEntrypoints: [localIrohEntrypoint] } : {}),
   tailnetName,
   capabilities: ["broker", "mesh", "local_runtime"],
   registeredAt: Date.now(),
@@ -2929,6 +2935,18 @@ function messageVisibilityForConversation(conversation?: ConversationDefinition)
   }
 }
 
+function hasReachableMeshEntrypoint(node: NodeDefinition | undefined): boolean {
+  return Boolean(node?.meshEntrypoints?.some((entrypoint) =>
+    entrypoint.kind === "iroh"
+    && entrypoint.alpn === OPENSCOUT_IROH_MESH_ALPN
+    && entrypoint.bridgeProtocolVersion === OPENSCOUT_MESH_PROTOCOL_VERSION
+  ));
+}
+
+function isReachableMeshNode(node: NodeDefinition | undefined): node is NodeDefinition {
+  return Boolean(node?.brokerUrl || hasReachableMeshEntrypoint(node));
+}
+
 function authorityNodeForConversation(conversationId: string): {
   conversation: ConversationDefinition;
   authorityNode: NodeDefinition;
@@ -2939,7 +2957,7 @@ function authorityNodeForConversation(conversationId: string): {
   }
 
   const authorityNode = runtime.node(conversation.authorityNodeId);
-  if (!authorityNode?.brokerUrl) {
+  if (!isReachableMeshNode(authorityNode)) {
     throw new Error(`authority node ${conversation.authorityNodeId} is not reachable`);
   }
 
@@ -2960,7 +2978,7 @@ async function forwardConversationMessageToAuthority(message: MessageRecord): Pr
   const bundle = buildMeshMessageBundle(runtime.peek(), currentLocalNode(), message, {
     bindings: runtime.bindingsForConversation(authority.conversation.id),
   });
-  const result = await forwardMeshMessage(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshMessage(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -2984,7 +3002,7 @@ async function forwardCollaborationRecordToAuthority(record: CollaborationRecord
   }
 
   const bundle = buildMeshCollaborationRecordBundle(runtime.peek(), currentLocalNode(), record);
-  const result = await forwardMeshCollaborationRecord(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshCollaborationRecord(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -3008,7 +3026,7 @@ async function forwardCollaborationEventToAuthority(event: CollaborationEvent): 
   }
 
   const bundle = buildMeshCollaborationEventBundle(runtime.peek(), currentLocalNode(), event, record);
-  const result = await forwardMeshCollaborationEvent(authority.authorityNode.brokerUrl!, bundle);
+  const result = await forwardMeshCollaborationEvent(authority.authorityNode, bundle);
   return {
     forwarded: true,
     authorityNodeId: authority.conversation.authorityNodeId,
@@ -3024,6 +3042,9 @@ async function maybeForwardFlightToAuthority(flight: FlightRecord): Promise<void
 
   const authority = authorityNodeForConversation(invocation.conversationId);
   if (!authority) {
+    return;
+  }
+  if (!authority.authorityNode.brokerUrl) {
     return;
   }
 
@@ -3433,13 +3454,13 @@ async function forwardPeerBrokerCollaborationRecord(
 
   for (const targetNodeId of targetNodeIds) {
     const targetNode = runtime.node(targetNodeId);
-    if (!targetNode?.brokerUrl) {
+    if (!isReachableMeshNode(targetNode)) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      await forwardMeshCollaborationRecord(targetNode.brokerUrl, bundle);
+      await forwardMeshCollaborationRecord(targetNode, bundle);
       forwarded.push(targetNodeId);
     } catch {
       failed.push(targetNodeId);
@@ -3481,13 +3502,13 @@ async function forwardPeerBrokerCollaborationEvent(
 
   for (const targetNodeId of targetNodeIds) {
     const targetNode = runtime.node(targetNodeId);
-    if (!targetNode?.brokerUrl) {
+    if (!isReachableMeshNode(targetNode)) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      await forwardMeshCollaborationEvent(targetNode.brokerUrl, bundle);
+      await forwardMeshCollaborationEvent(targetNode, bundle);
       forwarded.push(targetNodeId);
     } catch {
       failed.push(targetNodeId);
