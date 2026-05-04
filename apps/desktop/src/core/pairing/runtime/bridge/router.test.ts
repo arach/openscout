@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Bridge } from "./bridge.ts";
-import { bridgeRouter } from "./router.ts";
+import { bridgeRouter, lookupMobileInboxItemForEvent } from "./router.ts";
+import type { SessionState } from "@openscout/agent-sessions";
 
 function createBridgeStub() {
   const replayCalls: string[] = [];
@@ -109,5 +110,118 @@ describe("bridgeRouter sync compatibility", () => {
       { seq: 12, event: { event: "session:closed", sessionId: "latest-session" }, timestamp: 1_000 },
     ]);
     expect(stub.replayCalls).toEqual(["latest-session"]);
+  });
+});
+
+describe("bridgeRouter mobile inbox", () => {
+  test("projects session attention items, not only approval requests", async () => {
+    const snapshot: SessionState = {
+      session: {
+        id: "session-attention",
+        name: "Attention session",
+        adapterType: "claude-code",
+        status: "active",
+      },
+      currentTurnId: "turn-1",
+      turns: [
+        {
+          id: "turn-1",
+          status: "streaming",
+          startedAt: 1_000,
+          blocks: [
+            {
+              status: "streaming",
+              block: {
+                id: "question-1",
+                turnId: "turn-1",
+                type: "question",
+                status: "streaming",
+                index: 0,
+                header: "Pick a path",
+                question: "Which implementation should the agent use?",
+                options: [{ label: "Simple" }],
+                multiSelect: false,
+                questionStatus: "awaiting_answer",
+              },
+            },
+            {
+              status: "streaming",
+              block: {
+                id: "action-1",
+                turnId: "turn-1",
+                type: "action",
+                status: "streaming",
+                index: 1,
+                action: {
+                  kind: "command",
+                  command: "npm test",
+                  output: "",
+                  status: "awaiting_approval",
+                  approval: {
+                    version: 2,
+                    description: "Run npm test",
+                    risk: "medium",
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const bridge = {
+      getSessionSummaries() {
+        return [
+          {
+            sessionId: snapshot.session.id,
+            name: snapshot.session.name,
+            adapterType: snapshot.session.adapterType,
+            status: snapshot.session.status,
+            turnCount: snapshot.turns.length,
+            currentTurnStatus: "streaming",
+            startedAt: 1_000,
+            lastActivityAt: 1_000,
+          },
+        ];
+      },
+      getSessionSnapshot(sessionId: string) {
+        return sessionId === snapshot.session.id ? snapshot : null;
+      },
+    } as unknown as Bridge;
+
+    const result = await createCaller(bridge).mobile.inbox();
+
+    expect(result.items.map((item) => item.kind).sort()).toEqual(["approval", "question"]);
+
+    const question = result.items.find((item) => item.kind === "question");
+    expect(question).toMatchObject({
+      id: "session-question:session-attention:turn-1:question-1",
+      title: "Pick a path",
+      turnId: "turn-1",
+      blockId: "question-1",
+      version: null,
+    });
+    expect(question?.actionKind).toBeUndefined();
+    expect(question?.actionStatus).toBeUndefined();
+
+    const approval = result.items.find((item) => item.kind === "approval");
+    expect(approval).toMatchObject({
+      id: "approval:session-attention:turn-1:action-1:v2",
+      title: "Approve Command",
+      turnId: "turn-1",
+      blockId: "action-1",
+      version: 2,
+      actionKind: "command",
+      actionStatus: "awaiting_approval",
+    });
+
+    const eventItem = lookupMobileInboxItemForEvent(bridge, {
+      event: "block:start",
+      sessionId: snapshot.session.id,
+      turnId: "turn-1",
+      block: snapshot.turns[0]!.blocks[0]!.block,
+    });
+    expect(eventItem?.kind).toBe("question");
   });
 });

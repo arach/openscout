@@ -8,14 +8,17 @@ import UserNotifications
 final class InboxStore {
     private let defaults = UserDefaults.standard
     private let notifiedDefaultsKey = "scout.inboxNotifiedItemIds"
+    private let dismissedDefaultsKey = "scout.inboxDismissedItemIds"
 
     private(set) var items: [MobileInboxItem] = []
     private(set) var unreadItemIds: Set<String> = []
     private(set) var focusedItemId: String?
     private var notifiedItemIds: Set<String>
+    private var dismissedItemIds: Set<String>
 
     init() {
         notifiedItemIds = Set(defaults.stringArray(forKey: notifiedDefaultsKey) ?? [])
+        dismissedItemIds = Set(defaults.stringArray(forKey: dismissedDefaultsKey) ?? [])
     }
 
     var unreadCount: Int {
@@ -82,6 +85,12 @@ final class InboxStore {
         syncAppBadge()
     }
 
+    func dismissItem(id: String) {
+        dismissedItemIds.insert(id)
+        persistDismissedItemIds()
+        removeItem(id: id)
+    }
+
     func clear() {
         let ids = items.map(\.id)
         items = []
@@ -104,6 +113,11 @@ final class InboxStore {
         let existingIds = Set(mergedById.keys)
 
         for item in incoming {
+            if dismissedItemIds.contains(item.id) {
+                mergedById.removeValue(forKey: item.id)
+                unreadItemIds.remove(item.id)
+                continue
+            }
             mergedById[item.id] = item
             if markNewAsUnread && !existingIds.contains(item.id) {
                 unreadItemIds.insert(item.id)
@@ -169,6 +183,10 @@ final class InboxStore {
 
     private func persistNotifiedItemIds() {
         defaults.set(Array(notifiedItemIds).sorted(), forKey: notifiedDefaultsKey)
+    }
+
+    private func persistDismissedItemIds() {
+        defaults.set(Array(dismissedItemIds).sorted(), forKey: dismissedDefaultsKey)
     }
 
     private func syncAppBadge() {

@@ -503,16 +503,16 @@ struct HomeView: View {
 
     private var inboxAttentionTitle: String {
         if inbox.pendingCount == 1 {
-            return "1 approval is waiting on you"
+            return "1 item is waiting on you"
         }
-        return "\(inbox.pendingCount) approvals are waiting on you"
+        return "\(inbox.pendingCount) items are waiting on you"
     }
 
     private var inboxAttentionSubtitle: String {
         guard let item = inbox.items.first else {
             return inbox.unreadCount > 0
                 ? "\(inbox.unreadCount) new inbox item\(inbox.unreadCount == 1 ? "" : "s")."
-                : "Open Inbox to review pending approvals."
+                : "Open Inbox to review pending items."
         }
 
         let prefix = inbox.unreadCount > 0
