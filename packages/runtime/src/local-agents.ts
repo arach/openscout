@@ -32,6 +32,7 @@ import {
   invokeCodexAppServerAgent,
   normalizeCodexAppServerLaunchArgs,
   readCodexAppServerModelFromLaunchArgs,
+  readCodexAppServerReasoningEffortFromLaunchArgs,
   sendCodexAppServerAgent,
   isCodexAppServerAgentAlive,
   shutdownCodexAppServerAgent,
@@ -162,6 +163,7 @@ export type StartLocalAgentInput = {
   harness?: AgentHarness;
   currentDirectory?: string;
   model?: string;
+  reasoningEffort?: string;
   branch?: string;
   /** Override the agent's working directory (e.g., for git worktrees). */
   cwdOverride?: string;
@@ -826,6 +828,50 @@ function buildLaunchArgsForRequestedModel(harness: AgentHarness, model: string):
   return [];
 }
 
+function normalizeRequestedReasoningEffort(reasoningEffort: string | undefined): string | undefined {
+  const trimmed = reasoningEffort?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function stripLaunchReasoningEffortForHarness(harness: AgentHarness, launchArgs: string[]): string[] {
+  if (harness !== "codex") {
+    return normalizeLaunchArgsForHarness(harness, launchArgs);
+  }
+
+  const next: string[] = [];
+  const normalized = normalizeCodexAppServerLaunchArgs(launchArgs);
+  for (let index = 0; index < normalized.length; index += 1) {
+    const current = normalized[index] ?? "";
+    if (current === "-c" || current === "--config") {
+      const value = normalized[index + 1];
+      if (readCodexAppServerReasoningEffortFromLaunchArgs(value ? [current, value] : [current])) {
+        index += 1;
+        continue;
+      }
+      next.push(current);
+      if (value) {
+        next.push(value);
+        index += 1;
+      }
+      continue;
+    }
+    if (current.startsWith("--config=")) {
+      if (readCodexAppServerReasoningEffortFromLaunchArgs([current])) {
+        continue;
+      }
+    }
+    next.push(current);
+  }
+  return next;
+}
+
+function buildLaunchArgsForRequestedReasoningEffort(harness: AgentHarness, reasoningEffort: string): string[] {
+  if (harness === "codex") {
+    return normalizeCodexAppServerLaunchArgs(["--reasoning-effort", reasoningEffort]);
+  }
+  return [];
+}
+
 function applyRequestedModelToLaunchArgs(
   harness: AgentHarness,
   launchArgs: unknown,
@@ -840,6 +886,26 @@ function applyRequestedModelToLaunchArgs(
   return [
     ...stripLaunchModelForHarness(harness, normalized),
     ...buildLaunchArgsForRequestedModel(harness, requestedModel),
+  ];
+}
+
+function applyRequestedRuntimeOptionsToLaunchArgs(
+  harness: AgentHarness,
+  launchArgs: unknown,
+  options: {
+    model?: string;
+    reasoningEffort?: string;
+  },
+): string[] {
+  const withModel = applyRequestedModelToLaunchArgs(harness, launchArgs, options.model);
+  const requestedReasoningEffort = normalizeRequestedReasoningEffort(options.reasoningEffort);
+  if (!requestedReasoningEffort) {
+    return withModel;
+  }
+
+  return [
+    ...stripLaunchReasoningEffortForHarness(harness, withModel),
+    ...buildLaunchArgsForRequestedReasoningEffort(harness, requestedReasoningEffort),
   ];
 }
 
@@ -2495,7 +2561,10 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const effectiveHarness = normalizeManagedHarness(preferredHarness ?? configDefaultHarness, "claude");
     const transport = normalizeLocalAgentTransport(undefined, effectiveHarness);
     const sessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${effectiveHarness}`);
-    const launchArgs = applyRequestedModelToLaunchArgs(effectiveHarness, [], input.model);
+    const launchArgs = applyRequestedRuntimeOptionsToLaunchArgs(effectiveHarness, [], {
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+    });
 
     const existingForInstance = overrides[instance.id];
     if (existingForInstance && normalizeProjectPath(existingForInstance.projectRoot) !== projectRoot) {
@@ -2556,10 +2625,13 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       ? normalizeManagedHarness(preferredHarness, "claude")
       : defaultHarnessForOverride(matchingOverride, "claude");
     const nextSessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${nextHarness}`);
-    const nextLaunchArgs = applyRequestedModelToLaunchArgs(
+    const nextLaunchArgs = applyRequestedRuntimeOptionsToLaunchArgs(
       nextHarness,
       launchArgsForOverrideHarness(matchingOverride, nextHarness),
-      input.model,
+      {
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
+      },
     );
     overrides[instance.id] = {
       agentId: instance.id,
@@ -2597,15 +2669,18 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     await writeRelayAgentOverrides(overrides);
     targetAgentId = instance.id;
   } else {
-    if (input.model) {
+    if (input.model || input.reasoningEffort) {
       const existingHarness = normalizeManagedHarness(
         preferredHarness ?? matchingOverride.defaultHarness ?? matchingOverride.runtime?.harness,
         "claude",
       );
-      const nextLaunchArgs = applyRequestedModelToLaunchArgs(
+      const nextLaunchArgs = applyRequestedRuntimeOptionsToLaunchArgs(
         existingHarness,
         launchArgsForOverrideHarness(matchingOverride, existingHarness),
-        input.model,
+        {
+          model: input.model,
+          reasoningEffort: input.reasoningEffort,
+        },
       );
 
       overrides[matchingAgentId!] = {

@@ -59,6 +59,7 @@ export type ScoutCardCreateCommandOptions = ContextRootOptions & {
   displayName?: string;
   harness?: string;
   model?: string;
+  reasoningEffort?: string;
   requesterId: string | null;
   noInput?: boolean;
 };
@@ -605,6 +606,7 @@ export function parseCardCreateCommandOptions(
   let displayName: string | undefined;
   let harness: string | undefined;
   let model: string | undefined;
+  let reasoningEffort: string | undefined;
   let requesterId: string | null = null;
   let noInput = false;
 
@@ -631,6 +633,18 @@ export function parseCardCreateCommandOptions(
     if (current === "--model" || current.startsWith("--model=")) {
       const value = parseFlagValue(parsed.args, index, "--model");
       model = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--reasoning-effort" || current.startsWith("--reasoning-effort=")) {
+      const value = parseFlagValue(parsed.args, index, "--reasoning-effort");
+      reasoningEffort = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--effort" || current.startsWith("--effort=")) {
+      const value = parseFlagValue(parsed.args, index, "--effort");
+      reasoningEffort = value.value;
       index = value.nextIndex;
       continue;
     }
@@ -670,6 +684,7 @@ export function parseCardCreateCommandOptions(
     displayName,
     harness,
     model,
+    reasoningEffort,
     requesterId,
     noInput,
   };

@@ -157,13 +157,14 @@ describe("parseImplicitAskCommandOptions", () => {
 describe("parseCardCreateCommandOptions", () => {
   test("accepts an explicit model override", () => {
     const options = parseCardCreateCommandOptions(
-      ["--name", "shellfix", "--harness", "codex", "--model", "gpt-5.4-mini", "/tmp/worktree"],
+      ["--name", "shellfix", "--harness", "codex", "--model", "gpt-5.4-mini", "--reasoning-effort", "xhigh", "/tmp/worktree"],
       "/tmp/workspace",
     );
 
     expect(options.agentName).toBe("shellfix");
     expect(options.harness).toBe("codex");
     expect(options.model).toBe("gpt-5.4-mini");
+    expect(options.reasoningEffort).toBe("xhigh");
     expect(options.projectPath).toBe("/tmp/worktree");
   });
 });

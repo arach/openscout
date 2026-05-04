@@ -9,6 +9,7 @@ import {
   getCodexAppServerAgentSnapshot,
   invokeCodexAppServerAgent,
   normalizeCodexAppServerLaunchArgs,
+  readCodexAppServerReasoningEffortFromLaunchArgs,
   resolveCodexExecutableCandidates,
   sendCodexAppServerAgent,
   shutdownCodexAppServerAgent,
@@ -16,19 +17,12 @@ import {
 
 const tempPaths = new Set<string>();
 const originalCodexBin = process.env.OPENSCOUT_CODEX_BIN;
-const originalCompletionGraceMs = process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS;
 
 afterEach(() => {
   if (originalCodexBin === undefined) {
     delete process.env.OPENSCOUT_CODEX_BIN;
   } else {
     process.env.OPENSCOUT_CODEX_BIN = originalCodexBin;
-  }
-
-  if (originalCompletionGraceMs === undefined) {
-    delete process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS;
-  } else {
-    process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS = originalCompletionGraceMs;
   }
 
   for (const path of tempPaths) {
@@ -796,6 +790,15 @@ describe("ensureCodexAppServerAgentOnline", () => {
     ]);
   });
 
+  test("normalizes reasoning effort launch args for app-server sessions", () => {
+    const launchArgs = normalizeCodexAppServerLaunchArgs(["--reasoning-effort", "xhigh"]);
+    expect(launchArgs).toEqual([
+      "-c",
+      "model_reasoning_effort=\"xhigh\"",
+    ]);
+    expect(readCodexAppServerReasoningEffortFromLaunchArgs(launchArgs)).toBe("xhigh");
+  });
+
   test("passes launch args through to the spawned app-server process", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-launch-args-test-"));
     tempPaths.add(tempRoot);
@@ -813,7 +816,7 @@ describe("ensureCodexAppServerAgentOnline", () => {
       logsDirectory,
       threadId: "thread-launch-args-1",
       requireExistingThread: true,
-      launchArgs: ["--model", "gpt-5.4-mini", "--config", "sandbox_workspace_write.enabled=true"],
+      launchArgs: ["--model", "gpt-5.4-mini", "--reasoning-effort", "high", "--config", "sandbox_workspace_write.enabled=true"],
     } as const;
 
     await ensureCodexAppServerAgentOnline(options);
@@ -821,9 +824,11 @@ describe("ensureCodexAppServerAgentOnline", () => {
     const argv = JSON.parse(readFileSync(argsPath, "utf8")) as string[];
     expect(argv).toContain("app-server");
     expect(argv).toContain("model=\"gpt-5.4-mini\"");
+    expect(argv).toContain("model_reasoning_effort=\"high\"");
     expect(argv).toContain("--config");
     expect(argv).toContain("sandbox_workspace_write.enabled=true");
     expect(argv).not.toContain("--model");
+    expect(argv).not.toContain("--reasoning-effort");
 
     await shutdownCodexAppServerAgent(options);
   });
@@ -925,13 +930,12 @@ describe("ensureCodexAppServerAgentOnline", () => {
     await shutdownCodexAppServerAgent(options);
   });
 
-  test("accepts a late completion that arrives shortly after the timeout deadline", async () => {
+  test("requester timeout does not interrupt a late-completing turn", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-late-completion-test-"));
     tempPaths.add(tempRoot);
     const runtimeDirectory = join(tempRoot, "runtime");
     const logsDirectory = join(tempRoot, "logs");
     process.env.OPENSCOUT_CODEX_BIN = writeLateCompletionFakeCodexExecutable(tempRoot);
-    process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS = "400";
 
     const options = {
       agentName: "codex-late",
@@ -945,15 +949,17 @@ describe("ensureCodexAppServerAgentOnline", () => {
       launchArgs: [],
     } as const;
 
-    const startedAt = Date.now();
-    const result = await invokeCodexAppServerAgent({
+    await expect(invokeCodexAppServerAgent({
       ...options,
       prompt: "late prompt",
       timeoutMs: 50,
-    });
+    })).rejects.toThrow("Timed out after 50ms waiting for codex-late.");
 
-    expect(result.output).toBe("Late completion reply");
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(125);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const snapshot = await getCodexAppServerAgentSnapshot(options);
+    expect(snapshot?.turns.at(-1)?.status).toBe("completed");
+    expect(snapshot?.turns.at(-1)?.blocks.at(-1)?.block.type).toBe("text");
+    expect((snapshot?.turns.at(-1)?.blocks.at(-1)?.block as { text?: string } | undefined)?.text).toBe("Late completion reply");
 
     await shutdownCodexAppServerAgent(options);
   });
