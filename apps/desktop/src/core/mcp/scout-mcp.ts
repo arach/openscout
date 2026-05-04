@@ -332,6 +332,7 @@ type ScoutMcpDependencies = {
     shouldSpeak?: boolean;
     currentDirectory: string;
     source?: string;
+    wake?: boolean;
   }) => Promise<ScoutMessagePostResult>;
   sendMessageToAgentIds: (input: {
     senderId: string;
@@ -551,6 +552,8 @@ const sendResultSchema = z.object({
   usedBroker: z.boolean(),
   conversationId: z.string().nullable(),
   messageId: z.string().nullable(),
+  flightId: z.string().nullable().optional(),
+  wake: z.boolean().optional(),
   invokedTargetIds: z.array(z.string()),
   unresolvedTargetIds: z.array(z.string()),
   targetDiagnostic: z.object({}).catchall(z.unknown()).nullable(),
@@ -766,6 +769,8 @@ function renderMcpSendSummary(result: {
   invokedTargetIds: string[];
   unresolvedTargetIds: string[];
   routingError: string | null;
+  flightId?: string | null;
+  wake?: boolean;
 }): string {
   if (!result.usedBroker) {
     return "Scout broker is not reachable; message was not sent.";
@@ -781,7 +786,10 @@ function renderMcpSendSummary(result: {
     : "";
   const route = result.conversationId ? ` in ${result.conversationId}` : "";
   const message = result.messageId ? ` (${result.messageId})` : "";
-  return `Message sent${destination}${route}${message}.`;
+  const wakeText = result.wake && result.flightId
+    ? ` Wake queued as ${result.flightId}.`
+    : "";
+  return `Message sent${destination}${route}${message}.${wakeText}`;
 }
 
 function renderMcpAskSummary(result: {
@@ -1724,6 +1732,7 @@ function defaultScoutMcpDependencies(
       shouldSpeak,
       currentDirectory,
       source,
+      wake,
     }) =>
       sendScoutMessage({
         senderId,
@@ -1733,6 +1742,7 @@ function defaultScoutMcpDependencies(
         shouldSpeak,
         currentDirectory,
         source,
+        wake,
       }),
     sendMessageToAgentIds: ({
       senderId,
@@ -2226,7 +2236,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. For owned work or a reply lifecycle, use invocations_ask instead.",
+        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Use wake=true to wake/process the target asynchronously after posting when a visible non-blocking turn is useful. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. For owned work or a reply lifecycle, use invocations_ask instead.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -2235,6 +2245,12 @@ export function createScoutMcpServer(options: {
         channel: z.string().optional(),
         shouldSpeak: z.boolean().optional(),
         mentionAgentIds: mentionAgentIdsInputSchema,
+        wake: z
+          .boolean()
+          .describe(
+            "Wake/process the target asynchronously after posting the message; returns immediately and exposes the created flight when available.",
+          )
+          .optional(),
       }),
       outputSchema: sendResultSchema,
       annotations: {
@@ -2263,6 +2279,7 @@ export function createScoutMcpServer(options: {
       channel,
       shouldSpeak,
       mentionAgentIds,
+      wake,
     }) => {
       const resolvedCurrentDirectory = resolveToolCurrentDirectory(
         currentDirectory,
@@ -2281,6 +2298,50 @@ export function createScoutMcpServer(options: {
       ];
 
       if (explicitTargetIds.length > 0) {
+        if (wake) {
+          const results = await Promise.all(
+            explicitTargetIds.map((targetAgentId) =>
+              deps.askAgentById({
+                senderId: resolvedSenderId,
+                targetAgentId,
+                body,
+                channel,
+                shouldSpeak,
+                currentDirectory: resolvedCurrentDirectory,
+                source: "scout-mcp",
+              }),
+            ),
+          );
+          const firstResult = results[0];
+          const firstFlight = results.find((result) => result.flight)?.flight ?? null;
+          const unresolvedTargetIds = results
+            .map((result) => result.unresolvedTargetId)
+            .filter((value): value is string => Boolean(value));
+          const structuredContent = {
+            currentDirectory: resolvedCurrentDirectory,
+            senderId: resolvedSenderId,
+            mode: "explicit_targets" as const,
+            usedBroker: results.some((result) => result.usedBroker),
+            conversationId: firstResult?.conversationId ?? null,
+            messageId: firstResult?.messageId ?? null,
+            flightId: firstFlight?.id ?? null,
+            wake: true,
+            invokedTargetIds: results
+              .map((result) => result.flight?.targetAgentId)
+              .filter((value): value is string => Boolean(value)),
+            unresolvedTargetIds,
+            targetDiagnostic: firstResult?.targetDiagnostic ?? null,
+            routeKind: null,
+            routingError: null,
+          };
+          return {
+            content: createPlainTextContent(
+              renderMcpSendSummary(structuredContent),
+            ),
+            structuredContent,
+          };
+        }
+
         const result = await deps.sendMessageToAgentIds({
           senderId: resolvedSenderId,
           body,
@@ -2297,6 +2358,8 @@ export function createScoutMcpServer(options: {
           usedBroker: result.usedBroker,
           conversationId: result.conversationId ?? null,
           messageId: result.messageId ?? null,
+          flightId: result.flight?.id ?? null,
+          wake: wake ?? false,
           invokedTargetIds: result.invokedTargetIds,
           unresolvedTargetIds: result.unresolvedTargetIds,
           targetDiagnostic: result.targetDiagnostic ?? null,
@@ -2320,6 +2383,7 @@ export function createScoutMcpServer(options: {
           shouldSpeak,
           currentDirectory: resolvedCurrentDirectory,
           source: "scout-mcp",
+          wake,
         });
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
@@ -2328,6 +2392,8 @@ export function createScoutMcpServer(options: {
           usedBroker: result.usedBroker,
           conversationId: result.conversationId ?? null,
           messageId: result.messageId ?? null,
+          flightId: result.flight?.id ?? null,
+          wake: wake ?? false,
           bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
           invokedTargetIds: result.invokedTargets,
           unresolvedTargetIds: result.unresolvedTargets,
@@ -2350,6 +2416,7 @@ export function createScoutMcpServer(options: {
         shouldSpeak,
         currentDirectory: resolvedCurrentDirectory,
         source: "scout-mcp",
+        wake,
       });
       const structuredContent = {
         currentDirectory: resolvedCurrentDirectory,
@@ -2358,6 +2425,8 @@ export function createScoutMcpServer(options: {
         usedBroker: result.usedBroker,
         conversationId: result.conversationId ?? null,
         messageId: result.messageId ?? null,
+        flightId: result.flight?.id ?? null,
+        wake: wake ?? false,
         bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
         invokedTargetIds: result.invokedTargets,
         unresolvedTargetIds: result.unresolvedTargets,

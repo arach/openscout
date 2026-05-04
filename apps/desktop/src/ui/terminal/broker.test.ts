@@ -23,6 +23,17 @@ describe("renderScoutMessagePostResult", () => {
       routeKind: "broadcast",
     })).toBe("Sent to Scout.");
   });
+
+  test("renders wake flight ids when a send queued work", () => {
+    expect(renderScoutMessagePostResult({
+      message: "hello",
+      conversationId: "dm.operator.hudson",
+      flightId: "flt-1",
+      invokedTargets: ["hudson.main"],
+      unresolvedTargets: [],
+      routeKind: "dm",
+    })).toBe("Sent.\nWake flight: flt-1");
+  });
 });
 
 describe("renderScoutActivityList", () => {

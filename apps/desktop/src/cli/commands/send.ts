@@ -14,7 +14,7 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 export function renderSendCommandHelp(): string {
   return [
-    "Usage: scout send [--as <sender>] [--to <agent> | --ref <ref>] [--channel <name>] [--speak] [--harness <runtime>] [--message-file <path> | <message>]",
+    "Usage: scout send [--as <sender>] [--to <agent> | --ref <ref>] [--channel <name>] [--speak] [--wake] [--harness <runtime>] [--message-file <path> | <message>]",
     "",
     "Tell or update another agent or an explicit channel.",
     "",
@@ -27,6 +27,7 @@ export function renderSendCommandHelp(): string {
     "",
     "Use send for heads-up, replies, and status updates.",
     "Use `scout ask` when the meaning is \"do this and get back to me.\"",
+    "Add --wake to post the message and create an asynchronous visible turn/flight without waiting for a reply.",
     "",
     "Input:",
     "  inline message                    -> message body",
@@ -37,6 +38,7 @@ export function renderSendCommandHelp(): string {
     '  scout send --to hudson "ready for review; literal @codex stays text"',
     '  scout send --ref 7f3a9c21 "follow-up for that bound session"',
     '  scout send --to lattices#codex?5.5 "ready for review"',
+    '  scout send --to hudson --wake "please apply the chrome feedback; no reply needed"',
     "  scout send --channel triage --message-file ./status.md",
     '  scout send --as premotion.master.mini --to hudson "editor branch is green"',
     '  scout send --channel triage "need two reviewers"',
@@ -130,6 +132,7 @@ export async function runSendCommand(
     targetRef: options.targetRef,
     channel: options.channel,
     shouldSpeak: options.shouldSpeak,
+    wake: options.wake,
     executionHarness: parseScoutHarness(options.harness),
     currentDirectory: options.currentDirectory,
   });
@@ -150,6 +153,7 @@ export async function runSendCommand(
       conversationId: result.conversationId,
       message: body,
       bindingRef: result.bindingRef,
+      flightId: result.flight?.id,
       invokedTargets: result.invokedTargets,
       unresolvedTargets: result.unresolvedTargets,
       routeKind: result.routeKind,
