@@ -238,9 +238,10 @@ if (existingBroker) {
 
 const journal = new FileBackedBrokerJournal(journalPath);
 await journal.load();
+const initialSnapshot = journal.snapshot();
 
 const sqliteDisabled = process.env.OPENSCOUT_DISABLE_SQLITE === "1";
-const runtime = createInMemoryControlRuntime(journal.snapshot(), { localNodeId: nodeId });
+const runtime = createInMemoryControlRuntime(initialSnapshot, { localNodeId: nodeId });
 const projection = new RecoverableSQLiteProjection(dbPath, journal, { disabled: sqliteDisabled });
 const threadEvents = new ThreadEventPlane({
   nodeId,
@@ -249,7 +250,7 @@ const threadEvents = new ThreadEventPlane({
 });
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
-const knownInvocations = new Map<string, InvocationRequest>();
+const knownInvocations = new Map<string, InvocationRequest>(Object.entries(initialSnapshot.invocations));
 let shuttingDown = false;
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
 const operatorActorId = "operator";
@@ -4396,6 +4397,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         }
 
         const flight = runtime.planInvocation(bundle.invocation);
+        knownInvocations.set(bundle.invocation.id, bundle.invocation);
         const invocationEntries = await commitDurableEntries(
           [
             { kind: "invocation.record", invocation: bundle.invocation },

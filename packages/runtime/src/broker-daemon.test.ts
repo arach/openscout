@@ -54,6 +54,7 @@ async function startBroker(input: {
       OPENSCOUT_BROKER_HOST: DEFAULT_BROKER_HOST,
       OPENSCOUT_BROKER_PORT: String(port),
       OPENSCOUT_BROKER_URL: baseUrl,
+      OPENSCOUT_BROKER_SOCKET_PATH: join(controlHome, "broker.sock"),
       OPENSCOUT_NODE_ID: derivedNodeId,
       OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
       OPENSCOUT_RELAY_HUB: join(controlHome, "relay"),
@@ -986,6 +987,64 @@ describe("broker daemon comms layer", () => {
       events.some((event) => event.kind === "flight.updated" && event.payload.flight?.targetAgentId === "ghost" && event.payload.flight?.state === "waking"),
     ).toBe(true);
   }, 15_000);
+
+  test("keeps replayed invocations available to daemon routes after restart", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const firstHarness = await startBroker({ controlHome });
+    await seedBasicConversation(firstHarness);
+
+    await postJson(firstHarness.baseUrl, "/v1/agents", {
+      id: "ghost",
+      kind: "agent",
+      definitionId: "ghost",
+      displayName: "Ghost",
+      handle: "ghost",
+      labels: ["test"],
+      selector: "@ghost",
+      defaultSelector: "@ghost",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: firstHarness.nodeId,
+      authorityNodeId: firstHarness.nodeId,
+      advertiseScope: "local",
+    });
+
+    await postJson(firstHarness.baseUrl, "/v1/invocations", {
+      id: "inv-restart-1",
+      requesterId: "operator",
+      requesterNodeId: firstHarness.nodeId,
+      targetAgentId: "ghost",
+      action: "consult",
+      task: "survive restart?",
+      conversationId: "channel.shared",
+      ensureAwake: true,
+      stream: false,
+      createdAt: Date.now(),
+      metadata: { source: "test" },
+    });
+
+    firstHarness.child.kill();
+    await firstHarness.child.exited.catch(() => {});
+    harnesses.delete(firstHarness);
+
+    const secondHarness = await startBroker({ controlHome });
+    const snapshot = await getJson<{
+      invocation: { id: string; targetAgentId: string } | null;
+      flight: { invocationId: string; targetAgentId: string; state: string } | null;
+    }>(secondHarness.baseUrl, "/v1/invocations/inv-restart-1");
+
+    expect(snapshot.invocation).toEqual(expect.objectContaining({
+      id: "inv-restart-1",
+      targetAgentId: "ghost",
+    }));
+    expect(snapshot.flight).toEqual(expect.objectContaining({
+      invocationId: "inv-restart-1",
+      targetAgentId: "ghost",
+      state: "waking",
+    }));
+  }, 20_000);
 
   test("accepts broker-owned delivery for a known wakeable target", async () => {
     const harness = await startBroker();

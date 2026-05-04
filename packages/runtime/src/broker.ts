@@ -173,6 +173,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
       conversations: { ...this.registry.conversations },
       bindings: { ...this.registry.bindings },
       messages: { ...this.registry.messages },
+      invocations: { ...this.registry.invocations },
       flights: { ...this.registry.flights },
       collaborationRecords: { ...this.registry.collaborationRecords },
     });
@@ -662,6 +663,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
     if (previous && this.flightIdByInvocationId.get(previous.invocationId) === previous.id) {
       this.flightIdByInvocationId.delete(previous.invocationId);
     }
+    this.registry.invocations[invocation.id] = invocation;
     this.registry.flights[flight.id] = flight;
     this.flightIdByInvocationId.set(flight.invocationId, flight.id);
 

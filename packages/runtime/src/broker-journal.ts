@@ -72,6 +72,7 @@ function cloneSnapshot(snapshot: RuntimeRegistrySnapshot): RuntimeRegistrySnapsh
     conversations: { ...snapshot.conversations },
     bindings: { ...snapshot.bindings },
     messages: { ...snapshot.messages },
+    invocations: { ...snapshot.invocations },
     flights: { ...snapshot.flights },
     collaborationRecords: { ...snapshot.collaborationRecords },
   });
@@ -425,6 +426,7 @@ export class FileBackedBrokerJournal {
         this.state.snapshot.messages[entry.message.id] = entry.message;
         return;
       case "invocation.record":
+        this.state.snapshot.invocations[entry.invocation.id] = entry.invocation;
         return;
       case "flight.record":
         this.state.snapshot.flights[entry.flight.id] = entry.flight;

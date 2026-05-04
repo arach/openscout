@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ActionBlock, BlockState, QuestionBlock, SessionState } from "@openscout/agent-sessions";
 import {
   buildRelayAgentInstance,
   writeRelayAgentOverrides,
@@ -16,8 +17,12 @@ const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
 const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
 const askScoutQuestionCalls: Array<Record<string, unknown>> = [];
+const queryRunsCalls: Array<Record<string, unknown>> = [];
+const decidePairingApprovalCalls: Array<Record<string, unknown>> = [];
 const testDirectories = new Set<string>();
 let scoutBrokerContextResult: unknown = null;
+let pairingStateResult: Record<string, unknown> = makePairingState();
+let pairingSessionSnapshotsResult: SessionState[] = [];
 
 let querySessionByIdImpl: (conversationId: string) => {
   kind: string;
@@ -90,12 +95,30 @@ mock.module("./db-queries.ts", () => ({
   }),
   queryFollowTarget: () => null,
   queryFlights: () => [],
+  queryRuns: (opts: Record<string, unknown>) => {
+    queryRunsCalls.push(opts);
+    return [];
+  },
   queryRecentMessages: () => [],
   querySessions: () => [],
   querySessionById: (conversationId: string) =>
     querySessionByIdImpl(conversationId),
   queryWorkItems: () => [],
   queryWorkItemById: () => null,
+}));
+
+mock.module("./pairing.ts", () => ({
+  controlScoutWebPairingService: async () => pairingStateResult,
+  decideScoutWebPairingApproval: async (input: Record<string, unknown>) => {
+    decidePairingApprovalCalls.push(input);
+    return pairingStateResult;
+  },
+  getScoutWebPairingState: async () => pairingStateResult,
+  getScoutWebPairingSessionSnapshot: async (sessionId: string) =>
+    pairingSessionSnapshotsResult.find((snapshot) => snapshot.session.id === sessionId) ?? null,
+  getScoutWebPairingSessionSnapshots: async () => pairingSessionSnapshotsResult,
+  refreshScoutWebPairingState: async () => pairingStateResult,
+  removeScoutPairingTrustedPeer: () => false,
 }));
 
 mock.module("./core/broker/service.ts", () => ({
@@ -150,6 +173,129 @@ function useIsolatedOpenScoutHome(): string {
   return home;
 }
 
+function makePairingState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    status: "stopped",
+    statusLabel: "Stopped",
+    statusDetail: null,
+    connectedPeerFingerprint: null,
+    isRunning: false,
+    commandLabel: "openscout-web pair",
+    configPath: "/tmp/pairing/config.json",
+    identityPath: "/tmp/pairing/identity.json",
+    trustedPeersPath: "/tmp/pairing/trusted-peers.json",
+    logPath: "/tmp/pairing/bridge.log",
+    relay: null,
+    configuredRelay: null,
+    secure: true,
+    workspaceRoot: null,
+    sessionCount: 0,
+    identityFingerprint: null,
+    trustedPeerCount: 0,
+    trustedPeers: [],
+    pendingApprovals: [],
+    pairing: null,
+    logTail: "",
+    logUpdatedAtLabel: null,
+    logMissing: true,
+    logTruncated: false,
+    lastUpdatedLabel: null,
+    ...overrides,
+  };
+}
+
+function sessionSnapshotWithAttention(): {
+  snapshot: SessionState;
+  approval: Record<string, unknown>;
+} {
+  const sessionId = "pairing-session-1";
+  const turnId = "turn-1";
+  const approvalBlockId = "cmd-approval";
+  const questionBlock: QuestionBlock = {
+    id: "question-1",
+    turnId,
+    type: "question",
+    status: "streaming",
+    index: 0,
+    header: "Deploy",
+    question: "Ship the fix?",
+    options: [{ label: "Yes" }, { label: "No" }],
+    multiSelect: false,
+    questionStatus: "awaiting_answer",
+  };
+  const approvalBlock: ActionBlock = {
+    id: approvalBlockId,
+    turnId,
+    type: "action",
+    status: "streaming",
+    index: 1,
+    action: {
+      kind: "command",
+      status: "awaiting_approval",
+      output: "",
+      command: "bun test",
+      approval: {
+        version: 3,
+        description: "Run focused tests",
+        risk: "high",
+      },
+    },
+  };
+  const failedBlock: ActionBlock = {
+    id: "tool-failed",
+    turnId,
+    type: "action",
+    status: "failed",
+    index: 2,
+    action: {
+      kind: "tool_call",
+      status: "failed",
+      output: "Native tool failed",
+      toolName: "apply_patch",
+      toolCallId: "tool-call-1",
+    },
+  };
+  const blocks: BlockState[] = [
+    { block: questionBlock, status: "streaming" },
+    { block: approvalBlock, status: "streaming" },
+    { block: failedBlock, status: "completed" },
+  ];
+  return {
+    snapshot: {
+      session: {
+        id: sessionId,
+        name: "Codex Pairing",
+        adapterType: "codex",
+        status: "active",
+        cwd: "/tmp/project",
+      },
+      turns: [
+        {
+          id: turnId,
+          status: "streaming",
+          startedAt: 1_700_000_000_000,
+          blocks,
+        },
+      ],
+      currentTurnId: turnId,
+    },
+    approval: {
+      sessionId,
+      sessionName: "Codex Pairing",
+      adapterType: "codex",
+      turnId,
+      blockId: approvalBlockId,
+      version: 3,
+      risk: "high",
+      title: "Approve Command",
+      description: "Run focused tests",
+      detail: "bun test",
+      actionKind: "command",
+      actionStatus: "awaiting_approval",
+    },
+  };
+}
+
 beforeEach(() => {
   globalThis.fetch = originalFetch;
   process.env.HOME = originalHome;
@@ -201,9 +347,13 @@ beforeEach(() => {
       state: "queued",
     },
   };
+  pairingStateResult = makePairingState();
+  pairingSessionSnapshotsResult = [];
   sendScoutMessageCalls.length = 0;
   sendScoutDirectMessageCalls.length = 0;
   askScoutQuestionCalls.length = 0;
+  queryRunsCalls.length = 0;
+  decidePairingApprovalCalls.length = 0;
 });
 
 afterEach(() => {
@@ -353,6 +503,101 @@ describe("createOpenScoutWebServer", () => {
       failedDeliveries: [],
       dialogue: [],
     });
+  });
+
+  test("includes session attention in operator attention and dedupes pairing approvals", async () => {
+    const { snapshot, approval } = sessionSnapshotWithAttention();
+    pairingStateResult = makePairingState({
+      pendingApprovals: [approval],
+    });
+    pairingSessionSnapshotsResult = [snapshot];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      totals: { approvals: number; collaboration: number };
+      items: Array<{
+        id: string;
+        kind: string;
+        title: string;
+        sourceLabel: string;
+        actions: Array<{ kind: string; route?: Record<string, string> }>;
+      }>;
+    };
+    const approvalId = "approval:pairing-session-1:turn-1:cmd-approval:v3";
+
+    expect(body.totals.approvals).toBe(1);
+    expect(body.items.filter((item) => item.id === approvalId)).toHaveLength(1);
+    expect(body.items.find((item) => item.id === approvalId)?.actions)
+      .toEqual([
+        expect.objectContaining({ kind: "approve" }),
+        expect.objectContaining({ kind: "deny" }),
+        expect.objectContaining({
+          kind: "open",
+          route: expect.objectContaining({
+            view: "follow",
+            sessionId: "pairing-session-1",
+            preferredView: "session",
+          }),
+        }),
+      ]);
+    expect(body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "session-question:pairing-session-1:turn-1:question-1",
+        kind: "question",
+        title: "Deploy",
+        sourceLabel: "codex question",
+      }),
+      expect.objectContaining({
+        id: "session-action-failed:pairing-session-1:turn-1:tool-failed",
+        kind: "session",
+        title: "Tool call failed",
+        sourceLabel: "codex action",
+      }),
+    ]));
+    expect(body.items.find((item) => item.id === "session-action-failed:pairing-session-1:turn-1:tool-failed")?.actions)
+      .toEqual([
+        expect.objectContaining({
+          kind: "open",
+          route: expect.objectContaining({
+            view: "follow",
+            sessionId: "pairing-session-1",
+            preferredView: "session",
+          }),
+        }),
+      ]);
+  });
+
+  test("passes run filters to the run registry API", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request(
+      "http://localhost/api/runs?agentId=agent-1&conversationId=conv-1&workId=work-1&state=completed&source=external_issue&active=false&limit=25",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([]);
+    expect(queryRunsCalls).toEqual([
+      {
+        agentId: "agent-1",
+        conversationId: "conv-1",
+        collaborationRecordId: undefined,
+        workId: "work-1",
+        state: "completed",
+        source: "external_issue",
+        active: false,
+        limit: 25,
+      },
+    ]);
   });
 
   test("routes direct DM tells through sendScoutDirectMessage", async () => {

@@ -742,6 +742,29 @@ export class SQLiteControlPlaneStore {
       };
     }
 
+    const invocations = queryAll<InvocationRow>(this.readDb, "SELECT * FROM invocations");
+    for (const row of invocations) {
+      snapshot.invocations[row.id] = {
+        id: row.id,
+        requesterId: row.requester_id,
+        requesterNodeId: row.requester_node_id,
+        targetAgentId: row.target_agent_id,
+        targetNodeId: row.target_node_id ?? undefined,
+        action: row.action,
+        task: row.task,
+        collaborationRecordId: row.collaboration_record_id ?? undefined,
+        conversationId: row.conversation_id ?? undefined,
+        messageId: row.message_id ?? undefined,
+        context: parseJson<Record<string, unknown> | undefined>(row.context_json, undefined),
+        execution: parseJson<InvocationRequest["execution"]>(row.execution_json, undefined),
+        ensureAwake: row.ensure_awake === 1,
+        stream: row.stream === 1,
+        timeoutMs: row.timeout_ms ?? undefined,
+        metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+        createdAt: row.created_at,
+      };
+    }
+
     const flights = queryAll<FlightRow>(this.readDb, "SELECT * FROM flights");
     for (const row of flights) {
       snapshot.flights[row.id] = {

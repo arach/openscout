@@ -24,3 +24,7 @@ export * from "./local-config.js";
 export * from "./thread-events.js";
 export * from "./mobile-push.js";
 export * from "./permission-policy.js";
+export * from "./agent-run-registry.js";
+export * from "./issue-runner.js";
+export * from "./issue-runner-service.js";
+export * from "./session-attention.js";

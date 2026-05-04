@@ -391,7 +391,7 @@ async function withScoutPairingBridgeClient<T>(
   }
 }
 
-async function loadScoutPairingPendingApprovals(port: number): Promise<ScoutPairingApprovalRequest[]> {
+async function loadScoutPairingSessionSnapshots(port: number): Promise<SessionState[]> {
   return await withScoutPairingBridgeClient(port, async (client) => {
     const status = await client.query<{ sessions: SessionSummary[] }>("bridgeStatus");
     const snapshots = await Promise.all(status.sessions.map((session) =>
@@ -401,8 +401,13 @@ async function loadScoutPairingPendingApprovals(port: number): Promise<ScoutPair
 
     return snapshots
       .filter((snapshot): snapshot is SessionState => snapshot !== null)
-      .flatMap((snapshot) => extractPendingApprovalRequests(snapshot));
+      .filter((snapshot) => snapshot.session.status !== "closed");
   });
+}
+
+async function loadScoutPairingPendingApprovals(port: number): Promise<ScoutPairingApprovalRequest[]> {
+  return (await loadScoutPairingSessionSnapshots(port))
+    .flatMap((snapshot) => extractPendingApprovalRequests(snapshot));
 }
 
 function loadScoutPairingConfig(): ScoutPairingConfig {
@@ -969,6 +974,15 @@ export async function getScoutWebPairingSessionSnapshot(
   } catch {
     return null;
   }
+}
+
+export async function getScoutWebPairingSessionSnapshots(): Promise<SessionState[]> {
+  if (!isScoutPairingRuntimeRunning()) {
+    return [];
+  }
+
+  const resolvedConfig = resolveScoutPairingConfig();
+  return loadScoutPairingSessionSnapshots(resolvedConfig.port);
 }
 
 export async function controlScoutWebPairingService(

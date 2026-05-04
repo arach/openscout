@@ -10,6 +10,7 @@ import {
   controlScoutWebPairingService,
   decideScoutWebPairingApproval,
   getScoutWebPairingState,
+  getScoutWebPairingSessionSnapshots,
   refreshScoutWebPairingState,
   removeScoutPairingTrustedPeer,
   type ScoutPairingControlAction,
@@ -35,6 +36,7 @@ import {
   querySessionById,
   queryFollowTarget,
   queryHeartrate,
+  queryRuns,
 } from "./db-queries.ts";
 import {
   askScoutQuestion,
@@ -51,6 +53,11 @@ import {
   getTailDiscovery,
   snapshotRecentEvents,
 } from "@openscout/runtime/tail";
+import {
+  projectSessionsAttention,
+  sessionApprovalAttentionId,
+  type SessionAttentionItem,
+} from "@openscout/runtime";
 import {
   announceMeshVisibility,
   controlTailscale,
@@ -126,7 +133,7 @@ export type OpenScoutWebServer = {
 
 type OperatorAttentionItem = {
   id: string;
-  kind: "approval" | "configuration" | "ask" | "work_item" | "question";
+  kind: "approval" | "configuration" | "ask" | "work_item" | "question" | "session";
   title: string;
   summary: string | null;
   detail: string | null;
@@ -173,6 +180,20 @@ function parseOptionalPositiveInt(
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseOptionalBoolean(value: string | undefined): boolean | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "false" || normalized === "0" || normalized === "no") {
+    return false;
+  }
+  if (normalized === "true" || normalized === "1" || normalized === "yes") {
+    return true;
+  }
+  return undefined;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -512,18 +533,66 @@ function dedupeAttentionItems(items: OperatorAttentionItem[]): OperatorAttention
   });
 }
 
+function operatorAttentionFromSessionItem(item: SessionAttentionItem): OperatorAttentionItem {
+  const route = {
+    view: "follow",
+    sessionId: item.sessionId,
+    preferredView: "session",
+  };
+  const approvalActions = item.kind === "approval" && item.approval
+    ? [
+        { kind: "approve" as const, label: "Approve" },
+        { kind: "deny" as const, label: "Deny" },
+      ]
+    : [];
+  const openAction = {
+    kind: "open" as const,
+    label: "Open session",
+    route,
+  };
+
+  return {
+    id: item.id,
+    kind: item.kind === "approval"
+      ? "approval"
+      : item.kind === "question"
+        ? "question"
+        : "session",
+    title: item.title,
+    summary: item.summary,
+    detail: item.detail,
+    agentId: null,
+    agentName: item.sessionName,
+    conversationId: null,
+    updatedAt: item.updatedAt,
+    severity: item.severity,
+    sourceLabel: item.sourceLabel,
+    ...(item.approval ? { approval: item.approval } : {}),
+    actions: [...approvalActions, openAction],
+  };
+}
+
 async function buildOperatorAttentionState(currentDirectory: string) {
-  const [pairing, fleet, broker] = await Promise.all([
+  const [pairing, pairingSnapshots, fleet, broker] = await Promise.all([
     loadPairingState(currentDirectory, false).catch(() => null),
+    getScoutWebPairingSessionSnapshots().catch(() => []),
     Promise.resolve(queryFleet({ limit: 24, activityLimit: 120 })),
     Promise.resolve(queryBrokerDiagnostics({ limit: 160, windowMs: 24 * 60 * 60_000 })),
   ]);
 
   const items: OperatorAttentionItem[] = [];
+  const pendingApprovalIds = new Set<string>();
 
   for (const approval of pairing?.pendingApprovals ?? []) {
+    const approvalId = sessionApprovalAttentionId(
+      approval.sessionId,
+      approval.turnId,
+      approval.blockId,
+      approval.version,
+    );
+    pendingApprovalIds.add(approvalId);
     items.push({
-      id: `approval:${approval.sessionId}:${approval.turnId}:${approval.blockId}:v${approval.version}`,
+      id: approvalId,
       kind: "approval",
       title: approval.title,
       summary: approval.description,
@@ -538,8 +607,21 @@ async function buildOperatorAttentionState(currentDirectory: string) {
       actions: [
         { kind: "approve", label: "Approve" },
         { kind: "deny", label: "Deny" },
+        {
+          kind: "open",
+          label: "Open session",
+          route: {
+            view: "follow",
+            sessionId: approval.sessionId,
+            preferredView: "session",
+          },
+        },
       ],
     });
+  }
+
+  for (const sessionItem of projectSessionsAttention(pairingSnapshots, { pendingApprovalIds })) {
+    items.push(operatorAttentionFromSessionItem(sessionItem));
   }
 
   for (const request of queryPendingClaudePermissionRequests()) {
@@ -663,7 +745,12 @@ async function buildOperatorAttentionState(currentDirectory: string) {
       all: deduped.length,
       approvals: deduped.filter((item) => item.kind === "approval").length,
       configuration: deduped.filter((item) => item.kind === "configuration").length,
-      collaboration: deduped.filter((item) => item.kind === "ask" || item.kind === "work_item" || item.kind === "question").length,
+      collaboration: deduped.filter((item) =>
+        item.kind === "ask"
+        || item.kind === "work_item"
+        || item.kind === "question"
+        || item.kind === "session"
+      ).length,
     },
     items: deduped,
   };
@@ -1033,6 +1120,28 @@ export async function createOpenScoutWebServer(
   app.get("/api/tasks", handleListWork);
   app.get("/api/work/:id", handleWorkDetail);
   app.get("/api/tasks/:id", handleWorkDetail);
+  app.get("/api/runs", (c) => {
+    const agentId = c.req.query("agentId");
+    const conversationId = c.req.query("conversationId");
+    const collaborationRecordId = c.req.query("collaborationRecordId");
+    const workId = c.req.query("workId");
+    const state = c.req.query("state");
+    const source = c.req.query("source");
+    const active = parseOptionalBoolean(c.req.query("active"));
+    const limit = parseOptionalPositiveInt(c.req.query("limit"));
+    return c.json(
+      queryRuns({
+        agentId: agentId || undefined,
+        conversationId: conversationId || undefined,
+        collaborationRecordId: collaborationRecordId || undefined,
+        workId: workId || undefined,
+        state: state || undefined,
+        source: source || undefined,
+        active,
+        limit,
+      }),
+    );
+  });
   app.get("/api/flights", (c) => {
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");
