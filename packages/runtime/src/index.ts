@@ -23,3 +23,4 @@ export * from "./user-config.js";
 export * from "./local-config.js";
 export * from "./thread-events.js";
 export * from "./mobile-push.js";
+export * from "./permission-policy.js";

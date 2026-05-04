@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { formatScoutPermissionProfiles } from "@openscout/protocol";
 import { resolveLocalAgentByName } from "@openscout/runtime/local-agents";
 
 import type { ScoutCommandContext } from "../context.ts";
@@ -20,6 +21,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   let harness: string | undefined;
   let model: string | undefined;
   let reasoningEffort: string | undefined;
+  let permissionProfile: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const current = args[index] ?? "";
@@ -79,6 +81,19 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
       reasoningEffort = current.slice("--effort=".length);
       continue;
     }
+    if (current === "--permission-profile") {
+      const value = args[index + 1];
+      if (!value) {
+        throw new ScoutCliError("missing value for --permission-profile");
+      }
+      permissionProfile = value;
+      index += 1;
+      continue;
+    }
+    if (current.startsWith("--permission-profile=")) {
+      permissionProfile = current.slice("--permission-profile=".length);
+      continue;
+    }
     if (current.startsWith("--")) {
       throw new ScoutCliError(`unexpected argument for up: ${current}`);
     }
@@ -89,7 +104,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   }
 
   if (!target) {
-    throw new ScoutCliError("usage: scout up <name|path> [--name <alias>] [--harness <claude|codex>] [--model <model>] [--reasoning-effort <effort>]");
+    throw new ScoutCliError(`usage: scout up <name|path> [--name <alias>] [--harness <claude|codex>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <${formatScoutPermissionProfiles()}>]`);
   }
 
   let projectPath: string;
@@ -119,6 +134,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
     harness: parseScoutHarness(harness),
     model,
     reasoningEffort,
+    permissionProfile,
     currentDirectory: defaultScoutContextDirectory(context),
   });
 

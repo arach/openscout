@@ -8,7 +8,7 @@ import {
   type ScoutLocalAgentStatus,
 } from "@openscout/runtime/local-agents";
 import { buildScoutAgentCard } from "@openscout/runtime/scout-agent-cards";
-import type { AgentHarness, ScoutAgentCard } from "@openscout/protocol";
+import type { AgentHarness, ScoutAgentCard, ScoutPermissionProfile } from "@openscout/protocol";
 
 import {
   loadScoutBrokerContext,
@@ -25,6 +25,7 @@ export type CreateScoutAgentCardInput = {
   harness?: AgentHarness;
   model?: string;
   reasoningEffort?: string;
+  permissionProfile?: ScoutPermissionProfile | string;
   currentDirectory?: string;
   createdById?: string;
 };
@@ -45,6 +46,7 @@ export async function upScoutAgent(input: {
   cwdOverride?: string;
   model?: string;
   reasoningEffort?: string;
+  permissionProfile?: ScoutPermissionProfile | string;
   branch?: string;
 }): Promise<ScoutAgentStatus> {
   const status = await startLocalAgent(input);
@@ -78,6 +80,7 @@ export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Pr
     harness: input.harness,
     model: input.model,
     reasoningEffort: input.reasoningEffort,
+    permissionProfile: input.permissionProfile,
     currentDirectory: input.currentDirectory,
     // Card creation should publish a routable identity, not make this short-lived
     // CLI process the owner of a long-lived Claude/Codex session.

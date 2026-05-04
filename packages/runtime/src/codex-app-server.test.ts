@@ -132,6 +132,50 @@ for await (const line of rl) {
   return { executablePath, argsPath };
 }
 
+function writeThreadParamCaptureFakeCodexExecutable(baseDirectory: string): {
+  executablePath: string;
+  paramsPath: string;
+} {
+  const executablePath = join(baseDirectory, "fake-codex-thread-params");
+  const paramsPath = join(baseDirectory, "codex-thread-params.json");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import readline from "node:readline";
+import { writeFileSync } from "node:fs";
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  if (method === "thread/start" || method === "thread/resume") {
+    writeFileSync(${JSON.stringify(paramsPath)}, JSON.stringify({ method, params }), "utf8");
+    const threadId = String(params.threadId ?? "thread-started");
+    const thread = { id: threadId, path: \`/tmp/\${threadId}.jsonl\`, cwd: params.cwd ?? null };
+    console.log(JSON.stringify({ id, result: { thread } }));
+    console.log(JSON.stringify({ method: "thread/started", params: { thread } }));
+    continue;
+  }
+
+  console.log(JSON.stringify({ id, result: {} }));
+}
+`, "utf8");
+  chmodSync(executablePath, 0o755);
+  return { executablePath, paramsPath };
+}
+
 function writeSteerableFakeCodexExecutable(baseDirectory: string): string {
   const executablePath = join(baseDirectory, "fake-codex-steer");
   writeFileSync(executablePath, `#!/usr/bin/env bun
@@ -831,6 +875,39 @@ describe("ensureCodexAppServerAgentOnline", () => {
     expect(argv).not.toContain("--reasoning-effort");
 
     await shutdownCodexAppServerAgent(options);
+  });
+
+  test("passes requested permission posture as Codex thread parameters", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-permission-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "runtime");
+    const logsDirectory = join(tempRoot, "logs");
+    const { executablePath, paramsPath } = writeThreadParamCaptureFakeCodexExecutable(tempRoot);
+    process.env.OPENSCOUT_CODEX_BIN = executablePath;
+
+    const options = {
+      agentName: "codex-permission",
+      sessionId: "attached-codex-permission",
+      cwd: process.cwd(),
+      systemPrompt: "Start with a safer native Codex posture.",
+      runtimeDirectory,
+      logsDirectory,
+      launchArgs: [],
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+    } as const;
+
+    await ensureCodexAppServerAgentOnline(options);
+
+    const captured = JSON.parse(readFileSync(paramsPath, "utf8")) as {
+      method: string;
+      params: Record<string, unknown>;
+    };
+    expect(captured.method).toBe("thread/start");
+    expect(captured.params.approvalPolicy).toBe("on-request");
+    expect(captured.params.sandbox).toBe("workspace-write");
+
+    await shutdownCodexAppServerAgent(options, { resetThread: true });
   });
 
   test("resumes a requested thread id without starting a new thread", async () => {

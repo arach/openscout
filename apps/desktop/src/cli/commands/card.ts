@@ -14,7 +14,7 @@ const HELP_FLAGS = new Set(["help", "--help", "-h"]);
 
 export function renderCardCommandHelp(): string {
   return [
-    "Usage: scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex>] [--model <model>] [--reasoning-effort <effort>] [--as <requester>] [--no-input] [--path <path>]",
+    "Usage: scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--no-input] [--path <path>]",
     "",
     "Create a dedicated Scout agent card with a reply-ready return address.",
     "",
@@ -98,6 +98,7 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
     harness: parseScoutHarness(options.harness),
     model: options.model,
     reasoningEffort: options.reasoningEffort,
+    permissionProfile: options.permissionProfile,
     currentDirectory: options.currentDirectory,
     createdById: resolveScoutAgentName(options.requesterId),
   });
