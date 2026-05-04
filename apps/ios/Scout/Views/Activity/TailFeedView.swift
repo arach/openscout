@@ -28,6 +28,9 @@ struct TailFeedView: View {
     @State private var lastFetchTs: Int = 0
     @State private var ratePerMin: Int = 0
     @State private var rateWindow: [Int] = []  // ts (sec) of items observed in last 60s
+    @State private var mutedActivityKinds: [String: Date] = [:]  // kind → expiry
+
+    private static let muteDuration: TimeInterval = 5 * 60
 
     /// Safety-net refresh cadence in case no bridge events flow for a while.
     /// Real-time updates ride on `connection.subscribeToEvents()` instead.
@@ -37,13 +40,53 @@ struct TailFeedView: View {
     private static let turnBufferLimit = 500
 
     private var rows: [TailFeedRow] {
+        let now = Date()
         let merged: [TailFeedRow] =
             activities.map(TailFeedRow.activity)
             + tailEvents.map(TailFeedRow.tail)
             + turnRows.map(TailFeedRow.turn)
         return merged
             .filter { !$0.isNoise }
+            .filter { !isMuted($0, now: now) }
             .sorted { $0.tsMs > $1.tsMs }
+    }
+
+    private func isMuted(_ row: TailFeedRow, now: Date) -> Bool {
+        guard case .activity(let item) = row,
+              let expiry = mutedActivityKinds[item.kind] else {
+            return false
+        }
+        return expiry > now
+    }
+
+    private func activityKind(_ row: TailFeedRow) -> String? {
+        if case .activity(let item) = row { return item.kind }
+        return nil
+    }
+
+    private func sessionId(_ row: TailFeedRow) -> String? {
+        switch row {
+        case .activity(let item): return item.sessionId ?? item.conversationId
+        case .turn(let proj): return proj.sessionId
+        case .tail: return nil
+        }
+    }
+
+    private func copyLine(for row: TailFeedRow) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        let date = Date(timeIntervalSince1970: Double(row.tsMs) / 1000.0)
+        let ts = formatter.string(from: date)
+        switch row {
+        case .activity(let item):
+            let body = item.title ?? item.summary ?? item.kindLabel
+            return "\(ts) [\(item.kind)] \(item.actorId ?? item.agentId ?? "system") · \(body)"
+        case .tail(let event):
+            return "\(ts) [\(event.kind.rawValue)] \(event.project) · \(event.summary)"
+        case .turn(let proj):
+            let phase = proj.phase == .start ? "start" : "end"
+            return "\(ts) [turn:\(phase)] \(proj.sessionId.prefix(8)) · \(proj.snippet)"
+        }
     }
 
     var body: some View {
@@ -156,6 +199,30 @@ struct TailFeedView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(rows) { row in
                             TailRow(row: row, livePids: livePids)
+                                .contextMenu {
+                                    Button {
+                                        UIPasteboard.general.string = copyLine(for: row)
+                                    } label: {
+                                        Label("Copy Line", systemImage: "doc.on.doc")
+                                    }
+
+                                    if let sid = sessionId(row) {
+                                        Button {
+                                            router.push(.sessionDetail(sessionId: sid))
+                                        } label: {
+                                            Label("Open Session", systemImage: "arrow.up.right.square")
+                                        }
+                                    }
+
+                                    if let kind = activityKind(row) {
+                                        Button(role: .destructive) {
+                                            mutedActivityKinds[kind] =
+                                                Date().addingTimeInterval(Self.muteDuration)
+                                        } label: {
+                                            Label("Mute \(kind) for 5m", systemImage: "speaker.slash")
+                                        }
+                                    }
+                                }
                             Divider()
                                 .background(ScoutColors.divider.opacity(0.4))
                         }
