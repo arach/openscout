@@ -40,6 +40,17 @@ describe("parseSendCommandOptions", () => {
     expect(options.message).toBe("follow up");
   });
 
+  test("accepts a wake flag for non-blocking visible turns", () => {
+    const options = parseSendCommandOptions(
+      ["--to", "hudson", "--wake", "please", "continue"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("hudson");
+    expect(options.wake).toBe(true);
+    expect(options.message).toBe("please continue");
+  });
+
   test("rejects mixing inline messages with a message file", () => {
     expect(() =>
       parseSendCommandOptions(

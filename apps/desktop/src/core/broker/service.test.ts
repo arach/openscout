@@ -24,6 +24,7 @@ import {
 } from "./service.ts";
 
 const originalHome = process.env.HOME;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
@@ -37,6 +38,11 @@ const testDirectories = new Set<string>();
 
 afterEach(() => {
   process.env.HOME = originalHome;
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
   if (originalSupportDirectory === undefined) {
     delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
   } else {
@@ -85,6 +91,7 @@ function useIsolatedOpenScoutHome(): string {
   const home = mkdtempSync(join(tmpdir(), "openscout-desktop-broker-"));
   testDirectories.add(home);
   process.env.HOME = home;
+  process.env.OPENSCOUT_HOME = join(home, ".openscout");
   process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(
     home,
     "Library",
@@ -1196,6 +1203,11 @@ describe("sendScoutMessage", () => {
         caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
         target?: { kind?: string; label?: string };
         body?: string;
+        intent?: string;
+        ensureAwake?: boolean;
+        execution?: unknown;
+        messageMetadata?: Record<string, unknown>;
+        invocationMetadata?: Record<string, unknown>;
         createdAt?: number;
       } | null,
     };
@@ -1276,6 +1288,13 @@ describe("sendScoutMessage", () => {
     expect(captured.delivery?.body).toBe(
       "status references literal @codex and should still route",
     );
+    expect(captured.delivery?.intent).toBe("tell");
+    expect(captured.delivery?.ensureAwake).toBeUndefined();
+    expect(captured.delivery?.execution).toBeUndefined();
+    expect(captured.delivery?.messageMetadata).toEqual({
+      source: "scout-cli",
+    });
+    expect(captured.delivery?.invocationMetadata).toBeUndefined();
     expect(captured.delivery?.requesterId).toBeUndefined();
     expect(captured.delivery?.requesterNodeId).toBeUndefined();
     expect(captured.delivery?.id).toBeUndefined();
@@ -1284,6 +1303,121 @@ describe("sendScoutMessage", () => {
       actorId: "operator",
       nodeId: "node-1",
       currentDirectory: "/worktree/project",
+    });
+  }, 15000);
+
+  test("can post a tell and wake the target asynchronously", async () => {
+    useIsolatedOpenScoutHome();
+
+    const captured = {
+      delivery: null as {
+        caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
+        target?: { kind?: string; label?: string };
+        body?: string;
+        intent?: string;
+        ensureAwake?: boolean;
+        execution?: unknown;
+        messageMetadata?: Record<string, unknown>;
+        invocationMetadata?: Record<string, unknown>;
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = await request.json() as NonNullable<typeof captured.delivery>;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.hudson",
+            kind: "direct",
+            title: "Hudson",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "hudson.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.hudson",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: captured.delivery.body,
+            audience: {
+              notify: ["hudson.main"],
+              reason: "direct_message",
+            },
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "hudson.main",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "hudson.main",
+            state: "working",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      targetLabel: "hudson",
+      body: "please process this when you can",
+      currentDirectory: "/worktree/project",
+      wake: true,
+      executionHarness: "claude",
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.invokedTargets).toEqual(["hudson.main"]);
+    expect(result.flight?.id).toBe("flt-1");
+    expect(captured.delivery?.target).toEqual({
+      kind: "agent_label",
+      label: "hudson",
+    });
+    expect(captured.delivery?.intent).toBe("consult");
+    expect(captured.delivery?.ensureAwake).toBe(true);
+    expect(captured.delivery?.execution).toEqual({
+      session: "new",
+      harness: "claude",
+    });
+    expect(captured.delivery?.messageMetadata).toEqual({
+      source: "scout-cli",
+      wake: true,
+    });
+    expect(captured.delivery?.invocationMetadata).toEqual({
+      source: "scout-cli",
+      sourceIntent: "tell_wake",
     });
   }, 15000);
 

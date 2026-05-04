@@ -1194,6 +1194,74 @@ describe("createScoutMcpServer", () => {
     });
   });
 
+  test("supports tell plus asynchronous wake from messages_send", async () => {
+    let receivedWake: boolean | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async ({ wake }) => {
+        receivedWake = wake;
+        return {
+          usedBroker: true,
+          conversationId: "dm.operator.hudson",
+          messageId: "msg-1",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "hudson.main",
+            state: "working",
+          },
+          invokedTargets: ["hudson.main"],
+          unresolvedTargets: [],
+          routeKind: "dm",
+        };
+      },
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Please process this when you can.",
+        targetLabel: "@hudson",
+        wake: true,
+      },
+    });
+
+    const structured = result.structuredContent as {
+      wake: boolean;
+      flightId: string | null;
+    };
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+
+    expect(receivedWake).toBe(true);
+    expect(structured.wake).toBe(true);
+    expect(structured.flightId).toBe("flt-1");
+    expect(content?.[0]).toEqual({
+      type: "text",
+      text: "Message sent to hudson.main in dm.operator.hudson (msg-1). Wake queued as flt-1.",
+    });
+  });
+
   test("preserves managed agent identity from the MCP environment", async () => {
     let receivedSenderId: string | null | undefined;
     let receivedMessageSenderId: string | undefined;

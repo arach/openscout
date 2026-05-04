@@ -14,6 +14,7 @@ type TargetableMessageOptions = ContextRootOptions & {
   channel?: string;
   harness?: string;
   shouldSpeak: boolean;
+  wake: boolean;
   message: string;
   messageFile?: string;
 };
@@ -215,6 +216,7 @@ export function parseSendCommandOptions(
   let targetRef: string | undefined;
   let channel: string | undefined;
   let shouldSpeak = false;
+  let wake = false;
   let harness: string | undefined;
   let messageFile: string | undefined;
   const messageParts: string[] = [];
@@ -256,6 +258,10 @@ export function parseSendCommandOptions(
       shouldSpeak = true;
       continue;
     }
+    if (current === "--wake") {
+      wake = true;
+      continue;
+    }
     const fileFlag = flagNameFor(current, ["--message-file", "--body-file"]);
     if (fileFlag) {
       if (messageFile) {
@@ -285,6 +291,7 @@ export function parseSendCommandOptions(
     targetRef,
     channel,
     shouldSpeak,
+    wake,
     harness,
     message,
     messageFile,

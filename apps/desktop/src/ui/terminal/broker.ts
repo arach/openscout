@@ -52,6 +52,7 @@ export function renderScoutMessagePostResult(result: {
   senderId?: string;
   conversationId?: string;
   bindingRef?: string;
+  flightId?: string;
   invokedTargets: string[];
   unresolvedTargets: string[];
   routeKind?: "dm" | "channel" | "broadcast";
@@ -60,6 +61,9 @@ export function renderScoutMessagePostResult(result: {
   const lines = [sentToScout ? "Sent to Scout." : "Sent."];
   if (result.bindingRef) {
     lines.push(`Ref: ref:${result.bindingRef}`);
+  }
+  if (result.flightId) {
+    lines.push(`Wake flight: ${result.flightId}`);
   }
   if (result.unresolvedTargets.length > 0) {
     lines.push(`Unresolved: ${result.unresolvedTargets.join(", ")}`);

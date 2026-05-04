@@ -180,6 +180,7 @@ export type ScoutMessagePostResult = {
   conversationId?: string;
   messageId?: string;
   bindingRef?: string;
+  flight?: ScoutFlightRecord;
   invokedTargets: string[];
   unresolvedTargets: string[];
   targetDiagnostic?: ScoutTargetDiagnostic;
@@ -193,6 +194,7 @@ export type ScoutStructuredMessagePostResult = {
   usedBroker: boolean;
   conversationId?: string;
   messageId?: string;
+  flight?: ScoutFlightRecord;
   invokedTargetIds: string[];
   unresolvedTargetIds: string[];
   targetDiagnostic?: ScoutTargetDiagnostic;
@@ -2074,6 +2076,7 @@ export async function sendScoutMessage(input: {
   executionHarness?: AgentHarness;
   currentDirectory?: string;
   source?: string;
+  wake?: boolean;
 }): Promise<ScoutMessagePostResult> {
   const broker = await loadScoutBrokerContext();
   if (!broker) {
@@ -2082,6 +2085,20 @@ export async function sendScoutMessage(input: {
 
   const currentDirectory = input.currentDirectory ?? process.cwd();
   const source = input.source?.trim() || "scout-cli";
+  const wake = input.wake ?? false;
+  const deliveryIntent = wake ? "consult" : "tell";
+  const wakeExecution = wake
+    ? {
+        ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+        session: "new" as const,
+      }
+    : undefined;
+  const wakeInvocationMetadata = wake
+    ? {
+        source,
+        sourceIntent: "tell_wake",
+      }
+    : undefined;
   const senderId = await resolveConversationActorId(
     broker.baseUrl,
     broker.snapshot,
@@ -2108,12 +2125,21 @@ export async function sendScoutMessage(input: {
       target,
       targetLabel: renderedTarget,
       body: input.body,
-      intent: "tell",
+      intent: deliveryIntent,
       channel: input.channel,
       speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : undefined,
+      execution: wake
+        ? {
+            ...wakeExecution,
+            session: requestedTargetRef ? "existing" : "new",
+          }
+        : undefined,
+      ensureAwake: wake ? true : undefined,
       messageMetadata: {
         source,
+        ...(wake ? { wake } : {}),
       },
+      invocationMetadata: wakeInvocationMetadata,
     });
     if (delivery.kind !== "delivery") {
       return {
@@ -2128,6 +2154,7 @@ export async function sendScoutMessage(input: {
       conversationId: delivery.conversation.id,
       messageId: delivery.message.id,
       bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
+      flight: delivery.flight,
       invokedTargets: delivery.targetAgentId ? [delivery.targetAgentId] : [],
       unresolvedTargets: [],
       routeKind: delivery.routeKind,
@@ -2159,12 +2186,16 @@ export async function sendScoutMessage(input: {
       },
       targetLabel,
       body: input.body,
-      intent: "tell",
+      intent: deliveryIntent,
       channel: input.channel,
       speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : undefined,
+      execution: wakeExecution,
+      ensureAwake: wake ? true : undefined,
       messageMetadata: {
         source,
+        ...(wake ? { wake } : {}),
       },
+      invocationMetadata: wakeInvocationMetadata,
     });
     if (delivery.kind !== "delivery") {
       return {
@@ -2178,6 +2209,7 @@ export async function sendScoutMessage(input: {
       usedBroker: true,
       conversationId: delivery.conversation.id,
       messageId: delivery.message.id,
+      flight: delivery.flight,
       invokedTargets: delivery.targetAgentId ? [delivery.targetAgentId] : [],
       unresolvedTargets: [],
       routeKind: delivery.routeKind,
