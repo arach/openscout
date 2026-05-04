@@ -36,8 +36,6 @@ type InterruptOptions = SessionRequestOptions;
 type ActiveTurn = {
   id: string;
   output: string[];
-  timer: NodeJS.Timeout | null;
-  stallMs: number;
   resolve: (output: string) => void;
   reject: (error: Error) => void;
 };
@@ -52,6 +50,38 @@ export type ClaudeSessionSnapshotOptions = Pick<
   SessionRequestOptions,
   "agentName" | "sessionId" | "cwd"
 >;
+
+function resolveRequesterTimeoutMs(timeoutMs: number | undefined): number | null {
+  if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    return timeoutMs;
+  }
+
+  return null;
+}
+
+function waitForRequesterResult<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  label: string,
+): Promise<T> {
+  const effectiveTimeoutMs = resolveRequesterTimeoutMs(timeoutMs);
+  if (effectiveTimeoutMs === null) {
+    return promise;
+  }
+
+  let timer: NodeJS.Timeout | null = null;
+  const timeout = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Timed out after ${effectiveTimeoutMs}ms waiting for ${label}.`));
+    }, effectiveTimeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
+}
 
 export function resolveClaudeStreamJsonOutput(
   result: string | undefined,
@@ -729,7 +759,7 @@ class ClaudeStreamJsonSession {
     };
   }
 
-  async invoke(prompt: string, stallTimeoutMs = 10 * 60_000): Promise<{ output: string; sessionId: string | null }> {
+  async invoke(prompt: string, timeoutMs?: number): Promise<{ output: string; sessionId: string | null }> {
     await this.ensureStarted();
     if (!this.process?.stdin) {
       throw new Error(`Claude stream-json session for ${this.options.agentName} is not running.`);
@@ -742,13 +772,10 @@ class ClaudeStreamJsonSession {
       const turn: ActiveTurn = {
         id: randomUUID(),
         output: [],
-        timer: null,
-        stallMs: stallTimeoutMs,
         resolve,
         reject,
       };
       this.activeTurn = turn;
-      this.resetTurnWatchdog(turn);
     });
 
     const payload = JSON.stringify({
@@ -762,7 +789,7 @@ class ClaudeStreamJsonSession {
     }) + "\n";
     this.process.stdin.write(payload);
 
-    const output = await outputPromise;
+    const output = await waitForRequesterResult(outputPromise, timeoutMs, this.options.agentName);
 
     return {
       output,
@@ -790,30 +817,10 @@ class ClaudeStreamJsonSession {
     );
   }
 
-  private resetTurnWatchdog(turn: ActiveTurn): void {
-    if (turn.timer) {
-      clearTimeout(turn.timer);
-    }
-    turn.timer = setTimeout(() => {
-      void this.interrupt().catch(() => undefined);
-      if (this.activeTurn?.id === turn.id) {
-        this.activeTurn = null;
-      }
-      turn.reject(
-        new Error(
-          `${this.options.agentName} stalled — no stream event in ${turn.stallMs}ms`,
-        ),
-      );
-    }, turn.stallMs);
-  }
-
   async shutdown(options: { resetSession?: boolean } = {}): Promise<void> {
     const turn = this.activeTurn;
     this.activeTurn = null;
     if (turn) {
-      if (turn.timer) {
-        clearTimeout(turn.timer);
-      }
       turn.reject(new Error(`Claude stream-json session for ${this.options.agentName} was shut down.`));
     }
 
@@ -903,9 +910,6 @@ class ClaudeStreamJsonSession {
       if (this.activeTurn) {
         const turn = this.activeTurn;
         this.activeTurn = null;
-        if (turn.timer) {
-          clearTimeout(turn.timer);
-        }
         turn.reject(new Error(`Claude process error: ${error.message}`));
       }
     });
@@ -934,9 +938,6 @@ class ClaudeStreamJsonSession {
       if (code !== 0 && this.activeTurn) {
         const turn = this.activeTurn;
         this.activeTurn = null;
-        if (turn.timer) {
-          clearTimeout(turn.timer);
-        }
         turn.reject(new Error(`Claude exited with code ${code}`));
       }
     });
@@ -961,8 +962,6 @@ class ClaudeStreamJsonSession {
       return;
     }
 
-    this.resetTurnWatchdog(turn);
-
     if (event.type === "assistant") {
       const content = event.message?.content ?? event.content ?? [];
       for (const part of content) {
@@ -975,18 +974,12 @@ class ClaudeStreamJsonSession {
 
     if (event.type === "result") {
       this.activeTurn = null;
-      if (turn.timer) {
-        clearTimeout(turn.timer);
-      }
       turn.resolve(resolveClaudeStreamJsonOutput(event.result, turn.output));
       return;
     }
 
     if (event.type === "error") {
       this.activeTurn = null;
-      if (turn.timer) {
-        clearTimeout(turn.timer);
-      }
       turn.reject(new Error(event.error?.message ?? event.message ?? "Unknown Claude error"));
     }
   }

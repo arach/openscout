@@ -47,11 +47,20 @@ function normalizeCodexModelValue(value: string | null | undefined): string | nu
   return trimmed ? trimmed : null;
 }
 
+function normalizeCodexReasoningEffortValue(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
 function encodeCodexModelConfig(model: string): string {
   return `model=${JSON.stringify(model)}`;
 }
 
-function parseCodexModelConfig(value: string | null | undefined): string | null {
+function encodeCodexReasoningEffortConfig(reasoningEffort: string): string {
+  return `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`;
+}
+
+function parseCodexConfigValue(value: string | null | undefined, expectedKey: string): string | null {
   const trimmed = value?.trim();
   if (!trimmed) {
     return null;
@@ -63,7 +72,7 @@ function parseCodexModelConfig(value: string | null | undefined): string | null 
   }
 
   const key = trimmed.slice(0, separatorIndex).trim();
-  if (key !== "model") {
+  if (key !== expectedKey) {
     return null;
   }
 
@@ -80,6 +89,14 @@ function parseCodexModelConfig(value: string | null | undefined): string | null 
   }
 
   return rawValue;
+}
+
+function parseCodexModelConfig(value: string | null | undefined): string | null {
+  return parseCodexConfigValue(value, "model");
+}
+
+function parseCodexReasoningEffortConfig(value: string | null | undefined): string | null {
+  return parseCodexConfigValue(value, "model_reasoning_effort");
 }
 
 export function normalizeCodexAppServerLaunchArgs(launchArgs?: string[]): string[] {
@@ -117,11 +134,46 @@ export function normalizeCodexAppServerLaunchArgs(launchArgs?: string[]): string
       }
     }
 
+    if (current === "--reasoning-effort" || current === "--effort") {
+      const reasoningEffort = normalizeCodexReasoningEffortValue(args[index + 1]);
+      if (reasoningEffort) {
+        normalized.push("-c", encodeCodexReasoningEffortConfig(reasoningEffort));
+        index += 1;
+        continue;
+      }
+      normalized.push(current);
+      continue;
+    }
+
+    if (current.startsWith("--reasoning-effort=")) {
+      const reasoningEffort = normalizeCodexReasoningEffortValue(current.slice("--reasoning-effort=".length));
+      if (reasoningEffort) {
+        normalized.push("-c", encodeCodexReasoningEffortConfig(reasoningEffort));
+        continue;
+      }
+    }
+
+    if (current.startsWith("--effort=")) {
+      const reasoningEffort = normalizeCodexReasoningEffortValue(current.slice("--effort=".length));
+      if (reasoningEffort) {
+        normalized.push("-c", encodeCodexReasoningEffortConfig(reasoningEffort));
+        continue;
+      }
+    }
+
     if (current === "-c" || current === "--config") {
       const next = args[index + 1];
       if (typeof next === "string") {
         const model = parseCodexModelConfig(next);
-        normalized.push(current === "--config" ? "--config" : "-c", model ? encodeCodexModelConfig(model) : next);
+        const reasoningEffort = parseCodexReasoningEffortConfig(next);
+        normalized.push(
+          current === "--config" ? "--config" : "-c",
+          model
+            ? encodeCodexModelConfig(model)
+            : reasoningEffort
+              ? encodeCodexReasoningEffortConfig(reasoningEffort)
+              : next,
+        );
         index += 1;
         continue;
       }
@@ -130,7 +182,14 @@ export function normalizeCodexAppServerLaunchArgs(launchArgs?: string[]): string
     if (current.startsWith("--config=")) {
       const value = current.slice("--config=".length);
       const model = parseCodexModelConfig(value);
-      normalized.push(model ? `--config=${encodeCodexModelConfig(model)}` : current);
+      const reasoningEffort = parseCodexReasoningEffortConfig(value);
+      normalized.push(
+        model
+          ? `--config=${encodeCodexModelConfig(model)}`
+          : reasoningEffort
+            ? `--config=${encodeCodexReasoningEffortConfig(reasoningEffort)}`
+            : current,
+      );
       continue;
     }
 
@@ -158,6 +217,31 @@ export function readCodexAppServerModelFromLaunchArgs(launchArgs?: string[]): st
       const model = parseCodexModelConfig(current.slice("--config=".length));
       if (model) {
         return model;
+      }
+    }
+  }
+
+  return null;
+}
+
+export function readCodexAppServerReasoningEffortFromLaunchArgs(launchArgs?: string[]): string | null {
+  const normalized = normalizeCodexAppServerLaunchArgs(launchArgs);
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const current = normalized[index] ?? "";
+    if (current === "-c" || current === "--config") {
+      const reasoningEffort = parseCodexReasoningEffortConfig(normalized[index + 1]);
+      if (reasoningEffort) {
+        return reasoningEffort;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (current.startsWith("--config=")) {
+      const reasoningEffort = parseCodexReasoningEffortConfig(current.slice("--config=".length));
+      if (reasoningEffort) {
+        return reasoningEffort;
       }
     }
   }
@@ -225,9 +309,6 @@ type TurnCompletedParams = {
 type ActiveTurn = {
   turnId: string;
   startedAt: number;
-  timer: NodeJS.Timeout | null;
-  graceTimer: NodeJS.Timeout | null;
-  timedOutAt: number | null;
   messageOrder: string[];
   messageByItemId: Map<string, string>;
   resolve: (output: string) => void;
@@ -243,6 +324,38 @@ export type CodexSessionSnapshotOptions = Pick<
   SessionRequestOptions,
   "agentName" | "sessionId" | "cwd"
 >;
+
+function resolveRequesterTimeoutMs(timeoutMs: number | undefined): number | null {
+  if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    return timeoutMs;
+  }
+
+  return null;
+}
+
+function waitForRequesterResult<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  label: string,
+): Promise<T> {
+  const effectiveTimeoutMs = resolveRequesterTimeoutMs(timeoutMs);
+  if (effectiveTimeoutMs === null) {
+    return promise;
+  }
+
+  let timer: NodeJS.Timeout | null = null;
+  const timeout = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Timed out after ${effectiveTimeoutMs}ms waiting for ${label}.`));
+    }, effectiveTimeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
+}
 
 function isCodexThreadGlobalMessage(message: Record<string, unknown>): boolean {
   const result = message.result as Record<string, unknown> | undefined;
@@ -1410,14 +1523,6 @@ function isMissingCodexRolloutError(error: unknown): boolean {
   return message.includes("no rollout found for thread id");
 }
 
-function resolveCodexCompletionGraceMs(): number {
-  const parsed = Number.parseInt(process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS ?? "", 10);
-  if (Number.isFinite(parsed) && parsed >= 0) {
-    return parsed;
-  }
-  return 60_000;
-}
-
 class CodexAppServerSession {
   private readonly key: string;
 
@@ -1490,7 +1595,7 @@ class CodexAppServerSession {
 
   async invoke(
     prompt: string,
-    timeoutMs = 5 * 60_000,
+    timeoutMs?: number,
     replyContext?: ScoutReplyContext | null,
   ): Promise<{ output: string; threadId: string }> {
     return this.enqueue(async () => {
@@ -1499,8 +1604,8 @@ class CodexAppServerSession {
         throw new Error(`Codex app-server session for ${this.options.agentName} has no active thread.`);
       }
 
-      const output = await new Promise<string>(async (resolve, reject) => {
-        const turn = this.createActiveTurn(resolve, reject, timeoutMs);
+      const outputPromise = new Promise<string>(async (resolve, reject) => {
+        const turn = this.createActiveTurn(resolve, reject);
 
         try {
           await this.writeReplyContext(replyContext ?? null);
@@ -1523,6 +1628,7 @@ class CodexAppServerSession {
           reject(error instanceof Error ? error : new Error(errorMessage(error)));
         }
       });
+      const output = await waitForRequesterResult(outputPromise, timeoutMs, this.options.agentName);
 
       return {
         output,
@@ -1535,7 +1641,7 @@ class CodexAppServerSession {
     return Boolean(this.activeTurn);
   }
 
-  async steerAndWait(prompt: string, timeoutMs = 5 * 60_000): Promise<{ output: string; threadId: string }> {
+  async steerAndWait(prompt: string, timeoutMs?: number): Promise<{ output: string; threadId: string }> {
     await this.ensureStarted();
     if (!this.threadId) {
       throw new Error(`Codex app-server session for ${this.options.agentName} has no active thread.`);
@@ -1607,9 +1713,6 @@ class CodexAppServerSession {
     const activeTurn = this.activeTurn;
     this.activeTurn = null;
     if (activeTurn) {
-      if (activeTurn.timer) {
-        clearTimeout(activeTurn.timer);
-      }
       activeTurn.reject(new Error(`Codex app-server session for ${this.options.agentName} was shut down.`));
     }
 
@@ -1814,7 +1917,6 @@ class CodexAppServerSession {
   private createActiveTurn(
     resolve: (output: string) => void,
     reject: (error: Error) => void,
-    timeoutMs: number,
   ): ActiveTurn {
     if (this.activeTurn) {
       throw new Error(`Codex app-server session for ${this.options.agentName} already has an active turn.`);
@@ -1823,75 +1925,35 @@ class CodexAppServerSession {
     const turn: ActiveTurn = {
       turnId: "",
       startedAt: Date.now(),
-      timer: null,
-      graceTimer: null,
-      timedOutAt: null,
       messageOrder: [],
       messageByItemId: new Map<string, string>(),
       resolve,
       reject,
       watchers: [],
     };
-    turn.timer = setTimeout(() => {
-      this.scheduleTurnTimeout(turn, timeoutMs);
-    }, timeoutMs);
 
     this.activeTurn = turn;
     return turn;
-  }
-
-  private buildTurnTimeoutError(timeoutMs: number): Error {
-    return new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`);
-  }
-
-  private scheduleTurnTimeout(turn: ActiveTurn, timeoutMs: number): void {
-    if (turn.timedOutAt !== null) {
-      return;
-    }
-
-    turn.timedOutAt = Date.now();
-    void this.interrupt().catch(() => undefined);
-
-    const graceMs = resolveCodexCompletionGraceMs();
-    if (graceMs <= 0) {
-      this.rejectTimedOutTurn(turn, timeoutMs);
-      return;
-    }
-
-    turn.graceTimer = setTimeout(() => {
-      this.rejectTimedOutTurn(turn, timeoutMs);
-    }, graceMs);
-  }
-
-  private rejectTimedOutTurn(turn: ActiveTurn, timeoutMs: number): void {
-    if (this.activeTurn !== turn) {
-      this.clearActiveTurn(turn);
-      return;
-    }
-
-    this.clearActiveTurn(turn);
-    const error = this.buildTurnTimeoutError(timeoutMs);
-    for (const watcher of this.drainTurnWatchers(turn)) {
-      watcher.reject(error);
-    }
-    turn.reject(error);
   }
 
   private addTurnWatcher(
     turn: ActiveTurn,
     resolve: (output: string) => void,
     reject: (error: Error) => void,
-    timeoutMs: number,
+    timeoutMs: number | undefined,
   ): ActiveTurn["watchers"][number] {
     const watcher: ActiveTurn["watchers"][number] = {
       resolve,
       reject,
       timer: null,
     };
-    watcher.timer = setTimeout(() => {
-      this.removeTurnWatcher(turn, watcher);
-      reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
-    }, timeoutMs);
+    const effectiveTimeoutMs = resolveRequesterTimeoutMs(timeoutMs);
+    if (effectiveTimeoutMs !== null) {
+      watcher.timer = setTimeout(() => {
+        this.removeTurnWatcher(turn, watcher);
+        reject(new Error(`Timed out after ${effectiveTimeoutMs}ms waiting for ${this.options.agentName}.`));
+      }, effectiveTimeoutMs);
+    }
     turn.watchers.push(watcher);
     return watcher;
   }
@@ -1915,12 +1977,6 @@ class CodexAppServerSession {
   }
 
   private clearActiveTurn(turn: ActiveTurn): void {
-    if (turn.timer) {
-      clearTimeout(turn.timer);
-    }
-    if (turn.graceTimer) {
-      clearTimeout(turn.graceTimer);
-    }
     if (this.activeTurn === turn) {
       this.activeTurn = null;
     }
@@ -2147,9 +2203,6 @@ class CodexAppServerSession {
     const activeTurn = this.activeTurn;
     this.activeTurn = null;
     if (activeTurn) {
-      if (activeTurn.timer) {
-        clearTimeout(activeTurn.timer);
-      }
       for (const watcher of this.drainTurnWatchers(activeTurn)) {
         watcher.reject(error);
       }

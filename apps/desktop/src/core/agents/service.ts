@@ -24,6 +24,7 @@ export type CreateScoutAgentCardInput = {
   displayName?: string;
   harness?: AgentHarness;
   model?: string;
+  reasoningEffort?: string;
   currentDirectory?: string;
   createdById?: string;
 };
@@ -43,6 +44,7 @@ export async function upScoutAgent(input: {
   currentDirectory?: string;
   cwdOverride?: string;
   model?: string;
+  reasoningEffort?: string;
   branch?: string;
 }): Promise<ScoutAgentStatus> {
   const status = await startLocalAgent(input);
@@ -75,6 +77,7 @@ export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Pr
     displayName: input.displayName,
     harness: input.harness,
     model: input.model,
+    reasoningEffort: input.reasoningEffort,
     currentDirectory: input.currentDirectory,
     // Card creation should publish a routable identity, not make this short-lived
     // CLI process the owner of a long-lived Claude/Codex session.

@@ -108,6 +108,7 @@ describe("createScoutAgentCard", () => {
       displayName: "Mesh Review Opus",
       harness: "claude",
       model: "opus",
+      reasoningEffort: "high",
       currentDirectory: "/tmp/openscout",
     });
 
@@ -118,6 +119,7 @@ describe("createScoutAgentCard", () => {
         displayName: "Mesh Review Opus",
         harness: "claude",
         model: "opus",
+        reasoningEffort: "high",
         currentDirectory: "/tmp/openscout",
         ensureOnline: false,
       }],
