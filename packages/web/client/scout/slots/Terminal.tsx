@@ -1,4 +1,4 @@
-import { useTerminalRelay, TerminalRelay } from "@hudson/sdk";
+import { useTerminalRelay, TerminalRelay } from "@hudsonkit";
 import {
   resolveScoutTerminalRelayHealthUrl,
   resolveScoutTerminalRelayUrl,

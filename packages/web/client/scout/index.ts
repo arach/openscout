@@ -1,6 +1,6 @@
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { Compass } from "lucide-react";
-import type { HudsonApp, AppIntent } from "@hudson/sdk";
+import type { HudsonApp, AppIntent } from "@hudsonkit";
 import { ScoutProvider } from "./Provider.tsx";
 import { ScoutContent } from "./slots/Content.tsx";
 import { ScoutInspector } from "./slots/Inspector.tsx";
@@ -190,8 +190,8 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
     mode: "panel",
     icon: createElement(Compass, { size: 14, strokeWidth: 1.2 }),
 
-    Provider: ({ children }) =>
-      createElement(ScoutProvider, { initialTheme }, children),
+    Provider: ({ children }: { children: ReactNode }) =>
+      createElement(ScoutProvider, { initialTheme, children }),
 
     leftPanel: {
       title: "Navigation",

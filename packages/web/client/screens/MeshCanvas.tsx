@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { Canvas } from "@hudson/sdk/canvas";
+import { Canvas } from "@hudsonkit/canvas";
 import type { Agent, MeshStatus } from "../lib/types.ts";
 import {
   useMeshViewStore,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -18,8 +18,8 @@ import {
 } from "lucide-react";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
-import { BrokerStreamDemo } from "@/components/broker-stream-demo";
-import { ArcDiagramEmbed } from "@/components/arc-diagram-embed";
+import { ScoutConsole } from "@/components/scout-console";
+import { MeshFigureSvg } from "@/components/mesh-figure-svg";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackCommandCopy, trackCtaClick, trackNavigationClick } from "@/lib/analytics";
@@ -173,7 +173,7 @@ const technicalCapabilities: CapabilityCard[] = [
   {
     icon: Monitor,
     label: "Shell",
-    title: "One operator dashboard",
+    title: "One developer dashboard",
     description:
       "Inspect conversations, tasks, flights, machines, and runtime health from a single desktop app.",
   },
@@ -258,7 +258,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       eyebrow: "Desktop",
       title: "Fleet briefing",
       description:
-        "A clean operator brief for active asks, work in flight, fleet activity, and the next thing that needs you.",
+        "A clean developer brief for active asks, work in flight, fleet activity, and the next thing that needs you.",
     },
     {
       src: "/relay/agents-overview.png",
@@ -278,7 +278,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     },
     {
       src: "/relay/thread-view.png",
-      alt: "Scout web direct conversation thread between the operator and Atlas.",
+      alt: "Scout web direct conversation thread between the developer and Atlas.",
       eyebrow: "Desktop",
       title: "Conversation thread",
       description:
@@ -290,7 +290,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       eyebrow: "Desktop",
       title: "Mesh",
       description:
-        "Inspect broker identity, discoverability, peer topology, and health from the same operator surface.",
+        "Inspect broker identity, discoverability, peer topology, and health from the same developer surface.",
     },
     {
       src: "/relay/ops-war-room.png",
@@ -316,7 +316,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       eyebrow: "Desktop",
       title: "Fleet briefing",
       description:
-        "A top-level operator read across asks, work in flight, fleet activity, and online agent presence.",
+        "A top-level developer read across asks, work in flight, fleet activity, and online agent presence.",
     },
     {
       src: "/relay/agents-overview.png",
@@ -336,7 +336,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     },
     {
       src: "/relay/thread-view.png",
-      alt: "Scout web direct conversation thread showing operator instructions and agent updates.",
+      alt: "Scout web direct conversation thread showing developer instructions and agent updates.",
       eyebrow: "Desktop",
       title: "Conversation thread",
       description:
@@ -400,7 +400,7 @@ const audienceContent: Record<
       "One place to see and message all your agents, regardless of which tool they're running in. Your agents get a shared mesh to find each other and coordinate directly — from your phone or desktop.",
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
-      "Scout on your Mac is the operator surface for fleet views, agent profiles, sessions, threads, mesh health, and ops. Scout on your iPhone is a full app — not a notification viewer. Same thread, different screen.",
+      "Scout on your Mac is the developer surface for fleet views, agent profiles, sessions, threads, mesh health, and ops. Scout on your iPhone is a full app — not a notification viewer. Same thread, different screen.",
     surfacesNoteTitle: "Desktop and phone, together.",
     surfacesNoteDescription:
       "Heavy work on the desktop. Light touches on the phone — approve a PR, redirect an agent, scan the activity, then put it down. Scout keeps your place either way.",
@@ -422,11 +422,11 @@ const audienceContent: Record<
       "Scout connects you and your agents through a local broker. Any agent can talk to you, and any agent can talk to any other agent. Conversations, invocations, flights, and deliveries stay durable, observable, and recoverable.",
     capabilitiesTitle: "One broker, one state model, every app.",
     capabilitiesDescription:
-      "Typed records, operator views, and bridge transports all project the same durable state — from the TUI, desktop, or your phone.",
+      "Typed records, developer views, and bridge transports all project the same durable state — from the TUI, desktop, or your phone.",
     surfacesTitle: "Terminal, desktop, iPhone — same broker state.",
     surfacesDescription:
-      "The terminal view gives you fast reads on sessions and active agents. Scout desktop adds fleet briefing, agent, thread, mesh, and ops surfaces on the same broker model when you need richer operator views or mobile access.",
-    surfacesNoteTitle: "Operator path",
+      "The terminal view gives you fast reads on sessions and active agents. Scout desktop adds fleet briefing, agent, thread, mesh, and ops surfaces on the same broker model when you need richer developer views or mobile access.",
+    surfacesNoteTitle: "Developer path",
     surfacesNoteDescription:
       "Start in the TUI for the quickest read on sessions and agents. Move into Scout desktop and Scout iOS without losing the underlying broker context.",
     getStartedTitle: "One package. No dependencies.",
@@ -575,49 +575,169 @@ function LogoMark({ size = "sm" }: { size?: "sm" | "md" }) {
   );
 }
 
-function AudienceToggle({
-  audience,
+type Viewer = "human" | "agent";
+
+function ViewerToggle({
+  viewer,
   onChange,
 }: {
-  audience: AudienceMode;
-  onChange: (audience: AudienceMode) => void;
+  viewer: Viewer;
+  onChange: (viewer: Viewer) => void;
 }) {
+  const isAgent = viewer === "agent";
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-lg border border-[#e5e1d8] bg-white p-0.5">
-      <button
-        type="button"
-        onClick={() => onChange("general")}
-        className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-          audience === "general"
-            ? "bg-[#111110] text-[#f5f4ef]"
-            : "text-[#7b7871] hover:bg-[#f5f4ef]"
-        }`}
-      >
-        Product
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("technical")}
-        className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-          audience === "technical"
-            ? "bg-[#111110] text-[#f5f4ef]"
-            : "text-[#7b7871] hover:bg-[#f5f4ef]"
-        }`}
-      >
-        Technical
-      </button>
-    </div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isAgent}
+      aria-label="Read this page as an agent"
+      onClick={() => onChange(isAgent ? "human" : "agent")}
+      className="viewer-toggle"
+      data-on={isAgent}
+    >
+      <span className="viewer-toggle__icon" aria-hidden>
+        {/* hand-drawn cute bot — antenna, square head, two eyes, smile */}
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="10" y1="2" x2="10" y2="4" />
+          <circle cx="10" cy="2" r="0.9" fill="currentColor" stroke="none" />
+          <rect x="4" y="5" width="12" height="10" rx="2.4" />
+          <circle cx="7.5" cy="9" r="0.9" fill="currentColor" stroke="none" />
+          <circle cx="12.5" cy="9" r="0.9" fill="currentColor" stroke="none" />
+          <path d="M7.5 12.2 Q10 13.4 12.5 12.2" />
+          <line x1="3" y1="9" x2="3" y2="11" />
+          <line x1="17" y1="9" x2="17" y2="11" />
+        </svg>
+      </span>
+      <span className="viewer-toggle__text">Agent View</span>
+      <span className="viewer-toggle__track" aria-hidden>
+        <span className="viewer-toggle__knob" />
+      </span>
+    </button>
   );
 }
 
+const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
+  human: {
+    top: "One mesh. Every agent.",
+    bottom: "Built for devs.",
+    sub: "One command. Scout discovers your projects and agents in place — nothing to migrate, nothing to reconfigure.",
+  },
+  agent: {
+    top: "Comms platform for agents.",
+    bottom: "Agent native.",
+    sub: "One install adds the runtime. Register as a peer — nothing else about how your agent runs has to change.",
+  },
+};
+
+const heroInstall: Record<Viewer, { command: string; footnote: string }> = {
+  human: {
+    command: "bun add -g @openscout/scout",
+    footnote: "Local-first. Runs on your machine. Mac and iPhone apps optional.",
+  },
+  agent: {
+    command: "bun add @openscout/runtime",
+    footnote: "Local-first. Typed records. Durable across restarts.",
+  },
+};
+
+const DOC_STRIP_SECTIONS = [
+  { id: "mesh",         num: "§1", label: "Topology",                docs: "/docs#topology" },
+  { id: "capabilities", num: "§2", label: "Records",                 docs: "/docs#records" },
+  { id: "surfaces",     num: "§3", label: "Reference Implementation", docs: "/docs#reference-implementation" },
+  { id: "get-started",  num: "§4", label: "Discovery",               docs: "/docs#discovery" },
+] as const;
+
+type DocStripSectionId = (typeof DOC_STRIP_SECTIONS)[number]["id"];
+
 export default function Home() {
   const scrollRef = useScrollReveal<HTMLElement>("general");
+  const [viewer, setViewer] = useState<Viewer>("human");
+  const docStripSentinelRef = useRef<HTMLDivElement | null>(null);
+  const [docStripStuck, setDocStripStuck] = useState(false);
+  const [activeSection, setActiveSection] = useState<DocStripSectionId | null>(null);
+
+  // IntersectionObserver fallback for sticky-stuck state (works in all
+  // modern browsers, not just Chromium with animation-timeline). The sentinel
+  // sits just above the strip's sticky offset (top: 52px under the operator
+  // console). When it scrolls out of the top of the viewport, the strip is
+  // pinned and we toggle a class to drive the collapsed-meta + shadow look.
+  useEffect(() => {
+    const sentinel = docStripSentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // boundingClientRect.top <= 0 means we've scrolled past the sentinel
+        // (i.e. strip is now stuck). intersectionRatio === 0 alone fires both
+        // when the sentinel is above and below the viewport, so guard with the
+        // y-position check.
+        const scrolledPast =
+          !entry.isIntersecting && entry.boundingClientRect.top <= 0;
+        setDocStripStuck(scrolledPast);
+      },
+      { threshold: [0, 1], rootMargin: "-52px 0px 0px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
+  // Scroll-spy: highlight the §-chip whose section is currently in view.
+  // We bias the active band downward so a section becomes "active" when its
+  // top edge clears the sticky strip (52 + ~64 strip = ~120px from top).
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const targets = DOC_STRIP_SECTIONS.map(({ id }) =>
+      document.getElementById(id),
+    ).filter((el): el is HTMLElement => el !== null);
+    if (targets.length === 0) return;
+
+    const visible = new Map<string, number>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            visible.set(entry.target.id, entry.intersectionRatio);
+          } else {
+            visible.delete(entry.target.id);
+          }
+        }
+        if (visible.size === 0) {
+          setActiveSection(null);
+          return;
+        }
+        // Pick the section with the largest visible ratio; ties go to the
+        // earliest one in document order so we don't flicker between two
+        // equally-visible siblings.
+        let topId: DocStripSectionId | null = null;
+        let topRatio = -1;
+        for (const { id } of DOC_STRIP_SECTIONS) {
+          const ratio = visible.get(id);
+          if (ratio !== undefined && ratio > topRatio) {
+            topRatio = ratio;
+            topId = id;
+          }
+        }
+        setActiveSection(topId);
+      },
+      {
+        // Shrink the viewport's top by the sticky chrome (operator console
+        // 52 + doc-strip ~72) so a section "activates" once its heading clears
+        // the strip, and shrink the bottom so a tiny sliver at the bottom of
+        // the viewport doesn't claim active state.
+        rootMargin: "-124px 0px -55% 0px",
+        threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
+      },
+    );
+    targets.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
 
   const copy = audienceContent["general"];
   const meshPrinciples = problemContent.cards;
   const capabilities = generalCapabilities;
   const surfaceGallery = surfaceGalleryByAudience["general"];
   const getStartedCommands = getStartedCommandsByAudience["general"];
+  const headline = heroHeadlines[viewer];
+  const install = heroInstall[viewer];
   const onNavigationClick = (label: string, destination: string, location: string) => () => {
     trackNavigationClick({
       destination,
@@ -706,46 +826,36 @@ export default function Home() {
       {/* ── Agent view (replaces everything) ── */}
         <>
           <main ref={scrollRef} className="relative z-10">
-            {/* ── Hero (RFC front matter + live broker stream) ── */}
-            <section className="overflow-hidden pb-10 pt-12 md:pt-16">
-              <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] lg:items-start lg:gap-16">
-                <div className="hero-animate" style={{ animationDelay: "0s" }}>
-                  <div className="rfc-hero__bar">
-                    <span>Internet-Draft</span>
-                    <span className="rfc-hero__bar-sep">·</span>
-                    <span>draft-scout-Ø.1</span>
-                    <span className="rfc-hero__bar-sep">·</span>
-                    <span>experimental</span>
-                    <span className="rfc-hero__bar-sep">·</span>
-                    <span>apr 2026</span>
+            {/* ── Hero (full-width headline, full-width console below) ── */}
+            <section className="overflow-hidden pb-6 pt-12 md:pt-16 md:pb-7">
+              <div className="mx-auto max-w-6xl px-6">
+                <div className="rfc-hero__split">
+                  <div className="rfc-hero__editorial hero-animate" style={{ animationDelay: "0s" }}>
+                    <h1 className="rfc-hero__title rfc-hero__title--full">
+                      <span className="rfc-hero__title-line">{headline.top}</span>
+                      <span className="rfc-hero__title-line">{headline.bottom}</span>
+                    </h1>
+
+                    <p className="rfc-hero__abstract rfc-hero__abstract--full">{headline.sub}</p>
+
+                    <div className="rfc-hero__install-block">
+                      <RfcInstall command={install.command} />
+                      <p className="rfc-hero__install-foot">{install.footnote}</p>
+                      {viewer === "agent" && (
+                        <p className="rfc-hero__schema-link">
+                          Tool schema at{" "}
+                          <a href="/.well-known/scout.json">
+                            /.well-known/scout.json
+                          </a>{" "}
+                          · OpenAPI · MCP server included.
+                        </p>
+                      )}
+                    </div>
                   </div>
 
-                  <h1 className="rfc-hero__title">
-                    OpenScout: A Local Broker Protocol for Inter-Agent Messaging
-                  </h1>
-
-                  <p className="rfc-hero__authors">
-                    A. Tchoupani &middot; OpenScout Working Group &middot; expires October 2026
-                  </p>
-
-                  <p className="rfc-hero__abstract">
-                    <span className="rfc-hero__abstract-label">Abstract.</span>
-                    This document specifies OpenScout/Ø.1, a local-first message broker
-                    for AI agents. Agents register as addressable peers, exchange typed
-                    records (
-                    <span className="rfc-hero__records-inline">Message</span>,{" "}
-                    <span className="rfc-hero__records-inline">Invocation</span>,{" "}
-                    <span className="rfc-hero__records-inline">Flight</span>,{" "}
-                    <span className="rfc-hero__records-inline">Delivery</span>,{" "}
-                    <span className="rfc-hero__records-inline">Binding</span>
-                    ), and remain reachable across process restarts and bridge transports.
-                  </p>
-
-                  <RfcInstall command={copy.heroCommand} />
-                </div>
-
-                <div className="hero-animate" style={{ animationDelay: "0.12s" }}>
-                  <BrokerStreamDemo />
+                  <div className="rfc-hero__console-col hero-animate" style={{ animationDelay: "0.12s" }}>
+                    <ScoutConsole audience={viewer} />
+                  </div>
                 </div>
               </div>
 
@@ -764,21 +874,55 @@ export default function Home() {
               />
             </section>
 
-            {/* ── TOC strip ── */}
-            <nav className="rfc-toc-strip" aria-label="Document sections">
-              <a href="#mesh" onClick={onNavigationClick("§1 Topology", "#mesh", "rfc_toc")}>
-                <span className="rfc-hero__toc-num">§1</span>Topology
-              </a>
-              <a href="#capabilities" onClick={onNavigationClick("§2 Records", "#capabilities", "rfc_toc")}>
-                <span className="rfc-hero__toc-num">§2</span>Records
-              </a>
-              <a href="#surfaces" onClick={onNavigationClick("§3 Reference Implementation", "#surfaces", "rfc_toc")}>
-                <span className="rfc-hero__toc-num">§3</span>Reference Implementation
-              </a>
-              <a href="#get-started" onClick={onNavigationClick("§4 Discovery", "#get-started", "rfc_toc")}>
-                <span className="rfc-hero__toc-num">§4</span>Discovery
-              </a>
-            </nav>
+            {/* ── Document strip: meta + §1-4 TOC, sticky on scroll ── */}
+            {/* Sentinel sits one pixel above the strip's resting position so
+                an IntersectionObserver can flip is-stuck on all browsers,
+                not just Chromium with animation-timeline. */}
+            <div ref={docStripSentinelRef} aria-hidden className="rfc-doc-strip__sentinel" />
+            <div
+              className={`rfc-doc-strip${docStripStuck ? " is-stuck" : ""}`}
+              data-stuck={docStripStuck ? "true" : "false"}
+            >
+              <div className="mx-auto max-w-6xl px-6">
+                <div className="rfc-doc-strip__meta">
+                  <div className="rfc-doc-strip__meta-text">
+                    <span>Internet-Draft</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>draft-scout-Ø.1</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>experimental</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>apr 2026</span>
+                  </div>
+                </div>
+                <nav className="rfc-doc-strip__toc" aria-label="Document sections">
+                  {DOC_STRIP_SECTIONS.map(({ id, num, label, docs }) => {
+                    const isActive = activeSection === id;
+                    return (
+                      <span key={id} className="rfc-doc-strip__toc-item">
+                        <a
+                          href={`#${id}`}
+                          onClick={onNavigationClick(`${num} ${label}`, `#${id}`, "rfc_toc")}
+                          className={isActive ? "is-active" : undefined}
+                          aria-current={isActive ? "location" : undefined}
+                        >
+                          <span className="rfc-hero__toc-num">{num}</span>
+                          <span className="rfc-doc-strip__toc-label">{label}</span>
+                        </a>
+                        <a
+                          href={docs}
+                          className="rfc-doc-strip__toc-docs"
+                          onClick={onNavigationClick(`${num} ${label} docs`, docs, "rfc_toc_docs")}
+                          aria-label={`${label} — read the docs`}
+                        >
+                          docs<span aria-hidden>↗</span>
+                        </a>
+                      </span>
+                    );
+                  })}
+                </nav>
+              </div>
+            </div>
 
             {/* ── §1 Topology ── */}
             <section id="mesh" className="rfc-section">
@@ -798,21 +942,20 @@ export default function Home() {
                   </div>
 
                   <div className="reveal lg:mt-9">
-                    <ArcDiagramEmbed
-                      src="communication-flow"
-                      aspectRatio="3/1"
-                    />
+                    <MeshFigureSvg />
                   </div>
                 </div>
 
-                <div className="reveal-stagger mt-12 grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
+                <div className="rfc-block-row reveal-stagger mt-12 grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
                   {meshPrinciples.map(({ title, description }, i) => (
                     <div
                       key={title}
                       className="reveal rfc-block"
                       style={{ "--reveal-i": i } as React.CSSProperties}
                     >
-                      <div className="rfc-block__num">§1.{i + 1}</div>
+                      <div className="rfc-block__num">
+                        <span className="rfc-block__num-mark">§1.{i + 1}</span>
+                      </div>
                       <h3 className="rfc-block__title">{title}</h3>
                       <p className="rfc-block__body">{description}</p>
                     </div>
@@ -845,7 +988,7 @@ export default function Home() {
                   </Link>
                 </div>
 
-                <div className="reveal-stagger grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
+                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
                   {capabilities.map(({ label, title, description }, i) => (
                     <div
                       key={title}
@@ -853,7 +996,8 @@ export default function Home() {
                       style={{ "--reveal-i": i } as React.CSSProperties}
                     >
                       <div className="rfc-block__num">
-                        §2.{i + 1} · {label}
+                        <span className="rfc-block__num-mark">§2.{i + 1}</span>{" "}
+                        · {label}
                       </div>
                       <h3 className="rfc-block__title">{title}</h3>
                       <p className="rfc-block__body">{description}</p>
@@ -948,11 +1092,15 @@ export default function Home() {
                     </p>
 
                     <div className="mt-8 rfc-block">
-                      <div className="rfc-block__num">§4.1 · Optional</div>
-                      <h3 className="rfc-block__title">Desktop App</h3>
+                      <div className="rfc-block__num">
+                        <span className="rfc-block__num-mark">§4.1</span> · Apps
+                      </div>
+                      <h3 className="rfc-block__title">Mac and iPhone.</h3>
                       <p className="rfc-block__body">
-                        The CLI is the complete runtime. The desktop app adds a
-                        visual dashboard for conversations, agents, and machines.
+                        The CLI is the complete runtime. The Mac app gives you
+                        a visual dashboard for conversations, agents, and
+                        machines; the iPhone app keeps you in the loop on the
+                        go.
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-2 font-[family-name:var(--font-mono-display)] text-[12.5px]">
                         <a
@@ -997,6 +1145,11 @@ export default function Home() {
               </div>
             </section>
           </main>
+
+          {/* ── Floating viewer toggle (fixed bottom-right) ── */}
+          <div className="viewer-toggle-floater" aria-label="Reading mode">
+            <ViewerToggle viewer={viewer} onChange={setViewer} />
+          </div>
 
           {/* ── Status footer (Cursor-style IDE status bar) ── */}
           <footer className="status-bar">

@@ -10,7 +10,7 @@ import { useEffect } from "react";
  *     expected to collapse cooperatively.
  *   - `body[data-rail-occupant-${side}]` reflects the current owner.
  *
- * Hudson plans to ship a matching hook in `@hudson/sdk` so cross-app
+ * Hudson plans to ship a matching hook in `@hudsonkit` so cross-app
  * coordination works without either side hand-rolling the events.
  */
 

@@ -2,9 +2,9 @@
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { ChevronDown, ChevronRight, Pin, PinOff, Sparkles, Terminal as TerminalIcon } from "lucide-react";
-import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatformLayout } from "@hudson/sdk";
-import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudson/sdk/chrome";
-import { CommandPalette, TerminalDrawer } from "@hudson/sdk/overlays";
+import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatformLayout } from "@hudsonkit";
+import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudsonkit/chrome";
+import { CommandPalette, TerminalDrawer } from "@hudsonkit/overlays";
 
 import {
   CanvasMinimapProvider,
@@ -70,6 +70,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const appNavCenter = app.hooks.useNavCenter?.() ?? null;
   const appNavActions = app.hooks.useNavActions?.() ?? null;
   const layoutMode = app.hooks.useLayoutMode?.() ?? app.mode;
+  const frameMode = layoutMode === "focus" ? "panel" : layoutMode;
   const activeToolHint = app.hooks.useActiveToolHint?.() ?? null;
   const takeover = app.hooks.useTakeover?.() ?? null;
   const takeoverActive = takeover?.active === true;
@@ -364,7 +365,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     <>
       <div ref={backgroundRef} aria-hidden={takeoverActive ? true : undefined} style={{ display: "contents" }}>
         <Frame
-          mode={layoutMode}
+          mode={frameMode}
           panOffset={panOffset}
           scale={scale}
           onPan={handlePan}

@@ -18,7 +18,7 @@ const useTerminalRelayMock = mock(() => ({
   restart: () => {},
 }));
 
-mock.module("@hudson/sdk", () => ({
+mock.module("@hudsonkit", () => ({
   useTerminalRelay: useTerminalRelayMock,
   TerminalRelay: () => createElement("div"),
 }));
