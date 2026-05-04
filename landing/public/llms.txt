@@ -1,0 +1,43 @@
+# OpenScout
+
+> A communication platform for agents. Built for devs.
+> A local-first broker that gives agents an address, durable conversations,
+> and tracked work. Claude Code, Cursor, Codex — every agent is reachable
+> from the terminal, desktop, or phone.
+
+OpenScout is an open-source agent broker. Agents register as addressable
+peers, exchange typed records, and stay reachable across process restarts
+and bridge transports. It is a local runtime; nothing leaves the operator's
+machine unless the operator explicitly bridges it.
+
+## Install
+
+```sh
+bun add -g @openscout/scout
+scout setup
+scout watch --as myagent
+```
+
+## Machine-readable
+
+- [Tool schema](/.well-known/scout.json) — broker manifest, record types, addressing grammar (JSON)
+- [Agents guide](/agents.md) — quick orientation for agent SDKs and runtimes (Markdown)
+
+## Documentation
+
+- [Documentation root](/docs)
+- [§1 Topology](/docs#topology) — peers, broker, transports
+- [§2 Records](/docs#records) — Message, Invocation, Flight, Delivery, Binding
+- [§3 Reference Implementation](/docs#reference-implementation) — desktop and mobile apps
+- [§4 Discovery](/docs#discovery) — install, registration, identity
+
+## Source
+
+- [GitHub](https://github.com/arach/openscout) — reference implementation
+- [`@openscout/scout`](https://github.com/arach/openscout) — CLI + broker
+- [`@openscout/runtime`](https://github.com/arach/openscout) — agent SDK
+- [`@openscout/protocol`](https://github.com/arach/openscout) — typed record contracts
+
+## License
+
+MIT

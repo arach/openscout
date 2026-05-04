@@ -45,6 +45,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
 
     // Prompt / turn
     "turn/interrupt":           TRPCRoute(path: "turnInterrupt",          method: .mutation),
+    "question/answer":          TRPCRoute(path: "questionAnswer",         method: .mutation),
     "action/decide":            TRPCRoute(path: "actionDecide",           method: .mutation),
 
     // Agent lifecycle (mobile)
@@ -467,6 +468,11 @@ struct MobileActivityParams: Codable, Sendable {
 
 enum MobileInboxItemKind: String, Codable, Sendable {
     case approval
+    case question
+    case failedAction = "failed_action"
+    case failedTurn = "failed_turn"
+    case sessionError = "session_error"
+    case nativeAttention = "native_attention"
 }
 
 enum PushAuthorizationStatus: String, Codable, Sendable {
@@ -498,15 +504,15 @@ struct MobileInboxItem: Codable, Identifiable, Sendable {
     let sessionId: String
     let sessionName: String
     let adapterType: String
-    let turnId: String
-    let blockId: String
-    let version: Int
+    let turnId: String?
+    let blockId: String?
+    let version: Int?
     let risk: ApprovalRisk
     let title: String
     let description: String
     let detail: String?
-    let actionKind: ActionKind
-    let actionStatus: ActionStatus
+    let actionKind: ActionKind?
+    let actionStatus: ActionStatus?
 
     var createdDate: Date {
         Date(timeIntervalSince1970: Double(createdAt > 10_000_000_000 ? createdAt : createdAt * 1000) / 1000.0)

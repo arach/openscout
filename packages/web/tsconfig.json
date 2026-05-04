@@ -11,7 +11,17 @@
     "noEmit": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "paths": {
+      "@hudsonkit": ["../../../hudson/packages/web/hudsonkit/src/index.ts"],
+      "@hudsonkit/app-shell": ["../../../hudson/packages/web/hudsonkit/src/app-shell.ts"],
+      "@hudsonkit/shell": ["../../../hudson/packages/web/hudsonkit/src/shell.ts"],
+      "@hudsonkit/chrome": ["../../../hudson/packages/web/hudsonkit/src/chrome.ts"],
+      "@hudsonkit/controls": ["../../../hudson/packages/web/hudsonkit/src/controls.ts"],
+      "@hudsonkit/canvas": ["../../../hudson/packages/web/hudsonkit/src/canvas.ts"],
+      "@hudsonkit/overlays": ["../../../hudson/packages/web/hudsonkit/src/overlays.ts"],
+      "@hudsonkit/styles": ["../../../hudson/packages/web/hudsonkit/src/styles/bundle.css"]
+    }
   },
   "include": ["client/**/*.ts", "client/**/*.tsx", "server/**/*.ts", "vite.config.ts"],
   "exclude": ["server/**/*.test.ts"]

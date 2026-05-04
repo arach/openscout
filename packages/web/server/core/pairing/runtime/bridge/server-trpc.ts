@@ -40,7 +40,7 @@ import { log } from "./log.ts";
 import type { Bridge } from "./bridge.ts";
 import { resolveConfig } from "./config.ts";
 import { handleRPC, type BridgeServerOptions } from "./server.ts";
-import { bridgeRouter, lookupMobileInboxApprovalItem } from "./router.ts";
+import { bridgeRouter, lookupMobileInboxItemForEvent } from "./router.ts";
 import {
   SecureTransport,
   type SocketLike,
@@ -105,13 +105,13 @@ function resolveCurrentDirectory(): string {
 
 let loggedMissingApnsCredentials = false;
 
-async function sendApprovalPushNotification(item: {
+async function sendMobileInboxPushNotification(item: {
   id: string;
   title: string;
   description: string;
   sessionId: string;
-  turnId: string;
-  blockId: string;
+  turnId: string | null;
+  blockId: string | null;
 }) {
   const result = await broadcastApnsAlertToActiveMobileDevices({
     title: item.title,
@@ -142,7 +142,7 @@ async function sendApprovalPushNotification(item: {
   if (result.deliveredCount > 0) {
     log.info(
       "push",
-      `Delivered ${result.deliveredCount}/${result.attemptedCount} APNs approval alert(s)`,
+      `Delivered ${result.deliveredCount}/${result.attemptedCount} APNs inbox alert(s)`,
       { itemId: item.id },
     );
   }
@@ -525,27 +525,20 @@ export function startBridgeServerTRPC(options: {
         JSON.stringify({ seq: sequenced.seq, event: sequenced.event }),
       );
 
-      if (sequenced.event.event === "block:action:approval") {
-        const item = lookupMobileInboxApprovalItem(
-          bridge,
-          sequenced.event.sessionId,
-          sequenced.event.turnId,
-          sequenced.event.blockId,
-        );
-        if (item) {
-          sendEvent(JSON.stringify({
-            event: "operator:notify",
-            tier: "interrupt",
-            item,
-          }));
-          void sendApprovalPushNotification(item).catch((error) => {
-            log.warn(
-              "push",
-              "Unexpected error while sending APNs approval alert",
-              { itemId: item.id, error: error instanceof Error ? error.message : String(error) },
-            );
-          });
-        }
+      const attentionItem = lookupMobileInboxItemForEvent(bridge, sequenced.event);
+      if (attentionItem) {
+        sendEvent(JSON.stringify({
+          event: "operator:notify",
+          tier: attentionItem.risk === "low" ? "badge" : "interrupt",
+          item: attentionItem,
+        }));
+        void sendMobileInboxPushNotification(attentionItem).catch((error) => {
+          log.warn(
+            "push",
+            "Unexpected error while sending APNs inbox alert",
+            { itemId: attentionItem.id, error: error instanceof Error ? error.message : String(error) },
+          );
+        });
       }
     });
   }

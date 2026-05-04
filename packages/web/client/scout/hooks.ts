@@ -1,6 +1,6 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Settings } from "lucide-react";
-import type { CommandOption, StatusColor, TakeoverState } from "@hudson/sdk";
+import type { CommandOption, StatusColor, TakeoverState } from "@hudsonkit";
 import { api } from "../lib/api.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { useScout } from "./Provider.tsx";

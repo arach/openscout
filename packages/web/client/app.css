@@ -1,4 +1,4 @@
-@import "@hudson/sdk/styles";
+@import "@hudsonkit/styles";
 
 :root {
   /* Scout-specific pill tints — stay direct (tied to semantic status colors) */

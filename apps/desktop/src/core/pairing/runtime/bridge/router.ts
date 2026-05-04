@@ -12,10 +12,15 @@ import {
   isSessionRegistryError,
   normalizeApprovalRequest,
   type ActionBlock,
+  type PairingEvent,
   type Prompt,
   type SequencedEvent,
   type SessionState,
 } from "@openscout/agent-sessions";
+import {
+  projectSessionAttention,
+  type SessionAttentionItem,
+} from "@openscout/runtime";
 
 import { log } from "./log.ts";
 import { resolveConfig } from "./config.ts";
@@ -396,22 +401,30 @@ function tailEventIterable(signal?: AbortSignal): AsyncIterable<TailEvent> {
   };
 }
 
+export type MobileInboxItemKind =
+  | "approval"
+  | "question"
+  | "failed_action"
+  | "failed_turn"
+  | "session_error"
+  | "native_attention";
+
 export type MobileInboxItem = {
   id: string;
-  kind: "approval";
+  kind: MobileInboxItemKind;
   createdAt: number;
   sessionId: string;
   sessionName: string;
   adapterType: string;
-  turnId: string;
-  blockId: string;
-  version: number;
+  turnId: string | null;
+  blockId: string | null;
+  version: number | null;
   risk: "low" | "medium" | "high";
   title: string;
   description: string;
   detail: string | null;
-  actionKind: ActionBlock["action"]["kind"];
-  actionStatus: ActionBlock["action"]["status"];
+  actionKind?: ActionBlock["action"]["kind"];
+  actionStatus?: ActionBlock["action"]["status"];
 };
 
 function approvalInboxItemId(
@@ -457,7 +470,46 @@ function projectApprovalInboxItem(
   };
 }
 
-export function lookupMobileInboxApprovalItem(
+function riskForAttention(item: SessionAttentionItem): "low" | "medium" | "high" {
+  if (item.approval) {
+    return item.approval.risk;
+  }
+  switch (item.severity) {
+    case "critical":
+      return "high";
+    case "warning":
+      return "medium";
+    default:
+      return "low";
+  }
+}
+
+function mobileInboxItemFromSessionAttention(item: SessionAttentionItem): MobileInboxItem {
+  return {
+    id: item.id,
+    kind: item.kind,
+    createdAt: item.updatedAt,
+    sessionId: item.sessionId,
+    sessionName: item.sessionName,
+    adapterType: item.adapterType,
+    turnId: item.turnId,
+    blockId: item.blockId,
+    version: item.version,
+    risk: riskForAttention(item),
+    title: item.title,
+    description: item.summary ?? item.title,
+    detail: item.detail,
+    ...(item.actionKind ? { actionKind: item.actionKind } : {}),
+    ...(item.approval ? { actionStatus: item.approval.actionStatus } : {}),
+  };
+}
+
+function queryMobileInboxItemsForSnapshot(snapshot: SessionState): MobileInboxItem[] {
+  return projectSessionAttention(snapshot)
+    .map(mobileInboxItemFromSessionAttention);
+}
+
+function lookupMobileInboxItemForBlock(
   bridge: Bridge,
   sessionId: string,
   turnId: string,
@@ -475,10 +527,69 @@ export function lookupMobileInboxApprovalItem(
 
   const blockState = turn.blocks.find((candidate) => candidate.block.id === blockId);
   if (!blockState || blockState.block.type !== "action") {
-    return null;
+    return queryMobileInboxItemsForSnapshot(snapshot)
+      .find((item) => item.turnId === turnId && item.blockId === blockId)
+      ?? null;
   }
 
-  return projectApprovalInboxItem(snapshot, turn, blockState.block);
+  return projectApprovalInboxItem(snapshot, turn, blockState.block)
+    ?? queryMobileInboxItemsForSnapshot(snapshot)
+      .find((item) => item.turnId === turnId && item.blockId === blockId)
+    ?? null;
+}
+
+export function lookupMobileInboxItemForEvent(
+  bridge: Bridge,
+  event: PairingEvent,
+): MobileInboxItem | null {
+  switch (event.event) {
+    case "block:start": {
+      if (
+        event.block.type !== "question"
+        && !(event.block.type === "action" && event.block.action.status === "awaiting_approval")
+      ) {
+        return null;
+      }
+      return lookupMobileInboxItemForBlock(
+        bridge,
+        event.sessionId,
+        event.turnId,
+        event.block.id,
+      );
+    }
+    case "block:action:approval":
+      return lookupMobileInboxItemForBlock(
+        bridge,
+        event.sessionId,
+        event.turnId,
+        event.blockId,
+      );
+    case "block:action:status":
+      if (event.status !== "failed" && event.status !== "awaiting_approval") {
+        return null;
+      }
+      return lookupMobileInboxItemForBlock(
+        bridge,
+        event.sessionId,
+        event.turnId,
+        event.blockId,
+      );
+    case "turn:error": {
+      const snapshot = bridge.getSessionSnapshot(event.sessionId);
+      return snapshot
+        ? queryMobileInboxItemsForSnapshot(snapshot).find((item) => item.turnId === event.turnId) ?? null
+        : null;
+    }
+    case "session:update": {
+      const snapshot = bridge.getSessionSnapshot(event.session.id);
+      return snapshot
+        ? queryMobileInboxItemsForSnapshot(snapshot).find((item) =>
+          item.kind === "session_error" || item.kind === "native_attention") ?? null
+        : null;
+    }
+    default:
+      return null;
+  }
 }
 
 function queryMobileInboxItems(bridge: Bridge): MobileInboxItem[] {
@@ -490,17 +601,7 @@ function queryMobileInboxItems(bridge: Bridge): MobileInboxItem[] {
       continue;
     }
 
-    for (const turn of snapshot.turns) {
-      for (const blockState of turn.blocks) {
-        if (blockState.block.type !== "action") {
-          continue;
-        }
-        const item = projectApprovalInboxItem(snapshot, turn, blockState.block);
-        if (item) {
-          items.push(item);
-        }
-      }
-    }
+    items.push(...queryMobileInboxItemsForSnapshot(snapshot));
   }
 
   return items.sort((left, right) =>

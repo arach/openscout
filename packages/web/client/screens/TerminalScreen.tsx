@@ -1,6 +1,6 @@
 import "./terminal-screen.css";
 
-import { useTerminalRelay, TerminalRelay } from "@hudson/sdk";
+import { useTerminalRelay, TerminalRelay } from "@hudsonkit";
 import { useScout } from "../scout/Provider.tsx";
 import { actorColor } from "../lib/colors.ts";
 import {

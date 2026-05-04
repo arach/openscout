@@ -20,24 +20,24 @@
   --shell-line: rgba(15, 23, 42, 0.09);
   --shell-line-strong: rgba(15, 23, 42, 0.16);
   --shell-accent: #5b84ff;
-  --site-page-bg: #f5f4ef;
-  --site-page-bg-strong: rgba(245, 244, 239, 0.95);
-  --site-docs-bg: #f7f6f1;
-  --site-docs-bg-strong: rgba(247, 246, 241, 0.95);
-  --site-surface: rgba(255, 255, 255, 0.96);
-  --site-surface-strong: #ffffff;
-  --site-panel: #faf9f6;
-  --site-panel-muted: #f3f1eb;
-  --site-panel-rail: #f8f7f2;
-  --site-border: #e1ddd4;
-  --site-border-strong: #d5d0c6;
-  --site-border-soft: rgba(17, 17, 16, 0.08);
-  --site-ink: #111110;
-  --site-copy: #4d4b45;
-  --site-muted: #8b8579;
-  --site-muted-soft: #9a978f;
-  --site-accent: #a8551c;
-  --site-accent-soft: #fbf1e6;
+  --site-page-bg: #f5f1ea;
+  --site-page-bg-strong: rgba(245, 241, 234, 0.95);
+  --site-docs-bg: #f7f3ec;
+  --site-docs-bg-strong: rgba(247, 243, 236, 0.95);
+  --site-surface: rgba(255, 253, 248, 0.96);
+  --site-surface-strong: #fffdf8;
+  --site-panel: #faf6ee;
+  --site-panel-muted: #ede7db;
+  --site-panel-rail: #f4eee2;
+  --site-border: #d9cfb9;
+  --site-border-strong: #c8bea4;
+  --site-border-soft: rgba(26, 22, 18, 0.10);
+  --site-ink: #1a1612;
+  --site-copy: #3b342b;
+  --site-muted: #6b6356;
+  --site-muted-soft: #968b79;
+  --site-accent: #b5421c;
+  --site-accent-soft: rgba(181, 66, 28, 0.08);
   --site-accent-soft-strong: #f7e9d6;
   --site-accent-border: #e8d2b1;
   --site-ink-contrast: #f5f4ef;
@@ -413,7 +413,8 @@ html[data-site-theme="dark"] .dot-grid {
 }
 
 .rfc-hero__bar-sep {
-  color: var(--site-border-strong);
+  color: var(--site-accent);
+  opacity: 0.5;
   user-select: none;
 }
 
@@ -510,116 +511,611 @@ html[data-site-theme="dark"] .dot-grid {
   color: var(--site-accent);
 }
 
-.rfc-toc-strip {
-  max-width: 72rem;
-  margin: 0 auto;
-  padding: 0 1.5rem 2.5rem;
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 12.5px;
+.rfc-hero__title--two-line {
+  font-size: clamp(2.4rem, 4.4vw, 3.6rem);
+  line-height: 1.04;
+  letter-spacing: -0.022em;
+  font-weight: 500;
+  max-width: 16ch;
+  text-wrap: pretty;
+}
+
+.rfc-hero__title-line {
+  display: block;
+}
+
+/* Full-width hero (story above, console below) */
+.rfc-hero__story {
+  margin-top: 0.5rem;
+}
+
+.rfc-hero__viewer-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0 2.5rem;
+  justify-content: flex-end;
+  margin-bottom: 1.5rem;
+}
+
+.rfc-hero__title--full {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-size: clamp(1.85rem, 3.6vw, 3.25rem);
+  line-height: 1.0;
+  letter-spacing: -0.034em;
+  font-weight: 500;
+  font-feature-settings: "ss01", "kern", "liga", "calt";
+  max-width: none;
+  margin-top: 0;
+  text-wrap: balance;
+}
+
+/* Second visual line is a tactical kicker — uppercase mono in the rust
+   accent, much smaller and thinner than the serif top line. Sets up
+   contrast: serif statement → mono punchline. */
+.rfc-hero__title--full .rfc-hero__title-line + .rfc-hero__title-line {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: clamp(0.95rem, 1.4vw, 1.25rem);
+  font-weight: 300;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--site-accent);
+  margin-top: 0.85rem;
+  line-height: 1.2;
+}
+
+.rfc-hero__abstract--full {
+  font-size: clamp(14px, 1.2vw, 15.5px);
+  line-height: 1.55;
+  max-width: 48ch;
+  margin-top: 1rem;
+  color: var(--site-ink);
+}
+
+/* Install lives in the hero column, directly under the subtext */
+.rfc-hero__install-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+
+.rfc-hero__install-block .rfc-hero__install {
+  margin-top: 0;
+}
+
+.rfc-hero__install-foot {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--site-muted);
+  margin: 0;
+  max-width: 50ch;
+}
+
+.rfc-hero__schema-link {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--site-muted);
+  margin: 0.45rem 0 0;
+}
+
+.rfc-hero__schema-link a {
+  color: var(--site-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color 0.15s ease;
+}
+
+.rfc-hero__schema-link a:hover {
+  color: var(--site-ink);
+}
+
+/* Hero split: editorial left, console right, console top-aligned with the
+   headline for that "page-of-the-spec next to the live system" feel. */
+.rfc-hero__split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 2.5rem;
+  align-items: start;
+}
+
+.rfc-hero__editorial {
+  min-width: 0;
+}
+
+.rfc-hero__console-col {
+  min-width: 0;
+}
+
+@media (max-width: 920px) {
+  .rfc-hero__split {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+}
+
+/* Floating viewer toggle — fixed bottom-right above the status bar */
+.viewer-toggle-floater {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 3.5rem;
+  z-index: 60;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--site-page-bg) 92%, transparent);
+  border: 1px solid var(--site-border);
+  border-radius: 999px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6),
+    0 12px 28px -14px rgba(26, 22, 18, 0.3),
+    0 4px 10px -6px rgba(26, 22, 18, 0.18);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+}
+
+html[data-site-theme="dark"] .viewer-toggle-floater {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 28px -14px rgba(0, 0, 0, 0.6);
+}
+
+/* "I'm a — human / agent" segmented toggle, sits above the hero headline */
+
+/* "I'm a bot" — single on/off switch with a hand-drawn bot icon */
+
+.viewer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
   color: var(--site-muted);
 }
 
-.rfc-toc-strip a {
+.viewer-toggle:hover { color: var(--site-ink); }
+
+.viewer-toggle__icon {
+  display: inline-flex;
   color: var(--site-muted);
-  transition: color 0.18s ease;
+  transition: color 0.15s ease;
+}
+
+.viewer-toggle[data-on="true"] .viewer-toggle__icon {
+  color: var(--site-accent);
+}
+
+.viewer-toggle__text {
   white-space: nowrap;
 }
 
-.rfc-toc-strip a:hover {
+.viewer-toggle[data-on="true"] {
   color: var(--site-ink);
+}
+
+.viewer-toggle__track {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--site-panel-muted);
+  border: 1px solid var(--site-border);
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.viewer-toggle[data-on="true"] .viewer-toggle__track {
+  background: var(--site-accent);
+  border-color: var(--site-accent);
+}
+
+.viewer-toggle__knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(17, 17, 16, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.viewer-toggle[data-on="true"] .viewer-toggle__knob {
+  transform: translateX(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewer-toggle__knob,
+  .viewer-toggle__track { transition: none; }
+}
+
+/* Document strip — unified spec-doc nav. Sticky once scrolled past hero.
+   Stuck state is detected by an IntersectionObserver in page.tsx (works in
+   all modern browsers, not just Chromium with animation-timeline). The
+   sentinel below is a zero-height marker placed just above the strip's
+   resting position; when it leaves the viewport from the top, JS adds
+   .is-stuck to the strip and the collapsed-meta + shadow look kicks in. */
+
+.rfc-doc-strip__sentinel {
+  height: 1px;
+  margin-bottom: -1px; /* don't add layout space */
+  pointer-events: none;
+}
+
+.rfc-doc-strip {
+  position: sticky;
+  top: 52px;            /* under operator-console */
+  z-index: 40;
+  border-top: 1px solid var(--site-border);
+  border-bottom: 1px solid var(--site-border);
+  padding: 0.6rem 0 0.55rem;
+  background: color-mix(in srgb, var(--site-page-bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+  transition:
+    box-shadow 0.28s ease,
+    background 0.28s ease,
+    border-color 0.28s ease,
+    padding 0.28s cubic-bezier(0.4, 0.05, 0.2, 1);
+}
+
+/* Stuck: tighten chrome, raise the surface with a soft shadow, deepen the
+   backdrop so it reads as a layer on top of the doc rather than part of it. */
+.rfc-doc-strip.is-stuck {
+  padding: 0.55rem 0;
+  background: color-mix(in srgb, var(--site-page-bg) 96%, transparent);
+  border-bottom-color: var(--site-border-strong);
+  box-shadow: 0 6px 18px -12px rgba(17, 17, 16, 0.22);
+}
+
+html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
+  box-shadow: 0 8px 22px -14px rgba(0, 0, 0, 0.55);
+}
+
+.rfc-doc-strip__meta {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--site-accent);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 0.55rem;
+  flex-wrap: wrap;
+  /* Animatable so we can collapse it on stick. max-height is large enough
+     to fit a wrapped meta line on narrow screens. */
+  max-height: 6rem;
+  overflow: hidden;
+  transition:
+    max-height 0.32s cubic-bezier(0.4, 0.05, 0.2, 1),
+    padding-bottom 0.28s ease,
+    border-color 0.28s ease,
+    margin-bottom 0.28s ease;
+}
+
+.rfc-doc-strip__meta-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.4, 0.05, 0.2, 1);
+}
+
+/* Stuck: meta line is redundant (the user is reading the doc). Collapse
+   the draft-id text and shrink the toggle so the §-chips dominate.
+   The toggle stays clickable — it's a global control — just visually
+   demoted with a slight scale + dim. */
+.rfc-doc-strip.is-stuck .rfc-doc-strip__meta {
+  max-height: 1.6rem;
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+  margin-bottom: -0.25rem;
+}
+
+.rfc-doc-strip.is-stuck .rfc-doc-strip__meta-text {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+
+.rfc-doc-strip .viewer-toggle {
+  transition:
+    transform 0.28s cubic-bezier(0.4, 0.05, 0.2, 1),
+    opacity 0.22s ease;
+  transform-origin: right center;
+}
+
+.rfc-doc-strip.is-stuck .viewer-toggle {
+  transform: scale(0.9);
+  opacity: 0.78;
+}
+
+.rfc-doc-strip.is-stuck .viewer-toggle:hover,
+.rfc-doc-strip.is-stuck .viewer-toggle:focus-within {
+  opacity: 1;
+}
+
+.rfc-doc-strip__toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.55rem;
+  padding-top: 0.65rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  transition: padding-top 0.28s ease;
+}
+
+.rfc-doc-strip.is-stuck .rfc-doc-strip__toc {
+  padding-top: 0.4rem;
+}
+
+.rfc-doc-strip__toc a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 12.5px;
+  color: var(--site-copy);
+  border: 1px solid var(--site-border-soft);
+  border-radius: 6px;
+  background: var(--site-panel-muted);
+  white-space: nowrap;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.rfc-doc-strip__toc a:hover {
+  color: var(--site-ink);
+  background: var(--site-surface-strong);
+  border-color: var(--site-border-strong);
+  transform: translateY(-1px);
+}
+
+/* Scroll-spy active state — applied by page.tsx when the matching section
+   is in view. Rust accent border + ink text + a slightly stronger panel so
+   the chip reads as "you are here" without shouting. */
+.rfc-doc-strip__toc a.is-active {
+  color: var(--site-ink);
+  background: var(--site-accent-soft);
+  border-color: var(--site-accent-border);
+  box-shadow: inset 0 0 0 1px var(--site-accent-border);
+}
+
+.rfc-doc-strip__toc a.is-active .rfc-hero__toc-num {
+  color: var(--site-accent);
+}
+
+.rfc-doc-strip__toc a.is-active:hover {
+  background: var(--site-accent-soft-strong);
+  border-color: var(--site-accent);
+}
+
+.rfc-doc-strip__toc a:focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
+}
+
+.rfc-doc-strip__toc-item {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0.2rem;
+}
+
+/* Tighter horizontal spacing because each item now holds two pieces */
+.rfc-doc-strip__toc {
+  gap: 0.55rem;
+}
+
+.rfc-doc-strip__toc a.rfc-doc-strip__toc-docs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 10.5px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  color: var(--site-muted);
+  border: 1px solid var(--site-border-soft);
+  border-radius: 6px;
+  background: transparent;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+}
+
+.rfc-doc-strip__toc a.rfc-doc-strip__toc-docs:hover {
+  color: var(--site-accent);
+  border-color: var(--site-accent-border);
+  background: var(--site-accent-soft);
+  transform: none;
+}
+
+.rfc-doc-strip__toc-label {
+  font-weight: 500;
 }
 
 .rfc-hero__toc-num {
   color: var(--site-accent);
-  margin-right: 0.4rem;
   font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Reduce-motion: keep the visual states (collapsed meta, active chip,
+   stuck shadow) but skip the in-between animation. */
+@media (prefers-reduced-motion: reduce) {
+  .rfc-doc-strip,
+  .rfc-doc-strip__meta,
+  .rfc-doc-strip__meta-text,
+  .rfc-doc-strip__toc,
+  .rfc-doc-strip__toc a,
+  .rfc-doc-strip .viewer-toggle {
+    transition: none;
+  }
+  .rfc-doc-strip__toc a:hover {
+    transform: none;
+  }
 }
 
 /* ──────────────────────────────────────────────────────────
    RFC document sections (Problem, Capabilities, Surfaces, Get Started)
    ────────────────────────────────────────────────────────── */
 
+/* §-section composition — editorial unit, not a stack.
+     – serif title is the dominant voice (ink)
+     – eyebrow is a quiet label that attaches to the title (muted)
+     – §N hangs near the title as marginalia (accent — appears once)
+     – lead breathes from the title; figure/blocks sit on a real beat below
+     – enumerated blocks read as children of the title column, sharing a
+       single column rule instead of three redundant per-card rules
+   Rhythm ladder (proximity = relationship):
+     eyebrow → title       = tight (0.45rem)
+     title   → lead        = grouped but breathing (1.35rem)
+     lead    → figure/blks = real beat (3rem)                              */
+
 .rfc-section {
-  border-top: 1px solid var(--site-border-soft);
-  padding-top: 4rem;
-  padding-bottom: 4.5rem;
+  background: var(--site-panel-muted);
+  padding-top: 4.5rem;
+  padding-bottom: 5rem;
 }
 
-/* Eyebrow + title + lead read as one composed section opener.
-   Proximity ladder: eyebrow → title is tight (label attaches to title);
-   title → lead is looser but still grouped; a thin accent rule anchors
-   the eyebrow to the section column so it doesn't float. */
+/* Eyebrow: a quiet label attached to the title, not a competing banner.
+   No bottom border, no rust on §N — restraint. The §N gets promoted to a
+   marginalia marker on the title itself (see below). */
 .rfc-section-eyebrow {
   font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.09em;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--site-muted);
   display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px solid var(--site-border-soft);
+  align-items: baseline;
+  gap: 0.5rem;
 }
 
+/* The inline §N is replaced visually by the marginalia marker on the title;
+   keep it in the markup for screen readers / CSS-counter-less fallback. */
 .rfc-section-eyebrow__num {
-  color: var(--site-accent);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-/* Visual divider between §N and label — replaces the bare gap so the
-   number reads as a marker, not a separate word. */
-.rfc-section-eyebrow__num::after {
-  content: "·";
-  color: var(--site-border-strong);
-  margin-left: 0.55rem;
-  font-weight: 400;
-}
-
+/* Title is the loudest element. Margin-top tight to eyebrow → one unit. */
 .rfc-section-title {
+  position: relative;
   font-family: var(--font-spectral), ui-serif, Georgia, serif;
   font-weight: 600;
-  font-size: clamp(1.375rem, 2.4vw, 1.875rem);
-  line-height: 1.15;
-  letter-spacing: -0.012em;
+  font-size: clamp(1.5rem, 2.6vw, 2.0625rem);
+  line-height: 1.12;
+  letter-spacing: -0.014em;
   color: var(--site-ink);
-  max-width: 26ch;
-  margin-top: 0.85rem;
+  font-feature-settings: "ss01", "kern", "liga", "calt";
+  max-width: 24ch;
+  margin-top: 0.45rem;
+  text-wrap: balance;
 }
+
+/* Marginalia §-marker: small mono §N sitting just above the serif title's
+   first line, slightly inset. The accent fires here exactly once in the
+   opener — the editorial tell that this is a numbered section of the
+   spec, without a banner-y eyebrow rule fighting the title. */
+.rfc-section-title::before {
+  content: "§" counter(rfc-section);
+  display: inline-block;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--site-accent);
+  vertical-align: 0.6em;
+  margin-right: 0.5rem;
+}
+
+/* Auto-number §-sections in document order. */
+main { counter-reset: rfc-section; }
+.rfc-section { counter-increment: rfc-section; }
 
 .rfc-section-lead {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 13.5px;
-  line-height: 1.7;
+  line-height: 1.75;
   color: var(--site-copy);
-  margin-top: 1.1rem;
-  max-width: 58ch;
+  margin-top: 1.35rem;
+  max-width: 56ch;
 }
 
+/* Block row: a single shared hairline anchors the enumerated cards, with
+   a small rust tick at the start as the only second use of accent in the
+   section. Cards inside the row drop their own borders. */
+.rfc-block-row {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--site-border-soft);
+  position: relative;
+}
+
+.rfc-block-row::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 2.25rem;
+  height: 1px;
+  background: var(--site-accent);
+  opacity: 0.7;
+}
+
+/* Standalone .rfc-block (used outside the row, e.g. §3 Note + §4 Apps)
+   keeps a soft top rule for separation but no longer competes with the
+   row treatment. */
 .rfc-block {
   border-top: 1px solid var(--site-border-soft);
   padding-top: 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.55rem;
+}
+
+.rfc-block-row .rfc-block {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .rfc-block__num {
   font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 11.5px;
-  letter-spacing: 0.08em;
-  color: var(--site-accent);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--site-muted);
   font-weight: 600;
+}
+
+/* Only the §x.N portion gets accent — keeps the trail of rust readable as
+   "section markers, nothing else." */
+.rfc-block__num-mark {
+  color: var(--site-accent);
 }
 
 .rfc-block__title {
   font-family: var(--font-spectral), ui-serif, Georgia, serif;
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 1.0625rem;
   line-height: 1.3;
   letter-spacing: -0.005em;
   color: var(--site-ink);
@@ -628,7 +1124,7 @@ html[data-site-theme="dark"] .dot-grid {
 .rfc-block__body {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 12.5px;
-  line-height: 1.65;
+  line-height: 1.7;
   color: var(--site-copy);
 }
 
@@ -1749,3 +2245,695 @@ html[data-site-theme="dark"] .docs-markdown :is(h1, h2, h3, h4) > a[title="Link 
 .docs-markdown .hljs-tag,
 .docs-markdown .hljs-selector-tag { color: #5a8a6a; }
 .docs-markdown .hljs-selector-class { color: #8a7a9a; }
+
+/* ──────────────────────────────────────────────────────────
+   Scout console — terminal interlude with three tabs
+   (thread / resolve / send). Dark warm shell on light paper.
+   ────────────────────────────────────────────────────────── */
+
+.scout-console {
+  --term-bg: #15110C;
+  --term-bg-2: #1B1611;
+  --term-rule: #2E261C;
+  --term-ink: #D7CCB6;
+  --term-dim: #8E826B;
+  --term-rust: #E2854E;
+  --term-rust-soft: rgba(226, 133, 78, 0.10);
+  --term-rust-soft-strong: rgba(226, 133, 78, 0.18);
+  --term-blue: #7AA4C9;
+  --term-green: #8FB36A;
+  --term-amber: #D5B070;
+
+  background: var(--term-bg);
+  color: var(--term-ink);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  border: 1px solid #0a0805;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 540px;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 1px rgba(255, 240, 210, 0.04),
+    inset 0 1px 0 rgba(255, 240, 210, 0.06),
+    0 1px 0 rgba(255, 255, 255, 0.5),
+    0 24px 48px -28px rgba(40, 25, 10, 0.45),
+    0 6px 16px -10px rgba(40, 25, 10, 0.25);
+}
+
+html[data-site-theme="dark"] .scout-console {
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 240, 210, 0.05),
+    inset 0 1px 0 rgba(255, 240, 210, 0.07),
+    0 24px 48px -28px rgba(0, 0, 0, 0.7);
+}
+
+.scout-console__chrome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #000;
+  background: linear-gradient(to bottom, #2A2118 0%, #1F1812 55%, #1A140E 100%);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 240, 210, 0.04),
+    inset 0 1px 0 rgba(255, 240, 210, 0.08);
+  color: var(--term-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.scout-console__dots {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.scout-console__dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.18), transparent 55%),
+    #3a302a;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.4);
+}
+
+.scout-console__dots i:nth-child(1) { background-color: #C45A38; }
+.scout-console__dots i:nth-child(2) { background-color: #C99A3F; }
+.scout-console__dots i:nth-child(3) { background-color: #6E9A52; }
+
+.scout-console__pill {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  padding: 4px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 240, 210, 0.06);
+  border-radius: 999px;
+  color: var(--term-ink);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.scout-console__pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--term-rust);
+  box-shadow: 0 0 6px var(--term-rust);
+  animation: scout-pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes scout-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+
+.scout-console__flag {
+  color: var(--term-rust);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+
+.scout-console__tabs {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--term-rule);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.25), transparent);
+}
+
+.scout-console__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--term-rule);
+  color: var(--term-dim);
+  padding: 11px 18px;
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.scout-console__tab:hover { color: var(--term-ink); }
+
+.scout-console__tab-mark {
+  display: inline-block;
+  width: 8px;
+  color: var(--term-dim);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.scout-console__tab.is-on {
+  color: var(--term-rust);
+  background: var(--term-rust-soft);
+}
+
+.scout-console__tab.is-on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: -1px;
+  width: 2px;
+  background: var(--term-rust);
+}
+
+.scout-console__tab.is-on .scout-console__tab-mark {
+  color: var(--term-rust);
+}
+
+.scout-console__tab-spacer {
+  flex: 1;
+  border-bottom: 0;
+}
+
+/* stage = rail + body */
+.scout-console__stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.scout-console__body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* peers rail */
+.scout-console__rail {
+  width: 168px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--term-rule);
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.18), transparent);
+  padding: 14px 12px 14px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.scout-console__rail-h {
+  color: var(--term-dim);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--term-rule);
+}
+
+.scout-console__rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.scout-console__rail-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--term-ink);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.scout-console__rail-node-glyph {
+  color: var(--term-dim);
+  font-size: 9px;
+}
+
+.scout-console__rail-node--off {
+  color: var(--term-dim);
+}
+
+.scout-console__rail-peer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--term-ink);
+  font-size: 11px;
+  padding: 1px 0 1px 6px;
+  line-height: 1.5;
+  min-width: 0;
+}
+
+.scout-console__rail-peer--off {
+  color: var(--term-dim);
+}
+
+.scout-console__rail-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--term-rule);
+  flex-shrink: 0;
+}
+
+.scout-console__rail-dot--on {
+  background: var(--term-green);
+  box-shadow: 0 0 4px rgba(143, 179, 106, 0.55);
+}
+
+.scout-console__rail-dot--you {
+  background: var(--term-rust);
+  box-shadow: 0 0 4px rgba(226, 133, 78, 0.55);
+}
+
+.scout-console__rail-name {
+  color: inherit;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-console__rail-tag {
+  flex-shrink: 0;
+  max-width: 5.5rem;
+  font-size: 9.5px;
+  color: var(--term-dim);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  border: 1px dashed var(--term-rule);
+  padding: 0 4px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-console__rail-tag--self {
+  border-color: rgba(226, 133, 78, 0.4);
+  color: var(--term-rust);
+}
+
+.scout-console__rail-self {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--term-ink);
+  font-size: 11px;
+  padding: 8px 6px 0;
+  border-top: 1px dashed var(--term-rule);
+  margin-top: auto;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .scout-console__rail {
+    display: none;
+  }
+}
+
+/* thread tab */
+
+.scout-console__thread {
+  flex: 1;
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.scout-console__thread-head {
+  display: flex;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--term-ink);
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--term-rule);
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+
+.scout-console__dim { color: var(--term-dim); }
+
+.scout-console__line {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 12.5px;
+  line-height: 1.55;
+  animation: scout-fadein 0.4s ease;
+}
+
+@keyframes scout-fadein {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.scout-console__who {
+  font-size: 11px;
+  color: var(--term-dim);
+  text-align: right;
+  letter-spacing: 0.01em;
+  padding-top: 1px;
+}
+
+.scout-console__body--text { color: var(--term-ink); }
+
+.scout-console__line .scout-console__body {
+  color: var(--term-ink);
+  font-size: 12.5px;
+}
+
+.scout-console__line--out .scout-console__who { color: var(--term-rust); }
+
+/* system event dividers */
+.scout-console__sys {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10.5px;
+  color: var(--term-dim);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  margin: 2px 0;
+  animation: scout-fadein 0.4s ease;
+}
+
+.scout-console__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--term-rule);
+}
+
+.scout-console__sys--flight .scout-console__sys-text { color: var(--term-blue); }
+.scout-console__sys--inv    .scout-console__sys-text { color: var(--term-amber); }
+.scout-console__sys--ok     .scout-console__sys-text { color: var(--term-green); }
+.scout-console__sys--warn   .scout-console__sys-text { color: var(--term-amber); }
+.scout-console__sys--err    .scout-console__sys-text { color: #D08D6E; }
+
+.scout-console__typing {
+  display: inline-flex;
+  gap: 4px;
+  padding-left: 82px;
+  margin-top: -2px;
+}
+
+.scout-console__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--term-dim);
+}
+
+.scout-console__dot:nth-child(1) { animation: scout-bounce 1.2s infinite ease-in-out; }
+.scout-console__dot:nth-child(2) { animation: scout-bounce 1.2s infinite ease-in-out 0.15s; }
+.scout-console__dot:nth-child(3) { animation: scout-bounce 1.2s infinite ease-in-out 0.30s; }
+
+@keyframes scout-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40%           { opacity: 1;   transform: translateY(-2px); }
+}
+
+/* resolve & send panes */
+
+.scout-console__pane {
+  flex: 1;
+  padding: 14px 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.scout-console__pane-h {
+  color: var(--term-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.scout-console__input {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--term-rule);
+  background: var(--term-bg-2);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.scout-console__prompt {
+  color: var(--term-rust);
+  margin-right: 4px;
+}
+
+.scout-console__input input,
+.scout-console__form input {
+  background: transparent;
+  border: 0;
+  outline: none;
+  flex: 1;
+  color: var(--term-ink);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.scout-console__input input::placeholder,
+.scout-console__form input::placeholder {
+  color: var(--term-dim);
+}
+
+.scout-console__hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--term-dim);
+  font-size: 10.5px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.scout-console__hint button {
+  background: transparent;
+  border: 1px dashed var(--term-rule);
+  color: var(--term-dim);
+  font-family: inherit;
+  font-size: 10.5px;
+  padding: 3px 7px;
+  cursor: pointer;
+  border-radius: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.scout-console__hint button:hover {
+  color: var(--term-rust);
+  border-color: var(--term-rust);
+}
+
+.scout-console__resolve {
+  border-top: 1px dashed var(--term-rule);
+  padding-top: 12px;
+}
+
+.scout-console__resolve.scout-console__empty,
+.scout-console__empty {
+  color: var(--term-dim);
+  font-style: italic;
+  padding: 6px 0;
+}
+
+.scout-console__row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 11.5px;
+}
+
+.scout-console__label {
+  color: var(--term-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10.5px;
+}
+
+.scout-console__val { color: var(--term-ink); }
+.scout-console__val b { color: var(--term-ink); font-weight: 500; }
+.scout-console__val--mono { font-family: inherit; }
+.scout-console__val--accent b { color: var(--term-rust); }
+.scout-console__val--warn { color: #D08D6E; }
+
+.scout-console__state {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px solid var(--term-rule);
+}
+
+.scout-console__state--resolved  { color: var(--term-green); border-color: rgba(143, 179, 106, 0.5); }
+.scout-console__state--alias     { color: var(--term-rust);  border-color: rgba(226, 133, 78, 0.5); }
+.scout-console__state--ambiguous { color: var(--term-amber); border-color: rgba(213, 176, 112, 0.5); }
+.scout-console__state--unknown   { color: #D08D6E;          border-color: rgba(208, 141, 110, 0.5); }
+.scout-console__state--empty     { color: var(--term-dim);  border-color: var(--term-rule); }
+
+.scout-console__ambig { margin-top: 4px; }
+
+.scout-console__cand {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  font-size: 11.5px;
+  color: var(--term-ink);
+  padding: 1px 0;
+}
+
+.scout-console__cand-arrow { color: var(--term-dim); }
+.scout-console__cand .scout-console__val--mono { color: var(--term-rust); }
+
+/* send tab */
+
+.scout-console__form {
+  display: flex;
+  margin-bottom: 8px;
+  border: 1px solid var(--term-rule);
+  background: var(--term-bg-2);
+}
+
+.scout-console__form input {
+  padding: 8px 10px;
+}
+
+.scout-console__send {
+  background: var(--term-rust-soft);
+  border: 0;
+  border-left: 1px solid var(--term-rule);
+  padding: 0 14px;
+  color: var(--term-rust);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.scout-console__send:hover { background: var(--term-rust-soft-strong); }
+
+.scout-console__sendlog {
+  border-top: 1px dashed var(--term-rule);
+  padding-top: 10px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scout-console__sendlog-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--term-dim);
+  font-style: normal;
+}
+
+.scout-console__sendlog-empty-h {
+  color: var(--term-dim);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.scout-console__sendlog-empty-row {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.scout-console__sendlog-empty-mark {
+  color: var(--term-rule);
+}
+
+.scout-console__resolve-foot {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--term-rule);
+}
+
+.scout-console__resolve-foot-h {
+  color: var(--term-dim);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.scout-console__resolve-grammar {
+  margin: 0;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--term-dim);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scout-console__line,
+  .scout-console__sys,
+  .scout-console__pill-dot,
+  .scout-console__dot {
+    animation: none;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────
+   Mesh figure — hand-drawn SVG topology snippet
+   ────────────────────────────────────────────────────────── */
+
+.mesh-figure {
+  border: 1px solid var(--site-border);
+  background: var(--site-surface-strong);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--site-copy);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mesh-figure__chrome {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  color: var(--site-muted);
+  border-bottom: 1px dashed var(--site-border-soft);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.mesh-figure__zoom { letter-spacing: 0.06em; }
+
+.mesh-figure__svg {
+  width: 100%;
+  height: 200px;
+  display: block;
+  color: var(--site-copy);
+}

@@ -5,8 +5,17 @@ import SwiftUI
 struct ErrorBlockView: View {
     let block: Block
 
+    @State private var didCopy = false
+
     private var errorMessage: String {
         block.message ?? "An unknown error occurred"
+    }
+
+    private var copyPayload: String {
+        if let code = block.code, !code.isEmpty {
+            return "[\(code)] \(errorMessage)"
+        }
+        return errorMessage
     }
 
     var body: some View {
@@ -31,6 +40,23 @@ struct ErrorBlockView: View {
                         .background(ScoutColors.statusError.opacity(0.1))
                         .clipShape(Capsule())
                 }
+
+                Button {
+                    UIPasteboard.general.string = copyPayload
+                    didCopy = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        didCopy = false
+                    }
+                } label: {
+                    Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(didCopy ? ScoutColors.statusError : ScoutColors.statusError.opacity(0.7))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(didCopy ? "Copied" : "Copy error details")
             }
 
             Text(errorMessage)

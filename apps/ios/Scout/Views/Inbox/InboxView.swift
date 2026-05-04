@@ -3,6 +3,7 @@ import SwiftUI
 struct InboxView: View {
     @Environment(InboxStore.self) private var inbox
     @Environment(ConnectionManager.self) private var connection
+    @Environment(ScoutRouter.self) private var router
 
     @State private var decisionPendingId: String?
     @State private var decisionError: String?
@@ -31,7 +32,7 @@ struct InboxView: View {
                             .padding(.top, ScoutSpacing.xl)
                     } else {
                         ForEach(inbox.items) { item in
-                            approvalCard(item)
+                            inboxCard(item)
                                 .padding(.horizontal, ScoutSpacing.lg)
                                 .id(item.id)
                         }
@@ -96,22 +97,22 @@ struct InboxView: View {
     private var headerSubtitle: String {
         if inbox.pendingCount == 0 {
             return isConnected
-                ? "No approvals are waiting on you right now."
-                : "Reconnect to refresh pending approvals."
+                ? "No items are waiting on you right now."
+                : "Reconnect to refresh the inbox."
         }
 
         if inbox.pendingCount == 1 {
-            return "1 approval is waiting on you."
+            return "1 item is waiting on you."
         }
 
-        return "\(inbox.pendingCount) approvals are waiting on you."
+        return "\(inbox.pendingCount) items are waiting on you."
     }
 
     private var loadingState: some View {
         VStack(spacing: ScoutSpacing.md) {
             ProgressView()
                 .controlSize(.regular)
-            Text("Loading approvals...")
+            Text("Loading inbox...")
                 .font(ScoutTypography.body(14))
                 .foregroundStyle(ScoutColors.textMuted)
         }
@@ -124,8 +125,8 @@ struct InboxView: View {
                 .foregroundStyle(ScoutColors.textMuted)
 
             Text(isConnected
-                 ? "New approval requests will appear here."
-                 : "Reconnect to refresh pending approvals.")
+                 ? "New requests and alerts will appear here."
+                 : "Reconnect to refresh the inbox.")
                 .font(ScoutTypography.body(14))
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
@@ -133,7 +134,7 @@ struct InboxView: View {
         .padding(.horizontal, ScoutSpacing.xxl)
     }
 
-    private func approvalCard(_ item: MobileInboxItem) -> some View {
+    private func inboxCard(_ item: MobileInboxItem) -> some View {
         VStack(alignment: .leading, spacing: ScoutSpacing.md) {
             HStack(alignment: .top, spacing: ScoutSpacing.sm) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -149,9 +150,9 @@ struct InboxView: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text(riskLabel(for: item.risk))
+                    Text(badgeLabel(for: item))
                         .font(ScoutTypography.caption(11, weight: .semibold))
-                        .foregroundStyle(riskColor(for: item.risk))
+                        .foregroundStyle(badgeColor(for: item))
                     Text(RelativeTime.string(from: item.createdDate))
                         .font(ScoutTypography.caption(11))
                         .foregroundStyle(ScoutColors.textMuted)
@@ -178,36 +179,71 @@ struct InboxView: View {
                     .foregroundStyle(ScoutColors.statusError)
             }
 
-            HStack(spacing: ScoutSpacing.sm) {
-                Button {
-                    Task { await decide(item: item, decision: "approve") }
-                } label: {
-                    if decisionPendingId == "\(item.id):approve" {
-                        ProgressView()
-                            .controlSize(.mini)
-                    } else {
-                        Label("Approve", systemImage: "checkmark")
+            if canDecideApproval(item) {
+                HStack(spacing: ScoutSpacing.sm) {
+                    Button {
+                        Task { await decide(item: item, decision: "approve") }
+                    } label: {
+                        if decisionPendingId == "\(item.id):approve" {
+                            ProgressView()
+                                .controlSize(.mini)
+                        } else {
+                            Label("Approve", systemImage: "checkmark")
+                        }
                     }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(ScoutColors.statusActive)
-                .disabled(decisionPendingId != nil || !isConnected)
+                    .buttonStyle(.borderedProminent)
+                    .tint(ScoutColors.statusActive)
+                    .disabled(decisionPendingId != nil || !isConnected)
 
-                Button {
-                    Task { await decide(item: item, decision: "deny") }
-                } label: {
-                    if decisionPendingId == "\(item.id):deny" {
-                        ProgressView()
-                            .controlSize(.mini)
-                    } else {
-                        Label("Deny", systemImage: "xmark")
+                    Button {
+                        Task { await decide(item: item, decision: "deny") }
+                    } label: {
+                        if decisionPendingId == "\(item.id):deny" {
+                            ProgressView()
+                                .controlSize(.mini)
+                        } else {
+                            Label("Deny", systemImage: "xmark")
+                        }
                     }
+                    .buttonStyle(.bordered)
+                    .disabled(decisionPendingId != nil || !isConnected)
                 }
-                .buttonStyle(.bordered)
-                .disabled(decisionPendingId != nil || !isConnected)
+            } else {
+                HStack(spacing: ScoutSpacing.sm) {
+                    Button {
+                        router.push(.sessionDetail(sessionId: item.sessionId))
+                    } label: {
+                        Label("Open Session", systemImage: "arrow.right")
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button(role: .destructive) {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            inbox.dismissItem(id: item.id)
+                        }
+                    } label: {
+                        Label("Dismiss", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
         }
         .scoutCard(padding: ScoutSpacing.lg, cornerRadius: ScoutRadius.lg)
+        .contextMenu {
+            Button {
+                router.push(.sessionDetail(sessionId: item.sessionId))
+            } label: {
+                Label("Open Session", systemImage: "arrow.right")
+            }
+
+            if !canDecideApproval(item) {
+                Button(role: .destructive) {
+                    inbox.dismissItem(id: item.id)
+                } label: {
+                    Label("Dismiss", systemImage: "xmark.circle")
+                }
+            }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous)
                 .stroke(
@@ -227,6 +263,15 @@ struct InboxView: View {
 
     @MainActor
     private func decide(item: MobileInboxItem, decision: String) async {
+        guard
+            item.kind == .approval,
+            let turnId = item.turnId,
+            let blockId = item.blockId,
+            let version = item.version
+        else {
+            return
+        }
+
         decisionPendingId = "\(item.id):\(decision)"
         decisionError = nil
         decisionErrorItemId = nil
@@ -235,9 +280,9 @@ struct InboxView: View {
         do {
             try await connection.decideAction(
                 sessionId: item.sessionId,
-                turnId: item.turnId,
-                blockId: item.blockId,
-                version: item.version,
+                turnId: turnId,
+                blockId: blockId,
+                version: version,
                 decision: decision
             )
             inbox.removeItem(id: item.id)
@@ -254,6 +299,34 @@ struct InboxView: View {
         case .medium: return "Medium risk"
         case .high: return "High risk"
         }
+    }
+
+    private func badgeLabel(for item: MobileInboxItem) -> String {
+        switch item.kind {
+        case .approval:
+            return riskLabel(for: item.risk)
+        case .question:
+            return "Input needed"
+        case .failedAction:
+            return "Action failed"
+        case .failedTurn:
+            return "Turn failed"
+        case .sessionError:
+            return "Session error"
+        case .nativeAttention:
+            return "Needs attention"
+        }
+    }
+
+    private func badgeColor(for item: MobileInboxItem) -> Color {
+        riskColor(for: item.risk)
+    }
+
+    private func canDecideApproval(_ item: MobileInboxItem) -> Bool {
+        item.kind == .approval
+            && item.turnId != nil
+            && item.blockId != nil
+            && item.version != nil
     }
 
     private func riskColor(for risk: ApprovalRisk) -> Color {
