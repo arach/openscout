@@ -14,14 +14,16 @@ struct ActivityFeedView: View {
     @State private var items: [ActivityItem] = []
     @State private var isLoading = false
     @State private var error: String?
+    @State private var dismissedIds: Set<String> = []
 
     private var isConnected: Bool {
         connection.state == .connected
     }
 
-    /// Filtered items: remove transient noise like "working" status updates.
+    /// Filtered items: remove transient noise like "working" status updates,
+    /// plus anything the user has locally dismissed this session.
     private var feedItems: [ActivityItem] {
-        items.filter { !$0.isNoise }
+        items.filter { !$0.isNoise && !dismissedIds.contains($0.id) }
     }
 
     private var groupedItems: [(String, [ActivityItem])] {
@@ -111,6 +113,29 @@ struct ActivityFeedView: View {
                         .onTapGesture {
                             navigateToItem(item)
                         }
+                        .contextMenu {
+                            if canNavigate(item) {
+                                Button {
+                                    navigateToItem(item)
+                                } label: {
+                                    Label("Open Session", systemImage: "arrow.up.right.square")
+                                }
+                            }
+
+                            Button {
+                                UIPasteboard.general.string = copyText(for: item)
+                            } label: {
+                                Label("Copy Details", systemImage: "doc.on.doc")
+                            }
+
+                            Button(role: .destructive) {
+                                withAnimation(.easeOut(duration: 0.18)) {
+                                    dismissedIds.insert(item.id)
+                                }
+                            } label: {
+                                Label("Dismiss", systemImage: "xmark.circle")
+                            }
+                        }
 
                     if item.id != sectionItems.last?.id {
                         Rectangle()
@@ -145,6 +170,17 @@ struct ActivityFeedView: View {
         if let sessionId = resolveSessionId(for: item) {
             router.push(.sessionDetail(sessionId: sessionId))
         }
+    }
+
+    private func copyText(for item: ActivityItem) -> String {
+        var lines: [String] = ["[\(item.kindLabel)] \(RelativeTime.string(from: item.tsMs))"]
+        if let project = item.projectName { lines.append("project: \(project)") }
+        if let title = item.title, !title.isEmpty { lines.append(title) }
+        if let summary = item.summary, !summary.isEmpty, summary != item.title {
+            lines.append(summary)
+        }
+        if let sessionId = item.sessionId { lines.append("session: \(sessionId)") }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Loading

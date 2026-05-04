@@ -326,10 +326,27 @@ struct NodeDetailView: View {
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
 
-            Button("Retry") {
-                Task { await loadDetail() }
+            HStack(spacing: ScoutSpacing.md) {
+                Button {
+                    router.pop()
+                } label: {
+                    Text("Back to Fleet")
+                        .font(ScoutTypography.body(14, weight: .semibold))
+                        .padding(.horizontal, ScoutSpacing.lg)
+                        .padding(.vertical, ScoutSpacing.sm)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    Task { await loadDetail() }
+                } label: {
+                    Text("Retry")
+                        .font(ScoutTypography.body(14, weight: .semibold))
+                        .padding(.horizontal, ScoutSpacing.lg)
+                        .padding(.vertical, ScoutSpacing.sm)
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.bordered)
 
             Spacer()
         }

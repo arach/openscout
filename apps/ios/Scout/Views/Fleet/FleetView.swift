@@ -69,10 +69,9 @@ struct FleetView: View {
                     .padding(.top, ScoutSpacing.lg)
 
                 if let error {
-                    Text(error)
-                        .font(ScoutTypography.code(11))
-                        .foregroundStyle(ScoutColors.textSecondary)
-                        .padding(ScoutSpacing.lg)
+                    inlineErrorPill(error)
+                        .padding(.horizontal, ScoutSpacing.lg)
+                        .padding(.top, ScoutSpacing.md)
                 }
 
                 HStack(spacing: ScoutSpacing.sm) {
@@ -256,13 +255,30 @@ struct FleetView: View {
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
 
-            if !isConnected, connection.statusDetails.allowsRetry {
-                Button("Retry") {
-                    Task { await connection.reconnect() }
+            HStack(spacing: ScoutSpacing.sm) {
+                if !isConnected, connection.statusDetails.allowsRetry {
+                    Button {
+                        Task { await connection.reconnect() }
+                    } label: {
+                        Text("Reconnect")
+                            .font(ScoutTypography.body(13, weight: .semibold))
+                            .padding(.horizontal, ScoutSpacing.md)
+                            .padding(.vertical, ScoutSpacing.xs)
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .font(ScoutTypography.code(11, weight: .semibold))
+
+                Button {
+                    router.push(.settings)
+                } label: {
+                    Text(isConnected ? "Open Settings" : "Connection Settings")
+                        .font(ScoutTypography.body(13, weight: .semibold))
+                        .padding(.horizontal, ScoutSpacing.md)
+                        .padding(.vertical, ScoutSpacing.xs)
+                }
                 .buttonStyle(.bordered)
             }
+            .padding(.top, ScoutSpacing.sm)
 
             Spacer()
         }
@@ -278,6 +294,55 @@ struct FleetView: View {
                 .foregroundStyle(ScoutColors.textMuted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func inlineErrorPill(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: ScoutSpacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(ScoutColors.statusError)
+                .padding(.top, 2)
+
+            Text(message)
+                .font(ScoutTypography.code(11))
+                .foregroundStyle(ScoutColors.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: ScoutSpacing.xs) {
+                Button {
+                    Task { await refreshNodes() }
+                } label: {
+                    Text("Retry")
+                        .font(ScoutTypography.code(11, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
+                        .padding(.horizontal, ScoutSpacing.sm)
+                        .padding(.vertical, ScoutSpacing.xxs)
+                        .background(ScoutColors.surfaceAdaptive)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    error = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textMuted)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+        }
+        .padding(.horizontal, ScoutSpacing.md)
+        .padding(.vertical, ScoutSpacing.sm)
+        .background(ScoutColors.errorBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous)
+                .strokeBorder(ScoutColors.statusError.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
     }
 
     private func errorState(_ message: String) -> some View {
