@@ -209,6 +209,16 @@ struct ScoutNavigationShell: View {
             AgentDetailView(agentId: agentId)
         case .settings:
             SettingsView()
+        case .fleet:
+            FleetView()
+        case .nodeDetail(let id):
+            NodeDetailView(nodeId: id)
+        case .comms:
+            ChannelsView()
+        case .channel(let id):
+            ChannelView(channelId: id)
+        case .dm(let id):
+            DMView(peerId: id)
         }
     }
 }

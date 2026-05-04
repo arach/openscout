@@ -3,6 +3,13 @@ import { describe, expect, test } from "bun:test";
 import { routeFromUrl, routePath } from "./router.ts";
 
 describe("agents route parsing", () => {
+  test("conversations routes round-trip", () => {
+    expect(routeFromUrl("http://127.0.0.1:3200/conversations")).toEqual({
+      view: "conversations",
+    });
+    expect(routePath({ view: "conversations" })).toBe("/conversations");
+  });
+
   test("direct agent conversation routes default to the message tab", () => {
     const route = routeFromUrl("http://127.0.0.1:3200/agents/openscout-6.main.mini/c/dm.operator.openscout-6.main.mini");
 

@@ -10,11 +10,13 @@ const packageDir = resolve(binDir, "..");
 const distDir = resolve(binDir, "../dist");
 const sourceDir = resolve(binDir, "../src");
 const sourceMain = {
+  base: resolve(sourceDir, "base-daemon.ts"),
   broker: resolve(sourceDir, "broker-daemon.ts"),
   service: resolve(sourceDir, "broker-process-manager.ts"),
   discover: resolve(sourceDir, "mesh-discover.ts"),
 };
 const distMain = {
+  base: resolve(distDir, "base-daemon.js"),
   broker: resolve(distDir, "broker-daemon.js"),
   service: resolve(distDir, "broker-process-manager.js"),
   discover: resolve(distDir, "mesh-discover.js"),

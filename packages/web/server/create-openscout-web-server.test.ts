@@ -17,6 +17,7 @@ const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
 const askScoutQuestionCalls: Array<Record<string, unknown>> = [];
 const testDirectories = new Set<string>();
+let scoutBrokerContextResult: unknown = null;
 
 let querySessionByIdImpl: (conversationId: string) => {
   kind: string;
@@ -98,7 +99,7 @@ mock.module("./db-queries.ts", () => ({
 }));
 
 mock.module("./core/broker/service.ts", () => ({
-  loadScoutBrokerContext: async () => null,
+  loadScoutBrokerContext: async () => scoutBrokerContextResult,
   readScoutBrokerHealth: async () => ({
     baseUrl: "http://broker.test",
     reachable: false,
@@ -173,6 +174,7 @@ beforeEach(() => {
     process.env.OPENSCOUT_NODE_QUALIFIER = originalNodeQualifier;
   }
   querySessionByIdImpl = () => null;
+  scoutBrokerContextResult = null;
   sendScoutMessageResult = {
     usedBroker: true,
     invokedTargets: [],
@@ -234,6 +236,89 @@ afterEach(() => {
 });
 
 describe("createOpenScoutWebServer", () => {
+  test("serves unified conversations from the broker-backed service", async () => {
+    scoutBrokerContextResult = {
+      snapshot: {
+        conversations: {
+          "dm.operator.agent-1": {
+            id: "dm.operator.agent-1",
+            kind: "direct",
+            title: "ignored",
+            participantIds: ["operator", "agent-1"],
+          },
+          "channel.general": {
+            id: "channel.general",
+            kind: "channel",
+            title: "general",
+            participantIds: ["operator", "agent-1"],
+          },
+        },
+        messages: {
+          "msg-1": {
+            id: "msg-1",
+            conversationId: "dm.operator.agent-1",
+            actorId: "agent-1",
+            body: "hello from dm",
+            createdAt: 1_700_000_000,
+          },
+          "msg-2": {
+            id: "msg-2",
+            conversationId: "channel.general",
+            actorId: "agent-1",
+            body: "hello from channel",
+            createdAt: 1_700_000_100,
+          },
+        },
+        agents: {
+          "agent-1": {
+            id: "agent-1",
+            displayName: "Agent One",
+            metadata: {},
+          },
+        },
+        actors: {
+          "agent-1": {
+            id: "agent-1",
+            displayName: "Agent One",
+          },
+        },
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            state: "available",
+            harness: "codex",
+            cwd: "/tmp/project",
+            projectRoot: "/tmp/project",
+            metadata: {},
+          },
+        },
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/conversations");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual([
+      expect.objectContaining({
+        id: "channel.general",
+        kind: "channel",
+        preview: "hello from channel",
+      }),
+      expect.objectContaining({
+        id: "dm.operator.agent-1",
+        kind: "direct",
+        preview: "hello from dm",
+        harness: "codex",
+      }),
+    ]);
+  });
+
   test("returns batched observe payloads for the requested agent ids", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",

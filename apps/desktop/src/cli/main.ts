@@ -98,8 +98,9 @@ async function ensureBrokerUptodate(): Promise<void> {
       if (uid === null) {
         return;
       }
-      const plistPath = join(homedir(), "Library", "LaunchAgents", "dev.openscout.broker.plist");
+      const plistPath = join(homedir(), "Library", "LaunchAgents", "dev.openscout.plist");
       spawnSync("launchctl", ["bootout", `gui/${uid}/dev.openscout.broker`], { stdio: "ignore" });
+      spawnSync("launchctl", ["bootout", `gui/${uid}/dev.openscout`], { stdio: "ignore" });
       await new Promise<void>((resolve) => setTimeout(resolve, 1500));
       spawnSync("launchctl", ["bootstrap", `gui/${uid}`, plistPath], { stdio: "ignore" });
       await new Promise<void>((resolve) => setTimeout(resolve, 2000));

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
+import {
+  conversationDisplayTitle,
+  isGroupConversation,
+} from "../../lib/conversations.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import {
@@ -12,15 +16,6 @@ import {
 import { useScout } from "../Provider.tsx";
 import type { SessionEntry } from "../../lib/types.ts";
 
-function isChannelSession(s: SessionEntry): boolean {
-  return s.kind === "channel" || s.id.startsWith("channel.");
-}
-
-function channelDisplayName(session: SessionEntry): string {
-  if (session.title && session.title !== session.id) return session.title;
-  return session.id.replace(/^channel\./, "");
-}
-
 export function ScoutChannelsLeftPanel() {
   const { route, navigate } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
@@ -30,7 +25,7 @@ export function ScoutChannelsLeftPanel() {
   const activeId = route.view === "channels" ? route.channelId : undefined;
 
   const loadSessions = useCallback(async () => {
-    const data = await api<SessionEntry[]>("/api/sessions").catch(() => [] as SessionEntry[]);
+    const data = await api<SessionEntry[]>("/api/conversations").catch(() => [] as SessionEntry[]);
     setSessions(data);
   }, []);
 
@@ -44,13 +39,13 @@ export function ScoutChannelsLeftPanel() {
 
   const channels = useMemo(
     () => sessions
-      .filter(isChannelSession)
+      .filter(isGroupConversation)
       .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0)),
     [sessions],
   );
 
   const filtered = query
-    ? channels.filter((c) => channelDisplayName(c).toLowerCase().includes(query.toLowerCase()))
+    ? channels.filter((c) => conversationDisplayTitle(c).toLowerCase().includes(query.toLowerCase()))
     : channels;
 
   const onSelect = (id: string) => {
@@ -78,7 +73,7 @@ export function ScoutChannelsLeftPanel() {
           filtered.map((ch) => {
             const active = ch.id === activeId;
             const unread = isUnread(ch.lastMessageAt, ch.id, lastViewed);
-            const name = channelDisplayName(ch);
+            const name = conversationDisplayTitle(ch);
             return (
               <button
                 key={ch.id}

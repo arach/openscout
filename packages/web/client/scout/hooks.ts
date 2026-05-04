@@ -65,6 +65,11 @@ export function useScoutCommands(): CommandOption[] {
         shortcut: "Cmd+3",
       },
       {
+        id: "nav:conversations",
+        label: "Go to Conversations",
+        action: () => navigate({ view: "conversations" }),
+      },
+      {
         id: "nav:sessions",
         label: "Go to Sessions",
         action: () => navigate({ view: "sessions" }),
@@ -233,6 +238,7 @@ const VIEW_LABELS: Record<string, string> = {
   "agent-info": "Agent",
   agents: "Agents",
   fleet: "Fleet",
+  conversations: "Conversations",
   sessions: "Sessions",
   channels: "Channels",
   activity: "Activity",
@@ -249,6 +255,7 @@ export function useScoutNavCenter(): ReactNode | null {
   const tabItems: { label: string; view: Route["view"] }[] = [
     { label: "Fleet", view: "inbox" },
     { label: "Agents", view: "agents" },
+    { label: "Conversations", view: "conversations" },
     { label: "Sessions", view: "sessions" },
     { label: "Channels", view: "channels" },
     { label: "Mesh", view: "mesh" },
@@ -260,6 +267,7 @@ export function useScoutNavCenter(): ReactNode | null {
     : route.view === "activity" ? "inbox"
     : route.view === "conversation" ? "agents"
     : route.view === "agent-info" ? "agents"
+    : route.view === "conversations" ? "conversations"
     : route.view === "work" ? (opsEnabled ? "ops" : "inbox")
     : route.view === "channels" ? "channels"
     : route.view;

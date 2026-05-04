@@ -396,7 +396,7 @@ export function MissionControlView({
     const load = async () => {
       try {
         const [sessionResult, discoveryResult, recentTailResult] = await Promise.allSettled([
-          api<SessionEntry[]>("/api/sessions"),
+          api<SessionEntry[]>("/api/conversations"),
           api<TailDiscoverySnapshot>("/api/tail/discover"),
           api<{ events: TailEvent[] }>("/api/tail/recent?limit=500"),
         ]);

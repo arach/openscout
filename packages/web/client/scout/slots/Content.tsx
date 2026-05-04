@@ -6,6 +6,7 @@ import { AgentsScreen } from "../../screens/AgentsScreen.tsx";
 import { BrokerScreen } from "../../screens/BrokerScreen.tsx";
 import { ChannelsScreen } from "../../screens/ChannelsScreen.tsx";
 import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
+import { ConversationsScreen } from "../../screens/ConversationsScreen.tsx";
 import { FollowScreen } from "../../screens/FollowScreen.tsx";
 import { HomeScreen } from "../../screens/HomeScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
@@ -74,6 +75,8 @@ function renderScreen(
       );
     case "fleet":
       return <HomeScreen navigate={navigate} />;
+    case "conversations":
+      return <ConversationsScreen navigate={navigate} />;
     case "sessions":
       if (route.sessionId) {
         return (

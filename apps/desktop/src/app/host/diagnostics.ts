@@ -51,6 +51,7 @@ export type ScoutDesktopBrokerInspector = {
   supportDirectory: string;
   controlHome: string;
   launchAgentPath: string;
+  bootoutCommand: string;
   stdoutLogPath: string;
   stderrLogPath: string;
   actorCount: number | null;
@@ -296,18 +297,18 @@ function brokerStatusLabel(
   if (status.loaded) {
     return {
       label: "Starting",
-      detail: "LaunchAgent is loaded, but the broker health endpoint is not responding yet.",
+      detail: "Base LaunchAgent is loaded, but the broker health endpoint is not responding yet.",
     };
   }
   if (status.installed) {
     return {
       label: "Installed",
-      detail: "LaunchAgent exists on disk, but it is not currently loaded.",
+      detail: "Base LaunchAgent exists on disk, but it is not currently loaded.",
     };
   }
   return {
     label: "Missing",
-    detail: "No LaunchAgent is installed for the broker yet.",
+    detail: "No base LaunchAgent is installed for Scout yet.",
   };
 }
 
@@ -315,7 +316,7 @@ function brokerTroubleshootingHints(status: BrokerServiceStatus): string[] {
   const hints: string[] = [];
 
   if (!status.installed) {
-    hints.push("The broker LaunchAgent is not installed.");
+    hints.push("The Scout base LaunchAgent is not installed.");
   }
   if (status.installed && !status.loaded) {
     hints.push("The LaunchAgent exists but is not loaded.");
@@ -425,7 +426,7 @@ function coreLogSources(): ResolvedScoutLogSource[] {
   return [
     {
       id: "broker",
-      title: "Relay Service",
+      title: "Base Service",
       subtitle: "Broker stdout and stderr",
       group: "runtime",
       pathLabel: compactHomePath(supportPaths.brokerLogsDirectory) ?? supportPaths.brokerLogsDirectory,
@@ -610,6 +611,7 @@ export async function getScoutDesktopBrokerInspector(): Promise<ScoutDesktopBrok
     supportDirectory: compactHomePath(status.supportDirectory) ?? status.supportDirectory,
     controlHome: compactHomePath(status.controlHome) ?? status.controlHome,
     launchAgentPath: compactHomePath(status.launchAgentPath) ?? status.launchAgentPath,
+    bootoutCommand: status.bootoutCommand,
     stdoutLogPath: compactHomePath(status.stdoutLogPath) ?? status.stdoutLogPath,
     stderrLogPath: compactHomePath(status.stderrLogPath) ?? status.stderrLogPath,
     actorCount: counts?.actors ?? null,
@@ -736,6 +738,7 @@ export async function getScoutDesktopFeedbackBundle(
         { label: "Reachable", value: yesNo(brokerInspector.reachable) },
         { label: "URL", value: brokerInspector.url },
         { label: "LaunchAgent", value: brokerInspector.launchAgentPath },
+        { label: "Bootout", value: brokerInspector.bootoutCommand },
         { label: "stdout", value: brokerInspector.stdoutLogPath },
         { label: "stderr", value: brokerInspector.stderrLogPath },
         { label: "Summary", value: brokerInspector.feedbackSummary },

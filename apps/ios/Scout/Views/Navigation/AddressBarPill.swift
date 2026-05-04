@@ -150,6 +150,16 @@ struct AddressBarPill: View {
             return "Agent"
         case .settings:
             return "Settings"
+        case .fleet:
+            return "Fleet"
+        case .nodeDetail:
+            return "Node"
+        case .comms:
+            return "Comms"
+        case .channel:
+            return "Channel"
+        case .dm:
+            return "DM"
         }
     }
 

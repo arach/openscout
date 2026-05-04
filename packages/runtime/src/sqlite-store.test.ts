@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { Database } from "bun:sqlite";
 
+import { CONTROL_PLANE_SCHEMA_VERSION } from "./schema.ts";
 import { SQLiteControlPlaneStore } from "./sqlite-store.ts";
 
 const dbRoots = new Set<string>();
@@ -378,6 +379,19 @@ describe("SQLiteControlPlaneStore", () => {
       expect(indexNames).toContain("idx_flights_invocation_id");
       expect(indexNames).toContain("idx_activity_items_ts");
       expect(indexNames).toContain("idx_conversations_created_at");
+    } finally {
+      db.close();
+      store.close();
+    }
+  });
+
+  test("stamps the control-plane user_version on startup", () => {
+    const { store, dbPath } = createStoreWithPath();
+    const db = new Database(dbPath, { readonly: true });
+
+    try {
+      const row = db.query("PRAGMA user_version").get() as { user_version: number } | null;
+      expect(row?.user_version).toBe(CONTROL_PLANE_SCHEMA_VERSION);
     } finally {
       db.close();
       store.close();

@@ -137,6 +137,7 @@ import {
   type MeshRendezvousPublisher,
 } from "./mesh-rendezvous.js";
 import { clearGitBranchCache, readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
+import { broadcastApnsAlertToActiveMobileDevices } from "./mobile-push.js";
 
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -4947,6 +4948,101 @@ function buildDeliveryReceipt(input: {
   };
 }
 
+type OperatorDeliveryIssueKind = "unassigned_scout" | "rejected" | "unavailable";
+
+let loggedMissingOperatorDeliveryApnsCredentials = false;
+
+function queueOperatorDeliveryIssue(input: {
+  kind: OperatorDeliveryIssueKind;
+  requestId: string;
+  requesterId: string;
+  requesterNodeId: string;
+  targetLabel: string;
+  detail: string;
+}): void {
+  if (input.requesterId === operatorActorId) {
+    return;
+  }
+
+  void recordOperatorDeliveryIssue(input).catch((error) => {
+    console.warn(
+      "[openscout-runtime] failed to notify operator about delivery issue:",
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+}
+
+async function recordOperatorDeliveryIssue(input: {
+  kind: OperatorDeliveryIssueKind;
+  requestId: string;
+  requesterId: string;
+  requesterNodeId: string;
+  targetLabel: string;
+  detail: string;
+}): Promise<void> {
+  await ensureBrokerActorForDelivery(operatorActorId);
+  const conversation = await ensureBrokerDeliveryConversation({
+    requesterId: systemActor.id,
+    channel: "system",
+  });
+  const itemId = `delivery:${input.requestId}`;
+  const targetLabel = input.targetLabel.trim() || "Scout";
+  const detail = input.detail.trim();
+
+  await postConversationMessage({
+    id: createRuntimeId("msg"),
+    conversationId: conversation.id,
+    actorId: systemActor.id,
+    originNodeId: nodeId,
+    class: "system",
+    body: detail,
+    audience: {
+      notify: [operatorActorId],
+      reason: "mention",
+    },
+    visibility: messageVisibilityForConversation(conversation),
+    policy: "durable",
+    createdAt: Date.now(),
+    metadata: {
+      source: "broker",
+      operatorAttention: "delivery_issue",
+      deliveryIssueKind: input.kind,
+      requestId: input.requestId,
+      requesterId: input.requesterId,
+      requesterNodeId: input.requesterNodeId,
+      targetLabel,
+      itemId,
+    },
+  });
+
+  const result = await broadcastApnsAlertToActiveMobileDevices({
+    title: "Scout delivery needs attention",
+    body: detail,
+    sound: "default",
+    threadId: "scout.delivery",
+    payload: {
+      destination: "inbox",
+      itemId,
+      kind: "delivery_issue",
+      requestId: input.requestId,
+      requesterId: input.requesterId,
+      requesterNodeId: input.requesterNodeId,
+      targetLabel,
+      reason: input.kind,
+    },
+  });
+
+  if (result.configMissing && !loggedMissingOperatorDeliveryApnsCredentials) {
+    loggedMissingOperatorDeliveryApnsCredentials = true;
+    console.warn("[openscout-runtime] mobile push credentials are missing; operator delivery issue was recorded without APNS.");
+  }
+  for (const failure of result.failures) {
+    console.warn(
+      `[openscout-runtime] failed to send operator delivery issue push to ${failure.deviceId} (${failure.tokenSuffix}): ${failure.reason ?? failure.status ?? "unknown"}`,
+    );
+  }
+}
+
 async function acceptBrokerDelivery(
   payload: ScoutDeliverRequest,
 ): Promise<ScoutDeliverResponse> {
@@ -5005,6 +5101,14 @@ async function acceptBrokerDelivery(
       },
     };
     await postConversationMessage(message);
+    queueOperatorDeliveryIssue({
+      kind: "unassigned_scout",
+      requestId,
+      requesterId,
+      requesterNodeId,
+      targetLabel: askedLabel || "Scout",
+      detail: `${titleCaseName(requesterId)} sent a request to Scout, but no operator session accepted it.`,
+    });
     return {
       kind: "delivery",
       accepted: true,
@@ -5097,6 +5201,14 @@ async function acceptBrokerDelivery(
         requesterId,
       },
     );
+    queueOperatorDeliveryIssue({
+      kind: "rejected",
+      requestId,
+      requesterId,
+      requesterNodeId,
+      targetLabel: askedLabel || "Scout",
+      detail: `Scout could not route ${askedLabel || "the requested target"} from ${titleCaseName(requesterId)}: ${record.detail}`,
+    });
     return {
       kind: "rejected",
       accepted: false,
@@ -5120,6 +5232,14 @@ async function acceptBrokerDelivery(
         requesterId,
       },
     );
+    queueOperatorDeliveryIssue({
+      kind: "unavailable",
+      requestId,
+      requesterId,
+      requesterNodeId,
+      targetLabel: askedLabel || brokerTargetLabel(resolved.agent),
+      detail: `Scout could not reach ${askedLabel || brokerTargetLabel(resolved.agent)} for ${titleCaseName(requesterId)}: ${record.detail}`,
+    });
     return {
       kind: "question",
       accepted: false,
@@ -5381,6 +5501,10 @@ async function shutdownBroker(exitCode = 0): Promise<void> {
     return;
   }
   shuttingDown = true;
+  if (webServerProcess && !webServerProcess.killed) {
+    webServerProcess.kill("SIGTERM");
+    webServerProcess = null;
+  }
   peerDelivery.stop();
   meshRendezvousPublisher?.stop();
   irohBridgeService?.stop();

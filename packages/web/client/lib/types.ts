@@ -313,6 +313,8 @@ export type SessionEntry = {
   workspaceRoot: string | null;
 };
 
+export type ConversationEntry = SessionEntry;
+
 export type ObserveEvent = {
   id: string;
   t: number;
@@ -561,6 +563,7 @@ export type Route =
       tab?: AgentTab;
     }
   | { view: "fleet" }
+  | { view: "conversations" }
   | { view: "sessions"; sessionId?: string }
   | { view: "channels"; channelId?: string }
   | { view: "mesh" }

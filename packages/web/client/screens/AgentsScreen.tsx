@@ -756,7 +756,7 @@ export function AgentsScreen({
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
 
   const load = useCallback(async () => {
-    const result = await api<SessionEntry[]>("/api/sessions").catch(() => null);
+    const result = await api<SessionEntry[]>("/api/conversations").catch(() => null);
     if (result) setSessions(result);
   }, []);
 
