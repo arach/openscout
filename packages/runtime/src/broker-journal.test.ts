@@ -6,6 +6,8 @@ import { join } from "node:path";
 import type {
   ActorIdentity,
   AgentDefinition,
+  FlightRecord,
+  InvocationRequest,
   MessageRecord,
 } from "@openscout/protocol";
 
@@ -71,6 +73,32 @@ function sampleMessage(): MessageRecord {
   };
 }
 
+function sampleInvocation(): InvocationRequest {
+  return {
+    id: "inv-1",
+    requesterId: "operator",
+    requesterNodeId: "node-1",
+    targetAgentId: "agent-1",
+    action: "execute",
+    task: "Run the issue runner.",
+    ensureAwake: true,
+    stream: true,
+    createdAt: 1_700_000_000_001,
+  };
+}
+
+function sampleFlight(): FlightRecord {
+  return {
+    id: "flt-1",
+    invocationId: "inv-1",
+    requesterId: "operator",
+    targetAgentId: "agent-1",
+    state: "running",
+    summary: "Running issue work.",
+    startedAt: 1_700_000_000_002,
+  };
+}
+
 describe("FileBackedBrokerJournal", () => {
   test("skips redundant entity upserts on append", async () => {
     const { journal, journalPath } = createJournal();
@@ -123,5 +151,28 @@ describe("FileBackedBrokerJournal", () => {
     expect(compactedEntries.filter((entry) => entry.kind === "actor.upsert")).toHaveLength(1);
     expect(compactedEntries.filter((entry) => entry.kind === "message.record")).toHaveLength(1);
     expect(journal.snapshot().actors["agent-1"]?.displayName).toBe("Agent One Updated");
+  });
+
+  test("replays invocation records into snapshots", async () => {
+    const { journal, journalPath } = createJournal();
+
+    writeFileSync(
+      journalPath,
+      [
+        JSON.stringify({ kind: "invocation.record", invocation: sampleInvocation() }),
+        JSON.stringify({ kind: "flight.record", flight: sampleFlight() }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    await journal.load();
+
+    const snapshot = journal.snapshot();
+    expect(snapshot.invocations["inv-1"]).toEqual(expect.objectContaining({
+      targetAgentId: "agent-1",
+    }));
+    expect(snapshot.flights["flt-1"]).toEqual(expect.objectContaining({
+      invocationId: "inv-1",
+    }));
   });
 });

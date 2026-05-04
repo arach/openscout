@@ -194,7 +194,7 @@ export type PairingApprovalRequest = {
   actionStatus: string;
 };
 
-export type OperatorAttentionKind = "approval" | "configuration" | "ask" | "work_item" | "question";
+export type OperatorAttentionKind = "approval" | "configuration" | "ask" | "work_item" | "question" | "session";
 export type OperatorAttentionActionKind = "approve" | "deny" | "open" | "configure" | "copy";
 
 export type OperatorAttentionAction = {
@@ -247,6 +247,96 @@ export type OperatorAttentionState = {
   };
   items: OperatorAttentionItem[];
 };
+
+export type AgentRunState =
+  | "queued"
+  | "waking"
+  | "running"
+  | "waiting"
+  | "review"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "unknown"
+  | (string & {});
+
+export type AgentRunSource =
+  | "ask"
+  | "message"
+  | "schedule"
+  | "recipe"
+  | "external_issue"
+  | "manual"
+  | "eval"
+  | "unknown"
+  | (string & {});
+
+export type AgentRunReviewState =
+  | "none"
+  | "needed"
+  | "blocked"
+  | "approved"
+  | "rejected"
+  | (string & {});
+
+export type AgentRunMetrics = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  estimatedUsd?: number;
+  wallClockMs?: number;
+  toolCallCount?: number;
+  retryCount?: number;
+};
+
+export type AgentRun = {
+  id: string;
+  source: AgentRunSource;
+  requesterId?: string;
+  agentId: string;
+  agentName?: string | null;
+  agentRevisionId?: string;
+  agentRevisionSnapshot?: Record<string, unknown> | null;
+  aliasId?: string;
+  workId?: string | null;
+  collaborationRecordId?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+  invocationId?: string | null;
+  flightIds?: string[];
+  parentRunId?: string | null;
+  rootRunId?: string | null;
+  recipeId?: string | null;
+  attempt?: number;
+  idempotencyKey?: string;
+  state: AgentRunState;
+  reviewState?: AgentRunReviewState;
+  terminalReason?: string | null;
+  input?: Record<string, unknown> | null;
+  output?: Record<string, unknown> | null;
+  artifactIds?: string[];
+  reviewTaskIds?: string[];
+  traceSessionIds?: string[];
+  createdAt?: number;
+  startedAt?: number | null;
+  updatedAt: number;
+  completedAt?: number | null;
+  harness?: string | null;
+  model?: string | null;
+  permissionProfile?: string | null;
+  metrics?: AgentRunMetrics;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type RunItem = AgentRun;
+
+export type RunsResponse =
+  | RunItem[]
+  | {
+      generatedAt?: number;
+      runs: RunItem[];
+      totals?: Record<string, number | undefined>;
+    };
 
 export type Flight = {
   id: string;
@@ -585,7 +675,7 @@ export type Route =
   | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
-export type OpsMode = "command" | "plan" | "conductor" | "mission" | "agents" | "tail" | "atop";
+export type OpsMode = "command" | "plan" | "conductor" | "mission" | "agents" | "tail" | "atop" | "runs";
 export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 
 export type FollowTarget = {

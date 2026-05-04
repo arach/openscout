@@ -9,6 +9,16 @@
 import { Database } from "bun:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  projectAgentRunFromInvocationFlight,
+  type AgentRun,
+  type AgentRunSource,
+  type AgentRunState,
+  type FlightRecord,
+  type InvocationExecutionPreference,
+  type InvocationRequest,
+  type MetadataMap,
+} from "@openscout/protocol";
 import { relayAgentLogsDirectory } from "@openscout/runtime/support-paths";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
 
@@ -1022,6 +1032,10 @@ export type WebFlight = {
   completedAt: number | null;
 };
 
+export type WebAgentRun = AgentRun & {
+  agentName: string | null;
+};
+
 export type WebFollowTarget = {
   flightId: string | null;
   invocationId: string | null;
@@ -1030,6 +1044,228 @@ export type WebFollowTarget = {
   sessionId: string | null;
   targetAgentId: string | null;
 };
+
+type RunQueryRow = {
+  invocation_id: string;
+  invocation_requester_id: string;
+  requester_node_id: string;
+  invocation_target_agent_id: string;
+  target_node_id: string | null;
+  action: string;
+  task: string;
+  collaboration_record_id: string | null;
+  collaboration_record_kind: string | null;
+  conversation_id: string | null;
+  message_id: string | null;
+  context_json: string | null;
+  execution_json: string | null;
+  ensure_awake: number | string;
+  stream: number | string;
+  timeout_ms: number | string | null;
+  invocation_metadata_json: string | null;
+  invocation_created_at: number;
+  agent_name: string | null;
+  flight_id: string | null;
+  flight_invocation_id: string | null;
+  flight_requester_id: string | null;
+  flight_target_agent_id: string | null;
+  flight_state: string | null;
+  flight_summary: string | null;
+  flight_output: string | null;
+  flight_error: string | null;
+  flight_metadata_json: string | null;
+  started_at: number | null;
+  completed_at: number | null;
+};
+
+function parseOptionalMetadata(value: string | null): MetadataMap | undefined {
+  const parsed = parseJson<unknown>(value, undefined);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as MetadataMap
+    : undefined;
+}
+
+function parseOptionalExecution(value: string | null): InvocationExecutionPreference | undefined {
+  const parsed = parseJson<unknown>(value, undefined);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as InvocationExecutionPreference
+    : undefined;
+}
+
+function optionalNumber(value: number | string | null): number | undefined {
+  return coerceNumber(value) ?? undefined;
+}
+
+function sqlBoolean(value: number | string): boolean {
+  return value === 1 || value === "1";
+}
+
+function projectInvocationFromRunRow(row: RunQueryRow): InvocationRequest {
+  const invocation: InvocationRequest = {
+    id: row.invocation_id,
+    requesterId: row.invocation_requester_id,
+    requesterNodeId: row.requester_node_id,
+    targetAgentId: row.invocation_target_agent_id,
+    action: row.action as InvocationRequest["action"],
+    task: row.task,
+    ensureAwake: sqlBoolean(row.ensure_awake),
+    stream: sqlBoolean(row.stream),
+    createdAt: row.invocation_created_at,
+  };
+
+  if (row.target_node_id) invocation.targetNodeId = row.target_node_id;
+  if (row.collaboration_record_id) invocation.collaborationRecordId = row.collaboration_record_id;
+  if (row.conversation_id) invocation.conversationId = row.conversation_id;
+  if (row.message_id) invocation.messageId = row.message_id;
+
+  const context = parseOptionalMetadata(row.context_json);
+  if (context) invocation.context = context;
+  const execution = parseOptionalExecution(row.execution_json);
+  if (execution) invocation.execution = execution;
+  const timeoutMs = optionalNumber(row.timeout_ms);
+  if (timeoutMs !== undefined) invocation.timeoutMs = timeoutMs;
+  const metadata = parseOptionalMetadata(row.invocation_metadata_json);
+  if (metadata) invocation.metadata = metadata;
+
+  return invocation;
+}
+
+function projectFlightFromRunRow(row: RunQueryRow): FlightRecord | undefined {
+  if (!row.flight_id || !row.flight_state) {
+    return undefined;
+  }
+
+  const flight: FlightRecord = {
+    id: row.flight_id,
+    invocationId: row.flight_invocation_id ?? row.invocation_id,
+    requesterId: row.flight_requester_id ?? row.invocation_requester_id,
+    targetAgentId: row.flight_target_agent_id ?? row.invocation_target_agent_id,
+    state: row.flight_state as FlightRecord["state"],
+  };
+
+  if (row.flight_summary) flight.summary = row.flight_summary;
+  if (row.flight_output) flight.output = row.flight_output;
+  if (row.flight_error) flight.error = row.flight_error;
+  const metadata = parseOptionalMetadata(row.flight_metadata_json);
+  if (metadata) flight.metadata = metadata;
+  if (row.started_at !== null) flight.startedAt = row.started_at;
+  if (row.completed_at !== null) flight.completedAt = row.completed_at;
+
+  return flight;
+}
+
+const ACTIVE_RUN_STATES = new Set<AgentRunState>([
+  "queued",
+  "waking",
+  "running",
+  "waiting",
+  "review",
+  "unknown",
+]);
+
+function isActiveRun(run: AgentRun): boolean {
+  return ACTIVE_RUN_STATES.has(run.state);
+}
+
+export function queryRuns(opts?: {
+  agentId?: string;
+  conversationId?: string;
+  collaborationRecordId?: string;
+  workId?: string;
+  state?: AgentRunState | string;
+  source?: AgentRunSource | string;
+  active?: boolean;
+  limit?: number;
+}): WebAgentRun[] {
+  const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
+  const requestedWorkId = opts?.collaborationRecordId ?? opts?.workId;
+  const where = sqlJoinClauses([
+    opts?.agentId ? `inv.target_agent_id = ?` : null,
+    conversationIds.length > 0
+      ? `inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
+      : null,
+  ]);
+  const requestedLimit = opts?.limit;
+  const limit = typeof requestedLimit === "number" && Number.isFinite(requestedLimit)
+    ? Math.min(500, Math.max(1, Math.floor(requestedLimit)))
+    : 100;
+
+  const params: string[] = [];
+  if (opts?.agentId) params.push(opts.agentId);
+  if (conversationIds.length > 0) params.push(...conversationIds);
+
+  const rows = db().prepare(
+    `SELECT
+       inv.id AS invocation_id,
+       inv.requester_id AS invocation_requester_id,
+       inv.requester_node_id,
+       inv.target_agent_id AS invocation_target_agent_id,
+       inv.target_node_id,
+       inv.action,
+       inv.task,
+       inv.collaboration_record_id,
+       cr.kind AS collaboration_record_kind,
+       inv.conversation_id,
+       inv.message_id,
+       inv.context_json,
+       inv.execution_json,
+       inv.ensure_awake,
+       inv.stream,
+       inv.timeout_ms,
+       inv.metadata_json AS invocation_metadata_json,
+       inv.created_at AS invocation_created_at,
+       ac.display_name AS agent_name,
+       f.id AS flight_id,
+       f.invocation_id AS flight_invocation_id,
+       f.requester_id AS flight_requester_id,
+       f.target_agent_id AS flight_target_agent_id,
+       f.state AS flight_state,
+       f.summary AS flight_summary,
+       f.output AS flight_output,
+       f.error AS flight_error,
+       f.metadata_json AS flight_metadata_json,
+       f.started_at,
+       f.completed_at
+     FROM invocations inv
+     LEFT JOIN flights f ON f.id = (
+       SELECT f2.id
+       FROM flights f2
+       WHERE f2.invocation_id = inv.id
+       ORDER BY COALESCE(f2.completed_at, f2.started_at, 0) DESC, f2.id DESC
+       LIMIT 1
+     )
+     LEFT JOIN actors ac ON ac.id = inv.target_agent_id
+     LEFT JOIN collaboration_records cr ON cr.id = inv.collaboration_record_id
+     ${sqlWhereClause([where])}
+     ORDER BY COALESCE(f.completed_at, f.started_at, inv.created_at) DESC, inv.created_at DESC`,
+  ).all(...params) as RunQueryRow[];
+
+  const explicitActiveFilter = opts?.active;
+  const activeOnly = explicitActiveFilter ?? (opts?.state ? false : true);
+
+  return rows
+    .map((row) => {
+      const run = projectAgentRunFromInvocationFlight({
+        invocation: projectInvocationFromRunRow(row),
+        flight: projectFlightFromRunRow(row),
+      });
+      if (!run.workId && row.collaboration_record_kind === "work_item" && row.collaboration_record_id) {
+        run.workId = row.collaboration_record_id;
+      }
+      return {
+        ...run,
+        agentName: row.agent_name,
+      };
+    })
+    .filter((run) => requestedWorkId
+      ? run.collaborationRecordId === requestedWorkId || run.workId === requestedWorkId
+      : true)
+    .filter((run) => opts?.state ? run.state === opts.state : true)
+    .filter((run) => opts?.source ? run.source === opts.source : true)
+    .filter((run) => activeOnly ? isActiveRun(run) : true)
+    .sort((left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt || left.id.localeCompare(right.id))
+    .slice(0, limit);
+}
 
 export function queryFlights(opts?: {
   agentId?: string;

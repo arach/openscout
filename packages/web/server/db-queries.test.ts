@@ -15,6 +15,7 @@ import {
   queryMobileAgents,
   queryMobileAgentDetail,
   queryRecentMessages,
+  queryRuns,
   querySessions,
   querySessionById,
   queryWorkItemById,
@@ -24,6 +25,7 @@ import { SQLiteControlPlaneStore } from "../../runtime/src/sqlite-store.ts";
 
 const tempRoots = new Set<string>();
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const originalOperatorName = process.env.OPENSCOUT_OPERATOR_NAME;
 
 afterEach(() => {
@@ -32,6 +34,11 @@ afterEach(() => {
     delete process.env.OPENSCOUT_CONTROL_HOME;
   } else {
     process.env.OPENSCOUT_CONTROL_HOME = originalControlHome;
+  }
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
   }
   if (originalOperatorName === undefined) {
     delete process.env.OPENSCOUT_OPERATOR_NAME;
@@ -204,6 +211,232 @@ describe("web db query flights", () => {
         sessionId: "codex-thread-1",
         targetAgentId: "agent-1",
       });
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("web db query runs", () => {
+  test("projects latest flights through the AgentRun protocol shape", () => {
+    const store = createSeededStore();
+
+    try {
+      const runs = queryRuns({ conversationId: "conv-1", collaborationRecordId: "work-1" });
+
+      expect(runs).toEqual([
+        {
+          id: "run:flight:flight-1",
+          source: "ask",
+          requesterId: "operator",
+          agentId: "agent-1",
+          agentName: "Agent One",
+          workId: "work-1",
+          collaborationRecordId: "work-1",
+          conversationId: "conv-1",
+          invocationId: "inv-1",
+          flightIds: ["flight-1"],
+          state: "running",
+          input: {
+            action: "consult",
+            task: "Do the work",
+            targetAgentId: "agent-1",
+            requesterNodeId: "node-1",
+            ensureAwake: true,
+            stream: false,
+          },
+          output: {
+            summary: "In progress",
+          },
+          createdAt: 100,
+          startedAt: 101,
+          updatedAt: 101,
+        },
+      ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("does not treat question collaboration records as work ids", () => {
+    const store = createSeededStore();
+
+    try {
+      store.recordCollaborationRecord({
+        id: "question-1",
+        kind: "question",
+        title: "Need a decision",
+        createdById: "agent-1",
+        ownerId: "agent-1",
+        nextMoveOwnerId: "operator",
+        conversationId: "conv-1",
+        state: "open",
+        acceptanceState: "none",
+        askedById: "agent-1",
+        askedOfId: "operator",
+        createdAt: 120,
+        updatedAt: 120,
+      });
+      store.recordInvocation({
+        id: "inv-question-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Answer the pending question",
+        collaborationRecordId: "question-1",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 121,
+      });
+
+      const runs = queryRuns({ collaborationRecordId: "question-1", active: false });
+
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toEqual(expect.objectContaining({
+        collaborationRecordId: "question-1",
+      }));
+      expect(runs[0]?.workId).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("filters runs by agent, conversation, work, state, source, active, and limit", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "agent-2",
+        kind: "agent",
+        displayName: "Agent Two",
+      });
+      store.upsertAgent({
+        id: "agent-2",
+        kind: "agent",
+        definitionId: "agent-2",
+        displayName: "Agent Two",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "conv-2",
+        kind: "direct",
+        title: "Second direct",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-2", "operator"],
+      });
+      store.recordCollaborationRecord({
+        id: "work-2",
+        kind: "work_item",
+        title: "Completed work",
+        createdById: "operator",
+        ownerId: "agent-2",
+        nextMoveOwnerId: "operator",
+        conversationId: "conv-2",
+        state: "done",
+        acceptanceState: "none",
+        requestedById: "operator",
+        createdAt: 190,
+        updatedAt: 240,
+      });
+      store.recordInvocation({
+        id: "inv-2",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-2",
+        action: "execute",
+        task: "Finish the second work item",
+        collaborationRecordId: "work-2",
+        conversationId: "conv-2",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 200,
+        metadata: {
+          runSource: "external_issue",
+        },
+      });
+      store.recordFlight({
+        id: "flight-2",
+        invocationId: "inv-2",
+        requesterId: "operator",
+        targetAgentId: "agent-2",
+        state: "completed",
+        summary: "Done",
+        startedAt: 210,
+        completedAt: 240,
+      });
+
+      expect(queryRuns().map((run) => run.id)).toEqual(["run:flight:flight-1"]);
+      expect(queryRuns({ active: false }).map((run) => run.id)).toEqual([
+        "run:flight:flight-2",
+        "run:flight:flight-1",
+      ]);
+      expect(queryRuns({ agentId: "agent-2", active: false }).map((run) => run.agentId))
+        .toEqual(["agent-2"]);
+      expect(queryRuns({ conversationId: "conv-2", active: false }).map((run) => run.conversationId))
+        .toEqual(["conv-2"]);
+      expect(queryRuns({ workId: "work-2", active: false }).map((run) => run.collaborationRecordId))
+        .toEqual(["work-2"]);
+      expect(queryRuns({ state: "completed" }).map((run) => run.id))
+        .toEqual(["run:flight:flight-2"]);
+      expect(queryRuns({ source: "external_issue", active: false }).map((run) => run.id))
+        .toEqual(["run:flight:flight-2"]);
+      expect(queryRuns({ active: false, limit: 1 })).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("includes invocation-only rows as unknown runs", () => {
+    const store = createSeededStore();
+
+    try {
+      store.recordInvocation({
+        id: "inv-without-flight",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "This has not produced a flight yet",
+        collaborationRecordId: "work-1",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 300,
+        metadata: {
+          permissionProfile: "trusted-local",
+          reviewNeeded: true,
+        },
+      });
+
+      const [run] = queryRuns({ state: "unknown" });
+
+      expect(run).toMatchObject({
+        id: "run:invocation:inv-without-flight",
+        source: "ask",
+        requesterId: "operator",
+        agentId: "agent-1",
+        agentName: "Agent One",
+        workId: "work-1",
+        collaborationRecordId: "work-1",
+        conversationId: "conv-1",
+        invocationId: "inv-without-flight",
+        state: "unknown",
+        reviewState: "needed",
+        permissionProfile: "trusted_local",
+        createdAt: 300,
+        updatedAt: 300,
+      });
+      expect(run?.flightIds).toBeUndefined();
+      expect(run?.output).toBeUndefined();
     } finally {
       store.close();
     }
@@ -827,6 +1060,9 @@ describe("web db query agents", () => {
 
   test("reads direct messages across operator identity aliases", () => {
     const store = createSeededStore();
+    const home = mkdtempSync(join(tmpdir(), "openscout-web-user-config-"));
+    tempRoots.add(home);
+    process.env.OPENSCOUT_HOME = home;
     process.env.OPENSCOUT_OPERATOR_NAME = "arach";
 
     try {

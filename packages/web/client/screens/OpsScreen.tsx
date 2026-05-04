@@ -5,6 +5,7 @@ import { ConductorView } from "./ConductorView.tsx";
 import { MissionControlView } from "./MissionControlView.tsx";
 import { OpsAgentsView } from "./OpsAgentsView.tsx";
 import { PlanView } from "./PlanView.tsx";
+import { RunsView } from "./RunsView.tsx";
 import { AtopView } from "./AtopView.tsx";
 import { TailView } from "./TailView.tsx";
 import { CommandView } from "./commandView.tsx";
@@ -18,6 +19,7 @@ const TABS: { id: OpsMode; label: string }[] = [
   { id: "tail", label: "Tail" },
   { id: "atop", label: "Atop" },
   { id: "agents", label: "Agents" },
+  { id: "runs", label: "Runs" },
 ];
 
 export function OpsScreen({
@@ -55,6 +57,7 @@ export function OpsScreen({
         {mode === "command" && <CommandView navigate={navigate} agents={agents} />}
         {mode === "tail" && <TailView navigate={navigate} initialFilter={tailQuery} />}
         {mode === "atop" && <AtopView />}
+        {mode === "runs" && <RunsView navigate={navigate} agents={agents} />}
       </div>
     </div>
   );

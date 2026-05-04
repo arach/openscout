@@ -41,6 +41,9 @@ implementation specs.
 - [sco-019-lightweight-mission-channels.md](./sco-019-lightweight-mission-channels.md)
 - [sco-020-background-ask-observation.md](./sco-020-background-ask-observation.md)
 - [sco-021-openscout-mesh-cloudflare-iroh.md](./sco-021-openscout-mesh-cloudflare-iroh.md)
+- [sco-022-sandboxing-and-cross-harness-permission-model.md](./sco-022-sandboxing-and-cross-harness-permission-model.md)
+- [sco-023-agent-operations-and-run-registry.md](./sco-023-agent-operations-and-run-registry.md)
+- [sco-024-autonomous-issue-workspace-runner.md](./sco-024-autonomous-issue-workspace-runner.md)
 
 ## Operations
 

@@ -10,6 +10,7 @@ export * from "./conversations.js";
 export * from "./collaboration.js";
 export * from "./messages.js";
 export * from "./invocations.js";
+export * from "./agent-runs.js";
 export * from "./scout-dispatch.js";
 export * from "./scout-delivery.js";
 export * from "./scout-reply-context.js";
