@@ -47,7 +47,7 @@ scout setup
 scout doctor
 ```
 
-`scout setup` creates or updates machine-local settings, discovers workspace projects, writes `.openscout/project.json` for the current repo when needed, registers known agents, installs the broker launch agent, attempts to start the broker service, and ensures Caddy is available for the local `scout.local` edge. On macOS, setup installs missing Caddy with `brew install caddy`; otherwise install Caddy yourself or set `OPENSCOUT_CADDY_BIN`.
+`scout setup` creates or updates machine-local settings, discovers workspace projects, writes `.openscout/project.json` for the current repo when needed, registers known agents, installs the base Scout launch agent, attempts to start the base service, and ensures Caddy is available for the local `scout.local` edge. On macOS, setup installs missing Caddy with `brew install caddy`; otherwise install Caddy yourself or set `OPENSCOUT_CADDY_BIN`. The base launch agent owns the broker, local edge, web startup, and menu bar launch; boot it out with the command shown by `scout doctor`.
 
 `scout doctor` is the quick operational check that the broker is installed, reachable, and writing logs in the expected support paths.
 

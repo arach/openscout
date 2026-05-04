@@ -43,6 +43,7 @@ import {
   type RuntimeRegistrySnapshot,
 } from "./registry.js";
 import { openControlPlaneDrizzle } from "./drizzle-client.js";
+import { applyControlPlaneDrizzleMigrations, stampControlPlaneSchemaVersion } from "./drizzle-migrate.js";
 import { CONTROL_PLANE_SQLITE_SCHEMA, deliveryAttemptsTable, deliveriesTable } from "./schema.js";
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -489,7 +490,9 @@ export class SQLiteControlPlaneStore {
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
     this.db.exec(CONTROL_PLANE_SQLITE_SCHEMA);
+    applyControlPlaneDrizzleMigrations(this.db);
     this.ensureSchemaMigrations();
+    stampControlPlaneSchemaVersion(this.db);
     this.readDb = new SQLiteDatabase(dbPath, { readonly: true });
     this.readDb.exec("PRAGMA busy_timeout = 5000;");
     this.readDb.exec("PRAGMA query_only = ON;");

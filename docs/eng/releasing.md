@@ -165,7 +165,7 @@ fails fast when signing or notarization is misconfigured.
   ```
 - **Restart the local broker** so it picks up the newly bundled runtime:
   ```bash
-  launchctl kickstart -k gui/$(id -u)/dev.openscout.broker
+  launchctl kickstart -k gui/$(id -u)/dev.openscout
   curl -s http://localhost:65535/health | jq
   ```
 

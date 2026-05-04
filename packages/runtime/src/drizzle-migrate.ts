@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
 import { openControlPlaneDrizzle } from "./drizzle-client.js";
-import { CONTROL_PLANE_SQLITE_SCHEMA } from "./schema.js";
+import { CONTROL_PLANE_SCHEMA_VERSION, CONTROL_PLANE_SQLITE_SCHEMA } from "./schema.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
 export function resolveControlPlaneDrizzleMigrationsFolder(): string {
@@ -22,6 +22,10 @@ export function applyControlPlaneDrizzleMigrations(database: Database): boolean 
 
   migrate(openControlPlaneDrizzle(database), { migrationsFolder });
   return true;
+}
+
+export function stampControlPlaneSchemaVersion(database: Database): void {
+  database.exec(`PRAGMA user_version = ${CONTROL_PLANE_SCHEMA_VERSION};`);
 }
 
 function resolveControlPlaneDatabasePath(): string {
@@ -44,6 +48,7 @@ if (import.meta.main) {
     database.exec("PRAGMA synchronous = NORMAL;");
     database.exec(CONTROL_PLANE_SQLITE_SCHEMA);
     applyControlPlaneDrizzleMigrations(database);
+    stampControlPlaneSchemaVersion(database);
     console.log(`Drizzle migration check completed for ${dbPath}`);
   } finally {
     database.close();

@@ -62,7 +62,7 @@ bun --cwd packages/web dev:edge -- --local-name m1
 
 `dev:edge` starts the Bun app server, Vite, Bonjour/mDNS name publication for `scout.local` and `<name>.scout.local`, and Caddy reverse proxying on local port `80` plus `443` by default. The Caddyfile is generated with the actual Bun port chosen for that run, so the edge stays correct when the default port is busy or a worktree gets an isolated port band.
 
-Installed CLI users get the Caddy dependency through `scout setup` on macOS via Homebrew. Source-only development still requires `caddy` on PATH or `OPENSCOUT_CADDY_BIN` pointing at a Caddy executable before running `dev:edge`.
+Installed CLI users get the Caddy dependency through `scout setup` on macOS via Homebrew. The base Scout LaunchAgent supervises the normal local edge after setup; source-only development still requires `caddy` on PATH or `OPENSCOUT_CADDY_BIN` pointing at a Caddy executable before running `dev:edge`.
 
 The local edge also owns the cold-start screen. If Caddy can resolve the Scout name but the web app health check fails, it serves a small "Start Scout" page from the same origin. The button posts to Caddy's internal `/__openscout/web/start` control path, which proxies to the always-on broker and starts the web server without exposing broker ports to the browser URL.
 

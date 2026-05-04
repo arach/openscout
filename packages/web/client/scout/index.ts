@@ -43,6 +43,14 @@ const intents: AppIntent[] = [
     shortcut: "Cmd+3",
   },
   {
+    commandId: "nav:conversations",
+    title: "Go to Conversations",
+    description:
+      "Navigate to the unified conversations playground backed by the normalized conversations service",
+    category: "navigation",
+    keywords: ["conversations", "comms", "chat", "threads"],
+  },
+  {
     commandId: "nav:sessions",
     title: "Go to Sessions",
     description:

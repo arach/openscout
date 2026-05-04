@@ -168,7 +168,7 @@ export function HomeScreen({
     const [activityResult, sessionsResult, fleetResult, heartrateResult, agentsResult] =
       await Promise.allSettled([
         api<ActivityItem[]>("/api/activity"),
-        api<SessionEntry[]>("/api/sessions"),
+        api<SessionEntry[]>("/api/conversations"),
         api<FleetState>("/api/fleet"),
         api<{
           windowLabel: string;

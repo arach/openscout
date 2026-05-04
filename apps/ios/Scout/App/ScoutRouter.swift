@@ -17,6 +17,11 @@ enum Surface: Hashable {
     case agentDashboard(agentId: String)
     case agentDetail(agentId: String)
     case settings
+    case fleet
+    case nodeDetail(nodeId: String)
+    case comms
+    case channel(id: String)
+    case dm(peerId: String)
 }
 
 @MainActor

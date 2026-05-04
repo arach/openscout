@@ -70,6 +70,7 @@ function bundleRuntimeEntrypoints() {
   mkdirSync(runtimeOutputDirectory, { recursive: true });
 
   const entries = [
+    ["base", "base-daemon.ts", "base-daemon.mjs"],
     ["broker", "broker-daemon.ts", "broker-daemon.mjs"],
     ["service", "broker-process-manager.ts", "broker-process-manager.mjs"],
     ["discover", "mesh-discover.ts", "mesh-discover.mjs"],

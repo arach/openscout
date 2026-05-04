@@ -121,6 +121,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "sessions" && parts[1]) {
     return { view: "sessions", sessionId: decodeURIComponent(parts[1]) };
   }
+  if (parts[0] === "conversations") return { view: "conversations" };
   if (parts[0] === "sessions") return { view: "sessions" };
   if (parts[0] === "channels" && parts[1]) {
     return { view: "channels", channelId: decodeURIComponent(parts[1]) };
@@ -225,6 +226,8 @@ export function routePath(r: Route): string {
     }
     case "fleet":
       return "/fleet";
+    case "conversations":
+      return "/conversations";
     case "sessions":
       return r.sessionId
         ? `/sessions/${encodeURIComponent(r.sessionId)}`

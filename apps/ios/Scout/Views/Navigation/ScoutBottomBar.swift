@@ -55,7 +55,17 @@ struct ScoutBottomBar: View {
 
                 Spacer()
 
+                commsButton
+                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
+
+                Spacer()
+
                 heroHomeButton
+
+                Spacer()
+
+                fleetButton
+                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
 
                 Spacer()
 
@@ -247,6 +257,82 @@ struct ScoutBottomBar: View {
         }
         .disabled(!router.canGoBack)
         .accessibilityLabel("Back")
+    }
+
+    private var isCommsCurrent: Bool {
+        switch router.currentSurface {
+        case .comms, .channel, .dm: return true
+        default: return false
+        }
+    }
+
+    private var commsButtonForeground: Color {
+        isCommsCurrent ? ScoutColors.textPrimary : ScoutColors.textSecondary
+    }
+
+    private var commsButton: some View {
+        Button {
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            router.push(.comms)
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 15, weight: .medium))
+                    .overlay(alignment: .topTrailing) {
+                        if inbox.unreadCount > 0 {
+                            Circle()
+                                .fill(ScoutColors.ledAmber)
+                                .frame(width: 6, height: 6)
+                                .offset(x: 2, y: -2)
+                        }
+                    }
+                Text("Comms")
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .foregroundStyle(commsButtonForeground)
+            .frame(
+                width: ActionTrayMetrics.sideButtonSize,
+                height: ActionTrayMetrics.sideButtonSize
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Comms")
+    }
+
+    private var isFleetCurrent: Bool {
+        switch router.currentSurface {
+        case .fleet, .nodeDetail: return true
+        default: return false
+        }
+    }
+
+    private var fleetButtonForeground: Color {
+        isFleetCurrent ? ScoutColors.textPrimary : ScoutColors.textSecondary
+    }
+
+    private var fleetButton: some View {
+        Button {
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            router.push(.fleet)
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 15, weight: .medium))
+                Text("Ops")
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .foregroundStyle(fleetButtonForeground)
+            .frame(
+                width: ActionTrayMetrics.sideButtonSize,
+                height: ActionTrayMetrics.sideButtonSize
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Fleet")
     }
 
     private var overflowMenu: some View {

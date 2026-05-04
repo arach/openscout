@@ -771,6 +771,7 @@ function buildBrokerServiceStatusFromHealth(health: ScoutBrokerHealthState): Bro
       : "Offline",
     mode: "dev",
     launchAgentPath: "",
+    bootoutCommand: "",
     brokerUrl: health.baseUrl,
     brokerSocketPath: config.brokerSocketPath,
     supportDirectory: "",

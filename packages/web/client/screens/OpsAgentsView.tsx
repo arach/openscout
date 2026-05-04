@@ -185,7 +185,7 @@ export function OpsAgentsView({
     const ids = agents.map((agent) => agent.id).join(",");
     const [fleetResult, sessionsResult, activityResult, observeResult] = await Promise.allSettled([
       api<FleetState>("/api/fleet"),
-      api<SessionEntry[]>("/api/sessions"),
+      api<SessionEntry[]>("/api/conversations"),
       api<ActivityItem[]>("/api/activity"),
       ids ? api<AgentObservePayload[]>(`/api/observe/agents?ids=${encodeURIComponent(ids)}`) : Promise.resolve([]),
     ]);

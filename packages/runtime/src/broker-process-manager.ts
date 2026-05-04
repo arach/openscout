@@ -58,6 +58,7 @@ export type BrokerServiceStatus = {
   label: string;
   mode: BrokerServiceMode;
   launchAgentPath: string;
+  bootoutCommand: string;
   brokerUrl: string;
   brokerSocketPath: string;
   supportDirectory: string;
@@ -256,11 +257,24 @@ function resolveBrokerStartTimeoutMs(): number {
 }
 
 function resolveBrokerServiceLabel(mode: BrokerServiceMode): string {
-  const explicit = process.env.OPENSCOUT_BROKER_SERVICE_LABEL?.trim();
+  const explicit = process.env.OPENSCOUT_SERVICE_LABEL?.trim()
+    || process.env.OPENSCOUT_BROKER_SERVICE_LABEL?.trim();
   if (explicit) {
     return explicit;
   }
 
+  switch (mode) {
+    case "prod":
+      return "com.openscout";
+    case "custom":
+      return "com.openscout.custom";
+    case "dev":
+    default:
+      return "dev.openscout";
+  }
+}
+
+function legacyBrokerServiceLabel(mode: BrokerServiceMode): string {
   switch (mode) {
     case "prod":
       return "com.openscout.broker";
@@ -327,6 +341,7 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
     OPENSCOUT_CONTROL_HOME: config.controlHome,
     OPENSCOUT_BROKER_SERVICE_MODE: config.mode,
     OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
+    OPENSCOUT_SERVICE_LABEL: config.label,
     OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
     HOME: homedir(),
     PATH: launchPath,
@@ -357,7 +372,7 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
   <array>
     <string>${xmlEscape(config.bunExecutable)}</string>
     <string>${xmlEscape(join(config.runtimePackageDir, "bin", "openscout-runtime.mjs"))}</string>
-    <string>broker</string>
+    <string>base</string>
   </array>
   <key>WorkingDirectory</key>
   <string>${xmlEscape(config.runtimePackageDir)}</string>
@@ -437,6 +452,26 @@ function ensureServiceDirectories(config: BrokerServiceConfig): void {
 function writeLaunchAgentPlist(config: BrokerServiceConfig): void {
   ensureServiceDirectories(config);
   writeFileSync(config.launchAgentPath, renderLaunchAgentPlist(config), "utf8");
+}
+
+function bootoutCommand(config: BrokerServiceConfig): string {
+  return `${launchctlPath()} bootout ${config.serviceTarget}`;
+}
+
+function legacyLaunchAgentPath(config: BrokerServiceConfig): string {
+  return join(homedir(), "Library", "LaunchAgents", `${legacyBrokerServiceLabel(config.mode)}.plist`);
+}
+
+function legacyServiceTarget(config: BrokerServiceConfig): string {
+  return `${config.domainTarget}/${legacyBrokerServiceLabel(config.mode)}`;
+}
+
+function bootoutLegacyBrokerService(config: BrokerServiceConfig): void {
+  const legacyTarget = legacyServiceTarget(config);
+  if (legacyTarget === config.serviceTarget) {
+    return;
+  }
+  runCommand(launchctlPath(), ["bootout", legacyTarget], { allowFailure: true });
 }
 
 function runCommand(command: string, args: string[], options?: { allowFailure?: boolean; env?: Record<string, string> }): CommandResult {
@@ -580,6 +615,7 @@ export async function brokerServiceStatus(config: BrokerServiceConfig = resolveB
     label: config.label,
     mode: config.mode,
     launchAgentPath: config.launchAgentPath,
+    bootoutCommand: bootoutCommand(config),
     brokerUrl: config.brokerUrl,
     brokerSocketPath: config.brokerSocketPath,
     supportDirectory: config.supportDirectory,
@@ -600,11 +636,13 @@ export async function brokerServiceStatus(config: BrokerServiceConfig = resolveB
 }
 
 export async function installBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
+  bootoutLegacyBrokerService(config);
   writeLaunchAgentPlist(config);
   return brokerServiceStatus(config);
 }
 
 export async function startBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
+  bootoutLegacyBrokerService(config);
   writeLaunchAgentPlist(config);
   runCommand(launchctlPath(), ["bootout", config.serviceTarget], { allowFailure: true });
   runCommand(launchctlPath(), ["bootstrap", config.domainTarget, config.launchAgentPath], { allowFailure: true });
@@ -648,6 +686,11 @@ export async function uninstallBrokerService(config: BrokerServiceConfig = resol
   await stopBrokerService(config);
   if (existsSync(config.launchAgentPath)) {
     rmSync(config.launchAgentPath, { force: true });
+  }
+  const legacyPath = legacyLaunchAgentPath(config);
+  bootoutLegacyBrokerService(config);
+  if (existsSync(legacyPath)) {
+    rmSync(legacyPath, { force: true });
   }
   return brokerServiceStatus(config);
 }
@@ -695,6 +738,7 @@ function formatBrokerServiceStatus(status: BrokerServiceStatus): string {
     `label: ${status.label}`,
     `mode: ${status.mode}`,
     `launch agent: ${status.installed ? status.launchAgentPath : "not installed"}`,
+    `bootout: ${status.bootoutCommand}`,
     `loaded: ${status.loaded ? "yes" : "no"}`,
     `pid: ${status.pid ?? "—"}`,
     `launchd state: ${status.launchdState ?? "—"}`,

@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Hono, type Context } from "hono";
+import type { ConversationKind } from "@openscout/protocol";
 
 import {
   controlScoutWebPairingService,
@@ -38,6 +39,7 @@ import {
   sendScoutDirectMessage,
   sendScoutMessage,
 } from "./core/broker/service.ts";
+import { getScoutConversations } from "./core/conversations/service.ts";
 import {
   loadAgentObservePayload,
   loadAgentObserveSummaries,
@@ -78,6 +80,21 @@ import {
 } from "@openscout/runtime/setup";
 import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
+
+function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return trimmed
+    .split(",")
+    .map((kind) => kind.trim())
+    .filter((kind): kind is ConversationKind => (
+      kind === "direct"
+      || kind === "channel"
+      || kind === "group_direct"
+      || kind === "thread"
+      || kind === "system"
+    ));
+}
 import { buildHarnessResumeCommand, findHarnessEntry } from "@openscout/runtime/harness-catalog";
 import {
   resolveOpenScoutWebRoutes,
@@ -614,6 +631,15 @@ export async function createOpenScoutWebServer(
       }),
     ),
   );
+  app.get("/api/conversations", async (c) => {
+    const rawLimit = Number(c.req.query("limit"));
+    const rawKinds = c.req.query("kinds")?.trim();
+    return c.json(await getScoutConversations({
+      query: c.req.query("query") || undefined,
+      limit: Number.isFinite(rawLimit) ? Math.min(250, Math.max(1, Math.floor(rawLimit))) : undefined,
+      kinds: parseConversationKinds(rawKinds),
+    }));
+  });
 
   app.get("/api/sessions", (c) => c.json(querySessions()));
   app.get("/api/session-ref/:id", async (c) => {

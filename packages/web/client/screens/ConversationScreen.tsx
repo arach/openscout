@@ -13,6 +13,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
+import { isGroupConversation } from "../lib/conversations.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
 import {
@@ -886,7 +887,7 @@ export function ConversationScreen({
   const [lastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
 
   useEffect(() => {
-    api<SessionEntry[]>("/api/sessions")
+    api<SessionEntry[]>("/api/conversations")
       .then((data) =>
         setRailSessions(
           data.sort(
@@ -915,6 +916,13 @@ export function ConversationScreen({
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const current = railSessions.find((session) => session.id === conversationId);
+    if (current && isGroupConversation(current)) {
+      navigate({ view: "channels", channelId: conversationId });
+    }
+  }, [conversationId, navigate, railSessions]);
 
   const load = useCallback(async () => {
     setError(null);

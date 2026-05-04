@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
 import { actorColor } from "../../lib/colors.ts";
+import {
+  conversationDisplayTitle,
+  isDirectConversation,
+  isGroupConversation,
+} from "../../lib/conversations.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import {
@@ -14,20 +19,6 @@ import { useScout } from "../Provider.tsx";
 import type { SessionEntry } from "../../lib/types.ts";
 
 type Filter = "all" | "dm" | "channel";
-
-function isDm(s: SessionEntry): boolean {
-  return s.kind === "direct";
-}
-
-function isChannel(s: SessionEntry): boolean {
-  return s.kind === "channel" || s.id.startsWith("channel.");
-}
-
-function deriveTitle(s: SessionEntry): string {
-  if (s.title && s.title !== s.id) return s.title;
-  if (isChannel(s)) return s.id.replace(/^channel\./, "");
-  return s.agentName ?? s.id;
-}
 
 export function ScoutConversationLeftPanel() {
   const { route, navigate } = useScout();
@@ -43,7 +34,7 @@ export function ScoutConversationLeftPanel() {
     undefined;
 
   const load = useCallback(async () => {
-    const data = await api<SessionEntry[]>("/api/sessions").catch(() => [] as SessionEntry[]);
+    const data = await api<SessionEntry[]>("/api/conversations").catch(() => [] as SessionEntry[]);
     setSessions(data);
   }, []);
 
@@ -57,18 +48,18 @@ export function ScoutConversationLeftPanel() {
 
   const filtered = useMemo(() => {
     let list = sessions;
-    if (filter === "dm") list = list.filter(isDm);
-    else if (filter === "channel") list = list.filter(isChannel);
+    if (filter === "dm") list = list.filter(isDirectConversation);
+    else if (filter === "channel") list = list.filter(isGroupConversation);
     if (query) {
       const q = query.toLowerCase();
-      list = list.filter((s) => deriveTitle(s).toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
+      list = list.filter((s) => conversationDisplayTitle(s).toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
     }
     return [...list].sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
   }, [sessions, filter, query]);
 
   const onSelect = (s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
-    if (isChannel(s)) {
+    if (isGroupConversation(s)) {
       navigate({ view: "channels", channelId: s.id });
     } else {
       navigate({ view: "conversation", conversationId: s.id });
@@ -107,8 +98,8 @@ export function ScoutConversationLeftPanel() {
           filtered.map((s) => {
             const active = s.id === activeId;
             const unread = isUnread(s.lastMessageAt, s.id, lastViewed);
-            const title = deriveTitle(s);
-            const channel = isChannel(s);
+            const title = conversationDisplayTitle(s);
+            const channel = isGroupConversation(s);
             return (
               <button
                 key={s.id}

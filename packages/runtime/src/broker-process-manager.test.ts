@@ -12,12 +12,12 @@ import {
 } from "./broker-process-manager";
 
 const config: BrokerServiceConfig = {
-  label: "dev.openscout.broker",
+  label: "dev.openscout",
   mode: "dev",
   uid: 501,
   domainTarget: "gui/501",
-  serviceTarget: "gui/501/dev.openscout.broker",
-  launchAgentPath: "/Users/arach/Library/LaunchAgents/dev.openscout.broker.plist",
+  serviceTarget: "gui/501/dev.openscout",
+  launchAgentPath: "/Users/arach/Library/LaunchAgents/dev.openscout.plist",
   supportDirectory: "/Users/arach/Library/Application Support/OpenScout",
   runtimeDirectory: "/Users/arach/Library/Application Support/OpenScout/runtime",
   logsDirectory: "/Users/arach/Library/Application Support/OpenScout/logs/broker",
@@ -37,12 +37,12 @@ describe("broker launch agent config", () => {
   test("renders a launch agent plist with the expected command and environment", () => {
     const plist = renderLaunchAgentPlist(config);
 
-    expect(plist).toContain("<string>dev.openscout.broker</string>");
+    expect(plist).toContain("<string>dev.openscout</string>");
     expect(plist).toContain("<string>/Users/arach/.bun/bin/bun</string>");
     expect(plist).toContain(
       "<string>/Users/arach/dev/openscout/packages/runtime/bin/openscout-runtime.mjs</string>",
     );
-    expect(plist).toContain("<string>broker</string>");
+    expect(plist).toContain("<string>base</string>");
     expect(plist).toContain("<key>WorkingDirectory</key>");
     expect(plist).toContain("<string>/Users/arach/dev/openscout/packages/runtime</string>");
     expect(plist).toContain("<key>RunAtLoad</key>");
@@ -59,7 +59,7 @@ describe("broker launch agent config", () => {
     const parsed = parseLaunchctlPrint(`
 system/com.example.job = {
     active count = 1
-    path = /Users/arach/Library/LaunchAgents/dev.openscout.broker.plist
+    path = /Users/arach/Library/LaunchAgents/dev.openscout.plist
     type = LaunchAgent
     state = running
 

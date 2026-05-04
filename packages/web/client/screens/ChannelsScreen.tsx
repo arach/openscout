@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import {
+  conversationDisplayTitle,
+  conversationShortLabel,
+  isGroupConversation,
+} from "../lib/conversations.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo, fullTimestamp } from "../lib/time.ts";
@@ -12,19 +17,6 @@ import "./conversation-screen.css";
 import "./channel-screen.css";
 
 /* ── Helpers ── */
-
-function isChannelSession(s: SessionEntry): boolean {
-  return s.kind === "channel" || s.id.startsWith("channel.");
-}
-
-function channelDisplayName(session: SessionEntry): string {
-  if (session.title && session.title !== session.id) return session.title;
-  return session.id.replace(/^channel\./, "");
-}
-
-function channelSlug(session: SessionEntry): string {
-  return session.id.replace(/^channel\./, "");
-}
 
 function sortMessages(msgs: Message[]): Message[] {
   return [...msgs].sort((a, b) => a.createdAt - b.createdAt);
@@ -82,7 +74,7 @@ function ChannelSidebar({
         <div className="ch-sidebar-info">
           <div className="ch-sidebar-info-name">
             <span className="ch-sidebar-info-hash">#</span>
-            <span className="ch-sidebar-info-title">{channelDisplayName(channel)}</span>
+            <span className="ch-sidebar-info-title">{conversationDisplayTitle(channel)}</span>
           </div>
           <div className="ch-sidebar-info-id">{channel.id}</div>
           <div className="ch-sidebar-stats">
@@ -416,7 +408,7 @@ export function ChannelsScreen({
   const [messageCount, setMessageCount] = useState(0);
 
   const channels = useMemo(
-    () => sessions.filter(isChannelSession),
+    () => sessions.filter(isGroupConversation),
     [sessions],
   );
 
@@ -425,7 +417,7 @@ export function ChannelsScreen({
     : null;
 
   const loadSessions = useCallback(async () => {
-    const data = await api<SessionEntry[]>("/api/sessions").catch(() => [] as SessionEntry[]);
+    const data = await api<SessionEntry[]>("/api/conversations").catch(() => [] as SessionEntry[]);
     setSessions(data);
   }, []);
 
@@ -450,8 +442,8 @@ export function ChannelsScreen({
           <div className="ch-center-header">
             <div className="ch-center-header-left">
               <span className="ch-center-hash">#</span>
-              <span className="ch-center-title">{channelDisplayName(selectedChannel)}</span>
-              <span className="ch-center-slug">{channelSlug(selectedChannel)}</span>
+              <span className="ch-center-title">{conversationDisplayTitle(selectedChannel)}</span>
+              <span className="ch-center-slug">{conversationShortLabel(selectedChannel)}</span>
             </div>
             <div className="ch-center-header-right">
               {selectedChannel.participantIds.length > 0 && (
@@ -484,7 +476,7 @@ export function ChannelsScreen({
             <ChannelFeed
               key={channelId}
               channelId={channelId!}
-              channelName={channelDisplayName(selectedChannel)}
+              channelName={conversationDisplayTitle(selectedChannel)}
               agents={agents}
               operatorName={operatorName}
               onMessageCountChange={setMessageCount}
