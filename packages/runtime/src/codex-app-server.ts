@@ -14,6 +14,7 @@ import {
 } from "@openscout/agent-sessions";
 import type { ScoutReplyContext } from "@openscout/protocol";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
+import type { CodexApprovalPolicy, CodexSandboxMode } from "./permission-policy.js";
 
 type CodexRequest = {
   id: string | number;
@@ -263,6 +264,8 @@ type SessionRequestOptions = {
   runtimeDirectory: string;
   logsDirectory: string;
   launchArgs?: string[];
+  approvalPolicy?: CodexApprovalPolicy;
+  sandbox?: CodexSandboxMode;
   threadId?: string;
   requireExistingThread?: boolean;
 };
@@ -532,6 +535,8 @@ type CodexSessionCatalogEntry = {
   harness?: string;
   transport?: string;
   model?: string | null;
+  approvalPolicy?: CodexApprovalPolicy;
+  sandbox?: CodexSandboxMode;
 };
 
 type CodexSessionCatalog = {
@@ -578,6 +583,8 @@ async function recordCodexSessionCatalog(
     harness: string;
     transport: string;
     model: string | null;
+    approvalPolicy: CodexApprovalPolicy;
+    sandbox: CodexSandboxMode;
   },
 ): Promise<void> {
   const catalog = await readCodexSessionCatalog(runtimeDirectory);
@@ -596,6 +603,8 @@ async function recordCodexSessionCatalog(
       harness: input.harness,
       transport: input.transport,
       model: input.model,
+      approvalPolicy: input.approvalPolicy,
+      sandbox: input.sandbox,
     });
   }
 
@@ -1755,6 +1764,8 @@ class CodexAppServerSession {
       cwd: options.cwd,
       sessionId: options.sessionId,
       systemPrompt: options.systemPrompt,
+      approvalPolicy: options.approvalPolicy ?? "never",
+      sandbox: options.sandbox ?? "danger-full-access",
       threadId: options.threadId ?? null,
       requireExistingThread: options.requireExistingThread === true,
       launchArgs: normalizeCodexAppServerLaunchArgs(options.launchArgs),
@@ -1854,8 +1865,8 @@ class CodexAppServerSession {
         const resumed = await this.request<ThreadResumeResult>("thread/resume", {
           threadId: storedThreadId,
           cwd: this.options.cwd,
-          approvalPolicy: "never",
-          sandbox: "danger-full-access",
+          approvalPolicy: this.options.approvalPolicy ?? "never",
+          sandbox: this.options.sandbox ?? "danger-full-access",
           baseInstructions: this.options.systemPrompt,
           persistExtendedHistory: true,
         });
@@ -1887,8 +1898,8 @@ class CodexAppServerSession {
 
     const started = await this.request<ThreadStartResult>("thread/start", {
       cwd: this.options.cwd,
-      approvalPolicy: "never",
-      sandbox: "danger-full-access",
+      approvalPolicy: this.options.approvalPolicy ?? "never",
+      sandbox: this.options.sandbox ?? "danger-full-access",
       baseInstructions: this.options.systemPrompt,
       ephemeral: false,
       experimentalRawEvents: false,
@@ -1905,12 +1916,16 @@ class CodexAppServerSession {
     harness: string;
     transport: string;
     model: string | null;
+    approvalPolicy: CodexApprovalPolicy;
+    sandbox: CodexSandboxMode;
   } {
     return {
       cwd: this.options.cwd,
       harness: "codex",
       transport: "codex_app_server",
       model: readCodexAppServerModelFromLaunchArgs(this.options.launchArgs),
+      approvalPolicy: this.options.approvalPolicy ?? "never",
+      sandbox: this.options.sandbox ?? "danger-full-access",
     };
   }
 

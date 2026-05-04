@@ -1,5 +1,6 @@
 import type { AgentHarness } from "./actors.js";
 import type { MetadataMap, ScoutId } from "./common.js";
+import type { ScoutPermissionProfile } from "./permission-policy.js";
 
 export type InvocationAction =
   | "consult"
@@ -19,6 +20,7 @@ export type FlightState =
 
 export interface InvocationExecutionPreference {
   harness?: AgentHarness;
+  permissionProfile?: ScoutPermissionProfile;
   /**
    * Controls whether a handoff should enter fresh model context or continue an
    * already-running session. Broker-owned label delivery should default to

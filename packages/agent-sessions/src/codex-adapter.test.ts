@@ -126,7 +126,7 @@ for await (const line of rl) {
     const adapter = createAdapter({
       sessionId,
       name: "Codex Here",
-      cwd: "/Users/arach/dev/openscout",
+      cwd: process.cwd(),
       options: {
         threadId: "thread-attached-1",
         requireExistingThread: true,
@@ -226,7 +226,7 @@ for await (const line of rl) {
     const adapter = createAdapter({
       sessionId,
       name: "Codex Here",
-      cwd: "/Users/arach/dev/openscout",
+      cwd: process.cwd(),
       env: {
         METHOD_LOG: methodLogPath,
       },

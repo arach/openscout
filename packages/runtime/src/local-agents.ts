@@ -13,6 +13,7 @@ import type {
   AgentEndpoint,
   AgentHarness,
   InvocationRequest,
+  ScoutPermissionProfile,
   ScoutReplyContext,
 } from "@openscout/protocol";
 import { BUILT_IN_AGENT_DEFINITION_IDS, normalizeAgentSelectorSegment } from "@openscout/protocol";
@@ -75,6 +76,12 @@ import {
   LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT,
 } from "./local-agent-template.js";
 import { buildManagedAgentShellExports } from "./managed-agent-environment.js";
+import {
+  type CodexApprovalPolicy,
+  type CodexSandboxMode,
+  compileCodexPermissionProfile,
+  parseScoutPermissionProfile,
+} from "./permission-policy.js";
 
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
@@ -94,12 +101,14 @@ type LocalAgentRecord = {
   transport: RelayRuntimeTransport;
   capabilities?: AgentCapability[];
   launchArgs?: string[];
+  permissionProfile?: ScoutPermissionProfile;
 };
 
 export type LocalAgentConfigState = {
   agentId: string;
   editable: boolean;
   model: string | null;
+  permissionProfile: ScoutPermissionProfile | null;
   systemPrompt: string;
   runtime: {
     cwd: string;
@@ -164,6 +173,7 @@ export type StartLocalAgentInput = {
   currentDirectory?: string;
   model?: string;
   reasoningEffort?: string;
+  permissionProfile?: ScoutPermissionProfile | string;
   branch?: string;
   /** Override the agent's working directory (e.g., for git worktrees). */
   cwdOverride?: string;
@@ -962,11 +972,12 @@ function overrideHarnessProfile(
     transport: normalizeLocalAgentTransport(profile?.transport ?? override.runtime?.transport, harness),
     sessionId: normalizeTmuxSessionName(profile?.sessionId, `${override.agentId}-${harness}`),
     launchArgs: launchArgsForOverrideHarness(override, harness),
+    ...(profile?.permissionProfile ? { permissionProfile: profile.permissionProfile } : {}),
   };
 }
 
 function normalizeManagedHarness(value: string | undefined, fallback: ManagedAgentHarness): ManagedAgentHarness {
-  return value === "codex" ? "codex" : value === "claude" ? "claude" : fallback;
+  return value === "codex" ? "codex" : value === "claude" ? "claude" : value === "cursor" ? "cursor" : fallback;
 }
 
 function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord): RelayHarnessProfiles {
@@ -975,7 +986,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
     "claude",
   );
   const nextProfiles: RelayHarnessProfiles = {};
-  for (const harness of ["claude", "codex"] as const) {
+  for (const harness of ["claude", "codex", "cursor"] as const) {
     const profile = record.harnessProfiles?.[harness];
     if (!profile) {
       continue;
@@ -985,6 +996,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       transport: normalizeLocalAgentTransport(profile.transport, harness),
       sessionId: normalizeTmuxSessionName(profile.sessionId, `${agentId}-${harness}`),
       launchArgs: normalizeLaunchArgsForHarness(harness, profile.launchArgs),
+      ...(profile.permissionProfile ? { permissionProfile: profile.permissionProfile } : {}),
     };
   }
   const runtimeHarness = normalizeManagedHarness(record.harness, defaultHarness);
@@ -995,6 +1007,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       transport: normalizeLocalAgentTransport(record.transport, runtimeHarness),
       sessionId: normalizeTmuxSessionName(record.tmuxSession, `${agentId}-${runtimeHarness}`),
       launchArgs: normalizeLaunchArgsForHarness(runtimeHarness, record.launchArgs),
+      ...(record.permissionProfile ? { permissionProfile: record.permissionProfile } : {}),
     };
   }
 
@@ -1004,10 +1017,11 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       transport: normalizeLocalAgentTransport(record.transport, defaultHarness),
       sessionId: normalizeTmuxSessionName(record.tmuxSession, `${agentId}-${defaultHarness}`),
       launchArgs: normalizeLaunchArgsForHarness(defaultHarness, record.launchArgs),
+      ...(record.permissionProfile ? { permissionProfile: record.permissionProfile } : {}),
     };
   }
 
-  for (const harness of ["claude", "codex"] as const) {
+  for (const harness of ["claude", "codex", "cursor"] as const) {
     const profile = nextProfiles[harness];
     if (!profile) {
       continue;
@@ -1017,6 +1031,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       transport: normalizeLocalAgentTransport(profile.transport, harness),
       sessionId: normalizeTmuxSessionName(profile.sessionId, `${agentId}-${harness}`),
       launchArgs: normalizeLaunchArgsForHarness(harness, profile.launchArgs),
+      ...(profile.permissionProfile ? { permissionProfile: profile.permissionProfile } : {}),
     } satisfies RelayHarnessProfile;
   }
 
@@ -1051,6 +1066,7 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
       cwd: fallbackCwd,
       transport: fallbackTransport,
       launchArgs: normalizeLaunchArgsForHarness(selectedHarness, normalized.launchArgs),
+      ...(normalized.permissionProfile ? { permissionProfile: normalized.permissionProfile } : {}),
       harnessProfiles: {
         ...normalized.harnessProfiles,
         [selectedHarness]: {
@@ -1058,6 +1074,7 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
           transport: fallbackTransport,
           sessionId: fallbackSessionId,
           launchArgs: normalizeLaunchArgsForHarness(selectedHarness, normalized.launchArgs),
+          ...(normalized.permissionProfile ? { permissionProfile: normalized.permissionProfile } : {}),
         },
       },
     };
@@ -1071,6 +1088,7 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
     cwd: profile.cwd,
     transport: profile.transport,
     launchArgs: profile.launchArgs,
+    permissionProfile: profile.permissionProfile,
   };
 }
 
@@ -1102,6 +1120,7 @@ function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): L
     transport: activeProfile?.transport ?? normalizeLocalAgentTransport(record.transport, harness),
     capabilities: normalizeLocalAgentCapabilities(record.capabilities),
     launchArgs: activeProfile?.launchArgs ?? normalizeLaunchArgsForHarness(harness, record.launchArgs),
+    permissionProfile: activeProfile?.permissionProfile ?? record.permissionProfile,
     registrationSource: record.registrationSource,
   };
 }
@@ -1217,6 +1236,7 @@ function buildLocalAgentConfigState(agentId: string, record: LocalAgentRecord): 
     agentId,
     editable: true,
     model: readLaunchModelForHarness(harness, launchArgs) ?? null,
+    permissionProfile: record.permissionProfile ?? null,
     systemPrompt: record.systemPrompt || buildLocalAgentSystemPromptTemplate(),
     runtime: {
       cwd: compactHomePath(record.cwd),
@@ -1396,6 +1416,7 @@ export async function updateLocalAgentConfig(
     systemPrompt: string;
     launchArgs: string[];
     model?: string | null;
+    permissionProfile?: ScoutPermissionProfile | string | null;
     capabilities: string[];
   },
 ): Promise<LocalAgentConfigState | null> {
@@ -1422,6 +1443,11 @@ export async function updateLocalAgentConfig(
     input.launchArgs,
     input.model,
   );
+  const nextPermissionProfile = input.permissionProfile === undefined
+    ? record.permissionProfile
+    : input.permissionProfile === null
+      ? undefined
+      : parseScoutPermissionProfile(input.permissionProfile);
 
   const nextRecord = normalizeLocalAgentRecord(agentId, {
     ...record,
@@ -1436,11 +1462,13 @@ export async function updateLocalAgentConfig(
         transport: nextTransport,
         sessionId: normalizeTmuxSessionName(input.runtime.sessionId, `${agentId}-${normalizeManagedHarness(input.runtime.harness, "claude")}`),
         launchArgs: nextLaunchArgs,
+        ...(nextPermissionProfile ? { permissionProfile: nextPermissionProfile } : {}),
       },
     },
     transport: nextTransport,
     systemPrompt: input.systemPrompt.trim() || undefined,
     launchArgs: nextLaunchArgs,
+    permissionProfile: nextPermissionProfile,
     capabilities: input.capabilities as AgentCapability[],
   });
 
@@ -1463,7 +1491,11 @@ function buildCodexAgentSessionOptions(
   launchArgs: string[];
   threadId?: string;
   requireExistingThread?: boolean;
+  permissionProfile: ScoutPermissionProfile;
+  approvalPolicy: CodexApprovalPolicy;
+  sandbox: CodexSandboxMode;
 } {
+  const permissionPosture = compileCodexPermissionProfile(record.permissionProfile);
   return {
     agentName,
     sessionId: record.tmuxSession,
@@ -1472,6 +1504,9 @@ function buildCodexAgentSessionOptions(
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
     launchArgs: normalizeLaunchArgsForHarness("codex", record.launchArgs),
+    permissionProfile: permissionPosture.profile,
+    approvalPolicy: permissionPosture.approvalPolicy,
+    sandbox: permissionPosture.sandbox,
   };
 }
 
@@ -2483,6 +2518,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const currentDirectory = input.currentDirectory ?? projectPath;
   const effectiveCwd = input.cwdOverride ? normalizeProjectPath(input.cwdOverride) : undefined;
   const shouldEnsureOnline = input.ensureOnline !== false;
+  const requestedPermissionProfile = parseScoutPermissionProfile(input.permissionProfile);
   const requestedDefinitionId = input.agentName?.trim()
     ? normalizeAgentSelectorSegment(input.agentName.trim())
     : "";
@@ -2592,6 +2628,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
           transport,
           sessionId,
           launchArgs,
+          ...(requestedPermissionProfile ? { permissionProfile: requestedPermissionProfile } : {}),
         },
       },
       runtime: {
@@ -2653,6 +2690,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
           ...overrideHarnessProfile(matchingOverride, nextHarness),
           sessionId: nextSessionId,
           launchArgs: nextLaunchArgs,
+          ...(requestedPermissionProfile ? { permissionProfile: requestedPermissionProfile } : {}),
         },
       },
       runtime: {
@@ -2669,7 +2707,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     await writeRelayAgentOverrides(overrides);
     targetAgentId = instance.id;
   } else {
-    if (input.model || input.reasoningEffort) {
+    if (input.model || input.reasoningEffort || requestedPermissionProfile) {
       const existingHarness = normalizeManagedHarness(
         preferredHarness ?? matchingOverride.defaultHarness ?? matchingOverride.runtime?.harness,
         "claude",
@@ -2693,6 +2731,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
           [existingHarness]: {
             ...overrideHarnessProfile(matchingOverride, existingHarness),
             launchArgs: nextLaunchArgs,
+            ...(requestedPermissionProfile ? { permissionProfile: requestedPermissionProfile } : {}),
           },
         },
       };
@@ -2844,6 +2883,9 @@ function buildLocalAgentBinding(
     normalizeLocalAgentHarness(normalizedRecord.harness),
     normalizedRecord.launchArgs,
   );
+  const codexPermissionPosture = normalizeLocalAgentHarness(normalizedRecord.harness) === "codex"
+    ? compileCodexPermissionProfile(normalizedRecord.permissionProfile)
+    : null;
   const definitionId = normalizedRecord.definitionId ?? agentId;
   const displayName = titleCaseLocalAgentName(definitionId);
   const projectRoot = normalizedRecord.projectRoot ?? normalizedRecord.cwd;
@@ -2874,6 +2916,12 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(codexPermissionPosture ? {
+          permissionProfile: codexPermissionPosture.profile,
+          approvalPolicy: codexPermissionPosture.approvalPolicy,
+          sandbox: codexPermissionPosture.sandbox,
+          permissionEnforcement: codexPermissionPosture.enforcement,
+        } : {}),
       },
     },
     agent: {
@@ -2903,6 +2951,12 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(codexPermissionPosture ? {
+          permissionProfile: codexPermissionPosture.profile,
+          approvalPolicy: codexPermissionPosture.approvalPolicy,
+          sandbox: codexPermissionPosture.sandbox,
+          permissionEnforcement: codexPermissionPosture.enforcement,
+        } : {}),
       },
       agentClass: "general",
       capabilities: normalizeLocalAgentCapabilities(normalizedRecord.capabilities),
@@ -2937,6 +2991,12 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(codexPermissionPosture ? {
+          permissionProfile: codexPermissionPosture.profile,
+          approvalPolicy: codexPermissionPosture.approvalPolicy,
+          sandbox: codexPermissionPosture.sandbox,
+          permissionEnforcement: codexPermissionPosture.enforcement,
+        } : {}),
         ...(externalSessionId ? { externalSessionId } : {}),
       },
     },

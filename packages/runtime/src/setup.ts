@@ -11,11 +11,13 @@ import {
   formatAgentSelector,
   parseAgentSelector,
   normalizeAgentSelectorSegment,
+  normalizeScoutPermissionProfile,
   resolveAgentSelector,
   type AgentSelector,
   type AgentSelectorCandidate,
   type AgentCapability,
   type AgentHarness,
+  type ScoutPermissionProfile,
 } from "@openscout/protocol";
 
 import { ensureHarnessCatalogOverrideFile } from "./harness-catalog.js";
@@ -34,6 +36,7 @@ export type RelayHarnessProfile = {
   transport: RelayRuntimeTransport;
   sessionId: string;
   launchArgs: string[];
+  permissionProfile?: ScoutPermissionProfile;
 };
 
 export type RelayHarnessProfiles = Partial<Record<ManagedAgentHarness, RelayHarnessProfile>>;
@@ -43,6 +46,7 @@ export type RelayHarnessProfileInput = {
   transport?: RelayRuntimeTransport;
   sessionId?: string;
   launchArgs?: string[];
+  permissionProfile?: ScoutPermissionProfile;
 };
 
 export type OpenScoutProjectScriptSet = {
@@ -108,6 +112,7 @@ export type OpenScoutProjectConfig = {
         transport?: RelayRuntimeTransport;
         sessionId?: string;
         launchArgs?: string[];
+        permissionProfile?: ScoutPermissionProfile;
         capabilities?: AgentCapability[];
       };
     };
@@ -510,6 +515,9 @@ function normalizeManagedHarness(
   if (value === "claude") {
     return "claude";
   }
+  if (value === "cursor") {
+    return "cursor";
+  }
   return fallback;
 }
 
@@ -801,8 +809,14 @@ function normalizeHarnessProfile(
     sessionKey: string;
     sessionPrefix: string;
     fallbackLaunchArgs?: string[];
+    fallbackPermissionProfile?: ScoutPermissionProfile;
   },
 ): RelayHarnessProfile {
+  const permissionProfile = normalizeScoutPermissionProfile(
+    typeof profile?.permissionProfile === "string"
+      ? profile.permissionProfile
+      : options.fallbackPermissionProfile,
+  );
   return {
     cwd: profile?.cwd ? normalizeProjectRelativePath(options.projectRoot, profile.cwd) : options.projectRoot,
     transport: normalizeTransport(profile?.transport, harness, harness === "codex" ? "codex_app_server" : DEFAULT_TRANSPORT),
@@ -812,6 +826,7 @@ function normalizeHarnessProfile(
       options.sessionPrefix,
     ),
     launchArgs: normalizeLaunchArgs(profile?.launchArgs ?? options.fallbackLaunchArgs),
+    ...(permissionProfile ? { permissionProfile } : {}),
   };
 }
 
@@ -828,6 +843,7 @@ function buildHarnessProfiles(input: {
     sessionId?: string;
   };
   launchArgs?: string[];
+  permissionProfile?: ScoutPermissionProfile;
 }): RelayHarnessProfiles {
   const profiles: RelayHarnessProfiles = {};
   const runtimeHarness = normalizeManagedHarness(
@@ -854,6 +870,7 @@ function buildHarnessProfiles(input: {
       sessionKey: input.sessionKey,
       sessionPrefix: input.sessionPrefix,
       fallbackLaunchArgs: input.launchArgs,
+      fallbackPermissionProfile: input.permissionProfile,
     });
   }
 
@@ -868,6 +885,7 @@ function buildHarnessProfiles(input: {
         sessionKey: input.sessionKey,
         sessionPrefix: input.sessionPrefix,
         fallbackLaunchArgs: profiles[harness]?.launchArgs ?? input.launchArgs,
+        fallbackPermissionProfile: profiles[harness]?.permissionProfile ?? input.permissionProfile,
       });
     }
   }
@@ -878,6 +896,7 @@ function buildHarnessProfiles(input: {
       sessionKey: input.sessionKey,
       sessionPrefix: input.sessionPrefix,
       fallbackLaunchArgs: input.launchArgs,
+      fallbackPermissionProfile: input.permissionProfile,
     });
   profiles[input.defaultHarness] = ensuredHarness;
 
@@ -2380,6 +2399,7 @@ async function resolveManifestBackedAgent(
     profiles: config.agent?.runtime?.profiles,
     runtime: runtimeDefaults,
     launchArgs: normalizeLaunchArgs(runtimeDefaults?.launchArgs),
+    permissionProfile: normalizeScoutPermissionProfile(runtimeDefaults?.permissionProfile),
   });
   const view = resolvedRuntimeView(defaultHarness, harnessProfiles);
   const base: ResolvedRelayAgentConfig = {

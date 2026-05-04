@@ -60,6 +60,7 @@ export type ScoutCardCreateCommandOptions = ContextRootOptions & {
   harness?: string;
   model?: string;
   reasoningEffort?: string;
+  permissionProfile?: string;
   requesterId: string | null;
   noInput?: boolean;
 };
@@ -607,6 +608,7 @@ export function parseCardCreateCommandOptions(
   let harness: string | undefined;
   let model: string | undefined;
   let reasoningEffort: string | undefined;
+  let permissionProfile: string | undefined;
   let requesterId: string | null = null;
   let noInput = false;
 
@@ -648,6 +650,12 @@ export function parseCardCreateCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--permission-profile" || current.startsWith("--permission-profile=")) {
+      const value = parseFlagValue(parsed.args, index, "--permission-profile");
+      permissionProfile = value.value;
+      index = value.nextIndex;
+      continue;
+    }
     if (current === "--as" || current.startsWith("--as=")) {
       const value = parseFlagValue(parsed.args, index, "--as");
       requesterId = value.value;
@@ -685,6 +693,7 @@ export function parseCardCreateCommandOptions(
     harness,
     model,
     reasoningEffort,
+    permissionProfile,
     requesterId,
     noInput,
   };

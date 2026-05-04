@@ -87,6 +87,8 @@ type CodexSessionOptions = {
   runtimeDirectory: string;
   logsDirectory: string;
   launchArgs: string[];
+  approvalPolicy?: "untrusted" | "on-request" | "on-failure" | "never";
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
   threadId?: string;
   requireExistingThread?: boolean;
 };
@@ -583,8 +585,8 @@ export class CodexAdapter extends BaseAdapter {
         const resumed = await this.request<ThreadResumeResult>("thread/resume", {
           threadId: storedThreadId,
           cwd: options.cwd,
-          approvalPolicy: "never",
-          sandbox: "danger-full-access",
+          approvalPolicy: options.approvalPolicy ?? "never",
+          sandbox: options.sandbox ?? "danger-full-access",
           baseInstructions: options.systemPrompt,
           persistExtendedHistory: true,
         });
@@ -618,8 +620,8 @@ export class CodexAdapter extends BaseAdapter {
 
     const started = await this.request<ThreadStartResult>("thread/start", {
       cwd: options.cwd,
-      approvalPolicy: "never",
-      sandbox: "danger-full-access",
+      approvalPolicy: options.approvalPolicy ?? "never",
+      sandbox: options.sandbox ?? "danger-full-access",
       baseInstructions: options.systemPrompt,
       ephemeral: false,
       experimentalRawEvents: false,
