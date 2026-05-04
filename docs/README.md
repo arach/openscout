@@ -9,14 +9,15 @@ If you want the shortest path to understanding the project:
 1. [`../README.md`](../README.md) for what OpenScout is and how to run it locally
 2. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
 3. [`architecture.md`](./architecture.md) for the system-level control-plane model
-4. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
-5. [`ranger.md`](./ranger.md) for the preferred top-level orchestration agent contract
-6. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
-7. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
-8. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
-9. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
-10. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
-11. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
+4. [`data-ownership.md`](./data-ownership.md) for what Scout owns, observes, and intentionally does not import
+5. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
+6. [`ranger.md`](./ranger.md) for the preferred top-level orchestration agent contract
+7. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
+8. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
+9. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
+10. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
+11. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
+12. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
 
 ## Current Orientation Docs
 
@@ -24,6 +25,7 @@ If you want the shortest path to understanding the project:
 
 - [`quickstart.md`](./quickstart.md) gives the first-success path and defines the main operator-facing terms
 - [`architecture.md`](./architecture.md) explains the broker-first system shape and the main control-plane terms
+- [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
 - [`ranger.md`](./ranger.md) defines Ranger as the preferred Codex-backed orchestration agent
 - [`a2a-alignment.md`](./a2a-alignment.md) explains where Scout intentionally aligns with A2A and where it does not
@@ -48,6 +50,7 @@ If you want the shortest path to understanding the project:
 ## Reading By Question
 
 - "What is OpenScout trying to be?" Start with [`../README.md`](../README.md) and [`architecture.md`](./architecture.md).
+- "What data does Scout own?" Read [`data-ownership.md`](./data-ownership.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
 - "What is Ranger?" Read [`ranger.md`](./ranger.md).
 - "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).

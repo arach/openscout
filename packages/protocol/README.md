@@ -90,6 +90,7 @@ This lets a person work with a helper in Codex or Claude while still invoking re
 5. Bindings map external channels into the same internal model.
 6. Voice is metadata and transport, not the canonical message body.
 7. The broker is the only canonical writer.
+8. Scout owns coordination records; external harness transcripts remain observed source material.
 
 ## Bootstrap And Startup
 
@@ -177,7 +178,7 @@ The important part is the separation:
 
 ## Storage Model
 
-The runtime package owns the SQLite schema. The durable model is:
+The runtime package owns the local storage and projection schema for Scout-owned control-plane records. The durable model is:
 
 - `nodes`
 - `actors`
@@ -195,7 +196,9 @@ The runtime package owns the SQLite schema. The durable model is:
 - `delivery_attempts`
 - `events`
 
-SQLite is the canonical store because it stays local and inspectable while handling append races, indexing, leases, retries, and subscriptions better than raw JSONL.
+These are first-party Scout facts: records created by Scout surfaces, agent tools, the broker, or mesh forwarding. Local projections such as SQLite make those facts cheap to inspect, query, and render across surfaces.
+
+External harness transcripts are different. Claude Code JSONL, Codex session JSONL, and future harness logs are source material owned by their harnesses. Scout can observe them through adapters and tail views, but the protocol should not treat every external transcript turn as a Scout `message` or require bulk transcript replication into the control-plane database.
 
 ## Why Work Does Not Get Lost
 
@@ -207,6 +210,7 @@ The protocol is designed so that the system does not depend on terminal scrollba
 - deliveries and delivery attempts make routing and failures inspectable
 - bindings make external channel mappings durable
 - append-only events let read models be rebuilt
+- external harness transcript files remain linkable and observable without becoming Scout-owned conversation records
 
 That does not require every surface to be smart. The broker owns the hard part, and the surfaces can recover by reading the canonical store.
 

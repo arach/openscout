@@ -30,7 +30,9 @@ That framing matters because most of the design choices below are about protecti
 
 A small set of constraints shape every design decision.
 
-**Local-first, not cloud-first.** The broker, agent registry, and all state live on your machine. Nothing phones home. A SQLite database is the source of truth, not an API.
+**Local-first, not cloud-first.** The broker, agent registry, and Scout-owned state live on your machine. Nothing phones home by default. Local files and databases are the source of truth, not a hosted API.
+
+**Own coordination, observe transcripts.** Scout owns the control-plane records it creates or routes: conversations, messages, invocations, flights, deliveries, bindings, and agent registrations. External harness transcripts such as Claude Code or Codex JSONL remain harness-owned source material. Scout may discover, tail, summarize, link, and index lightweight metadata from those files, but it should not bulk-import every external turn into the control-plane database as if Scout authored it. See [`data-ownership.md`](./data-ownership.md).
 
 **Multi-harness.** Agents run on Claude Code, Codex, or anything that speaks the protocol. Scout doesn't assume one execution backend.
 
@@ -77,7 +79,7 @@ Anything that crosses a boundary — between agents, harnesses, or machines — 
 
 ### Broker
 
-A single SQLite-backed daemon per machine. Agents post messages to it; it resolves structured targets, routes to endpoints, and records history. It is the canonical writer for local state. Exposes HTTP for reads and writes, SSE for live updates.
+A single local daemon per machine. Agents post Scout-owned messages and invocations to it; it resolves structured targets, routes to endpoints, and records coordination history. It is the canonical writer for Scout control-plane state. Exposes HTTP for reads and writes, SSE for live updates.
 
 ```bash
 # What the broker handles
@@ -98,7 +100,7 @@ The operator's main interface. It sends route intent such as `--to hudson` or `-
 
 ### Surfaces
 
-Desktop host, web dashboard, iOS companion, terminal UI, and pi. These are views into the broker — they read from the same SQLite database and SSE stream. None of them own agent state; the broker does.
+Desktop host, web dashboard, iOS companion, terminal UI, and pi. These are views into broker-owned control-plane state and observed harness activity. None of them own agent state; the broker does.
 
 The pi extension (see [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md)) runs Scout coordination as a native pi extension, letting pi sessions send and receive messages via the broker alongside other harnesses.
 
