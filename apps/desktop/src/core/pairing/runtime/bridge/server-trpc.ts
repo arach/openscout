@@ -130,7 +130,7 @@ async function sendMobileInboxPushNotification(item: {
     },
   });
 
-  if (result.attemptedCount === 0) {
+  if (result.attemptedCount === 0 && !result.rateLimited) {
     return;
   }
 
@@ -139,6 +139,14 @@ async function sendMobileInboxPushNotification(item: {
     log.warn(
       "push",
       "APNs credentials are not configured; remote mobile push notifications are registered but disabled",
+    );
+  }
+
+  if (result.rateLimited) {
+    log.warn(
+      "push",
+      `Push relay rate-limited (${result.rateLimitWindow ?? "unknown"}); retry in ${result.retryAfterSeconds ?? "?"}s`,
+      { itemId: item.id },
     );
   }
 

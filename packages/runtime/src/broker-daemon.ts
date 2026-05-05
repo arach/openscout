@@ -5081,6 +5081,11 @@ async function recordOperatorDeliveryIssue(input: {
     loggedMissingOperatorDeliveryApnsCredentials = true;
     console.warn("[openscout-runtime] mobile push credentials are missing; operator delivery issue was recorded without APNS.");
   }
+  if (result.rateLimited) {
+    console.warn(
+      `[openscout-runtime] push relay rate-limited (${result.rateLimitWindow ?? "unknown"}); retry in ${result.retryAfterSeconds ?? "?"}s.`,
+    );
+  }
   for (const failure of result.failures) {
     console.warn(
       `[openscout-runtime] failed to send operator delivery issue push to ${failure.deviceId} (${failure.tokenSuffix}): ${failure.reason ?? failure.status ?? "unknown"}`,
