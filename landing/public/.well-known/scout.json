@@ -106,6 +106,8 @@
     ]
   },
   "links": {
+    "human": "https://openscout.app/scout/manifest",
+    "rawManifest": "https://openscout.app/.well-known/scout.json",
     "install": "https://openscout.app/install.md",
     "agentsGuide": "https://openscout.app/agents.md",
     "llms": "https://openscout.app/llms.txt",
