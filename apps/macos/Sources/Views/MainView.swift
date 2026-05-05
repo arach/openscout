@@ -9,8 +9,8 @@ struct MainView: View {
 
     static let baseHeight: CGFloat = 168
     static let errorHeight: CGFloat = 240
-    static let qrHeight: CGFloat = 396
-    static let qrWithErrorHeight: CGFloat = 468
+    static let qrHeight: CGFloat = 484
+    static let qrWithErrorHeight: CGFloat = 556
 
     var body: some View {
         ZStack {
@@ -399,10 +399,10 @@ struct MainView: View {
                 Button {
                     showQR = false
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(ShellPalette.copy)
-                        .frame(width: 18, height: 18)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ShellPalette.ink)
+                        .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
