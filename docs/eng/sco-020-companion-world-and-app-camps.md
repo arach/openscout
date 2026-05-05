@@ -254,7 +254,7 @@ The smallest viable implementation is:
   "actors": [
     {
       "id": "scout-ranger",
-      "asset": "~/.lattices/companions/pets/scout-ranger/pet.json",
+      "asset": "assets/pets/scout-ranger/pet.json",
       "homeCampId": "scout-camp"
     }
   ]

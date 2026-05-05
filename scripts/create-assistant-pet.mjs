@@ -6,7 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sharpModulePath = path.join(root, "landing/node_modules/sharp/lib/index.js");
 const { default: sharp } = await import(sharpModulePath);
 
-const outDir = path.join(root, "tmp/codex-pets/scout-ranger");
+const outDir = path.join(root, "assets/pets/scout-ranger");
 const cellWidth = 192;
 const cellHeight = 208;
 const columns = 8;
@@ -131,7 +131,7 @@ await sharp(path.join(outDir, "spritesheet.webp"))
 const pet = {
   id: "scout-ranger",
   displayName: "Scout Ranger",
-  description: "A tiny field-general companion for Scout and Codex sessions.",
+  description: "A tiny chunky robot field-general companion for Scout and Codex sessions.",
   spritesheetPath: "spritesheet.webp",
 };
 

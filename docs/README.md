@@ -12,14 +12,15 @@ If you want the shortest path to understanding the project:
 4. [`architecture.md`](./architecture.md) for the system-level control-plane model
 5. [`data-ownership.md`](./data-ownership.md) for what Scout owns, observes, and intentionally does not import
 6. [`agent-integration-contract.md`](./agent-integration-contract.md) for the minimum contract expected from agents and adapters
-7. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
-8. [`ranger.md`](./ranger.md) for the preferred top-level orchestration agent contract
-9. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
-10. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
-11. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
-12. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
-13. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
-14. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
+7. [`integrations.md`](./integrations.md) for the current host integration map and sibling repository policy
+8. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
+9. [`ranger.md`](./ranger.md) for the preferred top-level orchestration agent contract
+10. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
+11. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
+12. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
+13. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
+14. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
+15. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
 
 ## Current Orientation Docs
 
@@ -30,6 +31,7 @@ If you want the shortest path to understanding the project:
 - [`architecture.md`](./architecture.md) explains the broker-first system shape and the main control-plane terms
 - [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
 - [`agent-integration-contract.md`](./agent-integration-contract.md) gives coding agents and adapter authors the minimum contract for plugging into Scout
+- [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
 - [`ranger.md`](./ranger.md) defines Ranger as the preferred Codex-backed orchestration agent
 - [`a2a-alignment.md`](./a2a-alignment.md) explains where Scout intentionally aligns with A2A and where it does not
@@ -66,6 +68,7 @@ If you want the shortest path to understanding the project:
 - "What data does Scout own?" Read [`data-ownership.md`](./data-ownership.md).
 - "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
 - "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
+- "Where do host plugins live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
 - "What is Ranger?" Read [`ranger.md`](./ranger.md).
 - "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).

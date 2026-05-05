@@ -12,6 +12,10 @@ This repository is the active Scout product codebase. The main path through it i
 - `packages/protocol` for shared contracts and identity grammar
 - `packages/cli` for the public `@openscout/scout` package that installs `scout`
 
+Host-specific integrations can live beside this repo when they are independently
+installable packages. See [`docs/integrations.md`](./docs/integrations.md) for
+the current pi, Claude Code, and Codex integration map.
+
 ## Start Here
 
 If you are new to the docs, start with [`docs/README.md`](./docs/README.md) for the reading order. The shortest newcomer path is [`docs/quickstart.md`](./docs/quickstart.md), then [`docs/current-posture.md`](./docs/current-posture.md), then [`docs/architecture.md`](./docs/architecture.md), then [`docs/agent-identity.md`](./docs/agent-identity.md).
@@ -41,6 +45,9 @@ At the repo level, Scout is organized around one product path:
 - `apps/desktop` and `apps/ios` own the human-facing surfaces
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
 - `packages/cli` is the public npm package; the other packages stay as private internal boundaries
+- host plugins and extensions are documented in [`docs/integrations.md`](./docs/integrations.md);
+  separate repos are linked rather than vendored unless the integration needs
+  to build with OpenScout internals
 
 ## Getting Started
 
