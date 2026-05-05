@@ -5,8 +5,12 @@ struct MainView: View {
     @ObservedObject var controller: OpenScoutAppController
     @ObservedObject private var theme = ThemeManager.shared
 
+    @State private var showQR: Bool = false
+
     static let baseHeight: CGFloat = 168
     static let errorHeight: CGFloat = 240
+    static let qrHeight: CGFloat = 396
+    static let qrWithErrorHeight: CGFloat = 468
 
     var body: some View {
         ZStack {
@@ -27,6 +31,12 @@ struct MainView: View {
 
                     Spacer(minLength: 0)
                     deckStrip
+
+                    if showQR {
+                        qrPanel
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12)
@@ -40,13 +50,23 @@ struct MainView: View {
                 footerBar
             }
         }
-        .frame(width: 408, height: hasError ? Self.errorHeight : Self.baseHeight)
+        .frame(width: 408, height: popoverHeight)
+        .animation(.easeInOut(duration: 0.18), value: showQR)
         .preferredColorScheme(theme.colorScheme)
     }
 
     private var hasError: Bool {
         if let last = controller.lastError, !last.isEmpty { return true }
         return false
+    }
+
+    private var popoverHeight: CGFloat {
+        switch (showQR, hasError) {
+        case (true, true):   return Self.qrWithErrorHeight
+        case (true, false):  return Self.qrHeight
+        case (false, true):  return Self.errorHeight
+        case (false, false): return Self.baseHeight
+        }
     }
 
     private var topBar: some View {
@@ -70,6 +90,18 @@ struct MainView: View {
             Spacer()
 
             HStack(spacing: 6) {
+                Button {
+                    showQR.toggle()
+                    if showQR && !controller.pairing.isRunning {
+                        controller.startPairing()
+                    }
+                } label: {
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(HeaderIconButtonStyle())
+                .help(showQR ? "Hide pairing QR" : "Show pairing QR")
+
                 Button {
                     controller.openWebApp()
                 } label: {
@@ -166,16 +198,25 @@ struct MainView: View {
                     value: brokerValue,
                     tint: brokerTint,
                     action: brokerAction,
-                    helpText: "Copy broker URL"
+                    helpText: brokerHelp
                 )
                 deckDivider
                 DeckTileButton(
-                    glyph: .peers,
-                    label: "DEVICES",
-                    value: devicesValue,
-                    tint: ShellPalette.ink,
-                    action: devicesAction,
-                    helpText: "Open agents view"
+                    glyph: .relay,
+                    label: "RELAY",
+                    value: relayValue,
+                    tint: relayTint,
+                    action: relayAction,
+                    helpText: relayHelp
+                )
+                deckDivider
+                DeckTileButton(
+                    glyph: .web,
+                    label: "WEB",
+                    value: webValue,
+                    tint: webTint,
+                    action: webAction,
+                    helpText: webHelp
                 )
                 deckDivider
                 DeckTileButton(
@@ -188,12 +229,12 @@ struct MainView: View {
                 )
                 deckDivider
                 DeckTileButton(
-                    glyph: .web,
-                    label: "WEB",
-                    value: webValue,
-                    tint: webTint,
-                    action: webAction,
-                    helpText: "Open web app"
+                    glyph: .peers,
+                    label: "DEVICES",
+                    value: devicesValue,
+                    tint: ShellPalette.ink,
+                    action: devicesAction,
+                    helpText: "Open agents view"
                 )
             }
             .padding(.vertical, 8)
@@ -213,8 +254,9 @@ struct MainView: View {
     // MARK: - Tile data
 
     private var brokerValue: String {
+        if controller.brokerActionPending { return "BOOT" }
         if !controller.broker.reachable {
-            return controller.broker.loaded ? "WAIT" : "DOWN"
+            return controller.broker.loaded ? "WAIT" : "START"
         }
         let url = controller.broker.brokerURL
         if let parsed = URL(string: url), let port = parsed.port {
@@ -224,12 +266,16 @@ struct MainView: View {
     }
 
     private var brokerTint: Color {
+        if controller.brokerActionPending { return ShellPalette.warning }
         if controller.broker.reachable { return ShellPalette.ink }
         if controller.broker.loaded { return ShellPalette.warning }
         return ShellPalette.error
     }
 
     private var brokerAction: (() -> Void)? {
+        if !controller.broker.reachable && !controller.brokerActionPending {
+            return { controller.startBroker() }
+        }
         let url = controller.broker.brokerURL
         guard !url.isEmpty else { return nil }
         return {
@@ -237,6 +283,42 @@ struct MainView: View {
             pasteboard.clearContents()
             pasteboard.setString(url, forType: .string)
         }
+    }
+
+    private var brokerHelp: String {
+        if !controller.broker.reachable && !controller.brokerActionPending {
+            return "Start broker"
+        }
+        return "Copy broker URL"
+    }
+
+    private var relayValue: String {
+        if controller.pairingActionPending { return "BOOT" }
+        if !controller.pairing.isRunning { return "START" }
+        if controller.pairing.qrArt != nil { return "WAIT" }
+        if controller.pairing.trustedPeerCount > 0 { return "PAIRED" }
+        return "ON"
+    }
+
+    private var relayTint: Color {
+        if controller.pairingActionPending { return ShellPalette.warning }
+        if !controller.pairing.isRunning { return ShellPalette.error }
+        if controller.pairing.qrArt != nil { return ShellPalette.warning }
+        return ShellPalette.ink
+    }
+
+    private var relayAction: (() -> Void)? {
+        return {
+            if !controller.pairing.isRunning {
+                controller.startPairing()
+            }
+            showQR = true
+        }
+    }
+
+    private var relayHelp: String {
+        if !controller.pairing.isRunning { return "Start relay & show QR" }
+        return "Show pairing QR"
     }
 
     private var devicesValue: String {
@@ -267,7 +349,7 @@ struct MainView: View {
 
     private var webValue: String {
         if controller.webActionPending { return "BOOT" }
-        return controller.webReachable ? ":3200" : "DOWN"
+        return controller.webReachable ? ":3200" : "START"
     }
 
     private var webTint: Color {
@@ -277,6 +359,171 @@ struct MainView: View {
 
     private var webAction: (() -> Void)? {
         return { controller.openWebApp() }
+    }
+
+    private var webHelp: String {
+        if !controller.webReachable && !controller.webActionPending {
+            return "Start web app"
+        }
+        return "Open web app"
+    }
+
+    // MARK: - QR Panel
+
+    private var qrPanel: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(ShellPalette.ink)
+                Text("PAIR DEVICE")
+                    .font(MenuType.mono(10, weight: .semibold))
+                    .tracking(1.0)
+                    .foregroundStyle(ShellPalette.ink)
+                Spacer()
+                if controller.pairingActionPending {
+                    Text("STARTING…")
+                        .font(MenuType.mono(9, weight: .medium))
+                        .foregroundStyle(ShellPalette.warning)
+                } else if controller.pairing.qrArt != nil {
+                    Button {
+                        controller.restartPairing()
+                    } label: {
+                        Text("REFRESH")
+                            .font(MenuType.mono(9, weight: .semibold))
+                            .foregroundStyle(ShellPalette.copy)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Regenerate QR")
+                }
+                Button {
+                    showQR = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(ShellPalette.copy)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Hide QR")
+            }
+
+            qrPanelBody
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(ShellPalette.surfaceFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var qrPanelBody: some View {
+        if let qrArt = controller.pairing.qrArt, !qrArt.isEmpty {
+            VStack(spacing: 6) {
+                Text(qrArt)
+                    .font(.system(size: 6, weight: .regular, design: .monospaced))
+                    .lineSpacing(0)
+                    .foregroundStyle(ShellPalette.ink)
+                    .fixedSize()
+
+                if let qrValue = controller.pairing.qrValue, !qrValue.isEmpty {
+                    HStack(spacing: 4) {
+                        Text("URL")
+                            .font(MenuType.mono(8, weight: .semibold))
+                            .foregroundStyle(ShellPalette.muted)
+                        Text(qrValue)
+                            .font(MenuType.mono(9))
+                            .foregroundStyle(ShellPalette.copy)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                        Button {
+                            let pasteboard = NSPasteboard.general
+                            pasteboard.clearContents()
+                            pasteboard.setString(qrValue, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(ShellPalette.copy)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy URL")
+                    }
+                }
+
+                Text("Scan with the Scout app on your phone.")
+                    .font(MenuType.body(10))
+                    .foregroundStyle(ShellPalette.muted)
+            }
+            .frame(maxWidth: .infinity)
+        } else if controller.pairingActionPending {
+            VStack(spacing: 6) {
+                ProgressView()
+                    .scaleEffect(0.6)
+                Text("Starting pair-supervisor…")
+                    .font(MenuType.body(11))
+                    .foregroundStyle(ShellPalette.copy)
+            }
+            .frame(maxWidth: .infinity, minHeight: 200)
+        } else if !controller.pairing.isRunning {
+            VStack(spacing: 8) {
+                Text("Relay isn't running.")
+                    .font(MenuType.bodyMedium(12))
+                    .foregroundStyle(ShellPalette.copy)
+                Button {
+                    controller.startPairing()
+                } label: {
+                    Text("Start Pairing")
+                        .font(MenuType.mono(10, weight: .semibold))
+                        .foregroundStyle(ShellPalette.ink)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(ShellPalette.surfaceFill)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .stroke(ShellPalette.line, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity, minHeight: 200)
+        } else {
+            VStack(spacing: 8) {
+                Text("Relay is idle. Generate a fresh QR to pair a new device.")
+                    .font(MenuType.body(11))
+                    .foregroundStyle(ShellPalette.copy)
+                    .multilineTextAlignment(.center)
+                Button {
+                    controller.restartPairing()
+                } label: {
+                    Text("Generate QR")
+                        .font(MenuType.mono(10, weight: .semibold))
+                        .foregroundStyle(ShellPalette.ink)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(ShellPalette.surfaceFill)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .stroke(ShellPalette.line, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity, minHeight: 200)
+        }
     }
 
     private func errorBanner(_ message: String) -> some View {
