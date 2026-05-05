@@ -57,10 +57,19 @@ type SurfaceShot = {
   height?: number;
 };
 
+type IntegrationCard = {
+  host: string;
+  name: string;
+  href: string;
+  description: string;
+  install: string;
+};
+
 const navLinks = [
   { label: "How it works", href: "#mesh" },
   { label: "Features", href: "#capabilities" },
   { label: "Apps", href: "#surfaces" },
+  { label: "Integrations", href: "#integrations" },
   { label: "Get Started", href: "#get-started" },
 ] as const;
 
@@ -205,6 +214,33 @@ const technicalCapabilities: CapabilityCard[] = [
     title: "Observable delivery",
     description:
       "Queued work, running flights, ownership, failures, and recoverable state stay visible instead of disappearing into terminals.",
+  },
+];
+
+const hostIntegrations: IntegrationCard[] = [
+  {
+    host: "Codex",
+    name: "Codex Scout",
+    href: "https://github.com/arach/codex-scout",
+    description:
+      "Codex plugin for Scout MCP tools, agent discovery, direct messages, and ask-style work handoffs.",
+    install: "/plugin marketplace add arach/codex-scout",
+  },
+  {
+    host: "Claude Code",
+    name: "Claude Scout",
+    href: "https://github.com/arach/claude-scout",
+    description:
+      "Claude Code plugin with /scout:* commands and a Scout channel for broker-routed messages.",
+    install: "/plugin marketplace add arach/claude-scout",
+  },
+  {
+    host: "pi",
+    name: "Pi Scout",
+    href: "https://github.com/arach/pi-scout",
+    description:
+      "pi extension for Scout send, ask, who, and broker-backed coordination from pi sessions.",
+    install: "pi install git:github.com/arach/pi-scout",
   },
 ];
 
@@ -631,7 +667,8 @@ const DOC_STRIP_SECTIONS = [
   { id: "mesh",         num: "§1", label: "Topology",                docs: "/docs#topology" },
   { id: "capabilities", num: "§2", label: "Records",                 docs: "/docs#records" },
   { id: "surfaces",     num: "§3", label: "Reference Implementation", docs: "/docs#reference-implementation" },
-  { id: "get-started",  num: "§4", label: "Discovery",               docs: "/docs#discovery" },
+  { id: "integrations", num: "§4", label: "Host Integrations",       docs: "/docs/integrations" },
+  { id: "get-started",  num: "§5", label: "Discovery",               docs: "/docs#discovery" },
 ] as const;
 
 type DocStripSectionId = (typeof DOC_STRIP_SECTIONS)[number]["id"];
@@ -1065,13 +1102,67 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ── §4 Discovery ── */}
+            {/* ── §4 Host Integrations ── */}
+            <section id="integrations" className="rfc-section">
+              <div className="mx-auto grid max-w-6xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+                <div className="reveal max-w-sm">
+                  <div className="rfc-section-eyebrow">
+                    <span className="rfc-section-eyebrow__num">§4</span>
+                    <span>Host Integrations</span>
+                  </div>
+                  <h2 className="rfc-section-title">
+                    Scout where agents already work.
+                  </h2>
+                  <p className="rfc-section-lead">
+                    Thin host packages connect Codex, Claude Code, and pi to the same
+                    local broker. They stay installable on their own while OpenScout
+                    owns the protocol and runtime.
+                  </p>
+                  <Link
+                    href="/docs/integrations"
+                    onClick={onCtaClick("Read integrations", "/docs/integrations", "integrations", "docs")}
+                    className="group mt-6 inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
+                  >
+                    <span className="text-[var(--site-accent)]">→</span>
+                    <span>read the integration map</span>
+                  </Link>
+                </div>
+
+                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 md:grid-cols-3">
+                  {hostIntegrations.map((integration, i) => (
+                    <a
+                      key={integration.href}
+                      href={integration.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={onCtaClick(integration.name, integration.href, "integrations", "repo")}
+                      className="reveal rfc-block group"
+                      style={{ "--reveal-i": i } as React.CSSProperties}
+                    >
+                      <div className="rfc-block__num">
+                        <span className="rfc-block__num-mark">§4.{i + 1}</span>{" "}
+                        · {integration.host}
+                      </div>
+                      <h3 className="rfc-block__title transition-colors group-hover:text-[var(--site-accent)]">
+                        {integration.name}
+                      </h3>
+                      <p className="rfc-block__body">{integration.description}</p>
+                      <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap font-[family-name:var(--font-geist-mono)] text-[11.5px] text-[var(--site-muted)]">
+                        {integration.install}
+                      </p>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            {/* ── §5 Discovery ── */}
             <section id="get-started" className="rfc-section">
               <div className="mx-auto max-w-6xl px-6">
                 <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
                   <div className="reveal max-w-sm">
                     <div className="rfc-section-eyebrow">
-                      <span className="rfc-section-eyebrow__num">§4</span>
+                      <span className="rfc-section-eyebrow__num">§5</span>
                       <span>Discovery</span>
                     </div>
                     <h2 className="rfc-section-title">
@@ -1083,7 +1174,7 @@ export default function Home() {
 
                     <div className="mt-8 rfc-block">
                       <div className="rfc-block__num">
-                        <span className="rfc-block__num-mark">§4.1</span> · Apps
+                        <span className="rfc-block__num-mark">§5.1</span> · Apps
                       </div>
                       <h3 className="rfc-block__title">Mac and iPhone.</h3>
                       <p className="rfc-block__body">

@@ -14,7 +14,7 @@ making the integration surface discoverable.
 | --- | --- | --- |
 | pi | [`arach/pi-scout`](https://github.com/arach/pi-scout) | pi extension for Scout `send`, `ask`, `who`, and broker-backed coordination from pi sessions. |
 | Claude Code | [`arach/claude-scout`](https://github.com/arach/claude-scout) | Claude Code plugin with `/scout:*` commands and Scout channel integration. |
-| Codex | repo-local [`plugins/scout`](../plugins/scout/README.md) | Codex plugin wrapper for Scout MCP. This is still repo-local while the Codex plugin packaging path is incubating. |
+| Codex | [`arach/codex-scout`](https://github.com/arach/codex-scout) | Codex plugin with Scout MCP tools and coordination guidance. |
 
 ## Relationship To This Repo
 
@@ -48,7 +48,8 @@ Recommended sibling checkout layout:
 ~/dev/
 ├── openscout/
 ├── pi-scout/
-└── claude-scout/
+├── claude-scout/
+└── codex-scout/
 ```
 
 That layout keeps the product repo clean while making related host integrations
