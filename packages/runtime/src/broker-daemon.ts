@@ -138,6 +138,10 @@ import {
 } from "./mesh-rendezvous.js";
 import { clearGitBranchCache, readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
 import { broadcastApnsAlertToActiveMobileDevices } from "./mobile-push.js";
+import {
+  getHarnessTopologySnapshot,
+  nudgeHarnessTopologyScan,
+} from "./harness-topology/index.js";
 
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -4039,6 +4043,16 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (method === "GET" && url.pathname === "/v1/topology/snapshot") {
+    json(response, 200, await getHarnessTopologySnapshot(url.searchParams.get("force") === "1"));
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/topology/nudge") {
+    json(response, 200, await nudgeHarnessTopologyScan());
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/v1/messages") {
     json(response, 200, await brokerService.readMessages?.({
       conversationId: url.searchParams.get("conversationId")?.trim() || undefined,
@@ -5414,9 +5428,9 @@ server.on("close", () => {
 });
 
 // ─── tRPC over WebSocket — broker firehose endpoints ───────────────────────
-// Mounted at /trpc. Today: tail.events. Future endpoints (agent activity,
-// control events) get added to broker-trpc-router.ts and consumers pick up
-// the new procedures via end-to-end type inference.
+// Mounted at /trpc. Tail and topology firehoses live here. Future endpoints
+// (agent activity, control events) get added to broker-trpc-router.ts and
+// consumers pick up the new procedures via end-to-end type inference.
 //
 // See docs/tail-firehose.md.
 

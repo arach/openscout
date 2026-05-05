@@ -120,6 +120,49 @@ Non-goals:
 - replacing framework-native observability such as LangSmith, Mastra tracing,
   Cursor background-agent dashboards, or Claude/Codex local run views
 
+## Staying In Sync
+
+The normalized shape is useful only if Scout can keep it fresh without
+becoming the owner of the harness runtime. The sync model is therefore a
+read-only reconcile loop with optional event nudges.
+
+Current implementation:
+
+- Session adapters attach topology to `session.providerMeta.observedTopology`
+  when Scout owns or is attached to the session.
+- `packages/runtime/src/harness-topology` provides a broker-level observer that
+  scans known read surfaces and emits topology snapshots/removals.
+- The broker exposes `topology.snapshot` and `topology.events` over tRPC,
+  parallel to the existing `tail.events` firehose.
+- The broker also exposes `GET /v1/topology/snapshot?force=1` and
+  `POST /v1/topology/nudge` so an explicit hook or CLI can request a fresh
+  reconcile pass without writing into the harness ecosystem.
+
+Source priority:
+
+1. Live adapter events for sessions Scout owns or is attached to. These give
+   the freshest signal for Codex app-server subagents and collaboration tool
+   calls.
+2. Read-only filesystem reconciliation for harness-owned state, such as
+   `~/.claude/teams`, `~/.claude/tasks`, `.codex/agents`, and
+   `~/.codex/agents`.
+3. Explicit operator-installed hooks as nudges, not as authority. A Claude
+   `TaskCreated`, `TaskCompleted`, or `TeammateIdle` hook can tell Scout to
+   rescan sooner, but adapters must not silently install or mutate those hooks.
+4. Provider APIs, traces, or SDK callbacks when a framework or host exposes
+   them and the operator configures access.
+
+Hooks are accelerators, not the source of truth. They can be missed, delayed,
+or removed by the harness. The reconciler must be able to rediscover current
+state by reading allowed source material. The hook contract should be: "please
+rescan this harness/source now," not "create a Scout message" and not "update a
+vendor task."
+
+Views should consume topology as communication context. A tail/top-style
+surface can say "Claude team: 5 teammates, 1 pending task" or "Codex subagent
+completed and is ready for follow-up." It should link back to source refs and
+Scout conversations, but avoid becoming a production run dashboard.
+
 ## Claude Code Agent Teams
 
 The Claude Code agent-teams documentation gives these read surfaces:
