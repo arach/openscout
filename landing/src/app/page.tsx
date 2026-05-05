@@ -830,11 +830,14 @@ export default function Home() {
                       <p className="rfc-hero__install-foot">{install.footnote}</p>
                       {viewer === "agent" && (
                         <p className="rfc-hero__schema-link">
-                          Tool schema at{" "}
+                          Tool manifest at{" "}
+                          <a href="/scout/manifest">
+                            /scout/manifest
+                          </a>{" "}
+                          · raw JSON at{" "}
                           <a href="/.well-known/scout.json">
                             /.well-known/scout.json
-                          </a>{" "}
-                          · OpenAPI · MCP server included.
+                          </a>
                         </p>
                       )}
                     </div>
