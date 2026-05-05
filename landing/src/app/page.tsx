@@ -7,6 +7,7 @@ import {
   Bot,
   Check,
   Copy,
+  ExternalLink,
   Layers,
   MessageSquare,
   Monitor,
@@ -60,7 +61,8 @@ type SurfaceShot = {
 type IntegrationCard = {
   host: string;
   name: string;
-  href: string;
+  repoHref: string;
+  pageHref: string;
   description: string;
   install: string;
 };
@@ -221,7 +223,8 @@ const hostIntegrations: IntegrationCard[] = [
   {
     host: "Codex",
     name: "Codex Scout",
-    href: "https://github.com/arach/codex-scout",
+    repoHref: "https://github.com/arach/codex-scout",
+    pageHref: "https://arach.github.io/codex-scout/",
     description:
       "Codex plugin for Scout MCP tools, agent discovery, direct messages, and ask-style work handoffs.",
     install: "/plugin marketplace add arach/codex-scout",
@@ -229,7 +232,8 @@ const hostIntegrations: IntegrationCard[] = [
   {
     host: "Claude Code",
     name: "Claude Scout",
-    href: "https://github.com/arach/claude-scout",
+    repoHref: "https://github.com/arach/claude-scout",
+    pageHref: "https://arach.github.io/claude-scout/",
     description:
       "Claude Code plugin with /scout:* commands and a Scout channel for broker-routed messages.",
     install: "/plugin marketplace add arach/claude-scout",
@@ -237,7 +241,8 @@ const hostIntegrations: IntegrationCard[] = [
   {
     host: "pi",
     name: "Pi Scout",
-    href: "https://github.com/arach/pi-scout",
+    repoHref: "https://github.com/arach/pi-scout",
+    pageHref: "https://arach.github.io/pi-scout/",
     description:
       "pi extension for Scout send, ask, who, and broker-backed coordination from pi sessions.",
     install: "pi install git:github.com/arach/pi-scout",
@@ -1130,12 +1135,8 @@ export default function Home() {
 
                 <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 md:grid-cols-3">
                   {hostIntegrations.map((integration, i) => (
-                    <a
-                      key={integration.href}
-                      href={integration.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={onCtaClick(integration.name, integration.href, "integrations", "repo")}
+                    <div
+                      key={integration.repoHref}
                       className="reveal rfc-block group"
                       style={{ "--reveal-i": i } as React.CSSProperties}
                     >
@@ -1150,7 +1151,29 @@ export default function Home() {
                       <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap font-[family-name:var(--font-geist-mono)] text-[11.5px] text-[var(--site-muted)]">
                         {integration.install}
                       </p>
-                    </a>
+                      <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2">
+                        <a
+                          href={integration.repoHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={onCtaClick(`${integration.name} repo`, integration.repoHref, "integrations", "repo")}
+                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-accent)] transition-colors hover:text-[var(--site-ink)]"
+                        >
+                          <span>Repo</span>
+                          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                        </a>
+                        <a
+                          href={integration.pageHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={onCtaClick(`${integration.name} page`, integration.pageHref, "integrations", "page")}
+                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-accent)] transition-colors hover:text-[var(--site-ink)]"
+                        >
+                          <span>Page</span>
+                          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                        </a>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
