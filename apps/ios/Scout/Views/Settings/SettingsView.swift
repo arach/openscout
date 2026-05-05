@@ -16,11 +16,13 @@ struct SettingsView: View {
     @AppStorage("scout.osn.meshId") private var osnMeshId = MeshRendezvousConfiguration.defaultMeshId
     @State private var showingLogs = false
     @State private var showingOSNDiscovery = false
+    @State private var notificationStatus: PushAuthorizationStatus = .notDetermined
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: ScoutSpacing.xl) {
                 connectionSection
+                notificationsSection
                 networkSection
                 voiceSection
                 appearanceSection
@@ -33,6 +35,14 @@ struct SettingsView: View {
             .padding(.top, ScoutSpacing.xl)
         }
         .background(ScoutColors.backgroundAdaptive)
+        .task {
+            notificationStatus = await PermissionAuthorizations.notificationAuthorizationStatus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                notificationStatus = await PermissionAuthorizations.notificationAuthorizationStatus()
+            }
+        }
         .sheet(isPresented: $showingLogs) {
             NavigationStack {
                 LogView()
@@ -109,6 +119,89 @@ struct SettingsView: View {
                     connection.clearTrustedBridge()
                 }
             }
+        }
+    }
+
+    // MARK: - Notifications
+
+    private var notificationsSection: some View {
+        SettingsSectionCard(title: "Notifications", icon: "bell") {
+            SettingsRow(icon: "circle.fill", iconColor: notificationStatusColor, label: "Status") {
+                Text(notificationStatusLabel)
+                    .foregroundStyle(notificationStatusColor)
+            }
+
+            Divider().padding(.leading, 40)
+
+            SettingsRow(icon: "shippingbox", iconColor: ScoutColors.textMuted, label: "Environment") {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(apnsEnvironmentColor)
+                        .frame(width: 6, height: 6)
+                    Text(APNSEnvironment.current.displayLabel)
+                        .font(ScoutTypography.code(11, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
+                }
+            }
+
+            Divider().padding(.leading, 40)
+
+            if notificationStatus == .notDetermined {
+                SettingsButton(icon: "bell.badge", label: "Allow Notifications", role: .regular) {
+                    Task {
+                        _ = await PermissionAuthorizations.requestNotifications()
+                        notificationStatus = await PermissionAuthorizations.notificationAuthorizationStatus()
+                        await connection.refreshPushRegistration()
+                    }
+                }
+            } else {
+                SettingsButton(icon: "arrow.up.right.square", label: "Open System Settings", role: .regular) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
+        } footer: {
+            notificationFooter
+        }
+    }
+
+    private var apnsEnvironmentColor: Color {
+        switch APNSEnvironment.current {
+        case .development: return ScoutColors.ledAmber
+        case .production:  return ScoutColors.ledGreen
+        }
+    }
+
+    private var notificationStatusLabel: String {
+        switch notificationStatus {
+        case .authorized:    return "Allowed"
+        case .denied:        return "Denied"
+        case .notDetermined: return "Not Set"
+        case .provisional:   return "Quiet Delivery"
+        case .ephemeral:     return "Ephemeral"
+        }
+    }
+
+    private var notificationStatusColor: Color {
+        switch notificationStatus {
+        case .authorized:                return ScoutColors.ledGreen
+        case .provisional, .ephemeral:   return ScoutColors.ledAmber
+        case .denied:                    return ScoutColors.ledRed
+        case .notDetermined:             return ScoutColors.textMuted
+        }
+    }
+
+    private var notificationFooter: String {
+        switch notificationStatus {
+        case .authorized:
+            return "Approvals and inbox alerts arrive as push notifications."
+        case .provisional, .ephemeral:
+            return "Notifications are delivered quietly. Open System Settings to upgrade."
+        case .denied:
+            return "Notifications are off. Open System Settings → Scout → Notifications to enable."
+        case .notDetermined:
+            return "Tap Allow Notifications to receive approvals and alerts when Scout is in the background."
         }
     }
 

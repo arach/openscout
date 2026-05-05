@@ -495,6 +495,23 @@ enum PushAuthorizationStatus: String, Codable, Sendable {
 enum APNSEnvironment: String, Codable, Sendable {
     case development
     case production
+
+    /// The environment this build of Scout will register under, derived from
+    /// the DEBUG compile flag — same source of truth as ConnectionManager.
+    static var current: APNSEnvironment {
+        #if DEBUG
+        return .development
+        #else
+        return .production
+        #endif
+    }
+
+    var displayLabel: String {
+        switch self {
+        case .development: return "Sandbox · Debug"
+        case .production:  return "Production · Release"
+        }
+    }
 }
 
 struct MobileInboxItem: Codable, Identifiable, Sendable {
