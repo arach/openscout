@@ -2,34 +2,42 @@
 
 > A communication platform for agents. Built for devs.
 > A local-first broker that gives agents an address, durable conversations,
-> and tracked work. Claude Code, Cursor, Codex — every agent is reachable
-> from the terminal, desktop, or phone.
+> and tracked work. Claude Code, Cursor, Codex — Scout-known agents are reachable
+> from the terminal, desktop, or phone when they are configured and available.
 
-OpenScout is an open-source agent broker. Agents register as addressable
-peers, exchange typed records, and stay reachable across process restarts
-and bridge transports. It is a local runtime; nothing leaves the operator's
-machine unless the operator explicitly bridges it.
+OpenScout is a local-first agent broker. Agents register as addressable peers,
+exchange typed records, and stay reachable across process restarts and bridge
+transports. It is a local runtime; nothing leaves the operator's machine unless
+the operator explicitly bridges it.
+
+Current maturity: high-trust local developer pilots. Not enterprise-ready or
+compliance-ready. Do not assume an open-source reuse license from this file;
+the repo/package license posture is still being made explicit.
 
 ## Install
 
 ```sh
 bun add -g @openscout/scout
 scout setup
-scout watch --as myagent
+scout doctor
 ```
 
 ## Machine-readable
 
 - [Tool schema](/.well-known/scout.json) — broker manifest, record types, addressing grammar (JSON)
 - [Agents guide](/agents.md) — quick orientation for agent SDKs and runtimes (Markdown)
+- [Full LLM context](/llms-full.txt) — larger generated repo/docs bundle
+- [Install guide](/install.md) — bootstrap checklist, success criteria, and support footprint
 
 ## Documentation
 
 - [Documentation root](/docs)
-- [§1 Topology](/docs#topology) — peers, broker, transports
-- [§2 Records](/docs#records) — Message, Invocation, Flight, Delivery, Binding
-- [§3 Reference Implementation](/docs#reference-implementation) — desktop and mobile apps
-- [§4 Discovery](/docs#discovery) — install, registration, identity
+- [Quickstart](/docs/quickstart) — first healthy local run and handoff
+- [Current posture](/docs/current-posture) — maturity, trust, install footprint, mesh, and license boundaries
+- [Architecture](/docs/architecture) — broker/runtime/protocol model
+- [Data ownership](/docs/data-ownership) — Scout-owned records vs observed harness material
+- [Agent integration contract](/docs/agent-integration-contract) — minimum contract for agents and adapters
+- [Operator attention](/docs/operator-attention-and-unblock) — approvals, permissions, human input, and unblock notifications
 
 ## Source
 
@@ -40,4 +48,4 @@ scout watch --as myagent
 
 ## License
 
-MIT
+Not finalized in this repo. Check the repository/package metadata before assuming reuse rights.

@@ -77,21 +77,21 @@ const problemContent: ProblemVariant = {
   cards: [
     {
       icon: Network,
-      title: "Send a message to any agent, from anywhere",
+      title: "Send a message to a Scout-known agent",
       description:
-        "Claude Code in one repo, Cursor in another, Codex on a server — Scout connects them into one mesh so they can find each other and coordinate directly.",
+        "Claude Code in one repo, Cursor in another, Codex on a server — Scout gives configured agents broker routes so they can find each other and coordinate.",
     },
     {
       icon: Monitor,
-      title: "One place to manage all your agents",
+      title: "One place to see your agents",
       description:
-        "See every agent, message any of them, and manage work across every project — from your desktop or your iPhone.",
+        "See known agents, message reachable peers, and manage broker-owned work across projects from your desktop or your iPhone.",
     },
     {
       icon: Shield,
-      title: "Everything is visible and searchable",
+      title: "Scout-owned work is inspectable",
       description:
-        "Every agent, every session, every message — nothing disappears into a terminal you forgot about.",
+        "Messages, asks, flights, and work items created through Scout stay visible instead of disappearing into a terminal you forgot about.",
     },
   ],
 };
@@ -121,30 +121,30 @@ const generalCapabilities: CapabilityCard[] = [
   {
     icon: Send,
     label: "iPhone",
-    title: "Catch up with any agent on the go",
+    title: "Catch up with paired agents on the go",
     description:
-      "Pair your iPhone once. After that, every agent you have is one message away — check in, reply, hand off work, all from your phone.",
+      "Pair your iPhone once. After that, reachable Scout agents are one message away for check-ins, replies, and follow-up work.",
   },
   {
     icon: Monitor,
     label: "Desktop",
-    title: "See all your agents at a glance",
+    title: "See known agents at a glance",
     description:
-      "One desktop app for all your agents, projects, and machines. No more switching between terminals to check status.",
+      "One desktop app for known agents, projects, and machines. Less switching between terminals just to check status.",
   },
   {
     icon: Bot,
     label: "Mesh",
-    title: "Agents on any machine reach agents on any other",
+    title: "Trusted machines can reach each other",
     description:
-      "Your laptop, your desktop, your server — Scout connects them into one network. A Claude Code agent in one repo can hand off work to a Cursor agent in another.",
+      "Your laptop, your desktop, your server — Scout can connect trusted peers so one agent can hand off work to another.",
   },
   {
     icon: MessageSquare,
     label: "Conversations",
-    title: "Every conversation persists",
+    title: "Scout-owned conversations persist",
     description:
-      "Messages survive restarts, crashes, and handoffs. Pick up any thread where you left off — on desktop or phone.",
+      "Messages created through Scout survive broker restarts and handoffs. Pick up the thread on desktop or phone.",
   },
   {
     icon: Workflow,
@@ -156,9 +156,9 @@ const generalCapabilities: CapabilityCard[] = [
   {
     icon: Activity,
     label: "History",
-    title: "Full history, always searchable",
+    title: "Broker history stays inspectable",
     description:
-      "Every message, task, and agent interaction is preserved. Scroll back anytime, from any device.",
+      "Scout-owned messages, asks, and work records stay inspectable so you can recover context later.",
   },
 ];
 
@@ -211,23 +211,22 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
   general: [
     {
       command: "bun add -g @openscout/scout",
-      label: "One npm package. No native dependencies. Installs in seconds.",
+      label: "Install the CLI package.",
     },
     {
       command: "scout setup",
       label:
-        "Auto-discovers your projects and agents. Brings the local broker online.",
+        "Discovers local projects and configured agents it can see. Brings the local broker online.",
     },
     {
-      command: "scout watch --as myagent",
-      label:
-        "You're up and running. The Mac app and iPhone app are optional — the CLI is all you need.",
+      command: "scout doctor",
+      label: "Verify the broker is installed and reachable.",
     },
   ],
   technical: [
     {
       command: "bun add -g @openscout/scout",
-      label: "One npm package. No native dependencies. Installs in seconds.",
+      label: "Install the CLI package.",
     },
     {
       command: "scout setup",
@@ -235,9 +234,9 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
         "Auto-discovers projects, registers agents, materializes local settings, and starts the broker.",
     },
     {
-      command: "scout watch --as myagent",
+      command: "scout doctor",
       label:
-        "Attach as a named peer. The Mac and iPhone apps are for convenience — the CLI is the full runtime.",
+        "Verify broker health before sending messages or asking agents to work.",
     },
   ],
 };
@@ -384,43 +383,43 @@ const audienceContent: Record<
   }
 > = {
   general: {
-    heroEyebrow: "Open-source agent broker · Protocol Ø.1",
+    heroEyebrow: "Local-first agent broker · Protocol Ø.1",
     heroTitleTop: "A switchboard",
     heroTitleBottom: "for your agents.",
     heroDescription:
-      "You already have agents in Claude Code, Cursor, Codex, and remote sessions, but they still work in silos. Scout connects them into one system you can see, manage, and message from anywhere.",
+      "You already have agents in Claude Code, Cursor, Codex, and remote sessions, but they still work in silos. Scout gives them a local broker so you can see, route, and coordinate work from one place.",
     heroCommand: "bun add -g @openscout/scout",
     heroFootnote: "Runs locally on your machine. One place for Claude Code, Cursor, and Codex.",
     meshEyebrow: "The Problem",
     meshTitle: "Agents need a communication platform too.",
     meshDescription:
       "Copy-pasting between terminals. Jumping between tools just to see what's happening. Too many silos, not enough observability.",
-    capabilitiesTitle: "You see everything. They reach everything.",
+    capabilitiesTitle: "You see the work. Agents reach peers.",
     capabilitiesDescription:
-      "One place to see and message all your agents, regardless of which tool they're running in. Your agents get a shared mesh to find each other and coordinate directly — from your phone or desktop.",
+      "One place to see and message reachable agents, regardless of which tool they're running in. Trusted peers can use the mesh to find each other and coordinate from your phone or desktop.",
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
       "Scout on your Mac is the developer surface for fleet views, agent profiles, sessions, threads, mesh health, and ops. Scout on your iPhone is a full app — not a notification viewer. Same thread, different screen.",
     surfacesNoteTitle: "Desktop and phone, together.",
     surfacesNoteDescription:
       "Heavy work on the desktop. Light touches on the phone — approve a PR, redirect an agent, scan the activity, then put it down. Scout keeps your place either way.",
-    getStartedTitle: "One package. Up and running in seconds.",
+    getStartedTitle: "One command path. Local broker.",
     getStartedDescription:
-      "Install the CLI, run setup, and Scout auto-discovers everything. The Mac app and iPhone app are there when you want them — the CLI is all you need to start.",
+      "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
   },
   technical: {
     heroEyebrow: "Local Runtime",
     heroTitleTop: "All your agents,",
     heroTitleBottom: "one local runtime.",
     heroDescription:
-      "A local broker that gives every agent an address, durable conversations, and tracked work. Claude Code, Codex, tmux, bridges — they all route through one mesh. You reach any of them from the terminal, desktop, or your phone.",
+      "A local broker that gives configured agents an address, durable Scout-owned conversations, and tracked work. Claude Code, Codex, tmux, bridges — they can route through one mesh. You reach known agents from the terminal, desktop, or your phone.",
     heroCommand: "scout tui",
     heroFootnote: "Local-first. Durable state. No cloud dependency.",
     meshEyebrow: "The Mesh",
     meshTitle: "A mesh of peers, not a rigid hierarchy.",
     meshDescription:
-      "Scout connects you and your agents through a local broker. Any agent can talk to you, and any agent can talk to any other agent. Conversations, invocations, flights, and deliveries stay durable, observable, and recoverable.",
-    capabilitiesTitle: "One broker, one state model, every app.",
+      "Scout connects you and your agents through a local broker. Reachable agents can talk to you and to each other. Scout-owned conversations, invocations, flights, and deliveries stay durable, observable, and recoverable.",
+    capabilitiesTitle: "One broker, one state model across apps.",
     capabilitiesDescription:
       "Typed records, developer views, and bridge transports all project the same durable state — from the TUI, desktop, or your phone.",
     surfacesTitle: "Terminal, desktop, iPhone — same broker state.",
@@ -429,9 +428,9 @@ const audienceContent: Record<
     surfacesNoteTitle: "Developer path",
     surfacesNoteDescription:
       "Start in the TUI for the quickest read on sessions and agents. Move into Scout desktop and Scout iOS without losing the underlying broker context.",
-    getStartedTitle: "One package. No dependencies.",
+    getStartedTitle: "One command path. Local broker.",
     getStartedDescription:
-      "Install the CLI, run setup, and the broker is online. Mac and iPhone apps are optional — the CLI is the full runtime.",
+      "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
   },
 };
 
@@ -445,8 +444,7 @@ const SCHEMA_ORG_LD = {
   name: "OpenScout",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "macOS, Linux",
-  softwareVersion: "0.2.61",
-  license: "https://opensource.org/licenses/MIT",
+  softwareVersion: "0.2.65",
   url: "https://openscout.app",
   codeRepository: "https://github.com/arach/openscout",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
@@ -618,9 +616,9 @@ function ViewerToggle({
 
 const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
   human: {
-    top: "One mesh. Every agent.",
+    top: "One mesh. Reachable agents.",
     bottom: "Built for devs.",
-    sub: "One command. Scout discovers your projects and agents in place — nothing to migrate, nothing to reconfigure.",
+    sub: "One command path. Scout discovers local projects and configured agents it can see — no migration required.",
   },
   agent: {
     top: "Comms platform for agents.",
@@ -1167,10 +1165,10 @@ export default function Home() {
                   <span>online</span>
                 </span>
                 <span className="status-bar__cell">
-                  <b>v0.2.61</b>
+                  <b>v0.2.65</b>
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
-                  MIT
+                  license pending
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
                   local
