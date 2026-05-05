@@ -61,8 +61,8 @@
       "tool_call"
     ],
     "streaming": {
-      "text": false,
-      "reasoning": false,
+      "text": true,
+      "reasoning": true,
       "actionOutput": true,
       "actionStatus": true
     },
@@ -123,8 +123,8 @@
     ]
   },
   "limitations": [
-    "The adapter ignores stream_event partial deltas, so assistant text and reasoning are surfaced as completed blocks instead of incremental deltas.",
     "Referenced files are appended to the prompt as plain text notes rather than being sent through a native file attachment channel.",
-    "The adapter does not expose a normalized approval surface and does not implement decide()."
+    "The adapter does not expose a normalized approval surface and does not implement decide().",
+    "Claude-owned ecosystem state is read-only for this adapter: it may inspect Claude sessions, native Agent tool calls, and agent-team config/task topology, but it must not write .claude files, Claude subagent definitions, team config, task lists, or MCP settings."
   ]
 }

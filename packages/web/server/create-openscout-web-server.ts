@@ -474,26 +474,27 @@ function summarizePermissionInput(input: unknown): string | null {
 function permissionSetupHint(detail: string): OperatorAttentionItem | null {
   const normalized = detail.toLowerCase();
   const mentionsPermission = /permission|approval|allow|blocked/.test(normalized);
-  const mentionsScoutTool = /scout ask|mcp__?scout__invocations_ask|mcp.*invocations_ask|allowedtools|allowlist/.test(normalized);
+  const mentionsScoutMcpTool = /mcp__?scout__(invocations_ask|messages_reply)|mcp.*(invocations_ask|messages_reply)/.test(normalized);
+  const mentionsScoutTool = /scout ask|allowedtools|allowlist/.test(normalized) || mentionsScoutMcpTool;
   if (!mentionsPermission || !mentionsScoutTool) {
     return null;
   }
 
-  const needsMcp = /mcp__?scout__invocations_ask|mcp.*invocations_ask/.test(normalized);
-  const command = needsMcp
-    ? "/allow mcp__scout__invocations_ask"
+  const replyTool = /messages_reply/.test(normalized);
+  const command = mentionsScoutMcpTool
+    ? `/allow ${replyTool ? "mcp__scout__messages_reply" : "mcp__scout__invocations_ask"}`
     : `{ "allowedTools": ["Bash(scout ask:*)"] }`;
-  const title = needsMcp
+  const title = mentionsScoutMcpTool
     ? "Claude needs Scout MCP permission"
     : "Claude needs Scout CLI permission";
 
   return {
-    id: `config:${needsMcp ? "mcp-scout-invocations-ask" : "scout-ask-cli"}`,
+    id: `config:${mentionsScoutMcpTool ? `mcp-scout-${replyTool ? "messages-reply" : "invocations-ask"}` : "scout-ask-cli"}`,
     kind: "configuration",
     title,
     summary: compactAttentionSummary(detail),
-    detail: needsMcp
-      ? "Allow the Scout MCP invocation tool in the Claude session so routed asks can be delivered without stalling."
+    detail: mentionsScoutMcpTool
+      ? "Allow the Scout MCP coordination tool in the Claude session so routed asks can be delivered without stalling."
       : "Allow the Scout ask command in the Claude session, or add it to Claude's allowed tools.",
     agentId: null,
     agentName: null,

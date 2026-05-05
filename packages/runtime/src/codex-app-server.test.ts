@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
+import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "@openscout/agent-sessions";
 import {
   buildCodexAppServerSessionSnapshot,
   ensureCodexAppServerAgentOnline,
@@ -533,6 +534,63 @@ describe("buildCodexAppServerSessionSnapshot", () => {
       expect(snapshot.turns[0].blocks[1].block.action.toolName).toBe("webSearch");
       expect(snapshot.turns[0].blocks[1].block.action.output).toContain("latest traces");
     }
+  });
+
+  test("projects observed Codex subagent topology from app-server history", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-snapshot-topology-"));
+    tempPaths.add(tempRoot);
+
+    const raw = [
+      JSON.stringify({
+        id: "2",
+        result: {
+          thread: {
+            id: "thread-parent",
+            path: "/tmp/thread-parent.jsonl",
+            cwd: tempRoot,
+          },
+        },
+      }),
+      JSON.stringify({
+        method: "item/started",
+        params: {
+          threadId: "thread-parent",
+          turnId: "turn-1",
+          item: {
+            type: "collabToolCall",
+            id: "collab-1",
+            tool: "spawn_agent",
+            senderThreadId: "thread-parent",
+            receiverThreadId: "thread-child",
+            prompt: "Check the database migration.",
+            agentStatus: "inProgress",
+          },
+        },
+      }),
+    ].join("\n");
+
+    const snapshot = buildCodexAppServerSessionSnapshot(raw, {
+      agentName: "codex-parent",
+      sessionId: "relay-codex-parent",
+      cwd: tempRoot,
+    }, "thread-parent");
+
+    const topology = snapshot?.session.providerMeta?.[OBSERVED_HARNESS_TOPOLOGY_META_KEY] as Record<string, unknown> | undefined;
+    expect(topology).toEqual(expect.objectContaining({
+      ownership: "harness_observed",
+      source: "codex-subagents",
+      agents: expect.arrayContaining([
+        expect.objectContaining({ id: "codex-thread-agent:thread-parent", role: "lead" }),
+        expect.objectContaining({ id: "codex-thread-agent:thread-child", role: "subagent" }),
+      ]),
+      tasks: expect.arrayContaining([
+        expect.objectContaining({
+          id: "codex-task:collab-1",
+          title: "Check the database migration.",
+          assigneeId: "codex-thread-agent:thread-child",
+        }),
+      ]),
+    }));
   });
 
   test("ignores item events without a thread id once the target thread is known", () => {

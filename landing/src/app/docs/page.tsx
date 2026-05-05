@@ -108,6 +108,7 @@ export default function DocsIndex() {
             {[
               { href: "/llms.txt", label: "llms.txt", body: "Compact LLM index" },
               { href: "/llms-full.txt", label: "llms-full.txt", body: "Full context bundle" },
+              { href: "/nav.json", label: "nav.json", body: "Docs graph" },
               { href: "/agents.md", label: "agents.md", body: "Agent instructions" },
               { href: "/install.md", label: "install.md", body: "Bootstrap checklist" },
             ].map((item) => (

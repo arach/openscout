@@ -3,7 +3,10 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { PairingEvent } from "./protocol/primitives.ts";
+import {
+  OBSERVED_HARNESS_TOPOLOGY_META_KEY,
+  type PairingEvent,
+} from "./protocol/primitives.ts";
 import { createAdapter } from "./adapters/codex.ts";
 
 const tempPaths = new Set<string>();
@@ -255,6 +258,116 @@ for await (const line of rl) {
     expect(methods).toContain("turn/steer");
     expect(turnStarts).toHaveLength(1);
     expect(deltas).toBe("steered reply");
+
+    await adapter.shutdown();
+  });
+
+  test("attaches observed Codex subagent topology to session metadata", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-adapter-topology-"));
+    tempPaths.add(tempRoot);
+
+    process.env.OPENSCOUT_CODEX_BIN = writeFakeCodexExecutable(tempRoot, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  if (method === "thread/resume") {
+    const threadId = String(params.threadId ?? "thread-unknown");
+    const thread = { id: threadId, path: \`/tmp/\${threadId}.jsonl\`, cwd: params.cwd, name: "Codex Topology" };
+    console.log(JSON.stringify({ id, result: { thread } }));
+    console.log(JSON.stringify({ method: "thread/started", params: { thread } }));
+    continue;
+  }
+
+  if (method === "turn/start") {
+    const threadId = String(params.threadId ?? "thread-unknown");
+    console.log(JSON.stringify({ id, result: { turn: { id: "turn-1" } } }));
+    console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: "turn-1", status: "inProgress" } } }));
+    console.log(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId,
+        turnId: "turn-1",
+        item: {
+          type: "collabToolCall",
+          id: "collab-1",
+          tool: "spawn_agent",
+          senderThreadId: threadId,
+          receiverThreadId: "thread-child-1",
+          prompt: "Review the risky path.",
+          agentStatus: "inProgress"
+        }
+      }
+    }));
+    console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId: "turn-1", item: { type: "agentMessage", id: "msg-1", text: "done" } } }));
+    console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: "turn-1", status: "completed", error: null } } }));
+    continue;
+  }
+
+  console.log(JSON.stringify({ id, result: {} }));
+}
+`);
+
+    const sessionId = `codex-test-${crypto.randomUUID()}`;
+    pairingSessionIds.add(sessionId);
+
+    const adapter = createAdapter({
+      sessionId,
+      name: "Codex Topology",
+      cwd: tempRoot,
+      options: {
+        threadId: "thread-parent-1",
+        requireExistingThread: true,
+      },
+    });
+
+    const collector = createEventCollector();
+    adapter.on("event", (event) => collector.push(event));
+
+    await adapter.start();
+    adapter.send({ sessionId, text: "delegate" });
+
+    await collector.waitFor((events) => events.some((event) =>
+      event.event === "session:update"
+      && Boolean(event.session.providerMeta?.[OBSERVED_HARNESS_TOPOLOGY_META_KEY])
+    ));
+
+    const update = [...collector.events].reverse().find((event) =>
+      event.event === "session:update"
+      && Boolean(event.session.providerMeta?.[OBSERVED_HARNESS_TOPOLOGY_META_KEY])
+    );
+    const topology = update?.event === "session:update"
+      ? update.session.providerMeta?.[OBSERVED_HARNESS_TOPOLOGY_META_KEY]
+      : null;
+
+    expect(topology).toEqual(expect.objectContaining({
+      ownership: "harness_observed",
+      source: "codex-subagents",
+      agents: expect.arrayContaining([
+        expect.objectContaining({ id: "codex-thread-agent:thread-parent-1", role: "lead" }),
+        expect.objectContaining({ id: "codex-thread-agent:thread-child-1", role: "subagent" }),
+      ]),
+      tasks: expect.arrayContaining([
+        expect.objectContaining({
+          id: "codex-task:collab-1",
+          title: "Review the risky path.",
+          assigneeId: "codex-thread-agent:thread-child-1",
+        }),
+      ]),
+    }));
 
     await adapter.shutdown();
   });

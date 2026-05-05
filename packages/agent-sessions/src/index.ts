@@ -30,7 +30,19 @@ export type {
   SupportedHistoryAdapterType,
 } from "./history.js";
 export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code.js";
+export {
+  readClaudeAgentTeamTopology,
+} from "./adapters/claude-code/team-topology.js";
+export type {
+  ClaudeAgentTeamTopologyOptions,
+} from "./adapters/claude-code/team-topology.js";
 export { createAdapter as createCodexAdapter } from "./adapters/codex.js";
+export {
+  CodexObservedTopologyTracker,
+} from "./adapters/codex/topology.js";
+export type {
+  CodexObservedTopologyOptions,
+} from "./adapters/codex/topology.js";
 export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat.js";
 export { createAdapter as createOpencodeAdapter } from "./adapters/opencode.js";
 export { createAdapter as createPiAdapter } from "./adapters/pi.js";

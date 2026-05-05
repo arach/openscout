@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import GithubSlugger from "github-slugger";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ArrowRightIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowRightIcon, Bot, Check, Clipboard, FileText } from "lucide-react";
 import { MarkdownContent } from "@arach/dewey";
 import { MDXRemote } from "next-mdx-remote";
 import type { MDXRemoteSerializeResult } from "next-mdx-remote";
@@ -24,6 +24,8 @@ type Heading = {
   depth: 2 | 3;
 };
 
+type CopyAction = "markdown" | "prompt";
+
 function readSiteTheme() {
   if (typeof document === "undefined") {
     return "light" as const;
@@ -36,6 +38,38 @@ function readSiteTheme() {
 
 function stripLeadHeading(content: string) {
   return content.replace(/^\s*#\s+.+\n+/, "");
+}
+
+function buildAgentPrompt({
+  title,
+  description,
+  sourcePath,
+  sourceUrl,
+  rawUrl,
+  content,
+}: {
+  title: string;
+  description: string;
+  sourcePath: string;
+  sourceUrl: string;
+  rawUrl: string;
+  content: string;
+}) {
+  return [
+    "You are working with OpenScout documentation.",
+    "",
+    `Page: ${title}`,
+    `Summary: ${description}`,
+    `Source path: ${sourcePath}`,
+    `GitHub source: ${sourceUrl}`,
+    `Raw Markdown: ${rawUrl}`,
+    "",
+    "Use the Markdown below as source context. Preserve the documented maturity/trust posture, do not infer enterprise readiness, and treat Scout-owned coordination records as distinct from observed harness transcripts.",
+    "",
+    "<openscout-doc>",
+    content.trim(),
+    "</openscout-doc>",
+  ].join("\n");
 }
 
 function cleanHeadingText(text: string) {
@@ -175,6 +209,36 @@ function formatDiagramLabel(src: string) {
   return DIAGRAM_CODES[src] ?? `SCOUT-${src.toUpperCase().replace(/-/g, "")}`;
 }
 
+function AgentPaths({ rawUrl }: { rawUrl: string }) {
+  const links = [
+    { href: "/agents.md", label: "agents.md" },
+    { href: "/llms.txt", label: "llms.txt" },
+    { href: "/llms-full.txt", label: "llms-full.txt" },
+    { href: "/nav.json", label: "nav.json" },
+    { href: "/install.md", label: "install.md" },
+    { href: rawUrl, label: "this page.md" },
+  ];
+
+  return (
+    <div className="mt-6 border-t border-[var(--site-border-soft)] pt-4">
+      <p className="mb-2 px-3 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+        Agent Paths
+      </p>
+      <div className="space-y-0.5">
+        {links.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            className="block rounded-xl px-3 py-2 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:bg-[var(--site-panel)] hover:text-[var(--site-ink)]"
+          >
+            {link.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ArcDiagramEmbed({ src, mode = "light" }: { src: string; mode?: "light" | "dark" }) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -225,6 +289,9 @@ export function DocView({
   title,
   description,
   content,
+  sourcePath,
+  sourceUrl,
+  rawUrl,
   mdxSource,
   navigation,
   slug,
@@ -234,6 +301,9 @@ export function DocView({
   title: string;
   description: string;
   content: string;
+  sourcePath: string;
+  sourceUrl: string;
+  rawUrl: string;
   mdxSource?: MDXRemoteSerializeResult;
   navigation: NavGroup[];
   slug: string;
@@ -252,6 +322,30 @@ export function DocView({
   const [activeId, setActiveId] = useState<string>("");
   const [scrollProgress, setScrollProgress] = useState(0);
   const [siteTheme, setSiteTheme] = useState<"light" | "dark">("light");
+  const [copiedAction, setCopiedAction] = useState<CopyAction | null>(null);
+
+  async function writeClipboard(value: string) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  }
+
+  async function copyText(action: CopyAction, value: string) {
+    await writeClipboard(value);
+    setCopiedAction(action);
+    window.setTimeout(() => setCopiedAction(null), 1400);
+  }
 
   useEffect(() => {
     if (headings.length === 0) return;
@@ -361,6 +455,7 @@ export function DocView({
                   </section>
                 ))}
               </div>
+              <AgentPaths rawUrl={rawUrl} />
             </div>
           </aside>
 
@@ -397,22 +492,53 @@ export function DocView({
                     </div>
                   </section>
                 ))}
+                <AgentPaths rawUrl={rawUrl} />
               </div>
             </details>
           </div>
 
           {/* Article — content region, not a card */}
           <article className="px-6 sm:px-10 lg:px-14 pt-6 pb-24">
-            <div className="max-w-3xl">
-              <h1
-                className="font-[family-name:var(--font-spectral)] font-semibold text-[var(--site-ink)]"
-                style={{ fontSize: "clamp(1.75rem, 2.8vw, 2.25rem)", lineHeight: 1.12, letterSpacing: "-0.015em" }}
-              >
-                {title}
-              </h1>
-              <p className="mt-3 max-w-2xl font-[family-name:var(--font-mono-display)] text-[13.5px] leading-relaxed text-[var(--site-copy)]">
-                {description}
-              </p>
+            <div className="flex max-w-4xl flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div className="max-w-3xl">
+                <h1
+                  className="font-[family-name:var(--font-spectral)] font-semibold text-[var(--site-ink)]"
+                  style={{ fontSize: "clamp(1.75rem, 2.8vw, 2.25rem)", lineHeight: 1.12, letterSpacing: "-0.015em" }}
+                >
+                  {title}
+                </h1>
+                <p className="mt-3 max-w-2xl font-[family-name:var(--font-mono-display)] text-[13.5px] leading-relaxed text-[var(--site-copy)]">
+                  {description}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => copyText("markdown", content)}
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--site-border)] bg-[var(--site-surface)] px-3 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:border-[var(--site-border-strong)] hover:bg-[var(--site-surface-strong)] hover:text-[var(--site-ink)]"
+                  title="Copy this page as Markdown"
+                >
+                  {copiedAction === "markdown" ? <Check className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />}
+                  <span>{copiedAction === "markdown" ? "Copied" : "Copy MD"}</span>
+                </button>
+                <a
+                  href={rawUrl}
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--site-border)] bg-[var(--site-surface)] px-3 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:border-[var(--site-border-strong)] hover:bg-[var(--site-surface-strong)] hover:text-[var(--site-ink)]"
+                  title={`View ${sourcePath}`}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  <span>View MD</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copyText("prompt", buildAgentPrompt({ title, description, sourcePath, sourceUrl, rawUrl, content }))}
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--site-border)] bg-[var(--site-surface)] px-3 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:border-[var(--site-border-strong)] hover:bg-[var(--site-surface-strong)] hover:text-[var(--site-ink)]"
+                  title="Copy an agent-ready prompt for this page"
+                >
+                  {copiedAction === "prompt" ? <Check className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+                  <span>{copiedAction === "prompt" ? "Copied" : "Prompt"}</span>
+                </button>
+              </div>
             </div>
 
             {/* Inline ToC for small screens */}

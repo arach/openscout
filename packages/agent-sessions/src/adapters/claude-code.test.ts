@@ -9,7 +9,10 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { PairingEvent } from "../protocol/primitives.ts";
+import {
+  OBSERVED_HARNESS_TOPOLOGY_META_KEY,
+  type PairingEvent,
+} from "../protocol/primitives.ts";
 import { createAdapter } from "./claude-code.ts";
 
 const tempPaths = new Set<string>();
@@ -157,7 +160,7 @@ for await (const line of rl) {
     const adapter = createAdapter({
       sessionId: `claude-test-${crypto.randomUUID()}`,
       name: "Claude Stream Test",
-      cwd: "/Users/arach/dev/openscout",
+      cwd: tempRoot,
       env: {
         PATH: process.env.PATH,
       },
@@ -183,6 +186,84 @@ for await (const line of rl) {
     expect(textStart).toBeDefined();
     expect(deltas).toBe("hello world");
     expect(turnEnd).toEqual(expect.objectContaining({ event: "turn:end", status: "completed" }));
+
+    await adapter.shutdown();
+  });
+
+  test("attaches observed Claude agent-team topology to session metadata", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-topology-"));
+    const tempHome = mkdtempSync(join(tmpdir(), "openscout-claude-home-"));
+    tempPaths.add(tempRoot);
+    tempPaths.add(tempHome);
+
+    const teamDir = join(tempHome, ".claude", "teams", "review-team");
+    mkdirSync(teamDir, { recursive: true });
+    writeFileSync(join(teamDir, "config.json"), JSON.stringify({
+      name: "review-team",
+      cwd: tempRoot,
+      lead: {
+        sessionId: "lead-session-topology",
+      },
+      members: [
+        {
+          name: "Coverage",
+          agentId: "coverage-1",
+          agentType: "test-reviewer",
+        },
+      ],
+    }), "utf8");
+
+    writeFakeClaudeExecutable(tempRoot, `#!/usr/bin/env bun
+console.log(JSON.stringify({
+  type: "system",
+  subtype: "init",
+  session_id: "lead-session-topology",
+  cwd: ${JSON.stringify(tempRoot)},
+  model: "claude-test",
+}));
+await new Promise(() => {});
+`);
+
+    process.env.HOME = tempHome;
+    process.env.PATH = `${tempRoot}:${originalPath ?? ""}`;
+
+    const adapter = createAdapter({
+      sessionId: `claude-test-${crypto.randomUUID()}`,
+      name: "Claude Topology Test",
+      cwd: tempRoot,
+      env: {
+        HOME: tempHome,
+        PATH: process.env.PATH,
+      },
+    });
+
+    const collector = createEventCollector();
+    adapter.on("event", (event) => collector.push(event));
+
+    await adapter.start();
+    await collector.waitFor((events) =>
+      events.some((event) =>
+        event.event === "session:update"
+        && Boolean(event.session.providerMeta?.[OBSERVED_HARNESS_TOPOLOGY_META_KEY])
+      ));
+
+    const update = [...collector.events].reverse().find((event) =>
+      event.event === "session:update"
+      && Boolean(event.session.providerMeta?.[OBSERVED_HARNESS_TOPOLOGY_META_KEY])
+    );
+    const topology = update?.event === "session:update"
+      ? update.session.providerMeta?.[OBSERVED_HARNESS_TOPOLOGY_META_KEY]
+      : null;
+
+    expect(topology).toEqual(expect.objectContaining({
+      ownership: "harness_observed",
+      source: "claude-code-agent-teams",
+      groups: [expect.objectContaining({ name: "review-team" })],
+      agents: expect.arrayContaining([
+        expect.objectContaining({ role: "lead", externalSessionId: "lead-session-topology" }),
+        expect.objectContaining({ name: "Coverage", type: "test-reviewer" }),
+      ]),
+    }));
 
     await adapter.shutdown();
   });

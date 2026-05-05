@@ -3159,6 +3159,29 @@ async function postInvocationStatusMessage(
   });
 }
 
+function existingBrokerReplyForInvocation(
+  invocation: InvocationRequest,
+  agentId: string,
+  sinceMs: number,
+): MessageRecord | null {
+  if (!invocation.conversationId || !invocation.messageId) {
+    return null;
+  }
+
+  const since = Math.max(0, sinceMs - 5_000);
+  const replies = Object.values(runtime.peek().messages)
+    .filter((message) =>
+      message.conversationId === invocation.conversationId
+      && message.replyToMessageId === invocation.messageId
+      && message.actorId === agentId
+      && message.class === "agent"
+      && message.createdAt >= since
+    )
+    .sort((lhs, rhs) => rhs.createdAt - lhs.createdAt);
+
+  return replies[0] ?? null;
+}
+
 function activeLocalEndpointForAgent(agentId: string, harness?: AgentEndpoint["harness"]): AgentEndpoint | undefined {
   const candidates = runtime.endpointsForAgent(agentId, {
     nodeId,
@@ -3327,12 +3350,18 @@ async function executeLocalInvocation(
     const result = endpoint.transport === "pairing_bridge"
       ? await invokePairingSessionEndpoint(runningEndpoint, invocation)
       : await invokeLocalAgentEndpoint(runningEndpoint, invocation);
+    const postedReply = existingBrokerReplyForInvocation(
+      invocation,
+      agent.id,
+      runningFlight.startedAt ?? Date.now(),
+    );
+    const output = postedReply?.body || result.output;
 
     const completedFlight = {
       ...runningFlight,
       state: "completed" as const,
       summary: `${agent.displayName} replied.`,
-      output: result.output,
+      output,
       completedAt: Date.now(),
     };
     await persistFlight(completedFlight);
@@ -3346,7 +3375,7 @@ async function executeLocalInvocation(
       },
     });
 
-    if (invocation.conversationId) {
+    if (invocation.conversationId && !postedReply) {
       const conversation = runtime.conversation(invocation.conversationId);
       if (conversation) {
         await postConversationMessage({
@@ -3355,7 +3384,7 @@ async function executeLocalInvocation(
           actorId: agent.id,
           originNodeId: nodeId,
           class: "agent",
-          body: result.output,
+          body: output,
           replyToMessageId: invocation.messageId,
           audience: {
             notify: [invocation.requesterId],

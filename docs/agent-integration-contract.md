@@ -119,7 +119,10 @@ Scout-owned records are coordination facts: messages, invocations, flights, deli
 
 Integrations may link to, tail, summarize, or index lightweight metadata from harness logs. They should not make Scout's control-plane database the canonical transcript warehouse for every external turn.
 
+Adapters must not write into a harness-owned ecosystem. For Claude Code, that means `.claude` project state, subagent definitions, agent-team config, task files, and MCP settings are read-only observation surfaces for adapters. Scout can inspect those surfaces to model reachability and topology when the harness makes them available, but it must not author or repair them on Claude's behalf. Host setup commands that intentionally install Scout into a harness are separate, explicit operator actions, never adapter runtime behavior.
+
 Read [`data-ownership.md`](./data-ownership.md).
+Read [`eng/harness-topology-observation.md`](./eng/harness-topology-observation.md) for the shared observed-topology shape.
 
 ## Mesh Expectations
 

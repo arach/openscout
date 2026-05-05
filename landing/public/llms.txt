@@ -27,6 +27,7 @@ scout doctor
 - [Tool schema](/.well-known/scout.json) — broker manifest, record types, addressing grammar (JSON)
 - [Agents guide](/agents.md) — quick orientation for agent SDKs and runtimes (Markdown)
 - [Full LLM context](/llms-full.txt) — larger generated repo/docs bundle
+- [Docs navigation](/nav.json) — machine-readable docs graph
 - [Install guide](/install.md) — bootstrap checklist, success criteria, and support footprint
 
 ## Documentation

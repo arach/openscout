@@ -5,6 +5,8 @@ import { delimiter, join } from "node:path";
 
 import {
   buildScoutMcpCodexLaunchArgs,
+  CodexObservedTopologyTracker,
+  OBSERVED_HARNESS_TOPOLOGY_META_KEY,
   type ActionBlock,
   type BlockState,
   type ReasoningBlock,
@@ -951,6 +953,11 @@ export function buildCodexAppServerSessionSnapshot(
 
   const turnsById = new Map<string, TurnState & { nextBlockIndex: number }>();
   const blocksById = new Map<string, BlockState>();
+  const topologyTracker = new CodexObservedTopologyTracker({
+    cwd: options.cwd,
+    threadId: resolvedThreadId,
+    sessionName: options.agentName,
+  });
 
   const ensureTurn = (turnId: string) => {
     const existing = turnsById.get(turnId);
@@ -1023,8 +1030,14 @@ export function buildCodexAppServerSessionSnapshot(
     if (typeof resultThread?.cwd === "string") {
       snapshot.session.cwd = resultThread.cwd;
     }
+    if (resultThread) {
+      topologyTracker.updateThread(resultThread);
+    }
 
     if (message.method === "thread/started" || message.method === "thread/name/updated") {
+      if (paramsThread) {
+        topologyTracker.updateThread(paramsThread);
+      }
       if (typeof paramsThread?.path === "string") {
         snapshot.session.providerMeta = {
           ...(snapshot.session.providerMeta ?? {}),
@@ -1063,6 +1076,7 @@ export function buildCodexAppServerSessionSnapshot(
       if (!turnId || !item || !itemId || !itemType) {
         continue;
       }
+      topologyTracker.observeItem(item, "started");
 
       const turn = ensureTurn(turnId);
       if (itemType === "userMessage") {
@@ -1140,6 +1154,7 @@ export function buildCodexAppServerSessionSnapshot(
       if (!turnId || !item || !itemId || !itemType) {
         continue;
       }
+      topologyTracker.observeItem(item, "completed");
 
       if (itemType === "userMessage") {
         const turn = ensureTurn(turnId);
@@ -1254,6 +1269,14 @@ export function buildCodexAppServerSessionSnapshot(
 
   if (!resolvedThreadId && snapshot.turns.length === 0) {
     return null;
+  }
+
+  const topology = topologyTracker.toTopology();
+  if (topology) {
+    snapshot.session.providerMeta = {
+      ...(snapshot.session.providerMeta ?? {}),
+      [OBSERVED_HARNESS_TOPOLOGY_META_KEY]: topology,
+    };
   }
 
   return snapshot;
