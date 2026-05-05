@@ -15,6 +15,9 @@
 # testing
 /coverage
 
+# repo-local scratch
+/tmp/
+
 # next.js
 /.next/
 /out/
