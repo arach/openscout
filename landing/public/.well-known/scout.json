@@ -1,0 +1,128 @@
+{
+  "kind": "openscout.manifest",
+  "version": "0.1",
+  "status": "experimental",
+  "mediaType": "application/openscout-manifest+json",
+  "origin": "https://openscout.app",
+  "summary": "OpenScout is a local-first broker for discovering, addressing, observing, and coordinating AI agents.",
+  "posture": {
+    "maturity": "high-trust local developer pilots",
+    "notReadyFor": [
+      "enterprise deployment",
+      "compliance claims",
+      "hardened multi-tenant runtime",
+      "guaranteed distributed delivery"
+    ],
+    "license": "not finalized; check repository and package metadata before assuming reuse rights"
+  },
+  "broker": {
+    "role": "canonical writer for Scout-owned coordination records",
+    "defaultLocalUrl": "http://127.0.0.1:65535",
+    "environment": {
+      "brokerUrl": "OPENSCOUT_BROKER_URL",
+      "brokerHost": "OPENSCOUT_BROKER_HOST",
+      "brokerPort": "OPENSCOUT_BROKER_PORT"
+    },
+    "capabilities": [
+      "agent_registration",
+      "messages",
+      "invocations",
+      "flights",
+      "deliveries",
+      "bindings",
+      "questions",
+      "work_items",
+      "mesh_forwarding",
+      "sse_events"
+    ],
+    "transports": [
+      "local_http",
+      "local_sse",
+      "mesh_http",
+      "mcp"
+    ]
+  },
+  "records": [
+    {
+      "type": "agent",
+      "description": "Addressable agent identity and reachable endpoint metadata."
+    },
+    {
+      "type": "message",
+      "description": "Durable conversation record for tell/update communication."
+    },
+    {
+      "type": "invocation",
+      "description": "Explicit request for owned work or a requested reply."
+    },
+    {
+      "type": "flight",
+      "description": "Tracked execution lifecycle for an invocation."
+    },
+    {
+      "type": "delivery",
+      "description": "Transport-specific routing and fan-out plan."
+    },
+    {
+      "type": "binding",
+      "description": "Mapping between Scout conversations and external threads, channels, or harness contexts."
+    },
+    {
+      "type": "question",
+      "description": "Lightweight information-seeking collaboration record."
+    },
+    {
+      "type": "work_item",
+      "description": "Durable owned execution record with progress, waiting, review, and done states."
+    }
+  ],
+  "addressing": {
+    "canonicalPattern": "@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.model:<model>][.node:<node>]",
+    "shorthand": {
+      "#<harness>": "harness:<harness>",
+      "?<model>": "model:<model>"
+    },
+    "routingRules": [
+      "one explicit target means a direct message",
+      "group coordination requires an explicit channel",
+      "shared broadcast is opt-in",
+      "message body text is payload, not routing metadata"
+    ]
+  },
+  "mcp": {
+    "preferredTools": [
+      "whoami",
+      "agents_resolve",
+      "messages_send",
+      "invocations_ask",
+      "invocations_get",
+      "invocations_wait",
+      "work_update"
+    ],
+    "replyModes": [
+      "inline",
+      "notify",
+      "none"
+    ]
+  },
+  "links": {
+    "install": "https://openscout.app/install.md",
+    "agentsGuide": "https://openscout.app/agents.md",
+    "llms": "https://openscout.app/llms.txt",
+    "fullContext": "https://openscout.app/llms-full.txt",
+    "docs": "https://openscout.app/docs",
+    "architecture": "https://openscout.app/docs/architecture",
+    "agentIdentity": "https://openscout.app/docs/agent-identity",
+    "agentIntegrationContract": "https://openscout.app/docs/agent-integration-contract",
+    "dataOwnership": "https://openscout.app/docs/data-ownership",
+    "operatorAttention": "https://openscout.app/docs/operator-attention-and-unblock",
+    "repository": "https://github.com/arach/openscout"
+  },
+  "install": {
+    "command": "bun add -g @openscout/scout",
+    "nextSteps": [
+      "scout setup",
+      "scout doctor"
+    ]
+  }
+}

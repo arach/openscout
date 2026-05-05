@@ -94,6 +94,8 @@ apps/ios/build/
 !.agents/
 !.agents/plugins/
 !.agents/plugins/marketplace.json
+!landing/public/.well-known/
+!landing/public/.well-known/scout.json
 
 # tracked env examples
 !landing/.env.example
