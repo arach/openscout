@@ -35,7 +35,7 @@ import {
   getScoutMobileSessionSnapshot,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
-import { syncMobilePushRegistration } from "@openscout/runtime/mobile-push";
+import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-push";
 import {
   conversationIdForAgent,
   queryMobileAgentDetail,
@@ -691,7 +691,7 @@ const mobileRouter = t.router({
       deviceModel: z.string().nullable().optional(),
       systemVersion: z.string().nullable().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       if (!ctx.deviceId) {
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -699,7 +699,7 @@ const mobileRouter = t.router({
         });
       }
 
-      return syncMobilePushRegistration({
+      return syncMobilePushRegistrationWithRelay({
         deviceId: ctx.deviceId,
         platform: "ios",
         appBundleId: input.appBundleId,

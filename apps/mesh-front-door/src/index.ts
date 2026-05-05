@@ -7,6 +7,7 @@ import {
 } from "./rendezvous.js";
 import { handleOpenScoutAuthRequest } from "./auth.js";
 import { handleMeshMembershipRequest, type D1Database } from "./memberships.js";
+import { handleOpenScoutPushRelayRequest, type OpenScoutPushRelayEnv } from "./push-relay.js";
 import type { OpenScoutMeshPresenceRecord } from "@openscout/protocol";
 
 interface DurableObjectNamespace {
@@ -31,7 +32,7 @@ interface DurableObjectStorage {
   delete(key: string): Promise<boolean>;
 }
 
-export interface Env extends MeshFrontDoorEnv {
+export interface Env extends MeshFrontDoorEnv, OpenScoutPushRelayEnv {
   MESH_DIRECTORY: DurableObjectNamespace;
   OSN_DB?: D1Database;
 }
@@ -48,6 +49,9 @@ export default {
 
     const authResponse = await handleOpenScoutAuthRequest(request, env);
     if (authResponse) return authResponse;
+
+    const pushRelayResponse = await handleOpenScoutPushRelayRequest(request, env);
+    if (pushRelayResponse) return pushRelayResponse;
 
     const auth = await resolveMeshFrontDoorAuth(request, env);
     if (!auth) {
