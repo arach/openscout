@@ -50,6 +50,7 @@
     "cloud:start": "cd apps/cloud && bun run start",
     "landing:build": "cd landing && bun install && bun run build",
     "landing:dev": "cd landing && bun install && bun run dev",
+    "docs:agent": "bun scripts/generate-agent-docs.mjs",
     "macos:build": "bun ./apps/macos/bin/openscout-menu.ts build",
     "macos:launch": "bun ./apps/macos/bin/openscout-menu.ts launch",
     "macos:restart": "bun ./apps/macos/bin/openscout-menu.ts restart",

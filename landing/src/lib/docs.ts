@@ -22,17 +22,22 @@ const GITHUB_BLOB_BASE_URL = "https://github.com/arach/openscout/blob/main";
 type GroupDef = { group: string; order: number; title: string; description: string };
 
 const CATALOG: Record<string, GroupDef> = {
-  "architecture":                           { group: "Core Concepts",       order: 0,  title: "Architecture",                description: "Local-first protocol and runtime for orchestrating agents across harnesses and machines." },
-  "agent-identity":                        { group: "Core Concepts",       order: 1,  title: "Agent Identity",              description: "How agents are named, addressed, and resolved across machines and harnesses." },
-  "collaboration-workflows-v1":            { group: "Core Concepts",       order: 2,  title: "Collaboration Workflows",     description: "Questions and work items — two kinds of collaboration with distinct lifecycles." },
-  "01-harness-catalog-and-onboarding":     { group: "OpenAgents Tracks",   order: 10, title: "Track 01: Harness Catalog",   description: "Declarative catalog with readiness, install, and configure states." },
-  "02-collaboration-contract":             { group: "OpenAgents Tracks",   order: 11, title: "Track 02: Collaboration Contract", description: "Stable broker-owned contract every harness must obey." },
-  "03-shared-resources":                   { group: "OpenAgents Tracks",   order: 12, title: "Track 03: Shared Resources",  description: "Broker-owned resources that agents and humans share safely." },
-  "04-capability-aware-shell-and-surfaces":{ group: "OpenAgents Tracks",   order: 13, title: "Track 04: Capability-Aware Surfaces", description: "Surfaces that explain what the system can do." },
-  "activity-indexing":                     { group: "Implementation",      order: 20, title: "Activity Indexing",           description: "Fast broker-native activity projection backed by SQLite." },
-  "codex-app-server-harness":              { group: "Implementation",      order: 21, title: "Codex App Server Harness",    description: "Persistent session plane for Codex via app-server JSON-RPC." },
-  "telegram-bridge-ownership":             { group: "Implementation",      order: 22, title: "Telegram Bridge Ownership",   description: "Singleton polling fix using mesh-elected bridge owner." },
-  "native-runtime":                        { group: "Implementation",      order: 23, title: "Native Runtime",              description: "Historical context on the native shell scaffold." },
+  "quickstart":                            { group: "Core Concepts",       order: 0,  title: "Quickstart",                  description: "The shortest path from install to a first healthy local Scout handoff." },
+  "current-posture":                       { group: "Core Concepts",       order: 1,  title: "Status & Scope",              description: "Maturity, trust, install footprint, mesh, and license-status boundaries." },
+  "architecture":                          { group: "Core Concepts",       order: 2,  title: "Architecture",                description: "Local-first protocol and runtime for orchestrating agents across harnesses and machines." },
+  "data-ownership":                        { group: "Core Concepts",       order: 3,  title: "Data Ownership",              description: "What Scout owns, observes, and intentionally does not import." },
+  "agent-identity":                        { group: "Core Concepts",       order: 4,  title: "Agent Identity",              description: "How agents are named, addressed, and resolved across machines and harnesses." },
+  "agent-integration-contract":            { group: "Core Concepts",       order: 5,  title: "Integrating Agents",          description: "The minimum v0 contract expected from agents, runtimes, and adapters." },
+  "collaboration-workflows-v1":            { group: "Core Concepts",       order: 6,  title: "Collaboration Workflows",     description: "Questions and work items — two kinds of collaboration with distinct lifecycles." },
+  "operator-attention-and-unblock":        { group: "Core Concepts",       order: 7,  title: "Operator Attention",          description: "Human input, approvals, permissions, and unblock notifications across surfaces." },
+  "01-harness-catalog-and-onboarding":     { group: "OpenAgents Tracks",   order: 20, title: "Track 01: Harness Catalog",   description: "Declarative catalog with readiness, install, and configure states." },
+  "02-collaboration-contract":             { group: "OpenAgents Tracks",   order: 21, title: "Track 02: Collaboration Contract", description: "Stable broker-owned contract every harness must obey." },
+  "03-shared-resources":                   { group: "OpenAgents Tracks",   order: 22, title: "Track 03: Shared Resources",  description: "Broker-owned resources that agents and humans share safely." },
+  "04-capability-aware-shell-and-surfaces":{ group: "OpenAgents Tracks",   order: 23, title: "Track 04: Capability-Aware Surfaces", description: "Surfaces that explain what the system can do." },
+  "activity-indexing":                     { group: "Implementation",      order: 40, title: "Activity Indexing",           description: "Fast broker-native activity projection backed by SQLite." },
+  "codex-app-server-harness":              { group: "Implementation",      order: 41, title: "Codex App Server Harness",    description: "Persistent session plane for Codex via app-server JSON-RPC." },
+  "telegram-bridge-ownership":             { group: "Implementation",      order: 42, title: "Telegram Bridge Ownership",   description: "Singleton polling fix using mesh-elected bridge owner." },
+  "native-runtime":                        { group: "Implementation",      order: 43, title: "Native Runtime",              description: "Historical context on the native shell scaffold." },
 };
 
 let docPathIndex: Map<string, string> | undefined;

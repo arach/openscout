@@ -2,7 +2,7 @@
 
 This document is the system-level map for OpenScout. If you are new, read it as a guide to three things: what the broker is, what the runtime does, and what the protocol defines.
 
-Read this after the repo [`README.md`](../README.md) if you are orienting to the project for the first time. If you want the command-first ramp first, read [`quickstart.md`](./quickstart.md) before this page. If you need naming rules or workflow semantics after this, continue with [`agent-identity.md`](./agent-identity.md) and [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
+Read this after the repo [`README.md`](../README.md) if you are orienting to the project for the first time. If you want the command-first ramp first, read [`quickstart.md`](./quickstart.md) before this page. If you are evaluating maturity, trust, or license posture, read [`current-posture.md`](./current-posture.md). If you need naming rules or workflow semantics after this, continue with [`agent-identity.md`](./agent-identity.md) and [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
 
 ## Working Thesis
 
@@ -31,6 +31,8 @@ That framing matters because most of the design choices below are about protecti
 A small set of constraints shape every design decision.
 
 **Local-first, not cloud-first.** The broker, agent registry, and Scout-owned state live on your machine. Nothing phones home by default. Local files and databases are the source of truth, not a hosted API.
+
+**High-trust local pilot, not hardened enterprise perimeter.** Scout's current security posture assumes trusted local users, trusted local agents, and explicit pairing/mesh choices. It is not yet a multi-tenant, compliance-ready, or enterprise-policy system. See [`current-posture.md`](./current-posture.md).
 
 **Own coordination, observe transcripts.** Scout owns the control-plane records it creates or routes: conversations, messages, invocations, flights, deliveries, bindings, and agent registrations. External harness transcripts such as Claude Code or Codex JSONL remain harness-owned source material. Scout may discover, tail, summarize, link, and index lightweight metadata from those files, but it should not bulk-import every external turn into the control-plane database as if Scout authored it. See [`data-ownership.md`](./data-ownership.md).
 
@@ -137,7 +139,7 @@ scout down hudson        # stop
 
 ![Mesh topology](arc:mesh-topology)
 
-Agents on different machines discover each other through mesh forwarding. Each broker advertises its local agents to peer brokers, which sync endpoint tables so `@agent.other-machine` resolves across the network.
+Agents on different machines discover each other through mesh forwarding. Each broker advertises its local agents to peer brokers, which sync endpoint tables so `@agent.other-machine` resolves across the network. In Scout, mesh means reachability and coordination, not global consensus, exactly-once delivery, or replicated external transcript storage.
 
 ### Discovery
 

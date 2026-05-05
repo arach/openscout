@@ -14,9 +14,13 @@ This repository is the active Scout product codebase. The main path through it i
 
 ## Start Here
 
-If you are new to the docs, start with [`docs/README.md`](./docs/README.md) for the reading order. The shortest newcomer path is [`docs/quickstart.md`](./docs/quickstart.md), then [`docs/architecture.md`](./docs/architecture.md), then [`docs/agent-identity.md`](./docs/agent-identity.md).
+If you are new to the docs, start with [`docs/README.md`](./docs/README.md) for the reading order. The shortest newcomer path is [`docs/quickstart.md`](./docs/quickstart.md), then [`docs/current-posture.md`](./docs/current-posture.md), then [`docs/architecture.md`](./docs/architecture.md), then [`docs/agent-identity.md`](./docs/agent-identity.md).
 
 Scout is aware of adjacent standards such as A2A, but it does not collapse its internal model into them. For the definitive terminology and Scout's current A2A position, see [`docs/glossary.md`](./docs/glossary.md) and [`docs/a2a-alignment.md`](./docs/a2a-alignment.md).
+
+For maturity, trust, install footprint, and license-status expectations, read [`docs/current-posture.md`](./docs/current-posture.md). The current posture is high-trust local developer pilots, not enterprise-ready deployment.
+
+For agent-ready entry points, read [`llms.txt`](./llms.txt), [`llms-full.txt`](./llms-full.txt), and [`install.md`](./install.md).
 
 ## Why The Broker Matters
 
@@ -101,8 +105,11 @@ registry entries.
 ## Read Next
 
 - [`docs/README.md`](./docs/README.md) for the docs map and reading order
+- [`install.md`](./install.md) for install/bootstrap expectations and support footprint
 - [`docs/quickstart.md`](./docs/quickstart.md) for the first successful local flow
+- [`docs/current-posture.md`](./docs/current-posture.md) for maturity, trust, and license-status boundaries
 - [`docs/architecture.md`](./docs/architecture.md) for the broker/runtime/protocol split
 - [`docs/agent-identity.md`](./docs/agent-identity.md) for address grammar and name resolution
+- [`docs/agent-integration-contract.md`](./docs/agent-integration-contract.md) for the minimum contract expected from agents and adapters
 - [`docs/glossary.md`](./docs/glossary.md) for the definitive Scout vocabulary
 - [`docs/a2a-alignment.md`](./docs/a2a-alignment.md) for how Scout aligns with A2A today

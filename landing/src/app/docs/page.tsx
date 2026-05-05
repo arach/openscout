@@ -104,6 +104,21 @@ export default function DocsIndex() {
             for inter-agent messaging. Covers topology, identity, record types,
             and implementation guidance.
           </p>
+          <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { href: "/llms.txt", label: "llms.txt", body: "Compact LLM index" },
+              { href: "/llms-full.txt", label: "llms-full.txt", body: "Full context bundle" },
+              { href: "/agents.md", label: "agents.md", body: "Agent instructions" },
+              { href: "/install.md", label: "install.md", body: "Bootstrap checklist" },
+            ].map((item) => (
+              <a key={item.href} href={item.href} className="rfc-block group block border-t-0 pt-0">
+                <h2 className="rfc-block__title text-[15px] transition-colors group-hover:text-[var(--site-accent)]">
+                  {item.label}
+                </h2>
+                <p className="rfc-block__body text-[12.5px]">{item.body}</p>
+              </a>
+            ))}
+          </div>
         </div>
 
         {/* §1 + §A side by side */}
@@ -161,10 +176,10 @@ export default function DocsIndex() {
               </span>
               <span className="status-bar__sep hidden sm:inline">·</span>
               <span className="status-bar__cell hidden sm:inline-flex">
-                <b>v0.2.61</b>
+                <b>v0.2.65</b>
               </span>
               <span className="status-bar__sep hidden md:inline">·</span>
-              <span className="status-bar__cell hidden md:inline-flex">MIT License</span>
+              <span className="status-bar__cell hidden md:inline-flex">license pending</span>
             </span>
             <span className="status-bar__zone status-bar__zone--right">
               <Link href="/" className="status-bar__link">

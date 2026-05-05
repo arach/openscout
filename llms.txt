@@ -1,0 +1,62 @@
+# OpenScout
+
+OpenScout is a local-first control plane for AI agents. It gives Claude Code,
+Codex, and future harnesses one shared broker/runtime/protocol so agents can be
+discovered, addressed, observed, and composed without every surface inventing a
+separate state model.
+
+Current posture: high-trust local developer pilots. Not enterprise-ready,
+compliance-ready, or a hardened multi-tenant runtime. License posture is not yet
+finalized; package manifests currently use `UNLICENSED`.
+
+## Fast Context
+
+- Runtime: `packages/runtime`
+- Protocol: `packages/protocol`
+- Desktop/CLI: `apps/desktop`
+- iOS: `apps/ios`
+- Web package: `packages/web`
+- Public CLI package: `packages/cli`
+- Docs: `docs`
+
+## Start Here
+
+- `README.md` — repo overview and bootstrap
+- `docs/quickstart.md` — first healthy local run
+- `docs/current-posture.md` — maturity, trust, mesh, install footprint, and license boundaries
+- `docs/architecture.md` — broker/runtime/protocol model
+- `docs/data-ownership.md` — Scout-owned records vs observed harness material
+- `docs/agent-integration-contract.md` — minimum contract for agents and adapters
+- `docs/agent-identity.md` — address grammar and resolution
+- `docs/collaboration-workflows-v1.md` — question vs work item model
+- `docs/operator-attention-and-unblock.md` — approvals, permissions, human-input notifications
+
+## Agent-Optimized Docs
+
+- `llms-full.txt` — larger generated context bundle for copy/paste into agents
+- `install.md` — install/bootstrap guide with success criteria and support footprint
+- `docs/agent/README.agent.md`
+- `docs/agent/current-posture.agent.md`
+- `docs/agent/integration-contract.agent.md`
+
+## Core Rules
+
+- The broker is the canonical writer for Scout-owned coordination records.
+- Scout owns messages, invocations, flights, deliveries, bindings, agent registrations, questions, and work items created through Scout.
+- Scout observes external harness transcripts such as Claude Code and Codex JSONL; do not bulk-import those turns as first-party Scout messages.
+- Mesh means reachability and coordination, not exactly-once delivery, global consensus, or transcript replication.
+- Use `scout send` / `messages_send` for tell/update.
+- Use `scout ask` / `invocations_ask` for owned work or requested replies.
+- Use explicit target fields; do not hide routing in message body text.
+
+## Verification Commands
+
+```bash
+bun run --cwd apps/desktop check
+npm --prefix packages/runtime run check
+npm --prefix packages/protocol run check
+```
+
+Root `npm run check` may fail if a workspace uses a bare `tsc` binary that is
+not installed in the current shell environment. Prefer package-local checks when
+working in a specific area.
