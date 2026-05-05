@@ -23,6 +23,7 @@ import { MeshFigureSvg } from "@/components/mesh-figure-svg";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackCommandCopy, trackCtaClick, trackNavigationClick } from "@/lib/analytics";
+import openscoutManifest from "../../public/.well-known/scout.json";
 
 type AudienceMode = "general" | "technical" | "agent";
 type HumanAudienceMode = Exclude<AudienceMode, "agent">;
@@ -460,19 +461,7 @@ const OPENSCOUT_PROTOCOL_LD = {
   "openscout:referenceImplementation": "https://github.com/arach/openscout",
 } as const;
 
-const OPENSCOUT_SELF_MANIFEST = {
-  kind: "openscout.manifest",
-  version: "Ø.1",
-  broker: {
-    id: "scout/Ø",
-    transports: ["local", "tcp:7421", "telegram"],
-    capabilities: ["messages", "invocations", "flights", "deliveries", "bindings"],
-  },
-  discovery: {
-    endpoint: "openscout.app",
-    install: "bun add -g @openscout/scout",
-  },
-} as const;
+const OPENSCOUT_SELF_MANIFEST = openscoutManifest;
 
 /* ──────────────────────────────────────────────────────────
    RFC install — inline, document-styled command line

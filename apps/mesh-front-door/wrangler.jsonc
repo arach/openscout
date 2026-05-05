@@ -37,6 +37,7 @@
     "OPENSCOUT_BOOTSTRAP_MESH_NAME": "OpenScout",
     "OPENSCOUT_GITHUB_REDIRECT_URI": "https://mesh.oscout.net/v1/auth/github/callback",
     "OPENSCOUT_MESH_DIRECTORY_OWNER": "default",
-    "OPENSCOUT_MAX_PRESENCE_TTL_MS": "300000"
+    "OPENSCOUT_MAX_PRESENCE_TTL_MS": "300000",
+    "OPENSCOUT_PUSH_DEFAULT_MESH_ID": "openscout"
   }
 }

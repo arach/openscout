@@ -97,6 +97,12 @@ export type MobilePushBroadcastResult = {
   }>;
 };
 
+type PushRelayConfig = {
+  url: string;
+  token: string;
+  meshId: string;
+};
+
 const MOBILE_PUSH_SCHEMA = `
 CREATE TABLE IF NOT EXISTS mobile_push_registrations (
   id TEXT PRIMARY KEY,
@@ -180,6 +186,116 @@ function pushAllowed(status: MobilePushAuthorizationStatus): boolean {
     case "notDetermined":
       return false;
   }
+}
+
+function resolvePushRelayConfig(): PushRelayConfig | null {
+  const url = process.env.OPENSCOUT_PUSH_RELAY_URL?.trim();
+  const token = process.env.OPENSCOUT_PUSH_RELAY_TOKEN?.trim();
+  if (!url || !token) return null;
+  return {
+    url: url.replace(/\/+$/g, ""),
+    token,
+    meshId: process.env.OPENSCOUT_PUSH_RELAY_MESH_ID?.trim() || "openscout",
+  };
+}
+
+async function postPushRelay(path: string, body: unknown): Promise<Response> {
+  const config = resolvePushRelayConfig();
+  if (!config) throw new Error("push relay is not configured");
+  return fetch(`${config.url}${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function syncPushRelayRegistration(
+  input: SyncMobilePushRegistrationInput,
+): Promise<void> {
+  const config = resolvePushRelayConfig();
+  if (!config) return;
+  const pushToken = input.pushToken?.trim() ? normalizeToken(input.pushToken) : null;
+  const response = await postPushRelay("/v1/push/devices/register", {
+    meshId: config.meshId,
+    deviceId: input.deviceId,
+    platform: input.platform,
+    appBundleId: input.appBundleId,
+    apnsEnvironment: input.apnsEnvironment,
+    authorizationStatus: input.authorizationStatus,
+    pushToken,
+    appVersion: input.appVersion ?? null,
+    buildNumber: input.buildNumber ?? null,
+    deviceModel: input.deviceModel ?? null,
+    systemVersion: input.systemVersion ?? null,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`push relay registration failed: HTTP ${response.status}${detail ? ` ${detail}` : ""}`);
+  }
+}
+
+async function broadcastPushRelayAlert(alert: MobilePushAlert): Promise<MobilePushBroadcastResult> {
+  const config = resolvePushRelayConfig();
+  if (!config) {
+    return {
+      attemptedCount: 0,
+      deliveredCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      configMissing: true,
+      failures: [],
+    };
+  }
+  const response = await postPushRelay("/v1/push", {
+    meshId: config.meshId,
+    itemId: typeof alert.payload?.itemId === "string" ? alert.payload.itemId : undefined,
+    kind: typeof alert.payload?.kind === "string" ? alert.payload.kind : undefined,
+    urgency: "interrupt",
+    payload: {
+      destination: "inbox",
+      itemId: alert.payload?.itemId,
+      kind: alert.payload?.kind,
+    },
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    return {
+      attemptedCount: 0,
+      deliveredCount: 0,
+      skippedCount: 0,
+      failedCount: 1,
+      configMissing: false,
+      failures: [{
+        deviceId: "push-relay",
+        tokenSuffix: "relay",
+        status: response.status,
+        reason: detail || `HTTP ${response.status}`,
+      }],
+    };
+  }
+  const payload = await response.json().catch(() => ({})) as {
+    attemptedCount?: number;
+    deliveredCount?: number;
+    failedCount?: number;
+    failures?: Array<{ deviceId?: string; status?: number | null; reason?: string | null }>;
+  };
+  const failures = (payload.failures ?? []).map((failure) => ({
+    deviceId: failure.deviceId ?? "unknown",
+    tokenSuffix: "relay",
+    status: failure.status ?? null,
+    reason: failure.reason ?? null,
+  }));
+  return {
+    attemptedCount: payload.attemptedCount ?? 0,
+    deliveredCount: payload.deliveredCount ?? 0,
+    skippedCount: 0,
+    failedCount: payload.failedCount ?? failures.length,
+    configMissing: false,
+    failures,
+  };
 }
 
 function tokenSuffix(token: string): string {
@@ -305,6 +421,20 @@ export function syncMobilePushRegistration(
   );
 
   return { ok: true, registered: true, removed: false, token: pushToken };
+}
+
+export async function syncMobilePushRegistrationWithRelay(
+  input: SyncMobilePushRegistrationInput,
+): Promise<SyncMobilePushRegistrationResult & { relayConfigured: boolean }> {
+  const result = syncMobilePushRegistration(input);
+  if (!resolvePushRelayConfig()) {
+    return { ...result, relayConfigured: false };
+  }
+  await syncPushRelayRegistration({
+    ...input,
+    pushToken: result.token,
+  });
+  return { ...result, relayConfigured: true };
 }
 
 export function listMobilePushRegistrations(
@@ -545,6 +675,10 @@ async function sendApnsAlertToRegistration(
 export async function broadcastApnsAlertToActiveMobileDevices(
   alert: MobilePushAlert,
 ): Promise<MobilePushBroadcastResult> {
+  if (resolvePushRelayConfig()) {
+    return broadcastPushRelayAlert(alert);
+  }
+
   const registrations = listActiveMobilePushRegistrations();
   let deliveredCount = 0;
   let skippedCount = 0;

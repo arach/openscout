@@ -17,6 +17,12 @@ messages, conversations, flights, collaboration records, or replay state.
 - `GET /v1/nodes?meshId=openscout`
 - `GET /v1/nodes/:nodeId?meshId=openscout`
 - `DELETE /v1/nodes/:nodeId?meshId=openscout`
+- `GET /v1/push/health`
+- `POST /v1/push/devices/register`
+- `POST /v1/push/devices/unregister`
+- `GET /v1/push/devices`
+- `POST /v1/push`
+- `GET /v1/push/usage`
 
 The managed OSN auth path uses GitHub OAuth first. The Worker asks GitHub for
 only the `user:email` scope so it can read a verified account email, then stores
@@ -41,7 +47,17 @@ bunx wrangler secret put OPENSCOUT_GITHUB_CLIENT_SECRET
 bunx wrangler secret put OPENSCOUT_SESSION_SECRET
 bunx wrangler secret put OPENSCOUT_MESH_SHARED_TOKEN
 bunx wrangler secret put OPENSCOUT_MESH_SHARED_OWNER
+bunx wrangler secret put OPENSCOUT_PUSH_RELAY_TOKEN
+bunx wrangler secret put OPENSCOUT_PUSH_TOKEN_ENCRYPTION_KEY
+bunx wrangler secret put OPENSCOUT_APNS_TEAM_ID
+bunx wrangler secret put OPENSCOUT_APNS_KEY_ID
+bunx wrangler secret put OPENSCOUT_APNS_PRIVATE_KEY
 ```
+
+`OPENSCOUT_PUSH_TOKEN_ENCRYPTION_KEY` must be a base64url-encoded 32-byte key.
+The Push Relay stores APNs device tokens encrypted in D1 and sends generic APNs
+alert text only; detailed Scout state remains behind the user's paired local
+broker.
 
 The GitHub OAuth app callback URL should be:
 
