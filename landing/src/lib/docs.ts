@@ -8,6 +8,9 @@ export type DocMeta = {
   description: string;
   group: string;
   order: number;
+  sourcePath: string;
+  sourceUrl: string;
+  rawUrl: string;
 };
 
 export type DocEntry = DocMeta & {
@@ -18,6 +21,7 @@ const DOCS_DIR = join(process.cwd(), "..", "docs");
 const TRACKS_DIR = join(DOCS_DIR, "openagents-tracks");
 const REPO_ROOT = join(DOCS_DIR, "..");
 const GITHUB_BLOB_BASE_URL = "https://github.com/arach/openscout/blob/main";
+const GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/arach/openscout/main";
 
 type GroupDef = { group: string; order: number; title: string; description: string };
 
@@ -99,12 +103,16 @@ function loadDoc(filePath: string, slug: string): DocEntry | null {
   const raw = readFileSync(filePath, "utf-8");
   const { data, content } = matter(raw);
   const normalizedContent = normalizeMarkdownLinks(content, filePath);
+  const repoRelativePath = relative(REPO_ROOT, resolve(filePath)).split(sep).join("/");
   return {
     slug,
     title: (data.title as string) || def.title,
     description: (data.description as string) || def.description,
     group: def.group,
     order: def.order,
+    sourcePath: repoRelativePath,
+    sourceUrl: `${GITHUB_BLOB_BASE_URL}/${repoRelativePath}`,
+    rawUrl: `${GITHUB_RAW_BASE_URL}/${repoRelativePath}`,
     content: normalizedContent,
   };
 }

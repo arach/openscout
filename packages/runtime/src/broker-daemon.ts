@@ -138,6 +138,10 @@ import {
 } from "./mesh-rendezvous.js";
 import { clearGitBranchCache, readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
 import { broadcastApnsAlertToActiveMobileDevices } from "./mobile-push.js";
+import {
+  getHarnessTopologySnapshot,
+  nudgeHarnessTopologyScan,
+} from "./harness-topology/index.js";
 
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3159,6 +3163,29 @@ async function postInvocationStatusMessage(
   });
 }
 
+function existingBrokerReplyForInvocation(
+  invocation: InvocationRequest,
+  agentId: string,
+  sinceMs: number,
+): MessageRecord | null {
+  if (!invocation.conversationId || !invocation.messageId) {
+    return null;
+  }
+
+  const since = Math.max(0, sinceMs - 5_000);
+  const replies = Object.values(runtime.peek().messages)
+    .filter((message) =>
+      message.conversationId === invocation.conversationId
+      && message.replyToMessageId === invocation.messageId
+      && message.actorId === agentId
+      && message.class === "agent"
+      && message.createdAt >= since
+    )
+    .sort((lhs, rhs) => rhs.createdAt - lhs.createdAt);
+
+  return replies[0] ?? null;
+}
+
 function activeLocalEndpointForAgent(agentId: string, harness?: AgentEndpoint["harness"]): AgentEndpoint | undefined {
   const candidates = runtime.endpointsForAgent(agentId, {
     nodeId,
@@ -3327,12 +3354,18 @@ async function executeLocalInvocation(
     const result = endpoint.transport === "pairing_bridge"
       ? await invokePairingSessionEndpoint(runningEndpoint, invocation)
       : await invokeLocalAgentEndpoint(runningEndpoint, invocation);
+    const postedReply = existingBrokerReplyForInvocation(
+      invocation,
+      agent.id,
+      runningFlight.startedAt ?? Date.now(),
+    );
+    const output = postedReply?.body || result.output;
 
     const completedFlight = {
       ...runningFlight,
       state: "completed" as const,
       summary: `${agent.displayName} replied.`,
-      output: result.output,
+      output,
       completedAt: Date.now(),
     };
     await persistFlight(completedFlight);
@@ -3346,7 +3379,7 @@ async function executeLocalInvocation(
       },
     });
 
-    if (invocation.conversationId) {
+    if (invocation.conversationId && !postedReply) {
       const conversation = runtime.conversation(invocation.conversationId);
       if (conversation) {
         await postConversationMessage({
@@ -3355,7 +3388,7 @@ async function executeLocalInvocation(
           actorId: agent.id,
           originNodeId: nodeId,
           class: "agent",
-          body: result.output,
+          body: output,
           replyToMessageId: invocation.messageId,
           audience: {
             notify: [invocation.requesterId],
@@ -4007,6 +4040,16 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/v1/snapshot") {
     json(response, 200, await brokerService.readSnapshot());
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/topology/snapshot") {
+    json(response, 200, await getHarnessTopologySnapshot(url.searchParams.get("force") === "1"));
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/topology/nudge") {
+    json(response, 200, await nudgeHarnessTopologyScan());
     return;
   }
 
@@ -5385,9 +5428,9 @@ server.on("close", () => {
 });
 
 // ─── tRPC over WebSocket — broker firehose endpoints ───────────────────────
-// Mounted at /trpc. Today: tail.events. Future endpoints (agent activity,
-// control events) get added to broker-trpc-router.ts and consumers pick up
-// the new procedures via end-to-end type inference.
+// Mounted at /trpc. Tail and topology firehoses live here. Future endpoints
+// (agent activity, control events) get added to broker-trpc-router.ts and
+// consumers pick up the new procedures via end-to-end type inference.
 //
 // See docs/tail-firehose.md.
 

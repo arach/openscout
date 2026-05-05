@@ -12,6 +12,7 @@ import type {
   FleetAsk,
   FleetAttentionItem,
   FleetState,
+  Message,
   Route,
 } from "../lib/types.ts";
 
@@ -62,6 +63,13 @@ type AgentHealthRow = {
   updatedAt: number | null;
 };
 
+type ProjectNavRow = {
+  key: string;
+  name: string;
+  detail: string;
+  count: number;
+};
+
 type ActivityLike = ActivityItem | FleetActivity;
 
 type NetworkNodeKind = "operator" | "broker" | "agent" | "external";
@@ -85,6 +93,16 @@ type NetworkEdge = {
   kind: string;
   label: string;
   ts: number;
+  item: ActivityLike;
+  actorId: string | null;
+  agentId: string | null;
+  conversationId: string | null;
+  flightId: string | null;
+  invocationId: string | null;
+  messageId: string | null;
+  recordId: string | null;
+  sessionId: string | null;
+  workspaceRoot: string | null;
   route: Route | null;
 };
 
@@ -222,6 +240,15 @@ function activityAgentId(item: ActivityLike): string | null {
   return "agentId" in item ? item.agentId : null;
 }
 
+function activityField<K extends keyof FleetActivity>(
+  item: ActivityLike,
+  field: K,
+): FleetActivity[K] | null {
+  if (!(field in item)) return null;
+  const value = (item as Partial<FleetActivity>)[field];
+  return (value ?? null) as FleetActivity[K] | null;
+}
+
 function nodeLabelForId(id: string, agentsById: Map<string, Agent>): string {
   if (id === OPERATOR_NODE_ID) return "Operator";
   if (id === BROKER_NODE_ID) return "Broker";
@@ -301,6 +328,16 @@ function buildNetworkModel(activity: ActivityLike[], agents: Agent[]): NetworkMo
       kind: item.kind,
       label: summarize(item.title ?? item.summary, 92),
       ts: item.ts,
+      item,
+      actorId: activityActorId(item),
+      agentId: activityAgentId(item),
+      conversationId: item.conversationId,
+      flightId: activityField(item, "flightId"),
+      invocationId: activityField(item, "invocationId"),
+      messageId: activityField(item, "messageId"),
+      recordId: activityField(item, "recordId"),
+      sessionId: activityField(item, "sessionId"),
+      workspaceRoot: item.workspaceRoot,
       route: routeForActivity(item),
     };
   });
@@ -573,6 +610,43 @@ function deriveHealthRows(agents: Agent[], nowMs: number): AgentHealthRow[] {
     });
 }
 
+function deriveProjectRows(agents: Agent[]): ProjectNavRow[] {
+  const rows = new Map<string, ProjectNavRow>();
+  for (const agent of agents) {
+    const name = agent.project ?? agent.role ?? agent.agentClass ?? "unassigned";
+    const existing = rows.get(name) ?? {
+      key: name,
+      name,
+      detail: "",
+      count: 0,
+    };
+    existing.count += 1;
+    rows.set(name, existing);
+  }
+  return [...rows.values()]
+    .map((row) => ({
+      ...row,
+      detail: row.count === 1 ? "1 agent" : `${row.count} agents`,
+    }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
+    .slice(0, 4);
+}
+
+function compactWorkspace(value: string | null | undefined): string {
+  if (!value) return "No workspace";
+  const parts = value.split(/[\\/]/).filter(Boolean);
+  return parts.slice(-2).join("/") || value;
+}
+
+function agentMetaLine(agent: Agent): string {
+  const bits = [
+    agent.harness,
+    agent.transport,
+    compactWorkspace(agent.projectRoot ?? agent.cwd),
+  ].filter(Boolean);
+  return bits.join(" / ");
+}
+
 function classForAttentionItem(item: CommandItem, selected: boolean): string {
   const classes = [
     "s-warroom-attention-item",
@@ -696,6 +770,11 @@ export function CommandView({
   const actionNeededCount = queueItems.filter((item) => item.severity !== "info").length;
   const urgentCueCount = queueItems.filter((item) => item.severity === "critical").length;
   const healthRows = useMemo(() => deriveHealthRows(agents, nowMs), [agents, nowMs]);
+  const projectRows = useMemo(() => deriveProjectRows(agents), [agents]);
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  );
   const flowNodeLabels = useMemo(
     () => new Map(networkModel.nodes.map((node) => [node.id, node.label])),
     [networkModel.nodes],
@@ -727,76 +806,77 @@ export function CommandView({
       </header>
 
       <div className="s-warroom-layout">
-        <aside className="s-warroom-queue">
-          <SectionHead title="State" meta={queueItems.length === 0 ? "clear" : formatCueCount(queueItems.length)} />
-          <CommandStack
-            queueItems={queueItems}
-            selectedKey={selectedItem?.key ?? null}
-            nowMs={nowMs}
+        <aside className="s-warroom-context">
+          <ContextNav
+            agents={agents}
+            healthRows={healthRows}
+            projectRows={projectRows}
+            onlineCount={onlineCount}
+            runningCount={lanes.running.length}
+            failedCount={lanes.failed.length}
+            eventsInWindow={eventsInWindow}
             navigate={navigate}
-            onSelect={(key) => {
-              setInspectorPinned(true);
-              setSelectedKey(key);
-              setInspectorFocus("item");
-            }}
           />
         </aside>
 
         <main className="s-warroom-board">
-          <SectionHead title="Message Topology" meta={`${networkModel.visibleEdges.length} visible flows / ${formatWindow(flowWindowMs)}`} />
-          <MessageTopology
-            network={networkModel}
-            nowMs={nowMs}
-            flowWindowMs={flowWindowMs}
-            selectedFlowId={inspectorFocus === "flow" ? selectedFlow?.id ?? null : null}
-            navigate={navigate}
-            onFlowWindowChange={setFlowWindowMs}
-            onSelectFlow={(flowId) => {
-              setInspectorPinned(true);
-              setSelectedFlowId(flowId);
-              setInspectorFocus("flow");
-            }}
-          />
+          <section className="s-warroom-center-section s-warroom-center-section--attention">
+            <SectionHead title="Attention" meta={queueItems.length === 0 ? "clear" : formatCueCount(queueItems.length)} />
+            <CommandStack
+              queueItems={queueItems}
+              selectedKey={selectedItem?.key ?? null}
+              nowMs={nowMs}
+              navigate={navigate}
+              onSelect={(key) => {
+                setInspectorPinned(true);
+                setSelectedKey(key);
+                setInspectorFocus("item");
+              }}
+            />
+          </section>
+
+          <section className="s-warroom-center-section s-warroom-center-section--topology">
+            <SectionHead title="Message Topology" meta={`${networkModel.visibleEdges.length} visible flows / ${formatWindow(flowWindowMs)}`} />
+            <MessageTopology
+              network={networkModel}
+              nowMs={nowMs}
+              flowWindowMs={flowWindowMs}
+              selectedFlowId={inspectorFocus === "flow" ? selectedFlow?.id ?? null : null}
+              navigate={navigate}
+              onFlowWindowChange={setFlowWindowMs}
+              onSelectFlow={(flowId) => {
+                setInspectorPinned(true);
+                setSelectedFlowId(flowId);
+                setInspectorFocus("flow");
+              }}
+            />
+          </section>
         </main>
 
-        <aside className="s-warroom-inspector">
-          <SectionHead title="Inspector" meta={inspectorMeta} />
+        <aside className="s-warroom-detail">
+          <SectionHead title="Detail" meta={inspectorMeta} />
           {inspectorFocus === "flow" ? (
             selectedFlow ? (
               <FlowInspector
                 edge={selectedFlow}
                 nodeLabels={flowNodeLabels}
+                agentsById={agentsById}
                 nowMs={nowMs}
                 navigate={navigate}
               />
             ) : (
-              <div className="s-warroom-empty">Select a message flow to inspect.</div>
+              <div className="s-warroom-empty">Select a message flow for full metadata and actions.</div>
             )
           ) : selectedItem ? (
-            <Inspector item={selectedItem} nowMs={nowMs} navigate={navigate} />
+            <Inspector
+              item={selectedItem}
+              agentsById={agentsById}
+              nowMs={nowMs}
+              navigate={navigate}
+            />
           ) : (
-            <div className="s-warroom-empty">Select an item to inspect.</div>
+            <div className="s-warroom-empty">Select an attention item or message flow for detail.</div>
           )}
-
-          <section className="s-warroom-inspector-card">
-            <div className="s-warroom-inspector-title">Agent health</div>
-            <div className="s-warroom-health">
-              {healthRows.slice(0, 8).map((row) => (
-                <button
-                  key={row.key}
-                  type="button"
-                  className="s-warroom-health-row"
-                  onClick={() => navigate(row.route)}
-                >
-                  <span className="s-warroom-dot" />
-                  <span>{row.name}</span>
-                  <span>{row.state}</span>
-                  <span>{row.detail}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-
         </aside>
       </div>
     </div>
@@ -831,6 +911,137 @@ function SectionHead({ title, meta }: { title: string; meta: string }) {
       <div className="s-warroom-section-title">{title}</div>
       <div className="s-warroom-section-meta">{meta}</div>
     </div>
+  );
+}
+
+function ContextNav({
+  agents,
+  healthRows,
+  projectRows,
+  onlineCount,
+  runningCount,
+  failedCount,
+  eventsInWindow,
+  navigate,
+}: {
+  agents: Agent[];
+  healthRows: AgentHealthRow[];
+  projectRows: ProjectNavRow[];
+  onlineCount: number;
+  runningCount: number;
+  failedCount: number;
+  eventsInWindow: number;
+  navigate: (route: Route) => void;
+}) {
+  const offlineCount = agents.filter((agent) => normalizeAgentState(agent.state) === "offline").length;
+  const staleCount = healthRows.filter((row) => row.state === "Stale").length;
+  const healthMeta = staleCount > 0
+    ? `${staleCount} stale`
+    : offlineCount > 0
+      ? `${offlineCount} offline`
+      : "healthy";
+
+  return (
+    <div className="s-warroom-context-stack">
+      <section className="s-warroom-nav-section">
+        <SectionHead title="Navigate" meta="context" />
+        <div className="s-warroom-nav-list">
+          <ContextNavButton
+            label="Agents"
+            value={`${onlineCount}/${agents.length}`}
+            detail="online"
+            route={{ view: "ops", mode: "agents" }}
+            navigate={navigate}
+          />
+          <ContextNavButton
+            label="Runs"
+            value={String(runningCount)}
+            detail={failedCount > 0 ? `${failedCount} failed` : "active"}
+            route={{ view: "ops", mode: "runs" }}
+            navigate={navigate}
+            warn={failedCount > 0}
+          />
+          <ContextNavButton
+            label="Tail"
+            value={String(eventsInWindow)}
+            detail="in window"
+            route={{ view: "ops", mode: "tail" }}
+            navigate={navigate}
+          />
+          <ContextNavButton
+            label="Conduct"
+            value="Team"
+            detail="handoffs"
+            route={{ view: "ops", mode: "conductor" }}
+            navigate={navigate}
+          />
+        </div>
+      </section>
+
+      <section className="s-warroom-nav-section">
+        <SectionHead title="Agent Health" meta={healthMeta} />
+        <div className="s-warroom-health">
+          {healthRows.slice(0, 5).map((row) => (
+            <button
+              key={row.key}
+              type="button"
+              className={`s-warroom-health-row s-warroom-health-row--${row.severity}`}
+              onClick={() => navigate(row.route)}
+            >
+              <span className="s-warroom-dot" />
+              <span>{row.name}</span>
+              <span>{row.state}</span>
+              <span>{row.detail}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="s-warroom-nav-section">
+        <SectionHead title="Projects" meta={`${projectRows.length} shown`} />
+        <div className="s-warroom-project-list">
+          {projectRows.map((row) => (
+            <button
+              key={row.key}
+              type="button"
+              className="s-warroom-project-row"
+              onClick={() => navigate({ view: "ops", mode: "agents" })}
+            >
+              <span>{row.name}</span>
+              <span>{row.detail}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ContextNavButton({
+  label,
+  value,
+  detail,
+  route,
+  navigate,
+  warn = false,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  route: Route;
+  navigate: (route: Route) => void;
+  warn?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`s-warroom-nav-button${warn ? " s-warroom-nav-button--warn" : ""}`}
+      onClick={() => navigate(route)}
+    >
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </button>
   );
 }
 
@@ -1192,16 +1403,67 @@ function FlowRow({
 function FlowInspector({
   edge,
   nodeLabels,
+  agentsById,
   nowMs,
   navigate,
 }: {
   edge: NetworkEdge;
   nodeLabels: Map<string, string>;
+  agentsById: Map<string, Agent>;
   nowMs: number;
   navigate: (route: Route) => void;
 }) {
+  const [message, setMessage] = useState<Message | null>(null);
   const from = nodeLabels.get(edge.fromId) ?? nodeLabelForId(edge.fromId, new Map());
   const to = nodeLabels.get(edge.toId) ?? nodeLabelForId(edge.toId, new Map());
+  const sourceAgent = edge.actorId ? agentsById.get(edge.actorId) ?? null : null;
+  const relatedAgent = edge.agentId
+    ? agentsById.get(edge.agentId) ?? null
+    : agentsById.get(edge.toId) ?? agentsById.get(edge.fromId) ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    setMessage(null);
+    if (!edge.conversationId || !edge.messageId) return () => {
+      cancelled = true;
+    };
+    void api<Message[]>(
+      `/api/messages?conversationId=${encodeURIComponent(edge.conversationId)}&limit=200`,
+    )
+      .then((messages) => {
+        if (cancelled) return;
+        setMessage(messages.find((candidate) => candidate.id === edge.messageId) ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setMessage(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [edge.conversationId, edge.messageId]);
+
+  const actions: CommandAction[] = [];
+  if (edge.route) actions.push({ label: "Open conversation", route: edge.route });
+  if (edge.recordId) actions.push({ label: "Open work", route: { view: "work", workId: edge.recordId } });
+  if (edge.flightId || edge.invocationId) {
+    actions.push({
+      label: "Follow run",
+      route: {
+        view: "follow",
+        preferredView: "chat",
+        ...(edge.flightId ? { flightId: edge.flightId } : {}),
+        ...(edge.invocationId ? { invocationId: edge.invocationId } : {}),
+        ...(edge.conversationId ? { conversationId: edge.conversationId } : {}),
+        ...(edge.agentId ? { targetAgentId: edge.agentId } : {}),
+      },
+    });
+  }
+  if (sourceAgent) actions.push({ label: "Open source agent", route: { view: "agents", agentId: sourceAgent.id } });
+  if (relatedAgent && relatedAgent.id !== sourceAgent?.id) {
+    actions.push({ label: "Open agent", route: { view: "agents", agentId: relatedAgent.id } });
+  }
+
+  const body = message?.body ?? edge.item.summary ?? edge.item.title ?? edge.label;
 
   return (
     <section className="s-warroom-inspector-card">
@@ -1209,17 +1471,36 @@ function FlowInspector({
       <div className="s-warroom-inspector-meta">
         <span>{kindLabel(edge.kind)}</span>
         <span>{formatAge(edge.ts, nowMs)} ago</span>
+        <span>{new Date(edge.ts).toLocaleString()}</span>
       </div>
-      <div className="s-warroom-inspector-body">{edge.label}</div>
+      <div className="s-warroom-detail-body">{body}</div>
+      <DetailMetaGrid
+        rows={[
+          ["source", from],
+          ["target", to],
+          ["actor", edge.actorId],
+          ["agent", relatedAgent ? `${relatedAgent.name} / ${agentMetaLine(relatedAgent)}` : edge.agentId],
+          ["conversation", edge.conversationId],
+          ["message", edge.messageId],
+          ["invocation", edge.invocationId],
+          ["flight", edge.flightId],
+          ["work", edge.recordId],
+          ["session", edge.sessionId],
+          ["workspace", edge.workspaceRoot],
+        ]}
+      />
       <div className="s-warroom-actions">
-        {edge.route ? (
-          <button
-            type="button"
-            className="s-warroom-action"
-            onClick={() => navigate(edge.route!)}
-          >
-            Open conversation
-          </button>
+        {actions.length > 0 ? (
+          actions.map((action) => (
+            <button
+              key={`${action.label}:${routeKeyForAction(action.route)}`}
+              type="button"
+              className="s-warroom-action"
+              onClick={() => navigate(action.route)}
+            >
+              {action.label}
+            </button>
+          ))
         ) : (
           <span className="s-warroom-empty">No route available.</span>
         )}
@@ -1228,27 +1509,55 @@ function FlowInspector({
   );
 }
 
+function DetailMetaGrid({
+  rows,
+}: {
+  rows: Array<[string, string | number | null | undefined]>;
+}) {
+  const visibleRows = rows.filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "");
+  if (visibleRows.length === 0) return null;
+  return (
+    <div className="s-warroom-detail-grid">
+      {visibleRows.map(([key, value]) => (
+        <div key={key} className="s-warroom-detail-row">
+          <span>{key}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Inspector({
   item,
+  agentsById,
   nowMs,
   navigate,
 }: {
   item: CommandItem;
+  agentsById: Map<string, Agent>;
   nowMs: number;
   navigate: (route: Route) => void;
 }) {
+  const agent = item.agentId ? agentsById.get(item.agentId) ?? null : null;
+
   return (
     <section className="s-warroom-inspector-card">
       <div className="s-warroom-inspector-title">{item.title}</div>
       <div className="s-warroom-inspector-meta">
         {item.pill} / updated {formatAge(item.updatedAt, nowMs)} ago
       </div>
-      <div className="s-warroom-inspector-body">{item.summary}</div>
-      <div className="s-warroom-inspector-meta">
-        {item.meta.filter(Boolean).map((part, index) => (
-          <span key={`${item.key}:inspector-meta:${index}`}>{part}</span>
-        ))}
-      </div>
+      <div className="s-warroom-detail-body">{item.summary}</div>
+      <DetailMetaGrid
+        rows={[
+          ["source", item.source],
+          ["agent", agent ? `${agent.name} / ${agentMetaLine(agent)}` : item.agentName],
+          ["agent id", item.agentId],
+          ["started", item.startedAt ? new Date(item.startedAt).toLocaleString() : null],
+          ["completed", item.completedAt ? new Date(item.completedAt).toLocaleString() : null],
+          ...item.meta.filter(Boolean).map((part, index): [string, string] => [`meta ${index + 1}`, part]),
+        ]}
+      />
       <div className="s-warroom-actions">
         {item.actions.length === 0 ? (
           <span className="s-warroom-empty">No route available.</span>

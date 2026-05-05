@@ -431,6 +431,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "OpenScout runtime:",
     "  - You are invoked directly by the OpenScout broker",
     "  - Return your final answer in the assistant message for the current turn",
+    "  - Do not call Scout reply tools for the final answer in this runtime; the broker captures your final assistant message",
     "  - Do not shell out to send the final answer through relay yourself",
     `  - If you need recent broker context, inspect it with: ${context.relayCommand} latest --agent ${context.agentId} --limit 20`,
     `  - If you need to tell one agent something, use: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
@@ -738,6 +739,41 @@ function normalizeLocalAgentLaunchArgs(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map((entry) => String(entry).trim()).filter(Boolean)
     : [];
+}
+
+export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
+  "mcp__scout__current_reply_context",
+  "mcp__scout__whoami",
+  "mcp__scout__agents_search",
+  "mcp__scout__agents_resolve",
+  "mcp__scout__messages_reply",
+  "mcp__scout__messages_send",
+  "mcp__scout__invocations_ask",
+  "mcp__scout__invocations_get",
+  "mcp__scout__invocations_wait",
+  "mcp__scout__work_update",
+] as const;
+
+function hasClaudeAllowedToolsArg(launchArgs: string[]): boolean {
+  return launchArgs.some((arg) =>
+    arg === "--allowedTools"
+    || arg === "--allowed-tools"
+    || arg.startsWith("--allowedTools=")
+    || arg.startsWith("--allowed-tools=")
+  );
+}
+
+export function normalizeClaudeRuntimeLaunchArgs(value: unknown): string[] {
+  const launchArgs = normalizeLocalAgentLaunchArgs(value);
+  if (hasClaudeAllowedToolsArg(launchArgs)) {
+    return launchArgs;
+  }
+
+  return [
+    ...launchArgs,
+    "--allowedTools",
+    DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
+  ];
 }
 
 function normalizeRequestedModel(value: string | undefined): string | undefined {
@@ -1530,7 +1566,7 @@ function buildClaudeAgentSessionOptions(
     systemPrompt: systemPrompt ?? buildLocalAgentSystemPrompt(agentName, record.project, record.cwd, { transport: "claude_stream_json" }),
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
-    launchArgs: normalizeLaunchArgsForHarness("claude", record.launchArgs),
+    launchArgs: normalizeClaudeRuntimeLaunchArgs(record.launchArgs),
   };
 }
 
@@ -1793,8 +1829,13 @@ function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string
   const header = [
     "SCOUT BROKER REPLY MODE",
     "",
-    "You are answering a Scout ask. Your final assistant message will be delivered back through the Scout broker.",
-    "Do not call scout send, messages_send, or invocations_ask to answer this request.",
+    "You are answering a Scout ask.",
+    context?.replyPath === "mcp_reply"
+      ? "Use the provided Scout reply tool for the final answer; do not create a new send/ask."
+      : "Your final assistant message will be delivered back through the Scout broker.",
+    context?.replyPath === "mcp_reply"
+      ? "Call messages_reply or scout_reply exactly once with the reply intended for the requester."
+      : "Do not call messages_reply, scout_reply, scout send, messages_send, or invocations_ask to answer this request.",
     "Only use Scout tools if you need to ask or delegate to another agent.",
   ];
 
@@ -1948,10 +1989,13 @@ function buildLocalAgentLaunchCommand(
   promptFile: string,
   workerScript?: string,
 ): string {
+  const harness = normalizeLocalAgentHarness(record.harness);
   const extraArgs = shellQuoteArguments(
-    normalizeLaunchArgsForHarness(normalizeLocalAgentHarness(record.harness), record.launchArgs),
+    harness === "claude"
+      ? normalizeClaudeRuntimeLaunchArgs(record.launchArgs)
+      : normalizeLaunchArgsForHarness(harness, record.launchArgs),
   );
-  if (normalizeLocalAgentHarness(record.harness) === "codex") {
+  if (harness === "codex") {
     return `exec bash ${JSON.stringify(workerScript ?? join(relayAgentRuntimeDirectory(agentName), "codex-worker.sh"))}`;
   }
 

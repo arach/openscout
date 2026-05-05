@@ -33,6 +33,80 @@ export interface Session {
 }
 
 // ---------------------------------------------------------------------------
+// Observed harness topology
+// ---------------------------------------------------------------------------
+
+export const OBSERVED_HARNESS_TOPOLOGY_META_KEY = "observedTopology";
+
+/**
+ * Read-only topology discovered from a harness-owned ecosystem.
+ *
+ * This is intentionally not a Scout-owned coordination model. Adapters may
+ * attach it to Session.providerMeta to explain what a harness is doing, such as
+ * a Claude Code lead coordinating teammates, but Scout must not mutate the
+ * upstream harness files or runtime state that produced it.
+ */
+export interface ObservedHarnessTopology {
+  schemaVersion: "openscout.observed-harness-topology.v1";
+  ownership: "harness_observed";
+  source: string;
+  observedAt: string;
+  groups: ObservedHarnessGroup[];
+  agents: ObservedHarnessAgent[];
+  tasks: ObservedHarnessTask[];
+  relationships: ObservedHarnessRelationship[];
+  sourceRefs?: ObservedHarnessSourceRef[];
+  limitations?: string[];
+}
+
+export interface ObservedHarnessSourceRef {
+  id: string;
+  kind: "file" | "directory" | "event" | "provider";
+  ref: string;
+  label?: string;
+}
+
+export interface ObservedHarnessGroup {
+  id: string;
+  kind: "team" | string;
+  name?: string;
+  sourceRef?: string;
+  providerMeta?: Record<string, unknown>;
+}
+
+export interface ObservedHarnessAgent {
+  id: string;
+  name?: string;
+  role?: string;
+  type?: string;
+  status?: string;
+  externalSessionId?: string;
+  cwd?: string;
+  model?: string;
+  sourceRef?: string;
+  providerMeta?: Record<string, unknown>;
+}
+
+export interface ObservedHarnessTask {
+  id: string;
+  title?: string;
+  state?: string;
+  assigneeId?: string;
+  dependencyIds?: string[];
+  sourceRef?: string;
+  providerMeta?: Record<string, unknown>;
+}
+
+export interface ObservedHarnessRelationship {
+  id: string;
+  kind: "leads" | "member_of" | "spawned" | "assigned_to" | "depends_on" | string;
+  fromId: string;
+  toId: string;
+  sourceRef?: string;
+  providerMeta?: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
 // Turn — one request/response cycle within a session
 // ---------------------------------------------------------------------------
 

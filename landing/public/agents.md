@@ -70,6 +70,7 @@ In doubt, use Ask.
 - [`/.well-known/scout.json`](/.well-known/scout.json) — broker manifest, record types, addressing grammar (JSON)
 - [`/llms.txt`](/llms.txt) — machine-readable index for this site
 - [`/llms-full.txt`](/llms-full.txt) — larger generated repo/docs bundle
+- [`/nav.json`](/nav.json) — machine-readable docs graph
 - [`/install.md`](/install.md) — bootstrap checklist, success criteria, and support footprint
 - [`/docs/current-posture`](/docs/current-posture) — maturity, trust, mesh, install footprint, and license-status boundaries
 - [`/docs/agent-integration-contract`](/docs/agent-integration-contract) — minimum contract for agents and adapters

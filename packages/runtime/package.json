@@ -117,6 +117,11 @@
       "types": "./src/tail/index.ts",
       "bun": "./src/tail/index.ts",
       "default": "./dist/tail/index.js"
+    },
+    "./harness-topology": {
+      "types": "./src/harness-topology/index.ts",
+      "bun": "./src/harness-topology/index.ts",
+      "default": "./dist/harness-topology/index.js"
     }
   },
   "types": "./src/index.ts",

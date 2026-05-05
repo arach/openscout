@@ -1,5 +1,11 @@
 // Claude Code adapter — persistent process with bidirectional stream-json.
 //
+// Ownership boundary: Claude Code owns its own ecosystem. This adapter may read
+// Claude-owned state to resolve or explain sessions, but it must not write
+// `.claude` project files, agent definitions, team config, task lists, or MCP
+// settings. Setup flows that intentionally install Scout into a Claude host live
+// outside this adapter and must be explicit user actions.
+//
 // Spawns `claude --print --input-format stream-json --output-format stream-json`
 // once on start(), keeps it alive, and sends turns by writing JSON messages to
 // stdin.  Claude Code streams responses on stdout as newline-delimited JSON.
@@ -18,9 +24,10 @@
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { BaseAdapter } from "../protocol/adapter.js";
 import type { AdapterConfig } from "../protocol/adapter.js";
+import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../protocol/primitives.js";
 import type {
   Action,
   Block,
@@ -30,6 +37,7 @@ import type {
   Turn,
   TurnStatus,
 } from "../protocol/primitives.js";
+import { readClaudeAgentTeamTopology } from "./claude-code/team-topology.js";
 import type { Subprocess } from "bun";
 
 type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;
@@ -107,9 +115,12 @@ export class ClaudeCodeAdapter extends BaseAdapter {
       args.push("--resume", resumeId);
     }
 
-    this.process = Bun.spawn(["claude", ...args], {
+    const env = { ...process.env, ...this.config.env };
+    const claudeExecutable = resolveExecutableFromPath("claude", env);
+
+    this.process = Bun.spawn([claudeExecutable, ...args], {
       cwd: this.config.cwd,
-      env: { ...process.env, ...this.config.env },
+      env,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
@@ -255,7 +266,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
           if (typeof event.model === "string" && event.model.trim()) {
             this.session.model = event.model;
           }
-          this.emit("event", { event: "session:update", session: { ...this.session } });
+          this.refreshObservedTopologyAndEmit();
         }
         // Skip hooks and other system events.
         break;
@@ -309,6 +320,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
         // Turn complete — the stream continues for the next turn.
         if (this.currentTurn && this.currentTurn.status !== "stopped") {
+          this.refreshObservedTopologyAndEmit();
           this.endTurn(this.currentTurn, event.subtype === "error" ? "failed" : "completed");
         }
         break;
@@ -653,6 +665,31 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     });
   }
 
+  private refreshObservedTopology(): void {
+    const topology = readClaudeAgentTeamTopology({
+      cwd: this.session.cwd ?? this.config.cwd,
+      claudeSessionId: this.claudeSessionId,
+    });
+    const providerMeta = { ...(this.session.providerMeta ?? {}) };
+
+    if (topology) {
+      providerMeta[OBSERVED_HARNESS_TOPOLOGY_META_KEY] = topology;
+    } else {
+      delete providerMeta[OBSERVED_HARNESS_TOPOLOGY_META_KEY];
+    }
+
+    this.session.providerMeta = Object.keys(providerMeta).length > 0 ? providerMeta : undefined;
+  }
+
+  private emitSessionUpdate(): void {
+    this.emit("event", { event: "session:update", session: { ...this.session } });
+  }
+
+  private refreshObservedTopologyAndEmit(): void {
+    this.refreshObservedTopology();
+    this.emitSessionUpdate();
+  }
+
   private completeOpenStreamBlocks(): void {
     if (!this.currentTurn) return;
 
@@ -728,4 +765,25 @@ function decodeClaudeProjectsSlug(slug: string): string | null {
   }
 
   return `/${tail.replace(/-/g, "/")}`;
+}
+
+function resolveExecutableFromPath(command: string, env: Record<string, string | undefined>): string {
+  if (command.includes("/")) {
+    return command;
+  }
+
+  const pathValue = env.PATH ?? process.env.PATH ?? "";
+  for (const directory of pathValue.split(delimiter)) {
+    if (!directory) continue;
+    const candidate = join(directory, command);
+    try {
+      if (statSync(candidate).isFile()) {
+        return candidate;
+      }
+    } catch {
+      // Keep searching.
+    }
+  }
+
+  return command;
 }

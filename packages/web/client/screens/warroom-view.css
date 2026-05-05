@@ -135,15 +135,17 @@
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) minmax(280px, 330px);
+  grid-template-columns: minmax(250px, 280px) minmax(0, 1fr) minmax(330px, 390px);
   grid-template-rows: minmax(0, 1fr);
   gap: var(--warroom-gap);
   background: var(--border);
   overflow: hidden;
 }
 
+.s-warroom-context,
 .s-warroom-queue,
 .s-warroom-board,
+.s-warroom-detail,
 .s-warroom-inspector {
   min-width: 0;
   min-height: 0;
@@ -159,6 +161,20 @@
 
 .s-warroom-board {
   background: color-mix(in srgb, var(--surface) 26%, var(--bg));
+}
+
+.s-warroom-detail {
+  background: color-mix(in srgb, var(--bg) 94%, var(--surface));
+}
+
+.s-warroom-center-section {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.s-warroom-center-section--topology {
+  min-height: 0;
 }
 
 .s-warroom-section-head {
@@ -196,6 +212,134 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.s-warroom-context-stack {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.s-warroom-nav-section {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.s-warroom-nav-list {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.s-warroom-nav-button {
+  min-width: 0;
+  min-height: 68px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+  appearance: none;
+}
+
+.s-warroom-nav-button:hover,
+.s-warroom-nav-button:focus-visible {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.s-warroom-nav-button--warn {
+  border-color: color-mix(in srgb, var(--amber) 46%, var(--border));
+}
+
+.s-warroom-nav-button span,
+.s-warroom-nav-button strong,
+.s-warroom-nav-button small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-nav-button span,
+.s-warroom-nav-button small {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.s-warroom-nav-button span {
+  color: var(--dim);
+  font-size: 9.5px;
+}
+
+.s-warroom-nav-button strong {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-warroom-nav-button small {
+  color: var(--dim);
+  font-size: 9.5px;
+}
+
+.s-warroom-project-list {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.s-warroom-project-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 29px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 52%, transparent);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.s-warroom-project-row:hover {
+  color: var(--ink);
+}
+
+.s-warroom-project-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-project-row span:first-child {
+  font-size: 12px;
+}
+
+.s-warroom-project-row span:last-child {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .s-warroom-queue-list {
@@ -908,6 +1052,65 @@ button.s-warroom-flow-row {
   color: var(--ink);
 }
 
+.s-warroom-detail-body {
+  min-width: 0;
+  max-height: 34vh;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--border) 85%, transparent) transparent;
+}
+
+.s-warroom-detail-grid {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.s-warroom-detail-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+.s-warroom-detail-row span,
+.s-warroom-detail-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-warroom-detail-row span {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.s-warroom-detail-row strong {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .s-warroom-actions {
   min-width: 0;
   display: flex;
@@ -966,6 +1169,11 @@ button.s-warroom-flow-row {
 
 .s-warroom-health-row:hover {
   color: var(--ink);
+}
+
+.s-warroom-health-row--critical,
+.s-warroom-health-row--warning {
+  color: color-mix(in srgb, var(--amber) 78%, var(--muted));
 }
 
 .s-warroom-health-row > * {
@@ -1353,8 +1561,10 @@ button.s-warroom-ask-card:hover {
     overflow: visible;
   }
 
+  .s-warroom-context,
   .s-warroom-queue,
   .s-warroom-board,
+  .s-warroom-detail,
   .s-warroom-inspector,
   .s-warroom-panel,
   .s-warroom-waveform-panel {
@@ -1391,8 +1601,10 @@ button.s-warroom-ask-card:hover {
     padding: 9px 10px;
   }
 
+  .s-warroom-context,
   .s-warroom-queue,
   .s-warroom-board,
+  .s-warroom-detail,
   .s-warroom-inspector,
   .s-warroom-panel,
   .s-warroom-waveform-panel {
@@ -1498,8 +1710,10 @@ button.s-warroom-ask-card:hover {
     overflow: visible;
   }
 
+  .s-warroom-context,
   .s-warroom-queue,
   .s-warroom-board,
+  .s-warroom-detail,
   .s-warroom-inspector,
   .s-warroom-panel,
   .s-warroom-waveform-panel {

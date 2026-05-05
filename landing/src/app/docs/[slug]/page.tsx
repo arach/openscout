@@ -53,6 +53,9 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
       title={doc.title}
       description={doc.description}
       content={doc.content}
+      sourcePath={doc.sourcePath}
+      sourceUrl={doc.sourceUrl}
+      rawUrl={doc.rawUrl}
       mdxSource={mdxSource}
       navigation={navigation}
       slug={doc.slug}

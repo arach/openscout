@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { buildScoutMcpCodexLaunchArgs } from "../codex-launch-config.js";
 import { BaseAdapter } from "../protocol/adapter.js";
 import type { AdapterConfig } from "../protocol/adapter.js";
+import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../protocol/primitives.js";
 import type {
   Action,
   ActionBlock,
@@ -16,6 +17,7 @@ import type {
   Turn,
   TurnStatus,
 } from "../protocol/primitives.js";
+import { CodexObservedTopologyTracker } from "./codex/topology.js";
 
 type CodexRequest = {
   id: string | number;
@@ -342,9 +344,15 @@ export class CodexAdapter extends BaseAdapter {
   private currentThreadPath: string | null = null;
   private currentTurnState: ActiveTurnState | null = null;
   private blockIndex = 0;
+  private readonly observedTopology: CodexObservedTopologyTracker;
 
   constructor(config: AdapterConfig) {
     super(config);
+    this.observedTopology = new CodexObservedTopologyTracker({
+      cwd: config.cwd ?? process.cwd(),
+      homeDir: config.env?.HOME,
+      sessionName: config.name ?? config.sessionId,
+    });
   }
 
   async start(): Promise<void> {
@@ -764,6 +772,10 @@ export class CodexAdapter extends BaseAdapter {
       return;
     }
 
+    if (this.observedTopology.observeItem(item, "started")) {
+      this.emitObservedTopologyUpdate();
+    }
+
     const turnState = this.ensureTurn(turnId);
     switch (itemType) {
       case "agentMessage":
@@ -852,6 +864,10 @@ export class CodexAdapter extends BaseAdapter {
 
     if (!turnId || !item || !itemId || !itemType || itemType === "userMessage") {
       return;
+    }
+
+    if (this.observedTopology.observeItem(item, "completed")) {
+      this.emitObservedTopologyUpdate();
     }
 
     const turnState = this.ensureTurn(turnId);
@@ -1274,6 +1290,7 @@ export class CodexAdapter extends BaseAdapter {
     if (cwd) {
       this.session.cwd = cwd;
     }
+    this.observedTopology.updateThread(thread);
 
     const nextProviderMeta: Record<string, unknown> = {
       ...(this.session.providerMeta ?? {}),
@@ -1286,7 +1303,22 @@ export class CodexAdapter extends BaseAdapter {
     }
     nextProviderMeta.stdoutLogFile = this.stdoutLogPath;
     nextProviderMeta.stderrLogFile = this.stderrLogPath;
-    this.session.providerMeta = nextProviderMeta;
+    this.refreshObservedTopologyMeta(nextProviderMeta);
+    this.emitSessionUpdate();
+  }
+
+  private refreshObservedTopologyMeta(providerMeta: Record<string, unknown> = { ...(this.session.providerMeta ?? {}) }): void {
+    const topology = this.observedTopology.toTopology();
+    if (topology) {
+      providerMeta[OBSERVED_HARNESS_TOPOLOGY_META_KEY] = topology;
+    } else {
+      delete providerMeta[OBSERVED_HARNESS_TOPOLOGY_META_KEY];
+    }
+    this.session.providerMeta = Object.keys(providerMeta).length > 0 ? providerMeta : undefined;
+  }
+
+  private emitObservedTopologyUpdate(): void {
+    this.refreshObservedTopologyMeta();
     this.emitSessionUpdate();
   }
 

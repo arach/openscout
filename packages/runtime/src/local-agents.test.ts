@@ -1,17 +1,25 @@
 import { describe, expect, test } from "bun:test";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
+  DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS,
   buildTmuxLaunchShellCommand,
   buildAttachedSessionInvocationPrompt,
   buildLocalAgentDirectInvocationPrompt,
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
+  normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const scoutCli = `bun ${JSON.stringify(join(repoRoot, "packages", "cli", "bin", "scout.mjs"))}`;
+const scoutSkillPath = join(repoRoot, ".agents", "skills", "scout", "SKILL.md");
 
 describe("local agent prompts", () => {
   test("system prompt composes shared base, project context, and broker-backed protocol", () => {
@@ -24,9 +32,9 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Project context:");
     expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Projects root: /Users/arach/dev");
-    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "@<agent> your message"');
-    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" ask --to <agent> --as shaper "your request"');
-    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" latest --agent shaper --limit 20');
+    expect(prompt).toContain(`${scoutCli} send --as shaper "@<agent> your message"`);
+    expect(prompt).toContain(`${scoutCli} ask --to <agent> --as shaper "your request"`);
+    expect(prompt).toContain(`${scoutCli} latest --agent shaper --limit 20`);
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
     expect(prompt).toContain("Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue");
@@ -35,7 +43,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Do not use channel.shared for ordinary delegation or follow-up");
     expect(prompt).toContain("Treat known offline / on-demand agents as wakeable");
     expect(prompt).toContain("Use send for tells and status; use ask when the meaning is 'do this and get back to me'");
-    expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
+    expect(prompt).toContain(scoutSkillPath);
   });
 
   test("legacy generated node-based prompts normalize away so bun defaults can replace them", () => {
@@ -47,17 +55,33 @@ describe("local agent prompts", () => {
         projectName: "shaper",
         projectPath: "/Users/arach/dev/shaper",
         brokerUrl: DEFAULT_BROKER_URL,
-        relayCommand: 'node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs"',
+        relayCommand: `node ${JSON.stringify(join(repoRoot, "packages", "cli", "bin", "scout.mjs"))}`,
         projectsRoot: "/Users/arach/dev",
         relayHub: "/Users/arach/.openscout/relay",
-        openscoutRoot: "/Users/arach/dev/openscout",
-        scoutSkill: "/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md",
+        openscoutRoot: repoRoot,
+        scoutSkill: scoutSkillPath,
       },
     );
 
     expect(
       normalizeLocalAgentSystemPrompt("shaper", "shaper", "/Users/arach/dev/shaper", legacyPrompt),
     ).toBeUndefined();
+  });
+
+  test("direct claude runtime prompt forbids reply tools for final-response capture", () => {
+    process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
+    process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
+
+    const prompt = buildLocalAgentSystemPrompt(
+      "shaper",
+      "shaper",
+      "/Users/arach/dev/shaper",
+      { transport: "claude_stream_json" },
+    );
+
+    expect(prompt).toContain("OpenScout runtime:");
+    expect(prompt).toContain("Do not call Scout reply tools for the final answer in this runtime");
+    expect(prompt).toContain("the broker captures your final assistant message");
   });
 
   test("system prompt template renders shared fragments, path aliases, and env variables at wake time", () => {
@@ -84,8 +108,8 @@ describe("local agent prompts", () => {
         relayCommand: "bun relay",
         projectsRoot: "/Users/arach/dev",
         relayHub: "/Users/arach/.openscout/relay",
-        openscoutRoot: "/Users/arach/dev/openscout",
-        scoutSkill: "/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md",
+        openscoutRoot: repoRoot,
+        scoutSkill: scoutSkillPath,
       },
     );
 
@@ -103,7 +127,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("If you need multiple agents, use separate DMs or an explicit channel");
     expect(prompt).toContain("Treat known offline / on-demand agents as wakeable");
     expect(prompt).toContain("Use send for tells and status; use ask when the meaning is 'do this and get back to me'");
-    expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
+    expect(prompt).toContain(scoutSkillPath);
     expect(prompt).toContain("Flag: broker-ready");
   });
 
@@ -129,8 +153,8 @@ describe("local agent prompts", () => {
 
     expect(prompt).toContain("Task: Find the session restore race.");
     expect(prompt).toContain('Context: {"file":"ShaperProvider.tsx"}');
-    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" latest --agent shaper --limit 20');
-    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "[ask:flt-1] @hudson <your response>"');
+    expect(prompt).toContain(`${scoutCli} latest --agent shaper --limit 20`);
+    expect(prompt).toContain(`${scoutCli} send --as shaper "[ask:flt-1] @hudson <your response>"`);
   });
 
   test("direct invocation prompt starts with a compact Scout title and metadata", () => {
@@ -160,6 +184,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("- messageId: msg-moi5w7kt-1hjg5e");
     expect(prompt).toContain("- replyToMessageId: msg-moi5w7kt-1hjg5e");
     expect(prompt).toContain("- replyPath: final_response");
+    expect(prompt).toContain("Do not call messages_reply, scout_reply, scout send, messages_send, or invocations_ask to answer this request.");
     expect(prompt).toContain("[scout] @operator asks @ranger: Review how invocation prompt titles...");
     expect(prompt).toContain("meta: from=operator to=ranger action=consult");
     expect(prompt).toContain("ref: convo=dm.operator.ranger.main.mini msg=msg-moi5w7kt-1hjg5e");
@@ -227,6 +252,33 @@ describe("local agent prompts", () => {
   test("tmux launch shell command quotes script paths with spaces", () => {
     expect(buildTmuxLaunchShellCommand("/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"))
       .toBe('exec bash "/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"');
+  });
+
+  test("claude runtime launch args preapprove Scout MCP coordination tools", () => {
+    const args = normalizeClaudeRuntimeLaunchArgs(["--model", "sonnet"]);
+
+    expect(args).toEqual([
+      "--model",
+      "sonnet",
+      "--allowedTools",
+      DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
+    ]);
+  });
+
+  test("claude runtime launch args preserve explicit allowed tools", () => {
+    const args = normalizeClaudeRuntimeLaunchArgs([
+      "--allowedTools",
+      "Read,Grep",
+      "--model",
+      "sonnet",
+    ]);
+
+    expect(args).toEqual([
+      "--allowedTools",
+      "Read,Grep",
+      "--model",
+      "sonnet",
+    ]);
   });
 });
 
