@@ -23,6 +23,93 @@ export type Agent = {
   conversationId: string;
 };
 
+export type ObservedHarnessTopology = {
+  schemaVersion: "openscout.observed-harness-topology.v1";
+  ownership: "harness_observed";
+  source: string;
+  observedAt: string;
+  groups: ObservedHarnessGroup[];
+  agents: ObservedHarnessAgent[];
+  tasks: ObservedHarnessTask[];
+  relationships: ObservedHarnessRelationship[];
+  sourceRefs?: ObservedHarnessSourceRef[];
+  limitations?: string[];
+};
+
+export type ObservedHarnessSourceRef = {
+  id: string;
+  kind: "file" | "directory" | "event" | "provider";
+  ref: string;
+  label?: string;
+};
+
+export type ObservedHarnessGroup = {
+  id: string;
+  kind: string;
+  name?: string;
+  sourceRef?: string;
+  providerMeta?: Record<string, unknown>;
+};
+
+export type ObservedHarnessAgent = {
+  id: string;
+  name?: string;
+  role?: string;
+  type?: string;
+  status?: string;
+  externalSessionId?: string;
+  cwd?: string;
+  model?: string;
+  sourceRef?: string;
+  providerMeta?: Record<string, unknown>;
+};
+
+export type ObservedHarnessTask = {
+  id: string;
+  title?: string;
+  state?: string;
+  assigneeId?: string;
+  dependencyIds?: string[];
+  sourceRef?: string;
+  providerMeta?: Record<string, unknown>;
+};
+
+export type ObservedHarnessRelationship = {
+  id: string;
+  kind: string;
+  fromId: string;
+  toId: string;
+  sourceRef?: string;
+  providerMeta?: Record<string, unknown>;
+};
+
+export type HarnessTopologyObservation = {
+  id: string;
+  source: string;
+  observedAt: string;
+  changedAt: number;
+  fingerprint: string;
+  summary: {
+    groups: number;
+    agents: number;
+    tasks: number;
+    relationships: number;
+  };
+  topology: ObservedHarnessTopology;
+};
+
+export type HarnessTopologySnapshot = {
+  generatedAt: number;
+  observations: HarnessTopologyObservation[];
+  totals: {
+    sources: number;
+    groups: number;
+    agents: number;
+    tasks: number;
+    relationships: number;
+  };
+};
+
 export type Message = {
   id: string;
   conversationId: string;
@@ -195,13 +282,16 @@ export type PairingApprovalRequest = {
 };
 
 export type OperatorAttentionKind = "approval" | "configuration" | "ask" | "work_item" | "question" | "session";
-export type OperatorAttentionActionKind = "approve" | "deny" | "open" | "configure" | "copy";
+export type OperatorAttentionActionKind = "approve" | "deny" | "open" | "configure" | "copy" | "dismiss";
 
 export type OperatorAttentionAction = {
   kind: OperatorAttentionActionKind;
   label: string;
   route?: Route;
   value?: string;
+  recordId?: string;
+  recordKind?: "question" | "work_item";
+  flightId?: string;
 };
 
 export type OperatorAttentionItem = {
@@ -470,6 +560,7 @@ export type ObserveSessionMeta = {
 export type ObserveMetadata = {
   session?: ObserveSessionMeta;
   usage?: ObserveUsageMeta;
+  topology?: ObservedHarnessTopology;
 };
 
 export type ObserveData = {

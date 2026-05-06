@@ -36,6 +36,7 @@ import {
 } from "react";
 
 import { useResizableColumns } from "../components/ResizableTable/useResizableColumns.ts";
+import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
 import type {
@@ -672,6 +673,12 @@ export function AtopView() {
   return (
     <div className="s-atop">
       <SummaryStrip summary={summary} runHistory={runHistory} toolHistory={toolHistory} />
+      <ObservedTopologyPanel
+        title="Harness families"
+        size="compact"
+        maxAgents={6}
+        maxTasks={3}
+      />
 
       <FilterBar
         search={search}

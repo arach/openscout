@@ -62,6 +62,17 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
   );
 }
 
+function OpenScoutStatusBarRight({ statusBar }: { statusBar: ScoutStatusBarState }) {
+  return (
+    <div
+      className="max-w-[38vw] truncate font-mono text-[11px] text-neutral-500"
+      title={statusBar.build.title}
+    >
+      {statusBar.build.label}
+    </div>
+  );
+}
+
 function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; assistantEnabled: boolean }) {
   const { navTotalHeight } = usePlatformLayout();
 
@@ -431,6 +442,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               <StatusBar
                 status={statusBar.status}
                 left={<OpenScoutStatusBarLeft statusBar={statusBar} />}
+                right={<OpenScoutStatusBarRight statusBar={statusBar} />}
                 onToggleTerminal={() => setShowTerminal((visible) => !visible)}
                 isTerminalOpen={showTerminal}
               />

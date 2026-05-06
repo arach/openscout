@@ -11,6 +11,15 @@ export type ScoutStatusBarState = {
   status: { label: string; color: StatusColor };
   activeAgents: { label: string; count: number };
   mesh: { label: string; value: string; color: StatusColor };
+  build: { label: string; title: string };
+};
+
+type BuildInfo = {
+  version: string | null;
+  branch: string | null;
+  commit: string | null;
+  dirty: boolean | null;
+  mode: "dev" | "production";
 };
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
@@ -175,6 +184,7 @@ export function useScoutCommands(): CommandOption[] {
 export function useScoutStatusBarState(): ScoutStatusBarState {
   const { onlineCount } = useScout();
   const [mesh, setMesh] = useState<MeshStatus | null>(null);
+  const [build, setBuild] = useState<BuildInfo | null>(null);
   const requestIdRef = useRef(0);
 
   const loadMesh = useCallback(async () => {
@@ -196,6 +206,29 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
     }, 15_000);
     return () => clearInterval(timer);
   }, [loadMesh]);
+
+  useEffect(() => {
+    api<BuildInfo>("/api/build")
+      .then(setBuild)
+      .catch(() => setBuild(null));
+  }, []);
+
+  const buildLabel = (() => {
+    if (!build) return { label: "dev", title: "Build information unavailable" };
+    const mode = build.mode === "production" ? "prod" : "dev";
+    const branch = build.branch ?? "unknown";
+    const commit = build.commit ? ` @ ${build.commit}${build.dirty ? "*" : ""}` : "";
+    return {
+      label: `${mode} ${branch}${commit}`,
+      title: [
+        `Mode: ${build.mode}`,
+        `Version: ${build.version ?? "unknown"}`,
+        `Branch: ${build.branch ?? "unknown"}`,
+        `Commit: ${build.commit ?? "unknown"}`,
+        `Dirty: ${build.dirty === null ? "unknown" : build.dirty ? "yes" : "no"}`,
+      ].join("\n"),
+    };
+  })();
 
   return {
     status: mesh === null
@@ -223,6 +256,7 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
       }
       return { label: "Mesh", value: "local", color: "amber" as StatusColor };
     })(),
+    build: buildLabel,
   };
 }
 

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { api } from "../lib/api.ts";
 import { actorColor } from "../lib/colors.ts";
+import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
+import { dismissOperatorAttention, type OperatorAttentionDismissTarget } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import type {
   ActivityItem,
@@ -21,7 +23,8 @@ type CommandLane = "attention" | "running" | "failed" | "done";
 
 type CommandAction = {
   label: string;
-  route: Route;
+  route?: Route;
+  dismiss?: OperatorAttentionDismissTarget;
 };
 
 type CommandItemBase = {
@@ -471,7 +474,7 @@ function actionsForAttention(item: FleetAttentionItem): CommandAction[] {
   const actions: CommandAction[] = [];
   const primary = primaryActionForAttention(item);
   if (primary) actions.push(primary);
-  const seen = new Set(actions.map((action) => routeKeyForAction(action.route)));
+  const seen = new Set(actions.flatMap((action) => action.route ? [routeKeyForAction(action.route)] : []));
 
   if (item.recordId && !seen.has(`work:${item.recordId}`)) {
     actions.push({ label: item.kind === "question" ? "Open question" : "Open work", route: { view: "work", workId: item.recordId } });
@@ -490,6 +493,14 @@ function actionsForAttention(item: FleetAttentionItem): CommandAction[] {
       actions.push({ label: "Open agent", route: { view: "agents", agentId: item.agentId } });
     }
   }
+  actions.push({
+    label: "Dismiss attention",
+    dismiss: {
+      recordKind: item.kind,
+      recordId: item.recordId,
+      itemUpdatedAt: item.updatedAt,
+    },
+  });
   return actions;
 }
 
@@ -502,6 +513,15 @@ function actionsForAsk(ask: FleetAsk): CommandAction[] {
     actions.push({ label: "Open conversation", route: { view: "conversation", conversationId: ask.conversationId } });
   }
   actions.push({ label: "Open agent", route: { view: "agents", agentId: ask.agentId } });
+  if (ask.status === "failed" && ask.attention !== "silent" && ask.flightId) {
+    actions.push({
+      label: "Dismiss failure",
+      dismiss: {
+        flightId: ask.flightId,
+        itemUpdatedAt: ask.updatedAt,
+      },
+    });
+  }
   return actions;
 }
 
@@ -678,6 +698,8 @@ export function CommandView({
   const [inspectorPinned, setInspectorPinned] = useState(false);
   const [flowWindowMs, setFlowWindowMs] = useState<number>(DEFAULT_FLOW_WINDOW_MS);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busyActionKey, setBusyActionKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -698,6 +720,26 @@ export function CommandView({
     }
     setNowMs(Date.now());
   }, []);
+
+  const performAction = useCallback(async (action: CommandAction, key: string) => {
+    if (action.route) {
+      navigate(action.route);
+      return;
+    }
+    if (!action.dismiss) {
+      return;
+    }
+    setBusyActionKey(`${key}:${action.label}`);
+    setActionError(null);
+    try {
+      await dismissOperatorAttention(action.dismiss);
+      await load();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyActionKey(null);
+    }
+  }, [load, navigate]);
 
   useEffect(() => {
     void load();
@@ -797,6 +839,7 @@ export function CommandView({
           <div className="s-warroom-statusline">
             Freshness {freshness} / Local time {formatClock(nowMs)}
           </div>
+          {actionError && <div className="s-warroom-action-error">{actionError}</div>}
         </div>
         <div className="s-warroom-kpis">
           <Kpi label="Action needed" value={String(actionNeededCount)} detail={formatCueCount(queueItems.length)} warn={actionNeededCount > 0} hot={urgentCueCount > 0} />
@@ -804,6 +847,13 @@ export function CommandView({
           <Kpi label="Messages" value={String(eventsInWindow)} detail={`last ${formatWindow(flowWindowMs)}`} />
         </div>
       </header>
+
+      <ObservedTopologyPanel
+        title="Codex / Claude Code families"
+        size="compact"
+        maxAgents={8}
+        maxTasks={4}
+      />
 
       <div className="s-warroom-layout">
         <aside className="s-warroom-context">
@@ -826,7 +876,8 @@ export function CommandView({
               queueItems={queueItems}
               selectedKey={selectedItem?.key ?? null}
               nowMs={nowMs}
-              navigate={navigate}
+              onAction={performAction}
+              busyActionKey={busyActionKey}
               onSelect={(key) => {
                 setInspectorPinned(true);
                 setSelectedKey(key);
@@ -872,7 +923,8 @@ export function CommandView({
               item={selectedItem}
               agentsById={agentsById}
               nowMs={nowMs}
-              navigate={navigate}
+              onAction={performAction}
+              busyActionKey={busyActionKey}
             />
           ) : (
             <div className="s-warroom-empty">Select an attention item or message flow for detail.</div>
@@ -1049,13 +1101,15 @@ function CommandStack({
   queueItems,
   selectedKey,
   nowMs,
-  navigate,
+  onAction,
+  busyActionKey,
   onSelect,
 }: {
   queueItems: AttentionCommandItem[];
   selectedKey: string | null;
   nowMs: number;
-  navigate: (route: Route) => void;
+  onAction: (action: CommandAction, key: string) => void;
+  busyActionKey: string | null;
   onSelect: (key: string) => void;
 }) {
   return (
@@ -1082,7 +1136,8 @@ function CommandStack({
                 item={item}
                 nowMs={nowMs}
                 selected={item.key === selectedKey}
-                navigate={navigate}
+                onAction={onAction}
+                busyActionKey={busyActionKey}
                 onSelect={() => onSelect(item.key)}
               />
             ))}
@@ -1097,17 +1152,20 @@ function AttentionItemButton({
   item,
   nowMs,
   selected,
-  navigate,
+  onAction,
+  busyActionKey,
   onSelect,
 }: {
   item: AttentionCommandItem;
   nowMs: number;
   selected: boolean;
-  navigate: (route: Route) => void;
+  onAction: (action: CommandAction, key: string) => void;
+  busyActionKey: string | null;
   onSelect: () => void;
 }) {
-  const primaryAction = item.actions[0];
+  const primaryAction = item.actions.find((action) => action.route);
   if (!primaryAction) return null;
+  const primaryBusy = busyActionKey === `${item.key}:${primaryAction.label}`;
 
   return (
     <div className={classForAttentionItem(item, selected)}>
@@ -1131,9 +1189,10 @@ function AttentionItemButton({
       <button
         type="button"
         className="s-warroom-attention-item-primary"
-        onClick={() => navigate(primaryAction.route)}
+        disabled={primaryBusy}
+        onClick={() => onAction(primaryAction, item.key)}
       >
-        {primaryAction.label}
+        {primaryBusy ? "Working" : primaryAction.label}
       </button>
     </div>
   );
@@ -1493,10 +1552,11 @@ function FlowInspector({
         {actions.length > 0 ? (
           actions.map((action) => (
             <button
-              key={`${action.label}:${routeKeyForAction(action.route)}`}
+              key={`${action.label}:${action.route ? routeKeyForAction(action.route) : action.label}`}
               type="button"
               className="s-warroom-action"
-              onClick={() => navigate(action.route)}
+              disabled={!action.route}
+              onClick={() => action.route ? navigate(action.route) : undefined}
             >
               {action.label}
             </button>
@@ -1532,12 +1592,14 @@ function Inspector({
   item,
   agentsById,
   nowMs,
-  navigate,
+  onAction,
+  busyActionKey,
 }: {
   item: CommandItem;
   agentsById: Map<string, Agent>;
   nowMs: number;
-  navigate: (route: Route) => void;
+  onAction: (action: CommandAction, key: string) => void;
+  busyActionKey: string | null;
 }) {
   const agent = item.agentId ? agentsById.get(item.agentId) ?? null : null;
 
@@ -1567,9 +1629,10 @@ function Inspector({
               key={action.label}
               type="button"
               className="s-warroom-action"
-              onClick={() => navigate(action.route)}
+              disabled={busyActionKey === `${item.key}:${action.label}`}
+              onClick={() => onAction(action, item.key)}
             >
-              {action.label}
+              {busyActionKey === `${item.key}:${action.label}` ? "Working" : action.label}
             </button>
           ))
         )}

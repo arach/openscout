@@ -1,10 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 import { Hono, type Context } from "hono";
-import type { ConversationKind } from "@openscout/protocol";
+import type { CollaborationEvent, CollaborationKind, ConversationKind } from "@openscout/protocol";
 
 import {
   controlScoutWebPairingService,
@@ -28,6 +29,7 @@ import {
   queryActivity,
   queryBrokerDiagnostics,
   queryFleet,
+  queryFlightRecordById,
   queryFlights,
   queryRecentMessages,
   queryWorkItems,
@@ -39,10 +41,14 @@ import {
   queryRuns,
 } from "./db-queries.ts";
 import {
+  appendScoutCollaborationEvent,
   askScoutQuestion,
+  resolveScoutBrokerUrl,
   sendScoutDirectMessage,
   sendScoutMessage,
+  upsertScoutFlight,
 } from "./core/broker/service.ts";
+import { scoutBrokerPaths } from "./core/broker/paths.ts";
 import { getScoutConversations } from "./core/conversations/service.ts";
 import {
   loadAgentObservePayload,
@@ -146,10 +152,13 @@ type OperatorAttentionItem = {
   approval?: ScoutPairingState["pendingApprovals"][number];
   permissionRequest?: ClaudePermissionRequest;
   actions: Array<{
-    kind: "approve" | "deny" | "open" | "configure" | "copy";
+    kind: "approve" | "deny" | "open" | "configure" | "copy" | "dismiss";
     label: string;
     route?: { view: string; [key: string]: string | undefined };
     value?: string;
+    recordId?: string;
+    recordKind?: CollaborationKind;
+    flightId?: string;
   }>;
 };
 
@@ -169,6 +178,14 @@ type ClaudePermissionRequest = {
   summary: string | null;
   decision?: "allow" | "deny";
   reason?: string;
+};
+
+type OpenScoutBuildInfo = {
+  version: string | null;
+  branch: string | null;
+  commit: string | null;
+  dirty: boolean | null;
+  mode: "dev" | "production";
 };
 
 function parseOptionalPositiveInt(
@@ -334,6 +351,16 @@ function buildAgentSessionCatalogPayload(input: {
   };
 }
 
+function emptyAgentSessionCatalogPayload(agentId: string) {
+  return {
+    activeSessionId: null,
+    sessions: [],
+    agentId,
+    harness: null,
+    resumeCommand: null,
+  };
+}
+
 function resolveBundledStaticClientRoot(
   moduleUrl: string | URL = import.meta.url,
 ): string {
@@ -390,6 +417,60 @@ function permissionRequestPath(id: string): string {
   return join(permissionRequestDirectory(), `${encodeURIComponent(id)}.json`);
 }
 
+function buildScoutEntityId(prefix: string, createdAtMs: number): string {
+  return `${prefix}-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function dismissCollaborationAction(recordKind: CollaborationKind, recordId: string): OperatorAttentionItem["actions"][number] {
+  return {
+    kind: "dismiss",
+    label: "Dismiss",
+    recordKind,
+    recordId,
+  };
+}
+
+async function dismissCollaborationAttention(input: {
+  recordKind: CollaborationKind;
+  recordId: string;
+  itemUpdatedAt: number;
+}): Promise<void> {
+  const at = Date.now();
+  const event: CollaborationEvent = {
+    id: buildScoutEntityId("evt", at),
+    recordId: input.recordId,
+    recordKind: input.recordKind,
+    kind: "dismissed",
+    actorId: "operator",
+    at,
+    summary: "Dismissed from operator queue.",
+    metadata: {
+      source: "openscout-web",
+      itemUpdatedAt: input.itemUpdatedAt,
+    },
+  };
+  await appendScoutCollaborationEvent(event);
+}
+
+async function dismissFlightAttention(input: {
+  flightId: string;
+  itemUpdatedAt: number;
+}): Promise<void> {
+  const flight = queryFlightRecordById(input.flightId);
+  if (!flight) {
+    throw new Error("flight not found");
+  }
+  await upsertScoutFlight({
+    ...flight,
+    metadata: {
+      ...(flight.metadata ?? {}),
+      operatorAttentionDismissedAt: Date.now(),
+      operatorAttentionItemUpdatedAt: input.itemUpdatedAt,
+      operatorAttentionDismissedBy: "operator",
+    },
+  });
+}
+
 function readPermissionJson(path: string): ClaudePermissionRequest | null {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<ClaudePermissionRequest>;
@@ -422,6 +503,44 @@ function readPermissionJson(path: string): ClaudePermissionRequest | null {
   }
 }
 
+function readWebPackageVersion(): string | null {
+  try {
+    const packagePath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+    const parsed = JSON.parse(readFileSync(packagePath, "utf8")) as { version?: unknown };
+    return typeof parsed.version === "string" && parsed.version.trim()
+      ? parsed.version.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function runGitValue(currentDirectory: string, args: string[]): string | null {
+  try {
+    const value = execFileSync("git", ["-C", currentDirectory, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1000,
+    }).trim();
+    return value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadOpenScoutBuildInfo(currentDirectory: string): OpenScoutBuildInfo {
+  const branch = runGitValue(currentDirectory, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const commit = runGitValue(currentDirectory, ["rev-parse", "--short", "HEAD"]);
+  const dirtyStatus = runGitValue(currentDirectory, ["status", "--porcelain"]);
+  return {
+    version: readWebPackageVersion(),
+    branch,
+    commit,
+    dirty: dirtyStatus === null ? null : dirtyStatus.length > 0,
+    mode: process.env.NODE_ENV === "production" ? "production" : "dev",
+  };
+}
+
 function queryPendingClaudePermissionRequests(): ClaudePermissionRequest[] {
   const dir = permissionRequestDirectory();
   if (!existsSync(dir)) {
@@ -431,7 +550,7 @@ function queryPendingClaudePermissionRequests(): ClaudePermissionRequest[] {
     .filter((name) => name.endsWith(".json"))
     .map((name) => readPermissionJson(join(dir, name)))
     .filter((request): request is ClaudePermissionRequest =>
-      Boolean(request) && request.status === "pending" && !request.decision)
+      request !== null && request.status === "pending" && !request.decision)
     .sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
@@ -569,7 +688,10 @@ function operatorAttentionFromSessionItem(item: SessionAttentionItem): OperatorA
     severity: item.severity,
     sourceLabel: item.sourceLabel,
     ...(item.approval ? { approval: item.approval } : {}),
-    actions: [...approvalActions, openAction],
+    actions: [
+      ...approvalActions,
+      openAction,
+    ],
   };
 }
 
@@ -667,7 +789,10 @@ async function buildOperatorAttentionState(currentDirectory: string) {
       updatedAt: work.updatedAt,
       severity: work.state === "waiting" || work.kind === "question" ? "warning" : "info",
       sourceLabel: work.kind === "question" ? "Question" : "Work item",
-      actions: route ? [{ kind: "open", label: work.kind === "question" ? "Answer" : "Open", route }] : [],
+      actions: [
+        ...(route ? [{ kind: "open" as const, label: work.kind === "question" ? "Answer" : "Open", route }] : []),
+        dismissCollaborationAction(work.kind, work.recordId),
+      ],
     });
   }
 
@@ -684,9 +809,12 @@ async function buildOperatorAttentionState(currentDirectory: string) {
       updatedAt: ask.updatedAt,
       severity: "critical",
       sourceLabel: "Ask delivery",
-      actions: ask.conversationId
-        ? [{ kind: "open", label: "Open thread", route: { view: "conversation", conversationId: ask.conversationId } }]
-        : [{ kind: "open", label: "Open agent", route: { view: "agents", agentId: ask.agentId } }],
+      actions: [
+        ...(ask.conversationId
+          ? [{ kind: "open" as const, label: "Open thread", route: { view: "conversation", conversationId: ask.conversationId } }]
+          : [{ kind: "open" as const, label: "Open agent", route: { view: "agents", agentId: ask.agentId } }]),
+        ...(ask.flightId ? [{ kind: "dismiss" as const, label: "Dismiss", flightId: ask.flightId }] : []),
+      ],
     });
   }
 
@@ -875,6 +1003,7 @@ export async function createOpenScoutWebServer(
       publicOrigin: options.publicOrigin,
     }),
   );
+  app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
   app.use("/", async (c, next) => {
     const portalHost = options.portalHost?.trim().toLowerCase();
     const nodeHost = options.advertisedHost?.trim().toLowerCase();
@@ -966,6 +1095,29 @@ export async function createOpenScoutWebServer(
     }
     return c.json(await buildOperatorAttentionState(currentDirectory));
   });
+  app.post("/api/operator-attention/dismiss", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      recordKind?: unknown;
+      recordId?: unknown;
+      flightId?: unknown;
+      itemUpdatedAt?: unknown;
+    };
+    const recordKind = body.recordKind === "question" || body.recordKind === "work_item" ? body.recordKind : null;
+    const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
+    const flightId = typeof body.flightId === "string" ? body.flightId.trim() : "";
+    const itemUpdatedAt = typeof body.itemUpdatedAt === "number" && Number.isFinite(body.itemUpdatedAt)
+      ? body.itemUpdatedAt
+      : 0;
+    if (itemUpdatedAt <= 0 || (!flightId && (!recordKind || !recordId))) {
+      return c.json({ error: "recordKind and recordId, or flightId, plus itemUpdatedAt are required" }, 400);
+    }
+    if (flightId) {
+      await dismissFlightAttention({ flightId, itemUpdatedAt });
+    } else if (recordKind && recordId) {
+      await dismissCollaborationAttention({ recordKind, recordId, itemUpdatedAt });
+    }
+    return c.json(await buildOperatorAttentionState(currentDirectory));
+  });
   app.post("/api/pairing/control", async (c) => {
     const { action } = (await c.req.json()) as {
       action: ScoutPairingControlAction;
@@ -1054,7 +1206,7 @@ export async function createOpenScoutWebServer(
     const agentId = c.req.param("id");
     const agents = queryAgents();
     const agent = agents.find((a) => a.id === agentId);
-    if (!agent) return c.json({ error: "agent not found" }, 404);
+    if (!agent) return c.json(emptyAgentSessionCatalogPayload(agentId));
     const cwd = agent.cwd ?? agent.projectRoot ?? ".";
     return c.json(buildAgentSessionCatalogPayload({ agentId, harness: agent.harness, cwd }));
   });
@@ -1069,6 +1221,17 @@ export async function createOpenScoutWebServer(
     return c.json(context);
   });
   app.get("/api/activity", (c) => c.json(queryActivity()));
+  app.get("/api/topology/snapshot", async (c) => {
+    const url = new URL(scoutBrokerPaths.v1.topologySnapshot, resolveScoutBrokerUrl());
+    if (c.req.query("force") === "1") {
+      url.searchParams.set("force", "1");
+    }
+    const res = await fetch(url);
+    if (!res.ok) {
+      return c.json({ error: `broker topology unavailable (${res.status})` }, 502);
+    }
+    return c.json(await res.json());
+  });
   app.get("/api/broker", (c) =>
     c.json(
       queryBrokerDiagnostics({

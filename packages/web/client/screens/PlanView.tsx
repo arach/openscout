@@ -126,11 +126,7 @@ function phaseLabel(work: WorkItem): string {
 function workNodeState(work: WorkItem): MissionNodeState {
   if (work.state === "done") return "done";
   if (work.attention === "interrupt") return "stuck";
-  if (
-    work.attention === "badge" ||
-    work.state === "waiting" ||
-    work.state === "review"
-  ) {
+  if (work.attention === "badge") {
     return "stuck";
   }
   if (
@@ -151,8 +147,9 @@ function askNodeState(ask: FleetAsk): MissionNodeState {
     case "completed":
       return "done";
     case "needs_attention":
-    case "failed":
       return "stuck";
+    case "failed":
+      return ask.attention === "silent" ? "committed" : "stuck";
     default:
       return "committed";
   }
@@ -286,7 +283,7 @@ function isTerminalWorkState(state: string): boolean {
 
 function workStatus(work: WorkItem, descendants: WorkItem[]): PlanRecordStatus {
   const items = [work, ...descendants];
-  if (items.some((item) => item.attention !== "silent" || item.state === "waiting" || item.state === "review")) {
+  if (items.some((item) => item.attention !== "silent")) {
     return "blocked";
   }
   if (items.some((item) => item.state === "working" || item.activeFlightCount > 0)) {
@@ -299,7 +296,7 @@ function workStatus(work: WorkItem, descendants: WorkItem[]): PlanRecordStatus {
 }
 
 function askStatus(ask: FleetAsk): PlanRecordStatus {
-  if (ask.status === "failed" || ask.status === "needs_attention") return "blocked";
+  if (ask.status === "needs_attention" || (ask.status === "failed" && ask.attention !== "silent")) return "blocked";
   if (ask.status === "working") return "active";
   if (ask.status === "queued") return "queued";
   return "needs_review";
@@ -308,7 +305,7 @@ function askStatus(ask: FleetAsk): PlanRecordStatus {
 function completionForWork(work: WorkItem, descendants: WorkItem[], nowMs: number): CompletionEvaluation {
   const items = [work, ...descendants];
   const latestAt = Math.max(...items.map((item) => item.lastMeaningfulAt || item.updatedAt || item.createdAt));
-  const hasBlocked = items.some((item) => item.attention !== "silent" || item.state === "waiting" || item.state === "review");
+  const hasBlocked = items.some((item) => item.attention !== "silent");
   const hasActive = items.some((item) => item.state === "working" || item.activeFlightCount > 0);
   const allDone = items.every((item) => item.state === "done");
   const hasQueued = items.some((item) => item.state === "open");

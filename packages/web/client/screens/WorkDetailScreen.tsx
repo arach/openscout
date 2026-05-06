@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { api } from "../lib/api.ts";
+import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { Route, WorkDetail, WorkTimelineItem } from "../lib/types.ts";
@@ -133,6 +134,7 @@ export function WorkDetailScreen({
   const [detail, setDetail] = useState<WorkDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -154,6 +156,24 @@ export function WorkDetailScreen({
   useBrokerEvents(() => {
     void load();
   });
+
+  const dismissAttention = useCallback(async () => {
+    if (!detail) return;
+    setDismissing(true);
+    setError(null);
+    try {
+      await dismissOperatorAttention({
+        recordKind: "work_item",
+        recordId: detail.id,
+        itemUpdatedAt: detail.updatedAt,
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDismissing(false);
+    }
+  }, [detail, load]);
 
   if (!loaded) {
     return (
@@ -399,6 +419,13 @@ export function WorkDetailScreen({
                 />
               ) : (
                 <div className="s-work-action-list-empty">No parent work item.</div>
+              )}
+              {attention && (
+                <ActionRow
+                  label="Attention"
+                  value={dismissing ? "Dismissing" : "Dismiss cue"}
+                  onClick={() => void dismissAttention()}
+                />
               )}
             </div>
           </section>

@@ -105,6 +105,7 @@ export type CollaborationEventKind =
   | "handoff"
   | "review_requested"
   | "done"
+  | "dismissed"
   | "declined"
   | "cancelled";
 

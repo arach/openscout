@@ -149,6 +149,7 @@ export type OpenScoutSettings = {
     defaultTransport: RelayRuntimeTransport;
     defaultCapabilities: AgentCapability[];
     sessionPrefix: string;
+    coreAgents: string[];
   };
   bridges: {
     telegram: {
@@ -1012,6 +1013,7 @@ function defaultSettings(): OpenScoutSettings {
       defaultTransport: DEFAULT_TRANSPORT,
       defaultCapabilities: [...DEFAULT_CAPABILITIES],
       sessionPrefix: "relay",
+      coreAgents: [],
     },
     bridges: {
       telegram: {
@@ -1545,6 +1547,7 @@ async function normalizeSettingsRecord(
       defaultTransport: DEFAULT_TRANSPORT,
       defaultCapabilities: normalizeCapabilities(agents.defaultCapabilities),
       sessionPrefix: normalizeSessionPrefix(typeof agents.sessionPrefix === "string" ? agents.sessionPrefix : undefined),
+      coreAgents: normalizeStringList(agents.coreAgents),
     },
     bridges: {
       telegram: {

@@ -14,8 +14,13 @@ import { initTRPC, tracked } from "@trpc/server";
 // into our import graph, which lets `tsc --declaration` reference it without
 // emitting the "inferred type cannot be named" error (TS2742).
 import type {} from "@trpc/server/unstable-core-do-not-import";
+import type { ControlEvent } from "@openscout/protocol";
 import { z } from "zod";
 
+import {
+  snapshotRecentControlEvents,
+  subscribeControlEvents,
+} from "./broker-control-events.js";
 import {
   snapshotRecentEvents,
   subscribeTail,
@@ -30,8 +35,16 @@ import {
 
 const t = initTRPC.create();
 
+const CONTROL_BACKLOG_LIMIT = 500;
 const TAIL_BACKLOG_LIMIT = 500;
 const TOPOLOGY_BACKLOG_LIMIT = 200;
+
+const controlEventsInput = z
+  .object({
+    since: z.string().optional(),
+    kinds: z.array(z.string()).optional(),
+  })
+  .optional();
 
 const tailEventsInput = z
   .object({
@@ -46,6 +59,60 @@ const topologyEventsInput = z
     sources: z.array(z.string()).optional(),
   })
   .optional();
+
+function controlEventIterable(
+  kinds: string[] | undefined,
+  signal?: AbortSignal,
+): AsyncIterable<ControlEvent> {
+  return {
+    [Symbol.asyncIterator]() {
+      const buffer: ControlEvent[] = [];
+      let resolve: (() => void) | null = null;
+      let done = false;
+
+      const filter = kinds && kinds.length > 0 ? new Set(kinds) : null;
+
+      const unsub = subscribeControlEvents((event: ControlEvent) => {
+        if (done) return;
+        if (filter && !filter.has(event.kind)) return;
+        buffer.push(event);
+        if (resolve) {
+          resolve();
+          resolve = null;
+        }
+      });
+
+      const cleanup = () => {
+        done = true;
+        unsub();
+        if (resolve) {
+          resolve();
+          resolve = null;
+        }
+      };
+
+      signal?.addEventListener("abort", cleanup, { once: true });
+
+      return {
+        async next(): Promise<IteratorResult<ControlEvent>> {
+          while (true) {
+            if (done) return { done: true, value: undefined };
+            if (buffer.length > 0) {
+              return { done: false, value: buffer.shift()! };
+            }
+            await new Promise<void>((r) => {
+              resolve = r;
+            });
+          }
+        },
+        async return(): Promise<IteratorResult<ControlEvent>> {
+          cleanup();
+          return { done: true, value: undefined };
+        },
+      };
+    },
+  };
+}
 
 /**
  * Async iterable adapter over the singleton tail watcher. Each subscriber
@@ -159,6 +226,32 @@ function topologyEventIterable(
   };
 }
 
+const controlRouter = t.router({
+  events: t.procedure
+    .input(controlEventsInput)
+    .subscription(async function* ({ input, signal }) {
+      const kinds = input?.kinds;
+      const filter = kinds && kinds.length > 0 ? new Set(kinds) : null;
+
+      const backlog = snapshotRecentControlEvents(CONTROL_BACKLOG_LIMIT);
+      let startIdx = 0;
+      if (input?.since) {
+        const idx = backlog.findIndex((event: ControlEvent) => event.id === input.since);
+        if (idx >= 0) startIdx = idx + 1;
+      }
+      for (let i = startIdx; i < backlog.length; i++) {
+        const event = backlog[i];
+        if (!event) continue;
+        if (filter && !filter.has(event.kind)) continue;
+        yield tracked(event.id, event);
+      }
+
+      for await (const event of controlEventIterable(kinds, signal)) {
+        yield tracked(event.id, event);
+      }
+    }),
+});
+
 const tailRouter = t.router({
   events: t.procedure
     .input(tailEventsInput)
@@ -218,6 +311,7 @@ const topologyRouter = t.router({
 });
 
 export const brokerRouter = t.router({
+  control: controlRouter,
   tail: tailRouter,
   topology: topologyRouter,
 });

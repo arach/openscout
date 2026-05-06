@@ -1008,6 +1008,19 @@
   gap: 12px;
 }
 
+.s-agents-library-topology,
+.s-agents-library-empty {
+  grid-column: 1 / -1;
+}
+
+.s-agents-library-empty {
+  height: auto;
+  min-height: 180px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
 /* ── Repo card: master container ── */
 
 .s-repo-card {

@@ -36,6 +36,7 @@ export type BrokerServiceConfig = {
   brokerUrl: string;
   brokerSocketPath: string;
   advertiseScope: BrokerAdvertiseScope;
+  coreAgents: string[];
 };
 
 export type BrokerHealthSnapshot = {
@@ -328,12 +329,14 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
     brokerUrl,
     brokerSocketPath,
     advertiseScope,
+    coreAgents: readCoreAgentsSync(),
   };
 }
 
 export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
   const launchPath = resolveLaunchAgentPATH();
-  const envEntries = {
+  const coreAgentsValue = config.coreAgents.join(",");
+  const envEntries: Record<string, string> = {
     OPENSCOUT_BROKER_HOST: config.brokerHost,
     OPENSCOUT_BROKER_PORT: String(config.brokerPort),
     OPENSCOUT_BROKER_URL: config.brokerUrl,
@@ -357,6 +360,9 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
       "OPENSCOUT_SSE_KEEPALIVE_MS",
     ]),
   };
+  if (coreAgentsValue) {
+    envEntries["OPENSCOUT_CORE_AGENTS"] = coreAgentsValue;
+  }
 
   const envBlock = Object.entries(envEntries)
     .map(([key, value]) => `\n    <key>${xmlEscape(key)}</key>\n    <string>${xmlEscape(value)}</string>`)
@@ -393,6 +399,21 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
 </dict>
 </plist>
 `;
+}
+
+function readCoreAgentsSync(): string[] {
+  try {
+    const settingsPath = resolveOpenScoutSupportPaths().settingsPath;
+    const raw = readFileSync(settingsPath, "utf8");
+    const settings = JSON.parse(raw) as { agents?: { coreAgents?: unknown } };
+    const raw_agents = settings?.agents?.coreAgents;
+    if (Array.isArray(raw_agents)) {
+      return raw_agents.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+    }
+  } catch {
+    // settings.json missing or malformed — no core agents
+  }
+  return [];
 }
 
 function collectOptionalEnvVars(keys: string[]): Record<string, string> {
