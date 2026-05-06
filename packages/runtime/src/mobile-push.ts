@@ -89,6 +89,9 @@ export type MobilePushBroadcastResult = {
   skippedCount: number;
   failedCount: number;
   configMissing: boolean;
+  rateLimited?: boolean;
+  retryAfterSeconds?: number | null;
+  rateLimitWindow?: string | null;
   failures: Array<{
     deviceId: string;
     tokenSuffix: string;
@@ -99,8 +102,8 @@ export type MobilePushBroadcastResult = {
 
 type PushRelayConfig = {
   url: string;
-  token: string;
-  meshId: string;
+  sessionToken: string;
+  meshId: string | null;
 };
 
 const MOBILE_PUSH_SCHEMA = `
@@ -190,26 +193,35 @@ function pushAllowed(status: MobilePushAuthorizationStatus): boolean {
 
 function resolvePushRelayConfig(): PushRelayConfig | null {
   const url = process.env.OPENSCOUT_PUSH_RELAY_URL?.trim();
-  const token = process.env.OPENSCOUT_PUSH_RELAY_TOKEN?.trim();
-  if (!url || !token) return null;
+  const sessionToken = process.env.OPENSCOUT_PUSH_RELAY_SESSION?.trim();
+  if (!url || !sessionToken) return null;
   return {
     url: url.replace(/\/+$/g, ""),
-    token,
-    meshId: process.env.OPENSCOUT_PUSH_RELAY_MESH_ID?.trim() || "openscout",
+    sessionToken,
+    meshId: process.env.OPENSCOUT_PUSH_RELAY_MESH_ID?.trim() || null,
   };
 }
 
-async function postPushRelay(path: string, body: unknown): Promise<Response> {
+function relayAuthHeader(sessionToken: string): string {
+  return sessionToken.startsWith("osn_session_")
+    ? `Bearer ${sessionToken}`
+    : `Bearer osn_session_${sessionToken}`;
+}
+
+async function fetchPushRelay(method: "GET" | "POST", path: string, body?: unknown): Promise<Response> {
   const config = resolvePushRelayConfig();
   if (!config) throw new Error("push relay is not configured");
-  return fetch(`${config.url}${path}`, {
-    method: "POST",
+  const init: RequestInit = {
+    method,
     headers: {
-      authorization: `Bearer ${config.token}`,
-      "content-type": "application/json",
+      authorization: relayAuthHeader(config.sessionToken),
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
     },
-    body: JSON.stringify(body),
-  });
+  };
+  if (body !== undefined) {
+    init.body = JSON.stringify(body);
+  }
+  return fetch(`${config.url}${path}`, init);
 }
 
 async function syncPushRelayRegistration(
@@ -218,8 +230,8 @@ async function syncPushRelayRegistration(
   const config = resolvePushRelayConfig();
   if (!config) return;
   const pushToken = input.pushToken?.trim() ? normalizeToken(input.pushToken) : null;
-  const response = await postPushRelay("/v1/push/devices/register", {
-    meshId: config.meshId,
+  const response = await fetchPushRelay("POST", "/v1/push/devices/register", {
+    meshId: config.meshId ?? undefined,
     deviceId: input.deviceId,
     platform: input.platform,
     appBundleId: input.appBundleId,
@@ -249,8 +261,8 @@ async function broadcastPushRelayAlert(alert: MobilePushAlert): Promise<MobilePu
       failures: [],
     };
   }
-  const response = await postPushRelay("/v1/push", {
-    meshId: config.meshId,
+  const response = await fetchPushRelay("POST", "/v1/push", {
+    meshId: config.meshId ?? undefined,
     itemId: typeof alert.payload?.itemId === "string" ? alert.payload.itemId : undefined,
     kind: typeof alert.payload?.kind === "string" ? alert.payload.kind : undefined,
     urgency: "interrupt",
@@ -260,6 +272,27 @@ async function broadcastPushRelayAlert(alert: MobilePushAlert): Promise<MobilePu
       kind: alert.payload?.kind,
     },
   });
+  if (response.status === 429) {
+    const retryAfter = response.headers.get("retry-after");
+    const window = response.headers.get("x-ratelimit-window");
+    const detail = await response.text().catch(() => "");
+    return {
+      attemptedCount: 0,
+      deliveredCount: 0,
+      skippedCount: 0,
+      failedCount: 1,
+      configMissing: false,
+      rateLimited: true,
+      retryAfterSeconds: retryAfter ? Number.parseInt(retryAfter, 10) || null : null,
+      rateLimitWindow: window,
+      failures: [{
+        deviceId: "push-relay",
+        tokenSuffix: "relay",
+        status: 429,
+        reason: detail || `HTTP 429 (window=${window ?? "unknown"})`,
+      }],
+    };
+  }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     return {
