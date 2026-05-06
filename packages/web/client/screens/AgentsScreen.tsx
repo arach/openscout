@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { WorkList } from "../components/WorkList.tsx";
+import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
+import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
@@ -330,6 +332,7 @@ function AgentDetailWithRail({
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const [observeLoading, setObserveLoading] = useState(false);
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const [dismissingWorkId, setDismissingWorkId] = useState<string | null>(null);
   const state = normalizeAgentState(agent.state);
   const showContextMenu = useContextMenu();
 
@@ -341,6 +344,20 @@ function AgentDetailWithRail({
     if (workResult.status === "fulfilled") setWork(workResult.value);
     if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
   }, [agent.id]);
+
+  const dismissWorkAttention = useCallback(async (item: WorkItem) => {
+    setDismissingWorkId(item.id);
+    try {
+      await dismissOperatorAttention({
+        recordKind: "work_item",
+        recordId: item.id,
+        itemUpdatedAt: item.updatedAt,
+      });
+      await load();
+    } finally {
+      setDismissingWorkId(null);
+    }
+  }, [load]);
 
   const loadMessages = useCallback(async () => {
     if (!conversationId) {
@@ -674,6 +691,8 @@ function AgentDetailWithRail({
                   items={activeWork}
                   navigate={navigate}
                   emptyTitle="Nothing in flight"
+                  onDismissAttention={(item) => void dismissWorkAttention(item)}
+                  dismissingId={dismissingWorkId}
                 />
               </div>
             </>
@@ -925,20 +944,6 @@ function AgentsLibrary({
   conversationByAgentId: Map<string, string>;
   navigate: (r: Route) => void;
 }) {
-  if (agents.length === 0) {
-    return (
-      <div className="s-profile-center" style={{ height: "100%" }}>
-        <div className="s-profile-empty">
-          <h2 className="s-profile-empty-title">No agents yet</h2>
-          <p className="s-profile-empty-copy">
-            Spawn an agent from a workspace, harness, branch, and model to see
-            it land here.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   const repos = useMemo(() => buildRepoCards(agents), [agents]);
   const onlineTotal = agents.filter(isOnline).length;
   const [viewMode, setViewMode] = useState<AgentViewMode>("cards");
@@ -971,6 +976,21 @@ function AgentsLibrary({
       </header>
 
       <div className="s-agents-library-repos">
+        <div className="s-agents-library-topology">
+          <ObservedTopologyPanel
+            title="Codex / Claude Code families"
+            size="full"
+            showEmpty={agents.length === 0}
+          />
+        </div>
+        {agents.length === 0 && (
+          <div className="s-profile-empty s-agents-library-empty">
+            <h2 className="s-profile-empty-title">No Scout agents yet</h2>
+            <p className="s-profile-empty-copy">
+              Internal harness families can still appear above when Codex or Claude Code delegates inside a session.
+            </p>
+          </div>
+        )}
         {repos.map((repo) => (
           <RepoCardView
             key={repo.key}

@@ -13,6 +13,7 @@ import { api } from "../lib/api.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 
 import "./session-observe.css";
 
@@ -848,6 +849,15 @@ export function SessionObserve({
             <StatCard label="Files" value={fmtCompactNumber(files.length)} />
             <StatCard label="Window" value={fmtWindowSpan(observedWindowSeconds)} />
           </div>
+        </div>
+
+        <div>
+          <div className="s-observe-rail-label">Agent family</div>
+          <ObservedTopologyPanel
+            topology={metadata?.topology ?? null}
+            title="Internal agents"
+            size="rail"
+          />
         </div>
 
         <div>

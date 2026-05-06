@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, ChevronDown, ChevronUp, Compass, Loader2, Map, Mic, Radio, RefreshCw, Rocket, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Bot, ChevronDown, ChevronUp, Compass, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { usePersistentBoolean } from "../../lib/persistent-state.ts";
 import type { SessionCatalogWithResume } from "../../lib/types.ts";
@@ -53,7 +53,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [error, setError] = useState<string | null>(null);
   const [voiceAvailable, setVoiceAvailable] = useState<boolean | null>(null);
   const [voiceIssue, setVoiceIssue] = useState<string | null>(null);
-  const [voiceProbeState, setVoiceProbeState] = useState<VoiceProbeState>("probing");
+  const [voiceProbeState, setVoiceProbeState] = useState<VoiceProbeState>("idle");
   const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.ranger.voiceReplies", false);
   const [recording, setRecording] = useState(false);
   const [voiceState, setVoiceState] = useState<VoxSessionState | null>(null);
@@ -185,10 +185,6 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setVoiceProbeState("idle");
     return ok;
   }, []);
-
-  useEffect(() => {
-    void probeVoice();
-  }, [probeVoice]);
 
   const launchVox = useCallback(() => {
     const client = clientRef.current ?? new VoxBrowserClient();
@@ -379,8 +375,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   }
 
   const expandedClassName = height === undefined
-    ? "flex max-h-[60vh] shrink-0 flex-col gap-3 overflow-y-auto border-t border-[var(--scout-chrome-border-soft)] p-4"
-    : "flex shrink-0 flex-col gap-3 overflow-y-auto border-t border-[var(--scout-chrome-border-soft)] p-4";
+    ? "flex max-h-[60vh] shrink-0 flex-col gap-2.5 overflow-y-auto border-t border-[var(--scout-chrome-border-soft)] p-3"
+    : "flex shrink-0 flex-col gap-2.5 overflow-y-auto border-t border-[var(--scout-chrome-border-soft)] p-3";
   const expandedStyle = height === undefined ? undefined : { height: `${height}px` };
 
   return (
@@ -424,7 +420,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="flex items-stretch gap-1.5">
         <RangerActionButton
           icon={<Radio size={13} />}
           label="State"
@@ -435,11 +431,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           icon={<Map size={13} />}
           label="Ops Tail"
           onClick={() => applyRangerUiAction({ type: "navigate", route: { view: "ops", mode: "tail" } })}
+          compact
         />
         <RangerActionButton
           icon={<Compass size={13} />}
           label="Fleet"
           onClick={() => applyRangerUiAction({ type: "navigate", route: { view: "fleet" } })}
+          compact
         />
         <RangerActionButton
           icon={voiceReplies ? <Volume2 size={13} /> : <VolumeX size={13} />}
@@ -449,25 +447,25 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             setVoiceReplies(next);
             if (!next) stopSpeech();
           }}
+          compact
         />
         <RangerActionButton
           icon={resettingSession ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           label="New Session"
           onClick={() => void resetRangerSession()}
           disabled={resettingSession || sending}
+          compact
         />
       </div>
 
       {activeSessionId && (
-        <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
-          <div className="min-w-0">
-            <span className="uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">Current Session</span>
-            <span className="ml-2 text-lime-200" title={activeSessionId}>{activeSessionId.slice(0, 8)}</span>
-            {sessionStartedLabel ? <span className="ml-2">started {sessionStartedLabel}</span> : null}
-            {sessionRuntimeLabel ? <span className="ml-2">{sessionRuntimeLabel}</span> : null}
-          </div>
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2 py-1.5 font-mono text-[9.5px] text-[var(--scout-chrome-ink-faint)]">
+          <span className="shrink-0 uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">Session</span>
+          <span className="shrink-0 text-lime-200" title={activeSessionId}>{activeSessionId.slice(0, 8)}</span>
+          {sessionStartedLabel ? <span className="shrink-0">started {sessionStartedLabel}</span> : null}
+          {sessionRuntimeLabel ? <span className="min-w-0 truncate">{sessionRuntimeLabel}</span> : null}
           {sessionCatalog && sessionCatalog.sessions.length > 1 ? (
-            <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">
+            <span className="ml-auto shrink-0 text-[var(--scout-chrome-ink-ghost)]">
               {sessionCatalog.sessions.length - 1} older
             </span>
           ) : null}
@@ -612,7 +610,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       )}
 
       <form
-        className="flex flex-col gap-2"
+        className="grid grid-cols-[1fr_auto] gap-2"
         onSubmit={(event) => {
           event.preventDefault();
           void askRanger(draft);
@@ -627,11 +625,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         />
         <button
           type="submit"
+          title="Ask Ranger"
+          aria-label="Ask Ranger"
           disabled={!draft.trim() || sending}
-          className="flex items-center justify-center gap-2 rounded bg-lime-300/90 px-2.5 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex w-9 items-center justify-center rounded bg-lime-300/90 px-0 py-2 text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {sending && <Loader2 size={13} className="animate-spin" />}
-          Ask Ranger
+          {sending ? <Loader2 size={13} className="animate-spin" /> : <SendHorizontal size={13} />}
         </button>
       </form>
 
@@ -668,21 +667,27 @@ function RangerActionButton({
   label,
   onClick,
   disabled,
+  compact = false,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   return (
     <button
       type="button"
+      title={label}
+      aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className="flex items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-45"
+      className={`flex min-h-8 items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-45 ${
+        compact ? "w-8 shrink-0 px-0" : "min-w-0 flex-1 px-2"
+      }`}
     >
       {icon}
-      {label}
+      {!compact && <span className="truncate">{label}</span>}
     </button>
   );
 }

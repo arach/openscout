@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { api } from "../../lib/api.ts";
+import { dismissOperatorAttention } from "../../lib/operator-attention.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { WorkDetail } from "../../lib/types.ts";
@@ -9,6 +10,7 @@ export function WorkInspector() {
   const { route } = useScout();
   const workId = route.view === "work" ? route.workId : null;
   const [detail, setDetail] = useState<WorkDetail | null>(null);
+  const [dismissing, setDismissing] = useState(false);
 
   const load = useCallback(async () => {
     if (!workId) {
@@ -31,6 +33,21 @@ export function WorkInspector() {
     }
     void load();
   });
+
+  const dismissAttention = useCallback(async () => {
+    if (!detail) return;
+    setDismissing(true);
+    try {
+      await dismissOperatorAttention({
+        recordKind: "work_item",
+        recordId: detail.id,
+        itemUpdatedAt: detail.updatedAt,
+      });
+      await load();
+    } finally {
+      setDismissing(false);
+    }
+  }, [detail, load]);
 
   if (route.view !== "work") return null;
 
@@ -84,14 +101,24 @@ export function WorkInspector() {
       </Section>
 
       {detail.attention !== "silent" && (
-        <div
-          className={`text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-sm ${
-            detail.attention === "interrupt"
-              ? "text-red-300/90 bg-red-500/10 border border-red-500/20"
-              : "text-amber-300/90 bg-amber-500/10 border border-amber-500/20"
-          }`}
-        >
-          {detail.attention === "interrupt" ? "Interrupt" : "Needs attention"}
+        <div className="flex flex-col gap-2">
+          <div
+            className={`text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-sm ${
+              detail.attention === "interrupt"
+                ? "text-red-300/90 bg-red-500/10 border border-red-500/20"
+                : "text-amber-300/90 bg-amber-500/10 border border-amber-500/20"
+            }`}
+          >
+            {detail.attention === "interrupt" ? "Interrupt" : "Needs attention"}
+          </div>
+          <button
+            type="button"
+            disabled={dismissing}
+            onClick={() => void dismissAttention()}
+            className="rounded border border-[var(--scout-chrome-border-soft)] px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {dismissing ? "Dismissing" : "Dismiss attention"}
+          </button>
         </div>
       )}
 

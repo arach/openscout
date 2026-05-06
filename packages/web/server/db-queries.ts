@@ -431,14 +431,32 @@ function workPhaseFromState(state: string): string {
 }
 
 function workAttention(row: {
+  updated_at: number;
   state: string;
   acceptance_state: string;
   latest_flight_state: string | null;
+  latest_flight_at: number | string | null;
+  latest_dismissed_at: number | string | null;
 }): WorkAttention {
-  if (row.latest_flight_state === "failed") {
+  const dismissedAt = coerceNumber(row.latest_dismissed_at);
+  const updatedAt = coerceNumber(row.updated_at) ?? 0;
+  const latestFlightAt = coerceNumber(row.latest_flight_at);
+  const failedFlightDismissed = Boolean(
+    dismissedAt !== null
+    && dismissedAt >= (latestFlightAt ?? updatedAt),
+  );
+  const recordAttentionDismissed = Boolean(
+    dismissedAt !== null
+    && dismissedAt >= updatedAt,
+  );
+
+  if (row.latest_flight_state === "failed" && !failedFlightDismissed) {
     return "interrupt";
   }
-  if (row.state === "waiting" || row.state === "review" || row.acceptance_state === "pending") {
+  if (
+    !recordAttentionDismissed
+    && (row.state === "waiting" || row.state === "review" || row.acceptance_state === "pending")
+  ) {
     return "badge";
   }
   return "silent";
@@ -466,6 +484,7 @@ function projectWorkItemRow(row: {
   active_flight_summary: string | null;
   latest_flight_state: string | null;
   latest_flight_at: number | string | null;
+  latest_dismissed_at: number | string | null;
   latest_event_summary: string | null;
   latest_event_at: number | string | null;
   progress_summary: string | null;
@@ -1333,6 +1352,56 @@ export function queryFlights(opts?: {
   }));
 }
 
+export function queryFlightRecordById(id: string): FlightRecord | null {
+  const row = db().prepare(
+    `SELECT
+       id,
+       invocation_id,
+       requester_id,
+       target_agent_id,
+       state,
+       summary,
+       output,
+       error,
+       metadata_json,
+       started_at,
+       completed_at
+     FROM flights
+     WHERE id = ?
+     LIMIT 1`,
+  ).get(id) as {
+    id: string;
+    invocation_id: string;
+    requester_id: string;
+    target_agent_id: string;
+    state: FlightRecord["state"];
+    summary: string | null;
+    output: string | null;
+    error: string | null;
+    metadata_json: string | null;
+    started_at: number | null;
+    completed_at: number | null;
+  } | null;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    invocationId: row.invocation_id,
+    requesterId: row.requester_id,
+    targetAgentId: row.target_agent_id,
+    state: row.state,
+    ...(row.summary ? { summary: row.summary } : {}),
+    ...(row.output ? { output: row.output } : {}),
+    ...(row.error ? { error: row.error } : {}),
+    ...(row.started_at ? { startedAt: row.started_at } : {}),
+    ...(row.completed_at ? { completedAt: row.completed_at } : {}),
+    metadata: parseJson<Record<string, unknown>>(row.metadata_json, {}),
+  };
+}
+
 export function queryFollowTarget(opts: {
   flightId?: string;
   invocationId?: string;
@@ -1462,6 +1531,8 @@ export type WebWorkDetail = WebWorkItem & {
 };
 
 export function queryWorkItemById(id: string): WebWorkDetail | null {
+  const operatorIds = configuredOperatorActorIds();
+  const operatorClause = sqlPlaceholders(operatorIds.length);
   const sql = `SELECT
     cr.id,
     cr.title,
@@ -1540,7 +1611,16 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
       WHERE e.record_id = cr.id
       ORDER BY e.created_at DESC
       LIMIT 1
-    ) AS latest_event_at
+    ) AS latest_event_at,
+    (
+      SELECT e.created_at
+      FROM collaboration_events e
+      WHERE e.record_id = cr.id
+        AND e.kind = 'dismissed'
+        AND e.actor_id IN (${operatorClause})
+      ORDER BY e.created_at DESC
+      LIMIT 1
+    ) AS latest_dismissed_at
   FROM collaboration_records cr
   LEFT JOIN actors owner ON owner.id = cr.owner_id
   LEFT JOIN actors next ON next.id = cr.next_move_owner_id
@@ -1548,7 +1628,7 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
   WHERE cr.kind = 'work_item' AND cr.id = ?
   LIMIT 1`;
 
-  const row = db().prepare(sql).get(id) as ({
+  const row = db().prepare(sql).get(...operatorIds, id) as ({
     id: string;
     title: string;
     summary: string | null;
@@ -1571,6 +1651,7 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
     active_flight_summary: string | null;
     latest_flight_state: string | null;
     latest_flight_at: number | string | null;
+    latest_dismissed_at: number | string | null;
     latest_event_summary: string | null;
     latest_event_at: number | string | null;
   }) | null;
@@ -1610,6 +1691,8 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
 }
 
 function queryWorkItemShallow(id: string): WebWorkItem | null {
+  const operatorIds = configuredOperatorActorIds();
+  const operatorClause = sqlPlaceholders(operatorIds.length);
   const sql = `SELECT
     cr.id,
     cr.title,
@@ -1633,6 +1716,15 @@ function queryWorkItemShallow(id: string): WebWorkItem | null {
     NULL AS active_flight_summary,
     NULL AS latest_flight_state,
     NULL AS latest_flight_at,
+    (
+      SELECT e.created_at
+      FROM collaboration_events e
+      WHERE e.record_id = cr.id
+        AND e.kind = 'dismissed'
+        AND e.actor_id IN (${operatorClause})
+      ORDER BY e.created_at DESC
+      LIMIT 1
+    ) AS latest_dismissed_at,
     NULL AS latest_event_summary,
     NULL AS latest_event_at
   FROM collaboration_records cr
@@ -1641,7 +1733,7 @@ function queryWorkItemShallow(id: string): WebWorkItem | null {
   LEFT JOIN collaboration_records parent ON parent.id = cr.parent_id
   WHERE cr.kind = 'work_item' AND cr.id = ?
   LIMIT 1`;
-  const row = db().prepare(sql).get(id) as Parameters<typeof projectWorkItemRow>[0] | null;
+  const row = db().prepare(sql).get(...operatorIds, id) as Parameters<typeof projectWorkItemRow>[0] | null;
   return row ? projectWorkItemRow(row) : null;
 }
 
@@ -1741,6 +1833,8 @@ export function queryWorkItems(opts?: {
   activeOnly?: boolean;
   limit?: number;
 }): WebWorkItem[] {
+  const operatorIds = configuredOperatorActorIds();
+  const operatorClause = sqlPlaceholders(operatorIds.length);
   const where = sqlJoinClauses([
     "cr.kind = 'work_item'",
     opts?.activeOnly !== false ? `cr.state IN ${ACTIVE_WORK_STATES_SQL}` : null,
@@ -1813,6 +1907,15 @@ export function queryWorkItems(opts?: {
       LIMIT 1
     ) AS latest_flight_at,
     (
+      SELECT e.created_at
+      FROM collaboration_events e
+      WHERE e.record_id = cr.id
+        AND e.kind = 'dismissed'
+        AND e.actor_id IN (${operatorClause})
+      ORDER BY e.created_at DESC
+      LIMIT 1
+    ) AS latest_dismissed_at,
+    (
       SELECT e.summary
       FROM collaboration_events e
       WHERE e.record_id = cr.id
@@ -1853,7 +1956,7 @@ export function queryWorkItems(opts?: {
   LIMIT ?`;
 
   const limit = opts?.limit ?? 50;
-  const params: Array<string | number> = [];
+  const params: Array<string | number> = [...operatorIds];
   if (opts?.agentId) {
     params.push(opts.agentId, opts.agentId);
   }
@@ -1882,6 +1985,7 @@ export function queryWorkItems(opts?: {
     active_flight_summary: string | null;
     latest_flight_state: string | null;
     latest_flight_at: number | string | null;
+    latest_dismissed_at: number | string | null;
     latest_event_summary: string | null;
     latest_event_at: number | string | null;
     sort_ts: number;
@@ -2829,6 +2933,7 @@ type FleetAskRow = {
   flight_summary: string | null;
   started_at: number | null;
   completed_at: number | null;
+  flight_dismissed_at: number | string | null;
   status_kind: string | null;
   status_title: string | null;
   status_summary: string | null;
@@ -2978,6 +3083,7 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
        f.summary AS flight_summary,
        f.started_at,
        f.completed_at,
+       json_extract(f.metadata_json, '$.operatorAttentionDismissedAt') AS flight_dismissed_at,
        latest_ai.kind AS status_kind,
        latest_ai.title AS status_title,
        latest_ai.summary AS status_summary,
@@ -3036,6 +3142,13 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     || row.acceptance_state === "pending",
   );
 
+  const updatedAt = normalizeTimestampMs(
+    row.status_ts ?? row.completed_at ?? row.started_at ?? row.work_updated_at ?? row.created_at,
+  ) ?? Date.now();
+  const failed = row.flight_state === "failed" || row.status_kind === "ask_failed";
+  const dismissedAt = normalizeTimestampMs(row.flight_dismissed_at);
+  const failedDismissed = Boolean(dismissedAt !== null && dismissedAt >= updatedAt);
+
   let status: WebFleetAskStatus;
   if (!hasFlight) {
     status = "queued";
@@ -3043,15 +3156,11 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     status = "working";
   } else if (awaitingOperator) {
     status = "needs_attention";
-  } else if (row.flight_state === "failed" || row.status_kind === "ask_failed") {
+  } else if (failed) {
     status = "failed";
   } else {
     status = "completed";
   }
-
-  const updatedAt = normalizeTimestampMs(
-    row.status_ts ?? row.completed_at ?? row.started_at ?? row.work_updated_at ?? row.created_at,
-  ) ?? Date.now();
 
   return {
     invocationId: row.invocation_id,
@@ -3063,7 +3172,7 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     task: row.task,
     status,
     statusLabel: fleetStatusLabel(status),
-    attention: status === "needs_attention" ? "badge" : status === "failed" ? "interrupt" : "silent",
+    attention: status === "needs_attention" ? "badge" : status === "failed" && !failedDismissed ? "interrupt" : "silent",
     agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
     harness: row.harness,
     transport: row.transport,
@@ -3120,9 +3229,17 @@ function queryFleetAttentionRows(requesterIds: string[], limit: number): FleetAt
            )
          )
        )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM collaboration_events dismissed
+         WHERE dismissed.record_id = cr.id
+           AND dismissed.kind = 'dismissed'
+           AND dismissed.actor_id IN (${requesterClause})
+           AND dismissed.created_at >= cr.updated_at
+       )
      ORDER BY cr.updated_at DESC
      LIMIT ?`,
-  ).all(...requesterIds, limit) as Array<FleetAttentionRow>;
+  ).all(...requesterIds, ...requesterIds, limit) as Array<FleetAttentionRow>;
 }
 
 export function queryFleet(opts?: {
@@ -3138,7 +3255,7 @@ export function queryFleet(opts?: {
     .filter((ask) => ask.status === "queued" || ask.status === "working")
     .slice(0, limit);
   const recentCompleted = asks
-    .filter((ask) => ask.status === "completed" || ask.status === "failed")
+    .filter((ask) => ask.status === "completed" || (ask.status === "failed" && ask.attention !== "silent"))
     .filter((ask) => Date.now() - ask.updatedAt <= FLEET_RECENT_COMPLETED_MAX_AGE_MS)
     .slice(0, limit);
   const needsAttention = queryFleetAttentionRows(requesterIds, limit).map((row) => ({

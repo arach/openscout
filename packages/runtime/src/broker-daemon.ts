@@ -50,6 +50,10 @@ import {
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
+import {
+  publishControlEvent,
+  replaceControlEventBacklog,
+} from "./broker-control-events.js";
 import { FileBackedBrokerJournal, type BrokerJournalEntry } from "./broker-journal.js";
 import {
   askedLabelForRouteTarget,
@@ -246,6 +250,7 @@ const initialSnapshot = journal.snapshot();
 
 const sqliteDisabled = process.env.OPENSCOUT_DISABLE_SQLITE === "1";
 const runtime = createInMemoryControlRuntime(initialSnapshot, { localNodeId: nodeId });
+replaceControlEventBacklog(runtime.recentEvents(500), 500);
 const projection = new RecoverableSQLiteProjection(dbPath, journal, { disabled: sqliteDisabled });
 const threadEvents = new ThreadEventPlane({
   nodeId,
@@ -337,6 +342,7 @@ function streamKeepAlive(): void {
 
 runtime.subscribe((event) => {
   streamEvent(event);
+  publishControlEvent(event);
 });
 
 if (sseKeepAliveIntervalMs > 0) {

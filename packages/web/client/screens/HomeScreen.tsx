@@ -10,6 +10,7 @@ import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
+import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import type {
   ActivityItem,
   Agent,
@@ -408,7 +409,7 @@ export function HomeScreen({
                     target?.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                 >
-                  Clear queue · {totalOperatorQueue}
+                  Review queue · {totalOperatorQueue}
                 </button>
               )}
               {opsEnabled && (
@@ -911,13 +912,14 @@ function OperatorAttentionCard({
   navigate: (r: Route) => void;
   onResolved: (next: OperatorAttentionState) => void;
 }) {
-  const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
+  const [busy, setBusy] = useState<"approve" | "deny" | "dismiss" | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const route = routeFromAttention(item);
   const copyAction = item.actions.find((action) => action.kind === "copy" && action.value);
   const approve = item.actions.find((action) => action.kind === "approve");
   const deny = item.actions.find((action) => action.kind === "deny");
+  const dismiss = item.actions.find((action) => action.kind === "dismiss");
 
   const decide = async (decision: "approve" | "deny") => {
     if (!item.approval && !item.permissionRequest) return;
@@ -956,6 +958,37 @@ function OperatorAttentionCard({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     });
+  };
+
+  const dismissItem = async () => {
+    if (!dismiss?.flightId && (!dismiss?.recordKind || !dismiss.recordId)) {
+      setError("This queue item cannot be dismissed from here yet.");
+      return;
+    }
+    setBusy("dismiss");
+    setError(null);
+    try {
+      if (dismiss.flightId) {
+        await dismissOperatorAttention({ flightId: dismiss.flightId, itemUpdatedAt: item.updatedAt });
+      } else {
+        const recordKind = dismiss.recordKind;
+        const recordId = dismiss.recordId;
+        if (!recordKind || !recordId) {
+          throw new Error("This queue item cannot be dismissed from here yet.");
+        }
+        await dismissOperatorAttention({
+          recordKind,
+          recordId,
+          itemUpdatedAt: item.updatedAt,
+        });
+      }
+      const next = await api<OperatorAttentionState>("/api/operator-attention");
+      onResolved(next);
+    } catch (dismissError) {
+      setError(dismissError instanceof Error ? dismissError.message : String(dismissError));
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
@@ -1030,6 +1063,18 @@ function OperatorAttentionCard({
           >
             <ExternalLink size={14} aria-hidden="true" />
             <span>Open</span>
+          </button>
+        )}
+        {dismiss && (
+          <button
+            type="button"
+            className="s-icon-btn"
+            disabled={Boolean(busy)}
+            title="Dismiss from queue"
+            onClick={() => void dismissItem()}
+          >
+            <X size={14} aria-hidden="true" />
+            <span>{busy === "dismiss" ? "Dismissing" : dismiss.label}</span>
           </button>
         )}
       </div>

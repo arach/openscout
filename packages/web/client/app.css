@@ -2076,6 +2076,35 @@ details[open] > .s-conv-meta-toggle::before {
   line-height: 1.45;
 }
 
+.s-work-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.s-work-row-action {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  padding: 5px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.s-work-row-action:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+}
+
+.s-work-row-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* ── Content panels padding ── */
 
 .s-content > div:not(.s-conversation):not(.s-welcome):not(.s-home):not(.s-agents-layout):not(.s-sessions-screen) {

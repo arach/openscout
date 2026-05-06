@@ -7,7 +7,7 @@
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   background: var(--border);
   color: var(--ink);
   font-family: var(--font-sans);
@@ -66,6 +66,16 @@
 
 .s-warroom-statusline {
   color: var(--muted);
+}
+
+.s-warroom-action-error {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--red);
 }
 
 .s-warroom-kpis {
@@ -1141,6 +1151,11 @@ button.s-warroom-flow-row {
 .s-warroom-action:hover {
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
   color: var(--ink);
+}
+
+.s-warroom-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .s-warroom-health {

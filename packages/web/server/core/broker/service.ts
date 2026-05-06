@@ -11,6 +11,7 @@ import {
   type ConversationBinding,
   type ConversationDefinition,
   type ControlEvent,
+  type CollaborationEvent,
   type CollaborationRecord,
   diagnoseAgentIdentity,
   extractAgentMentions,
@@ -282,6 +283,28 @@ export async function resolveScoutSenderId(agentName: string | null | undefined,
   const projectName = basename(projectRoot);
   const agent = await resolveLocalAgentByName(projectName, { matchProjectName: true });
   return agent?.agentId ?? projectName;
+}
+
+export async function appendScoutCollaborationEvent(
+  event: CollaborationEvent,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<unknown> {
+  return brokerPostJson(
+    baseUrl,
+    scoutBrokerPaths.v1.collaborationEvents,
+    event,
+  );
+}
+
+export async function upsertScoutFlight(
+  flight: FlightRecord,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<unknown> {
+  return brokerPostJson(
+    baseUrl,
+    scoutBrokerPaths.v1.flights,
+    flight,
+  );
 }
 
 export function parseScoutHarness(value?: string | null): AgentHarness | undefined {

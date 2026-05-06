@@ -3,8 +3,10 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
 import {
+  OBSERVED_HARNESS_TOPOLOGY_META_KEY,
   createHistorySessionSnapshot,
   supportsHistorySessionSnapshotForPath,
+  type ObservedHarnessTopology,
   type Block,
   type HistorySessionEvent,
   type PairingEvent,
@@ -549,15 +551,18 @@ function buildObserveMetadata(snapshot: SessionState): ObserveMetadata | undefin
     usageMeta.planType = metadataString(observeUsage, "planType");
   }
 
+  const observedTopology =
+    metadataRecord(providerMeta, OBSERVED_HARNESS_TOPOLOGY_META_KEY) as ObservedHarnessTopology | undefined;
   const hasSessionMeta = Object.keys(sessionMeta).length > 0;
   const hasUsageMeta = Object.keys(usageMeta).length > 0;
-  if (!hasSessionMeta && !hasUsageMeta) {
+  if (!hasSessionMeta && !hasUsageMeta && !observedTopology) {
     return undefined;
   }
 
   return {
     ...(hasSessionMeta ? { session: sessionMeta } : {}),
     ...(hasUsageMeta ? { usage: usageMeta } : {}),
+    ...(observedTopology ? { topology: observedTopology } : {}),
   };
 }
 

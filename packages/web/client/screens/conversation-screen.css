@@ -588,6 +588,9 @@
   letter-spacing: -0.005em;
   white-space: pre-wrap;
   word-break: break-word;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .s-thread-msg--tool .s-thread-msg-card {
@@ -839,6 +842,9 @@
   color: var(--ink);
   resize: none;
   outline: none;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .s-thread-compose-input::placeholder {

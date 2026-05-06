@@ -1324,6 +1324,32 @@ describe("web db query fleet", () => {
         startedAt: now - 59_000,
         completedAt: now - 30_000,
       });
+      store.recordInvocation({
+        id: "inv-dismissed-failure",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-3",
+        action: "consult",
+        task: "Dismissed failed ask",
+        conversationId: "conv-3",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 55_000,
+      });
+      store.recordFlight({
+        id: "flight-dismissed-failure",
+        invocationId: "inv-dismissed-failure",
+        requesterId: "operator",
+        targetAgentId: "agent-3",
+        state: "failed",
+        summary: "Failure was reviewed and dismissed.",
+        error: "Synthetic dismissed failure.",
+        startedAt: now - 54_000,
+        completedAt: now - 53_000,
+        metadata: {
+          operatorAttentionDismissedAt: now - 52_000,
+        },
+      });
       store.recordMessage({
         id: "msg-3",
         conversationId: "conv-3",
@@ -1391,6 +1417,31 @@ describe("web db query fleet", () => {
         requestedById: "operator",
         createdAt: now - 6_000,
         updatedAt: now - 5_000,
+      });
+      store.recordCollaborationRecord({
+        id: "question-dismissed",
+        kind: "question",
+        title: "Dismissed question",
+        summary: "This should stay out of the operator queue.",
+        createdById: "agent-3",
+        ownerId: "agent-3",
+        nextMoveOwnerId: "operator",
+        conversationId: "conv-3",
+        state: "open",
+        acceptanceState: "none",
+        askedById: "agent-3",
+        askedOfId: "operator",
+        createdAt: now - 4_000,
+        updatedAt: now - 3_000,
+      });
+      store.recordCollaborationEvent({
+        id: "event-question-dismissed",
+        recordId: "question-dismissed",
+        recordKind: "question",
+        kind: "dismissed",
+        actorId: "operator",
+        summary: "Dismissed from operator queue.",
+        at: now - 2_000,
       });
       store.upsertActor({
         id: "agent-4",
@@ -1463,6 +1514,7 @@ describe("web db query fleet", () => {
         status: "completed",
         agentState: "available",
       });
+      expect(fleet.recentCompleted.some((ask) => ask.invocationId === "inv-dismissed-failure")).toBe(false);
 
       expect(fleet.needsAttention).toEqual([
         expect.objectContaining({
@@ -1487,6 +1539,7 @@ describe("web db query fleet", () => {
         }),
       ]);
       expect(fleet.needsAttention.some((item) => item.recordId === "work-pending-resolved")).toBe(false);
+      expect(fleet.needsAttention.some((item) => item.recordId === "question-dismissed")).toBe(false);
       expect(fleet.activity.map((item) => item.ts)).toEqual([...fleet.activity.map((item) => item.ts)].sort((a, b) => b - a));
       expect(fleet.recentCompleted.some((ask) => ask.agentId === "agent-4")).toBe(false);
       expect(fleet.activity.some((item) => item.id === "activity:flight:flight-4")).toBe(false);
@@ -1601,6 +1654,48 @@ describe("web db query work items", () => {
           lastMeaningfulSummary: "Child work",
         },
       ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("operator dismissal silences derived work attention until the record changes", () => {
+    const store = createSeededStore();
+
+    try {
+      store.recordCollaborationRecord({
+        id: "work-dismissed-attention",
+        kind: "work_item",
+        title: "Waiting work",
+        summary: "This has already been reviewed.",
+        createdById: "operator",
+        ownerId: "agent-1",
+        nextMoveOwnerId: "operator",
+        conversationId: "conv-1",
+        state: "waiting",
+        acceptanceState: "none",
+        requestedById: "operator",
+        createdAt: 200,
+        updatedAt: 220,
+        waitingOn: {
+          kind: "actor",
+          label: "operator",
+        },
+      });
+
+      expect(queryWorkItemById("work-dismissed-attention")?.attention).toBe("badge");
+
+      store.recordCollaborationEvent({
+        id: "event-dismiss-work-attention",
+        recordId: "work-dismissed-attention",
+        recordKind: "work_item",
+        kind: "dismissed",
+        actorId: "operator",
+        summary: "Dismissed from operator queue.",
+        at: 230,
+      });
+
+      expect(queryWorkItemById("work-dismissed-attention")?.attention).toBe("silent");
     } finally {
       store.close();
     }
