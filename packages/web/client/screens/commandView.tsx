@@ -117,6 +117,14 @@ type NetworkModel = {
   messageRate: number;
 };
 
+type OpsDetailSnapshot = {
+  focus: "flow" | "item";
+  title: string;
+  meta: string;
+  body: string;
+  action: CommandAction | null;
+};
+
 const AGENT_STALE_MS = 15 * 60_000;
 const AGENT_HEALTH_ACTION_WINDOW_MS = 24 * 60 * 60_000;
 const MIN_FLOW_WINDOW_MS = 30 * 60_000;
@@ -811,12 +819,6 @@ export function CommandView({
   const onlineCount = agents.filter((agent) => normalizeAgentState(agent.state) !== "offline").length;
   const actionNeededCount = queueItems.filter((item) => item.severity !== "info").length;
   const urgentCueCount = queueItems.filter((item) => item.severity === "critical").length;
-  const healthRows = useMemo(() => deriveHealthRows(agents, nowMs), [agents, nowMs]);
-  const projectRows = useMemo(() => deriveProjectRows(agents), [agents]);
-  const agentsById = useMemo(
-    () => new Map(agents.map((agent) => [agent.id, agent])),
-    [agents],
-  );
   const flowNodeLabels = useMemo(
     () => new Map(networkModel.nodes.map((node) => [node.id, node.label])),
     [networkModel.nodes],
@@ -825,10 +827,47 @@ export function CommandView({
     () => networkModel.edges.find((edge) => edge.id === selectedFlowId) ?? null,
     [networkModel.edges, selectedFlowId],
   );
+  const [selectedFlowMessage, setSelectedFlowMessage] = useState<Message | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSelectedFlowMessage(null);
+    if (!selectedFlow?.conversationId || !selectedFlow.messageId) return () => {
+      cancelled = true;
+    };
+    void api<Message[]>(
+      `/api/messages?conversationId=${encodeURIComponent(selectedFlow.conversationId)}&limit=200`,
+    )
+      .then((messages) => {
+        if (cancelled) return;
+        setSelectedFlowMessage(messages.find((candidate) => candidate.id === selectedFlow.messageId) ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedFlowMessage(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFlow]);
+
+  useEffect(() => {
+    const snapshot = buildOpsDetailSnapshot({
+      inspectorFocus,
+      selectedFlow,
+      selectedFlowMessage,
+      selectedItem,
+      flowNodeLabels,
+      nowMs,
+    });
+    const target = window as typeof window & { scoutOpsDetailSnapshot?: OpsDetailSnapshot | null };
+    target.scoutOpsDetailSnapshot = snapshot;
+    window.dispatchEvent(new CustomEvent<OpsDetailSnapshot | null>("scout:ops-detail", { detail: snapshot }));
+    return () => {
+      target.scoutOpsDetailSnapshot = null;
+      window.dispatchEvent(new CustomEvent<null>("scout:ops-detail", { detail: null }));
+    };
+  }, [flowNodeLabels, inspectorFocus, nowMs, selectedFlow, selectedFlowMessage, selectedItem]);
   const freshness = fleet ? `${formatAge(fleet.generatedAt, nowMs)} ago` : "loading";
-  const inspectorMeta = inspectorFocus === "flow"
-    ? selectedFlow ? kindLabel(selectedFlow.kind) : "No selection"
-    : selectedItem ? selectedItem.pill : "No selection";
 
   return (
     <div className="s-warroom">
@@ -855,7 +894,7 @@ export function CommandView({
         maxTasks={4}
       />
 
-      <div className="s-warroom-layout">
+      <div className="s-warroom-layout s-warroom-layout--command">
         <aside className="s-warroom-context">
           <ContextNav
             agents={agents}
@@ -964,6 +1003,63 @@ function SectionHead({ title, meta }: { title: string; meta: string }) {
       <div className="s-warroom-section-meta">{meta}</div>
     </div>
   );
+}
+
+function buildOpsDetailSnapshot({
+  inspectorFocus,
+  selectedFlow,
+  selectedFlowMessage,
+  selectedItem,
+  flowNodeLabels,
+  nowMs,
+}: {
+  inspectorFocus: "flow" | "item";
+  selectedFlow: NetworkEdge | null;
+  selectedFlowMessage: Message | null;
+  selectedItem: CommandItem | null;
+  flowNodeLabels: Map<string, string>;
+  nowMs: number;
+}): OpsDetailSnapshot | null {
+  if (inspectorFocus === "flow" && selectedFlow) {
+    const from = flowNodeLabels.get(selectedFlow.fromId) ?? nodeLabelForId(selectedFlow.fromId, new Map());
+    const to = flowNodeLabels.get(selectedFlow.toId) ?? nodeLabelForId(selectedFlow.toId, new Map());
+    const action = selectedFlow.route
+      ? { label: "Open conversation", route: selectedFlow.route }
+      : selectedFlow.recordId
+        ? { label: "Open work", route: { view: "work", workId: selectedFlow.recordId } as Route }
+        : selectedFlow.flightId || selectedFlow.invocationId
+          ? {
+              label: "Follow run",
+              route: {
+                view: "follow",
+                preferredView: "chat",
+                ...(selectedFlow.flightId ? { flightId: selectedFlow.flightId } : {}),
+                ...(selectedFlow.invocationId ? { invocationId: selectedFlow.invocationId } : {}),
+                ...(selectedFlow.conversationId ? { conversationId: selectedFlow.conversationId } : {}),
+                ...(selectedFlow.agentId ? { targetAgentId: selectedFlow.agentId } : {}),
+              } as Route,
+            }
+          : null;
+    return {
+      focus: "flow",
+      title: `${from} -> ${to}`,
+      meta: `${kindLabel(selectedFlow.kind)} / ${formatAge(selectedFlow.ts, nowMs)} ago`,
+      body: selectedFlowMessage?.body ?? selectedFlow.item.summary ?? selectedFlow.item.title ?? selectedFlow.label,
+      action,
+    };
+  }
+
+  if (inspectorFocus === "item" && selectedItem) {
+    return {
+      focus: "item",
+      title: selectedItem.title,
+      meta: `${selectedItem.pill} / updated ${formatAge(selectedItem.updatedAt, nowMs)} ago`,
+      body: selectedItem.summary,
+      action: selectedItem.actions[0] ?? null,
+    };
+  }
+
+  return null;
 }
 
 function ContextNav({
@@ -1464,42 +1560,22 @@ function FlowInspector({
   nodeLabels,
   agentsById,
   nowMs,
+  messageOverride,
   navigate,
 }: {
   edge: NetworkEdge;
   nodeLabels: Map<string, string>;
   agentsById: Map<string, Agent>;
   nowMs: number;
+  messageOverride: Message | null;
   navigate: (route: Route) => void;
 }) {
-  const [message, setMessage] = useState<Message | null>(null);
   const from = nodeLabels.get(edge.fromId) ?? nodeLabelForId(edge.fromId, new Map());
   const to = nodeLabels.get(edge.toId) ?? nodeLabelForId(edge.toId, new Map());
   const sourceAgent = edge.actorId ? agentsById.get(edge.actorId) ?? null : null;
   const relatedAgent = edge.agentId
     ? agentsById.get(edge.agentId) ?? null
     : agentsById.get(edge.toId) ?? agentsById.get(edge.fromId) ?? null;
-
-  useEffect(() => {
-    let cancelled = false;
-    setMessage(null);
-    if (!edge.conversationId || !edge.messageId) return () => {
-      cancelled = true;
-    };
-    void api<Message[]>(
-      `/api/messages?conversationId=${encodeURIComponent(edge.conversationId)}&limit=200`,
-    )
-      .then((messages) => {
-        if (cancelled) return;
-        setMessage(messages.find((candidate) => candidate.id === edge.messageId) ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setMessage(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [edge.conversationId, edge.messageId]);
 
   const actions: CommandAction[] = [];
   if (edge.route) actions.push({ label: "Open conversation", route: edge.route });
@@ -1522,7 +1598,7 @@ function FlowInspector({
     actions.push({ label: "Open agent", route: { view: "agents", agentId: relatedAgent.id } });
   }
 
-  const body = message?.body ?? edge.item.summary ?? edge.item.title ?? edge.label;
+  const body = messageOverride?.body ?? edge.item.summary ?? edge.item.title ?? edge.label;
 
   return (
     <section className="s-warroom-inspector-card">
