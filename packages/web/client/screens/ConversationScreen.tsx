@@ -15,7 +15,7 @@ import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
 import { isGroupConversation } from "../lib/conversations.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
-import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
+import { queueTakeover } from "../lib/terminal-takeover.ts";
 import {
   agentIdFromConversation,
   conversationForAgent,
@@ -39,14 +39,6 @@ import type {
 } from "../lib/types.ts";
 import "./conversation-screen.css";
 import "./ops-screen.css";
-
-async function queueTakeover(command: string) {
-  await fetch(resolveScoutRoutePath("terminalRunPath"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ command }),
-  });
-}
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
 const KIND_LABELS: Record<string, string> = {
@@ -1729,7 +1721,11 @@ export function ConversationScreen({
                       className="s-thread-meta-takeover-btn"
                       title={sessionCatalog.resumeCommand}
                       onClick={() => {
-                        void queueTakeover(sessionCatalog.resumeCommand!).then(() =>
+                        void queueTakeover({
+                          command: sessionCatalog.resumeCommand!,
+                          cwd: sessionCatalog.resumeCwd,
+                          agentId,
+                        }).then(() =>
                           navigate({ view: "terminal", agentId: agentId ?? undefined }),
                         );
                         setTakeoverSent(true);

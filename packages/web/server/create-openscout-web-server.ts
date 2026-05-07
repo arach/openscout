@@ -118,6 +118,12 @@ import {
 } from "../shared/runtime-config.js";
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
+export type TerminalRunRequest = {
+  command: string;
+  cwd?: string | null;
+  agentId?: string | null;
+};
+
 export type CreateOpenScoutWebServerOptions = {
   currentDirectory: string;
   shellStateCacheTtlMs?: number;
@@ -129,7 +135,7 @@ export type CreateOpenScoutWebServerOptions = {
   advertisedHost?: string;
   trustedHosts?: string[];
   trustedOrigins?: string[];
-  runTerminalCommand?: (command: string) => Promise<void>;
+  runTerminalCommand?: (request: TerminalRunRequest) => Promise<void>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
 };
@@ -350,6 +356,7 @@ function buildAgentSessionCatalogPayload(input: {
     agentId: input.agentId,
     harness: input.harness,
     resumeCommand,
+    resumeCwd: input.cwd,
   };
 }
 
@@ -360,6 +367,7 @@ function emptyAgentSessionCatalogPayload(agentId: string) {
     agentId,
     harness: null,
     resumeCommand: null,
+    resumeCwd: null,
   };
 }
 
@@ -1901,13 +1909,18 @@ export async function createOpenScoutWebServer(
   });
 
   app.post(routes.terminalRunPath, async (c) => {
-    const body = await c.req.json<{ command?: string }>();
-    if (!body.command) return c.json({ error: "missing command" }, 400);
+    const body = await c.req.json<TerminalRunRequest>();
+    const command = body.command?.trim();
+    if (!command) return c.json({ error: "missing command" }, 400);
     if (!options.runTerminalCommand) {
       return c.json({ error: "terminal relay is unavailable" }, 503);
     }
     try {
-      await options.runTerminalCommand(body.command);
+      await options.runTerminalCommand({
+        command,
+        cwd: body.cwd?.trim() || null,
+        agentId: body.agentId?.trim() || null,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "failed to queue command";
       return c.json({ error: message }, 503);
@@ -1956,6 +1969,7 @@ export async function createOpenScoutWebServer(
         agentId,
         harness: config.runtime.harness,
         resumeCommand,
+        resumeCwd: config.runtime.cwd,
       },
     });
   });

@@ -23,17 +23,17 @@ import {
   runRuntimeBrokerService,
 } from "../../app/host/runtime-service-client.ts";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import {
+  inspectClaudePermissionHook,
+  installClaudePermissionHook,
+  type ClaudePermissionHookStatus,
+} from "@openscout/runtime/claude-permission-hook";
 import { withScoutCoreCommandLock } from "./command-lock.ts";
 import {
   ensureScoutLocalEdgeDependencies,
   inspectScoutLocalEdgeDependencies,
   type ScoutLocalEdgeDependencyReport,
 } from "./local-edge-dependencies.ts";
-import {
-  inspectClaudePermissionHook,
-  installClaudePermissionHook,
-  type ClaudePermissionHookStatus,
-} from "./claude-permission-hook.ts";
 
 export type ScoutLocalEdgeDoctorReport = {
   state: "ready" | "degraded" | "missing";

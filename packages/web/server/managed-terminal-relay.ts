@@ -5,10 +5,16 @@ import { fileURLToPath } from "node:url";
 
 export type ManagedTerminalRelay = {
   healthcheck: () => Promise<boolean>;
-  queueCommand: (command: string) => Promise<void>;
+  queueCommand: (request: TerminalRelayRunRequest) => Promise<void>;
   shutdown: () => void;
   targetHttpUrl: string;
   targetWebSocketUrl: string;
+};
+
+export type TerminalRelayRunRequest = {
+  command: string;
+  cwd?: string | null;
+  agentId?: string | null;
 };
 
 function relayPortForWebPort(webPort: number): number {
@@ -108,11 +114,11 @@ export async function startManagedTerminalRelay(args: {
   if (await isHealthy(targetHttpUrl)) {
     return {
       healthcheck: () => isHealthy(targetHttpUrl),
-      queueCommand: async (command: string) => {
+      queueCommand: async (request: TerminalRelayRunRequest) => {
         const response = await fetch(`${targetHttpUrl}/api/terminal/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command }),
+          body: JSON.stringify(request),
         });
         if (!response.ok) {
           throw new Error("Terminal relay rejected queued command");
@@ -165,11 +171,11 @@ export async function startManagedTerminalRelay(args: {
 
   return {
     healthcheck: () => isHealthy(targetHttpUrl),
-    queueCommand: async (command: string) => {
+    queueCommand: async (request: TerminalRelayRunRequest) => {
       const response = await fetch(`${targetHttpUrl}/api/terminal/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command }),
+        body: JSON.stringify(request),
       });
       if (!response.ok) {
         throw new Error("Terminal relay rejected queued command");

@@ -8,7 +8,7 @@ import {
   type ScoutLocalAgentStatus,
 } from "@openscout/runtime/local-agents";
 import { buildScoutAgentCard } from "@openscout/runtime/scout-agent-cards";
-import type { AgentHarness, ScoutAgentCard } from "@openscout/protocol";
+import type { AgentHarness, ScoutAgentCard, ScoutPermissionProfile } from "@openscout/protocol";
 
 import {
   loadScoutBrokerContext,
@@ -43,6 +43,7 @@ export async function upScoutAgent(input: {
   currentDirectory?: string;
   cwdOverride?: string;
   model?: string;
+  permissionProfile?: ScoutPermissionProfile | string;
   branch?: string;
 }): Promise<ScoutAgentStatus> {
   const status = await startLocalAgent(input);

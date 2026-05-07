@@ -11,19 +11,11 @@ import type {
 } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
-import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
+import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 
 import "./session-observe.css";
-
-async function queueTakeover(command: string) {
-  await fetch(resolveScoutRoutePath("terminalRunPath"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ command }),
-  });
-}
 
 async function revealLocalPath(input: {
   path: string;
@@ -160,16 +152,119 @@ function revealPath(input: {
   });
 }
 
+/* ── Copy helper ── */
+
+function CopyButton({
+  text,
+  label = "Copy",
+  className,
+}: {
+  text: string;
+  label?: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const handleCopy = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const value = text;
+      const finish = () => {
+        setCopied(true);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => setCopied(false), 1100);
+      };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(value).then(finish).catch(() => {
+          fallbackCopy(value);
+          finish();
+        });
+      } else {
+        fallbackCopy(value);
+        finish();
+      }
+    },
+    [text],
+  );
+
+  return (
+    <button
+      type="button"
+      className={`s-observe-copy-btn${copied ? " s-observe-copy-btn--copied" : ""}${className ? ` ${className}` : ""}`}
+      onClick={handleCopy}
+      aria-label={label}
+      title={copied ? "Copied" : label}
+    >
+      {copied ? (
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2 5.5l2.4 2.4L9 3.4" />
+        </svg>
+      ) : (
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3.4" y="3.4" width="6.1" height="6.1" rx="1.2" />
+          <path d="M7.6 3.4V2.2a.8.8 0 0 0-.8-.8H2.2a.8.8 0 0 0-.8.8v4.6a.8.8 0 0 0 .8.8h1.2" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+function fallbackCopy(value: string): void {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    ta.style.pointerEvents = "none";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  } catch (error) {
+    console.warn("Clipboard copy failed", error);
+  }
+}
+
+function buildToolCopyText(event: SessionEvent): string {
+  const lines: string[] = [];
+  const head = [event.tool, event.arg].filter(Boolean).join(" ");
+  if (head) lines.push(head);
+  if (event.result) {
+    lines.push(
+      Object.entries(event.result)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(" · "),
+    );
+  }
+  if (event.diff) {
+    lines.push(`+${event.diff.add}${event.diff.del > 0 ? ` -${event.diff.del}` : ""}`);
+    if (event.diff.preview) lines.push(event.diff.preview);
+  }
+  if (event.stream && event.stream.length > 0) {
+    lines.push(event.stream.join("\n"));
+  }
+  return lines.join("\n");
+}
+
 /* ── Event blocks ── */
 
 function ThinkBlock({ event }: { event: SessionEvent }) {
   return (
-    <div>
+    <div className="s-observe-block">
       <div className="s-observe-think-label">thinking</div>
       <div className="s-observe-think-text">
-        &ldquo;{event.text}&rdquo;
+        <span className="s-observe-quoted">{event.text}</span>
         {event.live && <span className="s-observe-cursor" />}
       </div>
+      <CopyButton text={event.text ?? ""} label="Copy thought" />
     </div>
   );
 }
@@ -179,7 +274,7 @@ function ToolBlock({ event }: { event: SessionEvent }) {
   const hasBody = !!(event.result || event.diff || event.stream);
 
   return (
-    <div className="s-observe-tool">
+    <div className="s-observe-tool s-observe-block">
       <div
         className={`s-observe-tool-header${hasBody ? " s-observe-tool-header--has-body" : ""}`}
       >
@@ -220,17 +315,22 @@ function ToolBlock({ event }: { event: SessionEvent }) {
       {event.stream && (
         <pre className="s-observe-tool-stream">{event.stream.join("\n")}</pre>
       )}
+
+      <CopyButton text={buildToolCopyText(event)} label="Copy tool call" />
     </div>
   );
 }
 
 function AskLine({ event }: { event: SessionEvent }) {
   const toLabel = event.to === "human" ? "you" : event.to ?? "?";
+  const copyText = event.answer
+    ? `${event.text}\n\n↳ ${event.to ?? "you"}: ${event.answer}`
+    : event.text ?? "";
   return (
-    <div className="s-observe-ask">
+    <div className="s-observe-ask s-observe-block">
       <div className="s-observe-ask-label">↗ ask → {toLabel}</div>
       <div className="s-observe-ask-text">
-        &ldquo;{event.text}&rdquo;
+        <span className="s-observe-quoted">{event.text}</span>
       </div>
       {event.answer && (
         <div className="s-observe-ask-answer">
@@ -240,6 +340,7 @@ function AskLine({ event }: { event: SessionEvent }) {
           <div className="s-observe-ask-answer-text">{event.answer}</div>
         </div>
       )}
+      <CopyButton text={copyText} label="Copy ask" />
     </div>
   );
 }
@@ -247,32 +348,36 @@ function AskLine({ event }: { event: SessionEvent }) {
 function MessageLine({ event }: { event: SessionEvent }) {
   const toLabel = event.to === "human" ? "you" : event.to ?? "?";
   return (
-    <div>
+    <div className="s-observe-block">
       <div className="s-observe-message-label">→ message → {toLabel}</div>
       <div className="s-observe-message-text">
         <MessageMarkup text={event.text} />
       </div>
+      <CopyButton text={event.text ?? ""} label="Copy message" />
     </div>
   );
 }
 
 function NoteLine({ event }: { event: SessionEvent }) {
   return (
-    <div className="s-observe-note">
+    <div className="s-observe-note s-observe-block s-observe-block--inline">
       <span className="s-observe-note-icon">✓</span>
       <span className="s-observe-note-text">{event.text}</span>
+      <CopyButton text={event.text ?? ""} label="Copy note" />
     </div>
   );
 }
 
 function SystemLine({ event }: { event: SessionEvent }) {
+  const copyText = event.detail ? `${event.text}\n${event.detail}` : event.text ?? "";
   return (
-    <div className="s-observe-system">
+    <div className="s-observe-system s-observe-block">
       <span className="s-observe-system-arrow">▸ </span>
       {event.text}
       {event.detail && (
         <div className="s-observe-system-detail">{event.detail}</div>
       )}
+      <CopyButton text={copyText} label="Copy system event" />
     </div>
   );
 }
@@ -538,24 +643,31 @@ function DetailRows({
         return (
           <div key={row.label} className="s-observe-detail-row">
             <div className="s-observe-detail-label">{row.label}</div>
-            {row.actionPath ? (
-              <LocalPathLink
-                path={row.actionPath}
-                basePath={row.actionBasePath}
-                agentId={agentId}
-                sessionId={sessionId}
-                className={`${valueClassName} s-observe-detail-link`}
-              >
-                {row.value}
-              </LocalPathLink>
-            ) : (
-              <div
-                className={valueClassName}
-                title={row.title}
-              >
-                {row.value}
-              </div>
-            )}
+            <div className="s-observe-detail-value-wrap">
+              {row.actionPath ? (
+                <LocalPathLink
+                  path={row.actionPath}
+                  basePath={row.actionBasePath}
+                  agentId={agentId}
+                  sessionId={sessionId}
+                  className={`${valueClassName} s-observe-detail-link`}
+                >
+                  {row.value}
+                </LocalPathLink>
+              ) : (
+                <div
+                  className={valueClassName}
+                  title={row.title}
+                >
+                  {row.value}
+                </div>
+              )}
+              <CopyButton
+                text={row.actionPath ?? row.value}
+                label={`Copy ${row.label.toLowerCase()}`}
+                className="s-observe-copy-btn--inline"
+              />
+            </div>
           </div>
         );
       })}
@@ -656,11 +768,15 @@ function SessionHeader({
 
   const runTakeover = useCallback(() => {
     if (!catalog.resumeCommand) return;
-    void queueTakeover(catalog.resumeCommand).then(() => {
+    void queueTakeover({
+      command: catalog.resumeCommand,
+      cwd: catalog.resumeCwd,
+      agentId,
+    }).then(() => {
       navigate({ view: "terminal", agentId });
     });
     setSent(true);
-  }, [catalog.resumeCommand, navigate, agentId]);
+  }, [catalog.resumeCommand, catalog.resumeCwd, navigate, agentId]);
 
   return (
     <div className="s-observe-session-header">

@@ -179,7 +179,6 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     resume: {
       command: "claude",
       sessionFlag: "--resume",
-      cwdFlag: "--cwd",
     },
     capabilities: ["chat", "invoke", "deliver", "summarize", "review"],
   },
@@ -214,8 +213,8 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     },
     resume: {
       command: "codex",
-      sessionFlag: "--thread",
-      cwdFlag: "--cwd",
+      sessionFlag: "resume",
+      cwdFlag: "-C",
     },
     capabilities: ["chat", "invoke", "deliver", "review", "execute"],
   },
@@ -434,11 +433,19 @@ export function buildHarnessResumeCommand(
   cwd?: string,
 ): string | null {
   if (!entry.resume) return null;
-  const parts = [entry.resume.command, entry.resume.sessionFlag, sessionId];
+  const parts = [entry.resume.command, entry.resume.sessionFlag];
   if (cwd && entry.resume.cwdFlag) {
     parts.push(entry.resume.cwdFlag, cwd);
   }
-  return parts.join(" ");
+  parts.push(sessionId);
+  return parts.map(shellQuoteArg).join(" ");
+}
+
+function shellQuoteArg(value: string): string {
+  if (/^[A-Za-z0-9_./:+=@%-]+$/u.test(value)) {
+    return value;
+  }
+  return `'${value.replace(/'/gu, `'\\''`)}'`;
 }
 
 export function findHarnessEntry(

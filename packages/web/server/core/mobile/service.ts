@@ -701,10 +701,12 @@ export async function createScoutSession(
 
   // If worktree requested, create a git worktree so the agent works in isolation.
   let agentCwd = workspace.root;
+  let worktreeCreated = false;
   if (input.worktree) {
-    const worktreeResult = await createGitWorktree(workspace.root, agentName);
+    const worktreeResult = await createGitWorktree(workspace.root, agentName, input.branch);
     if (worktreeResult) {
       agentCwd = worktreeResult.path;
+      worktreeCreated = true;
     }
   }
 
@@ -717,6 +719,7 @@ export async function createScoutSession(
     currentDirectory: currentDirectory ?? workspace.root,
     cwdOverride: agentCwd !== workspace.root ? agentCwd : undefined,
     model: input.model,
+    permissionProfile: input.profile?.trim() || undefined,
     branch: input.branch,
   });
 
@@ -764,8 +767,7 @@ export async function createScoutSession(
       existed: directSession.existed,
     },
     unsupported: [
-      ...(input.worktree ? ["worktree" as const] : []),
-      ...(input.profile ? ["profile" as const] : []),
+      ...(input.worktree && !worktreeCreated ? ["worktree" as const] : []),
     ],
   };
 }
@@ -849,19 +851,21 @@ async function deriveNewAgentName(
 async function createGitWorktree(
   projectRoot: string,
   agentName: string,
+  requestedBranch?: string,
 ): Promise<{ path: string; branch: string } | null> {
-  const { execSync } = await import("child_process");
+  const { execFileSync } = await import("child_process");
   const { join } = await import("path");
   const { mkdirSync, existsSync } = await import("fs");
 
   // Check if this is a git repo
   try {
-    execSync("git rev-parse --git-dir", { cwd: projectRoot, stdio: "pipe" });
+    execFileSync("git", ["rev-parse", "--git-dir"], { cwd: projectRoot, stdio: "pipe" });
   } catch {
     return null;
   }
 
-  const branchName = `scout/${agentName}`;
+  const normalizedRequestedBranch = requestedBranch?.trim();
+  const branchName = normalizedRequestedBranch || `scout/${agentName}`;
   const worktreeDir = join(projectRoot, ".scout-worktrees");
   const worktreePath = join(worktreeDir, agentName);
 
@@ -874,18 +878,12 @@ async function createGitWorktree(
 
   try {
     // Create worktree with a new branch based on current HEAD
-    execSync(
-      `git worktree add -b "${branchName}" "${worktreePath}"`,
-      { cwd: projectRoot, stdio: "pipe" },
-    );
+    execFileSync("git", ["worktree", "add", "-b", branchName, worktreePath], { cwd: projectRoot, stdio: "pipe" });
     return { path: worktreePath, branch: branchName };
   } catch (error) {
     // Branch might already exist — try without -b
     try {
-      execSync(
-        `git worktree add "${worktreePath}" "${branchName}"`,
-        { cwd: projectRoot, stdio: "pipe" },
-      );
+      execFileSync("git", ["worktree", "add", worktreePath, branchName], { cwd: projectRoot, stdio: "pipe" });
       return { path: worktreePath, branch: branchName };
     } catch {
       // If both fail, fall back to no worktree

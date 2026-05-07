@@ -21,8 +21,8 @@ export interface SessionInitMessage {
   backend?: 'pty' | 'tmux';
   /** For tmux backend: the tmux session name. Required when backend is 'tmux'. */
   tmuxSession?: string;
-  /** CLI agent to spawn. 'claude' (default) or 'pi'. */
-  agent?: 'claude' | 'pi';
+  /** CLI agent to spawn. 'claude' (default), 'pi', or 'shell'. */
+  agent?: 'claude' | 'pi' | 'shell';
   /** For pi agent: provider name (e.g. 'minimax', 'openai'). */
   provider?: string;
   /** For pi agent: model ID (e.g. 'MiniMax-M1'). */
@@ -200,6 +200,20 @@ function findPiBin(): string | null {
   return findBin('pi', 'PI_BIN');
 }
 
+/** Locate the user's shell, returning null if not found. */
+function findShellBin(): string | null {
+  const candidates = [
+    process.env.SHELL,
+    '/bin/zsh',
+    '/bin/bash',
+    '/bin/sh',
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 /** Check if a tmux session exists. */
 function tmuxSessionExists(name: string): boolean {
   try {
@@ -274,7 +288,15 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
 
   // ---- Pre-flight: locate agent binary ----
   let agentBin: string | null;
-  if (agent === 'pi') {
+  if (agent === 'shell') {
+    agentBin = findShellBin();
+    if (!agentBin) {
+      const reason = 'Shell not found. Set SHELL or install zsh/bash/sh.';
+      console.error(`[relay] Session ${id} failed: ${reason}`);
+      send(ws, { type: 'session:error', error: reason });
+      return null;
+    }
+  } else if (agent === 'pi') {
     agentBin = findPiBin();
     if (!agentBin) {
       const reason = 'pi CLI not found. Install it with: npm install -g @mariozechner/pi-coding-agent';
@@ -318,7 +340,9 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   // ---- Build CLI arguments based on agent type ----
   let agentArgs: string[];
 
-  if (agent === 'pi') {
+  if (agent === 'shell') {
+    agentArgs = [];
+  } else if (agent === 'pi') {
     agentArgs = ['--verbose'];
     if (msg.provider) agentArgs.push('--provider', msg.provider);
     if (msg.model) agentArgs.push('--model', msg.model);
