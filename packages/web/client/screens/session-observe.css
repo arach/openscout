@@ -12,6 +12,14 @@
   color: var(--ink);
 }
 
+.s-observe--content-only {
+  grid-template-columns: 1fr;
+}
+
+.s-observe--content-only .s-observe-stream {
+  max-width: min(1040px, 100%);
+}
+
 /* ── Main timeline ── */
 
 .s-observe-main {
@@ -26,6 +34,45 @@
 
 .s-observe-main:hover {
   scrollbar-color: color-mix(in srgb, var(--ink) 12%, transparent) transparent;
+}
+
+.s-observe-source {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(100%, 860px);
+  gap: 8px;
+  margin: -4px 0 12px 68px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.s-observe-source-label {
+  color: var(--dim);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.s-observe-source-link {
+  min-width: 0;
+  max-width: min(520px, 60vw);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  cursor: pointer;
+  font: inherit;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-observe-source-link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--green) 60%, transparent);
+  text-underline-offset: 3px;
 }
 
 /* ── Replay stream with spine ── */
@@ -311,19 +358,13 @@
 
 .s-observe-live-sticky {
   position: sticky;
-  top: 0;
+  top: 10px;
   z-index: 5;
   display: flex;
   justify-content: flex-end;
   pointer-events: none;
-  margin: -24px -28px 12px;
-  padding: 10px 16px 8px;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--bg) 94%, transparent) 0%,
-    color-mix(in srgb, var(--bg) 80%, transparent) 70%,
-    transparent 100%
-  );
+  margin: -2px -10px 8px 0;
+  padding: 0;
 }
 
 .s-observe-follow-btn {
@@ -458,6 +499,20 @@
   word-break: break-word;
 }
 
+.s-observe-detail-link {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.s-observe-detail-link:hover {
+  color: var(--green);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--green) 55%, transparent);
+  text-underline-offset: 3px;
+}
+
 .s-observe-detail-value--accent {
   color: var(--accent);
 }
@@ -511,9 +566,22 @@
   font-size: 11px;
   color: var(--muted);
   flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
   overflow: hidden;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.s-observe-file-path:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--green) 45%, transparent);
+  text-underline-offset: 3px;
 }
 
 .s-observe-file-touches {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type {
   ObserveData,
@@ -22,6 +22,23 @@ async function queueTakeover(command: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ command }),
+  });
+}
+
+async function revealLocalPath(input: {
+  path: string;
+  basePath?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
+}) {
+  await api<{ ok: true; path: string }>("/api/local-path/reveal", {
+    method: "POST",
+    body: JSON.stringify({
+      path: input.path,
+      ...(input.basePath ? { basePath: input.basePath } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    }),
   });
 }
 
@@ -64,6 +81,8 @@ type ObserveDetailRow = {
   title?: string;
   tone?: ObserveDetailTone;
   wrap?: boolean;
+  actionPath?: string;
+  actionBasePath?: string | null;
 };
 
 function fmtClock(sec: number): string {
@@ -122,6 +141,23 @@ function hasObserveRows(value: ObserveMetadata | ObserveSessionMeta | ObserveUsa
 
 function definedObserveRows(rows: Array<ObserveDetailRow | null | undefined>): ObserveDetailRow[] {
   return rows.filter((row): row is ObserveDetailRow => Boolean(row));
+}
+
+function basename(path: string): string {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const parts = normalized.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+function revealPath(input: {
+  path: string;
+  basePath?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
+}) {
+  void revealLocalPath(input).catch((error) => {
+    console.warn("Failed to reveal local path", error);
+  });
 }
 
 /* ── Event blocks ── */
@@ -428,24 +464,101 @@ function StatCard({
   );
 }
 
-function DetailRows({ rows }: { rows: ObserveDetailRow[] }) {
+function LocalPathLink({
+  path,
+  basePath,
+  agentId,
+  sessionId,
+  className,
+  children,
+}: {
+  path: string;
+  basePath?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
+  className: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={className}
+      title={`Reveal ${path}`}
+      onClick={() => revealPath({ path, basePath, agentId, sessionId })}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SourceFileLink({
+  path,
+  basePath,
+  agentId,
+  sessionId,
+}: {
+  path: string;
+  basePath?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
+}) {
+  return (
+    <div className="s-observe-source">
+      <span className="s-observe-source-label">Source</span>
+      <LocalPathLink
+        path={path}
+        basePath={basePath}
+        agentId={agentId}
+        sessionId={sessionId}
+        className="s-observe-source-link"
+      >
+        {basename(path)}
+      </LocalPathLink>
+    </div>
+  );
+}
+
+function DetailRows({
+  rows,
+  agentId,
+  sessionId,
+}: {
+  rows: ObserveDetailRow[];
+  agentId?: string | null;
+  sessionId?: string | null;
+}) {
   if (rows.length === 0) {
     return null;
   }
 
   return (
     <div className="s-observe-detail-list">
-      {rows.map((row) => (
-        <div key={row.label} className="s-observe-detail-row">
-          <div className="s-observe-detail-label">{row.label}</div>
-          <div
-            className={`s-observe-detail-value s-observe-detail-value--${row.tone ?? "default"}${row.wrap ? " s-observe-detail-value--wrap" : ""}`}
-            title={row.title}
-          >
-            {row.value}
+      {rows.map((row) => {
+        const valueClassName = `s-observe-detail-value s-observe-detail-value--${row.tone ?? "default"}${row.wrap ? " s-observe-detail-value--wrap" : ""}`;
+        return (
+          <div key={row.label} className="s-observe-detail-row">
+            <div className="s-observe-detail-label">{row.label}</div>
+            {row.actionPath ? (
+              <LocalPathLink
+                path={row.actionPath}
+                basePath={row.actionBasePath}
+                agentId={agentId}
+                sessionId={sessionId}
+                className={`${valueClassName} s-observe-detail-link`}
+              >
+                {row.value}
+              </LocalPathLink>
+            ) : (
+              <div
+                className={valueClassName}
+                title={row.title}
+              >
+                {row.value}
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -616,10 +729,12 @@ export function SessionObserve({
   data,
   agentId,
   sessionId,
+  showRail = true,
 }: {
   data?: SessionObserveData;
   agentId?: string;
   sessionId?: string | null;
+  showRail?: boolean;
 }) {
   const observeData = data ?? EMPTY_OBSERVE_DATA;
   const { events, files, contextUsage } = observeData;
@@ -685,6 +800,7 @@ export function SessionObserve({
 
   const metadata = observeData.metadata;
   const sessionMeta = metadata?.session;
+  const sourcePath = sessionMeta?.threadPath ?? null;
   const usageMeta = metadata?.usage;
   const toolCount = events.filter((e) => e.kind === "tool").length;
   const thinkCount = events.filter((e) => e.kind === "think").length;
@@ -774,6 +890,7 @@ export function SessionObserve({
           value: sessionMeta.cwd,
           title: sessionMeta.cwd,
           wrap: true,
+          actionPath: sessionMeta.cwd,
         }
       : null,
     sessionMeta?.entrypoint ? { label: "Entrypoint", value: sessionMeta.entrypoint } : null,
@@ -808,6 +925,8 @@ export function SessionObserve({
           value: sessionMeta.threadPath,
           title: sessionMeta.threadPath,
           wrap: true,
+          actionPath: sessionMeta.threadPath,
+          actionBasePath: sessionMeta.cwd ?? null,
         }
       : null,
     sessionMeta?.source ? { label: "Runtime source", value: sessionMeta.source } : null,
@@ -816,9 +935,17 @@ export function SessionObserve({
   const hasSessionMetadata = hasObserveRows(sessionMeta);
 
   return (
-    <div className="s-observe">
+    <div className={`s-observe${showRail ? "" : " s-observe--content-only"}`}>
       {/* Main timeline */}
       <main className="s-observe-main">
+        {sourcePath && (
+          <SourceFileLink
+            path={sourcePath}
+            basePath={sessionMeta?.cwd ?? null}
+            agentId={agentId ?? null}
+            sessionId={sessionId ?? null}
+          />
+        )}
         <div className="s-observe-live-sticky">
           <FollowToggle isFollowing={isFollowing} isLive={isLive} onToggle={handleFollowToggle} />
         </div>
@@ -826,8 +953,9 @@ export function SessionObserve({
       </main>
 
       {/* Right rail */}
-      <aside className="s-observe-rail">
-        {catalog && catalog.sessions.length > 0 && (
+      {showRail && (
+        <aside className="s-observe-rail">
+          {catalog && catalog.sessions.length > 0 && (
           <div>
             <div className="s-observe-rail-label">Session</div>
             <SessionHeader catalog={catalog} sessionId={sessionId ?? null} agentId={agentId} />
@@ -862,7 +990,7 @@ export function SessionObserve({
 
         <div>
           <div className="s-observe-rail-label">Context window</div>
-          <DetailRows rows={windowRows} />
+          <DetailRows rows={windowRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
           {contextUsage && contextUsage.length >= 2 ? (
             <>
               <ContextMeter data={contextUsage} cursor={cursor / duration} />
@@ -892,7 +1020,15 @@ export function SessionObserve({
                 className={`s-observe-file${f.lastT <= cursor ? " s-observe-file--visible" : " s-observe-file--hidden"}`}
               >
                 <FileGlyph state={f.state} />
-                <span className="s-observe-file-path">{f.path}</span>
+                <LocalPathLink
+                  path={f.path}
+                  basePath={sessionMeta?.cwd ?? null}
+                  agentId={agentId ?? null}
+                  sessionId={sessionId ?? null}
+                  className="s-observe-file-path"
+                >
+                  {f.path}
+                </LocalPathLink>
                 <span className="s-observe-file-touches">×{f.touches}</span>
               </div>
             ))}
@@ -913,7 +1049,7 @@ export function SessionObserve({
             </div>
           )}
           {usageRows.length > 0 ? (
-            <DetailRows rows={usageRows} />
+            <DetailRows rows={usageRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
           ) : !hasUsageMetadata ? (
             <div className="s-observe-ctx-detail">Unavailable for this session</div>
           ) : null}
@@ -922,12 +1058,13 @@ export function SessionObserve({
         <div>
           <div className="s-observe-rail-label">Metadata</div>
           {metadataRows.length > 0 ? (
-            <DetailRows rows={metadataRows} />
+            <DetailRows rows={metadataRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
           ) : !hasSessionMetadata ? (
             <div className="s-observe-ctx-detail">Unavailable for this session</div>
           ) : null}
         </div>
-      </aside>
+        </aside>
+      )}
 
       {/* Scrubber footer */}
       <footer className="s-observe-scrubber">

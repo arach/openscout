@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
@@ -130,6 +130,7 @@ export type CreateOpenScoutWebServerOptions = {
   trustedOrigins?: string[];
   runTerminalCommand?: (command: string) => Promise<void>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
+  revealPath?: (targetPath: string) => Promise<void> | void;
 };
 
 export type OpenScoutWebServer = {
@@ -374,6 +375,129 @@ function normalizeRequestHost(value: string | null | undefined): string {
     ?.replace(/^\[/, "")
     .replace(/\]$/, "")
     .toLowerCase() ?? "";
+}
+
+function expandHomePath(value: string): string {
+  if (value === "~") {
+    return homedir();
+  }
+  if (value.startsWith("~/")) {
+    return join(homedir(), value.slice(2));
+  }
+  return value;
+}
+
+function resolveExplorablePath(
+  targetPath: string,
+  basePath: string | null | undefined,
+  currentDirectory: string,
+): string {
+  const expandedTarget = expandHomePath(targetPath.trim());
+  const expandedBase = basePath?.trim()
+    ? expandHomePath(basePath.trim())
+    : currentDirectory;
+  return resolve(expandedBase, expandedTarget);
+}
+
+function realpathIfExists(targetPath: string): string | null {
+  try {
+    return realpathSync(targetPath);
+  } catch {
+    return null;
+  }
+}
+
+function resolveObservedPath(
+  targetPath: string,
+  cwd: string | null | undefined,
+): string | null {
+  const expanded = expandHomePath(targetPath.trim());
+  if (!expanded) {
+    return null;
+  }
+  if (isAbsolute(expanded)) {
+    return resolve(expanded);
+  }
+  if (!cwd?.trim()) {
+    return null;
+  }
+  return resolve(expandHomePath(cwd.trim()), expanded);
+}
+
+async function loadRevealObservePayload(input: {
+  agentId?: string | null;
+  sessionId?: string | null;
+}) {
+  const agentId = input.agentId?.trim() || null;
+  const sessionId = input.sessionId?.trim() || null;
+  if (agentId) {
+    const activePayload = await loadAgentObservePayload(agentId);
+    if (activePayload && (!sessionId || activePayload.sessionId === sessionId)) {
+      return activePayload;
+    }
+  }
+
+  if (sessionId) {
+    const refPayload = await loadSessionRefObservePayload(sessionId);
+    if (refPayload && (!agentId || refPayload.agentId === null || refPayload.agentId === agentId)) {
+      return refPayload;
+    }
+  }
+
+  return null;
+}
+
+function observedRevealPathSet(payload: Awaited<ReturnType<typeof loadRevealObservePayload>>): Set<string> {
+  const allowed = new Set<string>();
+  const session = payload?.data.metadata?.session;
+  const cwd = session?.cwd ?? null;
+  const candidates = [
+    payload?.historyPath,
+    cwd,
+    session?.threadPath,
+    ...(payload?.data.files.map((file) => file.path) ?? []),
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    const resolved = resolveObservedPath(candidate, cwd);
+    const real = resolved ? realpathIfExists(resolved) : null;
+    if (real) {
+      allowed.add(real);
+    }
+  }
+
+  return allowed;
+}
+
+function defaultRevealLocalPath(targetPath: string): void {
+  if (!existsSync(targetPath)) {
+    throw new Error("Path does not exist.");
+  }
+
+  const stats = statSync(targetPath);
+  const directory = stats.isDirectory() ? targetPath : dirname(targetPath);
+  if (process.platform === "darwin") {
+    execFileSync("open", stats.isDirectory() ? [targetPath] : ["-R", targetPath], {
+      stdio: "ignore",
+      timeout: 1500,
+    });
+    return;
+  }
+  if (process.platform === "win32") {
+    execFileSync("explorer.exe", stats.isDirectory() ? [targetPath] : [`/select,${targetPath}`], {
+      stdio: "ignore",
+      timeout: 1500,
+    });
+    return;
+  }
+
+  execFileSync("xdg-open", [directory], {
+    stdio: "ignore",
+    timeout: 1500,
+  });
 }
 
 function escapeHtml(value: string): string {
@@ -1004,6 +1128,46 @@ export async function createOpenScoutWebServer(
     }),
   );
   app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
+  app.post("/api/local-path/reveal", async (c) => {
+    const body = await c.req.json<{
+      path?: unknown;
+      basePath?: unknown;
+      agentId?: unknown;
+      sessionId?: unknown;
+    }>().catch(() => null);
+    const rawPath = typeof body?.path === "string" ? body.path.trim() : "";
+    if (!rawPath) {
+      return c.json({ error: "missing path" }, 400);
+    }
+    const agentId = typeof body?.agentId === "string" ? body.agentId.trim() : "";
+    const sessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
+    if (!agentId && !sessionId) {
+      return c.json({ error: "agentId or sessionId is required" }, 400);
+    }
+
+    const observePayload = await loadRevealObservePayload({ agentId, sessionId });
+    if (!observePayload) {
+      return c.json({ error: "observe payload not found" }, 404);
+    }
+
+    const basePath = typeof body?.basePath === "string" ? body.basePath : null;
+    const targetPath = resolveExplorablePath(rawPath, basePath, currentDirectory);
+    const realTargetPath = realpathIfExists(targetPath);
+    if (!realTargetPath) {
+      return c.json({ error: "path not found" }, 404);
+    }
+    if (!observedRevealPathSet(observePayload).has(realTargetPath)) {
+      return c.json({ error: "path is not part of the observed session" }, 403);
+    }
+
+    try {
+      await (options.revealPath ?? defaultRevealLocalPath)(realTargetPath);
+      return c.json({ ok: true, path: realTargetPath });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to reveal path";
+      return c.json({ error: message }, 500);
+    }
+  });
   app.use("/", async (c, next) => {
     const portalHost = options.portalHost?.trim().toLowerCase();
     const nodeHost = options.advertisedHost?.trim().toLowerCase();

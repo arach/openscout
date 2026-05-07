@@ -2954,9 +2954,17 @@ async function ensureCoreLocalAgentsOnline(): Promise<void> {
     return;
   }
 
+  // configuredCoreAgentIds may be either fully-qualified agent IDs or bare
+  // definitionIds (e.g. "ranger"). Resolve each to the concrete qualified ID
+  // registered on this node so the lookup works regardless of branch.
+  const overrides = await readRelayAgentOverrides();
+  const resolvedIds = configuredCoreAgentIds.map((configuredId) =>
+    resolveConfiguredCoreAgentId(configuredId, overrides),
+  );
+
   const coreBindings = await loadRegisteredLocalAgentBindings(nodeId, {
     ensureOnline: true,
-    agentIds: configuredCoreAgentIds,
+    agentIds: resolvedIds,
   });
 
   if (coreBindings.length === 0) {
@@ -2978,6 +2986,40 @@ async function ensureCoreLocalAgentsOnline(): Promise<void> {
       `[openscout-runtime] core local agent ready ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
     );
   }
+}
+
+function resolveConfiguredCoreAgentId(
+  configuredId: string,
+  overrides: Awaited<ReturnType<typeof readRelayAgentOverrides>>,
+): string {
+  if (overrides[configuredId]) {
+    return configuredId;
+  }
+
+  const matches = Object.entries(overrides)
+    .filter(([registeredId, override]) => {
+      const definitionId = override.definitionId ?? registeredId.split(".")[0];
+      return definitionId === configuredId;
+    })
+    .map(([registeredId]) => registeredId);
+  if (matches.length === 0) {
+    return configuredId;
+  }
+
+  return matches.sort((left, right) =>
+    coreAgentPreferenceRank(left) - coreAgentPreferenceRank(right)
+      || left.localeCompare(right),
+  )[0]!;
+}
+
+function coreAgentPreferenceRank(agentId: string): number {
+  if (/\.(main)\./.test(agentId)) {
+    return 0;
+  }
+  if (/\.(master)\./.test(agentId)) {
+    return 1;
+  }
+  return 2;
 }
 
 function messageVisibilityForConversation(conversation?: ConversationDefinition): MessageRecord["visibility"] {

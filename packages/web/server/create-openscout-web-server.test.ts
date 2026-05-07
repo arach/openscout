@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActionBlock, BlockState, QuestionBlock, SessionState } from "@openscout/agent-sessions";
@@ -21,6 +21,8 @@ const queryRunsCalls: Array<Record<string, unknown>> = [];
 const decidePairingApprovalCalls: Array<Record<string, unknown>> = [];
 const testDirectories = new Set<string>();
 let scoutBrokerContextResult: unknown = null;
+let agentObservePayloadResult: unknown = null;
+let sessionRefObservePayloadResult: unknown = null;
 let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
 
@@ -93,6 +95,7 @@ mock.module("./db-queries.ts", () => ({
     needsAttention: [],
     activity: [],
   }),
+  queryFlightRecordById: () => null,
   queryFollowTarget: () => null,
   queryFlights: () => [],
   queryRuns: (opts: Record<string, unknown>) => {
@@ -122,6 +125,7 @@ mock.module("./pairing.ts", () => ({
 }));
 
 mock.module("./core/broker/service.ts", () => ({
+  appendScoutCollaborationEvent: async () => null,
   loadScoutBrokerContext: async () => scoutBrokerContextResult,
   readScoutBrokerHealth: async () => ({
     baseUrl: "http://broker.test",
@@ -145,6 +149,13 @@ mock.module("./core/broker/service.ts", () => ({
     askScoutQuestionCalls.push(input);
     return askScoutQuestionResult;
   },
+  upsertScoutFlight: async () => null,
+}));
+
+mock.module("./core/observe/service.ts", () => ({
+  loadAgentObservePayload: async () => agentObservePayloadResult,
+  loadAgentObserveSummaries: async () => [],
+  loadSessionRefObservePayload: async () => sessionRefObservePayloadResult,
 }));
 
 const { createOpenScoutWebServer } =
@@ -321,6 +332,8 @@ beforeEach(() => {
   }
   querySessionByIdImpl = () => null;
   scoutBrokerContextResult = null;
+  agentObservePayloadResult = null;
+  sessionRefObservePayloadResult = null;
   sendScoutMessageResult = {
     usedBroker: true,
     invokedTargets: [],
@@ -506,6 +519,7 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("includes session attention in operator attention and dedupes pairing approvals", async () => {
+    useIsolatedOpenScoutHome();
     const { snapshot, approval } = sessionSnapshotWithAttention();
     pairingStateResult = makePairingState({
       pendingApprovals: [approval],
@@ -648,6 +662,108 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"terminalRelayPath":"/ws/terminal"');
     expect(body).toContain('"terminalRelayHealthPath":"/ws/terminal/health"');
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
+  });
+
+  test("reveals local paths through the configured reveal hook", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-web-reveal-"));
+    testDirectories.add(root);
+    mkdirSync(join(root, "sessions"), { recursive: true });
+    const transcriptPath = join(root, "sessions", "session.jsonl");
+    writeFileSync(transcriptPath, "{}\n", "utf8");
+    const realTranscriptPath = realpathSync(transcriptPath);
+    agentObservePayloadResult = {
+      agentId: "agent-1",
+      source: "history",
+      fidelity: "timestamped",
+      historyPath: transcriptPath,
+      sessionId: "session-1",
+      updatedAt: Date.now(),
+      data: {
+        events: [],
+        files: [],
+        metadata: {
+          session: {
+            cwd: root,
+            threadPath: "sessions/session.jsonl",
+          },
+        },
+      },
+    };
+    const revealedPaths: string[] = [];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      revealPath: (targetPath) => {
+        revealedPaths.push(targetPath);
+      },
+    });
+
+    const response = await server.app.request("http://localhost/api/local-path/reveal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        path: "sessions/session.jsonl",
+        basePath: root,
+        agentId: "agent-1",
+        sessionId: "session-1",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, path: realTranscriptPath });
+    expect(revealedPaths).toEqual([realTranscriptPath]);
+  });
+
+  test("rejects reveal requests for paths outside the observed session", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-web-reveal-"));
+    testDirectories.add(root);
+    mkdirSync(join(root, "sessions"), { recursive: true });
+    const transcriptPath = join(root, "sessions", "session.jsonl");
+    writeFileSync(transcriptPath, "{}\n", "utf8");
+    writeFileSync(join(root, "secret.txt"), "not in observe payload\n", "utf8");
+    agentObservePayloadResult = {
+      agentId: "agent-1",
+      source: "history",
+      fidelity: "timestamped",
+      historyPath: transcriptPath,
+      sessionId: "session-1",
+      updatedAt: Date.now(),
+      data: {
+        events: [],
+        files: [],
+        metadata: {
+          session: {
+            cwd: root,
+            threadPath: "sessions/session.jsonl",
+          },
+        },
+      },
+    };
+    const revealedPaths: string[] = [];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      revealPath: (targetPath) => {
+        revealedPaths.push(targetPath);
+      },
+    });
+
+    const response = await server.app.request("http://localhost/api/local-path/reveal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        path: "secret.txt",
+        basePath: root,
+        agentId: "agent-1",
+        sessionId: "session-1",
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "path is not part of the observed session" });
+    expect(revealedPaths).toEqual([]);
   });
 
   test("serves the local portal only for the portal host on the same app port", async () => {
