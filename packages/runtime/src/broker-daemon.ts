@@ -28,6 +28,7 @@ import {
   type DeliveryIntent,
   type DeliveryReason,
   type DeliveryStatus,
+  type DurableAction,
   type DurableActionHeartbeatInput,
   type FlightRecord,
   type InboxAckRequest,
@@ -199,6 +200,13 @@ function badRequest(response: ServerResponse, error: unknown): void {
   json(response, 400, {
     error: "bad_request",
     detail: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function conflict(response: ServerResponse, detail: string): void {
+  json(response, 409, {
+    error: "conflict",
+    detail,
   });
 }
 
@@ -1241,14 +1249,31 @@ async function recordDeliveryAttemptDurably(attempt: {
 
 async function heartbeatDurableActionDurably(
   input: DurableActionHeartbeatInput,
-): Promise<void> {
+): Promise<DurableAction | null> {
   // Durable action heartbeats renew ledger ownership only; they do not mutate
   // InboxItem delivery state, so there is no delivery SSE event to publish.
-  await runDurableWrite(async () => {
+  return runDurableWrite(async () => {
+    const current = journal.getDurableAction(input.actionId);
+    if (
+      !current
+      || current.leaseOwner !== input.owner
+      || current.leaseGeneration !== input.generation
+      || current.state === "completed"
+      || current.state === "failed"
+      || current.state === "cancelled"
+    ) {
+      return null;
+    }
+    const heartbeat = {
+      ...current,
+      leaseExpiresAt: input.heartbeatAt + input.leaseMs,
+      updatedAt: input.heartbeatAt,
+    };
     await commitDurableEntries(
       { kind: "durable.action.heartbeat", input },
       async () => {},
     );
+    return heartbeat;
   });
 }
 
@@ -1258,10 +1283,29 @@ async function updateDeliveryStatusDurably(input: {
   metadata?: Record<string, unknown>;
   leaseOwner?: string | null;
   leaseExpiresAt?: number | null;
+  expectedLeaseOwner?: string;
+  requireActiveLease?: boolean;
 }): Promise<void> {
-  const previous = journal.listDeliveries({ limit: 5000 })
-    .find((delivery) => delivery.id === input.deliveryId);
+  let previous: DeliveryIntent | undefined;
   await runDurableWrite(async () => {
+    previous = journal.listDeliveries({ limit: 5000 })
+      .find((delivery) => delivery.id === input.deliveryId);
+    if (input.expectedLeaseOwner || input.requireActiveLease) {
+      if (!previous) {
+        throw new Error("delivery not found");
+      }
+      const now = Date.now();
+      if (
+        previous.status !== "leased"
+        || !previous.leaseOwner
+        || previous.leaseOwner !== input.expectedLeaseOwner
+        || typeof previous.leaseExpiresAt !== "number"
+        || previous.leaseExpiresAt <= now
+      ) {
+        throw new Error("delivery lease is missing, expired, or owned by another worker");
+      }
+    }
+
     await commitDurableEntries(
       {
         kind: "delivery.status.update",
@@ -4398,19 +4442,29 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       if (!itemId) {
         throw new Error("itemId is required");
       }
+      const leaseOwner = body.leaseOwner?.trim();
+      if (!leaseOwner) {
+        throw new Error("leaseOwner is required");
+      }
       await updateDeliveryStatusDurably({
         deliveryId: itemId,
         status: "acknowledged",
         metadata: {
           ...(body.metadata ?? {}),
           acknowledgedAt: Date.now(),
-          ...(body.leaseOwner ? { acknowledgedBy: body.leaseOwner } : {}),
+          acknowledgedBy: leaseOwner,
         },
         leaseOwner: null,
         leaseExpiresAt: null,
+        expectedLeaseOwner: leaseOwner,
+        requireActiveLease: true,
       });
       json(response, 200, { ok: true, itemId, status: "acknowledged" });
     } catch (error) {
+      if (error instanceof Error && /delivery (not found|lease)/.test(error.message)) {
+        conflict(response, error.message);
+        return;
+      }
       badRequest(response, error);
     }
     return;
@@ -4423,6 +4477,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       if (!itemId) {
         throw new Error("itemId is required");
       }
+      const leaseOwner = body.leaseOwner?.trim();
+      if (!leaseOwner) {
+        throw new Error("leaseOwner is required");
+      }
       const retryAfterMs = typeof body.retryAfterMs === "number" && Number.isFinite(body.retryAfterMs) && body.retryAfterMs > 0
         ? Math.floor(body.retryAfterMs)
         : 0;
@@ -4432,15 +4490,21 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         metadata: {
           ...(body.metadata ?? {}),
           nackedAt: Date.now(),
-          ...(body.leaseOwner ? { nackedBy: body.leaseOwner } : {}),
+          nackedBy: leaseOwner,
           ...(body.reason ? { nackReason: body.reason } : {}),
           ...(retryAfterMs > 0 ? { nextAttemptAt: Date.now() + retryAfterMs } : {}),
         },
         leaseOwner: null,
         leaseExpiresAt: null,
+        expectedLeaseOwner: leaseOwner,
+        requireActiveLease: true,
       });
       json(response, 200, { ok: true, itemId, status: retryAfterMs > 0 ? "deferred" : "pending" });
     } catch (error) {
+      if (error instanceof Error && /delivery (not found|lease)/.test(error.message)) {
+        conflict(response, error.message);
+        return;
+      }
       badRequest(response, error);
     }
     return;
@@ -5124,6 +5188,25 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (method === "POST" && url.pathname === "/v1/durable-actions") {
+    try {
+      const action = await readRequestBody<DurableAction>(request);
+      if (!action.id?.trim()) {
+        throw new Error("action.id is required");
+      }
+      await runDurableWrite(async () => {
+        await commitDurableEntries(
+          { kind: "durable.action.record", action },
+          async () => {},
+        );
+      });
+      json(response, 200, { ok: true, actionId: action.id });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
   if (durableActionHeartbeatMatch) {
     try {
       const actionId = decodeURIComponent(durableActionHeartbeatMatch[1] ?? "");
@@ -5145,19 +5228,31 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       const heartbeatAt = Number.isFinite(body.heartbeatAt)
         ? body.heartbeatAt!
         : Date.now();
-      await heartbeatDurableActionDurably({
+      const heartbeat = await heartbeatDurableActionDurably({
         actionId,
         owner: body.owner.trim(),
         generation: body.generation,
         leaseMs: body.leaseMs,
         heartbeatAt,
       });
+      if (!heartbeat) {
+        const current = journal.getDurableAction(actionId);
+        if (!current) {
+          json(response, 404, {
+            error: "not_found",
+            detail: "durable action not found",
+          });
+          return;
+        }
+        conflict(response, "durable action lease is stale, terminal, or owned by another worker");
+        return;
+      }
       json(response, 200, {
         ok: true,
         actionId,
-        leaseOwner: body.owner.trim(),
-        leaseGeneration: body.generation,
-        leaseExpiresAt: heartbeatAt + body.leaseMs,
+        leaseOwner: heartbeat.leaseOwner,
+        leaseGeneration: heartbeat.leaseGeneration,
+        leaseExpiresAt: heartbeat.leaseExpiresAt,
       });
     } catch (error) {
       badRequest(response, error);

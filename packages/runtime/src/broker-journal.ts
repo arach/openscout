@@ -62,6 +62,7 @@ type JournalSnapshotState = {
   collaborationEvents: CollaborationEvent[];
   deliveries: Map<string, DeliveryIntent>;
   deliveryAttempts: Map<string, DeliveryAttempt[]>;
+  durableActions: Map<string, DurableAction>;
   scoutDispatches: ScoutDispatchRecord[];
 };
 
@@ -187,6 +188,7 @@ export class FileBackedBrokerJournal {
     collaborationEvents: [],
     deliveries: new Map<string, DeliveryIntent>(),
     deliveryAttempts: new Map<string, DeliveryAttempt[]>(),
+    durableActions: new Map<string, DurableAction>(),
     scoutDispatches: [],
   };
 
@@ -316,6 +318,10 @@ export class FileBackedBrokerJournal {
           ? left.createdAt - right.createdAt
           : left.attempt - right.attempt
       ));
+  }
+
+  getDurableAction(actionId: string): DurableAction | null {
+    return this.state.durableActions.get(actionId) ?? null;
   }
 
   private async rewriteEntries(entries: BrokerJournalEntry[]): Promise<void> {
@@ -474,7 +480,26 @@ export class FileBackedBrokerJournal {
         return;
       }
       case "durable.action.record":
-      case "durable.action.heartbeat":
+        this.state.durableActions.set(entry.action.id, entry.action);
+        return;
+      case "durable.action.heartbeat": {
+        const current = this.state.durableActions.get(entry.input.actionId);
+        if (
+          current
+          && current.leaseOwner === entry.input.owner
+          && current.leaseGeneration === entry.input.generation
+          && current.state !== "completed"
+          && current.state !== "failed"
+          && current.state !== "cancelled"
+        ) {
+          this.state.durableActions.set(current.id, {
+            ...current,
+            leaseExpiresAt: entry.input.heartbeatAt + entry.input.leaseMs,
+            updatedAt: entry.input.heartbeatAt,
+          });
+        }
+        return;
+      }
       case "durable.attempt.record":
       case "durable.checkpoint.record":
       case "durable.signal.record":
