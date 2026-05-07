@@ -19,6 +19,7 @@ export function renderMcpCommandHelp(): string {
     "  session_attach_current",
     "                   attach the current live Codex session to Scout",
     "  card_create      fresh reply-ready return address",
+    "  agents_start     start/create a concrete local agent session",
     "  agents_search    find likely targets when routing is ambiguous",
     "  agents_resolve   pin one exact target when needed",
     "  messages_send    tell / update with explicit target fields or channel",

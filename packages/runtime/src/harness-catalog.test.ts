@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  buildHarnessResumeCommand,
   createBuiltInHarnessCatalog,
   evaluateHarnessReadiness,
   loadHarnessCatalogSnapshot,
@@ -86,6 +87,24 @@ describe("harness catalog", () => {
     expect(report.installed).toBe(true);
     expect(report.configured).toBe(true);
     expect(report.ready).toBe(true);
+  });
+
+  test("builds current shell-safe resume commands", () => {
+    const entries = createBuiltInHarnessCatalog();
+    const claude = entries.find((entry) => entry.name === "claude");
+    const codex = entries.find((entry) => entry.name === "codex");
+
+    expect(claude).toBeTruthy();
+    expect(codex).toBeTruthy();
+    expect(buildHarnessResumeCommand(claude!, "claude-session", "/Users/me/dev/app")).toBe(
+      "claude --resume claude-session",
+    );
+    expect(buildHarnessResumeCommand(codex!, "codex-session", "/Users/me/dev/app")).toBe(
+      "codex resume -C /Users/me/dev/app codex-session",
+    );
+    expect(buildHarnessResumeCommand(codex!, "codex-session", "/Users/me/dev/my app")).toBe(
+      "codex resume -C '/Users/me/dev/my app' codex-session",
+    );
   });
 
   test("snapshot applies local override file and marks override source", async () => {

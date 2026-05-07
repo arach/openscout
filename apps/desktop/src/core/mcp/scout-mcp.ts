@@ -21,7 +21,11 @@ import {
 import { resolveHost, resolveWebPort } from "@openscout/runtime/local-config";
 import * as z from "zod/v4";
 
-import { createScoutAgentCard } from "../agents/service.ts";
+import {
+  createScoutAgentCard,
+  upScoutAgent,
+  type ScoutAgentStatus,
+} from "../agents/service.ts";
 import {
   askScoutAgentById,
   askScoutQuestion,
@@ -315,6 +319,15 @@ type ScoutMcpDependencies = {
     currentDirectory: string;
     createdById?: string;
   }) => Promise<ScoutAgentCard>;
+  startAgent: (input: {
+    projectPath: string;
+    agentName?: string;
+    harness?: (typeof LOCAL_AGENT_HARNESS_VALUES)[number];
+    model?: string;
+    reasoningEffort?: string;
+    permissionProfile?: string;
+    currentDirectory: string;
+  }) => Promise<ScoutAgentStatus>;
   attachCurrentLocalSession: (input: {
     externalSessionId: string;
     transport: "codex_app_server";
@@ -525,6 +538,19 @@ const scoutAgentCardSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+const localAgentStatusSchema = z.object({
+  agentId: z.string(),
+  definitionId: z.string(),
+  projectName: z.string(),
+  projectRoot: z.string(),
+  sessionId: z.string(),
+  startedAt: z.number(),
+  harness: z.enum(LOCAL_AGENT_HARNESS_VALUES),
+  transport: z.string(),
+  isOnline: z.boolean(),
+  source: z.string(),
+});
+
 const whoAmISchema = z.object({
   currentDirectory: z.string(),
   brokerUrl: z.string(),
@@ -545,6 +571,16 @@ const resolveResultSchema = z.object({
   candidates: z.array(agentCandidateSchema),
 });
 
+const startSuggestionSchema = z.object({
+  tool: z.literal("agents_start"),
+  targetLabel: z.string().nullable(),
+  agentName: z.string().nullable(),
+  harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).nullable(),
+  model: z.string().nullable(),
+  projectPath: z.string(),
+  currentDirectory: z.string(),
+});
+
 const sendResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
@@ -557,6 +593,7 @@ const sendResultSchema = z.object({
   invokedTargetIds: z.array(z.string()),
   unresolvedTargetIds: z.array(z.string()),
   targetDiagnostic: z.object({}).catchall(z.unknown()).nullable(),
+  startSuggestion: startSuggestionSchema.nullable().optional(),
   routeKind: z.enum(MESSAGE_ROUTE_KIND_VALUES).nullable(),
   routingError: z.enum(MESSAGE_ROUTING_ERROR_VALUES).nullable(),
 });
@@ -599,6 +636,18 @@ const cardCreateResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
   card: scoutAgentCardSchema,
+});
+
+const agentStartResultSchema = z.object({
+  currentDirectory: z.string(),
+  requestedLabel: z.string().nullable(),
+  agentName: z.string().nullable(),
+  projectPath: z.string(),
+  harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).nullable(),
+  model: z.string().nullable(),
+  agent: localAgentStatusSchema,
+  exactTargetAgentId: z.string(),
+  nextTargetLabel: z.string(),
 });
 
 const currentSessionAttachResultSchema = z.object({
@@ -659,6 +708,7 @@ const askResultSchema = z.object({
   links: followLinksSchema.optional(),
   followUrl: z.string().nullable().optional(),
   targetDiagnostic: z.object({}).catchall(z.unknown()).nullable(),
+  startSuggestion: startSuggestionSchema.nullable().optional(),
 });
 
 const invocationLookupResultSchema = z.object({
@@ -769,6 +819,8 @@ function renderMcpSendSummary(result: {
   invokedTargetIds: string[];
   unresolvedTargetIds: string[];
   routingError: string | null;
+  targetDiagnostic?: Record<string, unknown> | null;
+  startSuggestion?: ScoutMcpStartSuggestion | null;
   flightId?: string | null;
   wake?: boolean;
 }): string {
@@ -779,7 +831,12 @@ function renderMcpSendSummary(result: {
     return `Message was not sent: ${result.routingError}.`;
   }
   if (result.unresolvedTargetIds.length > 0) {
-    return `Message was not sent; unresolved target(s): ${result.unresolvedTargetIds.join(", ")}.`;
+    return renderUnroutedTargetSummary({
+      kind: "Message",
+      target: result.unresolvedTargetIds.join(", "),
+      targetDiagnostic: result.targetDiagnostic,
+      startSuggestion: result.startSuggestion,
+    });
   }
   const destination = result.invokedTargetIds.length > 0
     ? ` to ${result.invokedTargetIds.join(", ")}`
@@ -803,13 +860,20 @@ function renderMcpAskSummary(result: {
   output: string | null;
   delivery?: string;
   followUrl?: string | null;
+  targetDiagnostic?: Record<string, unknown> | null;
+  startSuggestion?: ScoutMcpStartSuggestion | null;
 }): string {
   if (!result.usedBroker) {
     return "Scout broker is not reachable; ask was not sent.";
   }
   const unresolved = result.unresolvedTargetId ?? result.unresolvedTargetLabel;
   if (unresolved) {
-    return `Ask was not sent; unresolved target: ${unresolved}.`;
+    return renderUnroutedTargetSummary({
+      kind: "Ask",
+      target: unresolved,
+      targetDiagnostic: result.targetDiagnostic,
+      startSuggestion: result.startSuggestion,
+    });
   }
   const target = result.targetAgentId ?? result.targetLabel ?? "target";
   const details = [
@@ -1058,6 +1122,221 @@ function scheduleScoutReplyNotification(input: {
 
 function normalizeSearchValue(value: string | null | undefined): string {
   return value?.trim().toLowerCase().replace(/^@+/, "") ?? "";
+}
+
+type ScoutMcpStartSuggestion = z.infer<typeof startSuggestionSchema>;
+
+function parseStartTargetLabel(
+  targetLabel: string | null | undefined,
+): {
+  agentName: string | null;
+  harness: (typeof LOCAL_AGENT_HARNESS_VALUES)[number] | null;
+  model: string | null;
+} {
+  const rawLabel = targetLabel?.trim();
+  if (!rawLabel) {
+    return { agentName: null, harness: null, model: null };
+  }
+
+  const label = rawLabel.replace(/^@+/, "");
+  const harnessMatch = label.match(/(?:#|harness:)(claude|codex)\b/i);
+  const shorthandModelMatch = label.match(/\?([^#\s.]+)/);
+  const qualifiedModelMatch = label.match(/(?:^|\.)model:([^#?\s.]+)/i);
+  const base = label
+    .split("?")[0]
+    ?.split("#")[0]
+    ?.replace(/\.harness:.*/i, "")
+    ?? "";
+  const agentName = base.split(".")[0]?.trim() || null;
+  const harnessValue = harnessMatch?.[1]?.toLowerCase();
+  const harness =
+    harnessValue === "claude" || harnessValue === "codex"
+      ? harnessValue
+      : null;
+  const model =
+    shorthandModelMatch?.[1]?.trim()
+    || qualifiedModelMatch?.[1]?.trim()
+    || null;
+
+  return { agentName, harness, model };
+}
+
+async function buildStartSuggestionForTarget(
+  targetLabel: string | null | undefined,
+  currentDirectory: string,
+): Promise<ScoutMcpStartSuggestion | null> {
+  const trimmedLabel = targetLabel?.trim();
+  if (!trimmedLabel) {
+    return null;
+  }
+  const parsed = parseStartTargetLabel(trimmedLabel);
+  const projectPath =
+    await findNearestProjectRoot(currentDirectory) ?? currentDirectory;
+  return {
+    tool: "agents_start",
+    targetLabel: trimmedLabel,
+    agentName: parsed.agentName,
+    harness: parsed.harness,
+    model: parsed.model,
+    projectPath,
+    currentDirectory,
+  };
+}
+
+function normalizeModelConstraint(value: string | null | undefined): string {
+  return value?.toLowerCase().replace(/[^a-z0-9]+/g, "") ?? "";
+}
+
+function candidateMatchesStartConstraints(
+  candidate: ScoutMcpAgentCandidate,
+  parsed: ReturnType<typeof parseStartTargetLabel>,
+): boolean {
+  if (parsed.harness && candidate.harness !== parsed.harness) {
+    return false;
+  }
+  if (parsed.model) {
+    const requested = normalizeModelConstraint(parsed.model);
+    const candidateModel = normalizeModelConstraint(candidate.model);
+    if (!candidateModel || (
+      candidateModel !== requested && !candidateModel.includes(requested)
+    )) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function diagnosePreciseTargetLabel(input: {
+  deps: Pick<ScoutMcpDependencies, "resolveAgent">;
+  targetLabel: string | null | undefined;
+  currentDirectory: string;
+}): Promise<{
+  blocked: boolean;
+  startSuggestion: ScoutMcpStartSuggestion | null;
+  diagnostic: Record<string, unknown> | null;
+}> {
+  const label = input.targetLabel?.trim();
+  if (!label) {
+    return { blocked: false, startSuggestion: null, diagnostic: null };
+  }
+  const parsed = parseStartTargetLabel(label);
+  if (!parsed.harness && !parsed.model) {
+    return { blocked: false, startSuggestion: null, diagnostic: null };
+  }
+
+  const resolution = await input.deps.resolveAgent({
+    label,
+    currentDirectory: input.currentDirectory,
+  });
+  const matchingCandidates = [
+    resolution.candidate,
+    ...resolution.candidates,
+  ].filter((candidate): candidate is ScoutMcpAgentCandidate => {
+    if (!candidate) return false;
+    return candidateMatchesStartConstraints(candidate, parsed);
+  });
+  if (matchingCandidates.length === 1) {
+    return { blocked: false, startSuggestion: null, diagnostic: null };
+  }
+
+  return {
+    blocked: true,
+    startSuggestion: await buildStartSuggestionForTarget(
+      label,
+      input.currentDirectory,
+    ),
+    diagnostic: {
+      kind: resolution.kind === "resolved"
+        ? "target_constraint_mismatch"
+        : resolution.kind === "ambiguous"
+          ? "target_constraint_ambiguous"
+          : "target_unresolved",
+      label,
+      requested: {
+        agentName: parsed.agentName,
+        harness: parsed.harness,
+        model: parsed.model,
+      },
+      resolvedCandidate: resolution.candidate
+        ? {
+            agentId: resolution.candidate.agentId,
+            harness: resolution.candidate.harness,
+            model: resolution.candidate.model,
+          }
+        : null,
+      matchingCandidateIds: matchingCandidates.map((candidate) => candidate.agentId),
+    },
+  };
+}
+
+function renderStartSuggestionText(
+  startSuggestion: ScoutMcpStartSuggestion | null | undefined,
+): string {
+  if (!startSuggestion) {
+    return "";
+  }
+  const args = [
+    startSuggestion.agentName
+      ? `agentName="${startSuggestion.agentName}"`
+      : null,
+    startSuggestion.harness ? `harness="${startSuggestion.harness}"` : null,
+    startSuggestion.model ? `model="${startSuggestion.model}"` : null,
+    `projectPath="${startSuggestion.projectPath}"`,
+  ].filter(Boolean);
+  return ` If this should be a new session, call agents_start with ${args.join(", ")} and then retry using the returned exactTargetAgentId.`;
+}
+
+function renderExactTargetNoStartSuggestionText(
+  targetDiagnostic: Record<string, unknown> | null | undefined,
+): string {
+  const diagnosticKind = typeof targetDiagnostic?.kind === "string"
+    ? targetDiagnostic.kind
+    : "";
+  if (
+    diagnosticKind !== "exact_target_id_unresolved" &&
+    diagnosticKind !== "exact_target_ids_unresolved"
+  ) {
+    return "";
+  }
+  return " Exact targetAgentId paths cannot infer agents_start arguments; use agents_search to pick an existing agent, or call agents_start with a targetLabel/agentName/harness/model and retry with the returned exactTargetAgentId.";
+}
+
+function renderUnroutedTargetSummary(input: {
+  kind: "Message" | "Ask";
+  target: string;
+  targetDiagnostic?: Record<string, unknown> | null;
+  startSuggestion?: ScoutMcpStartSuggestion | null;
+}): string {
+  const diagnosticKind = typeof input.targetDiagnostic?.kind === "string"
+    ? input.targetDiagnostic.kind
+    : "";
+  if (diagnosticKind === "target_constraint_mismatch") {
+    return `${input.kind} was not sent; target constraints did not match any resolved agent: ${input.target}.${renderStartSuggestionText(input.startSuggestion)}`;
+  }
+  if (diagnosticKind === "target_constraint_ambiguous") {
+    return `${input.kind} was not sent; target constraints matched multiple agents: ${input.target}.${renderStartSuggestionText(input.startSuggestion)}`;
+  }
+  return `${input.kind} was not sent; unresolved target: ${input.target}.${renderStartSuggestionText(input.startSuggestion)}${renderExactTargetNoStartSuggestionText(input.targetDiagnostic)}`;
+}
+
+function buildExactTargetIdsDiagnostic(
+  targetAgentIds: string[],
+): Record<string, unknown> | null {
+  const unresolvedTargetIds = [
+    ...new Set(targetAgentIds.map((value) => value.trim()).filter(Boolean)),
+  ];
+  if (unresolvedTargetIds.length === 0) {
+    return null;
+  }
+  return {
+    kind: unresolvedTargetIds.length === 1
+      ? "exact_target_id_unresolved"
+      : "exact_target_ids_unresolved",
+    unresolvedTargetIds,
+    startSuggestionAvailable: false,
+    detail:
+      "Exact targetAgentId routing does not include enough label information to infer safe agents_start arguments.",
+  };
 }
 
 function isCanonicalOpenScoutProjectRoot(
@@ -1706,6 +1985,24 @@ function defaultScoutMcpDependencies(
         currentDirectory,
         createdById,
       }),
+    startAgent: ({
+      projectPath,
+      agentName,
+      harness,
+      model,
+      reasoningEffort,
+      permissionProfile,
+      currentDirectory,
+    }) =>
+      upScoutAgent({
+        projectPath,
+        agentName,
+        harness,
+        model,
+        reasoningEffort,
+        permissionProfile,
+        currentDirectory,
+      }),
     attachCurrentLocalSession: ({
       externalSessionId,
       transport,
@@ -2142,6 +2439,89 @@ export function createScoutMcpServer(options: {
   );
 
   server.registerTool(
+    "agents_start",
+    {
+      title: "Start Scout Agent",
+      description:
+        "Start or create a concrete local Scout agent session before routing work to it. Use this when the user asks for a new session, or when a precise label such as @openscout#claude is unresolved. After it returns, prefer exactTargetAgentId for messages_send or invocations_ask.",
+      inputSchema: z.object({
+        targetLabel: z
+          .string()
+          .describe(
+            "Optional desired Scout label, such as @openscout#claude?sonnet. Explicit fields override values inferred from this label.",
+          )
+          .optional(),
+        agentName: z.string().optional(),
+        projectPath: z.string().optional(),
+        currentDirectory: z.string().optional(),
+        harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
+        model: z.string().optional(),
+        reasoningEffort: z.string().optional(),
+        permissionProfile: z.string().optional(),
+      }),
+      outputSchema: agentStartResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({
+      targetLabel,
+      agentName,
+      projectPath,
+      currentDirectory,
+      harness,
+      model,
+      reasoningEffort,
+      permissionProfile,
+    }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const parsedLabel = parseStartTargetLabel(targetLabel);
+      const resolvedAgentName =
+        agentName?.trim() || parsedLabel.agentName || undefined;
+      const resolvedHarness = harness ?? parsedLabel.harness ?? undefined;
+      const resolvedModel = model?.trim() || parsedLabel.model || undefined;
+      const resolvedProjectPath = resolve(
+        projectPath?.trim() || resolvedCurrentDirectory,
+      );
+      const agent = await deps.startAgent({
+        projectPath: resolvedProjectPath,
+        agentName: resolvedAgentName,
+        harness: resolvedHarness,
+        model: resolvedModel,
+        reasoningEffort: reasoningEffort?.trim() || undefined,
+        permissionProfile: permissionProfile?.trim() || undefined,
+        currentDirectory: resolvedCurrentDirectory,
+      });
+      const nextTargetLabel = resolvedModel
+        ? `@${agent.definitionId}#${agent.harness}?${resolvedModel}`
+        : `@${agent.definitionId}#${agent.harness}`;
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        requestedLabel: targetLabel?.trim() || null,
+        agentName: resolvedAgentName ?? null,
+        projectPath: resolvedProjectPath,
+        harness: resolvedHarness ?? null,
+        model: resolvedModel ?? null,
+        agent,
+        exactTargetAgentId: agent.agentId,
+        nextTargetLabel,
+      };
+      return {
+        content: createPlainTextContent(
+          `Started ${agent.agentId} (${agent.harness}) for ${agent.projectRoot}. Use exactTargetAgentId="${agent.agentId}" for the next route.`,
+        ),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
     "agents_search",
     {
       title: "Search Scout Agents",
@@ -2236,11 +2616,12 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Use wake=true to wake/process the target asynchronously after posting when a visible non-blocking turn is useful. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. For owned work or a reply lifecycle, use invocations_ask instead.",
+        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. Use wake=true to wake/process the target asynchronously after posting when a visible non-blocking turn is useful. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For owned work or a reply lifecycle, use invocations_ask instead.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
+        targetAgentId: targetAgentIdInputSchema,
         targetLabel: targetLabelInputSchema,
         channel: z.string().optional(),
         shouldSpeak: z.boolean().optional(),
@@ -2260,6 +2641,10 @@ export function createScoutMcpServer(options: {
         openWorldHint: false,
       },
       _meta: createToolUiMeta({
+        targetAgentId: createAgentPickerFieldMeta({
+          selection: "single",
+          valueField: "agentId",
+        }),
         targetLabel: createAgentPickerFieldMeta({
           selection: "single",
           valueField: "label",
@@ -2275,6 +2660,7 @@ export function createScoutMcpServer(options: {
       body,
       currentDirectory,
       senderId,
+      targetAgentId,
       targetLabel,
       channel,
       shouldSpeak,
@@ -2293,7 +2679,12 @@ export function createScoutMcpServer(options: {
       );
       const explicitTargetIds = [
         ...new Set(
-          (mentionAgentIds ?? []).map((value) => value.trim()).filter(Boolean),
+          [
+            targetAgentId,
+            ...(mentionAgentIds ?? []),
+          ].map((value) => value?.trim()).filter((value): value is string =>
+            Boolean(value),
+          ),
         ),
       ];
 
@@ -2317,6 +2708,10 @@ export function createScoutMcpServer(options: {
           const unresolvedTargetIds = results
             .map((result) => result.unresolvedTargetId)
             .filter((value): value is string => Boolean(value));
+          const targetDiagnostic =
+            firstResult?.targetDiagnostic ??
+            buildExactTargetIdsDiagnostic(unresolvedTargetIds);
+          const startSuggestion = null;
           const structuredContent = {
             currentDirectory: resolvedCurrentDirectory,
             senderId: resolvedSenderId,
@@ -2330,7 +2725,8 @@ export function createScoutMcpServer(options: {
               .map((result) => result.flight?.targetAgentId)
               .filter((value): value is string => Boolean(value)),
             unresolvedTargetIds,
-            targetDiagnostic: firstResult?.targetDiagnostic ?? null,
+            targetDiagnostic,
+            startSuggestion,
             routeKind: null,
             routingError: null,
           };
@@ -2351,6 +2747,7 @@ export function createScoutMcpServer(options: {
           currentDirectory: resolvedCurrentDirectory,
           source: "scout-mcp",
         });
+        const startSuggestion = null;
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
@@ -2362,7 +2759,10 @@ export function createScoutMcpServer(options: {
           wake: wake ?? false,
           invokedTargetIds: result.invokedTargetIds,
           unresolvedTargetIds: result.unresolvedTargetIds,
-          targetDiagnostic: result.targetDiagnostic ?? null,
+          targetDiagnostic:
+            result.targetDiagnostic ??
+            buildExactTargetIdsDiagnostic(result.unresolvedTargetIds),
+          startSuggestion,
           routeKind: result.routeKind ?? null,
           routingError: result.routingError ?? null,
         };
@@ -2375,6 +2775,36 @@ export function createScoutMcpServer(options: {
       }
 
       if (targetLabel?.trim()) {
+        const targetCheck = await diagnosePreciseTargetLabel({
+          deps,
+          targetLabel,
+          currentDirectory: resolvedCurrentDirectory,
+        });
+        if (targetCheck.blocked) {
+          const structuredContent = {
+            currentDirectory: resolvedCurrentDirectory,
+            senderId: resolvedSenderId,
+            mode: "target_label" as const,
+            usedBroker: true,
+            conversationId: null,
+            messageId: null,
+            flightId: null,
+            wake: wake ?? false,
+            bindingRef: null,
+            invokedTargetIds: [],
+            unresolvedTargetIds: [targetLabel.trim()],
+            targetDiagnostic: targetCheck.diagnostic,
+            startSuggestion: targetCheck.startSuggestion,
+            routeKind: null,
+            routingError: null,
+          };
+          return {
+            content: createPlainTextContent(
+              renderMcpSendSummary(structuredContent),
+            ),
+            structuredContent,
+          };
+        }
         const result = await deps.sendMessage({
           senderId: resolvedSenderId,
           body,
@@ -2385,6 +2815,12 @@ export function createScoutMcpServer(options: {
           source: "scout-mcp",
           wake,
         });
+        const startSuggestion = result.unresolvedTargets.length > 0
+          ? await buildStartSuggestionForTarget(
+              result.unresolvedTargets[0] ?? targetLabel.trim(),
+              resolvedCurrentDirectory,
+            )
+          : null;
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
@@ -2398,6 +2834,7 @@ export function createScoutMcpServer(options: {
           invokedTargetIds: result.invokedTargets,
           unresolvedTargetIds: result.unresolvedTargets,
           targetDiagnostic: result.targetDiagnostic ?? null,
+          startSuggestion,
           routeKind: result.routeKind ?? null,
           routingError: result.routingError ?? null,
         };
@@ -2418,6 +2855,12 @@ export function createScoutMcpServer(options: {
         source: "scout-mcp",
         wake,
       });
+      const startSuggestion = result.unresolvedTargets.length > 0
+        ? await buildStartSuggestionForTarget(
+            result.unresolvedTargets[0],
+            resolvedCurrentDirectory,
+          )
+        : null;
       const structuredContent = {
         currentDirectory: resolvedCurrentDirectory,
         senderId: resolvedSenderId,
@@ -2431,6 +2874,7 @@ export function createScoutMcpServer(options: {
         invokedTargetIds: result.invokedTargets,
         unresolvedTargetIds: result.unresolvedTargets,
         targetDiagnostic: result.targetDiagnostic ?? null,
+        startSuggestion,
         routeKind: result.routeKind ?? null,
         routingError: result.routingError ?? null,
       };
@@ -2448,7 +2892,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask Scout Agent",
       description:
-        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' Pass targetLabel or targetAgentId as routing fields; one target without a channel becomes a DM and the body remains payload text. Provide workItem to mint a durable workId beyond the message and flight ids. Use replyMode='inline' for short blocking waits, replyMode='notify' for callback-style MCP notifications, and replyMode='none' for fire-and-forget. awaitReply is kept as a boolean alias for replyMode='inline'.",
+        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' Pass targetLabel or targetAgentId as routing fields; one target without a channel becomes a DM and the body remains payload text. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with exactTargetAgentId instead of substituting a different agent. Provide workItem to mint a durable workId beyond the message and flight ids. Use replyMode='inline' for short blocking waits, replyMode='notify' for callback-style MCP notifications, and replyMode='none' for fire-and-forget. awaitReply is kept as a boolean alias for replyMode='inline'.",
       inputSchema: z
         .object({
           body: z.string().min(1),
@@ -2576,6 +3020,7 @@ export function createScoutMcpServer(options: {
           },
           env,
         );
+        const unresolvedTargetId = result.unresolvedTargetId ?? null;
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
@@ -2600,7 +3045,7 @@ export function createScoutMcpServer(options: {
           flight: completedFlight ?? result.flight ?? null,
           flightId: completedFlight?.id ?? result.flight?.id ?? null,
           output: completedFlight?.output ?? completedFlight?.summary ?? null,
-          unresolvedTargetId: result.unresolvedTargetId ?? null,
+          unresolvedTargetId,
           unresolvedTargetLabel: null,
           workItem: trackedWorkItem,
           workId: trackedWorkItem?.id ?? null,
@@ -2608,7 +3053,47 @@ export function createScoutMcpServer(options: {
           ids: followArtifacts.ids,
           links: followArtifacts.links,
           followUrl: followArtifacts.followUrl,
-          targetDiagnostic: result.targetDiagnostic ?? null,
+          targetDiagnostic:
+            result.targetDiagnostic ??
+            buildExactTargetIdsDiagnostic(unresolvedTargetId ? [unresolvedTargetId] : []),
+          startSuggestion: null,
+        };
+        return {
+          content: createPlainTextContent(
+            renderMcpAskSummary(structuredContent),
+          ),
+          structuredContent,
+        };
+      }
+
+      const targetCheck = await diagnosePreciseTargetLabel({
+        deps,
+        targetLabel,
+        currentDirectory: resolvedCurrentDirectory,
+      });
+      if (targetCheck.blocked) {
+        const structuredContent = {
+          currentDirectory: resolvedCurrentDirectory,
+          senderId: resolvedSenderId,
+          targetAgentId: null,
+          targetLabel: targetLabel!.trim(),
+          usedBroker: true,
+          awaited: shouldAwait,
+          replyMode: resolvedReplyMode,
+          delivery: "none" as const,
+          notification: null,
+          conversationId: null,
+          messageId: null,
+          flight: null,
+          flightId: null,
+          output: null,
+          unresolvedTargetId: null,
+          unresolvedTargetLabel: targetLabel!.trim(),
+          workItem: null,
+          workId: null,
+          workUrl: null,
+          targetDiagnostic: targetCheck.diagnostic,
+          startSuggestion: targetCheck.startSuggestion,
         };
         return {
           content: createPlainTextContent(
@@ -2670,6 +3155,12 @@ export function createScoutMcpServer(options: {
         },
         env,
       );
+      const startSuggestion = result.unresolvedTarget
+        ? await buildStartSuggestionForTarget(
+            result.unresolvedTarget,
+            resolvedCurrentDirectory,
+          )
+        : null;
       const structuredContent = {
         currentDirectory: resolvedCurrentDirectory,
         senderId: resolvedSenderId,
@@ -2704,6 +3195,7 @@ export function createScoutMcpServer(options: {
         links: followArtifacts.links,
         followUrl: followArtifacts.followUrl,
         targetDiagnostic: result.targetDiagnostic ?? null,
+        startSuggestion,
       };
       return {
         content: createPlainTextContent(

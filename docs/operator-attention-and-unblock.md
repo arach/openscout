@@ -55,12 +55,13 @@ Implemented now:
 - Non-approval attention items provide `Open Session` and local `Dismiss`, following the no-dead-end UI rule in `docs/eng/no-dead-end-ui.md`.
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
+- Claude permission hook requests are installed for managed Claude sessions and projected into web operator attention through `permission-requests`.
 
 Not done yet:
 
 - Answering `question` items from the iOS Inbox.
 - A broker-owned durable `unblock_request` record.
-- Host-level capture for Codex/Claude/MCP permission prompts.
+- Host-level capture for Codex and MCP permission prompts.
 - Desktop/web notification sinks for operator attention.
 - Cross-device read/dismiss/decision synchronization beyond the current inbox item refresh. Current non-approval dismiss is intentionally local-only.
 
@@ -89,7 +90,7 @@ The session inbox can continue projecting lightweight items, but durable host an
 2. Add a broker attention/unblock projection from collaboration records and flights.
 3. Add host ingress for permission prompts:
    - Codex: surface host approval requests into Scout as unblock records.
-   - Claude: ingest permission hook files/events into the broker instead of leaving them as a side-channel.
+   - Claude: move permission hook files/events from the current web projection into a durable broker unblock record.
    - MCP: document that server-side tools cannot see client-side approval prompts unless the host forwards them.
 4. Route all unblock records through a notification router:
    - `interrupt`: approval, question, host permission, failure.

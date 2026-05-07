@@ -11,6 +11,11 @@ import type {
   ConversationDefinition,
   DeliveryAttempt,
   DeliveryIntent,
+  DurableAction,
+  DurableActionHeartbeatInput,
+  DurableAttempt,
+  DurableCheckpoint,
+  DurableSignal,
   FlightRecord,
   InvocationRequest,
   MessageRecord,
@@ -37,6 +42,11 @@ export type BrokerJournalEntry =
   | { kind: "collaboration.event.record"; event: CollaborationEvent }
   | { kind: "deliveries.record"; deliveries: DeliveryIntent[] }
   | { kind: "delivery.attempt.record"; attempt: DeliveryAttempt }
+  | { kind: "durable.action.record"; action: DurableAction }
+  | { kind: "durable.action.heartbeat"; input: DurableActionHeartbeatInput }
+  | { kind: "durable.attempt.record"; attempt: DurableAttempt }
+  | { kind: "durable.checkpoint.record"; checkpoint: DurableCheckpoint }
+  | { kind: "durable.signal.record"; signal: DurableSignal }
   | {
       kind: "delivery.status.update";
       deliveryId: string;
@@ -52,6 +62,7 @@ type JournalSnapshotState = {
   collaborationEvents: CollaborationEvent[];
   deliveries: Map<string, DeliveryIntent>;
   deliveryAttempts: Map<string, DeliveryAttempt[]>;
+  durableActions: Map<string, DurableAction>;
   scoutDispatches: ScoutDispatchRecord[];
 };
 
@@ -177,6 +188,7 @@ export class FileBackedBrokerJournal {
     collaborationEvents: [],
     deliveries: new Map<string, DeliveryIntent>(),
     deliveryAttempts: new Map<string, DeliveryAttempt[]>(),
+    durableActions: new Map<string, DurableAction>(),
     scoutDispatches: [],
   };
 
@@ -306,6 +318,10 @@ export class FileBackedBrokerJournal {
           ? left.createdAt - right.createdAt
           : left.attempt - right.attempt
       ));
+  }
+
+  getDurableAction(actionId: string): DurableAction | null {
+    return this.state.durableActions.get(actionId) ?? null;
   }
 
   private async rewriteEntries(entries: BrokerJournalEntry[]): Promise<void> {
@@ -463,6 +479,34 @@ export class FileBackedBrokerJournal {
         });
         return;
       }
+      case "durable.action.record":
+        this.state.durableActions.set(entry.action.id, entry.action);
+        return;
+      case "durable.action.heartbeat": {
+        const current = this.state.durableActions.get(entry.input.actionId);
+        if (
+          current
+          && current.leaseOwner === entry.input.owner
+          && current.leaseGeneration === entry.input.generation
+          && current.state !== "completed"
+          && current.state !== "failed"
+          && current.state !== "cancelled"
+        ) {
+          this.state.durableActions.set(current.id, {
+            ...current,
+            leaseExpiresAt: entry.input.heartbeatAt + entry.input.leaseMs,
+            updatedAt: entry.input.heartbeatAt,
+          });
+        }
+        return;
+      }
+      case "durable.attempt.record":
+      case "durable.checkpoint.record":
+      case "durable.signal.record":
+        // Durable action facts are intentionally not projected into the
+        // in-memory RuntimeRegistrySnapshot. They are journal-durable and
+        // replay into SQLite through RecoverableSQLiteProjection.
+        return;
       case "scout.dispatch.record":
         this.state.scoutDispatches.push(entry.dispatch);
         return;

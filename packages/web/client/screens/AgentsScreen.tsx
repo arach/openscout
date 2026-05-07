@@ -7,7 +7,7 @@ import { api } from "../lib/api.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
-import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
+import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
@@ -26,14 +26,6 @@ import { ConversationScreen } from "./ConversationScreen.tsx";
 import { SessionObserve } from "./SessionObserve.tsx";
 import "./agents-screen.css";
 import "./ops-screen.css";
-
-async function queueTakeover(command: string) {
-  await fetch(resolveScoutRoutePath("terminalRunPath"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ command }),
-  });
-}
 
 
 function agentLabel(
@@ -98,7 +90,11 @@ function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume;
 
   const runTakeover = () => {
     if (!catalog.resumeCommand) return;
-    void queueTakeover(catalog.resumeCommand).then(() =>
+    void queueTakeover({
+      command: catalog.resumeCommand,
+      cwd: catalog.resumeCwd,
+      agentId,
+    }).then(() =>
       navigate({ view: "terminal", agentId }),
     );
     setSent(true);

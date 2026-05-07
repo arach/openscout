@@ -36,18 +36,26 @@ const port = Number.parseInt(
 );
 const UPLOAD_DIR = "/tmp/scout-uploads";
 
-let pendingCommand: string | null = null;
+type PendingCommand = {
+  command: string;
+  cwd?: string | null;
+  agentId?: string | null;
+};
 
-function queueTerminalCommand(command: string): void {
-  for (const [, session] of sessions) {
-    if (writeSession(session, command + "\n")) {
-      return;
+let pendingCommand: PendingCommand | null = null;
+
+function queueTerminalCommand(input: PendingCommand): void {
+  if (!input.cwd) {
+    for (const [, session] of sessions) {
+      if (writeSession(session, input.command + "\n")) {
+        return;
+      }
     }
   }
-  pendingCommand = command;
+  pendingCommand = input;
 }
 
-function drainPendingCommand(): string | null {
+function drainPendingCommand(): PendingCommand | null {
   const command = pendingCommand;
   pendingCommand = null;
   return command;
@@ -129,12 +137,17 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/terminal/run") {
-    const body = await readJson<{ command?: string }>(req);
-    if (!body?.command?.trim()) {
+    const body = await readJson<PendingCommand>(req);
+    const command = body?.command?.trim();
+    if (!command) {
       writeJson(res, 400, { error: "missing command" });
       return;
     }
-    queueTerminalCommand(body.command);
+    queueTerminalCommand({
+      command,
+      cwd: body?.cwd?.trim() || null,
+      agentId: body?.agentId?.trim() || null,
+    });
     writeJson(res, 200, { ok: true });
     return;
   }
@@ -155,26 +168,49 @@ wss.on("connection", (ws: NodeWebSocket) => {
 
     switch (msg.type) {
       case "session:init": {
+        const pending = drainPendingCommand();
         if (sessionId) {
           const previous = sessions.get(sessionId);
           if (previous && sessionOwnsSocket(previous, ws)) {
             detachSession(previous);
           }
         }
-        const session = createSession(ws, msg);
+        const session = createSession(ws, pending?.cwd ? { ...msg, cwd: pending.cwd, agent: "shell" } : msg);
         if (!session) {
           break;
         }
         sessionId = session.id;
         send(ws, { type: "session:ready", sessionId: session.id });
-        const pending = drainPendingCommand();
         if (pending) {
-          setTimeout(() => writeSession(session, pending + "\n"), 400);
+          setTimeout(() => writeSession(session, pending.command + "\n"), 400);
         }
         break;
       }
 
       case "session:reconnect": {
+        const pending = drainPendingCommand();
+        if (pending?.cwd) {
+          if (sessionId) {
+            const previous = sessions.get(sessionId);
+            if (previous && sessionOwnsSocket(previous, ws)) {
+              detachSession(previous);
+            }
+          }
+          const session = createSession(ws, {
+            type: "session:init",
+            cols: msg.cols ?? 80,
+            rows: msg.rows ?? 24,
+            cwd: pending.cwd,
+            agent: "shell",
+          });
+          if (!session) {
+            break;
+          }
+          sessionId = session.id;
+          send(ws, { type: "session:ready", sessionId: session.id });
+          setTimeout(() => writeSession(session, pending.command + "\n"), 400);
+          break;
+        }
         const existing = sessions.get(msg.sessionId);
         if (existing && !existing.exited) {
           if (sessionId && sessionId !== msg.sessionId) {
@@ -193,9 +229,8 @@ wss.on("connection", (ws: NodeWebSocket) => {
             sessionId: existing.id,
             reconnected: true,
           });
-          const pending = drainPendingCommand();
           if (pending) {
-            setTimeout(() => writeSession(existing, pending + "\n"), 400);
+            setTimeout(() => writeSession(existing, pending.command + "\n"), 400);
           }
         } else {
           send(ws, { type: "session:expired", sessionId: msg.sessionId });

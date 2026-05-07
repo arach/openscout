@@ -81,6 +81,64 @@
   position: relative;
   padding-left: 68px;
   max-width: 860px;
+  user-select: text;
+}
+
+/* Make every event block a hover anchor for its copy button. */
+.s-observe-block {
+  position: relative;
+}
+
+.s-observe-block--inline {
+  /* Note pills — keep inline-flex layout but still anchor the copy button. */
+  padding-right: 32px;
+}
+
+/* ── Copy button ── */
+
+.s-observe-copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s, background 0.12s;
+  backdrop-filter: blur(6px);
+}
+
+.s-observe-block:hover .s-observe-copy-btn,
+.s-observe-copy-btn:focus-visible {
+  opacity: 1;
+}
+
+.s-observe-copy-btn:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--bg) 95%, transparent);
+}
+
+.s-observe-copy-btn--copied {
+  opacity: 1;
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 50%, var(--border));
+  background: color-mix(in srgb, var(--green) 8%, var(--bg));
+}
+
+.s-observe-copy-btn--inline {
+  position: static;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .s-observe-spine {
@@ -148,6 +206,21 @@
   color: var(--muted);
   letter-spacing: -0.005em;
   font-style: italic;
+}
+
+/* Decorative quote marks — outside the selectable text so copy stays clean. */
+.s-observe-quoted {
+  user-select: text;
+}
+
+.s-observe-quoted::before {
+  content: "\201C";
+  user-select: none;
+}
+
+.s-observe-quoted::after {
+  content: "\201D";
+  user-select: none;
 }
 
 .s-observe-cursor {
@@ -465,6 +538,30 @@
       transparent 28%
     ),
     color-mix(in srgb, var(--surface) 94%, transparent);
+}
+
+.s-observe-detail-value-wrap {
+  display: flex;
+  align-items: start;
+  gap: 6px;
+  min-width: 0;
+  justify-content: end;
+}
+
+.s-observe-detail-value-wrap > .s-observe-detail-value,
+.s-observe-detail-value-wrap > .s-observe-detail-link {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.s-observe-detail-value-wrap .s-observe-copy-btn--inline {
+  opacity: 0;
+}
+
+.s-observe-detail-row:hover .s-observe-copy-btn--inline,
+.s-observe-detail-value-wrap .s-observe-copy-btn--inline:focus-visible,
+.s-observe-detail-value-wrap .s-observe-copy-btn--inline.s-observe-copy-btn--copied {
+  opacity: 1;
 }
 
 .s-observe-detail-row + .s-observe-detail-row {

@@ -823,11 +823,30 @@ export function CommandView({
     () => new Map(networkModel.nodes.map((node) => [node.id, node.label])),
     [networkModel.nodes],
   );
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  );
+  const healthRows = useMemo(
+    () => deriveHealthRows(agents, nowMs),
+    [agents, nowMs],
+  );
+  const projectRows = useMemo(
+    () => deriveProjectRows(agents),
+    [agents],
+  );
   const selectedFlow = useMemo(
     () => networkModel.edges.find((edge) => edge.id === selectedFlowId) ?? null,
     [networkModel.edges, selectedFlowId],
   );
   const [selectedFlowMessage, setSelectedFlowMessage] = useState<Message | null>(null);
+  const inspectorMeta = inspectorFocus === "flow"
+    ? selectedFlow
+      ? `${kindLabel(selectedFlow.kind)} / ${formatAge(selectedFlow.ts, nowMs)} ago`
+      : "flow"
+    : selectedItem
+      ? `${selectedItem.pill} / ${formatAge(selectedItem.updatedAt, nowMs)} ago`
+      : "idle";
 
   useEffect(() => {
     let cancelled = false;

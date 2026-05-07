@@ -53,6 +53,11 @@
       "bun": "./src/harness-catalog.ts",
       "default": "./dist/harness-catalog.js"
     },
+    "./claude-permission-hook": {
+      "types": "./src/claude-permission-hook.ts",
+      "bun": "./src/claude-permission-hook.ts",
+      "default": "./dist/claude-permission-hook.js"
+    },
     "./support-paths": {
       "types": "./src/support-paths.ts",
       "bun": "./src/support-paths.ts",

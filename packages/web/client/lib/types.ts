@@ -687,6 +687,7 @@ export type SessionCatalogWithResume = SessionCatalog & {
   agentId: string;
   harness: string | null;
   resumeCommand: string | null;
+  resumeCwd: string | null;
 };
 
 export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never";

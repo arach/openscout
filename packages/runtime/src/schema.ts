@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 5;
+export const CONTROL_PLANE_SCHEMA_VERSION = 6;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -192,6 +192,51 @@ CREATE TABLE IF NOT EXISTS delivery_attempts (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS durable_actions (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  authority_cell_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  idempotency_key TEXT,
+  lease_owner TEXT,
+  lease_generation INTEGER NOT NULL DEFAULT 0,
+  lease_expires_at INTEGER,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS durable_attempts (
+  id TEXT PRIMARY KEY,
+  action_id TEXT NOT NULL REFERENCES durable_actions(id) ON DELETE CASCADE,
+  attempt INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  lease_generation INTEGER NOT NULL,
+  error TEXT,
+  started_at INTEGER,
+  completed_at INTEGER,
+  metadata_json TEXT,
+  UNIQUE (action_id, attempt)
+);
+
+CREATE TABLE IF NOT EXISTS durable_checkpoints (
+  action_id TEXT NOT NULL REFERENCES durable_actions(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  payload_json TEXT,
+  owner_attempt_id TEXT REFERENCES durable_attempts(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (action_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS durable_signals (
+  action_id TEXT NOT NULL REFERENCES durable_actions(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  payload_json TEXT,
+  emitted_at INTEGER NOT NULL,
+  PRIMARY KEY (action_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS collaboration_records (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -317,6 +362,15 @@ CREATE INDEX IF NOT EXISTS idx_flights_invocation_id
   ON flights (invocation_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_status_transport
   ON deliveries (status, transport);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_durable_actions_idempotency_key
+  ON durable_actions (authority_cell_id, kind, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_durable_actions_authority_state_lease
+  ON durable_actions (authority_cell_id, state, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_durable_actions_subject
+  ON durable_actions (kind, subject_id);
+CREATE INDEX IF NOT EXISTS idx_durable_attempts_action_attempt
+  ON durable_attempts (action_id, attempt);
 CREATE INDEX IF NOT EXISTS idx_collaboration_records_state
   ON collaboration_records (state);
 CREATE INDEX IF NOT EXISTS idx_collaboration_records_updated_at

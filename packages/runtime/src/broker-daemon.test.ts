@@ -148,6 +148,22 @@ async function postJson<T>(baseUrl: string, path: string, body: unknown): Promis
   return response.json() as Promise<T>;
 }
 
+async function postJsonStatus(baseUrl: string, path: string, body: unknown): Promise<{ status: number; body: unknown }> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  return {
+    status: response.status,
+    body: await response.json().catch(() => null),
+  };
+}
+
 async function getJson<T>(baseUrl: string, path: string): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     headers: { accept: "application/json" },
@@ -527,6 +543,129 @@ describe("broker daemon comms layer", () => {
 
     expect(events.some((event) => event.kind === "message.posted" && event.payload.message?.id === "msg-test-1")).toBe(true);
     expect(events.some((event) => event.kind === "delivery.planned")).toBe(true);
+  }, 15_000);
+
+  test("projects target deliveries as claimable inbox items", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    await postJson(harness.baseUrl, "/v1/messages", {
+      id: "msg-inbox-1",
+      conversationId: "channel.shared",
+      actorId: "operator",
+      originNodeId: harness.nodeId,
+      class: "agent",
+      body: "@fabric inbox this",
+      mentions: [{ actorId: "fabric", label: "@fabric" }],
+      audience: { notify: ["fabric"] },
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: Date.now(),
+    });
+
+    const inbox = await getJson<Array<{
+      id: string;
+      targetId: string;
+      status: string;
+      message?: { id: string; body: string };
+    }>>(harness.baseUrl, "/v1/inbox?targetId=fabric&limit=20");
+    const item = inbox.find((candidate) => candidate.message?.id === "msg-inbox-1");
+    expect(item).toBeDefined();
+    expect(item?.targetId).toBe("fabric");
+    expect(item?.status).toBe("pending");
+
+    const claimed = await postJson<{
+      ok: boolean;
+      claimed: { id: string; status: string; leaseOwner?: string; message?: { id: string } } | null;
+    }>(harness.baseUrl, "/v1/inbox/claim", {
+      targetId: "fabric",
+      itemId: item!.id,
+      leaseOwner: "test-agent",
+      leaseMs: 30_000,
+    });
+    expect(claimed.ok).toBe(true);
+    expect(claimed.claimed?.status).toBe("leased");
+    expect(claimed.claimed?.message?.id).toBe("msg-inbox-1");
+
+    const staleAck = await postJsonStatus(harness.baseUrl, "/v1/inbox/ack", {
+      itemId: claimed.claimed!.id,
+      leaseOwner: "other-agent",
+    });
+    expect(staleAck.status).toBe(409);
+
+    const stillLeased = await getJson<Array<{ id: string; status: string; leaseOwner?: string }>>(
+      harness.baseUrl,
+      `/v1/inbox?targetId=fabric&status=leased&limit=20`,
+    );
+    expect(stillLeased).toContainEqual(expect.objectContaining({
+      id: item!.id,
+      status: "leased",
+      leaseOwner: "test-agent",
+    }));
+
+    await postJson(harness.baseUrl, "/v1/inbox/ack", {
+      itemId: claimed.claimed!.id,
+      leaseOwner: "test-agent",
+    });
+
+    const acknowledged = await getJson<Array<{ id: string; status: string }>>(
+      harness.baseUrl,
+      `/v1/inbox?targetId=fabric&status=acknowledged&limit=20`,
+    );
+    expect(acknowledged.some((candidate) => candidate.id === item!.id && candidate.status === "acknowledged")).toBe(true);
+  }, 15_000);
+
+  test("rejects inbox nack when the caller does not own the active lease", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    await postJson(harness.baseUrl, "/v1/messages", {
+      id: "msg-inbox-nack-1",
+      conversationId: "channel.shared",
+      actorId: "operator",
+      originNodeId: harness.nodeId,
+      class: "agent",
+      body: "@fabric nack this",
+      mentions: [{ actorId: "fabric", label: "@fabric" }],
+      audience: { notify: ["fabric"] },
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: Date.now(),
+    });
+
+    const inbox = await getJson<Array<{ id: string; message?: { id: string } }>>(
+      harness.baseUrl,
+      "/v1/inbox?targetId=fabric&limit=20",
+    );
+    const item = inbox.find((candidate) => candidate.message?.id === "msg-inbox-nack-1");
+    expect(item).toBeDefined();
+
+    const claimed = await postJson<{
+      claimed: { id: string; status: string; leaseOwner?: string } | null;
+    }>(harness.baseUrl, "/v1/inbox/claim", {
+      targetId: "fabric",
+      itemId: item!.id,
+      leaseOwner: "nack-owner",
+      leaseMs: 30_000,
+    });
+    expect(claimed.claimed?.status).toBe("leased");
+
+    const staleNack = await postJsonStatus(harness.baseUrl, "/v1/inbox/nack", {
+      itemId: claimed.claimed!.id,
+      leaseOwner: "other-agent",
+      reason: "not mine",
+    });
+    expect(staleNack.status).toBe(409);
+
+    const stillLeased = await getJson<Array<{ id: string; status: string; leaseOwner?: string }>>(
+      harness.baseUrl,
+      "/v1/inbox?targetId=fabric&status=leased&limit=20",
+    );
+    expect(stillLeased).toContainEqual(expect.objectContaining({
+      id: item!.id,
+      status: "leased",
+      leaseOwner: "nack-owner",
+    }));
   }, 15_000);
 
   test("replays thread events and snapshots for shared conversations", async () => {
@@ -1426,6 +1565,82 @@ describe("broker daemon comms layer", () => {
       id: claim.claimed?.id,
       status: "acknowledged",
     }));
+  }, 15_000);
+
+  test("journals durable action heartbeats through the HTTP surface", async () => {
+    const harness = await startBroker();
+    const initialAction = {
+      id: "action-heartbeat-1",
+      kind: "message_delivery",
+      subjectId: "delivery-1",
+      authorityCellId: "node-1",
+      state: "leased",
+      leaseOwner: "worker-a",
+      leaseGeneration: 1,
+      leaseExpiresAt: 1_000,
+      createdAt: 100,
+      updatedAt: 100,
+    };
+    await postJson(harness.baseUrl, "/v1/nodes", {
+      id: "node-1",
+      meshId: "openscout",
+      name: "Node 1",
+      advertiseScope: "local",
+      registeredAt: 1,
+    });
+    await postJson(harness.baseUrl, "/v1/durable-actions", initialAction);
+
+    const result = await postJson<{
+      ok: boolean;
+      actionId: string;
+      leaseOwner: string;
+      leaseGeneration: number;
+      leaseExpiresAt: number;
+    }>(
+      harness.baseUrl,
+      "/v1/durable-actions/action-heartbeat-1/heartbeat",
+      {
+        owner: "worker-a",
+        generation: 1,
+        leaseMs: 5_000,
+        heartbeatAt: 2_000,
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      actionId: "action-heartbeat-1",
+      leaseOwner: "worker-a",
+      leaseGeneration: 1,
+      leaseExpiresAt: 7_000,
+    });
+    expect(readFileSync(join(harness.controlHome, "broker-journal.jsonl"), "utf8"))
+      .toContain('"kind":"durable.action.heartbeat"');
+
+    const stale = await postJsonStatus(
+      harness.baseUrl,
+      "/v1/durable-actions/action-heartbeat-1/heartbeat",
+      {
+        owner: "worker-b",
+        generation: 1,
+        leaseMs: 5_000,
+        heartbeatAt: 3_000,
+      },
+    );
+    expect(stale.status).toBe(409);
+
+    const missing = await postJsonStatus(
+      harness.baseUrl,
+      "/v1/durable-actions/action-missing/heartbeat",
+      {
+        owner: "worker-a",
+        generation: 1,
+        leaseMs: 5_000,
+        heartbeatAt: 3_000,
+      },
+    );
+    expect(missing.status).toBe(404);
+
   }, 15_000);
 
   test("returns a broker question for manual offline targets it cannot wake", async () => {
