@@ -49,6 +49,8 @@ finalized; package manifests currently use `UNLICENSED`.
 - Use `scout send` / `messages_send` for tell/update.
 - Use `scout ask` / `invocations_ask` for owned work or requested replies.
 - Use explicit target fields; do not hide routing in message body text.
+- In Scout-aware composers, `>> target` is the preferred typed route operator;
+  strip it into structured routing metadata before sending payload to the broker.
 
 ## Verification Commands
 

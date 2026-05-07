@@ -185,6 +185,49 @@ messages_send({
 })
 ```
 
+## Composer Route Operator
+
+Human-facing composers can use `>>` as a route operator when `@` would collide
+with host autocomplete or mention systems. The operator is input sugar for
+explicit routing fields; clients should strip it from the body before handing
+the request to the broker.
+
+Typed:
+
+```text
+/scout:ask >> hudson Review the parser.
+/scout:ask >> ref:8kj4pd Continue from that result.
+/scout:send >> channel:ops Status is green.
+```
+
+Broker-facing shape:
+
+```ts
+invocations_ask({
+  targetLabel: "hudson",
+  body: "Review the parser."
+})
+```
+
+The route target grammar is:
+
+| Input | Structured Target |
+| --- | --- |
+| `>> hudson` | `{ kind: "agent_label", label: "hudson" }` |
+| `>> agent:hudson` | `{ kind: "agent_label", label: "hudson" }` |
+| `>> ref:8kj4pd` | `{ kind: "binding_ref", ref: "8kj4pd" }` |
+| `>> id:agent-...` | `{ kind: "agent_id", agentId: "agent-..." }` |
+| `>> channel:ops` | `{ kind: "channel", channel: "ops" }` |
+| `>> broadcast` | `{ kind: "broadcast" }` |
+
+The shared parser can recognize direct agent ids for clients that pass
+`targetAgentId`. CLI composer routing currently uses labels and refs for asks;
+`channel:<name>` and `broadcast` are send/update routes.
+
+`@agent` remains valid compatibility syntax where a surface owns the text box.
+For new Scout-aware composers, prefer `>>` for target entry and render the
+resolved target with the Scout contact mark, such as `⌖ hudson`.
+
 If routing cannot complete safely, a client should render the broker's dispatch
 or remediation result rather than guessing. `ScoutDispatchRecord` covers
 `ambiguous`, `unknown`, `unparseable`, and `unavailable` targets, including
@@ -287,6 +330,7 @@ When building a Scout client or plugin:
 | Delivery request and receipt types | `packages/protocol/src/scout-delivery.ts` |
 | Dispatch and routing target types | `packages/protocol/src/scout-dispatch.ts` |
 | Reply context type | `packages/protocol/src/scout-reply-context.ts` |
+| Composer route parser | `packages/protocol/src/scout-composer.ts` |
 | Runtime broker implementation | `packages/runtime/src/scout-broker.ts` |
 | Local-agent prompt projection | `packages/runtime/src/local-agents.ts` |
 
