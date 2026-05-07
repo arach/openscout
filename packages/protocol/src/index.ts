@@ -17,6 +17,7 @@ export * from "./debug-attach.js";
 export * from "./scout-dispatch.js";
 export * from "./scout-delivery.js";
 export * from "./scout-reply-context.js";
+export * from "./scout-composer.js";
 export * from "./deliveries.js";
 export * from "./transports.js";
 export * from "./events.js";

@@ -28,7 +28,10 @@ small **semantic hint grammar** backed by the existing protocol records.
    the first line.
 3. Unicode or ASCII symbols can make repeated broker traffic easier to scan,
    but only if each symbol has a stable job.
-4. Display hints must not become the routing authority. The broker and protocol
+4. `@agent` mentions collide with host composer autocomplete in some surfaces,
+   so Scout needs a first-class typed route affordance that still becomes
+   structured routing metadata.
+5. Display hints must not become the routing authority. The broker and protocol
    records remain canonical.
 
 ## Goals
@@ -37,6 +40,7 @@ small **semantic hint grammar** backed by the existing protocol records.
 - Keep the grammar readable without a legend for common cases.
 - Give symbols stable semantics so they can be used consistently across Codex,
   Claude, CLI, web, and mobile surfaces.
+- Define an ASCII composer route operator for Scout-aware text inputs.
 - Preserve structured protocol fields for machines, debugging, accessibility,
   and copy/paste.
 - Avoid implying stronger delivery guarantees than Scout currently provides.
@@ -80,6 +84,47 @@ benefit from a shared grammar:
 The analogy stops at authority and guarantees. Scout's broker-owned records are
 canonical. The visible hint is a generated display label, not a parser target,
 wire envelope, delivery guarantee, or consensus mechanism.
+
+## Composer Route Operator
+
+Scout-aware composers should support `>>` as the route operator for cases where
+`@` conflicts with host autocomplete or mention semantics.
+
+Default typed grammar:
+
+```text
+/scout:ask >> <target> <body>
+```
+
+Examples:
+
+```text
+/scout:ask >> hudson Review the parser.
+/scout:ask >> ref:8kj4pd Continue from that result.
+/scout:send >> channel:ops Status is green.
+```
+
+The operator is a parser affordance, not payload. Surfaces must translate it
+into `ScoutRouteTarget`, `targetLabel`, `channel`, or binding-ref metadata before
+submitting to the broker:
+
+| Composer Input | Protocol Target |
+| --- | --- |
+| `>> hudson` | `{ kind: "agent_label", label: "hudson" }` |
+| `>> agent:hudson` | `{ kind: "agent_label", label: "hudson" }` |
+| `>> ref:8kj4pd` | `{ kind: "binding_ref", ref: "8kj4pd" }` |
+| `>> id:agent-...` | `{ kind: "agent_id", agentId: "agent-..." }` |
+| `>> channel:ops` | `{ kind: "channel", channel: "ops" }` |
+| `>> broadcast` | `{ kind: "broadcast" }` |
+
+Direct agent ids are protocol targets for clients that can submit
+`targetAgentId`. The initial CLI composer integration routes asks by agent label
+or binding ref, and routes send/update messages by agent label, binding ref,
+channel, or broadcast.
+
+`@agent` remains a compatibility input form. `>>` is preferred for new
+Scout-aware message boxes because it does not ask the host environment to
+cooperate with Scout's agent picker.
 
 ## Scout Contact Line Grammar
 
@@ -145,8 +190,9 @@ The full ids must remain available in machine-readable context.
 
 ## Structured Envelope
 
-This proposal does not require a new protocol object immediately, but surfaces
-should think in terms of this envelope:
+This proposal adds a protocol-level composer route parser in
+`packages/protocol/src/scout-composer.ts`. It does not require a new persisted
+record immediately, but surfaces should think in terms of this envelope:
 
 ```ts
 interface ScoutCommsEnvelope {

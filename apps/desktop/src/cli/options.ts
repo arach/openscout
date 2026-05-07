@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 
+import { parseScoutComposerRoute } from "@openscout/protocol";
+
 import { ScoutCliError } from "./errors.ts";
 
 type ContextRootOptions = {
@@ -170,6 +172,77 @@ function stripMention(input: string, mention: MentionMatch): string {
   return `${before}${after}`.replace(/\s+/g, " ").trim();
 }
 
+type ComposerRoutedBody = {
+  targetLabel?: string;
+  targetRef?: string;
+  channel?: string;
+  message: string;
+};
+
+function mergeComposerChannel(
+  existing: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (!next) {
+    return existing;
+  }
+  if (existing && existing !== next) {
+    throw new ScoutCliError(`route channel ${next} conflicts with --channel ${existing}`);
+  }
+  return next;
+}
+
+function parseComposerRoutedBody(
+  input: string,
+  commandName: "ask" | "send",
+): ComposerRoutedBody | null {
+  const parsed = parseScoutComposerRoute(input);
+  if (!parsed.route) {
+    const [diagnostic] = parsed.diagnostics;
+    if (diagnostic) {
+      throw new ScoutCliError(diagnostic.message);
+    }
+    return null;
+  }
+
+  const { target } = parsed.route;
+  if (target.kind === "agent_label") {
+    return {
+      targetLabel: target.label,
+      message: parsed.body,
+    };
+  }
+  if (target.kind === "binding_ref") {
+    return {
+      targetLabel: `ref:${target.ref}`,
+      targetRef: target.ref,
+      message: parsed.body,
+    };
+  }
+  if (target.kind === "channel") {
+    if (commandName === "ask") {
+      throw new ScoutCliError("ask route operator must target an agent label or ref");
+    }
+    return {
+      channel: target.channel,
+      message: parsed.body,
+    };
+  }
+  if (target.kind === "broadcast") {
+    if (commandName === "ask") {
+      throw new ScoutCliError("ask route operator must target an agent label or ref");
+    }
+    return {
+      channel: "shared",
+      message: parsed.body,
+    };
+  }
+
+  throw new ScoutCliError(
+    `${commandName} route operator does not support agent id targets yet; use an agent label or ref`,
+  );
+}
+
 export function parseSetupCommandOptions(
   args: string[],
   defaultCurrentDirectory: string,
@@ -275,7 +348,16 @@ export function parseSendCommandOptions(
     messageParts.push(current);
   }
 
-  const message = messageParts.join(" ").trim();
+  let message = messageParts.join(" ").trim();
+  if (!targetLabel && !targetRef) {
+    const routed = parseComposerRoutedBody(message, "send");
+    if (routed) {
+      targetLabel = routed.targetLabel;
+      targetRef = routed.targetRef;
+      channel = mergeComposerChannel(channel, routed.channel);
+      message = routed.message;
+    }
+  }
   if (message && messageFile) {
     rejectMixedBodySources("message");
   }
@@ -368,7 +450,16 @@ export function parseAskCommandOptions(
     messageParts.push(current);
   }
 
-  const message = messageParts.join(" ").trim();
+  let message = messageParts.join(" ").trim();
+  if (!targetLabel) {
+    const routed = parseComposerRoutedBody(message, "ask");
+    if (routed) {
+      targetLabel = routed.targetLabel ?? null;
+      targetRef = routed.targetRef;
+      channel = mergeComposerChannel(channel, routed.channel);
+      message = routed.message;
+    }
+  }
   if (!targetLabel) {
     throw new ScoutCliError("--to <name> is required");
   }
@@ -453,9 +544,33 @@ export function parseImplicitAskCommandOptions(
     throw new ScoutCliError("no question provided");
   }
 
+  const routed = parseComposerRoutedBody(input, "ask");
+  if (routed) {
+    const message = routed.message;
+    if (message && promptFile) {
+      rejectMixedBodySources("question");
+    }
+    if (!message && !promptFile) {
+      throw new ScoutCliError("no question provided");
+    }
+
+    return {
+      currentDirectory: parsed.currentDirectory,
+      args: parsed.args,
+      agentName,
+      targetLabel: routed.targetLabel!,
+      targetRef: routed.targetRef,
+      channel: mergeComposerChannel(channel, routed.channel),
+      harness,
+      timeoutSeconds,
+      message,
+      promptFile,
+    };
+  }
+
   const mentions = extractMentionTargets(input);
   if (mentions.length === 0) {
-    throw new ScoutCliError("implicit ask requires an @agent mention");
+    throw new ScoutCliError("implicit ask requires >> target or an @agent mention");
   }
   if (mentions.length > 1) {
     throw new ScoutCliError("implicit ask supports exactly one @agent mention");

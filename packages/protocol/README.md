@@ -81,6 +81,20 @@ The important distinction is between a helper and an agent:
 
 This lets a person work with a helper in Codex or Claude while still invoking real agents as first-class targets.
 
+## Composer Route Operator
+
+Scout-aware text inputs can use `>>` to route without relying on `@` mentions
+owned by the host UI:
+
+```text
+/scout:ask >> hudson Review the parser.
+```
+
+The route operator is composer syntax, not message payload. The protocol package
+exports `parseScoutComposerRoute` and `SCOUT_COMPOSER_ROUTE_OPERATOR` so clients
+can translate `>> hudson`, `>> ref:8kj4pd`, `>> channel:ops`, or `>> broadcast`
+into structured `ScoutRouteTarget` metadata before submitting to the broker.
+
 ## Core Design Rules
 
 1. A message is conversation.

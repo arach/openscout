@@ -58,6 +58,27 @@ transcripts.
 - render `ScoutDispatchRecord` for ambiguous/unknown/unparseable/unavailable
   targets
 
+## Composer Route Operator
+
+Use `>>` in human composers when `@` conflicts with host autocomplete.
+
+Examples:
+
+| Typed | Broker target | Body |
+|---|---|---|
+| `/scout:ask >> hudson Review the parser.` | `targetLabel: "hudson"` | `Review the parser.` |
+| `/scout:ask >> ref:8kj4pd Continue.` | `target: { kind: "binding_ref", ref: "8kj4pd" }` | `Continue.` |
+| `/scout:send >> channel:ops Status is green.` | `target: { kind: "channel", channel: "ops" }` | `Status is green.` |
+
+Supported route target forms: agent labels, `agent:<label>`, `ref:<id>`,
+`id:<agentId>`, `channel:<name>`, and `broadcast`. `@agent` remains compatibility
+syntax, but new Scout-aware composers should prefer `>>` and strip the route
+operator from payload before calling the broker.
+
+CLI composer routing currently uses labels and refs for asks; `channel:<name>`
+and `broadcast` are send/update routes. Direct `id:<agentId>` targets are for
+clients that can submit `targetAgentId`.
+
 ## Reply Context
 
 `ScoutReplyContext` fields:
@@ -141,6 +162,7 @@ event for semantic completion.
 | invocations/flights | `packages/protocol/src/invocations.ts` |
 | delivery | `packages/protocol/src/scout-delivery.ts` |
 | dispatch/routing | `packages/protocol/src/scout-dispatch.ts` |
+| composer route parser | `packages/protocol/src/scout-composer.ts` |
 | reply context | `packages/protocol/src/scout-reply-context.ts` |
 | broker | `packages/runtime/src/scout-broker.ts` |
 | prompt projection | `packages/runtime/src/local-agents.ts` |

@@ -40,6 +40,26 @@ describe("parseSendCommandOptions", () => {
     expect(options.message).toBe("follow up");
   });
 
+  test("accepts a composer route target", () => {
+    const options = parseSendCommandOptions(
+      [">>", "hudson", "status", "is", "green"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("hudson");
+    expect(options.message).toBe("status is green");
+  });
+
+  test("accepts a composer route channel", () => {
+    const options = parseSendCommandOptions(
+      [">>", "channel:ops", "status", "is", "green"],
+      "/tmp/workspace",
+    );
+
+    expect(options.channel).toBe("ops");
+    expect(options.message).toBe("status is green");
+  });
+
   test("accepts a wake flag for non-blocking visible turns", () => {
     const options = parseSendCommandOptions(
       ["--to", "hudson", "--wake", "please", "continue"],
@@ -92,6 +112,16 @@ describe("parseAskCommandOptions", () => {
     expect(options.message).toBe("continue");
   });
 
+  test("accepts a composer route target", () => {
+    const options = parseAskCommandOptions(
+      [">>", "hudson", "review", "the", "parser"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("hudson");
+    expect(options.message).toBe("review the parser");
+  });
+
   test("rejects mixing inline questions with a prompt file", () => {
     expect(() =>
       parseAskCommandOptions(
@@ -137,6 +167,27 @@ describe("parseImplicitAskCommandOptions", () => {
     expect(options.currentDirectory).toBe("/tmp/repo");
   });
 
+  test("extracts a target agent from the composer route operator", () => {
+    const options = parseImplicitAskCommandOptions(
+      ["hey", ">>", "dewey", "can", "you", "review", "our", "docs?"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("dewey");
+    expect(options.message).toBe("hey can you review our docs?");
+  });
+
+  test("accepts a prompt file with only a composer route target", () => {
+    const options = parseImplicitAskCommandOptions(
+      [">>", "talkie", "--prompt-file", "handoff.md"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("talkie");
+    expect(options.message).toBe("");
+    expect(options.promptFile).toBe("/tmp/workspace/handoff.md");
+  });
+
   test("accepts a prompt file with only an @agent mention", () => {
     const options = parseImplicitAskCommandOptions(
       ["@talkie", "--prompt-file", "handoff.md"],
@@ -153,7 +204,7 @@ describe("parseImplicitAskCommandOptions", () => {
       parseImplicitAskCommandOptions(
         ["please", "review", "the", "docs"],
         "/tmp/workspace",
-      )).toThrow("implicit ask requires an @agent mention");
+      )).toThrow("implicit ask requires >> target or an @agent mention");
   });
 
   test("rejects natural language input with multiple mentions", () => {
