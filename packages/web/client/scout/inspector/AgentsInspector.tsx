@@ -9,7 +9,79 @@ import { actorColor, stateColor } from "../../lib/colors.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
-import type { Agent, FleetAsk, FleetState, Route } from "../../lib/types.ts";
+import type { Agent, AgentObservePayload, FleetAsk, FleetState, ObserveData, Route } from "../../lib/types.ts";
+
+const GROUPED_NUMBER_FORMAT = new Intl.NumberFormat("en-US");
+const COMPACT_NUMBER_FORMAT = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+function fmtCompactNumber(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  if (Math.abs(value) < 1_000) {
+    return GROUPED_NUMBER_FORMAT.format(value);
+  }
+
+  return COMPACT_NUMBER_FORMAT.format(value).toLowerCase();
+}
+
+function fmtWindowSpan(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "0s";
+  }
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  }
+
+  const wholeSeconds = Math.round(seconds);
+  const hours = Math.floor(wholeSeconds / 3_600);
+  const minutes = Math.floor((wholeSeconds % 3_600) / 60);
+  const remainingSeconds = wholeSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes >= 10 || remainingSeconds === 0) {
+    return `${minutes}m`;
+  }
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+function pathLeaf(path: string): string {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const parts = normalized.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+async function revealLocalPath(input: {
+  path: string;
+  basePath?: string | null;
+  agentId: string;
+  sessionId?: string | null;
+}) {
+  await api<{ ok: true; path: string }>("/api/local-path/reveal", {
+    method: "POST",
+    body: JSON.stringify({
+      path: input.path,
+      agentId: input.agentId,
+      ...(input.basePath ? { basePath: input.basePath } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    }),
+  });
+}
+
+function revealPath(input: {
+  path: string;
+  basePath?: string | null;
+  agentId: string;
+  sessionId?: string | null;
+}) {
+  void revealLocalPath(input).catch((error) => {
+    console.warn("Failed to reveal local path", error);
+  });
+}
 
 export function AgentsInspector() {
   const { route, agents, navigate } = useScout();
@@ -34,7 +106,12 @@ export function AgentsInspector() {
   }
 
   return (
-    <AgentContextPanel agent={agent} agents={agents} navigate={navigate} />
+    <AgentContextPanel
+      agent={agent}
+      agents={agents}
+      navigate={navigate}
+      observeMode={route.tab === "observe"}
+    />
   );
 }
 
@@ -42,10 +119,12 @@ function AgentContextPanel({
   agent,
   agents,
   navigate,
+  observeMode,
 }: {
   agent: Agent;
   agents: Agent[];
   navigate: (r: Route) => void;
+  observeMode: boolean;
 }) {
   const online = isAgentOnline(agent.state);
   const [fleet, setFleet] = useState<FleetState | null>(null);
@@ -123,6 +202,8 @@ function AgentContextPanel({
         />
       </Section>
 
+      {observeMode && <ObserveContext agentId={agent.id} />}
+
       {/* Incoming asks */}
       {fleet && (
         <InspectorAsks
@@ -164,6 +245,174 @@ function AgentContextPanel({
           </div>
         </Section>
       )}
+    </div>
+  );
+}
+
+function ObserveContext({ agentId }: { agentId: string }) {
+  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
+
+  const load = useCallback(async () => {
+    const result = await api<AgentObservePayload>(
+      `/api/agents/${encodeURIComponent(agentId)}/observe`,
+    ).catch(() => null);
+    setObserve(result);
+  }, [agentId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useBrokerEvents(() => {
+    void load();
+  });
+
+  if (!observe?.data) {
+    return (
+      <Section label="Trace">
+        <div className="text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+          Resolving session trace.
+        </div>
+      </Section>
+    );
+  }
+
+  return <ObserveStats agentId={agentId} data={observe.data} sessionId={observe.sessionId} />;
+}
+
+function ObserveStats({
+  agentId,
+  data,
+  sessionId,
+}: {
+  agentId: string;
+  data: ObserveData;
+  sessionId: string | null;
+}) {
+  const sessionMeta = data.metadata?.session;
+  const events = data.events;
+  const files = data.files;
+  const toolCount = events.filter((e) => e.kind === "tool").length;
+  const thinkCount = events.filter((e) => e.kind === "think").length;
+  const askCount = events.filter((e) => e.kind === "ask").length;
+  const readCount = events.filter(
+    (e) => e.kind === "tool" && e.tool === "read",
+  ).length;
+  const editCount = events.filter(
+    (e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write"),
+  ).length;
+  const observedWindowSeconds = events.length > 0 ? events[events.length - 1]!.t : 0;
+  const sourcePath = sessionMeta?.threadPath;
+
+  return (
+    <>
+      <Section label="Session">
+        {sessionId && <Row label="Active" value={sessionId.slice(0, 8)} />}
+        {sourcePath && (
+          <PathRow
+            label="Source"
+            path={sourcePath}
+            basePath={sessionMeta?.cwd ?? null}
+            value={pathLeaf(sourcePath)}
+            agentId={agentId}
+            sessionId={sessionId}
+          />
+        )}
+        {sessionMeta?.cwd && (
+          <PathRow
+            label="Workspace"
+            path={sessionMeta.cwd}
+            value={sessionMeta.cwd}
+            agentId={agentId}
+            sessionId={sessionId}
+          />
+        )}
+      </Section>
+
+      <Section label="Trace stats">
+        <div className="grid grid-cols-2 gap-1.5">
+          <TraceMetric label="Turns" value={fmtCompactNumber(sessionMeta?.turnCount ?? 0)} />
+          <TraceMetric label="Tools" value={fmtCompactNumber(toolCount)} />
+          <TraceMetric label="Thinks" value={fmtCompactNumber(thinkCount)} />
+          <TraceMetric label="Asks" value={fmtCompactNumber(askCount)} />
+          <TraceMetric label="Reads" value={fmtCompactNumber(readCount)} />
+          <TraceMetric label="Edits" value={fmtCompactNumber(editCount)} />
+          <TraceMetric label="Files" value={fmtCompactNumber(files.length)} />
+          <TraceMetric label="Window" value={fmtWindowSpan(observedWindowSeconds)} />
+        </div>
+      </Section>
+
+      {files.length > 0 && (
+        <Section label={`Files touched · ${files.length}`}>
+          <div className="flex flex-col gap-1">
+            {files.slice(0, 8).map((file) => (
+              <button
+                type="button"
+                key={file.path}
+                title={file.path}
+                onClick={() => revealPath({
+                  path: file.path,
+                  basePath: sessionMeta?.cwd ?? null,
+                  agentId,
+                  sessionId,
+                })}
+                className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1 text-left hover:border-[var(--accent)]"
+              >
+                <span className="min-w-0 truncate font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]">
+                  {file.path}
+                </span>
+                <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                  x{file.touches}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Section>
+      )}
+    </>
+  );
+}
+
+function PathRow({
+  label,
+  path,
+  basePath,
+  value,
+  agentId,
+  sessionId,
+}: {
+  label: string;
+  path: string;
+  basePath?: string | null;
+  value: string;
+  agentId: string;
+  sessionId?: string | null;
+}) {
+  return (
+    <div className="flex items-baseline justify-between py-0.5 gap-2">
+      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
+        {label}
+      </span>
+      <button
+        type="button"
+        title={`Reveal ${path}`}
+        onClick={() => revealPath({ path, basePath, agentId, sessionId })}
+        className="min-w-0 truncate bg-transparent p-0 text-right font-mono text-[11px] text-cyan-400/80 hover:text-[var(--scout-chrome-ink)] hover:underline"
+      >
+        {value}
+      </button>
+    </div>
+  );
+}
+
+function TraceMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1.5">
+      <div className="font-mono text-[8.5px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+        {label}
+      </div>
+      <div className="mt-0.5 font-mono text-[12px] text-[var(--scout-chrome-ink)]">
+        {value}
+      </div>
     </div>
   );
 }

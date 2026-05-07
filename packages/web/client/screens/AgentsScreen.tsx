@@ -487,6 +487,22 @@ function AgentDetailWithRail({
     });
   };
 
+  const renderTabs = (className = "") => (
+    <nav className={`s-profile-tabs${className ? ` ${className}` : ""}`}>
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
+          disabled={t.disabled}
+          onClick={() => navigateToTab(t.key)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </nav>
+  );
+
   return (
     <div className={`s-profile-center${activeTab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
       <button
@@ -497,105 +513,99 @@ function AgentDetailWithRail({
         &larr; All agents
       </button>
 
-      <section
-        className="s-profile-identity"
-        onContextMenu={(e) => {
-          const sel = window.getSelection()?.toString().trim();
-          const items: MenuItem[] = [];
-          if (sel) {
+      {activeTab === "profile" ? (
+        <section
+          className="s-profile-identity"
+          onContextMenu={(e) => {
+            const sel = window.getSelection()?.toString().trim();
+            const items: MenuItem[] = [];
+            if (sel) {
+              items.push({
+                kind: "action",
+                label: "Copy Selection",
+                shortcut: "⌘C",
+                onSelect: () => navigator.clipboard.writeText(sel),
+              });
+              items.push({ kind: "separator" });
+            }
             items.push({
               kind: "action",
-              label: "Copy Selection",
-              shortcut: "⌘C",
-              onSelect: () => navigator.clipboard.writeText(sel),
+              label: "Copy Agent Name",
+              onSelect: () => navigator.clipboard.writeText(name),
             });
-            items.push({ kind: "separator" });
-          }
-          items.push({
-            kind: "action",
-            label: "Copy Agent Name",
-            onSelect: () => navigator.clipboard.writeText(name),
-          });
-          items.push({
-            kind: "action",
-            label: "Copy Agent ID",
-            onSelect: () => navigator.clipboard.writeText(agent.id),
-          });
-          if (agent.handle) {
             items.push({
               kind: "action",
-              label: `Copy @${agent.handle}`,
-              onSelect: () =>
-                navigator.clipboard.writeText(`@${agent.handle}`),
+              label: "Copy Agent ID",
+              onSelect: () => navigator.clipboard.writeText(agent.id),
             });
-          }
-          showContextMenu(e, items);
-        }}
-      >
-        <div className="s-profile-identity-top">
-          <div className="s-profile-identity-avatar-wrap">
-            <div
-              className="s-profile-identity-avatar"
-              style={{ background: actorColor(agent.name) }}
-            >
-              {agent.name[0].toUpperCase()}
-            </div>
-            <span
-              className={`s-profile-identity-pulse s-profile-identity-pulse--${state}`}
-              style={{ background: stateColor(agent.state) }}
-            />
-          </div>
-          <div className="s-profile-identity-copy">
-            {eyebrowParts.length > 0 && (
-              <div className="s-profile-identity-eyebrow">
-                {eyebrowParts.join(" · ")}
+            if (agent.handle) {
+              items.push({
+                kind: "action",
+                label: `Copy @${agent.handle}`,
+                onSelect: () =>
+                  navigator.clipboard.writeText(`@${agent.handle}`),
+              });
+            }
+            showContextMenu(e, items);
+          }}
+        >
+          <div className="s-profile-identity-top">
+            <div className="s-profile-identity-avatar-wrap">
+              <div
+                className="s-profile-identity-avatar"
+                style={{ background: actorColor(agent.name) }}
+              >
+                {agent.name[0].toUpperCase()}
               </div>
-            )}
-            <h1 className="s-profile-identity-name">
-              {name}
-              {qualifier && (
-                <span className="s-profile-identity-name-qualifier">
-                  {qualifier}
-                </span>
+              <span
+                className={`s-profile-identity-pulse s-profile-identity-pulse--${state}`}
+                style={{ background: stateColor(agent.state) }}
+              />
+            </div>
+            <div className="s-profile-identity-copy">
+              {eyebrowParts.length > 0 && (
+                <div className="s-profile-identity-eyebrow">
+                  {eyebrowParts.join(" · ")}
+                </div>
               )}
-              {agent.handle && (
-                <span className="s-profile-identity-name-handle">
-                  @{agent.handle}
-                </span>
-              )}
-            </h1>
-            <div className="s-profile-identity-state-row">
-              <span className="s-profile-identity-state">
-                <span
-                  className={`s-profile-identity-state-dot${state === "working" ? " s-profile-identity-state-dot--pulse" : ""}`}
-                  style={{ background: stateColor(agent.state) }}
-                />
-                <span className="s-profile-identity-state-label">
-                  {agentStateLabel(agent.state)}
-                </span>
-                {agent.updatedAt && (
-                  <span className="s-profile-identity-state-detail">
-                    &mdash; {timeAgo(agent.updatedAt)}
+              <h1 className="s-profile-identity-name">
+                {name}
+                {qualifier && (
+                  <span className="s-profile-identity-name-qualifier">
+                    {qualifier}
                   </span>
                 )}
-              </span>
+                {agent.handle && (
+                  <span className="s-profile-identity-name-handle">
+                    @{agent.handle}
+                  </span>
+                )}
+              </h1>
+              <div className="s-profile-identity-state-row">
+                <span className="s-profile-identity-state">
+                  <span
+                    className={`s-profile-identity-state-dot${state === "working" ? " s-profile-identity-state-dot--pulse" : ""}`}
+                    style={{ background: stateColor(agent.state) }}
+                  />
+                  <span className="s-profile-identity-state-label">
+                    {agentStateLabel(agent.state)}
+                  </span>
+                  {agent.updatedAt && (
+                    <span className="s-profile-identity-state-detail">
+                      &mdash; {timeAgo(agent.updatedAt)}
+                    </span>
+                  )}
+                </span>
+              </div>
             </div>
+            {renderTabs()}
           </div>
-          <nav className="s-profile-tabs">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
-                disabled={t.disabled}
-                onClick={() => navigateToTab(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
+        </section>
+      ) : (
+        <div className="s-profile-compact-tabs">
+          {renderTabs("s-profile-tabs--compact")}
         </div>
-      </section>
+      )}
 
       {activeTab === "profile" && (
         <div className="s-profile-tab-content">
@@ -742,7 +752,12 @@ function AgentDetailWithRail({
               </div>
             </div>
           ) : (
-            <SessionObserve data={observe?.data} agentId={agent.id} sessionId={observe?.sessionId} />
+            <SessionObserve
+              data={observe?.data}
+              agentId={agent.id}
+              sessionId={observe?.sessionId}
+              showRail={false}
+            />
           )}
         </div>
       )}
