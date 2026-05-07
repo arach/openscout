@@ -27,7 +27,12 @@ import {
   type ConversationDefinition,
   type DeliveryIntent,
   type DeliveryReason,
+  type DeliveryStatus,
   type FlightRecord,
+  type InboxAckRequest,
+  type InboxClaimRequest,
+  type InboxItem,
+  type InboxNackRequest,
   type InvocationRequest,
   type MessageRecord,
   type NodeDefinition,
@@ -286,6 +291,7 @@ type LegacyRelayMessage = {
 // Per-invocation SSE subscribers. A single caller can watch one invocation
 // without draining the entire global event firehose.
 const invocationStreamClients = new Map<string, Set<ServerResponse>>();
+const inboxStreamClients = new Map<string, Set<ServerResponse>>();
 
 function invocationIdsForEvent(event: ControlEvent): string[] {
   switch (event.kind) {
@@ -314,6 +320,92 @@ function invocationIdsForEvent(event: ControlEvent): string[] {
   }
 }
 
+function inboxTargetsForEvent(event: ControlEvent): string[] {
+  switch (event.kind) {
+    case "delivery.planned":
+    case "delivery.state.changed":
+      return [event.payload.delivery.targetId];
+    default:
+      return [];
+  }
+}
+
+function inboxItemForDelivery(delivery: DeliveryIntent): InboxItem {
+  const message = delivery.messageId ? runtime.message(delivery.messageId) : undefined;
+  const invocation = delivery.invocationId ? knownInvocations.get(delivery.invocationId) : undefined;
+  return {
+    id: delivery.id,
+    kind: delivery.invocationId ? "invocation" : "message",
+    targetId: delivery.targetId,
+    targetNodeId: delivery.targetNodeId,
+    conversationId: message?.conversationId ?? invocation?.conversationId,
+    messageId: delivery.messageId,
+    invocationId: delivery.invocationId,
+    reason: delivery.reason,
+    status: delivery.status,
+    leaseOwner: delivery.leaseOwner,
+    leaseExpiresAt: delivery.leaseExpiresAt,
+    delivery,
+    message,
+    invocation,
+    metadata: delivery.metadata,
+  };
+}
+
+const DEFAULT_INBOX_STATUSES = new Set<DeliveryStatus>([
+  "pending",
+  "accepted",
+  "deferred",
+  "leased",
+]);
+
+async function listInboxItems(options: {
+  targetId: string;
+  statuses?: Set<DeliveryStatus>;
+  reasons?: Set<DeliveryReason>;
+  limit?: number;
+}): Promise<InboxItem[]> {
+  const statuses = options.statuses ?? DEFAULT_INBOX_STATUSES;
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
+  return (await projection.listDeliveries({ limit: 5000 }))
+    .filter((delivery) => delivery.targetId === options.targetId)
+    .filter((delivery) => statuses.has(delivery.status))
+    .filter((delivery) => !options.reasons || options.reasons.has(delivery.reason))
+    .slice(0, limit)
+    .map((delivery) => inboxItemForDelivery(delivery));
+}
+
+function parseInboxStatuses(url: URL): Set<DeliveryStatus> | undefined {
+  const values = url.searchParams.getAll("status")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? new Set(values as DeliveryStatus[]) : undefined;
+}
+
+function parseInboxReasons(url: URL): Set<DeliveryReason> | undefined {
+  const values = url.searchParams.getAll("reason")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? new Set(values as DeliveryReason[]) : undefined;
+}
+
+function writeInboxSse(response: ServerResponse, eventName: string, payload: unknown): void {
+  response.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+function publishInboxDeliveryEvent(delivery: DeliveryIntent, eventName: string): void {
+  const subscribers = inboxStreamClients.get(delivery.targetId);
+  if (!subscribers || subscribers.size === 0) {
+    return;
+  }
+  const item = inboxItemForDelivery(delivery);
+  for (const client of subscribers) {
+    writeInboxSse(client, eventName, item);
+  }
+}
+
 function streamEvent(event: ControlEvent): void {
   projection.enqueueEvent(event);
   const payload = `event: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
@@ -326,6 +418,10 @@ function streamEvent(event: ControlEvent): void {
     for (const client of subscribers) {
       client.write(payload);
     }
+  }
+  if (inboxTargetsForEvent(event).length > 0) {
+    const delivery = (event as Extract<ControlEvent, { kind: "delivery.planned" | "delivery.state.changed" }>).payload.delivery;
+    publishInboxDeliveryEvent(delivery, event.kind === "delivery.planned" ? "inbox.item" : "inbox.item.updated");
   }
 }
 
@@ -1149,6 +1245,8 @@ async function updateDeliveryStatusDurably(input: {
   leaseOwner?: string | null;
   leaseExpiresAt?: number | null;
 }): Promise<void> {
+  const previous = journal.listDeliveries({ limit: 5000 })
+    .find((delivery) => delivery.id === input.deliveryId);
   await runDurableWrite(async () => {
     await commitDurableEntries(
       {
@@ -1162,6 +1260,21 @@ async function updateDeliveryStatusDurably(input: {
       async () => {},
     );
   });
+  const updated = journal.listDeliveries({ limit: 5000 })
+    .find((delivery) => delivery.id === input.deliveryId);
+  if (updated) {
+    streamEvent({
+      id: createRuntimeId("evt"),
+      kind: "delivery.state.changed",
+      ts: Date.now(),
+      actorId: "system",
+      nodeId,
+      payload: {
+        delivery: updated,
+        previousStatus: previous?.status,
+      },
+    });
+  }
 }
 
 function isDeliveryClaimable(delivery: DeliveryIntent, now: number): boolean {
@@ -1174,19 +1287,22 @@ function isDeliveryClaimable(delivery: DeliveryIntent, now: number): boolean {
 }
 
 async function claimDeliveryDurably(input: {
-  messageId: string;
+  itemId?: string;
+  messageId?: string;
   targetId: string;
   reasons?: DeliveryReason[];
   leaseOwner?: string;
   leaseMs?: number;
 }): Promise<DeliveryIntent | null> {
-  return runDurableWrite(async () => {
+  let previousStatus: DeliveryStatus | undefined;
+  const claimed = await runDurableWrite(async () => {
     const now = Date.now();
     const reasons = input.reasons?.length ? new Set(input.reasons) : null;
     const delivery = journal
       .listDeliveries({ limit: 5000 })
       .find((candidate) => (
-        candidate.messageId === input.messageId
+        (!input.itemId || candidate.id === input.itemId)
+        && (!input.messageId || candidate.messageId === input.messageId)
         && candidate.targetId === input.targetId
         && (!reasons || reasons.has(candidate.reason))
         && isDeliveryClaimable(candidate, now)
@@ -1195,6 +1311,7 @@ async function claimDeliveryDurably(input: {
     if (!delivery) {
       return null;
     }
+    previousStatus = delivery.status;
 
     const leaseOwner = input.leaseOwner?.trim() || `delivery-claim-${nodeId}`;
     const leaseMs = Number.isFinite(input.leaseMs) && input.leaseMs! > 0 ? input.leaseMs! : 30_000;
@@ -1218,7 +1335,7 @@ async function claimDeliveryDurably(input: {
 
     return {
       ...delivery,
-      status: "leased",
+      status: "leased" as const,
       leaseOwner,
       leaseExpiresAt,
       metadata: {
@@ -1227,6 +1344,20 @@ async function claimDeliveryDurably(input: {
       },
     };
   });
+  if (claimed) {
+    streamEvent({
+      id: createRuntimeId("evt"),
+      kind: "delivery.state.changed",
+      ts: Date.now(),
+      actorId: "system",
+      nodeId,
+      payload: {
+        delivery: claimed,
+        previousStatus,
+      },
+    });
+  }
+  return claimed;
 }
 
 function buildMeshBundleEntries(bundle: {
@@ -4166,6 +4297,135 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       limit: parseLimit(url),
       recordId: url.searchParams.get("recordId") ?? undefined,
     }));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/inbox") {
+    const targetId = url.searchParams.get("targetId")?.trim();
+    if (!targetId) {
+      badRequest(response, new Error("targetId is required"));
+      return;
+    }
+    json(response, 200, await listInboxItems({
+      targetId,
+      statuses: parseInboxStatuses(url),
+      reasons: parseInboxReasons(url),
+      limit: parseLimit(url),
+    }));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/inbox/stream") {
+    const targetId = url.searchParams.get("targetId")?.trim();
+    if (!targetId) {
+      badRequest(response, new Error("targetId is required"));
+      return;
+    }
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    });
+    writeInboxSse(response, "snapshot", {
+      targetId,
+      items: await listInboxItems({
+        targetId,
+        statuses: parseInboxStatuses(url),
+        reasons: parseInboxReasons(url),
+        limit: parseLimit(url),
+      }),
+    });
+    const subscribers = inboxStreamClients.get(targetId) ?? new Set<ServerResponse>();
+    subscribers.add(response);
+    inboxStreamClients.set(targetId, subscribers);
+    request.on("close", () => {
+      const set = inboxStreamClients.get(targetId);
+      if (set) {
+        set.delete(response);
+        if (set.size === 0) inboxStreamClients.delete(targetId);
+      }
+      response.end();
+    });
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/inbox/claim") {
+    try {
+      const body = await readRequestBody<InboxClaimRequest>(request);
+      const targetId = body.targetId?.trim();
+      if (!targetId) {
+        throw new Error("targetId is required");
+      }
+      const claimedDelivery = await claimDeliveryDurably({
+        itemId: body.itemId,
+        messageId: body.messageId,
+        targetId,
+        reasons: body.reasons,
+        leaseOwner: body.leaseOwner,
+        leaseMs: body.leaseMs,
+      });
+      json(response, 200, {
+        ok: true,
+        claimed: claimedDelivery ? inboxItemForDelivery(claimedDelivery) : null,
+      });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/inbox/ack") {
+    try {
+      const body = await readRequestBody<InboxAckRequest>(request);
+      const itemId = body.itemId?.trim();
+      if (!itemId) {
+        throw new Error("itemId is required");
+      }
+      await updateDeliveryStatusDurably({
+        deliveryId: itemId,
+        status: "acknowledged",
+        metadata: {
+          ...(body.metadata ?? {}),
+          acknowledgedAt: Date.now(),
+          ...(body.leaseOwner ? { acknowledgedBy: body.leaseOwner } : {}),
+        },
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      });
+      json(response, 200, { ok: true, itemId, status: "acknowledged" });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/inbox/nack") {
+    try {
+      const body = await readRequestBody<InboxNackRequest>(request);
+      const itemId = body.itemId?.trim();
+      if (!itemId) {
+        throw new Error("itemId is required");
+      }
+      const retryAfterMs = typeof body.retryAfterMs === "number" && Number.isFinite(body.retryAfterMs) && body.retryAfterMs > 0
+        ? Math.floor(body.retryAfterMs)
+        : 0;
+      await updateDeliveryStatusDurably({
+        deliveryId: itemId,
+        status: retryAfterMs > 0 ? "deferred" : "pending",
+        metadata: {
+          ...(body.metadata ?? {}),
+          nackedAt: Date.now(),
+          ...(body.leaseOwner ? { nackedBy: body.leaseOwner } : {}),
+          ...(body.reason ? { nackReason: body.reason } : {}),
+          ...(retryAfterMs > 0 ? { nextAttemptAt: Date.now() + retryAfterMs } : {}),
+        },
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      });
+      json(response, 200, { ok: true, itemId, status: retryAfterMs > 0 ? "deferred" : "pending" });
+    } catch (error) {
+      badRequest(response, error);
+    }
     return;
   }
 

@@ -103,6 +103,7 @@ describe("createScoutMcpServer", () => {
       "messages_reply",
       "session_attach_current",
       "card_create",
+      "agents_start",
       "agents_search",
       "agents_resolve",
       "messages_send",
@@ -578,6 +579,67 @@ describe("createScoutMcpServer", () => {
       "dm.scout-codex-reply.main.mini.scout.main.mini",
     );
     expect(receivedModel).toBe("gpt-5.4-mini");
+  });
+
+  test("starts a concrete local agent session for precise routing", async () => {
+    let receivedStart:
+      | {
+          projectPath: string;
+          agentName?: string;
+          harness?: string;
+          model?: string;
+          currentDirectory: string;
+        }
+      | undefined;
+    const { client } = await connectTestServer({
+      startAgent: async (input) => {
+        receivedStart = input;
+        return {
+          agentId: "openscout.main.claude",
+          definitionId: input.agentName ?? "openscout",
+          projectName: "openscout",
+          projectRoot: input.projectPath,
+          sessionId: "session-1",
+          startedAt: 123,
+          harness: input.harness ?? "claude",
+          transport: "claude_stream_json",
+          isOnline: true,
+          source: "manual",
+        };
+      },
+    });
+
+    const result = await client.callTool({
+      name: "agents_start",
+      arguments: {
+        targetLabel: "@openscout#claude?sonnet",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      requestedLabel: string | null;
+      agentName: string | null;
+      harness: string | null;
+      model: string | null;
+      exactTargetAgentId: string;
+      nextTargetLabel: string;
+      agent: { agentId: string; isOnline: boolean };
+    };
+
+    expect(receivedStart).toEqual({
+      projectPath: "/tmp/openscout-test",
+      agentName: "openscout",
+      harness: "claude",
+      model: "sonnet",
+      currentDirectory: "/tmp/openscout-test",
+    });
+    expect(structured.requestedLabel).toBe("@openscout#claude?sonnet");
+    expect(structured.agentName).toBe("openscout");
+    expect(structured.harness).toBe("claude");
+    expect(structured.model).toBe("sonnet");
+    expect(structured.exactTargetAgentId).toBe("openscout.main.claude");
+    expect(structured.nextTargetLabel).toBe("@openscout#claude?sonnet");
+    expect(structured.agent.isOnline).toBe(true);
   });
 
   test("awaits explicit ask-by-id flights when requested", async () => {
@@ -1121,6 +1183,172 @@ describe("createScoutMcpServer", () => {
       type: "text",
       text: "Ask sent to hudson.main; flight flight-1. Follow: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
     });
+  });
+
+  test("suggests agents_start when a precise ask target is unresolved", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async ({ targetLabel }) => ({
+        usedBroker: true,
+        unresolvedTarget: targetLabel,
+      }),
+      askAgentById: async () => {
+        throw new Error("unexpected askAgentById path");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "invocations_ask",
+      arguments: {
+        body: "Have a new OpenScout Claude session review this.",
+        targetLabel: "@openscout#claude?sonnet",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      unresolvedTargetLabel: string | null;
+      startSuggestion: {
+        tool: string;
+        targetLabel: string | null;
+        agentName: string | null;
+        harness: string | null;
+        model: string | null;
+        projectPath: string;
+      } | null;
+    };
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+
+    expect(structured.unresolvedTargetLabel).toBe("@openscout#claude?sonnet");
+    expect(structured.startSuggestion).toMatchObject({
+      tool: "agents_start",
+      targetLabel: "@openscout#claude?sonnet",
+      agentName: "openscout",
+      harness: "claude",
+      model: "sonnet",
+      projectPath: "/tmp/openscout-test",
+    });
+    expect(content?.[0]?.text).toContain(
+      "Ask was not sent; unresolved target: @openscout#claude?sonnet.",
+    );
+    expect(content?.[0]?.text).toContain(
+      "call agents_start with agentName=\"openscout\", harness=\"claude\", model=\"sonnet\"",
+    );
+  });
+
+  test("blocks precise ask labels that resolve to a mismatched harness", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "resolved",
+        candidate: {
+          agentId: "openscout.main.codex",
+          label: "@openscout.main",
+          defaultLabel: "@openscout",
+          displayName: "OpenScout",
+          handle: "openscout",
+          selector: "@openscout.main",
+          defaultSelector: "@openscout",
+          state: "idle",
+          registrationKind: "configured",
+          routable: true,
+          harness: "codex",
+          model: "gpt-5.4",
+          workspace: "main",
+          node: "mini",
+          projectRoot: "/tmp/openscout-test",
+          transport: "codex_app_server",
+        },
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => {
+        throw new Error("precise target mismatch should not route");
+      },
+      askAgentById: async () => {
+        throw new Error("unexpected askAgentById path");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "invocations_ask",
+      arguments: {
+        body: "Have a new OpenScout Claude session review this.",
+        targetLabel: "@openscout#claude?sonnet",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      targetAgentId: string | null;
+      unresolvedTargetLabel: string | null;
+      targetDiagnostic: {
+        kind?: string;
+        resolvedCandidate?: { agentId: string; harness: string | null };
+      } | null;
+      startSuggestion: {
+        agentName: string | null;
+        harness: string | null;
+        model: string | null;
+      } | null;
+    };
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+
+    expect(structured.targetAgentId).toBeNull();
+    expect(structured.unresolvedTargetLabel).toBe("@openscout#claude?sonnet");
+    expect(structured.targetDiagnostic).toMatchObject({
+      kind: "target_constraint_mismatch",
+      resolvedCandidate: {
+        agentId: "openscout.main.codex",
+        harness: "codex",
+      },
+    });
+    expect(structured.startSuggestion).toMatchObject({
+      agentName: "openscout",
+      harness: "claude",
+      model: "sonnet",
+    });
+    expect(content?.[0]?.text).toContain(
+      "target constraints did not match any resolved agent",
+    );
   });
 
   test("sends to a target label in one MCP call", async () => {

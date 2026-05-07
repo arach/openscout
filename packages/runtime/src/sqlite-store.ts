@@ -21,6 +21,12 @@ import type {
   ConversationDefinition,
   DeliveryAttempt,
   DeliveryIntent,
+  DurableAction,
+  DurableActionCreateInput,
+  DurableActionClaimInput,
+  DurableAttempt,
+  DurableCheckpoint,
+  DurableSignal,
   FlightRecord,
   InvocationRequest,
   MessageAttachment,
@@ -58,6 +64,16 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 
 function stringify(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
+}
+
+function isSqliteConstraintError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : "";
+  return code.includes("SQLITE_CONSTRAINT")
+    || message.includes("SQLITE_CONSTRAINT")
+    || message.includes("constraint failed");
 }
 
 function metadataValue(
@@ -302,6 +318,98 @@ interface FlightRow {
   metadata_json: string | null;
   started_at: number | null;
   completed_at: number | null;
+}
+
+interface DurableActionRow {
+  id: string;
+  kind: DurableAction["kind"];
+  subject_id: string;
+  authority_cell_id: string;
+  state: DurableAction["state"];
+  idempotency_key: string | null;
+  lease_owner: string | null;
+  lease_generation: number;
+  lease_expires_at: number | null;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface DurableAttemptRow {
+  id: string;
+  action_id: string;
+  attempt: number;
+  state: DurableAttempt["state"];
+  lease_generation: number;
+  error: string | null;
+  started_at: number | null;
+  completed_at: number | null;
+  metadata_json: string | null;
+}
+
+interface DurableCheckpointRow {
+  action_id: string;
+  name: string;
+  payload_json: string | null;
+  owner_attempt_id: string | null;
+  created_at: number;
+}
+
+interface DurableSignalRow {
+  action_id: string;
+  name: string;
+  payload_json: string | null;
+  emitted_at: number;
+}
+
+function durableActionFromRow(row: DurableActionRow): DurableAction {
+  return {
+    id: row.id,
+    kind: row.kind,
+    subjectId: row.subject_id,
+    authorityCellId: row.authority_cell_id,
+    state: row.state,
+    idempotencyKey: row.idempotency_key ?? undefined,
+    leaseOwner: row.lease_owner ?? undefined,
+    leaseGeneration: row.lease_generation,
+    leaseExpiresAt: row.lease_expires_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
+}
+
+function durableAttemptFromRow(row: DurableAttemptRow): DurableAttempt {
+  return {
+    id: row.id,
+    actionId: row.action_id,
+    attempt: row.attempt,
+    state: row.state,
+    leaseGeneration: row.lease_generation,
+    error: row.error ?? undefined,
+    startedAt: row.started_at ?? undefined,
+    completedAt: row.completed_at ?? undefined,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
+}
+
+function durableCheckpointFromRow(row: DurableCheckpointRow): DurableCheckpoint {
+  return {
+    actionId: row.action_id,
+    name: row.name,
+    payload: parseJson<unknown>(row.payload_json, undefined),
+    ownerAttemptId: row.owner_attempt_id ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+function durableSignalFromRow(row: DurableSignalRow): DurableSignal {
+  return {
+    actionId: row.action_id,
+    name: row.name,
+    payload: parseJson<unknown>(row.payload_json, undefined),
+    emittedAt: row.emitted_at,
+  };
 }
 
 interface CollaborationRecordRow {
@@ -1601,6 +1709,266 @@ export class SQLiteControlPlaneStore {
         },
       })
       .run();
+  }
+
+  createOrGetDurableAction(input: DurableActionCreateInput): {
+    action: DurableAction;
+    duplicate: boolean;
+  } {
+    const existing = input.idempotencyKey
+      ? queryGet<DurableActionRow, [string, string, string]>(
+          this.db,
+          `SELECT * FROM durable_actions
+           WHERE authority_cell_id = ?1 AND kind = ?2 AND idempotency_key = ?3`,
+          input.authorityCellId,
+          input.kind,
+          input.idempotencyKey,
+        )
+      : queryGet<DurableActionRow, [string]>(
+          this.db,
+          "SELECT * FROM durable_actions WHERE id = ?1",
+          input.id,
+        );
+    if (existing) {
+      return { action: durableActionFromRow(existing), duplicate: true };
+    }
+
+    const action: DurableAction = {
+      id: input.id,
+      kind: input.kind,
+      subjectId: input.subjectId,
+      authorityCellId: input.authorityCellId,
+      state: "pending",
+      idempotencyKey: input.idempotencyKey,
+      leaseGeneration: 0,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+      metadata: input.metadata,
+    };
+    this.recordDurableAction(action);
+    return { action, duplicate: false };
+  }
+
+  recordDurableAction(action: DurableAction): void {
+    this.db.query(
+      `INSERT OR REPLACE INTO durable_actions (
+        id, kind, subject_id, authority_cell_id, state, idempotency_key, lease_owner,
+        lease_generation, lease_expires_at, metadata_json, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+    ).run(
+      action.id,
+      action.kind,
+      action.subjectId,
+      action.authorityCellId,
+      action.state,
+      action.idempotencyKey ?? null,
+      action.leaseOwner ?? null,
+      action.leaseGeneration,
+      action.leaseExpiresAt ?? null,
+      stringify(action.metadata),
+      action.createdAt,
+      action.updatedAt,
+    );
+  }
+
+  getDurableAction(actionId: string): DurableAction | null {
+    const row = queryGet<DurableActionRow, [string]>(
+      this.readDb,
+      "SELECT * FROM durable_actions WHERE id = ?1",
+      actionId,
+    );
+    return row ? durableActionFromRow(row) : null;
+  }
+
+  claimDurableAction(input: DurableActionClaimInput): DurableAction | null {
+    const current = queryGet<DurableActionRow, [string]>(
+      this.db,
+      "SELECT * FROM durable_actions WHERE id = ?1",
+      input.actionId,
+    );
+    if (!current) {
+      return null;
+    }
+    const now = input.claimedAt;
+    const terminal = current.state === "completed"
+      || current.state === "failed"
+      || current.state === "cancelled";
+    const leaseExpired = current.lease_expires_at !== null && current.lease_expires_at <= now;
+    const claimable = current.state === "pending"
+      || current.state === "waiting"
+      || (!terminal && leaseExpired);
+    if (!claimable) {
+      return durableActionFromRow(current);
+    }
+
+    const nextGeneration = current.lease_generation + 1;
+    const leaseExpiresAt = now + input.leaseMs;
+    this.db.query(
+      `UPDATE durable_actions
+       SET state = 'leased',
+           lease_owner = ?2,
+           lease_generation = ?3,
+           lease_expires_at = ?4,
+           updated_at = ?5
+       WHERE id = ?1`,
+    ).run(input.actionId, input.owner, nextGeneration, leaseExpiresAt, now);
+
+    return this.getDurableAction(input.actionId);
+  }
+
+  transitionDurableAction(input: {
+    actionId: string;
+    owner: string;
+    generation: number;
+    nextState: DurableAction["state"];
+    transitionedAt: number;
+    metadata?: Record<string, unknown>;
+  }): DurableAction | null {
+    const current = queryGet<DurableActionRow, [string]>(
+      this.db,
+      "SELECT * FROM durable_actions WHERE id = ?1",
+      input.actionId,
+    );
+    if (!current || current.lease_owner !== input.owner || current.lease_generation !== input.generation) {
+      return null;
+    }
+    const metadata = input.metadata
+      ? {
+          ...parseJson<Record<string, unknown>>(current.metadata_json, {}),
+          ...input.metadata,
+        }
+      : parseJson<Record<string, unknown> | undefined>(current.metadata_json, undefined);
+    this.db.query(
+      `UPDATE durable_actions
+       SET state = ?2,
+           metadata_json = ?3,
+           updated_at = ?4
+       WHERE id = ?1`,
+    ).run(input.actionId, input.nextState, stringify(metadata), input.transitionedAt);
+    return this.getDurableAction(input.actionId);
+  }
+
+  startDurableAttempt(input: {
+    id: string;
+    actionId: string;
+    owner: string;
+    generation: number;
+    startedAt: number;
+    metadata?: Record<string, unknown>;
+  }): DurableAttempt | null {
+    const action = queryGet<DurableActionRow, [string]>(
+      this.db,
+      "SELECT * FROM durable_actions WHERE id = ?1",
+      input.actionId,
+    );
+    if (!action || action.lease_owner !== input.owner || action.lease_generation !== input.generation) {
+      return null;
+    }
+    const attemptNumber = (queryGet<{ next_attempt: number | null }, [string]>(
+      this.db,
+      "SELECT MAX(attempt) + 1 AS next_attempt FROM durable_attempts WHERE action_id = ?1",
+      input.actionId,
+    )?.next_attempt ?? 1);
+    const attempt: DurableAttempt = {
+      id: input.id,
+      actionId: input.actionId,
+      attempt: attemptNumber,
+      state: "running",
+      leaseGeneration: input.generation,
+      startedAt: input.startedAt,
+      metadata: input.metadata,
+    };
+    try {
+      this.recordDurableAttempt(attempt);
+    } catch (error) {
+      if (isSqliteConstraintError(error)) {
+        return null;
+      }
+      throw error;
+    }
+    return attempt;
+  }
+
+  recordDurableAttempt(attempt: DurableAttempt): void {
+    this.db.query(
+      `INSERT INTO durable_attempts (
+        id, action_id, attempt, state, lease_generation, error, started_at,
+        completed_at, metadata_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+      ON CONFLICT(id) DO UPDATE SET
+        action_id = excluded.action_id,
+        attempt = excluded.attempt,
+        state = excluded.state,
+        lease_generation = excluded.lease_generation,
+        error = excluded.error,
+        started_at = excluded.started_at,
+        completed_at = excluded.completed_at,
+        metadata_json = excluded.metadata_json`,
+    ).run(
+      attempt.id,
+      attempt.actionId,
+      attempt.attempt,
+      attempt.state,
+      attempt.leaseGeneration,
+      attempt.error ?? null,
+      attempt.startedAt ?? null,
+      attempt.completedAt ?? null,
+      stringify(attempt.metadata),
+    );
+  }
+
+  listDurableAttempts(actionId: string): DurableAttempt[] {
+    return queryAll<DurableAttemptRow, [string]>(
+      this.readDb,
+      "SELECT * FROM durable_attempts WHERE action_id = ?1 ORDER BY attempt ASC",
+      actionId,
+    ).map(durableAttemptFromRow);
+  }
+
+  commitDurableCheckpoint(checkpoint: DurableCheckpoint): {
+    checkpoint: DurableCheckpoint;
+    duplicate: boolean;
+  } {
+    const existing = queryGet<DurableCheckpointRow, [string, string]>(
+      this.db,
+      "SELECT * FROM durable_checkpoints WHERE action_id = ?1 AND name = ?2",
+      checkpoint.actionId,
+      checkpoint.name,
+    );
+    if (existing) {
+      return { checkpoint: durableCheckpointFromRow(existing), duplicate: true };
+    }
+    this.db.query(
+      `INSERT INTO durable_checkpoints (
+        action_id, name, payload_json, owner_attempt_id, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5)`,
+    ).run(
+      checkpoint.actionId,
+      checkpoint.name,
+      stringify(checkpoint.payload),
+      checkpoint.ownerAttemptId ?? null,
+      checkpoint.createdAt,
+    );
+    return { checkpoint, duplicate: false };
+  }
+
+  emitDurableSignal(signal: DurableSignal): {
+    signal: DurableSignal;
+    duplicate: boolean;
+  } {
+    const existing = queryGet<DurableSignalRow, [string, string]>(
+      this.db,
+      "SELECT * FROM durable_signals WHERE action_id = ?1 AND name = ?2",
+      signal.actionId,
+      signal.name,
+    );
+    if (existing) {
+      return { signal: durableSignalFromRow(existing), duplicate: true };
+    }
+    this.db.query(
+      "INSERT INTO durable_signals (action_id, name, payload_json, emitted_at) VALUES (?1, ?2, ?3, ?4)",
+    ).run(signal.actionId, signal.name, stringify(signal.payload), signal.emittedAt);
+    return { signal, duplicate: false };
   }
 
   private recordActivityItem(item: ActivityItem): void {

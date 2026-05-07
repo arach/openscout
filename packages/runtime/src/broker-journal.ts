@@ -11,6 +11,10 @@ import type {
   ConversationDefinition,
   DeliveryAttempt,
   DeliveryIntent,
+  DurableAction,
+  DurableAttempt,
+  DurableCheckpoint,
+  DurableSignal,
   FlightRecord,
   InvocationRequest,
   MessageRecord,
@@ -37,6 +41,10 @@ export type BrokerJournalEntry =
   | { kind: "collaboration.event.record"; event: CollaborationEvent }
   | { kind: "deliveries.record"; deliveries: DeliveryIntent[] }
   | { kind: "delivery.attempt.record"; attempt: DeliveryAttempt }
+  | { kind: "durable.action.record"; action: DurableAction }
+  | { kind: "durable.attempt.record"; attempt: DurableAttempt }
+  | { kind: "durable.checkpoint.record"; checkpoint: DurableCheckpoint }
+  | { kind: "durable.signal.record"; signal: DurableSignal }
   | {
       kind: "delivery.status.update";
       deliveryId: string;
@@ -463,6 +471,14 @@ export class FileBackedBrokerJournal {
         });
         return;
       }
+      case "durable.action.record":
+      case "durable.attempt.record":
+      case "durable.checkpoint.record":
+      case "durable.signal.record":
+        // Durable action facts are intentionally not projected into the
+        // in-memory RuntimeRegistrySnapshot. They are journal-durable and
+        // replay into SQLite through RecoverableSQLiteProjection.
+        return;
       case "scout.dispatch.record":
         this.state.scoutDispatches.push(entry.dispatch);
         return;

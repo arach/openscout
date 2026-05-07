@@ -529,6 +529,60 @@ describe("broker daemon comms layer", () => {
     expect(events.some((event) => event.kind === "delivery.planned")).toBe(true);
   }, 15_000);
 
+  test("projects target deliveries as claimable inbox items", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    await postJson(harness.baseUrl, "/v1/messages", {
+      id: "msg-inbox-1",
+      conversationId: "channel.shared",
+      actorId: "operator",
+      originNodeId: harness.nodeId,
+      class: "agent",
+      body: "@fabric inbox this",
+      mentions: [{ actorId: "fabric", label: "@fabric" }],
+      audience: { notify: ["fabric"] },
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: Date.now(),
+    });
+
+    const inbox = await getJson<Array<{
+      id: string;
+      targetId: string;
+      status: string;
+      message?: { id: string; body: string };
+    }>>(harness.baseUrl, "/v1/inbox?targetId=fabric&limit=20");
+    const item = inbox.find((candidate) => candidate.message?.id === "msg-inbox-1");
+    expect(item).toBeDefined();
+    expect(item?.targetId).toBe("fabric");
+    expect(item?.status).toBe("pending");
+
+    const claimed = await postJson<{
+      ok: boolean;
+      claimed: { id: string; status: string; leaseOwner?: string; message?: { id: string } } | null;
+    }>(harness.baseUrl, "/v1/inbox/claim", {
+      targetId: "fabric",
+      itemId: item!.id,
+      leaseOwner: "test-agent",
+      leaseMs: 30_000,
+    });
+    expect(claimed.ok).toBe(true);
+    expect(claimed.claimed?.status).toBe("leased");
+    expect(claimed.claimed?.message?.id).toBe("msg-inbox-1");
+
+    await postJson(harness.baseUrl, "/v1/inbox/ack", {
+      itemId: claimed.claimed!.id,
+      leaseOwner: "test-agent",
+    });
+
+    const acknowledged = await getJson<Array<{ id: string; status: string }>>(
+      harness.baseUrl,
+      `/v1/inbox?targetId=fabric&status=acknowledged&limit=20`,
+    );
+    expect(acknowledged.some((candidate) => candidate.id === item!.id && candidate.status === "acknowledged")).toBe(true);
+  }, 15_000);
+
   test("replays thread events and snapshots for shared conversations", async () => {
     const harness = await startBroker();
     await seedBasicConversation(harness);

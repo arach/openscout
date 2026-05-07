@@ -17,15 +17,12 @@ import {
   askScoutAgentById,
   type ScoutBrokerContext,
 } from "../broker/service.ts";
-import { scoutBrokerPaths } from "../broker/paths.ts";
 import { SCOUT_APP_VERSION } from "../../shared/product.ts";
-import type { AgentEndpoint, DeliveryIntent, DeliveryReason, MessageRecord } from "@openscout/protocol";
+import type { AgentEndpoint, InboxItem, MessageRecord } from "@openscout/protocol";
 
-type ControlEvent = {
-  kind: string;
-  payload?: {
-    message?: MessageRecord;
-  };
+type InboxStreamEvent = {
+  item?: InboxItem;
+  items?: InboxItem[];
 };
 
 async function resolveAgentId(
@@ -44,8 +41,10 @@ function startBrokerSubscription(
   const connect = async () => {
     while (!signal.aborted) {
       try {
+        const streamUrl = new URL("/v1/inbox/stream", broker.baseUrl);
+        streamUrl.searchParams.set("targetId", agentId);
         const response = await fetch(
-          new URL(scoutBrokerPaths.v1.eventsStream, broker.baseUrl),
+          streamUrl,
           { headers: { accept: "text/event-stream" }, signal },
         );
         if (!response.ok || !response.body) {
@@ -77,48 +76,46 @@ function startBrokerSubscription(
                 dataLines.push(line.slice("data:".length).trim());
             }
 
-            if (eventName !== "message.posted" || dataLines.length === 0)
+            if (!["snapshot", "inbox.item", "inbox.item.updated"].includes(eventName) || dataLines.length === 0)
               continue;
 
-            let event: ControlEvent;
+            let event: InboxStreamEvent | InboxItem;
             try {
-              event = JSON.parse(dataLines.join("\n")) as ControlEvent;
+              event = JSON.parse(dataLines.join("\n")) as InboxStreamEvent | InboxItem;
             } catch {
               continue;
             }
 
-            const message = event.payload?.message;
-            if (!message) continue;
+            const items = eventName === "snapshot"
+              ? ((event as InboxStreamEvent).items ?? [])
+              : [("item" in (event as InboxStreamEvent) ? (event as InboxStreamEvent).item : event as InboxItem)]
+                .filter((item): item is InboxItem => Boolean(item));
 
-            if (message.actorId === agentId) continue;
-
-            const mentionsMe = message.mentions?.some(
-              (m) => m.actorId === agentId,
-            );
-            const audienceIncludesMe =
-              message.audience?.notify?.includes(agentId);
-
-            if (mentionsMe || audienceIncludesMe) {
-              const claim = await claimMessageDelivery(broker, {
-                messageId: message.id,
-                targetId: agentId,
-                reasons: [
-                  "conversation_visibility",
-                  "mention",
-                  "direct_message",
-                ],
-              });
-              if (!claim && audienceIncludesMe) {
+            for (const item of items) {
+              if (item.status !== "pending" && item.status !== "accepted" && item.status !== "deferred") {
                 continue;
               }
-
-              const delivered = await onMessage(message);
-              if (claim) {
-                await updateDeliveryStatus(broker, {
-                  deliveryId: claim.id,
-                  status: delivered ? "acknowledged" : "pending",
-                  leaseOwner: null,
-                  leaseExpiresAt: null,
+              if (!item.message || item.message.actorId === agentId) {
+                continue;
+              }
+              const claim = await claimInboxItem(broker, {
+                itemId: item.id,
+                targetId: agentId,
+              });
+              if (!claim?.message) {
+                continue;
+              }
+              const delivered = await onMessage(claim.message);
+              if (delivered) {
+                await ackInboxItem(broker, {
+                  itemId: claim.id,
+                  leaseOwner: `scout-channel:${agentId}`,
+                });
+              } else {
+                await nackInboxItem(broker, {
+                  itemId: claim.id,
+                  leaseOwner: `scout-channel:${agentId}`,
+                  reason: "channel notification was not accepted by host",
                 });
               }
             }
@@ -158,21 +155,19 @@ async function postBrokerJson<T>(
   }
 }
 
-async function claimMessageDelivery(
+async function claimInboxItem(
   broker: ScoutBrokerContext,
   input: {
-    messageId: string;
+    itemId: string;
     targetId: string;
-    reasons: DeliveryReason[];
   },
-): Promise<DeliveryIntent | null> {
-  const result = await postBrokerJson<{ claimed?: DeliveryIntent | null }>(
+): Promise<InboxItem | null> {
+  const result = await postBrokerJson<{ claimed?: InboxItem | null }>(
     broker,
-    "/v1/deliveries/claim",
+    "/v1/inbox/claim",
     {
-      messageId: input.messageId,
+      itemId: input.itemId,
       targetId: input.targetId,
-      reasons: input.reasons,
       leaseOwner: `scout-channel:${input.targetId}`,
       leaseMs: 30_000,
     },
@@ -180,20 +175,18 @@ async function claimMessageDelivery(
   return result?.claimed ?? null;
 }
 
-async function updateDeliveryStatus(
+async function ackInboxItem(
   broker: ScoutBrokerContext,
-  input: {
-    deliveryId: string;
-    status: DeliveryIntent["status"];
-    leaseOwner: string | null;
-    leaseExpiresAt: number | null;
-  },
+  input: { itemId: string; leaseOwner: string },
 ): Promise<void> {
-  await postBrokerJson(
-    broker,
-    "/v1/deliveries/status",
-    input,
-  );
+  await postBrokerJson(broker, "/v1/inbox/ack", input);
+}
+
+async function nackInboxItem(
+  broker: ScoutBrokerContext,
+  input: { itemId: string; leaseOwner: string; reason?: string },
+): Promise<void> {
+  await postBrokerJson(broker, "/v1/inbox/nack", input);
 }
 
 function scoutChannelEndpointId(agentId: string): string {

@@ -2,6 +2,7 @@ import type {
   ActorIdentity,
   ConversationDefinition,
   ControlEvent,
+  DeliveryIntent,
   NodeDefinition,
   ThreadEventEnvelope,
   ThreadSnapshot,
@@ -43,6 +44,10 @@ const REPLAY_TIER: Record<string, number> = {
   "deliveries.record": 5,
   "delivery.attempt.record": 6,
   "delivery.status.update": 6,
+  "durable.action.record": 6,
+  "durable.attempt.record": 7,
+  "durable.checkpoint.record": 8,
+  "durable.signal.record": 8,
   "scout.dispatch.record": 5,
 };
 
@@ -217,6 +222,18 @@ function applyJournalEntryToStore(
         leaseExpiresAt: entry.leaseExpiresAt,
       });
       return [];
+    case "durable.action.record":
+      store.recordDurableAction(entry.action);
+      return [];
+    case "durable.attempt.record":
+      store.recordDurableAttempt(entry.attempt);
+      return [];
+    case "durable.checkpoint.record":
+      store.commitDurableCheckpoint(entry.checkpoint);
+      return [];
+    case "durable.signal.record":
+      store.emitDurableSignal(entry.signal);
+      return [];
     case "scout.dispatch.record":
       store.recordScoutDispatch(entry.dispatch);
       return [];
@@ -389,6 +406,32 @@ export class RecoverableSQLiteProjection {
       }
       this.invalidateStore(error);
       return [];
+    }
+  }
+
+  async listDeliveries(options: {
+    transport?: DeliveryIntent["transport"];
+    status?: DeliveryIntent["status"];
+    limit?: number;
+  } = {}): Promise<DeliveryIntent[]> {
+    if (this.options.disabled || this.closed) {
+      return this.journal.listDeliveries(options);
+    }
+
+    await this.flush();
+    const store = await this.ensureStore();
+    if (!store) {
+      return this.journal.listDeliveries(options);
+    }
+
+    try {
+      return store.listDeliveries(options);
+    } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return this.journal.listDeliveries(options);
+      }
+      this.invalidateStore(error);
+      return this.journal.listDeliveries(options);
     }
   }
 

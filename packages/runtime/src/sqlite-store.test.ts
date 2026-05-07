@@ -487,4 +487,150 @@ describe("SQLiteControlPlaneStore", () => {
       store.close();
     }
   });
+
+  test("enforces durable action idempotency, leases, attempts, and first-write-wins facts", () => {
+    const store = createStore();
+
+    try {
+      const created = store.createOrGetDurableAction({
+        id: "action-1",
+        kind: "message_delivery",
+        subjectId: "delivery-1",
+        authorityCellId: "node-1",
+        idempotencyKey: "delivery-1:create",
+        createdAt: 100,
+        metadata: { source: "test" },
+      });
+      expect(created.duplicate).toBe(false);
+      expect(created.action.state).toBe("pending");
+
+      const duplicate = store.createOrGetDurableAction({
+        id: "action-duplicate",
+        kind: "message_delivery",
+        subjectId: "delivery-other",
+        authorityCellId: "node-1",
+        idempotencyKey: "delivery-1:create",
+        createdAt: 101,
+      });
+      expect(duplicate.duplicate).toBe(true);
+      expect(duplicate.action.id).toBe("action-1");
+
+      const claimed = store.claimDurableAction({
+        actionId: "action-1",
+        owner: "worker-a",
+        leaseMs: 30_000,
+        claimedAt: 200,
+      });
+      expect(claimed?.state).toBe("leased");
+      expect(claimed?.leaseOwner).toBe("worker-a");
+      expect(claimed?.leaseGeneration).toBe(1);
+
+      const blockedClaim = store.claimDurableAction({
+        actionId: "action-1",
+        owner: "worker-b",
+        leaseMs: 30_000,
+        claimedAt: 250,
+      });
+      expect(blockedClaim?.leaseOwner).toBe("worker-a");
+      expect(blockedClaim?.leaseGeneration).toBe(1);
+
+      const attempt = store.startDurableAttempt({
+        id: "attempt-1",
+        actionId: "action-1",
+        owner: "worker-a",
+        generation: 1,
+        startedAt: 300,
+      });
+      expect(attempt?.attempt).toBe(1);
+
+      const running = store.transitionDurableAction({
+        actionId: "action-1",
+        owner: "worker-a",
+        generation: 1,
+        nextState: "running",
+        transitionedAt: 350,
+      });
+      expect(running?.state).toBe("running");
+
+      expect(store.startDurableAttempt({
+        id: "attempt-stale",
+        actionId: "action-1",
+        owner: "worker-b",
+        generation: 1,
+        startedAt: 301,
+      })).toBeNull();
+
+      expect(() => store.recordDurableAttempt({
+        id: "attempt-conflict",
+        actionId: "action-1",
+        attempt: 1,
+        state: "running",
+        leaseGeneration: 1,
+        startedAt: 302,
+      })).toThrow();
+      expect(store.listDurableAttempts("action-1")).toHaveLength(1);
+
+      const reclaimed = store.claimDurableAction({
+        actionId: "action-1",
+        owner: "worker-c",
+        leaseMs: 30_000,
+        claimedAt: 30_201,
+      });
+      expect(reclaimed?.state).toBe("leased");
+      expect(reclaimed?.leaseOwner).toBe("worker-c");
+      expect(reclaimed?.leaseGeneration).toBe(2);
+
+      const checkpoint = store.commitDurableCheckpoint({
+        actionId: "action-1",
+        name: "peer_acked",
+        payload: { peerFlightId: "flight-1" },
+        ownerAttemptId: "attempt-1",
+        createdAt: 400,
+      });
+      expect(checkpoint.duplicate).toBe(false);
+      const duplicateCheckpoint = store.commitDurableCheckpoint({
+        actionId: "action-1",
+        name: "peer_acked",
+        payload: { peerFlightId: "flight-ignored" },
+        createdAt: 401,
+      });
+      expect(duplicateCheckpoint.duplicate).toBe(true);
+      expect(duplicateCheckpoint.checkpoint.payload).toEqual({ peerFlightId: "flight-1" });
+
+      const signal = store.emitDurableSignal({
+        actionId: "action-1",
+        name: "cancel_requested",
+        payload: { by: "operator" },
+        emittedAt: 500,
+      });
+      expect(signal.duplicate).toBe(false);
+      const duplicateSignal = store.emitDurableSignal({
+        actionId: "action-1",
+        name: "cancel_requested",
+        payload: { by: "other" },
+        emittedAt: 501,
+      });
+      expect(duplicateSignal.duplicate).toBe(true);
+      expect(duplicateSignal.signal.payload).toEqual({ by: "operator" });
+
+      expect(store.transitionDurableAction({
+        actionId: "action-1",
+        owner: "worker-b",
+        generation: 1,
+        nextState: "completed",
+        transitionedAt: 600,
+      })).toBeNull();
+
+      const completed = store.transitionDurableAction({
+        actionId: "action-1",
+        owner: "worker-c",
+        generation: 2,
+        nextState: "completed",
+        transitionedAt: 650,
+      });
+      expect(completed?.state).toBe("completed");
+    } finally {
+      store.close();
+    }
+  });
 });
