@@ -36,6 +36,7 @@ Purpose: dense context for coding agents working in this repo.
 | architecture | `docs/architecture.md` |
 | data boundary | `docs/data-ownership.md` |
 | agent integration | `docs/agent-integration-contract.md` |
+| external client comms | `docs/scout-comms.md` |
 | identity grammar | `docs/agent-identity.md` |
 | collaboration model | `docs/collaboration-workflows-v1.md` |
 | operator attention | `docs/operator-attention-and-unblock.md` |

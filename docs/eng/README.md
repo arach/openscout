@@ -45,6 +45,7 @@ implementation specs.
 - [sco-023-agent-operations-and-run-registry.md](./sco-023-agent-operations-and-run-registry.md)
 - [sco-024-autonomous-issue-workspace-runner.md](./sco-024-autonomous-issue-workspace-runner.md)
 - [sco-025-observer-grade-local-runtime-visibility.md](./sco-025-observer-grade-local-runtime-visibility.md)
+- [sco-026-scout-comms-grammar-and-semantic-hints.md](./sco-026-scout-comms-grammar-and-semantic-hints.md)
 
 ## Operations
 

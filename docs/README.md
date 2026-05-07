@@ -12,15 +12,16 @@ If you want the shortest path to understanding the project:
 4. [`architecture.md`](./architecture.md) for the system-level control-plane model
 5. [`data-ownership.md`](./data-ownership.md) for what Scout owns, observes, and intentionally does not import
 6. [`agent-integration-contract.md`](./agent-integration-contract.md) for the minimum contract expected from agents and adapters
-7. [`integrations.md`](./integrations.md) for the current host integration map and sibling repository policy
-8. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
-9. [`ranger.md`](./ranger.md) for the preferred top-level orchestration agent contract
-10. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
-11. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
-12. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
-13. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
-14. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
-15. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
+7. [`scout-comms.md`](./scout-comms.md) for client-facing comms workflows, records, routing rules, and contact-line grammar
+8. [`integrations.md`](./integrations.md) for the current host integration map and sibling repository policy
+9. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
+10. [`ranger.md`](./ranger.md) for the preferred top-level orchestration agent contract
+11. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
+12. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
+13. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
+14. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
+15. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
+16. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
 
 ## Current Orientation Docs
 
@@ -31,6 +32,7 @@ If you want the shortest path to understanding the project:
 - [`architecture.md`](./architecture.md) explains the broker-first system shape and the main control-plane terms
 - [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
 - [`agent-integration-contract.md`](./agent-integration-contract.md) gives coding agents and adapter authors the minimum contract for plugging into Scout
+- [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients, plugins, and adapters
 - [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
 - [`ranger.md`](./ranger.md) defines Ranger as the preferred Codex-backed orchestration agent
@@ -56,6 +58,7 @@ If you want the shortest path to understanding the project:
 - [`agent/README.agent.md`](./agent/README.agent.md) is the dense project context for coding agents
 - [`agent/current-posture.agent.md`](./agent/current-posture.agent.md) is the dense maturity and trust summary
 - [`agent/integration-contract.agent.md`](./agent/integration-contract.agent.md) is the dense adapter and agent integration checklist
+- [`agent/scout-comms.agent.md`](./agent/scout-comms.agent.md) is the dense comms integration checklist
 
 ## Engineering Docs And Proposals
 
@@ -68,6 +71,7 @@ If you want the shortest path to understanding the project:
 - "What data does Scout own?" Read [`data-ownership.md`](./data-ownership.md).
 - "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
 - "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
+- "How should a client or plugin understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
 - "Where do host plugins live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
 - "What is Ranger?" Read [`ranger.md`](./ranger.md).

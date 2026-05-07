@@ -157,7 +157,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain(`${scoutCli} send --as shaper "[ask:flt-1] @hudson <your response>"`);
   });
 
-  test("direct invocation prompt starts with a compact Scout title and metadata", () => {
+  test("direct invocation prompt starts with a compact Scout title and collapses routing context", () => {
     const prompt = buildLocalAgentDirectInvocationPrompt(
       "ranger",
       {
@@ -175,19 +175,21 @@ describe("local agent prompts", () => {
       },
     );
 
-    expect(prompt).toContain("SCOUT BROKER REPLY MODE");
+    expect(prompt.startsWith("⌖ operator ≔ ask:1hjg5e\n\nReview how invocation prompt titles...")).toBe(true);
+    expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).toContain("ScoutReplyContext:");
-    expect(prompt).toContain("- mode: broker_reply");
-    expect(prompt).toContain("- fromAgentId: operator");
-    expect(prompt).toContain("- toAgentId: ranger");
-    expect(prompt).toContain("- conversationId: dm.operator.ranger.main.mini");
-    expect(prompt).toContain("- messageId: msg-moi5w7kt-1hjg5e");
-    expect(prompt).toContain("- replyToMessageId: msg-moi5w7kt-1hjg5e");
-    expect(prompt).toContain("- replyPath: final_response");
-    expect(prompt).toContain("Do not call messages_reply, scout_reply, scout send, messages_send, or invocations_ask to answer this request.");
-    expect(prompt).toContain("[scout] @operator asks @ranger: Review how invocation prompt titles...");
-    expect(prompt).toContain("meta: from=operator to=ranger action=consult");
-    expect(prompt).toContain("ref: convo=dm.operator.ranger.main.mini msg=msg-moi5w7kt-1hjg5e");
+    expect(prompt).toContain("<summary>Scout routing context</summary>");
+    expect(prompt).toContain('"mode": "broker_reply"');
+    expect(prompt).toContain('"fromAgentId": "operator"');
+    expect(prompt).toContain('"toAgentId": "ranger"');
+    expect(prompt).toContain('"conversationId": "dm.operator.ranger.main.mini"');
+    expect(prompt).toContain('"messageId": "msg-moi5w7kt-1hjg5e"');
+    expect(prompt).toContain('"replyToMessageId": "msg-moi5w7kt-1hjg5e"');
+    expect(prompt).toContain('"replyPath": "final_response"');
+    expect(prompt).toContain("> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.");
+    expect(prompt).not.toContain("[scout] @operator asks @ranger");
+    expect(prompt).not.toContain("meta: from=operator to=ranger action=consult");
+    expect(prompt).not.toContain("ref: convo=dm.operator.ranger.main.mini msg=msg-moi5w7kt-1hjg5e");
     expect(prompt).not.toContain("OpenScout invocation for");
     expect(prompt).not.toContain("Requester:");
     expect(prompt).not.toContain("Action:");
@@ -216,9 +218,9 @@ describe("local agent prompts", () => {
       },
     );
 
-    expect(prompt).toContain("SCOUT BROKER REPLY MODE");
-    expect(prompt).toContain("[scout] @operator assigns @ranger: Improve the Scout invocation title...");
-    expect(prompt).toContain("meta: from=operator to=ranger action=execute");
+    expect(prompt.startsWith("⌖ operator ↦ task:inv-1\n\nImprove the Scout invocation title...")).toBe(true);
+    expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
+    expect(prompt).not.toContain("meta: from=operator to=ranger action=execute");
   });
 
   test("attached session invocation prompt uses the same Scout opener", () => {
@@ -231,7 +233,7 @@ describe("local agent prompts", () => {
         action: "status",
         task: "Check whether the broker reply landed.",
         conversationId: "dm.operator.ranger.main.mini",
-        messageId: "msg-attached-1",
+        messageId: "msg-attached-abc123",
         ensureAwake: true,
         stream: false,
         createdAt: 1,
@@ -239,11 +241,12 @@ describe("local agent prompts", () => {
       "ranger",
     );
 
-    expect(prompt).toContain("SCOUT BROKER REPLY MODE");
-    expect(prompt).toContain("- conversationId: dm.operator.ranger.main.mini");
-    expect(prompt).toContain("- replyToMessageId: msg-attached-1");
-    expect(prompt).toContain("[scout] @operator checks @ranger: Check whether the broker reply...");
-    expect(prompt).toContain("meta: from=operator to=ranger action=status");
+    expect(prompt.startsWith("⌖ operator ⟲ status:abc123\n\nCheck whether the broker reply...")).toBe(true);
+    expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
+    expect(prompt).toContain('"conversationId": "dm.operator.ranger.main.mini"');
+    expect(prompt).toContain('"replyToMessageId": "msg-attached-abc123"');
+    expect(prompt).not.toContain("[scout] @operator checks @ranger");
+    expect(prompt).not.toContain("meta: from=operator to=ranger action=status");
     expect(prompt).toContain("Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.");
     expect(prompt).not.toContain("Scout message from");
     expect(prompt).not.toContain("Requested action:");

@@ -25,6 +25,7 @@ finalized; package manifests currently use `UNLICENSED`.
 - `docs/quickstart.md` — first healthy local run
 - `docs/current-posture.md` — maturity, trust, mesh, install footprint, and license boundaries
 - `docs/architecture.md` — broker/runtime/protocol model
+- `docs/scout-comms.md` — client-facing comms workflows, records, routing rules, and contact-line grammar
 - `docs/data-ownership.md` — Scout-owned records vs observed harness material
 - `docs/agent-integration-contract.md` — minimum contract for agents and adapters
 - `docs/agent-identity.md` — address grammar and resolution
