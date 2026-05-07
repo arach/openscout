@@ -48,29 +48,54 @@ Introduce a first-class **Scout broker reply context** shared by prompt generati
 
 ### 1. Add an explicit prompt banner
 
-Direct local-agent invocation prompts should start with a visible marker:
+Direct local-agent invocation prompts should start with a compact visible
+title, while preserving the explicit marker as hidden Markdown so agents still
+see it:
 
-```text
-SCOUT BROKER REPLY MODE
+```markdown
+⌖ sender ≔ ask:8kj4pd
 
-You are answering a Scout ask from @sender to @target.
-Your final assistant message will be delivered back through the Scout broker.
-Do not call scout send, messages_send, or invocations_ask to answer this request.
-Only use Scout tools if you need to ask or delegate to another agent.
+Review the broker handoff...
+
+<!-- SCOUT BROKER REPLY MODE -->
+
+> **Reply mode:** You are answering a Scout ask.
+> Your final assistant message will be delivered back through the Scout broker.
+> Do not call `scout send`, `messages_send`, or `invocations_ask` to answer this request.
+> Only use Scout tools if you need to ask or delegate to another agent.
 ```
 
-Then include the structured references:
+The middle operator is action-specific so repeated broker asks scan quickly:
 
 ```text
+⌖ sender ≔ ask:8kj4pd      inbound ask, reply expected
+⌖ sender ↦ task:8kj4pd     delegated/assigned work
+⌖ sender ≈ summary:8kj4pd  summarize/synthesize
+⌖ sender ⟲ status:8kj4pd   status/check-in
+⌖ sender · wake:8kj4pd     wake/nudge
+```
+
+Then include the structured references in a quiet routing section:
+
+````markdown
+<details>
+<summary>Scout routing context</summary>
+
 ScoutReplyContext:
-- mode: broker_reply
-- fromAgentId: sender
-- toAgentId: target
-- conversationId: dm.sender.target
-- messageId: msg-...
-- replyToMessageId: msg-...
-- replyPath: final_response
+```json
+{
+  "mode": "broker_reply",
+  "fromAgentId": "sender",
+  "toAgentId": "target",
+  "conversationId": "dm.sender.target",
+  "messageId": "msg-...",
+  "replyToMessageId": "msg-...",
+  "replyPath": "final_response"
+}
 ```
+
+</details>
+````
 
 This should replace the current subtle convention with a clear mode declaration.
 
@@ -119,7 +144,7 @@ Default rule:
 If the active reply context says `replyPath: mcp_reply`, use the provided reply tool instead of final-response capture.
 ```
 
-This gives the model a deterministic rule instead of relying on vibes. Tiny goblin removed from the machinery.
+This gives the model a deterministic rule instead of relying on vibes.
 
 ### 4. Add MCP visibility
 
@@ -251,3 +276,4 @@ This is especially important for `/scout reply`, group/channel replies, and non-
 - SCO-014: Broker-Owned Routing and Context
 - SCO-015: Pi-Scout Integration
 - SCO-016: External Agent Registration API
+- SCO-026: Scout Comms Grammar And Semantic Hints

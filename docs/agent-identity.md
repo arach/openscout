@@ -53,7 +53,9 @@ From shortest to most qualified:
 
 ## Parsing and Normalization
 
-- `@` is required in user-facing text. Internal systems can omit it.
+- `@` is required for body-mention compatibility in user-facing text. Internal
+  systems can omit it, and Scout-aware composers may use the `>>` route
+  operator instead, such as `/scout:ask >> hudson Review this.`
 - One positional qualifier (without a type prefix) is allowed after the definition ID — it is always treated as the workspace qualifier.
 - Typed qualifiers (`profile:`, `harness:`, `model:`, `node:`) may appear in any order during input. Scout normalizes them to canonical order on storage.
 - Shorthand `#<harness>` maps to `harness:<harness>`, and `?<model>` maps to `model:<model>`.

@@ -1776,24 +1776,54 @@ function buildLocalAgentInitialMessage(projectName: string, agentName: string): 
   return `You are now online as the ${agentName} relay agent for ${projectName}. Announce yourself on the relay with: ${brokerRelayCommand()} send --as ${agentName} "relay agent online — ready to assist with ${projectName}"`;
 }
 
-function scoutHandle(id: string): string {
-  const trimmed = id.trim();
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+function scoutShortName(id: string): string {
+  const trimmed = id.trim().replace(/^@/u, "");
+  const withoutProductPrefix = trimmed.startsWith("openscout-")
+    ? trimmed.slice("openscout-".length)
+    : trimmed;
+  const [primary = withoutProductPrefix] = withoutProductPrefix.split(".");
+  return primary.slice(0, 10) || "agent";
 }
 
-function invocationTitleVerb(action: InvocationRequest["action"]): string {
+function scoutShortRef(id: string | undefined): string | null {
+  const trimmed = id?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const randomSuffix = trimmed.match(/[a-zA-Z0-9]{4,}$/u)?.[0];
+  return (randomSuffix ?? trimmed).slice(-6);
+}
+
+function invocationTitleLabel(action: InvocationRequest["action"]): string {
   switch (action) {
     case "execute":
-      return "assigns";
+      return "task";
     case "summarize":
-      return "asks";
+      return "summary";
     case "status":
-      return "checks";
+      return "status";
     case "wake":
-      return "wakes";
+      return "wake";
     case "consult":
     default:
-      return "asks";
+      return "ask";
+  }
+}
+
+function invocationTitleOperator(action: InvocationRequest["action"]): string {
+  switch (action) {
+    case "execute":
+      return "↦";
+    case "summarize":
+      return "≈";
+    case "status":
+      return "⟲";
+    case "wake":
+      return "·";
+    case "consult":
+    default:
+      return "≔";
   }
 }
 
@@ -1812,13 +1842,10 @@ function summarizeInvocationTask(task: string): string {
   return words.length > 5 ? `${summary}...` : summary;
 }
 
-function buildInvocationHeadline(agentName: string, invocation: InvocationRequest): string {
-  return [
-    `[scout] ${scoutHandle(invocation.requesterId)}`,
-    invocationTitleVerb(invocation.action),
-    `${scoutHandle(agentName)}:`,
-    summarizeInvocationTask(invocation.task),
-  ].join(" ");
+function buildInvocationTitle(invocation: InvocationRequest): string {
+  const action = invocationTitleLabel(invocation.action);
+  const ref = scoutShortRef(invocation.messageId) ?? scoutShortRef(invocation.id);
+  return `⌖ ${scoutShortName(invocation.requesterId)} ${invocationTitleOperator(invocation.action)} ${ref ? `${action}:${ref}` : action}`;
 }
 
 export function buildScoutReplyContext(agentName: string, invocation: InvocationRequest): ScoutReplyContext | null {
@@ -1840,16 +1867,15 @@ export function buildScoutReplyContext(agentName: string, invocation: Invocation
 
 function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string[] {
   const header = [
-    "SCOUT BROKER REPLY MODE",
-    "",
-    "You are answering a Scout ask.",
+    "<!-- SCOUT BROKER REPLY MODE -->",
+    "> **Reply mode:** You are answering a Scout ask.",
     context?.replyPath === "mcp_reply"
-      ? "Use the provided Scout reply tool for the final answer; do not create a new send/ask."
-      : "Your final assistant message will be delivered back through the Scout broker.",
+      ? "> Use the provided Scout reply tool for the final answer; do not create a new send/ask."
+      : "> Your final assistant message will be delivered back through the Scout broker.",
     context?.replyPath === "mcp_reply"
-      ? "Call messages_reply or scout_reply exactly once with the reply intended for the requester."
-      : "Do not call messages_reply, scout_reply, scout send, messages_send, or invocations_ask to answer this request.",
-    "Only use Scout tools if you need to ask or delegate to another agent.",
+      ? "> Call `messages_reply` or `scout_reply` exactly once with the reply intended for the requester."
+      : "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.",
+    "> Only use Scout tools if you need to ask or delegate to another agent.",
   ];
 
   if (!context) {
@@ -1859,28 +1885,15 @@ function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string
   return [
     ...header,
     "",
+    "<details>",
+    "<summary>Scout routing context</summary>",
+    "",
     "ScoutReplyContext:",
-    `- mode: ${context.mode}`,
-    `- fromAgentId: ${context.fromAgentId}`,
-    `- toAgentId: ${context.toAgentId}`,
-    `- conversationId: ${context.conversationId}`,
-    `- messageId: ${context.messageId}`,
-    `- replyToMessageId: ${context.replyToMessageId}`,
-    `- replyPath: ${context.replyPath}`,
-    ...(context.action ? [`- action: ${context.action}`] : []),
+    "```json",
+    ...JSON.stringify(context, null, 2).split("\n"),
+    "```",
+    "</details>",
   ];
-}
-
-function buildInvocationMetadataLines(agentName: string, invocation: InvocationRequest): string[] {
-  const referenceParts = [
-    invocation.conversationId ? `convo=${invocation.conversationId}` : undefined,
-    invocation.messageId ? `msg=${invocation.messageId}` : undefined,
-  ].filter((value): value is string => Boolean(value));
-
-  return [
-    `meta: from=${invocation.requesterId} to=${agentName} action=${invocation.action}`,
-    referenceParts.length > 0 ? `ref: ${referenceParts.join(" ")}` : undefined,
-  ].filter((value): value is string => Boolean(value));
 }
 
 export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocation: InvocationRequest): string {
@@ -1895,10 +1908,11 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
   const replyContext = buildScoutReplyContext(agentName, invocation);
 
   return [
-    ...buildScoutReplyContextPrompt(replyContext),
+    buildInvocationTitle(invocation),
     "",
-    buildInvocationHeadline(agentName, invocation),
-    ...buildInvocationMetadataLines(agentName, invocation),
+    summarizeInvocationTask(invocation.task),
+    "",
+    ...buildScoutReplyContextPrompt(replyContext),
     "",
     actionRules,
     collaborationContract,
@@ -1909,7 +1923,7 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
     "Task:",
     invocation.task,
   ]
-    .filter((value): value is string => Boolean(value && value.length > 0))
+    .filter((value): value is string => value !== undefined)
     .join("\n");
 }
 
@@ -1919,16 +1933,18 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
   const replyContext = buildScoutReplyContext(agentName, invocation);
 
   return [
+    buildInvocationTitle(invocation),
+    "",
+    summarizeInvocationTask(invocation.task),
+    "",
     ...buildScoutReplyContextPrompt(replyContext),
     "",
-    buildInvocationHeadline(agentName, invocation),
-    ...buildInvocationMetadataLines(agentName, invocation),
     "Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.",
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
     "",
     invocation.task,
   ]
-    .filter((value): value is string => Boolean(value && value.length > 0))
+    .filter((value): value is string => value !== undefined)
     .join("\n");
 }
 
