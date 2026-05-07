@@ -18,7 +18,12 @@ import {
   type ScoutBrokerContext,
 } from "../broker/service.ts";
 import { SCOUT_APP_VERSION } from "../../shared/product.ts";
-import type { AgentEndpoint, InboxItem, MessageRecord } from "@openscout/protocol";
+import {
+  isInboxClaimableDeliveryStatus,
+  type AgentEndpoint,
+  type InboxItem,
+  type MessageRecord,
+} from "@openscout/protocol";
 
 type InboxStreamEvent = {
   item?: InboxItem;
@@ -92,7 +97,7 @@ function startBrokerSubscription(
                 .filter((item): item is InboxItem => Boolean(item));
 
             for (const item of items) {
-              if (item.status !== "pending" && item.status !== "accepted" && item.status !== "deferred") {
+              if (!isInboxClaimableDeliveryStatus(item.status)) {
                 continue;
               }
               if (!item.message || item.message.actorId === agentId) {

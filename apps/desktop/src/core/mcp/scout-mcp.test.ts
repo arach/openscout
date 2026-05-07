@@ -1351,6 +1351,200 @@ describe("createScoutMcpServer", () => {
     );
   });
 
+  test("documents unresolved exact ask targets without inventing a start suggestion", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => {
+        throw new Error("unexpected askQuestion path");
+      },
+      askAgentById: async ({ targetAgentId }) => ({
+        usedBroker: true,
+        unresolvedTargetId: targetAgentId,
+      }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "invocations_ask",
+      arguments: {
+        body: "Review this.",
+        targetAgentId: "ghost.main",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      unresolvedTargetId: string | null;
+      startSuggestion?: unknown;
+      targetDiagnostic: {
+        kind?: string;
+        unresolvedTargetIds?: string[];
+        startSuggestionAvailable?: boolean;
+      } | null;
+    };
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+
+    expect(structured.unresolvedTargetId).toBe("ghost.main");
+    expect(structured.startSuggestion).toBeNull();
+    expect(structured.targetDiagnostic).toMatchObject({
+      kind: "exact_target_id_unresolved",
+      unresolvedTargetIds: ["ghost.main"],
+      startSuggestionAvailable: false,
+    });
+    expect(content?.[0]?.text).toContain(
+      "Exact targetAgentId paths cannot infer agents_start arguments",
+    );
+  });
+
+  test("documents unresolved explicit message target ids without a start suggestion", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: ["ghost.main", "missing.main"],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => {
+        throw new Error("unexpected askAgentById path");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Status update",
+        targetAgentId: "ghost.main",
+        mentionAgentIds: ["missing.main"],
+      },
+    });
+
+    const structured = result.structuredContent as {
+      unresolvedTargetIds: string[];
+      startSuggestion?: unknown;
+      targetDiagnostic: {
+        kind?: string;
+        unresolvedTargetIds?: string[];
+        startSuggestionAvailable?: boolean;
+      } | null;
+    };
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+
+    expect(structured.unresolvedTargetIds).toEqual([
+      "ghost.main",
+      "missing.main",
+    ]);
+    expect(structured.startSuggestion).toBeNull();
+    expect(structured.targetDiagnostic).toMatchObject({
+      kind: "exact_target_ids_unresolved",
+      unresolvedTargetIds: ["ghost.main", "missing.main"],
+      startSuggestionAvailable: false,
+    });
+    expect(content?.[0]?.text).toContain(
+      "Exact targetAgentId paths cannot infer agents_start arguments",
+    );
+  });
+
+  test("documents unresolved wake target ids without a start suggestion", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async ({ targetAgentId }) => ({
+        usedBroker: true,
+        unresolvedTargetId: targetAgentId,
+      }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Please process this when you can.",
+        targetAgentId: "ghost.main",
+        wake: true,
+      },
+    });
+
+    const structured = result.structuredContent as {
+      unresolvedTargetIds: string[];
+      startSuggestion?: unknown;
+      targetDiagnostic: {
+        kind?: string;
+        unresolvedTargetIds?: string[];
+        startSuggestionAvailable?: boolean;
+      } | null;
+    };
+
+    expect(structured.unresolvedTargetIds).toEqual(["ghost.main"]);
+    expect(structured.startSuggestion).toBeNull();
+    expect(structured.targetDiagnostic).toMatchObject({
+      kind: "exact_target_id_unresolved",
+      unresolvedTargetIds: ["ghost.main"],
+      startSuggestionAvailable: false,
+    });
+  });
+
   test("sends to a target label in one MCP call", async () => {
     let receivedTargetLabel: string | undefined;
     let receivedSource: string | undefined;

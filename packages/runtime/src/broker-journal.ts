@@ -12,6 +12,7 @@ import type {
   DeliveryAttempt,
   DeliveryIntent,
   DurableAction,
+  DurableActionHeartbeatInput,
   DurableAttempt,
   DurableCheckpoint,
   DurableSignal,
@@ -42,6 +43,7 @@ export type BrokerJournalEntry =
   | { kind: "deliveries.record"; deliveries: DeliveryIntent[] }
   | { kind: "delivery.attempt.record"; attempt: DeliveryAttempt }
   | { kind: "durable.action.record"; action: DurableAction }
+  | { kind: "durable.action.heartbeat"; input: DurableActionHeartbeatInput }
   | { kind: "durable.attempt.record"; attempt: DurableAttempt }
   | { kind: "durable.checkpoint.record"; checkpoint: DurableCheckpoint }
   | { kind: "durable.signal.record"; signal: DurableSignal }
@@ -472,6 +474,7 @@ export class FileBackedBrokerJournal {
         return;
       }
       case "durable.action.record":
+      case "durable.action.heartbeat":
       case "durable.attempt.record":
       case "durable.checkpoint.record":
       case "durable.signal.record":

@@ -398,6 +398,39 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 
+  test("migrates schema version 5 databases to durable action ledger tables", () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-sqlite-store-"));
+    dbRoots.add(root);
+    const dbPath = join(root, "control-plane.sqlite");
+
+    {
+      const legacyDb = new Database(dbPath);
+      legacyDb.exec("PRAGMA user_version = 5;");
+      legacyDb.close();
+    }
+
+    const store = new SQLiteControlPlaneStore(dbPath);
+    const db = new Database(dbPath, { readonly: true });
+
+    try {
+      const tables = db.query(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'durable_%' ORDER BY name",
+      ).all() as Array<{ name: string }>;
+      const version = db.query("PRAGMA user_version").get() as { user_version: number } | null;
+
+      expect(tables.map((table) => table.name)).toEqual([
+        "durable_actions",
+        "durable_attempts",
+        "durable_checkpoints",
+        "durable_signals",
+      ]);
+      expect(version?.user_version).toBe(CONTROL_PLANE_SCHEMA_VERSION);
+    } finally {
+      db.close();
+      store.close();
+    }
+  });
+
   test("round-trips deliveries and delivery attempts through the Drizzle proof path", () => {
     const store = createStore();
 
@@ -534,6 +567,22 @@ describe("SQLiteControlPlaneStore", () => {
       expect(blockedClaim?.leaseOwner).toBe("worker-a");
       expect(blockedClaim?.leaseGeneration).toBe(1);
 
+      const heartbeat = store.heartbeatDurableAction({
+        actionId: "action-1",
+        owner: "worker-a",
+        generation: 1,
+        leaseMs: 60_000,
+        heartbeatAt: 275,
+      });
+      expect(heartbeat?.leaseExpiresAt).toBe(60_275);
+      expect(store.heartbeatDurableAction({
+        actionId: "action-1",
+        owner: "worker-b",
+        generation: 1,
+        leaseMs: 60_000,
+        heartbeatAt: 276,
+      })).toBeNull();
+
       const attempt = store.startDurableAttempt({
         id: "attempt-1",
         actionId: "action-1",
@@ -570,48 +619,74 @@ describe("SQLiteControlPlaneStore", () => {
       })).toThrow();
       expect(store.listDurableAttempts("action-1")).toHaveLength(1);
 
-      const reclaimed = store.claimDurableAction({
-        actionId: "action-1",
-        owner: "worker-c",
-        leaseMs: 30_000,
-        claimedAt: 30_201,
-      });
-      expect(reclaimed?.state).toBe("leased");
-      expect(reclaimed?.leaseOwner).toBe("worker-c");
-      expect(reclaimed?.leaseGeneration).toBe(2);
-
       const checkpoint = store.commitDurableCheckpoint({
         actionId: "action-1",
         name: "peer_acked",
         payload: { peerFlightId: "flight-1" },
         ownerAttemptId: "attempt-1",
+        leaseOwner: "worker-a",
+        leaseGeneration: 1,
         createdAt: 400,
       });
-      expect(checkpoint.duplicate).toBe(false);
+      expect(checkpoint?.duplicate).toBe(false);
       const duplicateCheckpoint = store.commitDurableCheckpoint({
         actionId: "action-1",
         name: "peer_acked",
         payload: { peerFlightId: "flight-ignored" },
+        leaseOwner: "worker-a",
+        leaseGeneration: 1,
         createdAt: 401,
       });
-      expect(duplicateCheckpoint.duplicate).toBe(true);
-      expect(duplicateCheckpoint.checkpoint.payload).toEqual({ peerFlightId: "flight-1" });
+      expect(duplicateCheckpoint?.duplicate).toBe(true);
+      expect(duplicateCheckpoint?.checkpoint.payload).toEqual({ peerFlightId: "flight-1" });
 
       const signal = store.emitDurableSignal({
         actionId: "action-1",
         name: "cancel_requested",
         payload: { by: "operator" },
+        leaseOwner: "worker-a",
+        leaseGeneration: 1,
         emittedAt: 500,
       });
-      expect(signal.duplicate).toBe(false);
+      expect(signal?.duplicate).toBe(false);
       const duplicateSignal = store.emitDurableSignal({
         actionId: "action-1",
         name: "cancel_requested",
         payload: { by: "other" },
+        leaseOwner: "worker-a",
+        leaseGeneration: 1,
         emittedAt: 501,
       });
-      expect(duplicateSignal.duplicate).toBe(true);
-      expect(duplicateSignal.signal.payload).toEqual({ by: "operator" });
+      expect(duplicateSignal?.duplicate).toBe(true);
+      expect(duplicateSignal?.signal.payload).toEqual({ by: "operator" });
+
+      const reclaimed = store.claimDurableAction({
+        actionId: "action-1",
+        owner: "worker-c",
+        leaseMs: 30_000,
+        claimedAt: 60_276,
+      });
+      expect(reclaimed?.state).toBe("leased");
+      expect(reclaimed?.leaseOwner).toBe("worker-c");
+      expect(reclaimed?.leaseGeneration).toBe(2);
+
+      expect(store.commitDurableCheckpoint({
+        actionId: "action-1",
+        name: "stale",
+        payload: { ignored: true },
+        ownerAttemptId: "attempt-1",
+        leaseOwner: "worker-a",
+        leaseGeneration: 1,
+        createdAt: 402,
+      })).toBeNull();
+      expect(store.emitDurableSignal({
+        actionId: "action-1",
+        name: "stale_signal",
+        payload: { ignored: true },
+        leaseOwner: "worker-a",
+        leaseGeneration: 1,
+        emittedAt: 502,
+      })).toBeNull();
 
       expect(store.transitionDurableAction({
         actionId: "action-1",

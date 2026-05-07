@@ -1482,6 +1482,56 @@ describe("broker daemon comms layer", () => {
     }));
   }, 15_000);
 
+  test("journals durable action heartbeats through the HTTP surface", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-heartbeat-"));
+    const initialAction = {
+      id: "action-heartbeat-1",
+      kind: "message_delivery",
+      subjectId: "delivery-1",
+      authorityCellId: "node-1",
+      state: "leased",
+      leaseOwner: "worker-a",
+      leaseGeneration: 1,
+      leaseExpiresAt: 1_000,
+      createdAt: 100,
+      updatedAt: 100,
+    };
+    writeFileSync(
+      join(controlHome, "broker-journal.jsonl"),
+      `${JSON.stringify({ kind: "durable.action.record", action: initialAction })}\n`,
+      "utf8",
+    );
+    const harness = await startBroker({ controlHome });
+
+    const result = await postJson<{
+      ok: boolean;
+      actionId: string;
+      leaseOwner: string;
+      leaseGeneration: number;
+      leaseExpiresAt: number;
+    }>(
+      harness.baseUrl,
+      "/v1/durable-actions/action-heartbeat-1/heartbeat",
+      {
+        owner: "worker-a",
+        generation: 1,
+        leaseMs: 5_000,
+        heartbeatAt: 2_000,
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      actionId: "action-heartbeat-1",
+      leaseOwner: "worker-a",
+      leaseGeneration: 1,
+      leaseExpiresAt: 7_000,
+    });
+    expect(readFileSync(join(controlHome, "broker-journal.jsonl"), "utf8"))
+      .toContain('"kind":"durable.action.heartbeat"');
+
+  }, 15_000);
+
   test("returns a broker question for manual offline targets it cannot wake", async () => {
     const harness = await startBroker();
 

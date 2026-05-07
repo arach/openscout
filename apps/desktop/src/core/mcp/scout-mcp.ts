@@ -1286,6 +1286,21 @@ function renderStartSuggestionText(
   return ` If this should be a new session, call agents_start with ${args.join(", ")} and then retry using the returned exactTargetAgentId.`;
 }
 
+function renderExactTargetNoStartSuggestionText(
+  targetDiagnostic: Record<string, unknown> | null | undefined,
+): string {
+  const diagnosticKind = typeof targetDiagnostic?.kind === "string"
+    ? targetDiagnostic.kind
+    : "";
+  if (
+    diagnosticKind !== "exact_target_id_unresolved" &&
+    diagnosticKind !== "exact_target_ids_unresolved"
+  ) {
+    return "";
+  }
+  return " Exact targetAgentId paths cannot infer agents_start arguments; use agents_search to pick an existing agent, or call agents_start with a targetLabel/agentName/harness/model and retry with the returned exactTargetAgentId.";
+}
+
 function renderUnroutedTargetSummary(input: {
   kind: "Message" | "Ask";
   target: string;
@@ -1301,7 +1316,27 @@ function renderUnroutedTargetSummary(input: {
   if (diagnosticKind === "target_constraint_ambiguous") {
     return `${input.kind} was not sent; target constraints matched multiple agents: ${input.target}.${renderStartSuggestionText(input.startSuggestion)}`;
   }
-  return `${input.kind} was not sent; unresolved target: ${input.target}.${renderStartSuggestionText(input.startSuggestion)}`;
+  return `${input.kind} was not sent; unresolved target: ${input.target}.${renderStartSuggestionText(input.startSuggestion)}${renderExactTargetNoStartSuggestionText(input.targetDiagnostic)}`;
+}
+
+function buildExactTargetIdsDiagnostic(
+  targetAgentIds: string[],
+): Record<string, unknown> | null {
+  const unresolvedTargetIds = [
+    ...new Set(targetAgentIds.map((value) => value.trim()).filter(Boolean)),
+  ];
+  if (unresolvedTargetIds.length === 0) {
+    return null;
+  }
+  return {
+    kind: unresolvedTargetIds.length === 1
+      ? "exact_target_id_unresolved"
+      : "exact_target_ids_unresolved",
+    unresolvedTargetIds,
+    startSuggestionAvailable: false,
+    detail:
+      "Exact targetAgentId routing does not include enough label information to infer safe agents_start arguments.",
+  };
 }
 
 function isCanonicalOpenScoutProjectRoot(
@@ -2673,6 +2708,9 @@ export function createScoutMcpServer(options: {
           const unresolvedTargetIds = results
             .map((result) => result.unresolvedTargetId)
             .filter((value): value is string => Boolean(value));
+          const targetDiagnostic =
+            firstResult?.targetDiagnostic ??
+            buildExactTargetIdsDiagnostic(unresolvedTargetIds);
           const startSuggestion = null;
           const structuredContent = {
             currentDirectory: resolvedCurrentDirectory,
@@ -2687,7 +2725,7 @@ export function createScoutMcpServer(options: {
               .map((result) => result.flight?.targetAgentId)
               .filter((value): value is string => Boolean(value)),
             unresolvedTargetIds,
-            targetDiagnostic: firstResult?.targetDiagnostic ?? null,
+            targetDiagnostic,
             startSuggestion,
             routeKind: null,
             routingError: null,
@@ -2721,7 +2759,9 @@ export function createScoutMcpServer(options: {
           wake: wake ?? false,
           invokedTargetIds: result.invokedTargetIds,
           unresolvedTargetIds: result.unresolvedTargetIds,
-          targetDiagnostic: result.targetDiagnostic ?? null,
+          targetDiagnostic:
+            result.targetDiagnostic ??
+            buildExactTargetIdsDiagnostic(result.unresolvedTargetIds),
           startSuggestion,
           routeKind: result.routeKind ?? null,
           routingError: result.routingError ?? null,
@@ -2980,6 +3020,7 @@ export function createScoutMcpServer(options: {
           },
           env,
         );
+        const unresolvedTargetId = result.unresolvedTargetId ?? null;
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
@@ -3004,7 +3045,7 @@ export function createScoutMcpServer(options: {
           flight: completedFlight ?? result.flight ?? null,
           flightId: completedFlight?.id ?? result.flight?.id ?? null,
           output: completedFlight?.output ?? completedFlight?.summary ?? null,
-          unresolvedTargetId: result.unresolvedTargetId ?? null,
+          unresolvedTargetId,
           unresolvedTargetLabel: null,
           workItem: trackedWorkItem,
           workId: trackedWorkItem?.id ?? null,
@@ -3012,7 +3053,9 @@ export function createScoutMcpServer(options: {
           ids: followArtifacts.ids,
           links: followArtifacts.links,
           followUrl: followArtifacts.followUrl,
-          targetDiagnostic: result.targetDiagnostic ?? null,
+          targetDiagnostic:
+            result.targetDiagnostic ??
+            buildExactTargetIdsDiagnostic(unresolvedTargetId ? [unresolvedTargetId] : []),
           startSuggestion: null,
         };
         return {

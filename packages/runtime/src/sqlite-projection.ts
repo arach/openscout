@@ -45,6 +45,7 @@ const REPLAY_TIER: Record<string, number> = {
   "delivery.attempt.record": 6,
   "delivery.status.update": 6,
   "durable.action.record": 6,
+  "durable.action.heartbeat": 7,
   "durable.attempt.record": 7,
   "durable.checkpoint.record": 8,
   "durable.signal.record": 8,
@@ -225,14 +226,25 @@ function applyJournalEntryToStore(
     case "durable.action.record":
       store.recordDurableAction(entry.action);
       return [];
+    case "durable.action.heartbeat":
+      store.heartbeatDurableAction(entry.input);
+      return [];
     case "durable.attempt.record":
       store.recordDurableAttempt(entry.attempt);
       return [];
     case "durable.checkpoint.record":
-      store.commitDurableCheckpoint(entry.checkpoint);
+      store.commitDurableCheckpoint({
+        ...entry.checkpoint,
+        leaseOwner: undefined,
+        leaseGeneration: undefined,
+      });
       return [];
     case "durable.signal.record":
-      store.emitDurableSignal(entry.signal);
+      store.emitDurableSignal({
+        ...entry.signal,
+        leaseOwner: undefined,
+        leaseGeneration: undefined,
+      });
       return [];
     case "scout.dispatch.record":
       store.recordScoutDispatch(entry.dispatch);

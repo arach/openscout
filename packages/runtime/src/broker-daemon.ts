@@ -28,6 +28,7 @@ import {
   type DeliveryIntent,
   type DeliveryReason,
   type DeliveryStatus,
+  type DurableActionHeartbeatInput,
   type FlightRecord,
   type InboxAckRequest,
   type InboxClaimRequest,
@@ -1233,6 +1234,19 @@ async function recordDeliveryAttemptDurably(attempt: {
           metadata: attempt.metadata,
         },
       },
+      async () => {},
+    );
+  });
+}
+
+async function heartbeatDurableActionDurably(
+  input: DurableActionHeartbeatInput,
+): Promise<void> {
+  // Durable action heartbeats renew ledger ownership only; they do not mutate
+  // InboxItem delivery state, so there is no delivery SSE event to publish.
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "durable.action.heartbeat", input },
       async () => {},
     );
   });
@@ -4154,6 +4168,9 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   const collaborationInvokeMatch = method === "POST"
     ? url.pathname.match(/^\/v1\/collaboration\/records\/([^/]+)\/invoke$/)
     : null;
+  const durableActionHeartbeatMatch = method === "POST"
+    ? url.pathname.match(/^\/v1\/durable-actions\/([^/]+)\/heartbeat$/)
+    : null;
   const threadEventsMatch = method === "GET"
     ? url.pathname.match(/^\/v1\/conversations\/([^/]+)\/thread-events$/)
     : null;
@@ -5101,6 +5118,47 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       }>(request);
       await recordDeliveryAttemptDurably(attempt);
       json(response, 200, { ok: true, deliveryId: attempt.deliveryId, attemptId: attempt.id });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (durableActionHeartbeatMatch) {
+    try {
+      const actionId = decodeURIComponent(durableActionHeartbeatMatch[1] ?? "");
+      const body = await readRequestBody<{
+        owner: string;
+        generation: number;
+        leaseMs: number;
+        heartbeatAt?: number;
+      }>(request);
+      if (!actionId || !body.owner?.trim()) {
+        throw new Error("actionId and owner are required.");
+      }
+      if (!Number.isFinite(body.generation) || body.generation < 0) {
+        throw new Error("generation must be a non-negative number.");
+      }
+      if (!Number.isFinite(body.leaseMs) || body.leaseMs <= 0) {
+        throw new Error("leaseMs must be a positive number.");
+      }
+      const heartbeatAt = Number.isFinite(body.heartbeatAt)
+        ? body.heartbeatAt!
+        : Date.now();
+      await heartbeatDurableActionDurably({
+        actionId,
+        owner: body.owner.trim(),
+        generation: body.generation,
+        leaseMs: body.leaseMs,
+        heartbeatAt,
+      });
+      json(response, 200, {
+        ok: true,
+        actionId,
+        leaseOwner: body.owner.trim(),
+        leaseGeneration: body.generation,
+        leaseExpiresAt: heartbeatAt + body.leaseMs,
+      });
     } catch (error) {
       badRequest(response, error);
     }

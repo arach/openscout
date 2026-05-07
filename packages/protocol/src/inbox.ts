@@ -5,6 +5,22 @@ import type { DeliveryReason, DeliveryStatus, MetadataMap, ScoutId } from "./com
 
 export type InboxItemKind = "message" | "invocation";
 
+export const INBOX_CLAIMABLE_DELIVERY_STATUSES = [
+  "pending",
+  "accepted",
+  "deferred",
+] as const satisfies readonly DeliveryStatus[];
+
+export type InboxClaimableDeliveryStatus =
+  (typeof INBOX_CLAIMABLE_DELIVERY_STATUSES)[number];
+
+export function isInboxClaimableDeliveryStatus(
+  status: DeliveryStatus,
+): status is InboxClaimableDeliveryStatus {
+  return (INBOX_CLAIMABLE_DELIVERY_STATUSES as readonly DeliveryStatus[])
+    .includes(status);
+}
+
 export interface InboxItem {
   id: ScoutId;
   kind: InboxItemKind;

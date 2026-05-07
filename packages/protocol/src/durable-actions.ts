@@ -52,6 +52,8 @@ export interface DurableCheckpoint {
   name: string;
   payload?: unknown;
   ownerAttemptId?: ScoutId;
+  leaseOwner?: string;
+  leaseGeneration?: number;
   createdAt: number;
 }
 
@@ -59,6 +61,8 @@ export interface DurableSignal {
   actionId: ScoutId;
   name: string;
   payload?: unknown;
+  leaseOwner?: string;
+  leaseGeneration?: number;
   emittedAt: number;
 }
 
@@ -77,6 +81,14 @@ export interface DurableActionClaimInput {
   owner: string;
   leaseMs: number;
   claimedAt: number;
+}
+
+export interface DurableActionHeartbeatInput {
+  actionId: ScoutId;
+  owner: string;
+  generation: number;
+  leaseMs: number;
+  heartbeatAt: number;
 }
 
 export interface DurableActionLease {
