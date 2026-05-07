@@ -347,7 +347,19 @@ export function renderScoutRuntimesReport(report: ScoutRuntimesReport): string {
     lines.push(`    Detail: ${entry.readinessReport.detail}`);
     lines.push(`    Support: ${support || "none"}`);
     if (entry.readinessReport.binaryPath) {
-      lines.push(`    Binary: ${entry.readinessReport.binaryPath}`);
+      const version = entry.readinessReport.binaryVersion ? ` (${entry.readinessReport.binaryVersion})` : "";
+      const source = entry.readinessReport.binarySource ? ` [${entry.readinessReport.binarySource}]` : "";
+      lines.push(`    Binary: ${entry.readinessReport.binaryPath}${version}${source}`);
+    }
+    const alternates = entry.readinessReport.binaryCandidates
+      ?.filter((candidate) => candidate.executable && !candidate.selected)
+      .slice(0, 4) ?? [];
+    if (alternates.length > 0) {
+      lines.push("    Other binaries:");
+      for (const candidate of alternates) {
+        const version = candidate.version ? ` (${candidate.version})` : "";
+        lines.push(`      - ${candidate.path}${version} [${candidate.source}]`);
+      }
     }
     if (entry.readinessReport.missing.length > 0) {
       lines.push(`    Missing: ${entry.readinessReport.missing.join(" | ")}`);

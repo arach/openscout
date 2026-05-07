@@ -23,6 +23,7 @@ Options:
 Environment:
   MINIMAX_API_KEY          Preferred MiniMax key name used by pi
   MINIMAX_TOKEN            Accepted fallback when MINIMAX_API_KEY is unset
+  macOS Keychain secret    Used as fallback when env values are unset
   OPENSCOUT_PI_BIN         Optional pi executable path/name
   OPENSCOUT_PI_MINIMAX_MODEL
   OPENSCOUT_PI_MINIMAX_THINKING
@@ -138,9 +139,20 @@ if ! command -v "$PI_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
+read_secret_value() {
+  local key="$1"
+  if ! command -v secret >/dev/null 2>&1; then
+    return 1
+  fi
+  secret get "$key" 2>/dev/null || true
+}
+
 MINIMAX_KEY="${MINIMAX_API_KEY:-${MINIMAX_TOKEN:-}}"
 if [[ -z "$MINIMAX_KEY" ]]; then
-  echo "Missing MiniMax key. Set MINIMAX_API_KEY or MINIMAX_TOKEN." >&2
+  MINIMAX_KEY="$(read_secret_value MINIMAX_API_KEY)"
+fi
+if [[ -z "$MINIMAX_KEY" ]]; then
+  echo "Missing MiniMax key. Set it in the shell or local secret store." >&2
   exit 1
 fi
 

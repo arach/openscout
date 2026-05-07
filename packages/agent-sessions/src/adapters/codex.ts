@@ -1,9 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { access, appendFile, constants, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { buildScoutMcpCodexLaunchArgs } from "../codex-launch-config.js";
+import { resolveCodexExecutable } from "../codex-executable.js";
 import { BaseAdapter } from "../protocol/adapter.js";
 import type { AdapterConfig } from "../protocol/adapter.js";
 import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../protocol/primitives.js";
@@ -272,51 +273,6 @@ function isMissingCodexRolloutError(error: unknown): boolean {
   return errorMessage(error).toLowerCase().includes("no rollout found for thread id");
 }
 
-async function isExecutable(filePath: string | undefined): Promise<boolean> {
-  if (!filePath) {
-    return false;
-  }
-
-  try {
-    await access(filePath, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function resolveCodexExecutable(): Promise<string> {
-  const explicitCandidates = [
-    process.env.OPENSCOUT_CODEX_BIN,
-    process.env.CODEX_BIN,
-  ].filter(Boolean) as string[];
-
-  for (const candidate of explicitCandidates) {
-    if (await isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  const pathEntries = (process.env.PATH ?? "")
-    .split(delimiter)
-    .filter(Boolean);
-  const commonDirectories = [
-    `${process.env.HOME ?? ""}/.local/bin`,
-    `${process.env.HOME ?? ""}/.bun/bin`,
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-  ].filter(Boolean);
-
-  for (const directory of [...pathEntries, ...commonDirectories]) {
-    const candidate = join(directory, "codex");
-    if (await isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  return "codex";
-}
-
 function threadStatusToSessionStatus(status: string | undefined): SessionStatus {
   switch (status) {
     case "active":
@@ -519,7 +475,7 @@ export class CodexAdapter extends BaseAdapter {
     await mkdir(options.logsDirectory, { recursive: true });
     await writeFile(join(options.runtimeDirectory, "prompt.txt"), options.systemPrompt);
 
-    const codexExecutable = await resolveCodexExecutable();
+    const codexExecutable = resolveCodexExecutable();
     const childEnv = {
       ...process.env,
       ...(this.config.env ?? {}),

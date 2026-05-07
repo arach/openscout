@@ -115,6 +115,11 @@ export function useScoutCommands(): CommandOption[] {
         shortcut: "Cmd+,",
       },
       {
+        id: "nav:agent-config",
+        label: "Open Agent Configuration",
+        action: () => navigate({ view: "settings", section: "agents" }),
+      },
+      {
         id: "ranger:open",
         label: "Open Ranger",
         action: () => navigate({ view: "conversation", conversationId: rangerConversationId, composeMode: "ask" }),

@@ -3,6 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { resolveCodexExecutableInventory, type CodexExecutableCandidate } from "@openscout/agent-sessions";
 import type { AgentCapability, AgentHarness } from "@openscout/protocol";
 
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
@@ -99,7 +100,18 @@ export type HarnessReadinessReport = {
   detail: string;
   missing: string[];
   binaryPath: string | null;
+  binaryVersion?: string | null;
+  binarySource?: string | null;
+  binaryCandidates?: HarnessBinaryCandidateReport[];
   loginCommand: string | null;
+};
+
+export type HarnessBinaryCandidateReport = {
+  path: string;
+  source: string;
+  executable: boolean;
+  version: string | null;
+  selected: boolean;
 };
 
 export type ResolvedHarnessCatalogEntry = HarnessCatalogEntry & {
@@ -241,6 +253,47 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       invocationModel: "one_shot",
     },
   },
+  {
+    name: "pi",
+    harness: "pi",
+    label: "Pi",
+    description: "pi.dev's CLI coding agent with provider and extension support",
+    homepage: "https://pi.dev/docs/latest/quickstart",
+    tags: ["coding", "cli", "pi"],
+    featured: true,
+    order: 4,
+    support: {
+      ...DEFAULT_SUPPORT,
+      workspace: true,
+      collaboration: true,
+      files: true,
+    },
+    install: {
+      binary: "pi",
+      requires: ["node"],
+      macos: "npm install -g @mariozechner/pi-coding-agent",
+      linux: "npm install -g @mariozechner/pi-coding-agent",
+      windows: "npm install -g @mariozechner/pi-coding-agent",
+    },
+    readiness: {
+      anyOf: [
+        { kind: "file", path: "~/.pi/agent/auth.json", label: "~/.pi/agent/auth.json", fileType: "file" },
+        { kind: "env", key: "ANTHROPIC_API_KEY" },
+        { kind: "env", key: "OPENAI_API_KEY" },
+        { kind: "env", key: "OPENROUTER_API_KEY" },
+        { kind: "env", key: "XAI_API_KEY" },
+        { kind: "env", key: "MINIMAX_API_KEY" },
+        { kind: "env", key: "GEMINI_API_KEY" },
+      ],
+      loginCommand: "pi /login",
+      notReadyMessage: "Pi is installed but still needs a subscription login, API key, or auth file.",
+    },
+    resume: {
+      command: "pi",
+      sessionFlag: "--session",
+    },
+    capabilities: ["chat", "invoke", "deliver", "review", "execute"],
+  },
 ];
 
 function expandHomePath(value: string): string {
@@ -362,6 +415,19 @@ function supportSummaryText(entry: HarnessCatalogEntry): string {
   return enabled.length > 0 ? enabled.join(", ") : "general use";
 }
 
+function codexCandidateReport(
+  candidate: CodexExecutableCandidate,
+  selectedPath: string,
+): HarnessBinaryCandidateReport {
+  return {
+    path: candidate.path,
+    source: candidate.source,
+    executable: candidate.executable,
+    version: candidate.version,
+    selected: candidate.path === selectedPath,
+  };
+}
+
 export function buildHarnessResumeCommand(
   entry: HarnessCatalogEntry,
   sessionId: string,
@@ -478,7 +544,12 @@ export function evaluateHarnessReadiness(
   const runCommand = options.runCommand ?? ((command: string) => defaultRunCommand(command, platform));
 
   const binary = entry.install?.binary;
-  const binaryPath = binary ? whichBinary(binary) : null;
+  const codexInventory = entry.name === "codex" && !options.whichBinary
+    ? resolveCodexExecutableInventory(env)
+    : null;
+  const binaryPath = codexInventory
+    ? codexInventory.selectedPath
+    : (binary ? whichBinary(binary) : null);
   const verifyCommand = platform === "win32"
     ? entry.install?.verifyWin ?? entry.install?.verify
     : entry.install?.verify;
@@ -539,6 +610,11 @@ export function evaluateHarnessReadiness(
     detail,
     missing,
     binaryPath,
+    binaryVersion: codexInventory?.selected?.version ?? null,
+    binarySource: codexInventory?.selected?.source ?? null,
+    binaryCandidates: codexInventory?.candidates.map((candidate: CodexExecutableCandidate) =>
+      codexCandidateReport(candidate, codexInventory.selectedPath)
+    ),
     loginCommand: readiness?.loginCommand ?? null,
   };
 }

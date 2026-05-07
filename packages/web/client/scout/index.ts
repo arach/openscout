@@ -93,6 +93,14 @@ const intents: AppIntent[] = [
     shortcut: "Cmd+,",
   },
   {
+    commandId: "nav:agent-config",
+    title: "Open Agent Configuration",
+    description:
+      "Open the unified agent configuration surface for runtimes, agents, tools, delivery, and broker state",
+    category: "settings",
+    keywords: ["agent config", "runtimes", "providers", "mcp", "tools"],
+  },
+  {
     commandId: "nav:pair",
     title: "Pair Device",
     description: "Open the device pairing flow to connect a mobile device",

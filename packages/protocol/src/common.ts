@@ -63,6 +63,7 @@ export type DeliveryTransport =
   | "email"
   | "tts"
   | "native_voice"
+  | "claude_channel"
   | "claude_stream_json"
   | "codex_app_server"
   | "codex_exec"

@@ -65,11 +65,11 @@ For a quick Pi-backed headless check against MiniMax:
 bun run pi:minimax -- "Reply exactly: openscout-pi-minimax-ok"
 ```
 
-The helper uses `MINIMAX_API_KEY`, or falls back to `MINIMAX_TOKEN` when that is
-the key already present in the shell. It defaults to `MiniMax-M2.7`; override
+The helper uses a MiniMax key from the shell when one is already present, then
+falls back to the local secret store. It defaults to `MiniMax-M2.7`; override
 with `OPENSCOUT_PI_MINIMAX_MODEL` or `--model` when a different plan/model is
-available. The child process is launched with a minimal environment; the
-MiniMax token alias is converted to `MINIMAX_API_KEY` and is not forwarded.
+available. The child process is launched with a minimal environment; any token
+alias is converted to `MINIMAX_API_KEY` and is not forwarded.
 
 To keep a Pi MiniMax session running behind Scout and attach it as
 `@pi-minimax`:
@@ -84,4 +84,6 @@ bun run pi:minimax:down
 supervisor, starts the broker if needed, and attaches the live pairing session
 to Scout. The pairing config and broker attach payload contain provider/model
 metadata only. The pair supervisor receives a minimal environment, and only the
-Pi adapter child receives `MINIMAX_API_KEY`.
+Pi adapter child receives the provider key. The managed session loads the local
+Pi-Scout extension by default so the Pi runtime has Scout coordination tools;
+pass `--no-pi-scout` when you need a plain Pi/MiniMax session.

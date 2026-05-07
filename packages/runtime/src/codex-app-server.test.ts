@@ -860,7 +860,7 @@ describe("buildCodexAppServerSessionSnapshot", () => {
 });
 
 describe("ensureCodexAppServerAgentOnline", () => {
-  test("prefers standalone Codex CLI candidates before the bundled Codex app binary", () => {
+  test("keeps bundled Codex app candidates before PATH candidates for inventory", () => {
     const candidates = resolveCodexExecutableCandidates({
       HOME: "/Users/tester",
       PATH: ["/custom/bin", "/opt/homebrew/bin"].join(delimiter),
@@ -868,8 +868,8 @@ describe("ensureCodexAppServerAgentOnline", () => {
 
     expect(candidates.indexOf("/custom/bin/codex")).toBeGreaterThan(-1);
     expect(candidates.indexOf("/Applications/Codex.app/Contents/Resources/codex")).toBeGreaterThan(-1);
-    expect(candidates.indexOf("/custom/bin/codex")).toBeLessThan(
-      candidates.indexOf("/Applications/Codex.app/Contents/Resources/codex"),
+    expect(candidates.indexOf("/Applications/Codex.app/Contents/Resources/codex")).toBeLessThan(
+      candidates.indexOf("/custom/bin/codex"),
     );
   });
 

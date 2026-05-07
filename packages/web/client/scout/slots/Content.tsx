@@ -63,7 +63,7 @@ function renderScreen(
         />
       );
     case "settings":
-      return <SettingsScreen navigate={navigate} />;
+      return <SettingsScreen navigate={navigate} section={route.section} agentId={route.agentId} />;
     case "agents":
       return (
         <AgentsScreen

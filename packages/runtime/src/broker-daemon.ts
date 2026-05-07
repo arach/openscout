@@ -3265,7 +3265,7 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
   const requestedHarness = invocation.execution?.harness;
   const sessionPreference = invocation.execution?.session ?? "new";
   const existing = activeLocalEndpointForAgent(invocation.targetAgentId, requestedHarness);
-  if (existing && sessionPreference !== "new") {
+  if (existing && (sessionPreference !== "new" || existing.transport === "pairing_bridge")) {
     return existing;
   }
 

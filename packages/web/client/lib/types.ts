@@ -110,6 +110,93 @@ export type HarnessTopologySnapshot = {
   };
 };
 
+export type AgentConfigurationRuntime = {
+  id: string;
+  label: string;
+  description: string;
+  state: "ready" | "configured" | "installed" | "missing";
+  detail: string;
+  binaryPath: string | null;
+  loginCommand: string | null;
+  capabilities: string[];
+  source: "builtin" | "local";
+};
+
+export type AgentConfigurationProvider = {
+  id: string;
+  name: string;
+  protocol: "openai-compatible";
+  status: "configured" | "missing";
+  baseUrl: string;
+  docsUrl: string;
+  envKeys: string[];
+  note: string;
+};
+
+export type AgentConfigurationAgent = {
+  id: string;
+  name: string;
+  source: "broker";
+  status: string;
+  harness: string | null;
+  transport: string | null;
+  model: string | null;
+  projectRoot: string | null;
+  cwd: string | null;
+  capabilities: string[];
+  conversationId: string;
+};
+
+export type AgentConfigurationProject = {
+  id: string;
+  title: string;
+  root: string;
+  source: string;
+  registrationKind: string;
+  defaultHarness: string;
+  projectConfigPath: string | null;
+};
+
+export type AgentConfigurationIntegration = {
+  id: string;
+  name: string;
+  status: "enabled" | "disabled" | "running" | "error";
+  detail: string;
+  source: "bridge" | "broker" | "system";
+};
+
+export type AgentConfigurationState = {
+  generatedAt: number;
+  context: {
+    currentDirectory: string;
+    workspaceRoots: string[];
+    hiddenProjectCount: number;
+    defaultHarness: string;
+    defaultTransport: string;
+    defaultCapabilities: string[];
+    sessionPrefix: string;
+  };
+  broker: {
+    label: string;
+    reachable: boolean;
+    healthy: boolean;
+    nodeId: string | null;
+    agentCount: number;
+    messageCount: number;
+    error: string | null;
+  };
+  runtimes: AgentConfigurationRuntime[];
+  providers: AgentConfigurationProvider[];
+  agents: AgentConfigurationAgent[];
+  projects: AgentConfigurationProject[];
+  integrations: AgentConfigurationIntegration[];
+  toolContext: {
+    mcpServerCount: number;
+    note: string;
+  };
+  gaps: string[];
+};
+
 export type Message = {
   id: string;
   conversationId: string;
@@ -751,7 +838,7 @@ export type Route =
   | { view: "broker" }
   | { view: "activity" }
   | { view: "work"; workId: string }
-  | { view: "settings" }
+  | { view: "settings"; section?: "agents"; agentId?: string }
   | { view: "ops"; mode?: OpsMode; tailQuery?: string }
   | {
       view: "follow";
