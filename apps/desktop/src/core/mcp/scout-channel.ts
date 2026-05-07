@@ -19,7 +19,7 @@ import {
 } from "../broker/service.ts";
 import { scoutBrokerPaths } from "../broker/paths.ts";
 import { SCOUT_APP_VERSION } from "../../shared/product.ts";
-import type { DeliveryIntent, DeliveryReason, MessageRecord } from "@openscout/protocol";
+import type { AgentEndpoint, DeliveryIntent, DeliveryReason, MessageRecord } from "@openscout/protocol";
 
 type ControlEvent = {
   kind: string;
@@ -196,6 +196,64 @@ async function updateDeliveryStatus(
   );
 }
 
+function scoutChannelEndpointId(agentId: string): string {
+  return `claude-channel:${agentId}:${process.pid}`;
+}
+
+function buildScoutChannelEndpoint(input: {
+  broker: ScoutBrokerContext;
+  agentId: string;
+  currentDirectory: string;
+  state: AgentEndpoint["state"];
+}): AgentEndpoint {
+  const now = Date.now();
+  return {
+    id: scoutChannelEndpointId(input.agentId),
+    agentId: input.agentId,
+    nodeId: input.broker.node.id,
+    harness: "claude",
+    transport: "claude_channel",
+    state: input.state,
+    sessionId: process.env.CLAUDE_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? String(process.pid),
+    cwd: input.currentDirectory,
+    projectRoot: input.currentDirectory,
+    metadata: {
+      source: "scout-channel",
+      processId: process.pid,
+      startedAt: now,
+      lastSeenAt: now,
+    },
+  };
+}
+
+async function upsertScoutChannelEndpoint(input: {
+  broker: ScoutBrokerContext;
+  agentId: string;
+  currentDirectory: string;
+  state: AgentEndpoint["state"];
+}): Promise<void> {
+  await postBrokerJson(input.broker, "/v1/endpoints", buildScoutChannelEndpoint(input));
+}
+
+function startScoutChannelHeartbeat(input: {
+  broker: ScoutBrokerContext;
+  agentId: string;
+  currentDirectory: string;
+  signal: AbortSignal;
+}): void {
+  const heartbeat = async () => {
+    if (input.signal.aborted) return;
+    await upsertScoutChannelEndpoint({ ...input, state: "active" });
+  };
+
+  void heartbeat();
+  const interval = setInterval(() => void heartbeat(), 15_000);
+  input.signal.addEventListener("abort", () => {
+    clearInterval(interval);
+    void upsertScoutChannelEndpoint({ ...input, state: "offline" });
+  }, { once: true });
+}
+
 export async function runScoutChannelServer(options: {
   defaultCurrentDirectory: string;
   env?: NodeJS.ProcessEnv;
@@ -350,6 +408,14 @@ export async function runScoutChannelServer(options: {
   const abortController = new AbortController();
   process.on("SIGINT", () => abortController.abort());
   process.on("SIGTERM", () => abortController.abort());
+  process.on("beforeExit", () => abortController.abort());
+
+  startScoutChannelHeartbeat({
+    broker,
+    agentId,
+    currentDirectory,
+    signal: abortController.signal,
+  });
 
   startBrokerSubscription(
     broker,

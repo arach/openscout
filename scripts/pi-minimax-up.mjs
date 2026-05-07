@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   appendFileSync,
   closeSync,
@@ -27,6 +27,7 @@ const DEFAULT_THINKING = "low";
 const DEFAULT_ALIAS = "@pi-minimax";
 const DEFAULT_NAME = "Pi MiniMax";
 const DEFAULT_TIMEOUT_MS = 30_000;
+const PI_SCOUT_EXTENSION_PATH = join(REPO_ROOT, "extensions", "pi-scout");
 const PAIR_SUPERVISOR_ENV_KEYS = [
   "PATH",
   "HOME",
@@ -58,6 +59,7 @@ Options:
   --alias <alias>       Scout alias to attach (default: ${DEFAULT_ALIAS})
   --name <name>         Session display name (default: ${DEFAULT_NAME})
   --restart             Restart the pair supervisor before starting
+  --no-pi-scout         Do not load the local Pi-Scout extension
   --no-attach           Start the pairing session but skip broker attachment
   --no-broker-start     Do not start the broker service automatically
   --configure-only      Only write ~/.scout/pairing/config.json
@@ -68,6 +70,7 @@ Options:
 Environment:
   MINIMAX_API_KEY       Preferred MiniMax key name used by pi
   MINIMAX_TOKEN         Accepted fallback when MINIMAX_API_KEY is unset
+  macOS Keychain secret Used as fallback when env values are unset
   OPENSCOUT_PI_MINIMAX_MODEL
   OPENSCOUT_PI_MINIMAX_THINKING`);
 }
@@ -80,6 +83,7 @@ function parseArgs(argv) {
     alias: DEFAULT_ALIAS,
     name: DEFAULT_NAME,
     restart: false,
+    piScout: true,
     attach: true,
     brokerStart: true,
     configureOnly: false,
@@ -127,6 +131,9 @@ function parseArgs(argv) {
         break;
       case "--restart":
         options.restart = true;
+        break;
+      case "--no-pi-scout":
+        options.piScout = false;
         break;
       case "--no-attach":
         options.attach = false;
@@ -225,6 +232,7 @@ function writePairingConfig(options) {
           provider: "minimax",
           model: options.model,
           thinking: options.thinking,
+          ...(options.piScout ? { extensions: [PI_SCOUT_EXTENSION_PATH] } : {}),
         },
       },
     },
@@ -299,6 +307,24 @@ function readProcessEnv(key) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function readLocalSecret(key) {
+  try {
+    const value = execFileSync("secret", ["get", key], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return value.length > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveMiniMaxKey() {
+  return readProcessEnv("MINIMAX_API_KEY")
+    || readProcessEnv("MINIMAX_TOKEN")
+    || readLocalSecret("MINIMAX_API_KEY");
+}
+
 function buildPairSupervisorEnv() {
   const env = {};
   for (const key of PAIR_SUPERVISOR_ENV_KEYS) {
@@ -308,9 +334,9 @@ function buildPairSupervisorEnv() {
     }
   }
 
-  const miniMaxKey = readProcessEnv("MINIMAX_API_KEY") || readProcessEnv("MINIMAX_TOKEN");
+  const miniMaxKey = resolveMiniMaxKey();
   if (!miniMaxKey) {
-    throw new Error("Missing MiniMax key. Set MINIMAX_API_KEY or MINIMAX_TOKEN.");
+    throw new Error("Missing MiniMax key. Set it in the shell or local secret store.");
   }
   env.MINIMAX_API_KEY = miniMaxKey;
   return env;

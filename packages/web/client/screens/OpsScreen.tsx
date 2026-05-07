@@ -36,7 +36,6 @@ export function OpsScreen({
   return (
     <div className="s-ops">
       <div className="s-ops-header">
-        <span className="s-ops-header-title">Ops</span>
         <div className="s-ops-tabs">
           {TABS.map((tab) => (
             <button

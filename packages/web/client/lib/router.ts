@@ -162,7 +162,16 @@ export function routeFromUrl(urlLike: string | URL): Route {
     if (targetAgentId) route.targetAgentId = targetAgentId;
     return route;
   }
-  if (parts[0] === "settings") return { view: "settings" };
+  if (parts[0] === "settings") {
+    if (parts[1] === "agents") {
+      return {
+        view: "settings",
+        section: "agents",
+        ...(parts[2] ? { agentId: decodeURIComponent(parts[2]) } : {}),
+      };
+    }
+    return { view: "settings" };
+  }
   if (parts[0] === "terminal") {
     return { view: "terminal", ...(parts[1] ? { agentId: decodeURIComponent(parts[1]) } : {}) };
   }
@@ -246,6 +255,11 @@ export function routePath(r: Route): string {
     case "work":
       return `/work/${encodeURIComponent(r.workId)}`;
     case "settings":
+      if (r.section === "agents") {
+        return r.agentId
+          ? `/settings/agents/${encodeURIComponent(r.agentId)}`
+          : "/settings/agents";
+      }
       return "/settings";
     case "ops":
       if (!r.mode) return "/ops";
@@ -276,6 +290,10 @@ function routeKey(r: Route): string {
       return `conv:${r.conversationId}`;
     case "agent-info":
       return `agent-info:${r.conversationId}`;
+    case "settings":
+      return r.section === "agents"
+        ? `settings:agents:${r.agentId ?? ""}`
+        : "settings";
     case "agents":
       return r.conversationId
         ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}`

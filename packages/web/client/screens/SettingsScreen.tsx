@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
 import type { PairingState, Route } from "../lib/types.ts";
+import { AgentConfigurationScreen } from "./AgentConfigurationScreen.tsx";
 import "./system-surfaces-redesign.css";
 
 function relayHostLabel(input: string | null): string | null {
@@ -58,7 +59,23 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) => void }) {
+export function SettingsScreen({
+  navigate,
+  section,
+  agentId,
+}: {
+  navigate: (r: Route) => void;
+  section?: "agents";
+  agentId?: string;
+}) {
+  if (section === "agents") {
+    return <AgentConfigurationScreen navigate={navigate} selectedAgentId={agentId} />;
+  }
+
+  return <PairingSettingsScreen />;
+}
+
+function PairingSettingsScreen() {
   const [pairing, setPairing] = useState<PairingState | null>(null);
   const [userName, setUserName] = useState("");
   const [savedName, setSavedName] = useState("");

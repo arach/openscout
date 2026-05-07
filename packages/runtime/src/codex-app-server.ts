@@ -1,12 +1,12 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { constants } from "node:fs";
-import { access, appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   buildScoutMcpCodexLaunchArgs,
   CodexObservedTopologyTracker,
   OBSERVED_HARNESS_TOPOLOGY_META_KEY,
+  resolveCodexExecutable,
   type ActionBlock,
   type BlockState,
   type ReasoningBlock,
@@ -17,6 +17,11 @@ import {
 import type { ScoutReplyContext } from "@openscout/protocol";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 import type { CodexApprovalPolicy, CodexSandboxMode } from "./permission-policy.js";
+
+export {
+  resolveCodexExecutableCandidates,
+  resolveCodexExecutableInventory,
+} from "@openscout/agent-sessions";
 
 type CodexRequest = {
   id: string | number;
@@ -388,58 +393,6 @@ function metadataRecord(metadata: Record<string, unknown> | undefined, key: stri
 function metadataNumber(metadata: Record<string, unknown> | undefined, key: string): number | undefined {
   const value = metadata?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-async function isExecutable(filePath: string | undefined): Promise<boolean> {
-  if (!filePath) {
-    return false;
-  }
-
-  try {
-    await access(filePath, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function resolveCodexExecutableCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
-  const explicitCandidates = [
-    env.OPENSCOUT_CODEX_BIN,
-    env.CODEX_BIN,
-  ].filter(Boolean) as string[];
-  const pathEntries = (env.PATH ?? "")
-    .split(delimiter)
-    .filter(Boolean);
-  const commonDirectories = [
-    `${env.HOME ?? ""}/.local/bin`,
-    `${env.HOME ?? ""}/.bun/bin`,
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-  ].filter(Boolean);
-  const pathCandidates = [...pathEntries, ...commonDirectories]
-    .map((directory) => join(directory, "codex"));
-  const bundledCandidates = [
-    "/Applications/Codex.app/Contents/Resources/codex",
-    join(env.HOME ?? "", "Applications", "Codex.app", "Contents", "Resources", "codex"),
-  ].filter(Boolean);
-
-  return Array.from(new Set([
-    ...explicitCandidates,
-    ...pathCandidates,
-    ...bundledCandidates,
-    "codex",
-  ]));
-}
-
-async function resolveCodexExecutable(): Promise<string> {
-  for (const candidate of resolveCodexExecutableCandidates()) {
-    if (candidate === "codex" || await isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  return "codex";
 }
 
 function parseJsonLine(line: string): CodexResponse | CodexNotification | CodexServerRequest | null {
@@ -1817,7 +1770,7 @@ class CodexAppServerSession {
     await mkdir(this.options.logsDirectory, { recursive: true });
     await writeFile(join(this.options.runtimeDirectory, "prompt.txt"), this.options.systemPrompt);
 
-    const codexExecutable = await resolveCodexExecutable();
+    const codexExecutable = resolveCodexExecutable();
     const launchArgs = normalizeCodexAppServerLaunchArgs(this.options.launchArgs);
     const env = buildManagedAgentEnvironment({
       agentName: this.options.agentName,

@@ -48,3 +48,13 @@ export { createAdapter as createOpencodeAdapter } from "./adapters/opencode.js";
 export { createAdapter as createPiAdapter } from "./adapters/pi.js";
 export { createAdapter as createEchoAdapter } from "./adapters/echo.js";
 export { buildScoutMcpCodexLaunchArgs } from "./codex-launch-config.js";
+export {
+  resolveCodexExecutable,
+  resolveCodexExecutableCandidates,
+  resolveCodexExecutableInventory,
+} from "./codex-executable.js";
+export type {
+  CodexExecutableCandidate,
+  CodexExecutableInventory,
+  CodexExecutableSource,
+} from "./codex-executable.js";

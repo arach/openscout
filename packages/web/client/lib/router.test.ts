@@ -63,4 +63,20 @@ describe("agents route parsing", () => {
     });
     expect(routePath(route)).toBe("/ops/tail?q=019ddb1b-test-thread");
   });
+
+  test("agent configuration settings routes round-trip", () => {
+    expect(routeFromUrl("http://127.0.0.1:3200/settings/agents")).toEqual({
+      view: "settings",
+      section: "agents",
+    });
+    expect(routePath({ view: "settings", section: "agents" })).toBe("/settings/agents");
+
+    const detailRoute = routeFromUrl("http://127.0.0.1:3200/settings/agents/openscout-6.main.mini");
+    expect(detailRoute).toEqual({
+      view: "settings",
+      section: "agents",
+      agentId: "openscout-6.main.mini",
+    });
+    expect(routePath(detailRoute)).toBe("/settings/agents/openscout-6.main.mini");
+  });
 });

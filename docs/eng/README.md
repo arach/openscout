@@ -44,6 +44,7 @@ implementation specs.
 - [sco-022-sandboxing-and-cross-harness-permission-model.md](./sco-022-sandboxing-and-cross-harness-permission-model.md)
 - [sco-023-agent-operations-and-run-registry.md](./sco-023-agent-operations-and-run-registry.md)
 - [sco-024-autonomous-issue-workspace-runner.md](./sco-024-autonomous-issue-workspace-runner.md)
+- [sco-025-observer-grade-local-runtime-visibility.md](./sco-025-observer-grade-local-runtime-visibility.md)
 
 ## Operations
 

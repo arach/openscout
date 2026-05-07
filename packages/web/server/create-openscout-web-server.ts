@@ -90,6 +90,7 @@ import {
 import {
   findNearestProjectRoot,
   initializeOpenScoutSetup,
+  loadResolvedRelayAgents,
   readOpenScoutSettings,
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
@@ -110,7 +111,7 @@ function parseConversationKinds(value: string | undefined): ConversationKind[] |
       || kind === "system"
     ));
 }
-import { buildHarnessResumeCommand, findHarnessEntry } from "@openscout/runtime/harness-catalog";
+import { buildHarnessResumeCommand, findHarnessEntry, loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   resolveOpenScoutWebRoutes,
   serializeOpenScoutWebBootstrap,
@@ -1091,6 +1092,135 @@ async function loadPairingState(
     : getScoutWebPairingState(currentDirectory);
 }
 
+const BYOK_PROVIDER_CATALOG = [
+  {
+    id: "minimax",
+    name: "MiniMax",
+    protocol: "openai-compatible",
+    baseUrl: "https://api.minimax.io/v1",
+    docsUrl: "https://platform.minimax.io/docs/token-plan/other-tools",
+    envKeys: ["MINIMAX_API_KEY"],
+    note: "International OpenAI-compatible endpoint. China-region users may need the minimaxi.com base URL override later.",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    protocol: "openai-compatible",
+    baseUrl: "https://openrouter.ai/api/v1",
+    docsUrl: "https://openrouter.ai/docs/quickstart",
+    envKeys: ["OPENROUTER_API_KEY"],
+    note: "Routes many upstream providers behind one key; optional app attribution headers can be added when we wire requests.",
+  },
+  {
+    id: "xai",
+    name: "xAI",
+    protocol: "openai-compatible",
+    baseUrl: "https://api.x.ai/v1",
+    docsUrl: "https://docs.x.ai/developers/model-capabilities/legacy/chat-completions",
+    envKeys: ["XAI_API_KEY"],
+    note: "OpenAI SDK compatible chat completions surface for Grok models.",
+  },
+] as const;
+
+function isProviderConfigured(envKeys: readonly string[]): boolean {
+  return envKeys.some((key) => Boolean(process.env[key]?.trim()));
+}
+
+async function buildAgentConfigurationSnapshot(currentDirectory: string) {
+  const [settingsResult, setupResult, catalogResult, shellResult] = await Promise.allSettled([
+    readOpenScoutSettings({ currentDirectory }),
+    loadResolvedRelayAgents({ currentDirectory }),
+    loadHarnessCatalogSnapshot(),
+    loadOpenScoutWebShellState(),
+  ]);
+  const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
+  const setup = setupResult.status === "fulfilled" ? setupResult.value : null;
+  const catalog = catalogResult.status === "fulfilled" ? catalogResult.value : null;
+  const shell = shellResult.status === "fulfilled" ? shellResult.value.runtime : null;
+  const agents = queryAgents(200);
+
+  return {
+    generatedAt: Date.now(),
+    context: {
+      currentDirectory,
+      workspaceRoots: settings?.discovery.workspaceRoots ?? [],
+      hiddenProjectCount: settings?.discovery.hiddenProjectRoots.length ?? 0,
+      defaultHarness: settings?.agents.defaultHarness ?? "claude",
+      defaultTransport: settings?.agents.defaultTransport ?? "claude_stream_json",
+      defaultCapabilities: settings?.agents.defaultCapabilities ?? [],
+      sessionPrefix: settings?.agents.sessionPrefix ?? "relay",
+    },
+    broker: {
+      label: shell?.brokerLabel ?? "Unavailable",
+      reachable: shell?.brokerReachable ?? false,
+      healthy: shell?.brokerHealthy ?? false,
+      nodeId: shell?.nodeId ?? null,
+      agentCount: shell?.agentCount ?? agents.length,
+      messageCount: shell?.messageCount ?? 0,
+      error: shell?.error ?? null,
+    },
+    runtimes: (catalog?.entries ?? []).map((entry) => ({
+      id: entry.name,
+      label: entry.label,
+      description: entry.description,
+      state: entry.readinessReport.state,
+      detail: entry.readinessReport.detail,
+      binaryPath: entry.readinessReport.binaryPath,
+      loginCommand: entry.readinessReport.loginCommand,
+      capabilities: entry.capabilities,
+      source: entry.source,
+    })),
+    providers: BYOK_PROVIDER_CATALOG.map((provider) => ({
+      ...provider,
+      status: isProviderConfigured(provider.envKeys) ? "configured" as const : "missing" as const,
+      envKeys: [...provider.envKeys],
+    })),
+    agents: agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      source: "broker" as const,
+      status: agent.state ?? "offline",
+      harness: agent.harness,
+      transport: agent.transport,
+      model: agent.model,
+      projectRoot: agent.projectRoot,
+      cwd: agent.cwd,
+      capabilities: agent.capabilities,
+      conversationId: agent.conversationId,
+    })),
+    projects: (setup?.projectInventory ?? []).slice(0, 120).map((project) => ({
+      id: project.agentId,
+      title: project.displayName,
+      root: project.projectRoot,
+      source: project.source,
+      registrationKind: project.registrationKind,
+      defaultHarness: project.defaultHarness,
+      projectConfigPath: project.projectConfigPath,
+    })),
+    integrations: [
+      {
+        id: "telegram",
+        name: "Telegram",
+        status: settings?.bridges.telegram.enabled ? "enabled" as const : "disabled" as const,
+        detail: settings?.bridges.telegram.enabled
+          ? `Mode ${settings.bridges.telegram.mode}; conversation ${settings.bridges.telegram.defaultConversationId}`
+          : "Bridge configured in settings but currently disabled.",
+        source: "bridge" as const,
+      },
+    ],
+    toolContext: {
+      mcpServerCount: 0,
+      note: "MCP/tool context is not yet exposed as a first-class web catalog. Current controls live on individual agent launch args, capabilities, and harness defaults.",
+    },
+    gaps: [
+      "First-class MCP server registry and per-agent tool loadouts",
+      "Secret storage and write flows for provider credentials",
+      "Broker-owned durable unblock records for all human-needed states",
+      "External runtime API-server harness and session adapter",
+    ],
+  };
+}
+
 export async function createOpenScoutWebServer(
   options: CreateOpenScoutWebServerOptions,
 ): Promise<OpenScoutWebServer> {
@@ -1307,6 +1437,9 @@ export async function createOpenScoutWebServer(
     c.json(await shellStateCache.refresh()),
   );
 
+  app.get("/api/agent-config/snapshot", async (c) =>
+    c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
+  );
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/observe/agents", async (c) => {
     const ids = c.req.query("ids")

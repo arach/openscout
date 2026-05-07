@@ -58,16 +58,18 @@ function defaultTransportForActor(actor?: ActorIdentity): DeliveryTransport {
 
 function endpointTransportRank(transport: AgentEndpoint["transport"]): number {
   switch (transport) {
-    case "codex_app_server":
+    case "claude_channel":
       return 0;
-    case "claude_stream_json":
+    case "codex_app_server":
       return 1;
-    case "tmux":
+    case "claude_stream_json":
       return 2;
-    case "local_socket":
+    case "tmux":
       return 3;
-    default:
+    case "local_socket":
       return 4;
+    default:
+      return 5;
   }
 }
 

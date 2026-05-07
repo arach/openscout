@@ -1722,6 +1722,14 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
     return endpoint.state !== "offline";
   }
 
+  if (endpoint.transport === "claude_channel") {
+    if (endpoint.state === "offline") return false;
+    const lastSeenAt = typeof endpoint.metadata?.lastSeenAt === "number"
+      ? endpoint.metadata.lastSeenAt
+      : Number(endpoint.metadata?.lastSeenAt);
+    return Number.isFinite(lastSeenAt) && Date.now() - lastSeenAt < 45_000;
+  }
+
   if (endpoint.transport === "codex_app_server") {
     return isCodexAppServerAgentAlive(buildCodexEndpointSessionOptions(endpoint));
   }

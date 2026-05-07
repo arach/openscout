@@ -15,7 +15,7 @@ describe("harness catalog", () => {
   test("built-in catalog contains the current supported external harnesses", () => {
     const entries = createBuiltInHarnessCatalog();
 
-    expect(entries.map((entry) => entry.name)).toEqual(["claude", "codex", "cursor"]);
+    expect(entries.map((entry) => entry.name)).toEqual(["claude", "codex", "cursor", "pi"]);
     expect(entries[0]?.support.collaboration).toBe(true);
     expect(entries[1]?.support.workspace).toBe(true);
   });
@@ -64,6 +64,22 @@ describe("harness catalog", () => {
       },
       whichBinary: () => "/usr/local/bin/claude",
       requirementExists: () => false,
+    });
+
+    expect(report.state).toBe("ready");
+    expect(report.installed).toBe(true);
+    expect(report.configured).toBe(true);
+    expect(report.ready).toBe(true);
+  });
+
+  test("readiness reports pi ready when binary and auth file are present", () => {
+    const pi = createBuiltInHarnessCatalog().find((entry) => entry.name === "pi");
+    expect(pi).toBeTruthy();
+
+    const report = evaluateHarnessReadiness(pi!, {
+      env: {},
+      whichBinary: () => "/usr/local/bin/pi",
+      requirementExists: (requirement) => requirement.path === "~/.pi/agent/auth.json",
     });
 
     expect(report.state).toBe("ready");

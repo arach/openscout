@@ -10,19 +10,12 @@
 .s-ops-header {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 14px;
   padding: 0 20px;
   height: 44px;
   flex: none;
   border-bottom: 1px solid var(--border);
-}
-
-.s-ops-header-title {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--muted);
 }
 
 .s-ops-tabs {

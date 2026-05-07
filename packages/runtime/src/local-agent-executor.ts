@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { access, constants, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 
+import { resolveCodexExecutable } from "@openscout/agent-sessions";
 import type {
   AgentDefinition,
   AgentEndpoint,
@@ -30,50 +31,6 @@ function metadataValue(
 
 function metadataString(endpoint: AgentEndpoint, key: string): string | undefined {
   return metadataValue(endpoint.metadata, key);
-}
-
-async function isExecutable(filePath: string | undefined): Promise<boolean> {
-  if (!filePath) return false;
-
-  try {
-    await access(filePath, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function resolveCodexExecutable(endpoint: AgentEndpoint): Promise<string> {
-  const explicitCandidates = [
-    metadataString(endpoint, "commandPath"),
-    process.env.OPENSCOUT_CODEX_BIN,
-    process.env.CODEX_BIN,
-  ].filter(Boolean) as string[];
-
-  for (const candidate of explicitCandidates) {
-    if (await isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  const pathEntries = (process.env.PATH ?? "")
-    .split(delimiter)
-    .filter(Boolean);
-  const commonDirectories = [
-    `${process.env.HOME ?? ""}/.local/bin`,
-    `${process.env.HOME ?? ""}/.bun/bin`,
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-  ].filter(Boolean);
-
-  for (const directory of [...pathEntries, ...commonDirectories]) {
-    const candidate = join(directory, "codex");
-    if (await isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  throw new Error("Codex executable is unavailable for local agent execution.");
 }
 
 function roleGuidance(agent: AgentDefinition): string {
@@ -127,11 +84,19 @@ function buildPrompt(agent: AgentDefinition, invocation: InvocationRequest): str
     .join("\n");
 }
 
+function buildCodexExecutionEnv(endpoint: AgentEndpoint): NodeJS.ProcessEnv {
+  const commandPath = metadataString(endpoint, "commandPath");
+  return commandPath
+    ? { ...process.env, OPENSCOUT_CODEX_BIN: commandPath }
+    : process.env;
+}
+
 export async function runLocalCodexInvocation(
   options: LocalCodexInvocationOptions,
 ): Promise<{ output: string }> {
   const { agent, endpoint, invocation } = options;
-  const codexExecutable = await resolveCodexExecutable(endpoint);
+  const childEnv = buildCodexExecutionEnv(endpoint);
+  const codexExecutable = resolveCodexExecutable(childEnv);
   const workingDirectory = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
   const tempDirectory = await mkdtemp(join(tmpdir(), "openscout-agent-"));
   const outputPath = join(tempDirectory, "last-message.txt");
@@ -155,7 +120,7 @@ export async function runLocalCodexInvocation(
     const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr: string }>((resolve, reject) => {
       const child = spawn(codexExecutable, args, {
         cwd: workingDirectory,
-        env: process.env,
+        env: childEnv,
         stdio: ["ignore", "pipe", "pipe"],
       });
 

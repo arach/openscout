@@ -6,6 +6,7 @@ import type { FlightRecord, ScoutDeliverResponse } from "@openscout/protocol";
 import { brokerClient } from "./broker/client.ts";
 import { createScoutSendTool } from "./tools/send.ts";
 import { createScoutAskTool } from "./tools/ask.ts";
+import { createMiniMaxLyricsTool } from "./tools/lyrics.ts";
 import { createScoutWhoTool } from "./tools/who.ts";
 import { AgentPickerOverlay } from "./ui/agent-picker.ts";
 import { ComposeOverlay } from "./ui/compose.ts";
@@ -20,6 +21,7 @@ export default function registerPiScoutExtension(pi: ExtensionAPI) {
   // ─── Tools ──────────────────────────────────────────────────────────────
   pi.registerTool(createScoutSendTool(runtime));
   pi.registerTool(createScoutAskTool(runtime));
+  pi.registerTool(createMiniMaxLyricsTool(runtime));
   pi.registerTool(createScoutWhoTool(runtime));
 
   // ─── Commands ───────────────────────────────────────────────────────────
