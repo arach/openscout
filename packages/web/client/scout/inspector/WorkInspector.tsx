@@ -1,16 +1,15 @@
+import { MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { api } from "../../lib/api.ts";
-import { dismissOperatorAttention } from "../../lib/operator-attention.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { WorkDetail } from "../../lib/types.ts";
 
 export function WorkInspector() {
-  const { route } = useScout();
+  const { route, navigate } = useScout();
   const workId = route.view === "work" ? route.workId : null;
   const [detail, setDetail] = useState<WorkDetail | null>(null);
-  const [dismissing, setDismissing] = useState(false);
 
   const load = useCallback(async () => {
     if (!workId) {
@@ -34,21 +33,6 @@ export function WorkInspector() {
     void load();
   });
 
-  const dismissAttention = useCallback(async () => {
-    if (!detail) return;
-    setDismissing(true);
-    try {
-      await dismissOperatorAttention({
-        recordKind: "work_item",
-        recordId: detail.id,
-        itemUpdatedAt: detail.updatedAt,
-      });
-      await load();
-    } finally {
-      setDismissing(false);
-    }
-  }, [detail, load]);
-
   if (route.view !== "work") return null;
 
   if (!detail) {
@@ -60,6 +44,7 @@ export function WorkInspector() {
   }
 
   const stateColor = stateToColor(detail.state);
+  const nextMove = inspectorNextMove(detail);
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
@@ -71,6 +56,27 @@ export function WorkInspector() {
           {detail.title}
         </div>
       </div>
+
+      <Section label="Network signal">
+        <div className="text-[12px] leading-snug text-[var(--scout-chrome-ink-strong)]">
+          {nextMove.title}
+        </div>
+        <div className="mt-1 text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+          {nextMove.detail}
+        </div>
+        <div className="mt-2 flex flex-col gap-2">
+          {detail.conversationId && (
+            <button
+              type="button"
+              onClick={() => navigate({ view: "conversation", conversationId: detail.conversationId! })}
+              className="inline-flex items-center justify-center gap-1.5 rounded border border-cyan-400/25 bg-cyan-400/10 px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300/90 hover:bg-cyan-400/15"
+            >
+              <MessageSquare aria-hidden="true" size={12} strokeWidth={1.8} />
+              Open thread
+            </button>
+          )}
+        </div>
+      </Section>
 
       <Section label="State">
         <div className="flex items-baseline gap-2">
@@ -100,32 +106,21 @@ export function WorkInspector() {
         )}
       </Section>
 
-      {detail.attention !== "silent" && (
-        <div className="flex flex-col gap-2">
-          <div
-            className={`text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-sm ${
-              detail.attention === "interrupt"
-                ? "text-red-300/90 bg-red-500/10 border border-red-500/20"
-                : "text-amber-300/90 bg-amber-500/10 border border-amber-500/20"
-            }`}
-          >
-            {detail.attention === "interrupt" ? "Interrupt" : "Needs attention"}
-          </div>
-          <button
-            type="button"
-            disabled={dismissing}
-            onClick={() => void dismissAttention()}
-            className="rounded border border-[var(--scout-chrome-border-soft)] px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {dismissing ? "Dismissing" : "Dismiss attention"}
-          </button>
-        </div>
-      )}
-
       {detail.lastMeaningfulSummary && (
-        <Section label="Latest">
+        <Section label="Hudson context">
           <div className="text-[11px] italic leading-relaxed text-[var(--scout-chrome-ink-soft)]">
             {detail.lastMeaningfulSummary}
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              Plan
+            </span>
+            <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              Docs
+            </span>
+            <span className="rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              Code
+            </span>
           </div>
         </Section>
       )}
@@ -149,6 +144,45 @@ function stateToColor(state: string): { dot: string; text: string } {
   return {
     dot: "bg-[var(--scout-chrome-ink-faint)]",
     text: "text-[var(--scout-chrome-ink)]",
+  };
+}
+
+function inspectorNextMove(detail: WorkDetail): { title: string; detail: string } {
+  const owner = detail.ownerName ?? detail.ownerId ?? "Unassigned";
+  const nextOwner = detail.nextMoveOwnerName ?? detail.nextMoveOwnerId ?? owner;
+  const accountable = nextOwner === "Unassigned" ? owner : nextOwner;
+
+  if (detail.attention === "interrupt") {
+    return {
+      title: `Blocker surfaced for ${accountable}`,
+      detail: detail.conversationId ? "Open only if you want context." : "Record has the blocking context.",
+    };
+  }
+
+  if (detail.attention === "badge") {
+    return {
+      title: `Plan activity from ${accountable}`,
+      detail: detail.conversationId ? "Plan/spec discussion in the agent network." : "No thread is attached yet.",
+    };
+  }
+
+  if (detail.activeFlights.length > 0 || detail.state === "working") {
+    return {
+      title: `${owner} is working`,
+      detail: detail.conversationId ? "Thread has live context." : "Timeline will update next.",
+    };
+  }
+
+  if (detail.state === "done") {
+    return {
+      title: "Work is done",
+      detail: detail.conversationId ? "Thread has final context." : "Record is preserved here.",
+    };
+  }
+
+  return {
+    title: nextOwner === "Unassigned" ? "No next owner set" : `Waiting on ${nextOwner}`,
+    detail: detail.conversationId ? "Thread has current context." : "Record and timeline are current.",
   };
 }
 

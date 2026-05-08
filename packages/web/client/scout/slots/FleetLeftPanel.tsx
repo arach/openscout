@@ -47,11 +47,11 @@ export function ScoutFleetLeftPanel() {
     <div className="ctx-panel">
       <section className="ctx-panel-section">
         <div className="ctx-panel-section-label">
-          Needs you
+          Signals
           {needs.length > 0 && <span className="ctx-panel-count">{needs.length}</span>}
         </div>
         {needs.length === 0 ? (
-          <div className="ctx-panel-empty">All clear</div>
+          <div className="ctx-panel-empty">No network signals</div>
         ) : (
           <div className="ctx-panel-list">
             {needs.map((item) => (

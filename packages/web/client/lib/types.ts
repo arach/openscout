@@ -806,6 +806,117 @@ export type WorkTimelineItem = {
   conversationId: string | null;
 };
 
+export type WorkInventoryMode =
+  | "isolated-git-worktree"
+  | "shared-git-repo"
+  | "trace-only"
+  | "explicit-artifacts";
+
+export type WorkInventorySource = "broker" | "git" | "trace" | "mixed";
+export type WorkInventoryConfidence = "high" | "medium" | "low";
+
+export type WorkMaterialKind =
+  | "plan"
+  | "spec"
+  | "doc"
+  | "code"
+  | "test"
+  | "config"
+  | "asset"
+  | "other";
+
+export type WorkMaterialStatus =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "untracked"
+  | "observed";
+
+export type WorkMaterialEvidence =
+  | "broker"
+  | "git-status"
+  | "git-diff"
+  | "trace-read"
+  | "trace-write"
+  | "trace-edit"
+  | "trace-command"
+  | "inferred-path";
+
+export type WorkInventoryAgentRef = {
+  id: string;
+  name: string | null;
+  role: "owner" | "next-move" | "runner" | "session" | "observed-helper";
+  harness: string | null;
+  cwd: string | null;
+  projectRoot: string | null;
+  sessionId: string | null;
+  source: "broker" | "run" | "session" | "observe-topology";
+};
+
+export type WorkInventorySessionRef = {
+  id: string;
+  conversationId: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  harness: string | null;
+  cwd: string | null;
+  source: "conversation" | "run-trace" | "observe";
+};
+
+export type WorkMaterial = {
+  id: string;
+  kind: WorkMaterialKind;
+  path: string;
+  status: WorkMaterialStatus;
+  agentId: string | null;
+  sessionId: string | null;
+  worktreeRoot: string | null;
+  scopePath: string | null;
+  baseRef: string | null;
+  headRef: string | null;
+  diffStat: { additions: number; deletions: number } | null;
+  evidence: WorkMaterialEvidence[];
+  confidence: WorkInventoryConfidence;
+};
+
+export type WorkMaterialsInventory = {
+  workId: string;
+  generatedAt: number;
+  mode: WorkInventoryMode;
+  source: WorkInventorySource;
+  confidence: WorkInventoryConfidence;
+  agents: WorkInventoryAgentRef[];
+  sessions: WorkInventorySessionRef[];
+  materials: WorkMaterial[];
+  totals: {
+    materials: number;
+    plans: number;
+    specs: number;
+    docs: number;
+    code: number;
+    tests: number;
+    config: number;
+    assets: number;
+    agents: number;
+    sessions: number;
+  };
+  limitations: string[];
+};
+
+export type WorkMaterialContent = {
+  workId: string;
+  materialId: string;
+  path: string;
+  title: string;
+  uri: string;
+  mediaType: string;
+  content: string;
+  sizeBytes: number;
+  truncated: boolean;
+  generatedAt: number;
+};
+
 export type WorkDetail = WorkItem & {
   createdAt: number;
   updatedAt: number;
@@ -814,6 +925,7 @@ export type WorkDetail = WorkItem & {
   childWork: WorkItem[];
   activeFlights: Flight[];
   timeline: WorkTimelineItem[];
+  inventory?: WorkMaterialsInventory;
 };
 
 export type Route =

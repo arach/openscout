@@ -460,17 +460,17 @@ export function HomeScreen({
           </div>
         </div>
 
-        {/* ── Needs you ──────────────────────────────────────────── */}
+        {/* ── Network signals ─────────────────────────────────────── */}
         <div className="s-fleet-section" id="home-needs-you">
           <SectionRule
-            label={`Needs you · ${totalOperatorQueue}`}
+            label={`Network signals · ${totalOperatorQueue}`}
             right={
               totalOperatorQueue > 0 && oldestNeedsTs !== null ? (
                 <span style={{ color: "var(--amber)" }}>
                   oldest {timeAgo(oldestNeedsTs)}
                 </span>
               ) : (
-                "clear"
+                "quiet"
               )
             }
           />
@@ -1166,17 +1166,19 @@ function AttentionRow({
     item.kind === "question" ? "question" : item.state.replace(/_/g, " ");
   const responseLabel =
     item.acceptanceState !== "none"
-      ? item.acceptanceState.replace(/_/g, " ")
+      ? item.kind === "question"
+        ? item.acceptanceState.replace(/_/g, " ")
+        : "agent-owned"
       : item.kind === "question"
         ? "awaiting answer"
-        : "your move";
+        : "surfaced";
   const actionLabel =
     item.kind === "question"
       ? "answer"
       : item.state === "review"
-        ? "review"
+        ? "view plan"
         : item.acceptanceState === "pending"
-          ? "acknowledge"
+          ? "view signal"
           : "open work";
 
   return (

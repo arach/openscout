@@ -1589,6 +1589,109 @@ describe("web db query work item by id", () => {
     }
   });
 
+  test("keeps direct-message inferred flights scoped to work owners", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "agent-2",
+        kind: "agent",
+        displayName: "Agent Two",
+      });
+      store.upsertAgent({
+        id: "agent-2",
+        kind: "agent",
+        definitionId: "agent-2",
+        displayName: "Agent Two",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "dm.operator.agent-1",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-1", "operator"],
+      });
+      store.recordCollaborationRecord({
+        id: "work-inferred-direct",
+        kind: "work_item",
+        title: "Direct inferred work",
+        createdById: "operator",
+        ownerId: "agent-1",
+        nextMoveOwnerId: "operator",
+        conversationId: "dm.operator.agent-1",
+        state: "working",
+        acceptanceState: "none",
+        requestedById: "operator",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      });
+      store.recordInvocation({
+        id: "inv-inferred-owner",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Work on the direct item",
+        conversationId: "dm.operator.agent-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1_010,
+      });
+      store.recordFlight({
+        id: "flight-inferred-owner",
+        invocationId: "inv-inferred-owner",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Owner finished the work.",
+        startedAt: 1_020,
+        completedAt: 1_030,
+      });
+      store.recordInvocation({
+        id: "inv-inferred-other-agent",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-2",
+        action: "consult",
+        task: "Unrelated direct ask",
+        conversationId: "dm.operator.agent-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1_040,
+      });
+      store.recordFlight({
+        id: "flight-inferred-other-agent",
+        invocationId: "inv-inferred-other-agent",
+        requesterId: "operator",
+        targetAgentId: "agent-2",
+        state: "completed",
+        summary: "Unrelated reply.",
+        startedAt: 1_050,
+        completedAt: 1_060,
+      });
+
+      const detail = queryWorkItemById("work-inferred-direct");
+      expect(detail).not.toBeNull();
+      if (!detail) throw new Error("missing detail");
+
+      const inferredFlightIds = detail.timeline
+        .filter((item) => item.id.startsWith("inferred-flight:"))
+        .map((item) => item.flightId);
+      expect(inferredFlightIds).toContain("flight-inferred-owner");
+      expect(inferredFlightIds).not.toContain("flight-inferred-other-agent");
+    } finally {
+      store.close();
+    }
+  });
+
   test("returns null for unknown id", () => {
     const store = createSeededStore();
     try {

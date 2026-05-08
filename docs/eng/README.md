@@ -48,6 +48,7 @@ implementation specs.
 - [sco-026-harness-instantiation-contract.md](./sco-026-harness-instantiation-contract.md)
 - [sco-026-scout-comms-grammar-and-semantic-hints.md](./sco-026-scout-comms-grammar-and-semantic-hints.md)
 - [sco-027-durable-action-ledger.md](./sco-027-durable-action-ledger.md)
+- [sco-028-work-materials-inventory.md](./sco-028-work-materials-inventory.md)
 
 ## Operations
 

@@ -680,6 +680,18 @@ describe("askScoutQuestion", () => {
     });
 
     const captured = {
+      postedDeliver: null as {
+        caller?: { actorId?: string };
+        body: string;
+        collaborationRecordId?: string;
+        workItem?: {
+          id?: string;
+          title?: string;
+          summary?: string;
+        };
+        messageMetadata?: Record<string, unknown>;
+        invocationMetadata?: Record<string, unknown>;
+      } | null,
       postedRecord: null as {
         id: string;
         kind: string;
@@ -726,7 +738,9 @@ describe("askScoutQuestion", () => {
         return jsonResponse({ ok: true });
       }
       if (request.method === "POST" && url.pathname === "/v1/deliver") {
-        const body = (await request.json()) as { requesterId: string; body: string };
+        const body = (await request.json()) as NonNullable<typeof captured.postedDeliver>;
+        captured.postedDeliver = body;
+        const requesterId = body.caller?.actorId ?? "operator";
         return jsonResponse({
           kind: "delivery",
           accepted: true,
@@ -742,7 +756,7 @@ describe("askScoutQuestion", () => {
           message: {
             id: "msg-1",
             conversationId: "dm.operator.talkie",
-            actorId: body.requesterId,
+            actorId: requesterId,
             originNodeId: "node-1",
             class: "agent",
             body: body.body,
@@ -754,7 +768,7 @@ describe("askScoutQuestion", () => {
           flight: {
             id: "flt-1",
             invocationId: "inv-1",
-            requesterId: body.requesterId,
+            requesterId,
             targetAgentId: "talkie.main.mini",
             state: "running",
           },
@@ -793,7 +807,13 @@ describe("askScoutQuestion", () => {
     expect(result.usedBroker).toBe(true);
     expect(result.workItem?.id.startsWith("work-")).toBe(true);
     expect(result.workItem?.title).toBe("Build the talkie feature");
+    expect(captured.postedDeliver?.collaborationRecordId).toBe(result.workItem?.id);
+    expect(captured.postedDeliver?.workItem?.id).toBe(result.workItem?.id);
+    expect(captured.postedDeliver?.workItem?.title).toBe("Build the talkie feature");
+    expect(captured.postedDeliver?.messageMetadata?.collaborationRecordId).toBe(result.workItem?.id);
+    expect(captured.postedDeliver?.invocationMetadata?.collaborationRecordId).toBe(result.workItem?.id);
     expect(captured.postedRecord?.kind).toBe("work_item");
+    expect(captured.postedRecord?.id).toBe(result.workItem?.id);
     expect(captured.postedRecord?.ownerId).toBe("talkie.main.mini");
     expect(captured.postedEvent?.recordId).toBe(result.workItem?.id);
     expect(captured.postedEvent?.kind).toBe("created");

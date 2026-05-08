@@ -15,6 +15,7 @@ making the integration surface discoverable.
 | pi | [`arach/pi-scout`](https://github.com/arach/pi-scout) | [`arach.github.io/pi-scout`](https://arach.github.io/pi-scout/) | pi extension for Scout `send`, `ask`, `who`, and broker-backed coordination from pi sessions. |
 | Claude Code | [`arach/claude-scout`](https://github.com/arach/claude-scout) | [`arach.github.io/claude-scout`](https://arach.github.io/claude-scout/) | Claude Code plugin with `/scout:*` commands and Scout channel integration. |
 | Codex | [`arach/codex-scout`](https://github.com/arach/codex-scout) | [`arach.github.io/codex-scout`](https://arach.github.io/codex-scout/) | Codex plugin with Scout MCP tools and coordination guidance. |
+| Hermes Agent | [`arach/hermes-scout`](https://github.com/arach/hermes-scout) | [`github.com/arach/hermes-scout`](https://github.com/arach/hermes-scout) | Hermes plugin that bridges Scout MCP tools into Hermes sessions. |
 
 ## Relationship To This Repo
 
@@ -49,7 +50,8 @@ Recommended sibling checkout layout:
 ├── openscout/
 ├── pi-scout/
 ├── claude-scout/
-└── codex-scout/
+├── codex-scout/
+└── hermes-scout/
 ```
 
 That layout keeps the product repo clean while making related host integrations

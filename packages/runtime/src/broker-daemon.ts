@@ -21,6 +21,7 @@ import {
   type AgentEndpoint,
   type CollaborationEvent,
   type CollaborationRecord,
+  type CollaborationPriority,
   type ControlCommand,
   type ControlEvent,
   type ConversationBinding,
@@ -1197,15 +1198,29 @@ async function recordFlightDurably(flight: FlightRecord): Promise<void> {
       { enqueueProjection: false },
     );
     await applyProjectedEntries(entries);
+  });
+
+  const invocation = knownInvocations.get(flight.invocationId)
+    ?? runtime.snapshot().invocations[flight.invocationId];
+  if (invocation && isTerminalFlightState(flight.state)) {
     try {
-      await maybeForwardFlightToAuthority(flight);
+      await promoteInvocationFlightToWork(invocation, flight, flight.output ?? flight.error ?? flight.summary);
     } catch (error) {
       console.warn(
-        `[openscout-runtime] failed to forward flight ${flight.id} to conversation authority:`,
+        `[openscout-runtime] failed to update work item for flight ${flight.id}:`,
         error instanceof Error ? error.message : String(error),
       );
     }
-  });
+  }
+
+  try {
+    await maybeForwardFlightToAuthority(flight);
+  } catch (error) {
+    console.warn(
+      `[openscout-runtime] failed to forward flight ${flight.id} to conversation authority:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 async function recordDeliveryDurably(delivery: DeliveryIntent): Promise<void> {
@@ -1564,6 +1579,10 @@ await upsertActorDurably(systemActor);
 
 function isWorkingFlightState(state: FlightRecord["state"]): boolean {
   return state === "queued" || state === "waking" || state === "running" || state === "waiting";
+}
+
+function isTerminalFlightState(state: FlightRecord["state"]): boolean {
+  return state === "completed" || state === "failed" || state === "cancelled";
 }
 
 function flightTimestamp(flight: FlightRecord): number {
@@ -5454,6 +5473,319 @@ function buildDeliveryReceipt(input: {
   };
 }
 
+function invocationCollaborationRecordId(invocation: InvocationRequest): string | undefined {
+  const nested = invocation.context?.["collaboration"];
+  const nestedRecordId =
+    nested && typeof nested === "object" && !Array.isArray(nested)
+      ? metadataStringValue(nested as Record<string, unknown>, "recordId")
+      : undefined;
+  return invocation.collaborationRecordId?.trim()
+    || metadataStringValue(invocation.metadata, "collaborationRecordId")
+    || metadataStringValue(invocation.context, "collaborationRecordId")
+    || nestedRecordId
+    || undefined;
+}
+
+function compactWorkSummary(value: string | undefined, maxLength = 320): string | undefined {
+  const normalized = value
+    ?.replace(/\s+/gu, " ")
+    .trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function buildDeliveryWorkItem(input: {
+  payload: ScoutDeliverRequest;
+  requestId: string;
+  requesterId: string;
+  targetAgentId: string;
+  conversationId: string;
+  createdAt: number;
+}): CollaborationRecord | null {
+  const workItem = input.payload.workItem;
+  if (!workItem?.title?.trim()) {
+    return null;
+  }
+  const source =
+    metadataStringValue(input.payload.invocationMetadata, "source")
+    || metadataStringValue(input.payload.messageMetadata, "source")
+    || "broker-delivery";
+  const recordId = workItem.id?.trim()
+    || input.payload.collaborationRecordId?.trim()
+    || createRuntimeId("work");
+  return {
+    id: recordId,
+    kind: "work_item",
+    state: "working",
+    acceptanceState: workItem.acceptanceState ?? "pending",
+    title: workItem.title.trim(),
+    ...(workItem.summary?.trim() ? { summary: workItem.summary.trim() } : {}),
+    createdById: input.requesterId,
+    ownerId: input.targetAgentId,
+    nextMoveOwnerId: input.targetAgentId,
+    conversationId: input.conversationId,
+    ...(workItem.parentId?.trim() ? { parentId: workItem.parentId.trim() } : {}),
+    ...(workItem.priority ? { priority: workItem.priority as CollaborationPriority } : {}),
+    ...(workItem.labels?.length ? { labels: workItem.labels.map((label) => label.trim()).filter(Boolean) } : {}),
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt,
+    requestedById: input.requesterId,
+    startedAt: input.createdAt,
+    metadata: {
+      source,
+      ...(workItem.metadata ?? {}),
+      deliveryRequestId: input.requestId,
+    },
+  };
+}
+
+type DeliveryWorkItemResolution = {
+  record: CollaborationRecord | null;
+  collaborationRecordId?: string;
+};
+
+function normalizeComparableDeliveryValue(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeComparableDeliveryValue(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, normalizeComparableDeliveryValue(entry)] as const),
+    );
+  }
+  return value;
+}
+
+function sameDeliveryWorkItemValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(normalizeComparableDeliveryValue(left))
+    === JSON.stringify(normalizeComparableDeliveryValue(right));
+}
+
+function sameDeliveryWorkItemLabels(left: string[] | undefined, right: string[] | undefined): boolean {
+  return sameDeliveryWorkItemValue(left ?? [], right ?? []);
+}
+
+function metadataContainsDeliveryWorkItemValues(
+  existing: Record<string, unknown> | undefined,
+  expected: Record<string, unknown> | undefined,
+): boolean {
+  for (const [key, value] of Object.entries(expected ?? {})) {
+    if (value === undefined) {
+      continue;
+    }
+    if (!sameDeliveryWorkItemValue(existing?.[key], value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function existingDeliveryWorkItemMatches(
+  existing: CollaborationRecord,
+  proposed: CollaborationRecord,
+): boolean {
+  if (existing.kind !== "work_item" || proposed.kind !== "work_item") {
+    return false;
+  }
+
+  return existing.title === proposed.title
+    && (existing.summary ?? "") === (proposed.summary ?? "")
+    && existing.acceptanceState === proposed.acceptanceState
+    && existing.createdById === proposed.createdById
+    && existing.ownerId === proposed.ownerId
+    && existing.nextMoveOwnerId === proposed.nextMoveOwnerId
+    && existing.conversationId === proposed.conversationId
+    && existing.parentId === proposed.parentId
+    && existing.priority === proposed.priority
+    && sameDeliveryWorkItemLabels(existing.labels, proposed.labels)
+    && existing.requestedById === proposed.requestedById
+    && metadataContainsDeliveryWorkItemValues(existing.metadata, proposed.metadata);
+}
+
+function buildDeliveryWorkItemCreatedEvent(
+  record: CollaborationRecord,
+  input: {
+    payload: ScoutDeliverRequest;
+    requestId: string;
+    requesterId: string;
+    createdAt: number;
+  },
+): CollaborationEvent {
+  return {
+    id: createRuntimeId("evt"),
+    recordId: record.id,
+    recordKind: "work_item",
+    kind: "created",
+    actorId: input.requesterId,
+    at: input.createdAt,
+    summary: record.summary ?? record.title,
+    metadata: {
+      source: metadataStringValue(record.metadata, "source") ?? "broker-delivery",
+      deliveryRequestId: input.requestId,
+    },
+  };
+}
+
+async function recordDeliveryWorkItemIfNeeded(input: {
+  payload: ScoutDeliverRequest;
+  requestId: string;
+  requesterId: string;
+  targetAgentId: string;
+  conversationId: string;
+  createdAt: number;
+}): Promise<DeliveryWorkItemResolution> {
+  const record = buildDeliveryWorkItem(input);
+  if (!record) {
+    const collaborationRecordId = input.payload.collaborationRecordId?.trim();
+    return {
+      record: null,
+      ...(collaborationRecordId ? { collaborationRecordId } : {}),
+    };
+  }
+
+  const result = await runDurableWrite(async (): Promise<DeliveryWorkItemResolution & { entries?: BrokerJournalEntry[] }> => {
+    const existing = runtime.collaborationRecord(record.id);
+    if (existing) {
+      if (existingDeliveryWorkItemMatches(existing, record)) {
+        return {
+          record: existing,
+          collaborationRecordId: existing.id,
+        };
+      }
+      return { record: null };
+    }
+
+    const event = buildDeliveryWorkItemCreatedEvent(record, input);
+    assertValidCollaborationRecord(record);
+    assertValidCollaborationEvent(event, record);
+    const entries = await commitDurableEntries(
+      [
+        { kind: "collaboration.record", record },
+        { kind: "collaboration.event.record", event },
+      ],
+      async (retainedEntries) => {
+        for (const entry of retainedEntries) {
+          if (entry.kind === "collaboration.record") {
+            await runtime.upsertCollaboration(entry.record);
+          } else if (entry.kind === "collaboration.event.record") {
+            await runtime.appendCollaborationEvent(entry.event);
+          }
+        }
+      },
+      { enqueueProjection: false },
+    );
+    return {
+      record,
+      collaborationRecordId: record.id,
+      entries,
+    };
+  });
+
+  if (result.entries) {
+    await applyProjectedEntries(result.entries);
+  }
+  return {
+    record: result.record,
+    ...(result.collaborationRecordId ? { collaborationRecordId: result.collaborationRecordId } : {}),
+  };
+}
+
+function deliveryWorkItemResolutionForTell(payload: ScoutDeliverRequest): DeliveryWorkItemResolution {
+  const collaborationRecordId = payload.collaborationRecordId?.trim();
+  return {
+    record: null,
+    ...(collaborationRecordId ? { collaborationRecordId } : {}),
+  };
+}
+
+async function promoteInvocationFlightToWork(
+  invocation: InvocationRequest,
+  flight: FlightRecord,
+  output: string | undefined,
+): Promise<void> {
+  const workId = invocationCollaborationRecordId(invocation);
+  if (!workId) {
+    return;
+  }
+  const record = runtime.collaborationRecord(workId);
+  if (!record || record.kind !== "work_item") {
+    return;
+  }
+  if (record.state === "done" || record.state === "cancelled") {
+    return;
+  }
+
+  const now = flight.completedAt ?? Date.now();
+  const nextState = flight.state === "completed"
+    ? "done"
+    : flight.state === "cancelled"
+    ? "cancelled"
+    : "waiting";
+  const nextEventKind = flight.state === "completed"
+    ? "done"
+    : flight.state === "cancelled"
+    ? "cancelled"
+    : "waiting";
+  const summary = compactWorkSummary(output)
+    ?? compactWorkSummary(flight.output)
+    ?? compactWorkSummary(flight.error)
+    ?? compactWorkSummary(flight.summary)
+    ?? `${flight.targetAgentId} completed.`;
+  const nextRecord: CollaborationRecord = {
+    ...record,
+    state: nextState,
+    summary: record.summary ?? summary,
+    updatedAt: now,
+    progress: {
+      ...(record.progress ?? {}),
+      summary,
+      completedSteps: flight.state === "completed" ? 1 : record.progress?.completedSteps,
+      totalSteps: flight.state === "completed" ? 1 : record.progress?.totalSteps,
+    },
+    ...(flight.state === "completed" ? { completedAt: record.completedAt ?? now } : {}),
+    metadata: {
+      ...(record.metadata ?? {}),
+      lastInvocationId: invocation.id,
+      lastFlightId: flight.id,
+      lastFlightState: flight.state,
+    },
+  };
+
+  const recordEntries = await recordCollaborationDurably(nextRecord, {
+    enqueueProjection: false,
+  });
+  const eventEntries = await appendCollaborationEventDurably({
+    id: createRuntimeId("evt"),
+    recordId: nextRecord.id,
+    recordKind: "work_item",
+    kind: nextEventKind,
+    actorId: flight.targetAgentId,
+    at: now,
+    summary,
+    metadata: {
+      source: "broker",
+      invocationId: invocation.id,
+      flightId: flight.id,
+      flightState: flight.state,
+      conversationId: invocation.conversationId,
+      messageId: invocation.messageId,
+    },
+  }, {
+    enqueueProjection: false,
+  });
+  await applyProjectedEntries([...recordEntries, ...eventEntries]);
+}
+
 type OperatorDeliveryIssueKind = "unassigned_scout" | "rejected" | "unavailable";
 
 let loggedMissingOperatorDeliveryApnsCredentials = false;
@@ -5765,6 +6097,18 @@ async function acceptBrokerDelivery(
     targetAgentId: resolved.agent.id,
     channel: deliveryChannel,
   });
+  const workResolution = payload.intent === "consult"
+    ? await recordDeliveryWorkItemIfNeeded({
+        payload,
+        requestId,
+        requesterId,
+        targetAgentId: resolved.agent.id,
+        conversationId: conversation.id,
+        createdAt,
+      })
+    : deliveryWorkItemResolutionForTell(payload);
+  const workRecord = workResolution.record;
+  const collaborationRecordId = workResolution.collaborationRecordId;
   const snapshot = runtime.snapshot();
   const messageId = createRuntimeId("msg");
   const targetLabel = brokerTargetLabel(resolved.agent);
@@ -5792,6 +6136,7 @@ async function acceptBrokerDelivery(
       relayTarget: resolved.agent.id,
       relayTargetIds: [resolved.agent.id],
       relayMessageId: messageId,
+      ...(collaborationRecordId ? { collaborationRecordId, workId: collaborationRecordId } : {}),
       returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
         conversationId: conversation.id,
         replyToMessageId: messageId,
@@ -5819,6 +6164,7 @@ async function acceptBrokerDelivery(
       conversation,
       message,
       targetAgentId: resolved.agent.id,
+      ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),
     };
   }
 
@@ -5829,7 +6175,7 @@ async function acceptBrokerDelivery(
     targetAgentId: resolved.agent.id,
     action: "consult",
     task: payload.body.trim(),
-    ...(payload.collaborationRecordId ? { collaborationRecordId: payload.collaborationRecordId } : {}),
+    ...(collaborationRecordId ? { collaborationRecordId } : {}),
     conversationId: conversation.id,
     messageId,
     execution: payload.execution,
@@ -5840,7 +6186,7 @@ async function acceptBrokerDelivery(
       ...(payload.invocationMetadata ?? {}),
       relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
-      ...(payload.collaborationRecordId ? { collaborationRecordId: payload.collaborationRecordId } : {}),
+      ...(collaborationRecordId ? { collaborationRecordId, workId: collaborationRecordId } : {}),
       returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
         conversationId: conversation.id,
         replyToMessageId: messageId,
@@ -5873,6 +6219,7 @@ async function acceptBrokerDelivery(
     targetAgentId: resolved.agent.id,
     bindingRef,
     flight,
+    ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),
   };
 }
 

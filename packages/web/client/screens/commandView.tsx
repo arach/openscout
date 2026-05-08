@@ -450,8 +450,8 @@ function routeKeyForAction(route: Route): string {
 
 function actionLabelForAttention(item: FleetAttentionItem): string {
   if (item.kind === "question") return "Answer";
-  if (item.state === "review") return "Review";
-  if (item.acceptanceState === "pending") return "Acknowledge";
+  if (item.state === "review") return "View plan";
+  if (item.acceptanceState === "pending") return "View signal";
   return "Open work";
 }
 
@@ -501,14 +501,6 @@ function actionsForAttention(item: FleetAttentionItem): CommandAction[] {
       actions.push({ label: "Open agent", route: { view: "agents", agentId: item.agentId } });
     }
   }
-  actions.push({
-    label: "Dismiss attention",
-    dismiss: {
-      recordKind: item.kind,
-      recordId: item.recordId,
-      itemUpdatedAt: item.updatedAt,
-    },
-  });
   return actions;
 }
 
@@ -542,7 +534,7 @@ function attentionItem(item: FleetAttentionItem): CommandItem {
     key: `attention:${item.recordId}`,
     lane: "attention",
     severity: isQuestion ? "critical" : "warning",
-    pill: isQuestion ? "Needs answer" : "Needs input",
+    pill: isQuestion ? "Needs answer" : "Network signal",
     title: item.title || "Unresolved work",
     summary: summarize(item.summary, 140),
     agentId: item.agentId,
@@ -893,14 +885,14 @@ export function CommandView({
       <header className="s-warroom-command">
         <div className="s-warroom-command-main">
           <div className="s-warroom-title">Command</div>
-          <div className="s-warroom-subtitle">Live fleet attention, message flow, and handoffs.</div>
+          <div className="s-warroom-subtitle">Live fleet signals, message flow, and handoffs.</div>
           <div className="s-warroom-statusline">
             Freshness {freshness} / Local time {formatClock(nowMs)}
           </div>
           {actionError && <div className="s-warroom-action-error">{actionError}</div>}
         </div>
         <div className="s-warroom-kpis">
-          <Kpi label="Action needed" value={String(actionNeededCount)} detail={formatCueCount(queueItems.length)} warn={actionNeededCount > 0} hot={urgentCueCount > 0} />
+          <Kpi label="Signals" value={String(actionNeededCount)} detail={formatCueCount(queueItems.length)} warn={actionNeededCount > 0} hot={urgentCueCount > 0} />
           <Kpi label="Online" value={`${onlineCount}/${agents.length}`} detail="agents" warn={onlineCount < agents.length} />
           <Kpi label="Messages" value={String(eventsInWindow)} detail={`last ${formatWindow(flowWindowMs)}`} />
         </div>
@@ -929,7 +921,7 @@ export function CommandView({
 
         <main className="s-warroom-board">
           <section className="s-warroom-center-section s-warroom-center-section--attention">
-            <SectionHead title="Attention" meta={queueItems.length === 0 ? "clear" : formatCueCount(queueItems.length)} />
+            <SectionHead title="Signals" meta={queueItems.length === 0 ? "quiet" : formatCueCount(queueItems.length)} />
             <CommandStack
               queueItems={queueItems}
               selectedKey={selectedItem?.key ?? null}
@@ -985,7 +977,7 @@ export function CommandView({
               busyActionKey={busyActionKey}
             />
           ) : (
-            <div className="s-warroom-empty">Select an attention item or message flow for detail.</div>
+            <div className="s-warroom-empty">Select a network signal or message flow for detail.</div>
           )}
         </aside>
       </div>
@@ -1230,18 +1222,18 @@ function CommandStack({
   return (
     <div className="s-warroom-command-stack">
       <div className="s-warroom-readiness">
-        <div className="s-warroom-readiness-mark">{queueItems.length === 0 ? "CLEAR" : "ACTION"}</div>
+        <div className="s-warroom-readiness-mark">{queueItems.length === 0 ? "QUIET" : "SIGNAL"}</div>
         <div className="s-warroom-readiness-body">
           {queueItems.length === 0
-            ? "No action items are blocking the fleet. The topology remains the primary signal."
-            : "Operator action is available for each cue below."}
+            ? "No plan, spec, or unblock signals are currently surfaced. The topology remains the primary signal."
+            : "Interesting plan, spec, or unblock activity is visible below."}
         </div>
       </div>
 
       {queueItems.length > 0 && (
         <>
           <div className="s-warroom-section-head s-warroom-section-head--tight">
-            <div className="s-warroom-section-title">Attention Cue</div>
+            <div className="s-warroom-section-title">Network Signal</div>
             <div className="s-warroom-section-meta">{formatCueCount(queueItems.length)}</div>
           </div>
           <div className="s-warroom-queue-list">

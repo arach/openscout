@@ -61,6 +61,7 @@ type SurfaceShot = {
 type IntegrationCard = {
   host: string;
   name: string;
+  mark: string;
   repoHref: string;
   pageHref: string;
   description: string;
@@ -223,6 +224,7 @@ const hostIntegrations: IntegrationCard[] = [
   {
     host: "Codex",
     name: "Codex Scout",
+    mark: "CX",
     repoHref: "https://github.com/arach/codex-scout",
     pageHref: "https://arach.github.io/codex-scout/",
     description:
@@ -232,6 +234,7 @@ const hostIntegrations: IntegrationCard[] = [
   {
     host: "Claude Code",
     name: "Claude Scout",
+    mark: "CL",
     repoHref: "https://github.com/arach/claude-scout",
     pageHref: "https://arach.github.io/claude-scout/",
     description:
@@ -241,11 +244,22 @@ const hostIntegrations: IntegrationCard[] = [
   {
     host: "pi",
     name: "Pi Scout",
+    mark: "PI",
     repoHref: "https://github.com/arach/pi-scout",
     pageHref: "https://arach.github.io/pi-scout/",
     description:
       "pi extension for Scout send, ask, who, and broker-backed coordination from pi sessions.",
     install: "pi install git:github.com/arach/pi-scout",
+  },
+  {
+    host: "Hermes Agent",
+    name: "Hermes Scout",
+    mark: "HS",
+    repoHref: "https://github.com/arach/hermes-scout",
+    pageHref: "https://github.com/arach/hermes-scout",
+    description:
+      "Hermes plugin that exposes Scout MCP tools for identity, messaging, asks, replies, and work updates.",
+    install: "hermes plugins install arach/hermes-scout",
   },
 ];
 
@@ -1119,9 +1133,9 @@ export default function Home() {
                     Scout where agents already work.
                   </h2>
                   <p className="rfc-section-lead">
-                    Thin host packages connect Codex, Claude Code, and pi to the same
-                    local broker. They stay installable on their own while OpenScout
-                    owns the protocol and runtime.
+                    Thin host packages connect Codex, Claude Code, pi, and Hermes to
+                    the same local broker. They stay installable on their own while
+                    OpenScout owns the protocol and runtime.
                   </p>
                   <Link
                     href="/docs/integrations"
@@ -1133,16 +1147,21 @@ export default function Home() {
                   </Link>
                 </div>
 
-                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 md:grid-cols-3">
+                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 md:grid-cols-2 xl:grid-cols-4">
                   {hostIntegrations.map((integration, i) => (
                     <div
                       key={integration.repoHref}
-                      className="reveal rfc-block group"
+                      className="reveal rfc-block integration-block group"
                       style={{ "--reveal-i": i } as React.CSSProperties}
                     >
-                      <div className="rfc-block__num">
-                        <span className="rfc-block__num-mark">§4.{i + 1}</span>{" "}
-                        · {integration.host}
+                      <div className="integration-block__header">
+                        <span className="integration-block__mark" aria-hidden="true">
+                          {integration.mark}
+                        </span>
+                        <div className="rfc-block__num">
+                          <span className="rfc-block__num-mark">§4.{i + 1}</span>{" "}
+                          · {integration.host}
+                        </div>
                       </div>
                       <h3 className="rfc-block__title transition-colors group-hover:text-[var(--site-accent)]">
                         {integration.name}
