@@ -74,6 +74,7 @@ import {
   loadOpenScoutWebShellState,
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
+import { buildWorkMaterialsInventory, readWorkMaterialContent } from "./work-materials.ts";
 import { ensureOpenScoutVoxOrigins, synthesizeVoxSpeech } from "./vox.ts";
 import {
   loadUserConfig,
@@ -1577,17 +1578,53 @@ export async function createOpenScoutWebServer(
       }),
     );
   };
-  const handleWorkDetail = (c: Context) => {
+  const handleWorkDetail = async (c: Context) => {
     const workId = c.req.param("id");
     if (!workId) {
       return c.json({ error: "id is required" }, 400);
     }
     const detail = queryWorkItemById(workId);
-    return detail ? c.json(detail) : c.json({ error: "not found" }, 404);
+    if (!detail) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const inventory = await buildWorkMaterialsInventory(detail);
+    return c.json({ ...detail, inventory });
+  };
+  const handleWorkInventory = async (c: Context) => {
+    const workId = c.req.param("id");
+    if (!workId) {
+      return c.json({ error: "id is required" }, 400);
+    }
+    const detail = queryWorkItemById(workId);
+    if (!detail) {
+      return c.json({ error: "not found" }, 404);
+    }
+    return c.json(await buildWorkMaterialsInventory(detail));
+  };
+  const handleWorkMaterialContent = async (c: Context) => {
+    const workId = c.req.param("id");
+    const materialId = c.req.query("materialId");
+    if (!workId) {
+      return c.json({ error: "id is required" }, 400);
+    }
+    if (!materialId) {
+      return c.json({ error: "materialId is required" }, 400);
+    }
+    const detail = queryWorkItemById(workId);
+    if (!detail) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const result = await readWorkMaterialContent(detail, materialId);
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status as 400 | 403 | 404 | 410 | 415);
+    }
+    return c.json(result.content);
   };
   app.get("/api/work", handleListWork);
   app.get("/api/tasks", handleListWork);
   app.get("/api/work/:id", handleWorkDetail);
+  app.get("/api/work/:id/inventory", handleWorkInventory);
+  app.get("/api/work/:id/material", handleWorkMaterialContent);
   app.get("/api/tasks/:id", handleWorkDetail);
   app.get("/api/runs", (c) => {
     const agentId = c.req.query("agentId");

@@ -27,9 +27,9 @@ function stateLabel(state: string): string {
 function attentionLabel(attention: WorkItem["attention"]): string | null {
   switch (attention) {
     case "badge":
-      return "Needs attention";
+      return "Noteworthy";
     case "interrupt":
-      return "Blocked";
+      return "Blocked signal";
     default:
       return null;
   }
@@ -49,8 +49,6 @@ export function WorkList({
   navigate,
   emptyTitle,
   emptyDetail,
-  onDismissAttention,
-  dismissingId = null,
 }: WorkListProps) {
   if (items.length === 0) {
     const placeholderRows = [
@@ -133,21 +131,6 @@ export function WorkList({
             </div>
             {work.lastMeaningfulSummary && (
               <p className="s-work-row-summary">{renderWithMentions(work.lastMeaningfulSummary)}</p>
-            )}
-            {attention && onDismissAttention && (
-              <div className="s-work-row-actions">
-                <button
-                  type="button"
-                  className="s-work-row-action"
-                  disabled={dismissingId === work.id}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDismissAttention(work);
-                  }}
-                >
-                  {dismissingId === work.id ? "Dismissing" : "Dismiss attention"}
-                </button>
-              </div>
             )}
           </div>
         );

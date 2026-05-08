@@ -1287,6 +1287,294 @@ describe("broker daemon comms layer", () => {
     expect(followup.receipt?.bindingRef).toBe(followup.bindingRef);
   }, 15_000);
 
+  test("links broker delivery work items to invocations and terminal flights", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const createdAt = Date.now();
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      conversation?: { id: string };
+      message?: { id: string; metadata?: Record<string, unknown> };
+      flight?: { id: string; invocationId: string; targetAgentId: string; state: string };
+      workItem?: {
+        id: string;
+        kind: string;
+        state: string;
+        title: string;
+        ownerId?: string;
+        nextMoveOwnerId?: string;
+        conversationId?: string;
+      };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-work-test-1",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@fabric",
+      },
+      body: "@fabric review the Hudson plan",
+      intent: "consult",
+      createdAt,
+      collaborationRecordId: "work-delivery-test-1",
+      workItem: {
+        id: "work-delivery-test-1",
+        title: "Review the Hudson plan",
+        summary: "Track the delegated plan review.",
+        priority: "high",
+        labels: ["plan"],
+        metadata: {
+          source: "test",
+        },
+      },
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.workItem).toEqual(expect.objectContaining({
+      id: "work-delivery-test-1",
+      kind: "work_item",
+      state: "working",
+      title: "Review the Hudson plan",
+      ownerId: "fabric",
+      nextMoveOwnerId: "fabric",
+      conversationId: response.conversation?.id,
+    }));
+    expect(response.flight?.invocationId).toBeDefined();
+
+    const linkedSnapshot = await getJson<{
+      messages: Record<string, { metadata?: Record<string, unknown> }>;
+      invocations: Record<string, { collaborationRecordId?: string; metadata?: Record<string, unknown> }>;
+      collaborationRecords: Record<string, { id: string; state: string; progress?: { summary?: string } }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const invocation = linkedSnapshot.invocations[response.flight!.invocationId];
+    const message = linkedSnapshot.messages[response.message!.id];
+    expect(invocation?.collaborationRecordId).toBe("work-delivery-test-1");
+    expect(invocation?.metadata?.collaborationRecordId).toBe("work-delivery-test-1");
+    expect(message?.metadata?.collaborationRecordId).toBe("work-delivery-test-1");
+    expect(linkedSnapshot.collaborationRecords["work-delivery-test-1"]?.state).toBe("working");
+
+    await postJson(harness.baseUrl, "/v1/flights", {
+      id: response.flight!.id,
+      invocationId: response.flight!.invocationId,
+      requesterId: "operator",
+      targetAgentId: "fabric",
+      state: "completed",
+      summary: "Fabric replied.",
+      output: "Plan review complete.",
+      startedAt: createdAt,
+      completedAt: createdAt + 1000,
+    });
+
+    const completedSnapshot = await getJson<{
+      collaborationRecords: Record<string, { state: string; completedAt?: number; progress?: { summary?: string; completedSteps?: number; totalSteps?: number } }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(completedSnapshot.collaborationRecords["work-delivery-test-1"]).toEqual(expect.objectContaining({
+      state: "done",
+      completedAt: createdAt + 1000,
+    }));
+    expect(completedSnapshot.collaborationRecords["work-delivery-test-1"]?.progress).toEqual(expect.objectContaining({
+      summary: "Plan review complete.",
+      completedSteps: 1,
+      totalSteps: 1,
+    }));
+  }, 15_000);
+
+  test("reuses duplicate delivery work items without appending another created event", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const createdAt = Date.now();
+    const payload = {
+      id: "deliver-work-idempotent-1",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@fabric",
+      },
+      body: "@fabric retry-safe review",
+      intent: "consult",
+      createdAt,
+      collaborationRecordId: "work-delivery-idempotent-1",
+      workItem: {
+        id: "work-delivery-idempotent-1",
+        title: "Retry-safe review",
+        summary: "Track a delivery retry without duplicating work.",
+        priority: "normal",
+        labels: ["retry"],
+        metadata: {
+          source: "test",
+        },
+      },
+    };
+
+    const first = await postJson<{
+      flight?: { id: string; invocationId: string };
+      workItem?: { id: string; state: string; title: string };
+    }>(harness.baseUrl, "/v1/deliver", payload);
+    expect(first.workItem).toEqual(expect.objectContaining({
+      id: "work-delivery-idempotent-1",
+      state: "working",
+      title: "Retry-safe review",
+    }));
+
+    await postJson(harness.baseUrl, "/v1/flights", {
+      id: first.flight!.id,
+      invocationId: first.flight!.invocationId,
+      requesterId: "operator",
+      targetAgentId: "fabric",
+      state: "completed",
+      summary: "Fabric replied.",
+      output: "Retry-safe review complete.",
+      startedAt: createdAt,
+      completedAt: createdAt + 500,
+    });
+
+    const duplicate = await postJson<{
+      message?: { id: string; metadata?: Record<string, unknown> };
+      flight?: { id: string; invocationId: string };
+      workItem?: { id: string; state: string; title: string };
+    }>(harness.baseUrl, "/v1/deliver", payload);
+
+    expect(duplicate.workItem).toEqual(expect.objectContaining({
+      id: "work-delivery-idempotent-1",
+      state: "done",
+      title: "Retry-safe review",
+    }));
+
+    const snapshot = await getJson<{
+      invocations: Record<string, { collaborationRecordId?: string; metadata?: Record<string, unknown> }>;
+      collaborationRecords: Record<string, { state: string; title: string; completedAt?: number }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(snapshot.collaborationRecords["work-delivery-idempotent-1"]).toEqual(expect.objectContaining({
+      state: "done",
+      title: "Retry-safe review",
+      completedAt: createdAt + 500,
+    }));
+    expect(snapshot.invocations[duplicate.flight!.invocationId]?.collaborationRecordId).toBe("work-delivery-idempotent-1");
+
+    const events = await getJson<Array<{ recordId: string; kind: string }>>(
+      harness.baseUrl,
+      "/v1/collaboration/events?recordId=work-delivery-idempotent-1&limit=20",
+    );
+    expect(events.filter((event) => event.kind === "created")).toHaveLength(1);
+  }, 15_000);
+
+  test("does not overwrite or link conflicting delivery work item ids", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const createdAt = Date.now();
+    await postJson(harness.baseUrl, "/v1/collaboration/records", {
+      id: "work-delivery-conflict-1",
+      kind: "work_item",
+      state: "waiting",
+      acceptanceState: "accepted",
+      title: "Existing owned work",
+      summary: "Keep this state intact.",
+      createdById: "operator",
+      ownerId: "operator",
+      nextMoveOwnerId: "operator",
+      requestedById: "operator",
+      waitingOn: {
+        kind: "actor",
+        label: "operator follow-up",
+        targetId: "operator",
+      },
+      conversationId: "channel.shared",
+      priority: "high",
+      labels: ["existing"],
+      createdAt,
+      updatedAt: createdAt,
+      metadata: {
+        source: "seed",
+        deliveryRequestId: "deliver-original-conflict-source",
+      },
+    });
+    await postJson(harness.baseUrl, "/v1/collaboration/events", {
+      id: "evt-work-delivery-conflict-created",
+      recordId: "work-delivery-conflict-1",
+      recordKind: "work_item",
+      kind: "created",
+      actorId: "operator",
+      at: createdAt,
+      summary: "Existing owned work",
+      metadata: {
+        source: "seed",
+        deliveryRequestId: "deliver-original-conflict-source",
+      },
+    });
+
+    const response = await postJson<{
+      message?: { id: string; metadata?: Record<string, unknown> };
+      flight?: { invocationId: string };
+      workItem?: { id: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-original-conflict-source",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@fabric",
+      },
+      body: "@fabric try to claim the existing id",
+      intent: "consult",
+      createdAt: createdAt + 100,
+      collaborationRecordId: "work-delivery-conflict-1",
+      workItem: {
+        id: "work-delivery-conflict-1",
+        title: "Conflicting replacement title",
+        summary: "This should not replace the existing record.",
+        priority: "low",
+        labels: ["replacement"],
+        metadata: {
+          source: "replacement",
+          deliveryRequestId: "deliver-original-conflict-source",
+        },
+      },
+    });
+
+    expect(response.workItem).toBeUndefined();
+    expect(response.message?.metadata?.collaborationRecordId).toBeUndefined();
+
+    const snapshot = await getJson<{
+      invocations: Record<string, { collaborationRecordId?: string; metadata?: Record<string, unknown> }>;
+      collaborationRecords: Record<string, {
+        state: string;
+        title: string;
+        ownerId?: string;
+        nextMoveOwnerId?: string;
+        priority?: string;
+        labels?: string[];
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(snapshot.invocations[response.flight!.invocationId]?.collaborationRecordId).toBeUndefined();
+    expect(snapshot.invocations[response.flight!.invocationId]?.metadata?.collaborationRecordId).toBeUndefined();
+    expect(snapshot.collaborationRecords["work-delivery-conflict-1"]).toEqual(expect.objectContaining({
+      state: "waiting",
+      title: "Existing owned work",
+      ownerId: "operator",
+      nextMoveOwnerId: "operator",
+      priority: "high",
+      labels: ["existing"],
+    }));
+
+    const events = await getJson<Array<{ recordId: string; kind: string }>>(
+      harness.baseUrl,
+      "/v1/collaboration/events?recordId=work-delivery-conflict-1&limit=20",
+    );
+    expect(events.filter((event) => event.kind === "created")).toHaveLength(1);
+  }, 15_000);
+
   test("routes local Scout product labels without exposing the coordinator name", async () => {
     const harness = await startBroker();
 

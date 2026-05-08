@@ -800,7 +800,7 @@ export function queryBrokerDiagnostics(opts?: {
   }));
 
   const successfulDispatches: WebBrokerRouteAttempt[] = messageRows
-    .map((row) => {
+    .map((row): WebBrokerRouteAttempt | null => {
       const metadata = parseJson<Record<string, unknown> | null>(row.metadata_json, null);
       if (!isBrokerRoutedMessage(metadata)) {
         return null;
@@ -827,7 +827,7 @@ export function queryBrokerDiagnostics(opts?: {
         },
       };
     })
-    .filter((item): item is WebBrokerRouteAttempt => Boolean(item));
+    .filter((item): item is WebBrokerRouteAttempt => item !== null);
 
   const dispatchRows = db()
     .prepare(
@@ -1676,7 +1676,13 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
     activeOnly: true,
   });
 
-  const timeline = queryWorkTimeline(row.id);
+  const timeline = queryWorkTimeline(row.id, {
+    conversationId: row.conversation_id,
+    ownerId: row.owner_id,
+    nextMoveOwnerId: row.next_move_owner_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
 
   return {
     ...base,
@@ -1737,7 +1743,16 @@ function queryWorkItemShallow(id: string): WebWorkItem | null {
   return row ? projectWorkItemRow(row) : null;
 }
 
-function queryWorkTimeline(workId: string): WebWorkTimelineItem[] {
+function queryWorkTimeline(
+  workId: string,
+  context?: {
+    conversationId?: string | null;
+    ownerId?: string | null;
+    nextMoveOwnerId?: string | null;
+    createdAt?: number | null;
+    updatedAt?: number | null;
+  },
+): WebWorkTimelineItem[] {
   const items: WebWorkTimelineItem[] = [];
 
   const events = db().prepare(
@@ -1772,6 +1787,7 @@ function queryWorkTimeline(workId: string): WebWorkTimelineItem[] {
     });
   }
 
+  const explicitFlightIds = new Set<string>();
   const flights = db().prepare(
     `SELECT f.id, f.state, f.summary, f.started_at, f.completed_at,
             f.target_agent_id,
@@ -1792,6 +1808,7 @@ function queryWorkTimeline(workId: string): WebWorkTimelineItem[] {
     agent_name: string | null;
   }>;
   for (const f of flights) {
+    explicitFlightIds.add(f.id);
     if (typeof f.started_at === "number") {
       items.push({
         id: `flight:${f.id}:started`,
@@ -1824,8 +1841,121 @@ function queryWorkTimeline(workId: string): WebWorkTimelineItem[] {
     }
   }
 
+  if (flights.length === 0 && context?.conversationId) {
+    const inferredFlights = queryInferredWorkTimelineFlights(context, explicitFlightIds);
+    for (const f of inferredFlights) {
+      if (typeof f.started_at === "number") {
+        items.push({
+          id: `inferred-flight:${f.id}:started`,
+          kind: "flight_started",
+          at: f.started_at,
+          actorId: f.target_agent_id,
+          actorName: f.agent_name,
+          title: "related flight started",
+          summary: f.summary,
+          detailKind: `${f.state}:inferred`,
+          flightId: f.id,
+          messageId: f.message_id,
+          conversationId: f.conversation_id,
+        });
+      }
+      if (typeof f.completed_at === "number") {
+        items.push({
+          id: `inferred-flight:${f.id}:completed`,
+          kind: "flight_completed",
+          at: f.completed_at,
+          actorId: f.target_agent_id,
+          actorName: f.agent_name,
+          title: `related flight ${f.state}`,
+          summary: f.summary,
+          detailKind: `${f.state}:inferred`,
+          flightId: f.id,
+          messageId: f.message_id,
+          conversationId: f.conversation_id,
+        });
+      }
+    }
+  }
+
   items.sort((left, right) => right.at - left.at);
   return items.slice(0, 80);
+}
+
+function queryInferredWorkTimelineFlights(
+  context: {
+    conversationId?: string | null;
+    ownerId?: string | null;
+    nextMoveOwnerId?: string | null;
+    createdAt?: number | null;
+    updatedAt?: number | null;
+  },
+  explicitFlightIds: Set<string>,
+): Array<{
+  id: string;
+  state: string;
+  summary: string | null;
+  started_at: number | null;
+  completed_at: number | null;
+  target_agent_id: string;
+  agent_name: string | null;
+  conversation_id: string | null;
+  message_id: string | null;
+}> {
+  if (!context.conversationId) {
+    return [];
+  }
+  const conversationIds = conversationIdAliases(context.conversationId);
+  if (conversationIds.length === 0) {
+    return [];
+  }
+
+  const createdAt = typeof context.createdAt === "number" ? context.createdAt : 0;
+  const lowerBound = Math.max(0, createdAt - 30_000);
+  const upperBound = Math.max(
+    typeof context.updatedAt === "number" ? context.updatedAt : createdAt,
+    createdAt + 6 * 60 * 60 * 1000,
+  );
+  const ownerIds = Array.from(new Set([
+    context.ownerId?.trim(),
+    context.nextMoveOwnerId?.trim(),
+  ].filter((value): value is string => Boolean(value))));
+  const ownerClause = ownerIds.length > 0
+    ? `(inv.target_agent_id IN (${sqlPlaceholders(ownerIds.length)}) OR f.target_agent_id IN (${sqlPlaceholders(ownerIds.length)}))`
+    : null;
+
+  const rows = db().prepare(
+    `SELECT f.id, f.state, f.summary, f.started_at, f.completed_at,
+            f.target_agent_id,
+            inv.conversation_id,
+            inv.message_id,
+            ac.display_name AS agent_name
+     FROM flights f
+     JOIN invocations inv ON inv.id = f.invocation_id
+     LEFT JOIN actors ac ON ac.id = f.target_agent_id
+     WHERE inv.collaboration_record_id IS NULL
+       AND inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})
+       AND inv.created_at BETWEEN ? AND ?
+       ${ownerClause ? `AND ${ownerClause}` : ""}
+     ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+     LIMIT 20`,
+  ).all(
+    ...conversationIds,
+    lowerBound,
+    upperBound,
+    ...(ownerClause ? [...ownerIds, ...ownerIds] : []),
+  ) as Array<{
+    id: string;
+    state: string;
+    summary: string | null;
+    started_at: number | null;
+    completed_at: number | null;
+    target_agent_id: string;
+    agent_name: string | null;
+    conversation_id: string | null;
+    message_id: string | null;
+  }>;
+
+  return rows.filter((row) => !explicitFlightIds.has(row.id));
 }
 
 export function queryWorkItems(opts?: {

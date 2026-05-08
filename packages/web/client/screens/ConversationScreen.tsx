@@ -558,7 +558,7 @@ function ChannelRail({
       <div className="s-thread-rail-scroll">
         {needsYouSessions.length > 0 && (
           <div className="s-thread-rail-section s-thread-rail-section--needs-you">
-            <div className="s-thread-rail-section-label">Needs you</div>
+            <div className="s-thread-rail-section-label">Signals</div>
             {needsYouSessions.map((session) => (
               <RailItem
                 key={`needs-${session.id}`}

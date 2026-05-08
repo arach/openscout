@@ -1709,8 +1709,9 @@ async function createScoutTrackedWorkItem(input: {
   createdAtMs: number;
   source: string;
   workItem: ScoutWorkItemInput;
+  recordId?: string;
 }): Promise<ScoutTrackedWorkItem> {
-  const recordId = buildScoutEntityId("work", input.createdAtMs);
+  const recordId = input.recordId?.trim() || buildScoutEntityId("work", input.createdAtMs);
   const record: CollaborationRecord = {
     id: recordId,
     kind: "work_item",
@@ -2786,6 +2787,10 @@ export async function askScoutAgentById(input: {
   if (!targetAgentId) {
     return { usedBroker: true, unresolvedTargetId: input.targetAgentId };
   }
+  const workRecordId = input.workItem ? buildScoutEntityId("work", createdAtMs) : undefined;
+  const deliveryWorkItem = input.workItem && workRecordId
+    ? { id: workRecordId, ...input.workItem }
+    : undefined;
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     caller: {
       actorId: senderId,
@@ -2802,6 +2807,7 @@ export async function askScoutAgentById(input: {
     intent: "consult",
     channel: input.channel,
     speechText: input.shouldSpeak ? input.body.trim() : undefined,
+    ...(deliveryWorkItem ? { collaborationRecordId: workRecordId, workItem: deliveryWorkItem } : {}),
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
       session: "new",
@@ -2809,9 +2815,11 @@ export async function askScoutAgentById(input: {
     ensureAwake: true,
     messageMetadata: {
       source,
+      ...(workRecordId ? { collaborationRecordId: workRecordId, workId: workRecordId } : {}),
     },
     invocationMetadata: {
       source,
+      ...(workRecordId ? { collaborationRecordId: workRecordId, workId: workRecordId } : {}),
     },
   });
   if (delivery.kind !== "delivery") {
@@ -2821,7 +2829,9 @@ export async function askScoutAgentById(input: {
       targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
     };
   }
-  const workItem = input.workItem
+  const workItem = delivery.workItem
+    ? createTrackedWorkItemSummary(delivery.workItem)
+    : input.workItem
     ? await createScoutTrackedWorkItem({
         baseUrl: broker.baseUrl,
         senderId,
@@ -2830,6 +2840,7 @@ export async function askScoutAgentById(input: {
         createdAtMs,
         source,
         workItem: input.workItem,
+        recordId: workRecordId,
       })
     : undefined;
 
@@ -2876,6 +2887,10 @@ export async function askScoutQuestion(input: {
     ? { kind: "binding_ref" as const, ref: targetRef }
     : { kind: "agent_label" as const, label: input.targetLabel };
   const renderedTarget = targetRef ? `ref:${targetRef}` : input.targetLabel;
+  const workRecordId = input.workItem ? buildScoutEntityId("work", createdAt) : undefined;
+  const deliveryWorkItem = input.workItem && workRecordId
+    ? { id: workRecordId, ...input.workItem }
+    : undefined;
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     caller: {
       actorId: senderId,
@@ -2891,6 +2906,7 @@ export async function askScoutQuestion(input: {
     speechText: input.shouldSpeak
       ? stripScoutAgentSelectorLabels(messageBody)
       : undefined,
+    ...(deliveryWorkItem ? { collaborationRecordId: workRecordId, workItem: deliveryWorkItem } : {}),
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
       session: targetRef ? "existing" : "new",
@@ -2898,9 +2914,11 @@ export async function askScoutQuestion(input: {
     ensureAwake: true,
     messageMetadata: {
       source,
+      ...(workRecordId ? { collaborationRecordId: workRecordId, workId: workRecordId } : {}),
     },
     invocationMetadata: {
       source,
+      ...(workRecordId ? { collaborationRecordId: workRecordId, workId: workRecordId } : {}),
     },
   });
 
@@ -2912,7 +2930,9 @@ export async function askScoutQuestion(input: {
     };
   }
 
-  const workItem = input.workItem && delivery.targetAgentId
+  const workItem = delivery.workItem
+    ? createTrackedWorkItemSummary(delivery.workItem)
+    : input.workItem && delivery.targetAgentId
     ? await createScoutTrackedWorkItem({
         baseUrl: broker.baseUrl,
         senderId,
@@ -2921,6 +2941,7 @@ export async function askScoutQuestion(input: {
         createdAtMs: createdAt,
         source,
         workItem: input.workItem,
+        recordId: workRecordId,
       })
     : undefined;
 

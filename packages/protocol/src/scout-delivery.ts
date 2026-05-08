@@ -1,5 +1,10 @@
 import type { ConversationDefinition } from "./conversations.js";
 import type { MetadataMap, ScoutId } from "./common.js";
+import type {
+  CollaborationAcceptanceState,
+  CollaborationPriority,
+  WorkItemRecord,
+} from "./collaboration.js";
 import type { FlightRecord, InvocationExecutionPreference } from "./invocations.js";
 import type { MessageRecord } from "./messages.js";
 import type {
@@ -44,6 +49,16 @@ export interface ScoutDeliverRequest {
   execution?: InvocationExecutionPreference;
   createdAt?: number;
   collaborationRecordId?: ScoutId;
+  workItem?: {
+    id?: ScoutId;
+    title: string;
+    summary?: string;
+    priority?: CollaborationPriority;
+    labels?: string[];
+    parentId?: ScoutId;
+    acceptanceState?: CollaborationAcceptanceState;
+    metadata?: MetadataMap;
+  };
   messageMetadata?: MetadataMap;
   invocationMetadata?: MetadataMap;
 }
@@ -80,6 +95,7 @@ export interface ScoutDeliverAcceptedResponse {
   targetAgentId?: ScoutId;
   bindingRef?: string;
   flight?: FlightRecord;
+  workItem?: WorkItemRecord;
 }
 
 export interface ScoutDeliverQuestionResponse {
