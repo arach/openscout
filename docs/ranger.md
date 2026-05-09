@@ -54,6 +54,7 @@ Direct Ranger loop:
 - explain local UI state
 - navigate the web app
 - refresh the app
+- run a one-minute brief that walks the operator through relevant views from a TTL-bound snapshot
 
 Scout broker lane:
 
@@ -92,6 +93,14 @@ Supported actions:
 - `refresh` to reload web-visible broker state.
 
 This keeps Ranger's UI control explicit and auditable: natural-language replies do not move the app unless they include the structured action block.
+
+## One-Minute Briefs
+
+Ranger can prepare a short control-plane brief for voice or text. The web server gathers a fresh Scout snapshot, asks Ranger for a structured route-and-narration plan, and returns a TTL-bound brief packet. The first implementation uses a two-minute TTL, with a three-minute hard maximum accepted by the API.
+
+The client owns the guided walk. It moves through the brief's safe routes, shows freshness state, and narrates each segment when voice replies are enabled. While one segment is playing, the client pre-renders the next Vox TTS segment so the tour can feel continuous without generating the whole audio track up front.
+
+Briefs remain read-side by default. The final recommendation can expose follow-up chips, but Scout-owned writes still require an explicit operator action.
 
 ## Voice Mode
 

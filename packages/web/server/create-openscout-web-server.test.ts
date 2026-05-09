@@ -1125,6 +1125,101 @@ describe("createOpenScoutWebServer", () => {
     expect(JSON.stringify(fetchCalls[0].body)).toContain("fleet");
   });
 
+  test("creates a structured Ranger one-minute brief with TTL", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    const fetchCalls: Array<{
+      body: Record<string, unknown>;
+      authorization: string | null;
+    }> = [];
+    globalThis.fetch = (async (_input, init) => {
+      fetchCalls.push({
+        body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return new Response(JSON.stringify({
+        id: "resp_brief_1",
+        output_text: JSON.stringify({
+          title: "One-minute brief",
+          summary: "The system is quiet.",
+          steps: [
+            {
+              id: "fleet",
+              label: "Fleet",
+              route: { view: "fleet" },
+              narration: "Fleet is quiet: no active work and available agents are standing by.",
+            },
+            {
+              id: "ops",
+              label: "Ops Tail",
+              route: { view: "ops", mode: "tail" },
+              narration: "Ops tail has no fresh failures in the current window.",
+            },
+          ],
+          recommendation: "Start by checking the stale active Scout item.",
+          actions: [
+            { label: "Open Ops Tail", route: { view: "ops", mode: "tail" } },
+          ],
+        }),
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/ranger/brief", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        route: { view: "fleet" },
+        ttlMs: 180_000,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const json = await response.json() as {
+      ttlMs: number;
+      preparedAt: number;
+      expiresAt: number;
+      steps: Array<{ label: string; route: Record<string, unknown>; snapshot: { expiresAt: number } }>;
+      recommendation: string;
+      actions: Array<{ label: string; route: Record<string, unknown> }>;
+    };
+    expect(json.ttlMs).toBe(180_000);
+    expect(json.expiresAt - json.preparedAt).toBe(180_000);
+    expect(json.steps).toEqual([
+      expect.objectContaining({
+        label: "Fleet",
+        route: { view: "fleet" },
+        snapshot: expect.objectContaining({ expiresAt: json.expiresAt }),
+      }),
+      expect.objectContaining({
+        label: "Ops Tail",
+        route: { view: "ops", mode: "tail" },
+      }),
+    ]);
+    expect(json.recommendation).toContain("stale active Scout item");
+    expect(json.actions).toEqual([
+      expect.objectContaining({
+        label: "Open Ops Tail",
+        route: { view: "ops", mode: "tail" },
+      }),
+    ]);
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].authorization).toBe("Bearer sk-test");
+    expect(fetchCalls[0].body).toMatchObject({
+      instructions: expect.stringContaining("One-minute brief mode"),
+    });
+    expect(JSON.stringify(fetchCalls[0].body)).toContain("currentRoute");
+    expect(JSON.stringify(fetchCalls[0].body)).toContain("180 seconds");
+    expect(askScoutQuestionCalls).toHaveLength(0);
+  });
+
   test("returns a setup error when Ranger assistant has no OpenAI key", async () => {
     delete process.env.OPENAI_API_KEY;
     let fetchCalled = false;

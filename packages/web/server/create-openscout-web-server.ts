@@ -1427,6 +1427,25 @@ export async function createOpenScoutWebServer(
       return c.json({ error: message }, status as 400 | 500 | 502 | 503);
     }
   });
+  app.post("/api/ranger/brief", async (c) => {
+    const body = await c.req.json<{
+      route?: unknown;
+      openaiApiKey?: string | null;
+      ttlMs?: number | null;
+    }>().catch(() => ({}));
+
+    try {
+      return c.json(await rangerAssistant.createBrief({
+        route: body.route,
+        openaiApiKey: body.openaiApiKey,
+        ttlMs: body.ttlMs,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ranger brief failed";
+      const status = error instanceof RangerAssistantError ? error.status : 500;
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+    }
+  });
   app.post("/api/local-path/reveal", async (c) => {
     const body = await c.req.json<{
       path?: unknown;
