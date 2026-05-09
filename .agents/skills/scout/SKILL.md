@@ -9,11 +9,12 @@ metadata:
 
 Use Scout when you need shared coordination state, not just message delivery.
 
-Baseline agent-to-agent communication should be one command:
+Baseline agent-to-agent communication should be one command with a broker
+receipt:
 
 ```bash
-scout send --to x "msg"    # tell/update; no reply needed
-scout ask --to x "msg"     # work/question; reply needed
+scout send --to x "msg"    # durable message/update; returns ids
+scout ask --to x "msg"     # invocation for requested reply/work; returns ids + lifecycle
 ```
 
 When the workspace is known and there is one intended recipient, use that direct path first. Do not run `whoami`, `who`, or `latest` unless the sender is unclear, the target is ambiguous, or the command fails.
@@ -45,8 +46,8 @@ bun /Users/arach/dev/openscout/packages/cli/bin/scout.mjs env --json
 
 When the workspace is known and there is one intended recipient, do not burn extra commands on orientation first.
 
-- CLI tell: `scout send --to x "msg"`
-- CLI ask: `scout ask --to x "msg"`
+- CLI message/update: `scout send --to x "msg"`
+- CLI invocation: `scout ask --to x "msg"`
 - Known offline / on-demand agents are supposed to wake on first delivery. Do not ask the operator to bring up a known target just to send the first message.
 
 The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, or `workId`. Use those handles for follow-up. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
@@ -55,7 +56,9 @@ Use `scout send --to ...` instead of placing the route inside the message body. 
 
 ## Orientation loop
 
-Run the smallest command that answers the uncertainty:
+Run the smallest command that answers the uncertainty. Prefer broker-provided
+dispatch and remediation output over manual spelunking; orientation commands are
+debug tools, not mandatory preflights.
 
 ```bash
 scout whoami       # sender unclear
@@ -81,10 +84,11 @@ The semantics do not change by host. Only the verbs change:
 | ------- | --- | --- | ---------- |
 | Resolve who you are | `scout whoami` | `whoami` | use when sender context is unclear |
 | Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | use when direct routing is ambiguous |
-| Tell / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
-| Owned work / requested reply | `scout ask --to x "msg"` | `invocations_ask` with explicit target fields | one target -> DM |
+| Message / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
+| Invocation / requested reply | `scout ask --to x "msg"` | `invocations_ask` with explicit target fields | one target -> DM |
 | Progress / waiting / review / done | same DM, plus work handle when available | `work_update` | stay in the same DM or channel |
-| Fresh reply-ready identity | `scout card create` | `card_create` | project-scoped inbox |
+| Fresh reply-ready identity | `scout card create` | `card_create` | identity and return address, not necessarily a live session |
+| Harness session lifecycle | `scout session ...` / `scout up` alias | `sessions_*` once available | start/attach/inspect concrete sessions |
 | Everybody on this broker | `scout broadcast` | `messages_send` with `channel="shared"` | shared broadcast only |
 
 Do not invent a second routing model for Claude, Codex, the CLI, MCP, or the UI. The same rules apply everywhere:
@@ -92,10 +96,34 @@ Do not invent a second routing model for Claude, Codex, the CLI, MCP, or the UI.
 - one target -> DM
 - group coordination -> explicit channel
 - everyone -> shared broadcast
-- tell/update -> send
-- owned work / requested reply -> ask
+- message/update -> send
+- invocation / requested reply -> ask
 - follow-up stays in the same DM or explicit channel
 - message body text is payload, not routing metadata
+
+## Runtime sessions
+
+Scout agents are stable identities. Scout sessions are concrete harness
+conversations/processes that can receive work. Use **session** as the noun when
+talking about Claude, Codex, or future harness lifecycle.
+
+`scout card create` creates or describes an identity and return address. It does
+not guarantee a live harness session unless a command explicitly starts one.
+
+`scout up` is a convenience prewarm command. Treat it as an alias for explicit
+session start/attach semantics:
+
+```bash
+scout session start --agent hudson --harness codex
+scout session attach --agent hudson --harness codex --session <id>
+scout session inspect --agent hudson --harness codex
+```
+
+If the current CLI does not yet expose `scout session`, use `scout up` only for
+prewarming and report any harness/session mismatch clearly. A Codex target must
+not silently bind to a Claude session. If wake fails, preserve the returned ids
+and state the failed layer instead of asking the human to manually relaunch a
+known target.
 
 ## Frequent questions
 
@@ -179,16 +207,18 @@ reply tool (for example `messages_reply` or `scout_reply`) instead of relying
 on final-response capture. A visible conversation/message reference alone is
 not an MCP reply context; direct broker-invoked asks still rely on final
 assistant response capture. If there is no active reply context, use normal
-Scout routing: `messages_send`/`scout send` for tells and
-`invocations_ask`/`scout ask` for asks.
+Scout routing: `messages_send`/`scout send` for messages and updates, and
+`invocations_ask`/`scout ask` for invocations and requested replies.
 
-## Tell vs Ask
+## Send vs Ask
 
-Scout has two coordination modes. Choose intentionally.
+Scout has two compatible CLI verbs. Choose intentionally, but expect both to
+return broker receipts.
 
-### Tell
+### Send
 
-Use **Tell** when no reply is needed.
+Use **Send** for messages, updates, and notes where no tracked work lifecycle is
+needed.
 
 Phrasing:
 
@@ -203,11 +233,13 @@ Command:
 scout send --to x "msg"
 ```
 
-This is inline, fire-and-forget, and lands in the `@x` DM.
+This lands in the `@x` DM and should return durable ids such as
+`conversationId` and `messageId`. Treat "fire-and-forget" as a UI choice, not
+as the underlying Scout contract.
 
 ### Ask
 
-Use **Ask** when a reply, judgment, or investigation is needed.
+Use **Ask** when a reply, judgment, investigation, or owned work is needed.
 
 Phrasing:
 
@@ -302,6 +334,44 @@ If the CLI reports multiple candidates, re-run with a typed qualifier. If the ro
 - Use `scout up` only when you are explicitly prewarming a target or registering one the broker truly does not know yet
 - Tell the user the route is ambiguous or the target is unknown; do not ask them to manually bring up a known target just to deliver a message
 
+## Broker coaching
+
+Scout should spend broker-side reasoning to reduce sender burden. If a command
+is plausible, prefer actionable diagnostics like:
+
+```text
+@hudson#codex resolved to codex-hudai.main.air-local, but no compatible Codex
+session is attached. Try:
+  scout session start --agent codex-hudai --harness codex
+```
+
+If the broker gives candidates, retry with the best fully qualified target. If
+it names a missing session or harness mismatch, follow that remediation. Do not
+turn every failure into a full `who` / `latest` loop unless the broker's guidance
+is genuinely insufficient.
+
+## Token accounting
+
+Scout may track token or usage metadata for messages, invocations, sessions,
+and broker diagnostics. Treat those numbers as internal coordination telemetry,
+not user-facing blame.
+Exact counts should come from the harness/model when available; estimates must be
+marked.
+
+Keep two ledgers separate:
+
+- protocol overhead: tokens Scout adds for routing, context wrappers, receipts,
+  diagnostics, summaries, wake/attach, and broker coaching
+- harness execution: tokens the target model spends doing the delegated work
+
+Use accounting to prefer lower-total-cost flows, for example one broker
+diagnostic that prevents many repeated `who` / `latest` / retry loops.
+
+The desired trend is fewer low-value protocol tokens for boilerplate
+orientation ("who am I", "who is up", "how do I create a card") and more
+high-value protocol tokens for agent onboarding, feature guidance, useful
+context, and targeted recovery coaching.
+
 ## Decision rule
 
 Use **Ask** by default when the next sentence is effectively:
@@ -311,7 +381,7 @@ Use **Ask** by default when the next sentence is effectively:
 - "Take ownership of the next step."
 - "Review this and return a judgment."
 
-Use **Tell** when the next sentence is effectively:
+Use **Send** when the next sentence is effectively:
 
 - "Heads up."
 - "I am working on this now."

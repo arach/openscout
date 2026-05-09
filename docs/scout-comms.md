@@ -53,11 +53,37 @@ records back to the user. It should not infer routing from message body text.
 
 Protocol source files live in `packages/protocol/src`.
 
+## Runtime Sessions
+
+Scout is also a harness runtime surface. A Scout **agent** is a stable
+addressable identity; a **session** is a concrete Claude, Codex, or future
+harness conversation/process/thread; an **endpoint** attaches an agent identity
+to one reachable session.
+
+Cards are identity and return-address records. They do not by themselves mean a
+harness session is alive. Commands that start or attach harnesses should use the
+public noun **session** and should fail loudly when a requested harness cannot
+be backed by a compatible session.
+
+Examples of the intended shape:
+
+```bash
+scout session start --agent hudson --harness codex
+scout session attach --agent hudson --harness codex --session <id>
+scout session inspect --agent hudson --harness codex
+```
+
+`scout up` may remain as a convenience alias, but it should resolve to an
+explicit session operation and report what happened. See
+[`runtime-sessions.md`](./runtime-sessions.md).
+
 ## Interaction Workflows
 
-### Tell / Update
+### Message / Update
 
-Use tell when no owned reply lifecycle is required.
+Use the message path for status, updates, notes, and channel posts. Even when no
+owned work lifecycle is required, clients should expect a durable broker
+receipt.
 
 Examples:
 
@@ -80,10 +106,12 @@ Expected client behavior:
 - render the returned `conversationId` and `messageId` when useful
 - treat one explicit target as a DM
 - require an explicit channel for group coordination
+- do not treat message delivery as fire-and-forget; keep the receipt available
 
-### Ask / Requested Reply
+### Invocation / Requested Reply
 
-Use ask when the requester expects work, investigation, review, or an answer.
+Use the invocation path when the requester expects work, investigation, review,
+or an answer.
 
 Examples:
 
@@ -108,6 +136,7 @@ Expected client behavior:
 - show flight state rather than assuming immediate completion
 - use `replyMode: "inline"` only for short bounded waits
 - use `replyMode: "notify"` for longer work that should return later
+- show wake/session failures as lifecycle state, not as silent background limbo
 
 ### Broker Reply Mode
 
@@ -171,6 +200,9 @@ Questions answer information. Work items carry ownership.
 - If a target is ambiguous, fail closed or ask one concise clarification.
 - If sender identity is missing, establish a stable sender binding before
   routing.
+- The broker should coach the sender with candidates, likely intent, and
+  remediation commands instead of returning bare "not found" or "unavailable"
+  errors when it has enough context to guide the next step.
 
 Do not rely on body mentions for routing:
 
@@ -233,6 +265,20 @@ or remediation result rather than guessing. `ScoutDispatchRecord` covers
 `ambiguous`, `unknown`, `unparseable`, and `unavailable` targets, including
 candidates or wake/register/retry guidance when available.
 
+Good failure shape:
+
+```text
+@hudson#codex resolved to codex-hudai.main.air-local, but no compatible Codex
+session is attached. I found a Claude session for the same project.
+Try: scout session start --agent codex-hudai --harness codex
+```
+
+Bad failure shape:
+
+```text
+error: no explicit destination
+```
+
 ## Receipts And Delivery State
 
 A delivery receipt means the broker accepted the request and wrote or planned
@@ -244,8 +290,11 @@ Delivery state is layered:
 | State | Meaning |
 | --- | --- |
 | `accepted` | local broker journaled the envelope and may still need to forward |
+| `queued` | target is known, but dispatch or compatible endpoint readiness is pending |
+| `waking` | Scout is starting or resuming a compatible harness session |
 | `peer_acked` | remote broker journaled the envelope |
 | `running` | target agent claimed the flight or work |
+| `waiting` | target agent or broker is blocked on a named dependency |
 | `completed` | terminal success for that delivery/flight layer |
 | `deferred` | retry window is still open |
 | `failed` | terminal failure with failure metadata |
@@ -255,6 +304,40 @@ Delivery state is layered:
 envelope, not that the remote agent has finished the work. For semantic
 completion, look for the reply message, flight update, work item transition, or
 collaboration event that matches the workflow.
+
+For local harness-backed agents, a receipt may be followed by session wake or
+attachment. If the target is known but no compatible session exists, Scout should
+either start/attach one according to wake policy or return a dispatch/lifecycle
+failure that names the missing session and harness.
+
+## Coordination Cost
+
+Scout should make coordination cost visible to developers and maintainers,
+especially protocol overhead: the tokens Scout consumes or generates to route,
+wrap, diagnose, summarize, attach, wake, or coach around a task. This should be
+internal telemetry first, not a user-facing scoreboard. Keep it separate from
+harness execution usage: the tokens Claude, Codex, or another model spends doing
+the delegated work.
+
+Where harnesses expose usage, broker records should preserve prompt, completion,
+and total token counts linked to the relevant session, endpoint, message,
+invocation, flight, or work item. Each record should label the source as
+`protocol_overhead`, `harness_execution`, or another explicit category. Where
+exact usage is unavailable, Scout may store estimates labeled as estimates.
+
+Cost accounting should include the broker's own diagnostic/coaching work when it
+spends extra reasoning to avoid sender-side retry loops. This lets Scout compare
+one smarter broker response against repeated `who`, `latest`, `ps`, and failed
+handoff attempts across many agents.
+
+Track the value mix, not only the total. Low-value protocol tokens include
+repeated "who am I," "who is up," "how do I create a card," and other boilerplate
+orientation. High-value protocol tokens include useful onboarding, feature
+guidance, concise recovery coaching, and context that lets the next agent do
+better work.
+
+Do not turn this into transcript warehousing. Store usage metadata, references,
+source categories, and compact summaries, not full harness-owned conversations.
 
 ## Scout Contact Line
 
@@ -317,12 +400,15 @@ When building a Scout client or plugin:
 - keep message body as payload
 - preserve `conversationId`, `messageId`, `replyToMessageId`, and `flightId`
   across replies and status views
-- distinguish tell/update from ask/work
+- distinguish message receipts from invocation/work lifecycles
 - show stale, waiting, failed, and cancelled states explicitly
 - distinguish broker acceptance, peer acknowledgement, agent completion, and
   requester acceptance
+- expose session ids and harness mismatch diagnostics when runtime wake fails
 - render dispatch/remediation results when targets are ambiguous, unknown, or
   unavailable
+- prefer broker-authored guidance over forcing agents to rediscover routing
+  state with manual `who` / `latest` loops
 - keep full ids available for debugging even when the visible UI uses short refs
 - do not promise exactly-once delivery, consensus, or complete transcript
   replication
@@ -345,6 +431,7 @@ When building a Scout client or plugin:
 
 - `docs/architecture.md`
 - `docs/agent-identity.md`
+- `docs/runtime-sessions.md`
 - `docs/collaboration-workflows-v1.md`
 - `docs/agent-integration-contract.md`
 - `docs/data-ownership.md`

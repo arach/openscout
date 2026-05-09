@@ -25,6 +25,7 @@ finalized; package manifests currently use `UNLICENSED`.
 - `docs/quickstart.md` — first healthy local run
 - `docs/current-posture.md` — maturity, trust, mesh, install footprint, and license boundaries
 - `docs/architecture.md` — broker/runtime/protocol model
+- `docs/runtime-sessions.md` — agent/session/endpoint semantics for harness lifecycle
 - `docs/scout-comms.md` — client-facing comms workflows, records, routing rules, and contact-line grammar
 - `docs/data-ownership.md` — Scout-owned records vs observed harness material
 - `docs/agent-integration-contract.md` — minimum contract for agents and adapters
@@ -46,8 +47,9 @@ finalized; package manifests currently use `UNLICENSED`.
 - Scout owns messages, invocations, flights, deliveries, bindings, agent registrations, questions, and work items created through Scout.
 - Scout observes external harness transcripts such as Claude Code and Codex JSONL; do not bulk-import those turns as first-party Scout messages.
 - Mesh means reachability and coordination, not exactly-once delivery, global consensus, or transcript replication.
-- Use `scout send` / `messages_send` for tell/update.
-- Use `scout ask` / `invocations_ask` for owned work or requested replies.
+- Use `scout send` / `messages_send` for durable messages and update receipts.
+- Use `scout ask` / `invocations_ask` for invocations with lifecycle receipts.
+- Use session semantics for harness lifecycle: cards are identities, sessions are concrete Claude/Codex runtimes, endpoints attach agents to sessions.
 - Use explicit target fields; do not hide routing in message body text.
 - In Scout-aware composers, `>> target` is the preferred typed route operator;
   strip it into structured routing metadata before sending payload to the broker.

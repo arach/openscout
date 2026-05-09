@@ -10,7 +10,7 @@ Scout comms are protocol-shaped but not a standalone wire protocol.
 
 | Concept | Scout Equivalent |
 |---|---|
-| method | interaction intent: tell, ask, task, summary, status, wake |
+| method | interaction intent: message, invocation, task, summary, status, wake |
 | headers | explicit routing/reply/work context fields |
 | body | message/task payload |
 | response | broker receipt, flight state, reply message, work transition |
@@ -28,6 +28,7 @@ transcripts.
 |---|---|
 | conversation | `ConversationDefinition` |
 | message | `MessageRecord` |
+| session | concrete harness conversation/process/thread attached through an endpoint |
 | delivery | `ScoutDeliverRequest`, `ScoutDeliveryReceipt`, `DeliveryIntent` |
 | invocation | `InvocationRequest` |
 | flight | `FlightRecord` |
@@ -41,10 +42,38 @@ transcripts.
 
 | Workflow | Use | API/tool |
 |---|---|---|
-| tell/update | durable message, no owned reply lifecycle | `scout send`, `messages_send` |
-| ask/requested reply | answer/work expected, creates invocation/flight | `scout ask`, `invocations_ask` |
+| message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
+| invocation/requested reply | answer/work expected, creates invocation/flight | `scout ask`, `invocations_ask` |
 | active reply | answer an inbound broker ask | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
+
+## Runtime Sessions
+
+- agent = stable addressable identity
+- session = concrete Claude, Codex, or future harness conversation/process
+- endpoint = routable attachment between an agent and a session
+- card = identity and return address, not necessarily a live session
+- public lifecycle noun is `session`; map provider thread ids into session metadata
+- harness mismatches must fail with actionable diagnostics, not silent hangs
+- endpoint state belongs to attachment health; flight/work state belongs to task
+  lifecycle
+
+## Coordination Cost
+
+- preserve prompt/completion/total tokens when harnesses expose them
+- separate Scout protocol overhead from target harness execution usage
+- mark estimates when exact usage is unavailable
+- preserve usage provenance such as provider exact, tokenizer estimate,
+  character heuristic, or manual estimate
+- label usage source, e.g. `protocol_overhead` vs `harness_execution`
+- track non-token counters such as dispatch attempts, wake failures, generated
+  diagnostics, and estimated orientation commands avoided
+- link usage to session, endpoint, conversation, message, invocation, flight, or work item ids
+- account for broker coaching effort so Scout can compare smart diagnostics
+  against repeated sender-side orientation loops
+- track value class so low-value boilerplate trends down and high-value
+  onboarding/feature guidance can increase where it helps
+- store metadata and compact summaries, not full harness transcripts
 
 ## Routing Invariants
 
@@ -57,6 +86,8 @@ transcripts.
 - follow-up stays in same conversation/thread/question/work item
 - render `ScoutDispatchRecord` for ambiguous/unknown/unparseable/unavailable
   targets
+- broker should coach senders with likely intent, candidates, and remediation
+  commands instead of forcing manual topology discovery
 
 ## Composer Route Operator
 
@@ -134,8 +165,11 @@ Contact line properties:
 | State | Meaning |
 |---|---|
 | `accepted` | local broker journaled/planned |
+| `queued` | target known, dispatch or compatible endpoint readiness pending |
+| `waking` | Scout starting/resuming compatible harness session |
 | `peer_acked` | remote broker journaled |
 | `running` | target agent claimed |
+| `waiting` | blocked on named dependency |
 | `completed` | terminal success for layer |
 | `deferred` | retryable; next attempt later |
 | `failed` | terminal failure |

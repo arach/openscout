@@ -11,16 +11,19 @@ Status: v0 integration guidance. This is the contract OpenScout is intentionally
 A good Scout integration should let an agent:
 
 - have a stable address
-- receive a tell/update
-- receive an ask/work handoff
+- receive a durable message with a broker receipt
+- receive an invocation/work handoff with a lifecycle handle
 - reply in the same conversation
 - expose current status and reachability
+- expose or attach a concrete harness session
 - report work lifecycle state through flights or collaboration records
 - ask the human for input without trapping the request inside one harness UI
+- receive broker-authored guidance when routing or runtime state is incomplete,
+  instead of having to rediscover topology manually
 
 ## Minimum Contract
 
-At minimum, an integration needs four pieces.
+At minimum, an integration needs five pieces.
 
 ### 1. Identity
 
@@ -42,33 +45,85 @@ The broker needs to know how to reach the agent. A reachable endpoint records:
 - authority node
 - harness
 - transport
-- session or process reference
+- session reference
 - current reachability/status
 - optional permission profile and wake policy
 
-The endpoint is a route, not the agent's personality. An agent can move between sessions or machines while retaining a stable identity.
+The endpoint is a route, not the agent's personality. An agent can move between
+sessions or machines while retaining a stable identity.
 
-### 3. Message Path
+Endpoint state should describe the attachment, not a specific task. Use states
+such as `registered`, `attaching`, `waking`, `idle`, `working`, `unreachable`,
+`failed`, `stale`, and `stopped`; keep task lifecycle in flights or work items.
+If several endpoints match, the broker should choose the preferred compatible
+endpoint or return an ambiguity diagnostic with candidates.
+
+### 3. Runtime Session
+
+A session is a concrete harness conversation/process/thread that can receive
+work. Use **session** as the public noun across CLI, MCP, docs, and skills. Map
+provider-specific thread ids into session metadata rather than teaching agents a
+separate top-level noun.
+
+Session invariants:
+
+- sessions are harness-specific
+- endpoints must not bind a requested Codex harness to a Claude session, or the
+  reverse, unless an explicit adapter exists
+- `card create` creates identity and return-address metadata; it does not imply
+  a running session unless a command explicitly starts one
+- `up` / wake behavior must resolve to start or attach semantics and report the
+  chosen session id
+- incompatible, missing, or failed sessions must produce specific diagnostics
+  and remediation, not silent hangs
+
+Read [`runtime-sessions.md`](./runtime-sessions.md) before changing harness
+startup, wake, card, or endpoint behavior.
+
+### 4. Message Path
 
 Use the message path for communication:
 
-- `send` / tell: durable update, no tracked work lifecycle
+- `send`: durable update with a broker receipt, no tracked work lifecycle
 - DM: one explicit target
 - channel: group coordination
 - shared broadcast: only when the audience is intentionally broad
 
 Do not hide routing instructions in the body when structured target fields are available. The broker should know the target as metadata, not by parsing prose.
 
-### 4. Invocation Path
+Even message-only interactions should return stable ids such as `conversationId`
+and `messageId`. Treat "fire and forget" as a UI affordance, not the underlying
+contract.
+
+### 5. Invocation Path
 
 Use the invocation path for work:
 
 - `ask` creates an invocation
 - the invocation creates a flight
-- the flight tracks queued, waking, running, waiting, completed, failed, or cancelled
+- the flight tracks queued, running, waiting, completed, failed, or cancelled
 - the final reply should land back in the same conversation or work context
 
 If work becomes blocked, report a waiting state with who or what owns the next move.
+
+## Broker-Guided Routing
+
+The sender should not carry most of the routing burden. If a command names a
+reasonable target, the broker should resolve, disambiguate, wake, attach, or
+explain the next viable step.
+
+Adapters and clients should render broker diagnostics as first-class results:
+
+- ambiguous target -> show candidates and the best fully qualified retry
+- known identity without session -> show the needed `session start` or
+  `session attach` command
+- harness mismatch -> name the requested harness, the attached session harness,
+  and the exact remediation
+- peer unavailable -> report `unreachable` separately from generic `offline`
+- unknown target with nearby candidates -> suggest likely matches
+
+Avoid pushing agents into repeated `who` / `latest` / manual process inspection
+when the broker can produce useful guidance from its own state.
 
 ## Preferred MCP Tools
 
@@ -76,12 +131,16 @@ Agents connected through Scout's MCP server should prefer:
 
 - `whoami` to identify the current sender and broker context
 - `agents_resolve` before sending to an ambiguous handle
-- `messages_send` for tell/update
+- `messages_send` for durable messages and updates
 - `invocations_ask` for work or requested replies
 - `invocations_get` and `invocations_wait` to monitor a flight
 - `work_update` for durable work-item progress, waiting, review, and completion
+- future `sessions_*` tools for explicit harness session start, attach, inspect,
+  and stop operations
 
 Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` only for short bounded waits.
+Use `replyMode: "none"` only when a caller explicitly wants tracking without an
+agent-authored reply.
 
 ## Collaboration Semantics
 
@@ -124,6 +183,47 @@ Adapters must not write into a harness-owned ecosystem. For Claude Code, that me
 Read [`data-ownership.md`](./data-ownership.md).
 Read [`eng/harness-topology-observation.md`](./eng/harness-topology-observation.md) for the shared observed-topology shape.
 
+## Token And Cost Metadata
+
+Integrations should report token usage when the harness or model provider makes
+it available. Separate Scout protocol overhead from harness execution usage.
+
+Protocol overhead means tokens consumed or generated by Scout routing,
+wrapping, reply context, diagnostic/coaching text, summaries, wake/attach
+prompts, or other coordination work around the task.
+
+Harness execution means tokens spent by the target model doing the delegated
+work itself.
+
+Report:
+
+- prompt tokens
+- completion tokens
+- total tokens
+- model
+- harness
+- source category such as `protocol_overhead` or `harness_execution`
+- value class such as `boilerplate`, `routing`, `diagnostic`, `onboarding`,
+  `feature_guidance`, or `work_context`
+- usage source such as `provider_exact`, `tokenizer_estimate`,
+  `char_heuristic`, or `manual_estimate`
+- session id
+- related Scout ids such as message, invocation, flight, or work item
+- non-token counters such as dispatch attempts, wake failures, generated
+  diagnostics, and estimated orientation commands avoided
+
+When exact usage is unavailable, integrations may report estimates, but the
+record must mark them as estimated and say how they were estimated. Scout uses this accounting as internal
+product telemetry to understand protocol overhead and evaluate whether
+broker-side coaching is reducing total agent/user effort over time. It is not a
+license to import full harness transcripts as Scout-owned data, and integrations
+should not expose raw usage numbers to end users unless a product surface
+explicitly asks for them.
+
+The desired trend is fewer low-value protocol tokens spent on repeated
+orientation and command rediscovery, and more high-value protocol tokens spent
+on useful onboarding, feature guidance, and targeted recovery coaching.
+
 ## Mesh Expectations
 
 Mesh means reachability and coordination across machines. It does not mean exactly-once delivery, replicated external transcripts, or global consensus.
@@ -136,11 +236,16 @@ Before calling an integration "Scout-native", verify:
 
 - it has a stable agent identity
 - it registers or attaches a reachable endpoint
+- it has deterministic session start/attach/inspect semantics
 - it can receive a message
 - it can receive an ask and produce a flight result
 - it can reply without losing the original actor/conversation context
 - it reports failed and waiting states
+- it reports harness/session mismatches with actionable diagnostics
+- it guides senders with broker diagnostics instead of only returning opaque
+  unresolved/unavailable errors
 - it does not require body mentions for normal routing
 - it does not import external transcripts as Scout messages
 - it documents its permission and wake behavior
 - it can recover or explain state after broker/session restart
+- it reports token usage or marked estimates when available
