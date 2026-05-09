@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Bot, ChevronDown, ChevronUp, Compass, Gauge, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Bot, ChevronDown, ChevronUp, Compass, Gauge, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { getOpenAIApiKey } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
-import { extractRangerUiActions } from "../../lib/ranger.ts";
-import { isVoxSpeechStopped, startVoxSpeech, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle } from "../../lib/vox.ts";
+import { extractRangerUiActions, normalizeRangerUiAction } from "../../lib/ranger.ts";
+import { isVoxSpeechStopped, playPreparedVoxSpeech, prepareVoxSpeech, startVoxSpeech, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
 import { useScout } from "../Provider.tsx";
 
 type RangerAgentConfig = {
@@ -47,6 +47,37 @@ type RangerAssistantReply = RangerAssistantSessionState & {
   responseId: string | null;
 };
 
+type RangerBriefStep = {
+  id: string;
+  label: string;
+  route: Record<string, unknown>;
+  narration: string;
+  durationMs: number;
+  snapshot: {
+    capturedAt: number;
+    expiresAt: number;
+    source: "prepared" | "refreshed" | "live";
+  };
+};
+
+type RangerBriefAction = {
+  label: string;
+  route?: Record<string, unknown>;
+  prompt?: string;
+};
+
+type RangerBrief = {
+  id: string;
+  title: string;
+  summary: string;
+  preparedAt: number;
+  expiresAt: number;
+  ttlMs: number;
+  steps: RangerBriefStep[];
+  recommendation: string;
+  actions: RangerBriefAction[];
+};
+
 type VoiceProbeState = "idle" | "probing" | "launching";
 
 const STATE_PROMPT =
@@ -69,6 +100,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [voiceProbeState, setVoiceProbeState] = useState<VoiceProbeState>("idle");
   const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.ranger.voiceReplies", false);
   const [voiceSpeed, setVoiceSpeed] = usePersistentNumber("openscout.ranger.voiceSpeed", DEFAULT_RANGER_VOICE_SPEED);
+  const [briefing, setBriefing] = useState(false);
+  const [brief, setBrief] = useState<RangerBrief | null>(null);
+  const [briefStepIndex, setBriefStepIndex] = useState<number | null>(null);
   const [recording, setRecording] = useState(false);
   const [voiceState, setVoiceState] = useState<VoxSessionState | null>(null);
   const [partial, setPartial] = useState("");
@@ -88,6 +122,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
   const speechRef = useRef<VoxSpeakHandle | null>(null);
+  const briefRunRef = useRef<string | null>(null);
   const voiceRepliesRef = useRef(voiceReplies);
   voiceRepliesRef.current = voiceReplies;
 
@@ -97,7 +132,10 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setSpeaking(false);
   }, []);
 
-  useEffect(() => () => stopSpeech(), [stopSpeech]);
+  useEffect(() => () => {
+    briefRunRef.current = null;
+    stopSpeech();
+  }, [stopSpeech]);
 
   const syncLastMessages = useCallback((session: RangerAssistantSession) => {
     const lastUser = [...session.messages].reverse().find((message) => message.role === "user");
@@ -249,6 +287,151 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     ), 0);
     setVoiceSpeed(RANGER_VOICE_SPEEDS[(nearestIndex + 1) % RANGER_VOICE_SPEEDS.length]);
   }, [setVoiceSpeed, voiceSpeed]);
+
+  const prepareBriefSpeech = useCallback((text: string): Promise<VoxSpeakResult | null> => {
+    if (!voiceRepliesRef.current) {
+      return Promise.resolve(null);
+    }
+    return prepareVoxSpeech(text, { speed: voiceSpeed })
+      .catch((err) => {
+        if (!isVoxSpeechStopped(err)) {
+          setError(err instanceof Error ? err.message : "Vox speech failed.");
+        }
+        return null;
+      });
+  }, [voiceSpeed]);
+
+  const playBriefSpeech = useCallback(async (
+    prepared: Promise<VoxSpeakResult | null>,
+    runId: string,
+  ): Promise<boolean> => {
+    const audio = await prepared;
+    if (!audio || briefRunRef.current !== runId || !voiceRepliesRef.current) {
+      return false;
+    }
+    const controller = new AbortController();
+    const promise = playPreparedVoxSpeech(audio, { signal: controller.signal });
+    const speech: VoxSpeakHandle = {
+      promise,
+      stop: () => controller.abort(),
+    };
+    speechRef.current = speech;
+    setSpeaking(true);
+    try {
+      await promise;
+    } catch (err) {
+      if (!isVoxSpeechStopped(err)) {
+        throw err;
+      }
+    } finally {
+      if (speechRef.current === speech) {
+        speechRef.current = null;
+        setSpeaking(false);
+      }
+    }
+    return true;
+  }, []);
+
+  const runBrief = useCallback(async (nextBrief: RangerBrief, runId: string) => {
+    const segments = [
+      ...nextBrief.steps.map((step) => ({
+        id: step.id,
+        label: step.label,
+        route: step.route,
+        narration: step.narration,
+        durationMs: step.durationMs,
+      })),
+      {
+        id: "recommendation",
+        label: "Recommendation",
+        route: null,
+        narration: `Recommendation: ${nextBrief.recommendation}`,
+        durationMs: estimateBriefDuration(nextBrief.recommendation),
+      },
+    ];
+    const spokenLines: string[] = [];
+    let preparedSpeech = prepareBriefSpeech(segments[0]?.narration ?? nextBrief.summary);
+
+    for (let index = 0; index < segments.length; index += 1) {
+      if (briefRunRef.current !== runId) return;
+      if (Date.now() > nextBrief.expiresAt) {
+        setAskStatus("Brief expired; refresh before acting");
+        break;
+      }
+
+      const segment = segments[index];
+      const nextSegment = segments[index + 1];
+      const currentSpeech = preparedSpeech;
+      preparedSpeech = nextSegment
+        ? prepareBriefSpeech(nextSegment.narration)
+        : Promise.resolve(null);
+
+      setBriefStepIndex(Math.min(index, nextBrief.steps.length - 1));
+      setAskStatus(`Brief ${Math.min(index + 1, nextBrief.steps.length)}/${nextBrief.steps.length}: ${segment.label}`);
+      if (segment.route) {
+        const action = normalizeRangerUiAction({ type: "navigate", route: segment.route });
+        if (action?.type === "navigate") {
+          applyRangerUiAction(action);
+        }
+      }
+      spokenLines.push(`${segment.label}: ${segment.narration}`);
+
+      if (voiceRepliesRef.current) {
+        const played = await playBriefSpeech(currentSpeech, runId);
+        if (!played) {
+          await wait(Math.min(segment.durationMs, 2400));
+        }
+      } else {
+        await wait(Math.min(segment.durationMs, 2400));
+      }
+    }
+
+    if (briefRunRef.current !== runId) return;
+    setLastReply([
+      nextBrief.summary,
+      "",
+      ...spokenLines,
+    ].join("\n"));
+    setAskStatus(Date.now() > nextBrief.expiresAt ? "Brief expired" : "Brief complete");
+    setBriefing(false);
+    setBriefStepIndex(null);
+    briefRunRef.current = null;
+  }, [applyRangerUiAction, playBriefSpeech, prepareBriefSpeech]);
+
+  const startBrief = useCallback(async () => {
+    if (briefing || sending) return;
+    const runId = `brief-${Date.now()}`;
+    briefRunRef.current = runId;
+    setBriefing(true);
+    setBrief(null);
+    setBriefStepIndex(null);
+    setError(null);
+    setLastAsk("One-minute brief");
+    setLastReply(null);
+    setAskStatus("Preparing one-minute brief");
+    stopSpeech();
+    try {
+      const nextBrief = await api<RangerBrief>("/api/ranger/brief", {
+        method: "POST",
+        body: JSON.stringify({
+          route,
+          ttlMs: 2 * 60_000,
+          openaiApiKey: await getOpenAIApiKey().catch(() => null),
+        }),
+      });
+      if (briefRunRef.current !== runId) return;
+      setBrief(nextBrief);
+      await runBrief(nextBrief, runId);
+    } catch (err) {
+      if (briefRunRef.current === runId) {
+        setAskStatus(null);
+        setError(err instanceof Error ? err.message : "Could not prepare Ranger brief.");
+        setBriefing(false);
+        setBriefStepIndex(null);
+        briefRunRef.current = null;
+      }
+    }
+  }, [briefing, route, runBrief, sending, stopSpeech]);
 
   const askRanger = useCallback(async (body: string) => {
     const trimmed = body.trim();
@@ -445,6 +628,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           icon={<Radio size={13} />}
           label="State"
           onClick={() => void askRanger(STATE_PROMPT)}
+          disabled={sending || briefing}
+        />
+        <RangerActionButton
+          icon={briefing ? <Loader2 size={13} className="animate-spin" /> : <ListChecks size={13} />}
+          label={briefing ? "Briefing" : "Brief"}
+          title="Run a one-minute Ranger brief"
+          onClick={() => void startBrief()}
           disabled={sending}
         />
         <RangerActionButton
@@ -479,7 +669,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           icon={resettingSession ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           label="New Session"
           onClick={() => void resetRangerSession()}
-          disabled={resettingSession || sending}
+          disabled={resettingSession || sending || briefing}
           compact
         />
       </div>
@@ -495,6 +685,47 @@ export function RangerPanel({ height }: { height?: number } = {}) {
               {sessionState.sessions.length - 1} older
             </span>
           ) : null}
+        </div>
+      )}
+
+      {brief && (
+        <div className="rounded border border-lime-300/20 bg-lime-300/[0.05] px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate uppercase tracking-[0.12em] text-lime-200">
+              {briefing && briefStepIndex !== null
+                ? `Briefing ${brief.steps[briefStepIndex]?.label ?? "step"}`
+                : brief.title}
+            </span>
+            <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">
+              {briefFreshnessLabel(brief)}
+            </span>
+          </div>
+          <div className="mt-1 truncate text-[var(--scout-chrome-ink-faint)]">
+            {brief.summary}
+          </div>
+          {brief.actions.length > 0 && !briefing && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {brief.actions.map((action) => (
+                <button
+                  key={`${action.label}:${action.prompt ?? JSON.stringify(action.route ?? {})}`}
+                  type="button"
+                  onClick={() => {
+                    if (action.route) {
+                      const uiAction = normalizeRangerUiAction({ type: "navigate", route: action.route });
+                      if (uiAction) applyRangerUiAction(uiAction);
+                      return;
+                    }
+                    if (action.prompt) {
+                      void askRanger(action.prompt);
+                    }
+                  }}
+                  className="rounded border border-lime-300/20 px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-lime-100 hover:bg-lime-300/10"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -690,6 +921,25 @@ function makeScoutAudioLaunchContext() {
 
 function formatVoiceSpeed(value: number): string {
   return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function estimateBriefDuration(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return Math.min(12_000, Math.max(3500, words * 360));
+}
+
+function briefFreshnessLabel(brief: RangerBrief): string {
+  const now = Date.now();
+  if (now > brief.expiresAt) {
+    return "expired";
+  }
+  const ageSeconds = Math.max(0, Math.round((now - brief.preparedAt) / 1000));
+  const remainingSeconds = Math.max(0, Math.round((brief.expiresAt - now) / 1000));
+  return `prepared ${ageSeconds}s ago · ${remainingSeconds}s TTL`;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function RangerActionButton({

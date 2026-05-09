@@ -172,7 +172,7 @@ export function isVoxSpeechStopped(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-export async function speakWithVox(
+export async function prepareVoxSpeech(
   text: string,
   options: VoxSpeakOptions = {},
 ): Promise<VoxSpeakResult> {
@@ -197,7 +197,13 @@ export async function speakWithVox(
       throw error;
     }
   }
-  const result = await response.json() as VoxSpeakResult;
+  return await response.json() as VoxSpeakResult;
+}
+
+export async function playPreparedVoxSpeech(
+  result: VoxSpeakResult,
+  options: { signal?: AbortSignal } = {},
+): Promise<VoxSpeakResult> {
   if (options.signal?.aborted) {
     throw stoppedSpeechError();
   }
@@ -239,6 +245,14 @@ export async function speakWithVox(
   } finally {
     options.signal?.removeEventListener("abort", stopPlayback);
   }
+}
+
+export async function speakWithVox(
+  text: string,
+  options: VoxSpeakOptions = {},
+): Promise<VoxSpeakResult> {
+  const result = await prepareVoxSpeech(text, options);
+  return await playPreparedVoxSpeech(result, { signal: options.signal });
 }
 
 export function startVoxSpeech(text: string, options: Omit<VoxSpeakOptions, "signal"> = {}): VoxSpeakHandle {
