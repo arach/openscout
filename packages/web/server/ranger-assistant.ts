@@ -82,8 +82,8 @@ export type RangerAssistantService = {
   updateConfig: (input: { model?: string | null; systemPrompt?: string | null }) => RangerAssistantConfig;
   getSessionState: () => RangerAssistantSessionState;
   resetSession: () => RangerAssistantSessionState;
-  respond: (input: { body: string; route?: unknown; openaiApiKey?: string | null }) => Promise<RangerAssistantReply>;
-  createBrief: (input: { route?: unknown; openaiApiKey?: string | null; ttlMs?: number | null }) => Promise<RangerBrief>;
+  respond: (input: { body: string; route?: unknown }) => Promise<RangerAssistantReply>;
+  createBrief: (input: { route?: unknown; ttlMs?: number | null }) => Promise<RangerBrief>;
 };
 
 type StoredSession = {
@@ -161,10 +161,9 @@ export function createRangerAssistantService(input: {
     sessions: sessions.map(publicSessionSummary),
     config: { editable: true, model, systemPrompt },
   });
-  const resolveApiKey = async (openaiApiKey?: string | null): Promise<string | undefined> =>
+  const resolveApiKey = async (): Promise<string | undefined> =>
     firstNonEmptyString(
       env.OPENAI_API_KEY,
-      openAIKeyValue(openaiApiKey),
       await input.resolveApiKey?.(),
     );
   const contextSnapshot = async (route?: unknown): Promise<RangerAssistantContextSnapshot> => ({
@@ -191,13 +190,13 @@ export function createRangerAssistantService(input: {
       pruneSessions(sessions);
       return snapshot();
     },
-    respond: async ({ body, route, openaiApiKey }) => {
+    respond: async ({ body, route }) => {
       const trimmed = body.trim();
       if (!trimmed) {
         throw new RangerAssistantError("body is required", 400);
       }
 
-      const apiKey = await resolveApiKey(openaiApiKey);
+      const apiKey = await resolveApiKey();
       if (!apiKey) {
         throw new RangerAssistantError("An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
       }
@@ -250,8 +249,8 @@ export function createRangerAssistantService(input: {
         responseId: response.id,
       };
     },
-    createBrief: async ({ route, openaiApiKey, ttlMs }) => {
-      const apiKey = await resolveApiKey(openaiApiKey);
+    createBrief: async ({ route, ttlMs }) => {
+      const apiKey = await resolveApiKey();
       if (!apiKey) {
         throw new RangerAssistantError("An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
       }
@@ -630,12 +629,6 @@ function firstNonEmptyString(...values: Array<string | undefined | null>): strin
     if (trimmed) return trimmed;
   }
   return undefined;
-}
-
-function openAIKeyValue(value: string | undefined | null): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
-  return trimmed.startsWith("sk-") ? trimmed : undefined;
 }
 
 function trimTrailingSlash(value: string): string {

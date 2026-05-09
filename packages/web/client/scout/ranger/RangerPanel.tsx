@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Gauge, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
-import { getOpenAIApiKey } from "../../lib/credentials.ts";
+import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
 import { extractRangerUiActions, normalizeRangerUiAction } from "../../lib/ranger.ts";
 import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
@@ -533,12 +533,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setAskStatus("Preparing one-minute brief");
     stopSpeech();
     try {
+      await ensureOpenAIKeyOnServer().catch(() => null);
       const nextBrief = await api<RangerBrief>("/api/ranger/brief", {
         method: "POST",
         body: JSON.stringify({
           route,
           ttlMs: 2 * 60_000,
-          openaiApiKey: await getOpenAIApiKey().catch(() => null),
         }),
       });
       if (briefRunRef.current !== runId) return;
@@ -580,12 +580,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         return;
       }
 
+      await ensureOpenAIKeyOnServer().catch(() => null);
       const result = await api<RangerAssistantReply>("/api/ranger/chat", {
         method: "POST",
         body: JSON.stringify({
           body: trimmed,
           route,
-          openaiApiKey: await getOpenAIApiKey().catch(() => null),
         }),
       });
       setSessionState({
