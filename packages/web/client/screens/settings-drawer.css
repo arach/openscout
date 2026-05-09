@@ -340,6 +340,12 @@
   flex-direction: column;
   gap: 24px;
 }
+.s-settings-button-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 /* ── Device row ── */
 .s-settings-device-row {

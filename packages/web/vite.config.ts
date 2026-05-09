@@ -80,6 +80,7 @@ export default defineConfig({
       "@hudsonkit/controls": resolve(hudsonSdk, "src/controls.ts"),
       "@hudsonkit/canvas": resolve(hudsonSdk, "src/canvas.ts"),
       "@hudsonkit/overlays": resolve(hudsonSdk, "src/overlays.ts"),
+      "@hudsonkit/vault": resolve(hudsonSdk, "src/vault.ts"),
       "@hudsonkit/styles": resolve(hudsonSdk, "src/styles/bundle.css"),
       "@hudsonkit": resolve(hudsonSdk, "src/index.ts"),
     },

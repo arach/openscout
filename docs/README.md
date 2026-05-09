@@ -15,7 +15,7 @@ If you want the shortest path to understanding the project:
 7. [`scout-comms.md`](./scout-comms.md) for client-facing comms workflows, records, routing rules, and contact-line grammar
 8. [`integrations.md`](./integrations.md) for the current host integration map and sibling repository policy
 9. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
-10. [`ranger.md`](./ranger.md) for the preferred top-level orchestration agent contract
+10. [`ranger.md`](./ranger.md) for the in-app control-plane assistant contract
 11. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
 12. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
 13. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
@@ -35,7 +35,7 @@ If you want the shortest path to understanding the project:
 - [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients, plugins, and adapters
 - [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
-- [`ranger.md`](./ranger.md) defines Ranger as the preferred Codex-backed orchestration agent
+- [`ranger.md`](./ranger.md) defines Ranger as the direct in-app control-plane assistant
 - [`a2a-alignment.md`](./a2a-alignment.md) explains where Scout intentionally aligns with A2A and where it does not
 - [`agent-identity.md`](./agent-identity.md) explains canonical and minimal agent addresses
 - [`ask-scout.md`](./ask-scout.md) explains how a human reaches their agents through Scout

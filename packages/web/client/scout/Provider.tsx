@@ -14,8 +14,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import {
-  extractRangerUiActions,
-  isRangerActorId,
+  isRangerAgent,
   rangerConversationId,
   resolveRangerAgentId,
   type RangerUiAction,
@@ -191,7 +190,7 @@ export function ScoutProvider({
     const request = (async () => {
       const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
       if (agentsResult) {
-        setAgents(agentsResult);
+        setAgents(agentsResult.filter((agent) => !isRangerAgent(agent)));
       }
     })();
 
@@ -253,45 +252,22 @@ export function ScoutProvider({
         navigate(action.route);
         break;
       case "open-ranger":
-        navigate({
-          view: "conversation",
-          conversationId: rangerDmConversationId,
-          ...(action.mode === "ask" ? { composeMode: "ask" } : {}),
-        });
+        window.dispatchEvent(new CustomEvent("scout:ranger-panel-open", { detail: action }));
         break;
       case "refresh":
         void reload();
         break;
     }
-  }, [navigate, rangerDmConversationId, reload]);
+  }, [navigate, reload]);
 
   const rangerBridgeRef = useRef({
-    rangerAgentId,
     applyRangerUiAction,
   });
-  rangerBridgeRef.current = { rangerAgentId, applyRangerUiAction };
+  rangerBridgeRef.current = { applyRangerUiAction };
 
   useBrokerEvents((event) => {
     if (AGENT_REFRESH_EVENT_KIND_SET.has(event.kind)) {
       void reload();
-    }
-
-    const message = event.kind === "message.posted" && event.payload && typeof event.payload === "object"
-      ? (event.payload as { message?: unknown }).message
-      : null;
-    if (!message || typeof message !== "object") {
-      return;
-    }
-
-    const record = message as { actorId?: unknown; body?: unknown };
-    const actorId = typeof record.actorId === "string" ? record.actorId : "";
-    const body = typeof record.body === "string" ? record.body : "";
-    if (!actorId || !body || !isRangerActorId(actorId, rangerBridgeRef.current.rangerAgentId)) {
-      return;
-    }
-
-    for (const action of extractRangerUiActions(body)) {
-      rangerBridgeRef.current.applyRangerUiAction(action);
     }
   });
 

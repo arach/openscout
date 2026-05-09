@@ -42,6 +42,11 @@ export type VoxSpeakHandle = {
   stop: () => void;
 };
 
+export type VoxSpeakOptions = {
+  signal?: AbortSignal;
+  speed?: number;
+};
+
 export type VoxLaunchOptions = {
   source?: string;
   returnTo?: string;
@@ -169,12 +174,15 @@ export function isVoxSpeechStopped(error: unknown): boolean {
 
 export async function speakWithVox(
   text: string,
-  options: { signal?: AbortSignal } = {},
+  options: VoxSpeakOptions = {},
 ): Promise<VoxSpeakResult> {
   const response = await fetch("/api/voice/speak", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({
+      text,
+      speed: normalizeSpeechSpeed(options.speed),
+    }),
     signal: options.signal,
   });
   if (!response.ok) {
@@ -233,12 +241,17 @@ export async function speakWithVox(
   }
 }
 
-export function startVoxSpeech(text: string): VoxSpeakHandle {
+export function startVoxSpeech(text: string, options: Omit<VoxSpeakOptions, "signal"> = {}): VoxSpeakHandle {
   const controller = new AbortController();
   return {
-    promise: speakWithVox(text, { signal: controller.signal }),
+    promise: speakWithVox(text, { ...options, signal: controller.signal }),
     stop: () => controller.abort(),
   };
+}
+
+function normalizeSpeechSpeed(speed: number | undefined): number | undefined {
+  if (speed === undefined || !Number.isFinite(speed)) return undefined;
+  return Math.min(2, Math.max(0.5, Number(speed.toFixed(2))));
 }
 
 function bindLiveCallbacks(
