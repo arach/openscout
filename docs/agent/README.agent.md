@@ -34,6 +34,7 @@ Purpose: dense context for coding agents working in this repo.
 | first run | `docs/quickstart.md` |
 | maturity/trust/license | `docs/current-posture.md` |
 | architecture | `docs/architecture.md` |
+| runtime/session semantics | `docs/runtime-sessions.md` |
 | data boundary | `docs/data-ownership.md` |
 | agent integration | `docs/agent-integration-contract.md` |
 | external client comms | `docs/scout-comms.md` |
@@ -47,9 +48,11 @@ Purpose: dense context for coding agents working in this repo.
 | Record | Meaning |
 |---|---|
 | `message` | durable conversation record |
+| `session` | concrete harness conversation/process attached to an agent endpoint |
 | `invocation` | explicit request for work |
 | `flight` | execution lifecycle for an invocation |
 | `delivery` | planned transport-specific fan-out |
+| `usage` | lightweight token/cost metadata linked to Scout records |
 | `binding` | external thread/channel mapping |
 | `question` | lightweight information-seeking collaboration record |
 | `work_item` | durable owned execution record |
@@ -62,8 +65,12 @@ Purpose: dense context for coding agents working in this repo.
 - One target means DM.
 - Group coordination means explicit channel.
 - Shared broadcast is opt-in.
-- `send` / `messages_send` is tell/update.
-- `ask` / `invocations_ask` is work or requested reply.
+- `send` / `messages_send` is a durable message/update with receipt ids.
+- `ask` / `invocations_ask` is an invocation with receipt ids and lifecycle state.
+- Cards describe identities and return addresses; sessions are concrete harness lifecycles.
+- Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
+- Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
+- Track token/coordination cost as metadata when available; do not import full harness transcripts.
 - If blocked, record who or what owns the next move.
 - Mesh means reachability, not distributed consistency guarantees.
 - Do not claim enterprise readiness.

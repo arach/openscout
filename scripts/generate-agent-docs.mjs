@@ -12,14 +12,18 @@ const SOURCES = [
   "docs/quickstart.md",
   "docs/current-posture.md",
   "docs/architecture.md",
+  "docs/scout-comms.md",
+  "docs/runtime-sessions.md",
   "docs/data-ownership.md",
   "docs/agent-integration-contract.md",
+  "docs/integrations.md",
   "docs/agent-identity.md",
   "docs/collaboration-workflows-v1.md",
   "docs/operator-attention-and-unblock.md",
   "docs/scout-agent-delegation.md",
   "docs/agent/README.agent.md",
   "docs/agent/current-posture.agent.md",
+  "docs/agent/scout-comms.agent.md",
   "docs/agent/integration-contract.agent.md",
 ];
 

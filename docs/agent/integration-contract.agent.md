@@ -10,10 +10,16 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 |---|---|
 | stable identity | resolves to one exact agent target |
 | reachable endpoint | broker knows how to reach the agent |
-| message path | can receive tell/update |
-| invocation path | can receive ask/work and produce flight result |
+| runtime session | concrete harness conversation/process attached to an endpoint |
+| endpoint state | attachment state such as registered/attaching/waking/idle/working/unreachable/failed/stale/stopped |
+| message path | can receive durable messages with broker receipt ids |
+| invocation path | can receive ask/work and produce flight result ids |
 | reply context | replies preserve actor and conversation context |
 | lifecycle state | reports queued/running/waiting/completed/failed/cancelled as appropriate |
+| session diagnostics | reports missing or mismatched harness sessions clearly |
+| broker guidance | returns candidates and remediation instead of opaque routing errors |
+| token usage | reports exact usage or marked estimates when available |
+| usage provenance | marks usage source as provider exact, tokenizer estimate, character heuristic, or manual estimate |
 | permission posture | documents approval, sandbox, and wake behavior |
 | data boundary | does not import external transcripts as Scout messages |
 
@@ -23,17 +29,18 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 |---|---|
 | identify sender | `whoami` |
 | resolve ambiguous target | `agents_resolve` |
-| tell/update | `messages_send` |
+| message/update | `messages_send` |
 | work/requested reply | `invocations_ask` |
 | inspect flight | `invocations_get` |
 | bounded follow-up wait | `invocations_wait` |
 | work progress/waiting/review/done | `work_update` |
+| session lifecycle | future `sessions_start`, `sessions_attach`, `sessions_inspect`, `sessions_stop` |
 
 ## Reply Modes
 
 | Mode | Use |
 |---|---|
-| `none` | fire and forget, durable ids returned |
+| `none` | receipt-only, durable ids returned |
 | `inline` | short bounded wait only |
 | `notify` | return quickly, deliver callback-style MCP notification later |
 
