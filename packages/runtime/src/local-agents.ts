@@ -1848,6 +1848,10 @@ function buildInvocationTitle(invocation: InvocationRequest): string {
   return `⌖ ${scoutShortName(invocation.requesterId)} ${invocationTitleOperator(invocation.action)} ${ref ? `${action}:${ref}` : action}`;
 }
 
+function buildInvocationOpener(invocation: InvocationRequest): string {
+  return `${buildInvocationTitle(invocation)} › ${summarizeInvocationTask(invocation.task)}`;
+}
+
 export function buildScoutReplyContext(agentName: string, invocation: InvocationRequest): ScoutReplyContext | null {
   if (!invocation.conversationId || !invocation.messageId) {
     return null;
@@ -1908,9 +1912,7 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
   const replyContext = buildScoutReplyContext(agentName, invocation);
 
   return [
-    buildInvocationTitle(invocation),
-    "",
-    summarizeInvocationTask(invocation.task),
+    buildInvocationOpener(invocation),
     "",
     ...buildScoutReplyContextPrompt(replyContext),
     "",
@@ -1933,9 +1935,7 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
   const replyContext = buildScoutReplyContext(agentName, invocation);
 
   return [
-    buildInvocationTitle(invocation),
-    "",
-    summarizeInvocationTask(invocation.task),
+    buildInvocationOpener(invocation),
     "",
     ...buildScoutReplyContextPrompt(replyContext),
     "",

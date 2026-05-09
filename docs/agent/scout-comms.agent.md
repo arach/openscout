@@ -125,6 +125,7 @@ Contact line properties:
 - not routing authority
 - target omitted when target is ambient
 - ref usually `messageId` suffix, fallback invocation id
+- payload opener form: `⌖ art ≔ ask:8kj4pd › I am writing...`
 - ASCII fallback: `scout art ask:8kj4pd`
 - screen-reader label: "Scout ask from art, reference 8kj4pd"
 

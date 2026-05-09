@@ -53,9 +53,7 @@ title, while preserving the explicit marker as hidden Markdown so agents still
 see it:
 
 ```markdown
-⌖ sender ≔ ask:8kj4pd
-
-Review the broker handoff...
+⌖ sender ≔ ask:8kj4pd › Review the broker handoff...
 
 <!-- SCOUT BROKER REPLY MODE -->
 
