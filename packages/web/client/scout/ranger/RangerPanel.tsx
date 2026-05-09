@@ -1,51 +1,64 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, ChevronDown, ChevronUp, Compass, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Bot, ChevronDown, ChevronUp, Compass, Gauge, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
-import { usePersistentBoolean } from "../../lib/persistent-state.ts";
-import type { SessionCatalogWithResume } from "../../lib/types.ts";
-import { isRangerActorId, isRangerAgent } from "../../lib/ranger.ts";
-import { useBrokerEvents } from "../../lib/sse.ts";
+import { getOpenAIApiKey } from "../../lib/credentials.ts";
+import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
+import { extractRangerUiActions } from "../../lib/ranger.ts";
 import { isVoxSpeechStopped, startVoxSpeech, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle } from "../../lib/vox.ts";
 import { useScout } from "../Provider.tsx";
 
-type SendResult = {
-  conversationId?: string;
-};
-
 type RangerAgentConfig = {
   editable: boolean;
-  model: string | null;
+  model: string;
   systemPrompt: string;
 };
 
 type RangerAgentConfigUpdateResult = {
   config: RangerAgentConfig;
-  restarted: boolean;
 };
 
-type RangerSessionResetResult = {
-  ok: boolean;
-  agentId: string;
-  catalog: SessionCatalogWithResume;
+type RangerAssistantMessage = {
+  id: string;
+  role: "user" | "assistant";
+  body: string;
+  createdAt: number;
+};
+
+type RangerAssistantSession = {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  model: string;
+  messageCount: number;
+  messages: RangerAssistantMessage[];
+};
+
+type RangerAssistantSessionSummary = Omit<RangerAssistantSession, "messages">;
+
+type RangerAssistantSessionState = {
+  session: RangerAssistantSession;
+  sessions: RangerAssistantSessionSummary[];
+  config: RangerAgentConfig;
+};
+
+type RangerAssistantReply = RangerAssistantSessionState & {
+  reply: RangerAssistantMessage;
+  responseId: string | null;
 };
 
 type VoiceProbeState = "idle" | "probing" | "launching";
 
 const STATE_PROMPT =
   "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.";
+const RANGER_VOICE_SPEEDS = [1, 1.2, 1.35] as const;
+const DEFAULT_RANGER_VOICE_SPEED = 1.2;
 
 export function RangerPanel({ height }: { height?: number } = {}) {
   const {
-    agents,
-    rangerAgentId,
-    rangerConversationId,
     applyRangerUiAction,
-    reload,
+    route,
   } = useScout();
-  const rangerAgent = useMemo(
-    () => agents.find((agent) => agent.id === rangerAgentId) ?? agents.find(isRangerAgent) ?? null,
-    [agents, rangerAgentId],
-  );
 
   const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", false);
   const [draft, setDraft] = useState("");
@@ -55,6 +68,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [voiceIssue, setVoiceIssue] = useState<string | null>(null);
   const [voiceProbeState, setVoiceProbeState] = useState<VoiceProbeState>("idle");
   const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.ranger.voiceReplies", false);
+  const [voiceSpeed, setVoiceSpeed] = usePersistentNumber("openscout.ranger.voiceSpeed", DEFAULT_RANGER_VOICE_SPEED);
   const [recording, setRecording] = useState(false);
   const [voiceState, setVoiceState] = useState<VoxSessionState | null>(null);
   const [partial, setPartial] = useState("");
@@ -63,7 +77,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [lastReply, setLastReply] = useState<string | null>(null);
   const [askStatus, setAskStatus] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const [sessionState, setSessionState] = useState<RangerAssistantSessionState | null>(null);
   const [resettingSession, setResettingSession] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
@@ -85,29 +99,33 @@ export function RangerPanel({ height }: { height?: number } = {}) {
 
   useEffect(() => () => stopSpeech(), [stopSpeech]);
 
-  const loadSessionCatalog = useCallback(async () => {
+  const syncLastMessages = useCallback((session: RangerAssistantSession) => {
+    const lastUser = [...session.messages].reverse().find((message) => message.role === "user");
+    const lastAssistant = [...session.messages].reverse().find((message) => message.role === "assistant");
+    setLastAsk(lastUser?.body ?? null);
+    setLastReply(lastAssistant ? stripRangerUiFences(lastAssistant.body) : null);
+  }, []);
+
+  const loadRangerSession = useCallback(async () => {
     try {
-      const catalog = await api<SessionCatalogWithResume>(
-        `/api/agents/${encodeURIComponent(rangerAgentId)}/session-catalog`,
-      );
-      setSessionCatalog(catalog);
+      const state = await api<RangerAssistantSessionState>("/api/ranger/session");
+      setSessionState(state);
+      syncLastMessages(state.session);
     } catch {
-      setSessionCatalog(null);
+      setSessionState(null);
     }
-  }, [rangerAgentId]);
+  }, [syncLastMessages]);
 
   useEffect(() => {
-    void loadSessionCatalog();
-  }, [loadSessionCatalog]);
+    void loadRangerSession();
+  }, [loadRangerSession]);
 
   const loadRangerConfig = useCallback(async () => {
     setConfigLoading(true);
     setConfigError(null);
     try {
-      const config = await api<RangerAgentConfig>(
-        `/api/agents/${encodeURIComponent(rangerAgentId)}/config`,
-      );
-      setModelDraft(config.model ?? "");
+      const config = await api<RangerAgentConfig>("/api/ranger/config");
+      setModelDraft(config.model);
       setPromptDraft(config.systemPrompt);
       setConfigStatus(null);
     } catch (err) {
@@ -115,7 +133,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     } finally {
       setConfigLoading(false);
     }
-  }, [rangerAgentId]);
+  }, []);
 
   useEffect(() => {
     if (settingsOpen) {
@@ -129,27 +147,24 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setConfigStatus(null);
     try {
       const result = await api<RangerAgentConfigUpdateResult>(
-        `/api/agents/${encodeURIComponent(rangerAgentId)}/config`,
+        "/api/ranger/config",
         {
           method: "POST",
           body: JSON.stringify({
             model: modelDraft,
             systemPrompt: promptDraft,
-            restart: true,
           }),
         },
       );
-      setModelDraft(result.config.model ?? "");
+      setModelDraft(result.config.model);
       setPromptDraft(result.config.systemPrompt);
-      setConfigStatus(result.restarted ? "Saved and restarted" : "Saved");
-      await reload();
-      await loadSessionCatalog();
+      setConfigStatus("Saved");
     } catch (err) {
       setConfigError(err instanceof Error ? err.message : "Could not save Ranger settings.");
     } finally {
       setConfigSaving(false);
     }
-  }, [loadSessionCatalog, modelDraft, promptDraft, rangerAgentId, reload]);
+  }, [modelDraft, promptDraft]);
 
   const resetRangerSession = useCallback(async () => {
     setResettingSession(true);
@@ -157,22 +172,18 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setAskStatus("Starting fresh Ranger session");
     stopSpeech();
     try {
-      const result = await api<RangerSessionResetResult>(
-        `/api/agents/${encodeURIComponent(rangerAgentId)}/session/reset`,
-        { method: "POST" },
-      );
-      setSessionCatalog(result.catalog);
+      const state = await api<RangerAssistantSessionState>("/api/ranger/session/reset", { method: "POST" });
+      setSessionState(state);
       setLastAsk(null);
       setLastReply(null);
       setAskStatus("Fresh Ranger session ready");
-      await reload();
     } catch (err) {
       setAskStatus(null);
       setError(err instanceof Error ? err.message : "Could not start a fresh Ranger session.");
     } finally {
       setResettingSession(false);
     }
-  }, [rangerAgentId, reload, stopSpeech]);
+  }, [stopSpeech]);
 
   const probeVoice = useCallback(async () => {
     const client = clientRef.current ?? new VoxBrowserClient();
@@ -203,6 +214,42 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     client.openSettings({ source: "openscout", context: makeScoutAudioLaunchContext() });
   }, []);
 
+  const handleRangerReply = useCallback((body: string) => {
+    const replyText = stripRangerUiFences(body);
+    setLastReply(replyText);
+    for (const action of extractRangerUiActions(body)) {
+      applyRangerUiAction(action);
+    }
+    if (!replyText || !voiceRepliesRef.current) {
+      return;
+    }
+    stopSpeech();
+    const speech = startVoxSpeech(replyText, { speed: voiceSpeed });
+    speechRef.current = speech;
+    setSpeaking(true);
+    void speech.promise
+      .catch((err) => {
+        if (!isVoxSpeechStopped(err)) {
+          setError(err instanceof Error ? err.message : "Vox speech failed.");
+        }
+      })
+      .finally(() => {
+        if (speechRef.current === speech) {
+          speechRef.current = null;
+          setSpeaking(false);
+        }
+      });
+  }, [applyRangerUiAction, stopSpeech, voiceSpeed]);
+
+  const cycleVoiceSpeed = useCallback(() => {
+    const nearestIndex = RANGER_VOICE_SPEEDS.reduce((bestIndex, candidate, index) => (
+      Math.abs(candidate - voiceSpeed) < Math.abs(RANGER_VOICE_SPEEDS[bestIndex] - voiceSpeed)
+        ? index
+        : bestIndex
+    ), 0);
+    setVoiceSpeed(RANGER_VOICE_SPEEDS[(nearestIndex + 1) % RANGER_VOICE_SPEEDS.length]);
+  }, [setVoiceSpeed, voiceSpeed]);
+
   const askRanger = useCallback(async (body: string) => {
     const trimmed = body.trim();
     if (!trimmed || sending) return;
@@ -212,22 +259,29 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setLastReply(null);
     setAskStatus("Sending to Ranger");
     try {
-      await api<SendResult>("/api/ask", {
+      const result = await api<RangerAssistantReply>("/api/ranger/chat", {
         method: "POST",
         body: JSON.stringify({
           body: trimmed,
-          conversationId: rangerConversationId,
+          route,
+          openaiApiKey: await getOpenAIApiKey().catch(() => null),
         }),
       });
+      setSessionState({
+        session: result.session,
+        sessions: result.sessions,
+        config: result.config,
+      });
       setDraft("");
-      setAskStatus("Waiting for Ranger");
+      setAskStatus("Ranger replied");
+      handleRangerReply(result.reply.body);
     } catch (err) {
       setAskStatus(null);
       setError(err instanceof Error ? err.message : "Could not ask Ranger.");
     } finally {
       setSending(false);
     }
-  }, [rangerConversationId, sending]);
+  }, [handleRangerReply, route, sending]);
 
   const startVoice = useCallback(async () => {
     if (recording) return;
@@ -281,72 +335,38 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setVoiceState(null);
   }, []);
 
-  useBrokerEvents((event) => {
-    if (event.kind !== "message.posted") {
-      return;
-    }
-    const message = event.payload && typeof event.payload === "object"
-      ? (event.payload as { message?: unknown }).message
-      : null;
-    if (!message || typeof message !== "object") {
-      return;
-    }
-    const record = message as { actorId?: unknown; body?: unknown; conversationId?: unknown };
-    const conversationId = typeof record.conversationId === "string" ? record.conversationId : "";
-    if (conversationId && conversationId !== rangerConversationId) {
-      return;
-    }
-    if (
-      typeof record.actorId !== "string" ||
-      !isRangerActorId(record.actorId, rangerAgentId) ||
-      typeof record.body !== "string" ||
-      !record.body.trim()
-    ) {
-      return;
-    }
-    const replyText = stripRangerUiFences(record.body);
-    if (!replyText) {
-      return;
-    }
-    setLastReply(replyText);
-    setAskStatus("Ranger replied");
-    if (!voiceRepliesRef.current) {
-      return;
-    }
-    stopSpeech();
-    const speech = startVoxSpeech(replyText);
-    speechRef.current = speech;
-    setSpeaking(true);
-    void speech.promise
-      .catch((err) => {
-        if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Vox speech failed.");
-        }
-      })
-      .finally(() => {
-        if (speechRef.current === speech) {
-          speechRef.current = null;
-          setSpeaking(false);
-        }
-      });
-  });
+  useEffect(() => {
+    const openHandler = () => setCollapsed(false);
+    window.addEventListener("scout:ranger-panel-open", openHandler);
+    return () => window.removeEventListener("scout:ranger-panel-open", openHandler);
+  }, [setCollapsed]);
+
+  useEffect(() => {
+    const submitHandler = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      const body = detail && typeof detail === "object" && "body" in detail
+        ? (detail as { body?: unknown }).body
+        : null;
+      if (typeof body === "string" && body.trim()) {
+        setCollapsed(false);
+        void askRanger(body);
+      }
+    };
+    window.addEventListener("scout:ranger-submit", submitHandler);
+    return () => window.removeEventListener("scout:ranger-submit", submitHandler);
+  }, [askRanger, setCollapsed]);
 
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"
     : voiceProbeState === "probing" ? "Checking Vox"
     : voiceProbeState === "launching" ? "Opening Vox"
     : voiceAvailable === false ? "Launch Vox" : "Start Talking";
-  const agentStatus = rangerAgent
-    ? rangerAgent.state ?? "registered"
-    : "default target";
-  const activeSessionId = sessionCatalog?.activeSessionId ?? null;
-  const activeSession = sessionCatalog?.sessions.find((session) => session.id === activeSessionId) ?? null;
-  const sessionStartedLabel = activeSession?.startedAt
-    ? new Date(activeSession.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+  const activeSession = sessionState?.session ?? null;
+  const activeSessionId = activeSession?.id ?? null;
+  const sessionStartedLabel = activeSession?.createdAt
+    ? new Date(activeSession.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : null;
-  const sessionRuntimeLabel = activeSession?.model
-    ?? activeSession?.harness
-    ?? null;
+  const sessionRuntimeLabel = activeSession?.model ?? sessionState?.config.model ?? null;
 
   if (collapsed) {
     return (
@@ -357,7 +377,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             Ranger
           </span>
           <span className="truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
-            · {agentStatus}
+            · direct loop
             {activeSessionId ? ` · ${activeSessionId.slice(0, 8)}` : ""}
           </span>
         </div>
@@ -390,8 +410,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             </h2>
           </div>
           <p className="mt-1 truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
-            {rangerAgent?.name ?? rangerAgentId} · {agentStatus}
-            {rangerAgent?.model ? ` · ${rangerAgent.model}` : ""}
+            Direct Scout control loop
+            {sessionRuntimeLabel ? ` · ${sessionRuntimeLabel}` : ""}
             {activeSessionId ? ` · session ${activeSessionId.slice(0, 8)}` : ""}
           </p>
         </div>
@@ -450,6 +470,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           compact
         />
         <RangerActionButton
+          icon={<Gauge size={13} />}
+          label={`${formatVoiceSpeed(voiceSpeed)}x`}
+          title={`Voice speed ${formatVoiceSpeed(voiceSpeed)}x`}
+          onClick={cycleVoiceSpeed}
+        />
+        <RangerActionButton
           icon={resettingSession ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           label="New Session"
           onClick={() => void resetRangerSession()}
@@ -464,9 +490,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           <span className="shrink-0 text-lime-200" title={activeSessionId}>{activeSessionId.slice(0, 8)}</span>
           {sessionStartedLabel ? <span className="shrink-0">started {sessionStartedLabel}</span> : null}
           {sessionRuntimeLabel ? <span className="min-w-0 truncate">{sessionRuntimeLabel}</span> : null}
-          {sessionCatalog && sessionCatalog.sessions.length > 1 ? (
+          {sessionState && sessionState.sessions.length > 1 ? (
             <span className="ml-auto shrink-0 text-[var(--scout-chrome-ink-ghost)]">
-              {sessionCatalog.sessions.length - 1} older
+              {sessionState.sessions.length - 1} older
             </span>
           ) : null}
         </div>
@@ -480,7 +506,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
               <input
                 value={modelDraft}
                 onChange={(event) => setModelDraft(event.target.value)}
-                placeholder="gpt-5.4-mini"
+                placeholder="gpt-4.1-mini"
                 className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] normal-case tracking-normal text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]"
                 disabled={configLoading || configSaving}
               />
@@ -603,8 +629,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
               <span className="text-lime-200">Ranger: </span>
               {lastReply}
             </p>
-          ) : askStatus === "Waiting for Ranger" ? (
-            <p className="mt-1 text-[var(--scout-chrome-ink-ghost)]">Waiting in the sidebar...</p>
+          ) : askStatus === "Sending to Ranger" ? (
+            <p className="mt-1 text-[var(--scout-chrome-ink-ghost)]">Reading the control plane...</p>
           ) : null}
         </div>
       )}
@@ -662,15 +688,21 @@ function makeScoutAudioLaunchContext() {
   };
 }
 
+function formatVoiceSpeed(value: number): string {
+  return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
 function RangerActionButton({
   icon,
   label,
+  title,
   onClick,
   disabled,
   compact = false,
 }: {
   icon: ReactNode;
   label: string;
+  title?: string;
   onClick: () => void;
   disabled?: boolean;
   compact?: boolean;
@@ -678,7 +710,7 @@ function RangerActionButton({
   return (
     <button
       type="button"
-      title={label}
+      title={title ?? label}
       aria-label={label}
       onClick={onClick}
       disabled={disabled}

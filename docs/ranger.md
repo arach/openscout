@@ -1,8 +1,8 @@
 # Ranger
 
-Ranger is OpenScout's preferred top-level orchestration agent. It is the field lead for a project or fleet: the agent with enough context to triage work, assign ownership, keep durable Scout records accurate, and decide when smaller agents or stronger models are needed.
+Ranger is OpenScout's in-app control-plane assistant. It is the direct loop for the human operator inside the web view: a sidecar that can read Scout state, explain what is happening, and move the UI without turning every casual question into an agent message.
 
-Scout works without Ranger. The broker, runtime, addresses, messages, invocations, work items, and agent cards are still the platform primitives. Ranger is an opinionated Codex-backed operator on top of those primitives, not a replacement for them.
+Scout works without Ranger. The broker, runtime, addresses, messages, invocations, work items, and agent cards remain the platform primitives. Ranger sits on top of those primitives as an operator surface; Scout remains the canonical writer for durable coordination records.
 
 ## Naming
 
@@ -10,70 +10,72 @@ Scout works without Ranger. The broker, runtime, addresses, messages, invocation
 |---|---|
 | `OpenScout` | The product and control plane. |
 | `Scout` | The platform, protocol surface, CLI, app, and broker-backed collaboration model. |
-| `Ranger` | The main orchestration agent for a workspace, project, or fleet. |
+| `Ranger` | The in-app assistant/control loop for reading and navigating the Scout control plane. |
 | `Mission Control` | The overview surface for humans to inspect state and intervene. |
 | `Mission` | A coherent unit of intent that can contain questions, work items, messages, artifacts, and follow-up. |
 
-Use `@ranger` or the fully qualified Scout address when talking to the orchestration agent. Avoid using `@scout` for this role; it overloads the product, platform, and agent name.
+Avoid treating Ranger as a visible peer in the agent population. Other agents should not need to speak to Ranger for ordinary coordination. They should use Scout broker records and explicit targets.
 
 ## Operating Logic
 
 Ranger's default loop is:
 
-1. Classify the request as an answer, work item, mission, status update, or routing problem.
-2. Use the direct Scout command first when the sender and one target are clear; resolve identity only when the route is ambiguous or a command fails.
-3. Keep one-to-one handoffs in DMs, and use explicit channels only for real group coordination.
-4. Assign an owner and next-move owner for concrete work.
-5. Track progress, waiting, review, and done states on the same durable work record.
-6. Summarize state back to the operator with the next owner and the concrete next step.
+1. Read the current Scout state snapshot and current UI route.
+2. Decide whether the operator needs a direct answer, UI navigation, refresh, or durable coordination.
+3. Answer casual or diagnostic questions directly without creating broker messages.
+4. Emit explicit `scout-ui` actions when the app should move.
+5. Route durable asks, sends, work items, or mission changes through Scout broker APIs.
+6. Summarize state back to the operator with the next owner and concrete next step when ownership exists.
 
 Ranger should ask for clarification only when the missing detail changes execution risk. Otherwise it should make the smallest defensible assumption, state it, and keep moving.
 
-## Codex Model Policy
+## Model Policy
 
-Ranger should be Codex-backed by default because its job is mostly technical orchestration across code, runtime state, and agent coordination.
+Ranger is currently OpenAI-backed through the web server's direct assistant endpoint. This keeps the app loop fast and sessionful without requiring Ranger to appear as an agent card.
 
-| Tier | Use For |
+| Backend | Use For |
 |---|---|
-| `gpt-5.4-mini` | Fast repo scans, narrow status checks, simple edits, log reading, and low-risk verification. |
-| `gpt-5.4` | Default Ranger work: triage, planning, integration, code review, multi-file implementation, and coordination. |
-| `gpt-5.3-codex-spark` | Bounded implementation slices where latency matters and the write set is narrow. |
-| `gpt-5.5` | Architecture decisions, ambiguous migrations, high-risk refactors, incident review, and final arbitration. |
+| OpenAI Responses API | Default in-app conversation, state reads, UI navigation, and lightweight control-plane interpretation. |
+| RPCable Codex profile | Future option when Ranger needs repo-native tools, code edits, long-running inspection, or richer execution context. |
+| Scout broker APIs | Durable asks, sends, work items, route resolution, and delivery records. |
 
-Escalate reasoning effort before escalating model when the task is mostly about careful analysis. Escalate the model when the task combines ambiguity, blast radius, and long context.
+The current web implementation uses an in-memory Ranger session store. Operators can start a fresh session when they want a new context. Model selection is configurable through the Ranger settings panel and environment variables.
 
-## Subagent Policy
+Ranger can use `OPENAI_API_KEY`, the local Scout relay config, or a user-entered key from Settings > Credentials. Browser-entered keys are stored in Hudson Kit HudVault for the local browser profile and are sent to the local OpenScout server only with Ranger chat requests.
 
-Ranger can use subagents, but it should not scatter work reflexively.
+## Coordination Boundary
 
-Use subagents when:
+Ranger may read directly and converse directly. Scout writes the durable coordination truth.
 
-- multiple independent questions can be answered in parallel
-- implementation can be split into disjoint file or module ownership
-- verification can run while Ranger continues non-overlapping integration work
-- a durable Scout ask is better than local blocking because another project agent owns the context
+Direct Ranger loop:
 
-Keep work local when:
+- answer "what is going on?"
+- inspect current fleet, broker, work, run, session, activity, and mesh state snapshots
+- explain local UI state
+- navigate the web app
+- refresh the app
 
-- the next step is blocked on the answer
-- the task is tightly coupled or likely to require constant integration judgment
-- the delegated scope cannot be expressed with clear ownership and acceptance criteria
+Scout broker lane:
 
-Every delegated implementation task should name the owner, write scope, expected output, and verification path. Workers must not revert or overwrite other agents' changes.
+- send a message
+- ask an agent to own work
+- create or update a work item
+- start or alter a mission
+- record delivery, flight, binding, or ownership state
 
 ## Adapter Boundary
 
-Ranger main is Codex-backed now. Future adapters should be treated as runtime profiles behind the same Scout identity model, not as new product nouns.
+Future Ranger backends should be treated as runtime profiles behind the same app assistant surface, not as new product nouns.
 
 The stable contract is:
 
 - Scout owns routing, state, and interoperability.
-- Ranger owns orchestration policy and operator-facing judgment.
+- Ranger owns operator-facing interpretation and app navigation.
 - Harness adapters own execution details for Codex, Claude, local shells, rented cloud instances, sandboxes, or clusters.
 
 ## Web App Contract
 
-The web app should always offer Ranger as a global operator surface, independent of the current screen. The right inspector hosts the persistent Ranger panel, and top-nav/command-palette actions open the Ranger DM or ask for a state readout.
+The web app should always offer Ranger as a global operator surface, independent of the current screen. The right inspector hosts the persistent Ranger panel, and top-nav/command-palette actions open that panel or ask for a state readout.
 
 Ranger can also request UI setup by sending a fenced `scout-ui` JSON action in its reply:
 
@@ -99,4 +101,6 @@ OpenScout voice mode uses Vox:
 - web TTS calls the OpenScout server, which talks to Vox's local JSON-RPC runtime and returns playable audio
 - if Vox is unavailable, the UI degrades to launch/settings guidance instead of blocking Ranger
 
-The initial voice path is Ranger-first: speech is transcribed into an Ask, and optional spoken replies synthesize Ranger messages through Vox.
+The voice path is Ranger-direct: speech is transcribed into the in-app Ranger loop, and optional spoken replies synthesize Ranger's direct response through Vox. Durable agent coordination remains a separate Scout broker action.
+
+Ranger controls spoken-reply speed from the web client. The client sends a `speed` multiplier to the local `/api/voice/speak` endpoint, which forwards it to Vox synthesis.

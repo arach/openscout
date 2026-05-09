@@ -14,6 +14,9 @@ const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
 const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
+const originalOpenAIKey = process.env.OPENAI_API_KEY;
+const originalOpenAIModel = process.env.OPENAI_MODEL;
+const originalRangerAssistantModel = process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL;
 const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
 const askScoutQuestionCalls: Array<Record<string, unknown>> = [];
@@ -57,6 +60,7 @@ let askScoutQuestionResult: unknown = {
     state: "queued",
   },
 };
+let scoutRelayConfigResult: Record<string, unknown> = {};
 mock.module("./db-queries.ts", () => ({
   configureReadonlyDb: (db: { exec(sql: string): void }) => {
     db.exec("PRAGMA busy_timeout = 250");
@@ -127,6 +131,7 @@ mock.module("./pairing.ts", () => ({
 mock.module("./core/broker/service.ts", () => ({
   appendScoutCollaborationEvent: async () => null,
   loadScoutBrokerContext: async () => scoutBrokerContextResult,
+  loadScoutRelayConfig: async () => scoutRelayConfigResult,
   readScoutBrokerHealth: async () => ({
     baseUrl: "http://broker.test",
     reachable: false,
@@ -330,6 +335,21 @@ beforeEach(() => {
   } else {
     process.env.OPENSCOUT_NODE_QUALIFIER = originalNodeQualifier;
   }
+  if (originalOpenAIKey === undefined) {
+    delete process.env.OPENAI_API_KEY;
+  } else {
+    process.env.OPENAI_API_KEY = originalOpenAIKey;
+  }
+  if (originalOpenAIModel === undefined) {
+    delete process.env.OPENAI_MODEL;
+  } else {
+    process.env.OPENAI_MODEL = originalOpenAIModel;
+  }
+  if (originalRangerAssistantModel === undefined) {
+    delete process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL;
+  } else {
+    process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL = originalRangerAssistantModel;
+  }
   querySessionByIdImpl = () => null;
   scoutBrokerContextResult = null;
   agentObservePayloadResult = null;
@@ -360,6 +380,7 @@ beforeEach(() => {
       state: "queued",
     },
   };
+  scoutRelayConfigResult = {};
   pairingStateResult = makePairingState();
   pairingSessionSnapshotsResult = [];
   sendScoutMessageCalls.length = 0;
@@ -390,6 +411,21 @@ afterEach(() => {
     delete process.env.OPENSCOUT_NODE_QUALIFIER;
   } else {
     process.env.OPENSCOUT_NODE_QUALIFIER = originalNodeQualifier;
+  }
+  if (originalOpenAIKey === undefined) {
+    delete process.env.OPENAI_API_KEY;
+  } else {
+    process.env.OPENAI_API_KEY = originalOpenAIKey;
+  }
+  if (originalOpenAIModel === undefined) {
+    delete process.env.OPENAI_MODEL;
+  } else {
+    process.env.OPENAI_MODEL = originalOpenAIModel;
+  }
+  if (originalRangerAssistantModel === undefined) {
+    delete process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL;
+  } else {
+    process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL = originalRangerAssistantModel;
   }
 
   for (const directory of testDirectories) {
@@ -1021,6 +1057,167 @@ describe("createOpenScoutWebServer", () => {
     expect(await channelResponse.json()).toEqual({
       error: "ask is only available in a direct conversation with one agent",
     });
+  });
+
+  test("runs Ranger assistant through direct OpenAI control loop", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL = "gpt-test-ranger";
+    const fetchCalls: Array<{
+      input: string;
+      body: Record<string, unknown>;
+      authorization: string | null;
+    }> = [];
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({
+        input: String(input),
+        body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return new Response(JSON.stringify({
+        id: "resp_ranger_1",
+        output_text: [
+          "The control plane is quiet.",
+          "```scout-ui",
+          "{\"type\":\"navigate\",\"route\":{\"view\":\"fleet\"}}",
+          "```",
+        ].join("\n"),
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/ranger/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "what's going on?",
+        route: { view: "fleet" },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const json = await response.json() as {
+      reply: { body: string };
+      session: { messageCount: number; messages: Array<{ role: string; body: string }> };
+      responseId: string | null;
+    };
+    expect(json.reply.body).toContain("control plane is quiet");
+    expect(json.responseId).toBe("resp_ranger_1");
+    expect(json.session.messageCount).toBe(2);
+    expect(json.session.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(askScoutQuestionCalls).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].input).toBe("https://api.openai.com/v1/responses");
+    expect(fetchCalls[0].authorization).toBe("Bearer sk-test");
+    expect(fetchCalls[0].body).toMatchObject({
+      model: "gpt-test-ranger",
+      instructions: expect.stringContaining("not a peer agent"),
+    });
+    expect(JSON.stringify(fetchCalls[0].body)).toContain("Current Scout control-plane snapshot");
+    expect(JSON.stringify(fetchCalls[0].body)).toContain("currentRoute");
+    expect(JSON.stringify(fetchCalls[0].body)).toContain("fleet");
+  });
+
+  test("returns a setup error when Ranger assistant has no OpenAI key", async () => {
+    delete process.env.OPENAI_API_KEY;
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/ranger/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "state?" }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.",
+    });
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("uses a request supplied OpenAI key for Ranger assistant", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const fetchCalls: Array<{ authorization: string | null }> = [];
+    globalThis.fetch = (async (_input, init) => {
+      fetchCalls.push({
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return new Response(JSON.stringify({
+        id: "resp_ranger_request_key",
+        output_text: "Request key works.",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/ranger/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "state?",
+        openaiApiKey: "sk-request-test",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toEqual([{ authorization: "Bearer sk-request-test" }]);
+  });
+
+  test("uses the local Scout relay OpenAI key for Ranger assistant", async () => {
+    delete process.env.OPENAI_API_KEY;
+    scoutRelayConfigResult = { openaiApiKey: "sk-relay-test" };
+    const fetchCalls: Array<{ authorization: string | null }> = [];
+    globalThis.fetch = (async (_input, init) => {
+      fetchCalls.push({
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return new Response(JSON.stringify({
+        id: "resp_ranger_relay_key",
+        output_text: "Relay key works.",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/ranger/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "state?" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toEqual([{ authorization: "Bearer sk-relay-test" }]);
   });
 
   test("proxies UI routes to the configured Vite dev server", async () => {

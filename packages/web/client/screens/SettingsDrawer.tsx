@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
+import {
+  deleteOpenAIApiKey,
+  getClientCredentialState,
+  setOpenAIApiKey,
+  type ClientCredentialState,
+} from "../lib/credentials.ts";
 import { useScout } from "../scout/Provider.tsx";
 import type {
   CommsChannel,
@@ -12,7 +18,15 @@ import type {
 import { timeAgo } from "../lib/time.ts";
 import "./settings-drawer.css";
 
-type Section = "operator" | "comms" | "devices";
+type Section = "operator" | "comms" | "credentials" | "devices";
+
+type ServerCredentialState = {
+  openai: {
+    configured: boolean;
+    source: "env" | "local-config" | "missing";
+    preview: string | null;
+  };
+};
 
 const HUE_PRESETS = [195, 125, 300, 45, 355, 210];
 
@@ -251,6 +265,119 @@ function CommsSection({
   );
 }
 
+// ── Credentials section ───────────────────────────────────────────────
+
+function CredentialsSection({
+  clientCredentials,
+  serverCredentials,
+  reloadCredentials,
+}: {
+  clientCredentials: ClientCredentialState | null;
+  serverCredentials: ServerCredentialState | null;
+  reloadCredentials: () => Promise<void>;
+}) {
+  const [openAIKeyDraft, setOpenAIKeyDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const serverOpenAI = serverCredentials?.openai ?? null;
+  const configured = Boolean(clientCredentials?.configured || serverOpenAI?.configured);
+  const source = clientCredentials?.configured
+    ? "HudVault"
+    : serverOpenAI?.source === "env"
+      ? "OPENAI_API_KEY"
+      : serverOpenAI?.source === "local-config"
+        ? "local Scout config"
+        : "missing";
+  const preview = clientCredentials?.preview ?? serverOpenAI?.preview ?? null;
+
+  const saveOpenAIKey = async () => {
+    setSaving(true);
+    setStatus(null);
+    try {
+      await setOpenAIApiKey(openAIKeyDraft);
+      setOpenAIKeyDraft("");
+      await reloadCredentials();
+      setStatus("Saved to Hudson Vault.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save key.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearOpenAIKey = async () => {
+    setSaving(true);
+    setStatus(null);
+    try {
+      await deleteOpenAIApiKey();
+      setOpenAIKeyDraft("");
+      await reloadCredentials();
+      setStatus(serverOpenAI?.configured
+        ? "Removed browser key. Server fallback is still configured."
+        : "Removed browser key.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not clear key.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="s-settings-col-gap">
+      <SectionRule label="Model providers" right={configured ? `configured · ${source}` : "missing"} />
+
+      <div className="s-settings-relay-card">
+        <div>
+          <div className="s-settings-relay-title">
+            OpenAI · <span className="s-settings-device-status" style={{ color: configured ? "var(--green)" : "var(--dim)" }}>
+              {"●"} {configured ? "ready" : "missing"}
+            </span>
+          </div>
+          <div className="s-settings-relay-meta">
+            {preview ?? "No key stored"} · {source}
+          </div>
+          <div className="s-settings-relay-desc">
+            Ranger stores user-entered keys in Hudson Kit HudVault, encrypted in this browser profile. The local OpenScout server receives the key only when Ranger sends a model request.
+          </div>
+        </div>
+      </div>
+
+      <Field label="OpenAI API key" hint="Saved locally in Hudson Kit HudVault. Existing keys are never shown again.">
+        <input
+          className="s-settings-input s-settings-input--mono"
+          type="password"
+          value={openAIKeyDraft}
+          placeholder={configured ? "Saved key configured" : "sk-..."}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => setOpenAIKeyDraft(event.target.value)}
+        />
+      </Field>
+
+      {status && <div className="s-settings-field-hint">{status}</div>}
+
+      <div className="s-settings-button-row">
+        <button
+          type="button"
+          className="s-btn"
+          disabled={saving || !openAIKeyDraft.trim()}
+          onClick={() => void saveOpenAIKey()}
+        >
+          {saving ? "Saving" : "Save key"}
+        </button>
+        <button
+          type="button"
+          className="s-btn"
+          disabled={saving || !clientCredentials?.configured}
+          onClick={() => void clearOpenAIKey()}
+        >
+          Clear HudVault key
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Devices section ───────────────────────────────────────────────────
 
 type PeerDevice = {
@@ -340,12 +467,14 @@ function DevicesSection({ pairing }: { pairing: PairingState | null }) {
 const SECTIONS: { id: Section; label: string; sub: string }[] = [
   { id: "operator", label: "Operator", sub: "identity · bio · hours" },
   { id: "comms", label: "Communication", sub: "how agents reach you" },
+  { id: "credentials", label: "Credentials", sub: "model provider keys" },
   { id: "devices", label: "Paired devices", sub: "relay · connected" },
 ];
 
 const SECTION_TITLES: Record<Section, string> = {
   operator: "Operator identity",
   comms: "Communication",
+  credentials: "Credentials",
   devices: "Paired devices",
 };
 
@@ -370,8 +499,19 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
   const [section, setSection] = useState<Section>("operator");
   const [profile, setProfile] = useState<OperatorProfile>(DEFAULT_PROFILE);
   const [pairing, setPairing] = useState<PairingState | null>(null);
+  const [clientCredentials, setClientCredentials] = useState<ClientCredentialState | null>(null);
+  const [serverCredentials, setServerCredentials] = useState<ServerCredentialState | null>(null);
   const [loaded, setLoaded] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadCredentials = useCallback(async () => {
+    const [client, server] = await Promise.allSettled([
+      getClientCredentialState(),
+      api<ServerCredentialState>("/api/ranger/credentials"),
+    ]);
+    setClientCredentials(client.status === "fulfilled" ? client.value : null);
+    setServerCredentials(server.status === "fulfilled" ? server.value : null);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -383,10 +523,11 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
       const [user, pair] = await Promise.allSettled([userPromise, pairPromise]);
       if (user.status === "fulfilled") setProfile(user.value);
       if (pair.status === "fulfilled") setPairing(pair.value);
+      await loadCredentials();
     } finally {
       setLoaded(true);
     }
-  }, []);
+  }, [loadCredentials]);
 
   useEffect(() => {
     if (open) void load();
@@ -457,6 +598,13 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
             <>
               {section === "operator" && <OperatorSection profile={profile} update={update} />}
               {section === "comms" && <CommsSection profile={profile} update={update} />}
+              {section === "credentials" && (
+                <CredentialsSection
+                  clientCredentials={clientCredentials}
+                  serverCredentials={serverCredentials}
+                  reloadCredentials={loadCredentials}
+                />
+              )}
               {section === "devices" && <DevicesSection pairing={pairing} />}
             </>
           )}

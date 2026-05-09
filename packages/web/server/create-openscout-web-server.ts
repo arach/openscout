@@ -43,6 +43,7 @@ import {
 import {
   appendScoutCollaborationEvent,
   askScoutQuestion,
+  loadScoutRelayConfig,
   resolveScoutBrokerUrl,
   sendScoutDirectMessage,
   sendScoutMessage,
@@ -74,6 +75,10 @@ import {
   loadOpenScoutWebShellState,
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
+import {
+  createRangerAssistantService,
+  RangerAssistantError,
+} from "./ranger-assistant.ts";
 import { buildWorkMaterialsInventory, readWorkMaterialContent } from "./work-materials.ts";
 import { ensureOpenScoutVoxOrigins, synthesizeVoxSpeech } from "./vox.ts";
 import {
@@ -1019,6 +1024,106 @@ async function buildOperatorAttentionState(currentDirectory: string) {
   };
 }
 
+async function buildRangerAssistantControlState(currentDirectory: string) {
+  const [attention, mesh] = await Promise.all([
+    valueOrNull(buildOperatorAttentionState(currentDirectory)),
+    valueOrNull(loadMeshStatus()),
+  ]);
+  const broker = queryBrokerDiagnostics({ limit: 80, windowMs: 6 * 60 * 60_000 });
+  const fleet = queryFleet({ limit: 16, activityLimit: 40 });
+
+  return {
+    build: loadOpenScoutBuildInfo(currentDirectory),
+    agents: queryAgents(40)
+      .filter((agent) => !isRangerLikeAgentRecord(agent))
+      .map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        handle: agent.handle,
+        state: agent.state,
+        harness: agent.harness,
+        transport: agent.transport,
+        model: agent.model,
+        project: agent.project,
+        branch: agent.branch,
+        cwd: agent.cwd,
+        updatedAt: agent.updatedAt,
+        conversationId: agent.conversationId,
+      })),
+    fleet: {
+      generatedAt: fleet.generatedAt,
+      totals: fleet.totals,
+      activeAsks: fleet.activeAsks,
+      needsAttention: fleet.needsAttention,
+      recentCompleted: fleet.recentCompleted,
+      activity: fleet.activity.slice(0, 16),
+    },
+    operatorAttention: attention
+      ? {
+          generatedAt: attention.generatedAt,
+          totals: attention.totals,
+          items: attention.items.slice(0, 16),
+        }
+      : null,
+    broker: {
+      generatedAt: broker.generatedAt,
+      windowMs: broker.windowMs,
+      totals: broker.totals,
+      rates: broker.rates,
+      failedQueries: broker.failedQueries.slice(0, 12),
+      failedDeliveries: broker.failedDeliveries.slice(0, 12),
+      attempts: broker.attempts.slice(0, 20),
+      dialogue: broker.dialogue.slice(0, 20),
+    },
+    activeWork: queryWorkItems({ activeOnly: true, limit: 30 }),
+    activeRuns: queryRuns({ active: true, limit: 24 }),
+    activeFlights: queryFlights({ activeOnly: true }).slice(0, 24),
+    sessions: querySessions(24),
+    recentMessages: queryRecentMessages(24),
+    recentActivity: queryActivity(24),
+    heartrate: queryHeartrate(),
+    mesh: mesh
+      ? {
+          brokerUrl: mesh.brokerUrl,
+          identity: mesh.identity,
+          meshId: mesh.meshId,
+          localNode: mesh.localNode,
+          issueCount: mesh.issues.length,
+          issues: mesh.issues,
+          warnings: mesh.warnings,
+          tailscale: {
+            available: mesh.tailscale.available,
+            running: mesh.tailscale.running,
+            backendState: mesh.tailscale.backendState,
+            onlineCount: mesh.tailscale.onlineCount,
+          },
+        }
+      : null,
+  };
+}
+
+async function valueOrNull<T>(value: Promise<T> | T): Promise<T | null> {
+  try {
+    return await value;
+  } catch {
+    return null;
+  }
+}
+
+function isRangerLikeAgentRecord(agent: { id: string; name: string; handle: string | null; role: string | null }): boolean {
+  return [agent.id, agent.name, agent.handle ?? "", agent.role ?? ""]
+    .map((value) => value.trim().toLowerCase())
+    .some((value) => value === "ranger" || value.startsWith("ranger.") || value.includes(".ranger."));
+}
+
+function previewSecret(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= 10) {
+    return "configured";
+  }
+  return `${trimmed.slice(0, 5)}...${trimmed.slice(-4)}`;
+}
+
 function renderScoutLocalPortal(input: {
   requestUrl: string;
   portalHost: string;
@@ -1242,6 +1347,14 @@ export async function createOpenScoutWebServer(
     loadOpenScoutWebShellState,
     shellTtl,
   );
+  const rangerAssistant = createRangerAssistantService({
+    currentDirectory,
+    loadContext: () => buildRangerAssistantControlState(currentDirectory),
+    resolveApiKey: async () => {
+      const config = await loadScoutRelayConfig().catch(() => null);
+      return config?.openaiApiKey ?? null;
+    },
+  });
 
   installScoutApiMiddleware(app, "openscout-web api", {
     trustedHosts: options.trustedHosts,
@@ -1267,6 +1380,53 @@ export async function createOpenScoutWebServer(
     }),
   );
   app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
+  app.get("/api/ranger/session", (c) => c.json(rangerAssistant.getSessionState()));
+  app.post("/api/ranger/session/reset", (c) => c.json(rangerAssistant.resetSession()));
+  app.get("/api/ranger/config", (c) => c.json(rangerAssistant.getConfig()));
+  app.post("/api/ranger/config", async (c) => {
+    const body = await c.req.json<{
+      model?: string | null;
+      systemPrompt?: string | null;
+    }>().catch(() => ({}));
+    return c.json({
+      config: rangerAssistant.updateConfig({
+        model: body.model,
+        systemPrompt: body.systemPrompt,
+      }),
+    });
+  });
+  app.get("/api/ranger/credentials", async (c) => {
+    const envKey = process.env.OPENAI_API_KEY?.trim() ?? "";
+    const config = await loadScoutRelayConfig().catch(() => ({}));
+    const configKey = typeof config.openaiApiKey === "string" ? config.openaiApiKey.trim() : "";
+    const key = envKey || configKey;
+    return c.json({
+      openai: {
+        configured: Boolean(key),
+        source: envKey ? "env" : configKey ? "local-config" : "missing",
+        preview: key ? previewSecret(key) : null,
+      },
+    });
+  });
+  app.post("/api/ranger/chat", async (c) => {
+    const body = await c.req.json<{
+      body?: string;
+      route?: unknown;
+      openaiApiKey?: string | null;
+    }>().catch(() => ({}));
+
+    try {
+      return c.json(await rangerAssistant.respond({
+        body: body.body ?? "",
+        route: body.route,
+        openaiApiKey: body.openaiApiKey,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ranger assistant failed";
+      const status = error instanceof RangerAssistantError ? error.status : 500;
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+    }
+  });
   app.post("/api/local-path/reveal", async (c) => {
     const body = await c.req.json<{
       path?: unknown;

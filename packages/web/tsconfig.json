@@ -25,6 +25,7 @@
       "@hudsonkit/controls": ["../../../hudson/packages/web/hudsonkit/src/controls.ts"],
       "@hudsonkit/canvas": ["../../../hudson/packages/web/hudsonkit/src/canvas.ts"],
       "@hudsonkit/overlays": ["../../../hudson/packages/web/hudsonkit/src/overlays.ts"],
+      "@hudsonkit/vault": ["../../../hudson/packages/web/hudsonkit/src/vault.ts"],
       "@hudsonkit/styles": ["../../../hudson/packages/web/hudsonkit/src/styles/bundle.css"]
     }
   },
