@@ -1220,6 +1220,64 @@ describe("createOpenScoutWebServer", () => {
     expect(askScoutQuestionCalls).toHaveLength(0);
   });
 
+  test("stores and dismisses Ranger reminders without an OpenAI key", async () => {
+    useIsolatedOpenScoutHome();
+    delete process.env.OPENAI_API_KEY;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const createResponse = await server.app.request("http://localhost/api/ranger/reminders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "check lattices status",
+        delayMs: 180_000,
+        context: { route: { view: "fleet" } },
+      }),
+    });
+
+    expect(createResponse.status).toBe(200);
+    const created = await createResponse.json() as {
+      reminder: { id: string; body: string; status: string; dueAt: number };
+      scheduled: Array<{ id: string }>;
+      due: Array<{ id: string }>;
+    };
+    expect(created.reminder.body).toBe("check lattices status");
+    expect(created.reminder.status).toBe("scheduled");
+    expect(created.reminder.dueAt).toBeGreaterThan(Date.now());
+    expect(created.scheduled).toEqual([expect.objectContaining({ id: created.reminder.id })]);
+    expect(created.due).toEqual([]);
+
+    const dueResponse = await server.app.request("http://localhost/api/ranger/reminders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "read current status",
+        dueAt: Date.now() - 1000,
+      }),
+    });
+    const due = await dueResponse.json() as {
+      reminder: { id: string; status: string };
+      due: Array<{ id: string; status: string }>;
+    };
+    expect(due.reminder.status).toBe("due");
+    expect(due.due).toEqual([expect.objectContaining({ id: due.reminder.id, status: "due" })]);
+
+    const dismissResponse = await server.app.request(`http://localhost/api/ranger/reminders/${due.reminder.id}/dismiss`, {
+      method: "POST",
+    });
+    expect(dismissResponse.status).toBe(200);
+    const dismissed = await dismissResponse.json() as {
+      due: Array<{ id: string }>;
+      reminders: Array<{ id: string; status: string }>;
+    };
+    expect(dismissed.due.find((reminder) => reminder.id === due.reminder.id)).toBeUndefined();
+    expect(dismissed.reminders.find((reminder) => reminder.id === due.reminder.id)?.status).toBe("dismissed");
+  });
+
   test("returns a setup error when Ranger assistant has no OpenAI key", async () => {
     delete process.env.OPENAI_API_KEY;
     let fetchCalled = false;

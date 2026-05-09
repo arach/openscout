@@ -34,7 +34,16 @@ const ONLINE_RANGER_STATES = new Set([
 export type RangerUiAction =
   | { type: "navigate"; route: Route; reason?: string }
   | { type: "open-ranger"; mode?: "ask" | "tell"; reason?: string }
-  | { type: "refresh"; reason?: string };
+  | { type: "refresh"; reason?: string }
+  | {
+      type: "reminder";
+      body: string;
+      title?: string;
+      dueAt?: number;
+      delayMs?: number;
+      delayMinutes?: number;
+      reason?: string;
+    };
 
 export function isRangerAgent(agent: Agent): boolean {
   const candidates = [
@@ -158,12 +167,64 @@ export function normalizeRangerUiAction(raw: unknown): RangerUiAction | null {
     return { type: "refresh", ...(reason ? { reason } : {}) };
   }
 
+  if (type === "reminder" || type === "set-reminder" || type === "set_reminder" || type === "remind") {
+    const body = firstString(record.body, record.text, record.prompt, record.message);
+    if (!body?.trim()) {
+      return null;
+    }
+    const title = firstString(record.title, record.label);
+    const dueAt = timestampValue(record.dueAt ?? record.due_at);
+    const delayMs = numberValue(record.delayMs ?? record.delay_ms);
+    const delayMinutes = numberValue(record.delayMinutes ?? record.delay_minutes);
+    return {
+      type: "reminder",
+      body: body.trim(),
+      ...(title?.trim() ? { title: title.trim() } : {}),
+      ...(dueAt !== null ? { dueAt } : {}),
+      ...(delayMs !== null ? { delayMs } : {}),
+      ...(delayMinutes !== null ? { delayMinutes } : {}),
+      ...(reason ? { reason } : {}),
+    };
+  }
+
   if (type !== "navigate" && type !== "open") {
     return null;
   }
 
   const route = normalizeRoute(record.route ?? record);
   return route ? { type: "navigate", route, ...(reason ? { reason } : {}) } : null;
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function timestampValue(value: unknown): number | null {
+  const numeric = numberValue(value);
+  if (numeric !== null) {
+    return numeric;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeRoute(raw: unknown): Route | null {
