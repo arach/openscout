@@ -2,9 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import {
   deleteOpenAIApiKey,
+  deleteOpenAIKeyFromServer,
+  ensureOpenAIKeyOnServer,
   getClientCredentialState,
+  getServerCredentialState,
+  saveOpenAIKeyToServer,
   setOpenAIApiKey,
   type ClientCredentialState,
+  type ServerCredentialState,
 } from "../lib/credentials.ts";
 import { useScout } from "../scout/Provider.tsx";
 import type {
@@ -19,14 +24,6 @@ import { timeAgo } from "../lib/time.ts";
 import "./settings-drawer.css";
 
 type Section = "operator" | "comms" | "credentials" | "devices";
-
-type ServerCredentialState = {
-  openai: {
-    configured: boolean;
-    source: "env" | "local-config" | "missing";
-    preview: string | null;
-  };
-};
 
 const HUE_PRESETS = [195, 125, 300, 45, 355, 210];
 
@@ -280,24 +277,36 @@ function CredentialsSection({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const serverOpenAI = serverCredentials?.openai ?? null;
-  const configured = Boolean(clientCredentials?.configured || serverOpenAI?.configured);
-  const source = clientCredentials?.configured
-    ? "HudVault"
-    : serverOpenAI?.source === "env"
-      ? "OPENAI_API_KEY"
-      : serverOpenAI?.source === "local-config"
-        ? "local Scout config"
+  const configured = Boolean(serverOpenAI?.configured);
+  const serverSource = serverOpenAI?.source === "env"
+    ? "OPENAI_API_KEY"
+    : serverOpenAI?.source === "local-config"
+      ? "local Scout config"
+      : serverOpenAI?.source === "local-store"
+        ? "local OpenScout store"
         : "missing";
-  const preview = clientCredentials?.preview ?? serverOpenAI?.preview ?? null;
+  const source = serverOpenAI?.source === "local-store" && clientCredentials?.configured
+    ? "local OpenScout store + HudVault mirror"
+    : serverSource;
+  const preview = serverOpenAI?.preview ?? clientCredentials?.preview ?? null;
 
   const saveOpenAIKey = async () => {
     setSaving(true);
     setStatus(null);
     try {
-      await setOpenAIApiKey(openAIKeyDraft);
+      const apiKey = openAIKeyDraft.trim();
+      await saveOpenAIKeyToServer(apiKey);
+      let hudVaultError: string | null = null;
+      try {
+        await setOpenAIApiKey(apiKey);
+      } catch (error) {
+        hudVaultError = error instanceof Error ? error.message : "HudVault save failed.";
+      }
       setOpenAIKeyDraft("");
       await reloadCredentials();
-      setStatus("Saved to Hudson Vault.");
+      setStatus(hudVaultError
+        ? `Saved to local OpenScout store. Browser mirror failed: ${hudVaultError}`
+        : "Saved to local OpenScout store and Hudson Vault.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save key.");
     } finally {
@@ -309,12 +318,19 @@ function CredentialsSection({
     setSaving(true);
     setStatus(null);
     try {
-      await deleteOpenAIApiKey();
+      const [clientResult, serverResult] = await Promise.allSettled([
+        deleteOpenAIApiKey(),
+        deleteOpenAIKeyFromServer(),
+      ]);
       setOpenAIKeyDraft("");
       await reloadCredentials();
-      setStatus(serverOpenAI?.configured
-        ? "Removed browser key. Server fallback is still configured."
-        : "Removed browser key.");
+      if (clientResult.status === "rejected" || serverResult.status === "rejected") {
+        setStatus("Cleared what I could; one credential store did not respond.");
+      } else {
+        setStatus(serverOpenAI?.source === "env" || serverOpenAI?.source === "local-config"
+        ? "Removed saved key. Server fallback is still configured."
+        : "Removed saved key.");
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not clear key.");
     } finally {
@@ -337,12 +353,12 @@ function CredentialsSection({
             {preview ?? "No key stored"} · {source}
           </div>
           <div className="s-settings-relay-desc">
-            Ranger stores user-entered keys in Hudson Kit HudVault, encrypted in this browser profile. The local OpenScout server receives the key only when Ranger sends a model request.
+            Ranger stores user-entered keys in the local OpenScout credential store and keeps a HudVault mirror for this browser profile.
           </div>
         </div>
       </div>
 
-      <Field label="OpenAI API key" hint="Saved locally in Hudson Kit HudVault. Existing keys are never shown again.">
+      <Field label="OpenAI API key" hint="Saved locally. Existing keys are never shown again.">
         <input
           className="s-settings-input s-settings-input--mono"
           type="password"
@@ -368,10 +384,10 @@ function CredentialsSection({
         <button
           type="button"
           className="s-btn"
-          disabled={saving || !clientCredentials?.configured}
+          disabled={saving || !(clientCredentials?.configured || serverOpenAI?.source === "local-store")}
           onClick={() => void clearOpenAIKey()}
         >
-          Clear HudVault key
+          Clear saved key
         </button>
       </div>
     </div>
@@ -507,10 +523,15 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
   const loadCredentials = useCallback(async () => {
     const [client, server] = await Promise.allSettled([
       getClientCredentialState(),
-      api<ServerCredentialState>("/api/ranger/credentials"),
+      getServerCredentialState(),
     ]);
-    setClientCredentials(client.status === "fulfilled" ? client.value : null);
-    setServerCredentials(server.status === "fulfilled" ? server.value : null);
+    const clientValue = client.status === "fulfilled" ? client.value : null;
+    let serverValue = server.status === "fulfilled" ? server.value : null;
+    if (clientValue?.configured && !serverValue?.openai.configured) {
+      serverValue = await ensureOpenAIKeyOnServer().catch(() => serverValue);
+    }
+    setClientCredentials(clientValue);
+    setServerCredentials(serverValue);
   }, []);
 
   const load = useCallback(async () => {

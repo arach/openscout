@@ -41,7 +41,9 @@ Ranger is currently OpenAI-backed through the web server's direct assistant endp
 
 The current web implementation uses an in-memory Ranger session store. Operators can start a fresh session when they want a new context. Model selection is configurable through the Ranger settings panel and environment variables.
 
-Ranger can use `OPENAI_API_KEY`, the local Scout relay config, or a user-entered key from Settings > Credentials. Browser-entered keys are stored in Hudson Kit HudVault for the local browser profile and are sent to the local OpenScout server only with Ranger chat requests.
+Ranger can use `OPENAI_API_KEY`, the local Scout relay config, or a user-entered key from Settings > Credentials. User-entered keys are sent from the browser only during credential save or one-time HudVault repair, then saved in a local OpenScout credential store under the control home and mirrored into Hudson Kit HudVault for the current browser profile. Normal Ranger chat and brief requests send intent and route context only; the local server attaches the API key when it calls OpenAI. This keeps Ranger working across `localhost` / local-hostname origin changes while preserving the browser-local mirror for the current profile.
+
+For least privilege, use a dedicated OpenAI project API key for Ranger. In v0 Ranger needs model response generation; it should not need broad write access to files, fine-tuning, assistants, or organization administration endpoints.
 
 ## Coordination Boundary
 

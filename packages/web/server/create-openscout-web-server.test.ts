@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActionBlock, BlockState, QuestionBlock, SessionState } from "@openscout/agent-sessions";
@@ -1305,13 +1305,12 @@ describe("createOpenScoutWebServer", () => {
     expect(fetchCalled).toBe(false);
   });
 
-  test("uses a request supplied OpenAI key for Ranger assistant", async () => {
+  test("does not use a transient request supplied OpenAI key for Ranger assistant", async () => {
     delete process.env.OPENAI_API_KEY;
-    const fetchCalls: Array<{ authorization: string | null }> = [];
+    let fetchCalled = false;
     globalThis.fetch = (async (_input, init) => {
-      fetchCalls.push({
-        authorization: new Headers(init?.headers).get("authorization"),
-      });
+      fetchCalled = true;
+      void init;
       return new Response(JSON.stringify({
         id: "resp_ranger_request_key",
         output_text: "Request key works.",
@@ -1336,8 +1335,72 @@ describe("createOpenScoutWebServer", () => {
       }),
     });
 
-    expect(response.status).toBe(200);
-    expect(fetchCalls).toEqual([{ authorization: "Bearer sk-request-test" }]);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.",
+    });
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("saves and uses the local Ranger OpenAI credential store", async () => {
+    useIsolatedOpenScoutHome();
+    delete process.env.OPENAI_API_KEY;
+    const fetchCalls: Array<{ authorization: string | null }> = [];
+    globalThis.fetch = (async (_input, init) => {
+      fetchCalls.push({
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return new Response(JSON.stringify({
+        id: "resp_ranger_local_store_key",
+        output_text: "Local store key works.",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const saveResponse = await server.app.request("http://localhost/api/ranger/credentials/openai", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ apiKey: "sk-local-store-test" }),
+    });
+    expect(saveResponse.status).toBe(200);
+    expect(await saveResponse.json()).toEqual({
+      openai: {
+        configured: true,
+        source: "local-store",
+        preview: "sk-lo...test",
+      },
+    });
+
+    const credentialFile = join(process.env.OPENSCOUT_CONTROL_HOME ?? "", "ranger-credentials.json");
+    expect(readFileSync(credentialFile, "utf8")).not.toContain("sk-local-store-test");
+
+    const chatResponse = await server.app.request("http://localhost/api/ranger/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "state?" }),
+    });
+    expect(chatResponse.status).toBe(200);
+    expect(fetchCalls).toEqual([{ authorization: "Bearer sk-local-store-test" }]);
+
+    const deleteResponse = await server.app.request("http://localhost/api/ranger/credentials/openai", {
+      method: "DELETE",
+    });
+    expect(deleteResponse.status).toBe(200);
+    expect(await deleteResponse.json()).toEqual({
+      openai: {
+        configured: false,
+        source: "missing",
+        preview: null,
+      },
+    });
   });
 
   test("uses the local Scout relay OpenAI key for Ranger assistant", async () => {

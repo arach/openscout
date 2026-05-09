@@ -83,6 +83,9 @@ import {
   createRangerReminderStore,
   RangerReminderError,
 } from "./ranger-reminders.ts";
+import {
+  createRangerCredentialStore,
+} from "./ranger-credentials.ts";
 import { buildWorkMaterialsInventory, readWorkMaterialContent } from "./work-materials.ts";
 import { ensureOpenScoutVoxOrigins, synthesizeVoxSpeech } from "./vox.ts";
 import {
@@ -1128,6 +1131,29 @@ function previewSecret(value: string): string {
   return `${trimmed.slice(0, 5)}...${trimmed.slice(-4)}`;
 }
 
+async function resolveRangerCredentialState(
+  rangerCredentials: ReturnType<typeof createRangerCredentialStore>,
+): Promise<{
+  openai: {
+    configured: boolean;
+    source: "env" | "local-config" | "local-store" | "missing";
+    preview: string | null;
+  };
+}> {
+  const envKey = process.env.OPENAI_API_KEY?.trim() ?? "";
+  const config = await loadScoutRelayConfig().catch(() => ({}));
+  const configKey = typeof config.openaiApiKey === "string" ? config.openaiApiKey.trim() : "";
+  const storeKey = rangerCredentials.getOpenAIKey()?.trim() ?? "";
+  const key = envKey || configKey || storeKey;
+  return {
+    openai: {
+      configured: Boolean(key),
+      source: envKey ? "env" : configKey ? "local-config" : storeKey ? "local-store" : "missing",
+      preview: key ? previewSecret(key) : null,
+    },
+  };
+}
+
 function renderScoutLocalPortal(input: {
   requestUrl: string;
   portalHost: string;
@@ -1352,6 +1378,7 @@ export async function createOpenScoutWebServer(
     shellTtl,
   );
   const rangerReminders = createRangerReminderStore();
+  const rangerCredentials = createRangerCredentialStore();
   const rangerAssistant = createRangerAssistantService({
     currentDirectory,
     loadContext: async () => ({
@@ -1360,7 +1387,7 @@ export async function createOpenScoutWebServer(
     }),
     resolveApiKey: async () => {
       const config = await loadScoutRelayConfig().catch(() => null);
-      return config?.openaiApiKey ?? null;
+      return config?.openaiApiKey ?? rangerCredentials.getOpenAIKey();
     },
   });
 
@@ -1433,30 +1460,35 @@ export async function createOpenScoutWebServer(
     });
   });
   app.get("/api/ranger/credentials", async (c) => {
-    const envKey = process.env.OPENAI_API_KEY?.trim() ?? "";
-    const config = await loadScoutRelayConfig().catch(() => ({}));
-    const configKey = typeof config.openaiApiKey === "string" ? config.openaiApiKey.trim() : "";
-    const key = envKey || configKey;
-    return c.json({
-      openai: {
-        configured: Boolean(key),
-        source: envKey ? "env" : configKey ? "local-config" : "missing",
-        preview: key ? previewSecret(key) : null,
-      },
-    });
+    return c.json(await resolveRangerCredentialState(rangerCredentials));
+  });
+  app.post("/api/ranger/credentials/openai", async (c) => {
+    const body = await c.req.json<{ apiKey?: unknown }>().catch(() => ({}));
+    try {
+      if (typeof body.apiKey !== "string") {
+        return c.json({ error: "apiKey is required" }, 400);
+      }
+      rangerCredentials.setOpenAIKey(body.apiKey);
+      return c.json(await resolveRangerCredentialState(rangerCredentials));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save OpenAI API key.";
+      return c.json({ error: message }, 400);
+    }
+  });
+  app.delete("/api/ranger/credentials/openai", async (c) => {
+    rangerCredentials.deleteOpenAIKey();
+    return c.json(await resolveRangerCredentialState(rangerCredentials));
   });
   app.post("/api/ranger/chat", async (c) => {
     const body = await c.req.json<{
       body?: string;
       route?: unknown;
-      openaiApiKey?: string | null;
     }>().catch(() => ({}));
 
     try {
       return c.json(await rangerAssistant.respond({
         body: body.body ?? "",
         route: body.route,
-        openaiApiKey: body.openaiApiKey,
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ranger assistant failed";
@@ -1467,14 +1499,12 @@ export async function createOpenScoutWebServer(
   app.post("/api/ranger/brief", async (c) => {
     const body = await c.req.json<{
       route?: unknown;
-      openaiApiKey?: string | null;
       ttlMs?: number | null;
     }>().catch(() => ({}));
 
     try {
       return c.json(await rangerAssistant.createBrief({
         route: body.route,
-        openaiApiKey: body.openaiApiKey,
         ttlMs: body.ttlMs,
       }));
     } catch (error) {
