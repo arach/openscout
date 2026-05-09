@@ -708,4 +708,86 @@ describe("SQLiteControlPlaneStore", () => {
       store.close();
     }
   });
+
+  test("lists due checkback durable actions that are claimable", () => {
+    const store = createStore();
+
+    try {
+      store.createOrGetDurableAction({
+        id: "checkback-due",
+        kind: "checkback",
+        subjectId: "reminder-1",
+        authorityCellId: "node-1",
+        idempotencyKey: "reminder-1",
+        createdAt: 100,
+        metadata: {
+          dueAt: 1_000,
+          mode: "ranger",
+          body: "check lattices status",
+        },
+      });
+      store.createOrGetDurableAction({
+        id: "checkback-future",
+        kind: "checkback",
+        subjectId: "reminder-2",
+        authorityCellId: "node-1",
+        createdAt: 101,
+        metadata: {
+          dueAt: 10_000,
+          mode: "notify",
+          body: "later",
+        },
+      });
+      store.createOrGetDurableAction({
+        id: "delivery-due",
+        kind: "message_delivery",
+        subjectId: "delivery-1",
+        authorityCellId: "node-1",
+        createdAt: 102,
+        metadata: {
+          dueAt: 1_000,
+        },
+      });
+
+      expect(store.listDueDurableActions({
+        kind: "checkback",
+        dueAtLte: 1_500,
+      }).map((action) => action.id)).toEqual(["checkback-due"]);
+
+      const claimed = store.claimDurableAction({
+        actionId: "checkback-due",
+        owner: "checkback-worker",
+        leaseMs: 30_000,
+        claimedAt: 1_600,
+      });
+      expect(claimed?.state).toBe("leased");
+      expect(store.listDueDurableActions({
+        kind: "checkback",
+        dueAtLte: 2_000,
+        claimableAt: 2_000,
+      })).toEqual([]);
+
+      expect(store.listDueDurableActions({
+        kind: "checkback",
+        dueAtLte: 32_000,
+        claimableAt: 32_000,
+      }).map((action) => action.id)).toEqual(["checkback-due", "checkback-future"]);
+
+      const completed = store.transitionDurableAction({
+        actionId: "checkback-due",
+        owner: "checkback-worker",
+        generation: 1,
+        nextState: "completed",
+        transitionedAt: 32_100,
+      });
+      expect(completed?.state).toBe("completed");
+      expect(store.listDueDurableActions({
+        kind: "checkback",
+        dueAtLte: 32_200,
+        claimableAt: 32_200,
+      }).map((action) => action.id)).toEqual(["checkback-future"]);
+    } finally {
+      store.close();
+    }
+  });
 });

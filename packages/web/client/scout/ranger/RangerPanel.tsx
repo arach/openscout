@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Bot, ChevronDown, ChevronUp, Compass, Gauge, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Gauge, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { getOpenAIApiKey } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
 import { extractRangerUiActions, normalizeRangerUiAction } from "../../lib/ranger.ts";
+import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
 import { isVoxSpeechStopped, playPreparedVoxSpeech, prepareVoxSpeech, startVoxSpeech, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
 import { useScout } from "../Provider.tsx";
 
@@ -78,6 +79,30 @@ type RangerBrief = {
   actions: RangerBriefAction[];
 };
 
+type RangerReminder = {
+  id: string;
+  title: string;
+  body: string;
+  status: "scheduled" | "due" | "dismissed";
+  source: "ranger" | "api";
+  createdAt: number;
+  updatedAt: number;
+  dueAt: number;
+  dueInMs: number;
+  dismissedAt?: number;
+};
+
+type RangerReminderState = {
+  generatedAt: number;
+  reminders: RangerReminder[];
+  due: RangerReminder[];
+  scheduled: RangerReminder[];
+};
+
+type RangerReminderCreateResult = RangerReminderState & {
+  reminder: RangerReminder;
+};
+
 type VoiceProbeState = "idle" | "probing" | "launching";
 
 const STATE_PROMPT =
@@ -119,10 +144,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [configStatus, setConfigStatus] = useState<string | null>(null);
   const [modelDraft, setModelDraft] = useState("");
   const [promptDraft, setPromptDraft] = useState("");
+  const [reminderState, setReminderState] = useState<RangerReminderState | null>(null);
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
   const speechRef = useRef<VoxSpeakHandle | null>(null);
   const briefRunRef = useRef<string | null>(null);
+  const initializedDueReminderIdsRef = useRef(false);
+  const announcedDueReminderIdsRef = useRef<Set<string>>(new Set());
   const voiceRepliesRef = useRef(voiceReplies);
   voiceRepliesRef.current = voiceReplies;
 
@@ -131,6 +159,28 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     speechRef.current = null;
     setSpeaking(false);
   }, []);
+
+  const speakRangerText = useCallback((text: string) => {
+    if (!text || !voiceRepliesRef.current) {
+      return;
+    }
+    stopSpeech();
+    const speech = startVoxSpeech(text, { speed: voiceSpeed });
+    speechRef.current = speech;
+    setSpeaking(true);
+    void speech.promise
+      .catch((err) => {
+        if (!isVoxSpeechStopped(err)) {
+          setError(err instanceof Error ? err.message : "Vox speech failed.");
+        }
+      })
+      .finally(() => {
+        if (speechRef.current === speech) {
+          speechRef.current = null;
+          setSpeaking(false);
+        }
+      });
+  }, [stopSpeech, voiceSpeed]);
 
   useEffect(() => () => {
     briefRunRef.current = null;
@@ -157,6 +207,57 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   useEffect(() => {
     void loadRangerSession();
   }, [loadRangerSession]);
+
+  const loadRangerReminders = useCallback(async () => {
+    try {
+      setReminderState(await api<RangerReminderState>("/api/ranger/reminders"));
+    } catch {
+      setReminderState(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRangerReminders();
+    const timer = window.setInterval(() => {
+      void loadRangerReminders();
+    }, 15_000);
+    window.addEventListener("focus", loadRangerReminders);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", loadRangerReminders);
+    };
+  }, [loadRangerReminders]);
+
+  const createRangerReminder = useCallback(async (input: {
+    title?: string;
+    body: string;
+    dueAt?: number;
+    delayMs?: number;
+    delayMinutes?: number;
+    context?: Record<string, unknown>;
+  }): Promise<RangerReminder> => {
+    const result = await api<RangerReminderCreateResult>("/api/ranger/reminders", {
+      method: "POST",
+      body: JSON.stringify({
+        ...input,
+        source: "ranger",
+      }),
+    });
+    setReminderState({
+      generatedAt: result.generatedAt,
+      reminders: result.reminders,
+      due: result.due,
+      scheduled: result.scheduled,
+    });
+    return result.reminder;
+  }, []);
+
+  const dismissRangerReminder = useCallback(async (id: string) => {
+    const next = await api<RangerReminderState>(`/api/ranger/reminders/${encodeURIComponent(id)}/dismiss`, {
+      method: "POST",
+    });
+    setReminderState(next);
+  }, []);
 
   const loadRangerConfig = useCallback(async () => {
     setConfigLoading(true);
@@ -256,28 +357,49 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     const replyText = stripRangerUiFences(body);
     setLastReply(replyText);
     for (const action of extractRangerUiActions(body)) {
-      applyRangerUiAction(action);
+      if (action.type === "reminder") {
+        void createRangerReminder({
+          title: action.title,
+          body: action.body,
+          dueAt: action.dueAt,
+          delayMs: action.delayMs,
+          delayMinutes: action.delayMinutes,
+          context: { route, reason: action.reason },
+        }).then((reminder) => {
+          setAskStatus(`Reminder set for ${formatReminderDueAt(reminder.dueAt)}`);
+        }).catch((err) => {
+          setError(err instanceof Error ? err.message : "Could not set Ranger reminder.");
+        });
+      } else {
+        applyRangerUiAction(action);
+      }
     }
-    if (!replyText || !voiceRepliesRef.current) {
+    speakRangerText(replyText);
+  }, [applyRangerUiAction, createRangerReminder, route, speakRangerText]);
+
+  useEffect(() => {
+    const due = reminderState?.due ?? [];
+    if (!initializedDueReminderIdsRef.current) {
+      for (const reminder of due) {
+        announcedDueReminderIdsRef.current.add(reminder.id);
+      }
+      initializedDueReminderIdsRef.current = true;
       return;
     }
-    stopSpeech();
-    const speech = startVoxSpeech(replyText, { speed: voiceSpeed });
-    speechRef.current = speech;
-    setSpeaking(true);
-    void speech.promise
-      .catch((err) => {
-        if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Vox speech failed.");
-        }
-      })
-      .finally(() => {
-        if (speechRef.current === speech) {
-          speechRef.current = null;
-          setSpeaking(false);
-        }
-      });
-  }, [applyRangerUiAction, stopSpeech, voiceSpeed]);
+
+    const freshDue = due.find((reminder) => !announcedDueReminderIdsRef.current.has(reminder.id));
+    if (!freshDue) {
+      return;
+    }
+
+    for (const reminder of due) {
+      announcedDueReminderIdsRef.current.add(reminder.id);
+    }
+    const text = `Reminder due: ${freshDue.body}`;
+    setAskStatus("Reminder due");
+    setLastReply(text);
+    speakRangerText(text);
+  }, [reminderState, speakRangerText]);
 
   const cycleVoiceSpeed = useCallback(() => {
     const nearestIndex = RANGER_VOICE_SPEEDS.reduce((bestIndex, candidate, index) => (
@@ -442,6 +564,22 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setLastReply(null);
     setAskStatus("Sending to Ranger");
     try {
+      const reminderIntent = parseRangerReminderIntent(trimmed);
+      if (reminderIntent) {
+        setAskStatus("Setting reminder");
+        const reminder = await createRangerReminder({
+          title: reminderIntent.title,
+          body: reminderIntent.body,
+          delayMs: reminderIntent.delayMs,
+          context: { route, naturalLanguage: trimmed },
+        });
+        const reply = `Reminder set for ${formatReminderDueAt(reminder.dueAt)}: ${reminder.body}`;
+        setDraft("");
+        setAskStatus("Reminder set");
+        handleRangerReply(reply);
+        return;
+      }
+
       const result = await api<RangerAssistantReply>("/api/ranger/chat", {
         method: "POST",
         body: JSON.stringify({
@@ -464,7 +602,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     } finally {
       setSending(false);
     }
-  }, [handleRangerReply, route, sending]);
+  }, [createRangerReminder, handleRangerReply, route, sending]);
 
   const startVoice = useCallback(async () => {
     if (recording) return;
@@ -550,6 +688,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     ? new Date(activeSession.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : null;
   const sessionRuntimeLabel = activeSession?.model ?? sessionState?.config.model ?? null;
+  const dueReminders = reminderState?.due ?? [];
+  const nextReminder = reminderState?.scheduled[0] ?? null;
 
   if (collapsed) {
     return (
@@ -562,6 +702,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           <span className="truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
             · direct loop
             {activeSessionId ? ` · ${activeSessionId.slice(0, 8)}` : ""}
+            {dueReminders.length ? ` · ${dueReminders.length} due` : nextReminder ? ` · next ${relativeReminderLabel(nextReminder)}` : ""}
           </span>
         </div>
         <button
@@ -688,6 +829,59 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         </div>
       )}
 
+      {(dueReminders.length > 0 || nextReminder) && (
+        <div className={`rounded border px-2.5 py-2 font-mono text-[10px] leading-relaxed ${
+          dueReminders.length
+            ? "border-amber-300/30 bg-amber-300/[0.07] text-amber-50"
+            : "border-[var(--scout-chrome-border-soft)] bg-black/10 text-[var(--scout-chrome-ink-faint)]"
+        }`}>
+          <div className="flex items-center justify-between gap-2">
+            <span className={`flex min-w-0 items-center gap-1.5 truncate uppercase tracking-[0.12em] ${
+              dueReminders.length ? "text-amber-200" : "text-[var(--scout-chrome-ink-ghost)]"
+            }`}>
+              <Bell size={12} />
+              {dueReminders.length ? `${dueReminders.length} reminder${dueReminders.length === 1 ? "" : "s"} due` : "Next reminder"}
+            </span>
+            {nextReminder && dueReminders.length === 0 ? (
+              <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">{relativeReminderLabel(nextReminder)}</span>
+            ) : null}
+          </div>
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            {(dueReminders.length ? dueReminders.slice(0, 3) : nextReminder ? [nextReminder] : []).map((reminder) => (
+              <div key={reminder.id} className="flex min-w-0 items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[var(--scout-chrome-ink)]">{reminder.body}</div>
+                  <div className="truncate text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                    {reminder.status === "due" ? relativeReminderLabel(reminder) : `due ${formatReminderDueAt(reminder.dueAt)}`}
+                  </div>
+                </div>
+                {reminder.status === "due" && (
+                  <button
+                    type="button"
+                    title="Ask Ranger for this reminder's status"
+                    aria-label="Ask Ranger for this reminder's status"
+                    onClick={() => void askRanger(`Reminder due: ${reminder.body}. Check the current Scout control-plane state and give me the shortest useful status update.`)}
+                    className="shrink-0 rounded border border-amber-300/25 p-1 text-amber-100 hover:bg-amber-300/10"
+                    disabled={sending || briefing}
+                  >
+                    <Radio size={11} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  title={reminder.status === "due" ? "Dismiss reminder" : "Clear reminder"}
+                  aria-label={reminder.status === "due" ? "Dismiss reminder" : "Clear reminder"}
+                  onClick={() => void dismissRangerReminder(reminder.id)}
+                  className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+                >
+                  <CheckCircle2 size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {brief && (
         <div className="rounded border border-lime-300/20 bg-lime-300/[0.05] px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
           <div className="flex items-center justify-between gap-2">
@@ -712,7 +906,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
                   onClick={() => {
                     if (action.route) {
                       const uiAction = normalizeRangerUiAction({ type: "navigate", route: action.route });
-                      if (uiAction) applyRangerUiAction(uiAction);
+                      if (uiAction?.type === "navigate") applyRangerUiAction(uiAction);
                       return;
                     }
                     if (action.prompt) {
@@ -936,6 +1130,24 @@ function briefFreshnessLabel(brief: RangerBrief): string {
   const ageSeconds = Math.max(0, Math.round((now - brief.preparedAt) / 1000));
   const remainingSeconds = Math.max(0, Math.round((brief.expiresAt - now) / 1000));
   return `prepared ${ageSeconds}s ago · ${remainingSeconds}s TTL`;
+}
+
+function formatReminderDueAt(dueAt: number): string {
+  return new Date(dueAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function relativeReminderLabel(reminder: RangerReminder): string {
+  const deltaMs = reminder.dueAt - Date.now();
+  const absSeconds = Math.max(1, Math.round(Math.abs(deltaMs) / 1000));
+  if (absSeconds < 60) {
+    return deltaMs < 0 ? `${absSeconds}s ago` : `in ${absSeconds}s`;
+  }
+  const absMinutes = Math.round(absSeconds / 60);
+  if (absMinutes < 60) {
+    return deltaMs < 0 ? `${absMinutes}m ago` : `in ${absMinutes}m`;
+  }
+  const absHours = Math.round(absMinutes / 60);
+  return deltaMs < 0 ? `${absHours}h ago` : `in ${absHours}h`;
 }
 
 function wait(ms: number): Promise<void> {

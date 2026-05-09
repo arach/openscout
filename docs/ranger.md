@@ -55,6 +55,7 @@ Direct Ranger loop:
 - navigate the web app
 - refresh the app
 - run a one-minute brief that walks the operator through relevant views from a TTL-bound snapshot
+- set local operator reminders such as "remind me in three minutes to check this status"
 
 Scout broker lane:
 
@@ -91,6 +92,7 @@ Supported actions:
 - `navigate` with a whitelisted OpenScout route, such as `{"view":"fleet"}` or `{"view":"ops","mode":"tail"}`.
 - `open-ranger` with optional `mode: "ask"` to bring the Ranger DM forward.
 - `refresh` to reload web-visible broker state.
+- `reminder` with `body` plus `delayMs`, `delayMinutes`, or `dueAt` to create an operator-side Ranger reminder.
 
 This keeps Ranger's UI control explicit and auditable: natural-language replies do not move the app unless they include the structured action block.
 
@@ -101,6 +103,16 @@ Ranger can prepare a short control-plane brief for voice or text. The web server
 The client owns the guided walk. It moves through the brief's safe routes, shows freshness state, and narrates each segment when voice replies are enabled. While one segment is playing, the client pre-renders the next Vox TTS segment so the tour can feel continuous without generating the whole audio track up front.
 
 Briefs remain read-side by default. The final recommendation can expose follow-up chips, but Scout-owned writes still require an explicit operator action.
+
+## Reminder Primitive
+
+Ranger has a small local reminder lane for operator check-backs. The client recognizes direct phrases like "remind me in 3 minutes to check lattices status" or "check back in two mins on this status" before they reach the model, so reminders do not require an OpenAI request or a Scout agent message.
+
+The web server stores these reminders under the local OpenScout control home and returns them through `/api/ranger/reminders`. Due reminders surface in the Ranger panel, can be dismissed, and can be used as a quick prompt to ask Ranger for the current control-plane status.
+
+This is intentionally not a broker-owned coordination record yet. Future routines that wake agents, create work items, or own follow-up observations should graduate into Scout broker primitives with explicit targets and ownership.
+
+The broker durable-action substrate now has a `checkback` kind for that graduation path. A Scout-owned checkback can use the existing local SQLite ledger, leases, attempts, checkpoints, and signals instead of inventing a separate scheduler or importing a workflow engine. The Ranger-local reminder lane should stay lightweight until it needs those ownership and retry semantics.
 
 ## Voice Mode
 

@@ -1783,6 +1783,55 @@ export class SQLiteControlPlaneStore {
     return row ? durableActionFromRow(row) : null;
   }
 
+  listDueDurableActions(input: {
+    kind?: DurableAction["kind"];
+    authorityCellId?: string;
+    dueAtLte: number;
+    claimableAt?: number;
+    limit?: number;
+  }): DurableAction[] {
+    const limit = Math.max(1, Math.min(500, Math.floor(input.limit ?? 50)));
+    const claimableAt = input.claimableAt ?? input.dueAtLte;
+    const where: string[] = [
+      `(
+        state IN ('pending', 'waiting')
+        OR (
+          state NOT IN ('completed', 'failed', 'cancelled')
+          AND lease_expires_at IS NOT NULL
+          AND lease_expires_at <= ?1
+        )
+      )`,
+      `COALESCE(
+        CAST(json_extract(metadata_json, '$.dueAt') AS REAL),
+        CAST(json_extract(metadata_json, '$.due_at') AS REAL)
+      ) <= ?2`,
+    ];
+    const params: Array<string | number> = [claimableAt, input.dueAtLte];
+
+    if (input.kind) {
+      params.push(input.kind);
+      where.push(`kind = ?${params.length}`);
+    }
+    if (input.authorityCellId) {
+      params.push(input.authorityCellId);
+      where.push(`authority_cell_id = ?${params.length}`);
+    }
+    params.push(limit);
+
+    const rows = this.readDb.query(
+      `SELECT *
+       FROM durable_actions
+       WHERE ${where.join(" AND ")}
+       ORDER BY COALESCE(
+         CAST(json_extract(metadata_json, '$.dueAt') AS REAL),
+         CAST(json_extract(metadata_json, '$.due_at') AS REAL)
+       ) ASC,
+       updated_at ASC
+       LIMIT ?${params.length}`,
+    ).all(...params) as DurableActionRow[];
+    return rows.map(durableActionFromRow);
+  }
+
   claimDurableAction(input: DurableActionClaimInput): DurableAction | null {
     const current = queryGet<DurableActionRow, [string]>(
       this.db,

@@ -79,6 +79,10 @@ import {
   createRangerAssistantService,
   RangerAssistantError,
 } from "./ranger-assistant.ts";
+import {
+  createRangerReminderStore,
+  RangerReminderError,
+} from "./ranger-reminders.ts";
 import { buildWorkMaterialsInventory, readWorkMaterialContent } from "./work-materials.ts";
 import { ensureOpenScoutVoxOrigins, synthesizeVoxSpeech } from "./vox.ts";
 import {
@@ -1347,9 +1351,13 @@ export async function createOpenScoutWebServer(
     loadOpenScoutWebShellState,
     shellTtl,
   );
+  const rangerReminders = createRangerReminderStore();
   const rangerAssistant = createRangerAssistantService({
     currentDirectory,
-    loadContext: () => buildRangerAssistantControlState(currentDirectory),
+    loadContext: async () => ({
+      ...(await buildRangerAssistantControlState(currentDirectory)),
+      reminders: rangerReminders.getState(),
+    }),
     resolveApiKey: async () => {
       const config = await loadScoutRelayConfig().catch(() => null);
       return config?.openaiApiKey ?? null;
@@ -1382,6 +1390,35 @@ export async function createOpenScoutWebServer(
   app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
   app.get("/api/ranger/session", (c) => c.json(rangerAssistant.getSessionState()));
   app.post("/api/ranger/session/reset", (c) => c.json(rangerAssistant.resetSession()));
+  app.get("/api/ranger/reminders", (c) => c.json(rangerReminders.getState()));
+  app.post("/api/ranger/reminders", async (c) => {
+    const body = await c.req.json<{
+      title?: unknown;
+      body?: unknown;
+      source?: unknown;
+      dueAt?: unknown;
+      delayMs?: unknown;
+      delayMinutes?: unknown;
+      context?: unknown;
+    }>().catch(() => ({}));
+
+    try {
+      return c.json(rangerReminders.create(body));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ranger reminder failed";
+      const status = error instanceof RangerReminderError ? error.status : 500;
+      return c.json({ error: message }, status as 400 | 404 | 500);
+    }
+  });
+  app.post("/api/ranger/reminders/:id/dismiss", (c) => {
+    try {
+      return c.json(rangerReminders.dismiss(c.req.param("id")));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ranger reminder failed";
+      const status = error instanceof RangerReminderError ? error.status : 500;
+      return c.json({ error: message }, status as 400 | 404 | 500);
+    }
+  });
   app.get("/api/ranger/config", (c) => c.json(rangerAssistant.getConfig()));
   app.post("/api/ranger/config", async (c) => {
     const body = await c.req.json<{

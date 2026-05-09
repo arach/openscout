@@ -1,8 +1,27 @@
 import type { MetadataMap, ScoutId } from "./common.js";
 
-// First implementation slice. Add work_item/question/approval only after ask
-// and message_delivery semantics prove out against real paths.
-export type DurableActionKind = "ask" | "message_delivery";
+// First implementation slice. Add work_item/question/approval only after ask,
+// message_delivery, and checkback semantics prove out against real paths.
+export type DurableActionKind = "ask" | "message_delivery" | "checkback";
+
+export type DurableCheckbackMode =
+  | "notify"
+  | "ranger"
+  | "agent"
+  | "routine";
+
+export interface DurableCheckbackMetadata extends MetadataMap {
+  dueAt: number;
+  mode?: DurableCheckbackMode;
+  title?: string;
+  body?: string;
+  prompt?: string;
+  ownerId?: ScoutId;
+  conversationId?: ScoutId;
+  recordId?: ScoutId;
+  route?: unknown;
+  recurrence?: unknown;
+}
 
 export type DurableActionState =
   | "pending"
