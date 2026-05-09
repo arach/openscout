@@ -292,6 +292,13 @@ last useful suffix of the broker `messageId`, with full ids available in a
 debug or collapsed context view. Do not parse the contact line for routing; use
 the structured context fields.
 
+When the contact cue is rendered next to payload text, use ` › ` as the
+payload lead-in so previews and single-line host surfaces keep the boundary:
+
+```text
+⌖ art ≔ ask:8kj4pd › I am writing a Hermes...
+```
+
 ASCII fallback:
 
 ```text

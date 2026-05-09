@@ -175,7 +175,7 @@ describe("local agent prompts", () => {
       },
     );
 
-    expect(prompt.startsWith("⌖ operator ≔ ask:1hjg5e\n\nReview how invocation prompt titles...")).toBe(true);
+    expect(prompt.startsWith("⌖ operator ≔ ask:1hjg5e › Review how invocation prompt titles...\n\n")).toBe(true);
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).toContain("ScoutReplyContext:");
     expect(prompt).toContain("<summary>Scout routing context</summary>");
@@ -218,7 +218,7 @@ describe("local agent prompts", () => {
       },
     );
 
-    expect(prompt.startsWith("⌖ operator ↦ task:inv-1\n\nImprove the Scout invocation title...")).toBe(true);
+    expect(prompt.startsWith("⌖ operator ↦ task:inv-1 › Improve the Scout invocation title...\n\n")).toBe(true);
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).not.toContain("meta: from=operator to=ranger action=execute");
   });
@@ -241,7 +241,7 @@ describe("local agent prompts", () => {
       "ranger",
     );
 
-    expect(prompt.startsWith("⌖ operator ⟲ status:abc123\n\nCheck whether the broker reply...")).toBe(true);
+    expect(prompt.startsWith("⌖ operator ⟲ status:abc123 › Check whether the broker reply...\n\n")).toBe(true);
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).toContain('"conversationId": "dm.operator.ranger.main.mini"');
     expect(prompt).toContain('"replyToMessageId": "msg-attached-abc123"');

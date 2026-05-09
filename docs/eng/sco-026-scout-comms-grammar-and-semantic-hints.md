@@ -137,9 +137,7 @@ The default first-line grammar is:
 Example:
 
 ```text
-⌖ art ≔ ask:8kj4pd
-
-I am writing a Hermes...
+⌖ art ≔ ask:8kj4pd › I am writing a Hermes...
 ```
 
 Field meanings:
@@ -156,6 +154,10 @@ The target is omitted in target-local surfaces because the target is ambient:
 the current Codex thread, Claude session, agent inbox, or conversation view is
 already the recipient context. Full target and route fields remain in the
 machine-readable context.
+
+When a surface renders the contact cue beside payload text, ` › ` is the
+payload lead-in. It keeps collapsed previews from merging the reference and the
+first word of the ask without adding another colon-heavy token.
 
 ## Operator Table
 
@@ -231,9 +233,7 @@ followed by the task summary, a hidden reply-mode marker, and a quiet structured
 context:
 
 ````markdown
-⌖ art ≔ ask:8kj4pd
-
-I am writing a Hermes...
+⌖ art ≔ ask:8kj4pd › I am writing a Hermes...
 
 <!-- SCOUT BROKER REPLY MODE -->
 > **Reply mode:** You are answering a Scout ask.
