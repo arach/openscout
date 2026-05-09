@@ -1279,6 +1279,7 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("returns a setup error when Ranger assistant has no OpenAI key", async () => {
+    useIsolatedOpenScoutHome();
     delete process.env.OPENAI_API_KEY;
     let fetchCalled = false;
     globalThis.fetch = (async () => {
@@ -1306,6 +1307,7 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("does not use a transient request supplied OpenAI key for Ranger assistant", async () => {
+    useIsolatedOpenScoutHome();
     delete process.env.OPENAI_API_KEY;
     let fetchCalled = false;
     globalThis.fetch = (async (_input, init) => {
