@@ -3,8 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
   parseAskCommandOptions,
   parseCardCreateCommandOptions,
+  parseChannelCommandOptions,
+  parseInboxCommandOptions,
   parseImplicitAskCommandOptions,
+  parseLatestCommandOptions,
   parseSendCommandOptions,
+  parseWatchCommandOptions,
 } from "./options.ts";
 
 describe("parseSendCommandOptions", () => {
@@ -213,6 +217,98 @@ describe("parseImplicitAskCommandOptions", () => {
         ["@dewey", "check", "with", "@hudson", "about", "this"],
         "/tmp/workspace",
       )).toThrow("implicit ask supports exactly one @agent mention");
+  });
+});
+
+describe("parseLatestCommandOptions", () => {
+  test("accepts a channel filter and message mode", () => {
+    const options = parseLatestCommandOptions(
+      ["--channel", "homepage-polish", "--messages", "--limit", "1"],
+      "/tmp/workspace",
+    );
+
+    expect(options.channel).toBe("homepage-polish");
+    expect(options.messages).toBe(true);
+    expect(options.limit).toBe(1);
+  });
+
+  test("rejects channel and conversation together", () => {
+    expect(() =>
+      parseLatestCommandOptions(
+        ["--channel", "ops", "--conversation", "channel.ops"],
+        "/tmp/workspace",
+      )).toThrow("provide either --channel or --conversation, not both");
+  });
+});
+
+describe("parseWatchCommandOptions", () => {
+  test("accepts channel backlog flags", () => {
+    const before = Date.now();
+    const options = parseWatchCommandOptions(
+      ["--channel", "homepage-polish", "--since", "1h", "--limit", "20", "--once"],
+      "/tmp/workspace",
+    );
+
+    expect(options.channel).toBe("homepage-polish");
+    expect(options.limit).toBe(20);
+    expect(options.once).toBe(true);
+    expect(options.since ?? 0).toBeGreaterThanOrEqual(before - 3_600_000 - 1_000);
+    expect(options.since ?? 0).toBeLessThanOrEqual(Date.now() - 3_600_000 + 1_000);
+  });
+});
+
+describe("parseInboxCommandOptions", () => {
+  test("accepts inferred identity inbox flags", () => {
+    const before = Date.now();
+    const options = parseInboxCommandOptions(
+      ["--latest", "5", "--since", "30m"],
+      "/tmp/workspace",
+    );
+
+    expect(options.agentName).toBeNull();
+    expect(options.latest).toBe(5);
+    expect(options.since ?? 0).toBeGreaterThanOrEqual(before - 1_800_000 - 1_000);
+    expect(options.since ?? 0).toBeLessThanOrEqual(Date.now() - 1_800_000 + 1_000);
+  });
+
+  test("accepts an explicit inbox identity", () => {
+    const options = parseInboxCommandOptions(
+      ["--as", "hudson-site.main.mini", "--limit", "3"],
+      "/tmp/workspace",
+    );
+
+    expect(options.agentName).toBe("hudson-site.main.mini");
+    expect(options.latest).toBe(3);
+  });
+});
+
+describe("parseChannelCommandOptions", () => {
+  test("accepts latest messages for the default channel", () => {
+    const options = parseChannelCommandOptions(
+      ["--latest", "10"],
+      "/tmp/workspace",
+    );
+
+    expect(options.latest).toBe(10);
+    expect(options.channel).toBeUndefined();
+  });
+
+  test("accepts a positional channel for latest messages", () => {
+    const options = parseChannelCommandOptions(
+      ["homepage-polish", "--latest=3"],
+      "/tmp/workspace",
+    );
+
+    expect(options.channel).toBe("homepage-polish");
+    expect(options.latest).toBe(3);
+  });
+
+  test("rejects a channel name without latest mode", () => {
+    expect(() =>
+      parseChannelCommandOptions(
+        ["homepage-polish"],
+        "/tmp/workspace",
+      )).toThrow("channel name is only valid with --latest");
   });
 });
 

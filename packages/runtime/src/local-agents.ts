@@ -325,6 +325,10 @@ function titleCaseLocalAgentName(value: string): string {
 }
 
 export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex"];
+export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
+  ...SUPPORTED_LOCAL_AGENT_HARNESSES,
+  "flue",
+];
 
 type LocalAgentSystemPromptTemplateContext = {
   agentId: string;
@@ -395,7 +399,7 @@ function buildLocalAgentProjectContextPrompt(context: LocalAgentSystemPromptTemp
     "Project context:",
     `  - Codebase root: ${context.projectPath}`,
     `  - Projects root: ${context.projectsRoot}`,
-    `  - Broker URL: ${context.brokerUrl}`,
+    "  - Use the Scout CLI for broker reads and writes; do not call broker HTTP endpoints directly",
     `  - Scout skill: ${context.scoutSkill}`,
   ].join("\n");
 }
@@ -407,7 +411,8 @@ function buildLocalAgentCollaborationPrompt(context: LocalAgentSystemPromptTempl
 function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTemplateContext): string {
   return [
     "Relay protocol:",
-    `  - Read recent context when needed with: ${context.relayCommand} latest --agent ${context.agentId} --limit 20`,
+    `  - Read direct/addressed messages with: ${context.relayCommand} inbox --as ${context.agentId} --latest 20 --json`,
+    `  - Read shared/channel context with: ${context.relayCommand} channel <name> --latest 20 --json`,
     `  - Tell one agent with: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
     `  - Ask one agent and stay attached with: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "",
@@ -422,7 +427,8 @@ function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTempla
     "  - Treat known offline / on-demand agents as wakeable: use send or ask first and let the broker wake them; only surface ambiguity or unknown-target failures to the operator",
     "  - Use send for tells and status; use ask when the meaning is 'do this and get back to me'",
     "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
-    "  - Use the broker-backed latest command above only when recent context is needed before responding",
+    "  - Use the CLI commands above when recent context is needed before responding",
+    "  - Do not curl broker HTTP endpoints to read messages",
     `  - Follow the scout skill at ${context.scoutSkill} for agent-to-agent communication`,
   ].join("\n");
 }
@@ -434,7 +440,8 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - Return your final answer in the assistant message for the current turn",
     "  - Do not call Scout reply tools for the final answer in this runtime; the broker captures your final assistant message",
     "  - Do not shell out to send the final answer through relay yourself",
-    `  - If you need recent broker context, inspect it with: ${context.relayCommand} latest --agent ${context.agentId} --limit 20`,
+    `  - If you need recent direct/addressed messages, inspect them with: ${context.relayCommand} inbox --as ${context.agentId} --latest 20 --json`,
+    `  - If you need recent channel context, inspect it with: ${context.relayCommand} channel <name> --latest 20 --json`,
     `  - If you need to tell one agent something, use: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
     `  - If you need another agent to do work, use: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "  - Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue",
@@ -444,6 +451,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - If a short @handle may be ambiguous, resolve the exact target before sending; do not guess and do not fall back to shared",
     "  - Treat known offline / on-demand agents as wakeable: use send or ask first and let the broker wake them; only surface ambiguity or unknown-target failures to the operator",
     "  - Use send for tells and status; use ask when the meaning is 'do this and get back to me'",
+    "  - Do not curl broker HTTP endpoints to read messages",
     `  - Follow the scout skill at ${context.scoutSkill} for agent-to-agent communication`,
   ].join("\n");
 }
@@ -511,7 +519,6 @@ function buildLegacySimpleRelayPrompt(
   projectName: string,
   projectPath: string,
   relayCommandBase: string,
-  relayHub: string,
 ): string {
   return [
     `You are "${agentId}", a relay agent for the ${projectName} project.`,
@@ -520,7 +527,7 @@ function buildLegacySimpleRelayPrompt(
     "A primary agent may call into you for context, execution, follow-through, and handoff.",
     "",
     `You have full access to the codebase at ${projectPath}.`,
-    `There is a structured relay event stream at ${join(relayHub, "channel.jsonl")} shared by all agents.`,
+    "Use the Scout CLI for coordination; do not read or write relay files directly.",
     "",
     "Your job:",
     `  - Respond to @${agentId} mentions from other agents`,
@@ -530,12 +537,13 @@ function buildLegacySimpleRelayPrompt(
     "",
     "Relay commands:",
     `  ${relayCommandBase} send --as ${agentId} "your message"`,
-    `  ${relayCommandBase} read`,
+    `  ${relayCommandBase} inbox --as ${agentId} --latest 20 --json`,
+    `  ${relayCommandBase} channel shared --latest 20 --json`,
     "",
     "Rules:",
     "  - Always reply via relay send so other agents see your response",
     "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
-    "  - Check relay read for context before responding",
+    "  - Check scout inbox/channel context before responding when needed",
   ].join("\n");
 }
 
@@ -544,7 +552,6 @@ function buildLegacyBrokerBackedRelayPrompt(
   projectName: string,
   projectPath: string,
   relayCommandBase: string,
-  brokerUrl: string,
 ): string {
   return [
     `You are "${agentId}", a relay agent for the ${projectName} project.`,
@@ -553,7 +560,7 @@ function buildLegacyBrokerBackedRelayPrompt(
     "A primary agent may call into you for context, execution, follow-through, and handoff.",
     "",
     `You have full access to the codebase at ${projectPath}.`,
-    `The local broker for agent communication is at ${brokerUrl}.`,
+    "Use the Scout CLI for broker-backed agent communication; do not call broker HTTP endpoints directly.",
     "",
     "Your job:",
     `  - Respond to @${agentId} mentions from other agents`,
@@ -563,13 +570,14 @@ function buildLegacyBrokerBackedRelayPrompt(
     "",
     "Broker-backed relay commands:",
     `  ${relayCommandBase} send --as ${agentId} "your message"`,
-    `  ${relayCommandBase} read --as ${agentId}`,
+    `  ${relayCommandBase} inbox --as ${agentId} --latest 20 --json`,
+    `  ${relayCommandBase} channel shared --latest 20 --json`,
     "",
     "Rules:",
     "  - Do not read or write channel.log or channel.jsonl directly",
     `  - Always reply via ${relayCommandBase} send so other agents and the app can see your response`,
     "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
-    `  - Use ${relayCommandBase} read to inspect recent broker-backed context before responding`,
+    `  - Use ${relayCommandBase} inbox/channel commands to inspect recent broker-backed context before responding`,
   ].join("\n");
 }
 
@@ -578,16 +586,14 @@ function legacyLocalAgentSystemPromptCandidates(
   projectName: string,
   projectPath: string,
 ): string[] {
-  const relayHub = resolveRelayHub();
-  const brokerUrl = resolveBrokerUrl();
   const relayCommandBases = ["openscout relay", brokerRelayCommand(), legacyNodeBrokerRelayCommand()];
   const projectPathCandidates = projectPath.endsWith("/") ? [projectPath, projectPath.slice(0, -1)] : [projectPath, `${projectPath}/`];
   const candidates = new Set<string>();
 
   for (const pathCandidate of projectPathCandidates) {
     for (const relayCommandBase of relayCommandBases) {
-      candidates.add(buildLegacySimpleRelayPrompt(agentId, projectName, pathCandidate, relayCommandBase, relayHub));
-      candidates.add(buildLegacyBrokerBackedRelayPrompt(agentId, projectName, pathCandidate, relayCommandBase, brokerUrl));
+      candidates.add(buildLegacySimpleRelayPrompt(agentId, projectName, pathCandidate, relayCommandBase));
+      candidates.add(buildLegacyBrokerBackedRelayPrompt(agentId, projectName, pathCandidate, relayCommandBase));
     }
   }
 
@@ -745,6 +751,8 @@ function normalizeLocalAgentLaunchArgs(value: unknown): string[] {
 export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
   "mcp__scout__current_reply_context",
   "mcp__scout__whoami",
+  "mcp__scout__messages_inbox",
+  "mcp__scout__messages_channel",
   "mcp__scout__agents_search",
   "mcp__scout__agents_resolve",
   "mcp__scout__messages_reply",
@@ -753,6 +761,7 @@ export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
   "mcp__scout__invocations_get",
   "mcp__scout__invocations_wait",
   "mcp__scout__work_update",
+  "Bash(scout:*)",
 ] as const;
 
 function hasClaudeAllowedToolsArg(launchArgs: string[]): boolean {
@@ -1849,7 +1858,7 @@ function buildInvocationTitle(invocation: InvocationRequest): string {
 }
 
 function buildInvocationOpener(invocation: InvocationRequest): string {
-  return `${buildInvocationTitle(invocation)} › ${summarizeInvocationTask(invocation.task)}`;
+  return `${buildInvocationTitle(invocation)} >>  ${summarizeInvocationTask(invocation.task)}`;
 }
 
 export function buildScoutReplyContext(agentName: string, invocation: InvocationRequest): ScoutReplyContext | null {

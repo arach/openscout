@@ -11,6 +11,7 @@ struct MainView: View {
     static let errorHeight: CGFloat = 240
     static let qrHeight: CGFloat = 484
     static let qrWithErrorHeight: CGFloat = 556
+    static let actionLogPanelHeight: CGFloat = 168
 
     var body: some View {
         ZStack {
@@ -32,6 +33,12 @@ struct MainView: View {
                     Spacer(minLength: 0)
                     deckStrip
 
+                    if !controller.actionLog.isEmpty {
+                        ActionLogPanel(entries: controller.actionLog)
+                            .frame(height: Self.actionLogPanelHeight)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
                     if showQR {
                         qrPanel
                             .transition(.opacity.combined(with: .move(edge: .top)))
@@ -52,6 +59,7 @@ struct MainView: View {
         }
         .frame(width: 408, height: popoverHeight)
         .animation(.easeInOut(duration: 0.18), value: showQR)
+        .animation(.easeInOut(duration: 0.18), value: controller.actionLog.isEmpty)
         .preferredColorScheme(theme.colorScheme)
     }
 
@@ -61,12 +69,17 @@ struct MainView: View {
     }
 
     private var popoverHeight: CGFloat {
+        let base: CGFloat
         switch (showQR, hasError) {
-        case (true, true):   return Self.qrWithErrorHeight
-        case (true, false):  return Self.qrHeight
-        case (false, true):  return Self.errorHeight
-        case (false, false): return Self.baseHeight
+        case (true, true):   base = Self.qrWithErrorHeight
+        case (true, false):  base = Self.qrHeight
+        case (false, true):  base = Self.errorHeight
+        case (false, false): base = Self.baseHeight
         }
+        if !controller.actionLog.isEmpty {
+            return base + Self.actionLogPanelHeight + 10
+        }
+        return base
     }
 
     private var topBar: some View {
@@ -198,7 +211,14 @@ struct MainView: View {
                     value: brokerValue,
                     tint: brokerTint,
                     action: brokerAction,
-                    helpText: brokerHelp
+                    helpText: brokerHelp,
+                    menuItems: [
+                        DeckTileMenuItem(
+                            label: "Restart Broker",
+                            isEnabled: !controller.brokerActionPending,
+                            action: { controller.restartBroker() }
+                        )
+                    ]
                 )
                 deckDivider
                 DeckTileButton(
@@ -207,7 +227,14 @@ struct MainView: View {
                     value: relayValue,
                     tint: relayTint,
                     action: relayAction,
-                    helpText: relayHelp
+                    helpText: relayHelp,
+                    menuItems: [
+                        DeckTileMenuItem(
+                            label: "Restart Relay",
+                            isEnabled: !controller.pairingActionPending,
+                            action: { controller.restartPairing() }
+                        )
+                    ]
                 )
                 deckDivider
                 DeckTileButton(
@@ -216,7 +243,14 @@ struct MainView: View {
                     value: webValue,
                     tint: webTint,
                     action: webAction,
-                    helpText: webHelp
+                    helpText: webHelp,
+                    menuItems: [
+                        DeckTileMenuItem(
+                            label: "Restart Web Server",
+                            isEnabled: !controller.webActionPending,
+                            action: { controller.restartWebApp() }
+                        )
+                    ]
                 )
                 deckDivider
                 DeckTileButton(
@@ -557,6 +591,18 @@ struct MainView: View {
 
 }
 
+private struct DeckTileMenuItem {
+    let label: String
+    let action: () -> Void
+    let isEnabled: Bool
+
+    init(label: String, isEnabled: Bool = true, action: @escaping () -> Void) {
+        self.label = label
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+}
+
 private struct DeckTileButton: View {
     let glyph: ServiceGlyph.Kind
     let label: String
@@ -564,6 +610,7 @@ private struct DeckTileButton: View {
     let tint: Color
     let action: (() -> Void)?
     let helpText: String
+    var menuItems: [DeckTileMenuItem] = []
 
     @State private var isHovered = false
 
@@ -577,6 +624,15 @@ private struct DeckTileButton: View {
                     .help(helpText)
             } else {
                 tile
+            }
+        }
+        .contextMenu {
+            if !menuItems.isEmpty {
+                ForEach(0..<menuItems.count, id: \.self) { index in
+                    let item = menuItems[index]
+                    Button(item.label, action: item.action)
+                        .disabled(!item.isEnabled)
+                }
             }
         }
     }

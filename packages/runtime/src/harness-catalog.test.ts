@@ -16,7 +16,7 @@ describe("harness catalog", () => {
   test("built-in catalog contains the current supported external harnesses", () => {
     const entries = createBuiltInHarnessCatalog();
 
-    expect(entries.map((entry) => entry.name)).toEqual(["claude", "codex", "cursor", "pi"]);
+    expect(entries.map((entry) => entry.name)).toEqual(["claude", "codex", "cursor", "flue", "pi"]);
     expect(entries[0]?.support.collaboration).toBe(true);
     expect(entries[1]?.support.workspace).toBe(true);
   });

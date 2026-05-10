@@ -99,6 +99,8 @@ describe("createScoutMcpServer", () => {
     const result = await client.listTools();
     expect(result.tools.map((tool) => tool.name)).toEqual([
       "whoami",
+      "messages_inbox",
+      "messages_channel",
       "current_reply_context",
       "messages_reply",
       "session_attach_current",
@@ -116,10 +118,121 @@ describe("createScoutMcpServer", () => {
       .toContain("Use this when host or workspace context is unclear");
     expect(result.tools.find((tool) => tool.name === "messages_send")?.description)
       .toContain("For owned work or a reply lifecycle, use invocations_ask instead.");
+    expect(result.tools.find((tool) => tool.name === "messages_inbox")?.description)
+      .toContain("instead of curling broker HTTP endpoints");
+    expect(result.tools.find((tool) => tool.name === "messages_channel")?.description)
+      .toContain("instead of curling broker HTTP endpoints");
     expect(result.tools.find((tool) => tool.name === "messages_reply")?.description)
       .toContain("active ScoutReplyContext");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)
       .toContain("progress, waiting, review, and done transitions");
+  });
+
+  test("reads inbox messages through the broker dependency", async () => {
+    let receivedInput:
+      | {
+        participantId?: string;
+        inboxOnly?: boolean;
+        limit?: number;
+        baseUrl?: string;
+      }
+      | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async (senderId, currentDirectory) =>
+        `${senderId ?? "operator"}@${currentDirectory}`,
+      loadMessages: async (input) => {
+        receivedInput = input;
+        return [
+          {
+            id: "msg-inbox",
+            conversationId: "dm.operator.hudson",
+            actorId: "hudson.main.mini",
+            originNodeId: "local",
+            class: "agent",
+            body: "latest inbox",
+            visibility: "workspace",
+            policy: "durable",
+            createdAt: 123,
+          },
+        ];
+      },
+    });
+
+    const result = await client.callTool({
+      name: "messages_inbox",
+      arguments: {
+        currentDirectory: "/tmp/project",
+        senderId: "hudson.main.mini",
+        limit: 5,
+      },
+    });
+
+    expect(receivedInput).toMatchObject({
+      participantId: "hudson.main.mini@/tmp/project",
+      inboxOnly: true,
+      limit: 5,
+      baseUrl: "http://broker.test",
+    });
+    const structured = result.structuredContent as {
+      senderId: string;
+      messages: Array<{ id: string; body: string }>;
+    };
+    expect(structured.senderId).toBe("hudson.main.mini@/tmp/project");
+    expect(structured.messages[0]).toMatchObject({
+      id: "msg-inbox",
+      body: "latest inbox",
+    });
+  });
+
+  test("reads channel messages through the broker dependency", async () => {
+    let receivedInput:
+      | {
+        channel?: string;
+        limit?: number;
+        baseUrl?: string;
+      }
+      | undefined;
+    const { client } = await connectTestServer({
+      loadMessages: async (input) => {
+        receivedInput = input;
+        return [
+          {
+            id: "msg-channel",
+            conversationId: "channel.homepage-polish",
+            actorId: "hudsonos.homepage-polish.mini",
+            originNodeId: "local",
+            class: "agent",
+            body: "latest channel",
+            visibility: "workspace",
+            policy: "durable",
+            createdAt: 456,
+          },
+        ];
+      },
+    });
+
+    const result = await client.callTool({
+      name: "messages_channel",
+      arguments: {
+        channel: "homepage-polish",
+        limit: 3,
+      },
+    });
+
+    expect(receivedInput).toMatchObject({
+      channel: "homepage-polish",
+      limit: 3,
+      baseUrl: "http://broker.test",
+    });
+    const structured = result.structuredContent as {
+      channel: string;
+      messages: Array<{ id: string; body: string }>;
+    };
+    expect(structured.channel).toBe("homepage-polish");
+    expect(structured.messages[0]).toMatchObject({
+      id: "msg-channel",
+      body: "latest channel",
+    });
   });
 
 

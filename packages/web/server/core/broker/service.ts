@@ -39,6 +39,7 @@ import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-pro
 import {
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
+  SUPPORTED_SCOUT_HARNESSES,
   type LocalAgentBinding,
 } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
@@ -307,15 +308,26 @@ export async function upsertScoutFlight(
   );
 }
 
+export async function upsertScoutConversation(
+  conversation: ConversationDefinition,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<unknown> {
+  return brokerPostJson(
+    baseUrl,
+    scoutBrokerPaths.v1.conversations,
+    conversation,
+  );
+}
+
 export function parseScoutHarness(value?: string | null): AgentHarness | undefined {
   const trimmed = value?.trim();
   if (!trimmed) {
     return undefined;
   }
-  if (SUPPORTED_LOCAL_AGENT_HARNESSES.includes(trimmed as AgentHarness)) {
+  if (SUPPORTED_SCOUT_HARNESSES.includes(trimmed as AgentHarness)) {
     return trimmed as AgentHarness;
   }
-  throw new Error(`Unsupported harness "${trimmed}". Use one of: ${SUPPORTED_LOCAL_AGENT_HARNESSES.join(", ")}`);
+  throw new Error(`Unsupported harness "${trimmed}". Use one of: ${SUPPORTED_SCOUT_HARNESSES.join(", ")}`);
 }
 
 export function normalizeUnixTimestamp(value: unknown): number | null {
@@ -2144,17 +2156,18 @@ export function buildScoutEnrollmentPrompt(input: {
   task?: string;
   cliCommand?: string;
 }): string {
-  const relayLogPath = join(relayHubDirectory(), "channel.log");
   const cliCommand = input.cliCommand?.trim() || "scout";
   const task = input.task?.trim();
   return [
     `You are ${input.agentId}.`,
     "",
-    `There is a global Scout activity channel at ${relayLogPath} that other agents are watching.`,
-    "Use it to coordinate with other agents working on related packages.",
+    "Use the Scout CLI to coordinate with other agents working on related packages.",
+    "Do not read relay files or call broker HTTP endpoints directly.",
     "",
     "Scout commands:",
     `  ${cliCommand} send --as ${input.agentId} "your message"`,
+    `  ${cliCommand} inbox --latest 10 --json`,
+    `  ${cliCommand} channel shared --latest 10 --json`,
     `  ${cliCommand} watch`,
     `  ${cliCommand} who`,
     "",

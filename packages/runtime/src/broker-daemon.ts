@@ -4315,6 +4315,8 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "GET" && url.pathname === "/v1/messages") {
     json(response, 200, await brokerService.readMessages?.({
       conversationId: url.searchParams.get("conversationId")?.trim() || undefined,
+      participantId: url.searchParams.get("participantId")?.trim() || undefined,
+      inboxOnly: url.searchParams.get("inboxOnly") === "1",
       since: parseSince(url),
       limit: parseLimit(url),
     }));

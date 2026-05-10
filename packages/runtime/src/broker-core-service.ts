@@ -100,10 +100,31 @@ function listBrokerMessages(
 ): MessageRecord[] {
   const snapshot = runtime.snapshot();
   const limit = normalizeLimit(input.limit);
+  const participantId = input.participantId?.trim();
+  const matchesParticipant = (message: MessageRecord): boolean => {
+    if (!participantId) {
+      return true;
+    }
+    const conversation = snapshot.conversations[message.conversationId];
+    const participantConversation = Boolean(conversation?.participantIds.includes(participantId));
+    const directConversation = conversation?.kind === "direct" || conversation?.kind === "group_direct";
+    const authored = message.actorId === participantId;
+    const addressed = Boolean(message.mentions?.some((mention) => mention.actorId === participantId))
+      || Boolean(message.audience?.notify?.includes(participantId))
+      || Boolean(message.audience?.invoke?.includes(participantId))
+      || Boolean(message.audience?.visibleTo?.includes(participantId));
+
+    if (input.inboxOnly) {
+      return addressed || (participantConversation && directConversation);
+    }
+    return authored || addressed || participantConversation;
+  };
+
   return Object.values(snapshot.messages)
     .filter((message) =>
       !input.conversationId || message.conversationId === input.conversationId
     )
+    .filter(matchesParticipant)
     .filter((message) =>
       input.since === null || input.since === undefined
         ? true

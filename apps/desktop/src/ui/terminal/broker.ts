@@ -20,6 +20,13 @@ export function renderScoutMessage(message: ScoutBrokerMessageRecord): string {
   return `${formatScoutTimestamp(timestamp)} ${message.actorId}  ${body}`;
 }
 
+export function renderScoutMessageList(messages: ScoutBrokerMessageRecord[]): string {
+  if (messages.length === 0) {
+    return "No Scout messages yet.";
+  }
+  return messages.map(renderScoutMessage).join("\n");
+}
+
 export function renderScoutAgentList(entries: ScoutWhoEntry[]): string {
   if (entries.length === 0) {
     return "No agents are known to the broker yet.";

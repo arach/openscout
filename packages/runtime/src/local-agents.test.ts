@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS,
+  SUPPORTED_LOCAL_AGENT_HARNESSES,
+  SUPPORTED_SCOUT_HARNESSES,
   buildTmuxLaunchShellCommand,
   buildAttachedSessionInvocationPrompt,
   buildLocalAgentDirectInvocationPrompt,
@@ -22,6 +24,11 @@ const scoutCli = `bun ${JSON.stringify(join(repoRoot, "packages", "cli", "bin", 
 const scoutSkillPath = join(repoRoot, ".agents", "skills", "scout", "SKILL.md");
 
 describe("local agent prompts", () => {
+  test("Scout harness attribution accepts Flue without making it a managed local launcher", () => {
+    expect(SUPPORTED_SCOUT_HARNESSES).toContain("flue");
+    expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("flue");
+  });
+
   test("system prompt composes shared base, project context, and broker-backed protocol", () => {
     process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
     process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
@@ -32,11 +39,13 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Project context:");
     expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Projects root: /Users/arach/dev");
+    expect(prompt).toContain(`${scoutCli} inbox --as shaper --latest 20 --json`);
+    expect(prompt).toContain(`${scoutCli} channel <name> --latest 20 --json`);
     expect(prompt).toContain(`${scoutCli} send --as shaper "@<agent> your message"`);
     expect(prompt).toContain(`${scoutCli} ask --to <agent> --as shaper "your request"`);
-    expect(prompt).toContain(`${scoutCli} latest --agent shaper --limit 20`);
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
+    expect(prompt).toContain("Do not curl broker HTTP endpoints to read messages");
     expect(prompt).toContain("Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue");
     expect(prompt).toContain("Keep one-to-one handoffs in a DM");
     expect(prompt).toContain("If you need multiple agents, use separate DMs or an explicit channel");
@@ -118,10 +127,13 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Projects root: /Users/arach/dev");
     expect(prompt).toContain("Base path: /Users/arach/dev");
     expect(prompt).toContain("Workspace root: /Users/arach/dev/shaper");
-    expect(prompt).toContain(`Broker URL: ${DEFAULT_BROKER_URL}`);
+    expect(prompt).not.toContain(`Broker URL: ${DEFAULT_BROKER_URL}`);
+    expect(prompt).toContain("Use the Scout CLI for broker reads and writes");
+    expect(prompt).toContain("bun relay inbox --as shaper --latest 20 --json");
+    expect(prompt).toContain("bun relay channel <name> --latest 20 --json");
     expect(prompt).toContain('bun relay send --as shaper "@<agent> your message"');
     expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
-    expect(prompt).toContain("bun relay latest --agent shaper --limit 20");
+    expect(prompt).toContain("Do not curl broker HTTP endpoints to read messages");
     expect(prompt).toContain("Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue");
     expect(prompt).toContain("Keep one-to-one handoffs in a DM");
     expect(prompt).toContain("If you need multiple agents, use separate DMs or an explicit channel");
@@ -175,7 +187,8 @@ describe("local agent prompts", () => {
       },
     );
 
-    expect(prompt.startsWith("⌖ operator ≔ ask:1hjg5e › Review how invocation prompt titles...\n\n")).toBe(true);
+    expect(prompt.startsWith("⌖ operator ≔ ask:1hjg5e >>  Review how invocation prompt titles...\n\n")).toBe(true);
+    expect(prompt.replace(/\n/g, "")).toContain("ask:1hjg5e >>  Review how invocation prompt titles...");
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).toContain("ScoutReplyContext:");
     expect(prompt).toContain("<summary>Scout routing context</summary>");
@@ -218,7 +231,7 @@ describe("local agent prompts", () => {
       },
     );
 
-    expect(prompt.startsWith("⌖ operator ↦ task:inv-1 › Improve the Scout invocation title...\n\n")).toBe(true);
+    expect(prompt.startsWith("⌖ operator ↦ task:inv-1 >>  Improve the Scout invocation title...\n\n")).toBe(true);
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).not.toContain("meta: from=operator to=ranger action=execute");
   });
@@ -241,7 +254,7 @@ describe("local agent prompts", () => {
       "ranger",
     );
 
-    expect(prompt.startsWith("⌖ operator ⟲ status:abc123 › Check whether the broker reply...\n\n")).toBe(true);
+    expect(prompt.startsWith("⌖ operator ⟲ status:abc123 >>  Check whether the broker reply...\n\n")).toBe(true);
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).toContain('"conversationId": "dm.operator.ranger.main.mini"');
     expect(prompt).toContain('"replyToMessageId": "msg-attached-abc123"');

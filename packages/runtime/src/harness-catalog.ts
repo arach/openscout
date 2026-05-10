@@ -253,6 +253,38 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     },
   },
   {
+    name: "flue",
+    harness: "flue",
+    label: "Flue",
+    description: "Agentic runtime and execution harness from the Astro ecosystem",
+    tags: ["agent-runtime", "cli", "orchestration"],
+    featured: true,
+    order: 4,
+    support: {
+      ...DEFAULT_SUPPORT,
+      workspace: true,
+      collaboration: true,
+      files: true,
+    },
+    install: {
+      binary: "flue",
+      requires: ["bun"],
+    },
+    readiness: {
+      anyOf: [
+        { kind: "env", key: "MINIMAX_API_KEY" },
+        { kind: "env", key: "ANTHROPIC_API_KEY" },
+        { kind: "env", key: "OPENAI_API_KEY" },
+        { kind: "env", key: "OPENROUTER_API_KEY" },
+      ],
+      notReadyMessage: "Flue is installed but no provider API key is configured yet.",
+    },
+    capabilities: ["chat", "invoke", "deliver", "review", "execute"],
+    metadata: {
+      invocationModel: "runtime_managed",
+    },
+  },
+  {
     name: "pi",
     harness: "pi",
     label: "Pi",
@@ -260,7 +292,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     homepage: "https://pi.dev/docs/latest/quickstart",
     tags: ["coding", "cli", "pi"],
     featured: true,
-    order: 4,
+    order: 5,
     support: {
       ...DEFAULT_SUPPORT,
       workspace: true,

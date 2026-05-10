@@ -13,7 +13,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
-import { isGroupConversation } from "../lib/conversations.ts";
+import { conversationShortLabel, isGroupConversation } from "../lib/conversations.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import {
@@ -157,6 +157,13 @@ type SendResult = {
   flight?: EventFlightRecord | null;
 };
 
+type ChannelSendResult = {
+  unresolvedTargets?: string[];
+  targetDiagnostic?: {
+    detail?: string;
+  };
+};
+
 type ComposeMode = "tell" | "ask";
 type ComposeAction = "tell" | "ask" | "steer";
 
@@ -180,6 +187,10 @@ function pathLeaf(path: string | null | undefined): string | null {
   if (!normalized) return null;
   const parts = normalized.split(/[\\/]/).filter(Boolean);
   return parts.at(-1) ?? normalized;
+}
+
+function sanitizeChannelSlug(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
 }
 
 function deriveDisplayTitle(session: SessionEntry): string {
@@ -1002,10 +1013,23 @@ export function ConversationScreen({
   const [composeMode, setComposeMode] = useState<ComposeMode>(
     initialComposeMode === "ask" ? "ask" : "tell",
   );
+  const [addToChannelOpen, setAddToChannelOpen] = useState(false);
+  const [addToChannelSlug, setAddToChannelSlug] = useState("");
+  const [addToChannelNote, setAddToChannelNote] = useState("");
+  const [addToChannelError, setAddToChannelError] = useState<string | null>(null);
+  const [addingToChannel, setAddingToChannel] = useState(false);
 
   useEffect(() => {
     setComposeMode(isDm && initialComposeMode === "ask" ? "ask" : "tell");
   }, [conversationId, initialComposeMode, isDm]);
+
+  useEffect(() => {
+    setAddToChannelOpen(false);
+    setAddToChannelSlug("");
+    setAddToChannelNote("");
+    setAddToChannelError(null);
+    setAddingToChannel(false);
+  }, [conversationId]);
 
   useEffect(() => {
     if (!initialDraft) return;
@@ -1558,6 +1582,53 @@ export function ConversationScreen({
       });
   }, [sessionMeta, agents]);
 
+  const existingChannelSlugs = useMemo(() => {
+    const values = railSessions
+      .filter((session) => session.kind === "channel" || session.id.startsWith("channel."))
+      .map((session) => conversationShortLabel(session))
+      .filter((slug) => slug.trim().length > 0);
+    return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+  }, [railSessions]);
+
+  const submitAddToChannel = useCallback(async () => {
+    if (!agentId || !isDm) return;
+    const channelSlug = sanitizeChannelSlug(addToChannelSlug);
+    const channelConversationId = `channel.${channelSlug}`;
+    const trimmedNote = addToChannelNote.trim();
+    const body = trimmedNote
+      ? `@${agentId} ${trimmedNote}`
+      : `@${agentId} Continue this in #${channelSlug}.`;
+
+    setAddingToChannel(true);
+    setAddToChannelError(null);
+    try {
+      const result = await api<ChannelSendResult>("/api/send", {
+        method: "POST",
+        body: JSON.stringify({
+          body,
+          conversationId: channelConversationId,
+        }),
+      });
+
+      if ((result.unresolvedTargets?.length ?? 0) > 0) {
+        setAddToChannelError(
+          result.targetDiagnostic?.detail
+            ?? `Couldn't resolve ${result.unresolvedTargets!.join(", ")} for this channel.`,
+        );
+        return;
+      }
+
+      setAddToChannelOpen(false);
+      setAddToChannelNote("");
+      setAddToChannelSlug("");
+      navigate({ view: "channels", channelId: channelConversationId });
+    } catch (cause) {
+      setAddToChannelError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setAddingToChannel(false);
+    }
+  }, [addToChannelNote, addToChannelSlug, agentId, isDm, navigate]);
+
   return (
     <div className={`s-thread-layout${embedded ? " s-thread-layout--embedded" : ""}`}>
       <div className="s-thread-center">
@@ -1621,6 +1692,25 @@ export function ConversationScreen({
                 ))}
               </div>
             )}
+            {!embedded && isDm && agentId && (
+              <button
+                type="button"
+                className="s-btn s-btn-sm s-thread-add-channel-trigger"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setAddToChannelError(null);
+                  setAddToChannelOpen((open) => {
+                    const nextOpen = !open;
+                    if (nextOpen && addToChannelSlug.trim().length === 0) {
+                      setAddToChannelSlug(existingChannelSlugs[0] ?? "");
+                    }
+                    return nextOpen;
+                  });
+                }}
+              >
+                Add to channel
+              </button>
+            )}
             {stackedAvatarAgents.length > 0 && (
               <div className="s-thread-center-avatars">
                 {stackedAvatarAgents.map((a) => (
@@ -1643,6 +1733,90 @@ export function ConversationScreen({
             )}
           </div>
         </div>}
+
+        {!embedded && isDm && agentId && addToChannelOpen && (
+          <form
+            className="s-thread-add-channel"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitAddToChannel();
+            }}
+          >
+            <div className="s-thread-add-channel-row">
+              <div className="s-thread-add-channel-field">
+                <label
+                  className="s-thread-add-channel-label"
+                  htmlFor="thread-add-channel-input"
+                >
+                  Channel
+                </label>
+                <input
+                  id="thread-add-channel-input"
+                  className="s-thread-add-channel-input"
+                  value={addToChannelSlug}
+                  onChange={(event) => setAddToChannelSlug(event.target.value)}
+                  placeholder="ops"
+                  list="thread-add-channel-suggestions"
+                  autoFocus
+                />
+                <datalist id="thread-add-channel-suggestions">
+                  {existingChannelSlugs.map((slug) => (
+                    <option key={slug} value={slug} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="s-thread-add-channel-actions">
+                <button
+                  type="button"
+                  className="s-btn s-btn-sm"
+                  onClick={() => {
+                    setAddToChannelOpen(false);
+                    setAddToChannelError(null);
+                  }}
+                  disabled={addingToChannel}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="s-btn s-btn-primary s-btn-sm"
+                  disabled={addingToChannel || addToChannelSlug.trim().length === 0}
+                >
+                  {addingToChannel ? "Adding…" : "Add"}
+                </button>
+              </div>
+            </div>
+
+            <div className="s-thread-add-channel-field">
+              <label
+                className="s-thread-add-channel-label"
+                htmlFor="thread-add-channel-note"
+              >
+                Intro note
+              </label>
+              <textarea
+                id="thread-add-channel-note"
+                className="s-thread-add-channel-textarea"
+                value={addToChannelNote}
+                onChange={(event) => setAddToChannelNote(event.target.value)}
+                placeholder={`Optional note for ${agentName}`}
+                rows={2}
+              />
+            </div>
+
+            <div className="s-thread-add-channel-hint">
+              Scout will send a channel message that mentions {agentName}, so
+              the broker adds them to the shared thread.
+            </div>
+
+            {addToChannelError && (
+              <div className="s-thread-add-channel-error">
+                {addToChannelError}
+              </div>
+            )}
+          </form>
+        )}
 
         {pinnedAsk && (
           <div className="s-thread-pinned-ask">

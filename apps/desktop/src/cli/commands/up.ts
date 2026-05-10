@@ -7,7 +7,7 @@ import { resolveLocalAgentByName } from "@openscout/runtime/local-agents";
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
-import { parseScoutHarness } from "../../core/broker/service.ts";
+import { parseScoutLocalHarness } from "../../core/broker/service.ts";
 import { upScoutAgent } from "../../core/agents/service.ts";
 import { renderScoutUpResult } from "../../ui/terminal/agents.ts";
 
@@ -131,7 +131,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   const agent = await upScoutAgent({
     projectPath,
     agentName,
-    harness: parseScoutHarness(harness),
+    harness: parseScoutLocalHarness(harness),
     model,
     reasoningEffort,
     permissionProfile,
