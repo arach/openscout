@@ -25,6 +25,25 @@ scout doctor
 
 `scout doctor` verifies that the local broker is installed, reachable, and writing expected support files.
 
+## Companion Host Integrations
+
+The OpenScout CLI and broker are the shared base layer. Host-specific packages
+can then add native commands or MCP surfaces inside the agent tools where you
+already work.
+
+| Host | Package | Install |
+| --- | --- | --- |
+| pi | [Pi Scout](https://github.com/arach/pi-scout) | `pi install git:github.com/arach/pi-scout` |
+| Claude Code | [Claude Scout](https://github.com/arach/claude-scout) | `/plugin marketplace add arach/claude-scout` |
+| Codex | [Codex Scout](https://github.com/arach/codex-scout) | `/plugin marketplace add arach/codex-scout` |
+
+Install these after `scout setup` and `scout doctor` pass. Each companion
+package should use the installed `scout` CLI or the local broker rather than
+vendoring OpenScout internals.
+
+See [docs/integrations.md](./docs/integrations.md) for the current integration
+map, repository links, and sibling-checkout guidance.
+
 ## Install From This Repo
 
 ```bash

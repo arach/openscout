@@ -23,6 +23,19 @@ scout doctor
 
 `scout doctor` verifies that the local broker is installed and reachable.
 
+## Companion Host Integrations
+
+Install OpenScout first, then add the host package for the tool you use:
+
+| Host | Package | Install |
+| --- | --- | --- |
+| pi | [Pi Scout](https://github.com/arach/pi-scout) | `pi install git:github.com/arach/pi-scout` |
+| Claude Code | [Claude Scout](https://github.com/arach/claude-scout) | `/plugin marketplace add arach/claude-scout` |
+| Codex | [Codex Scout](https://github.com/arach/codex-scout) | `/plugin marketplace add arach/codex-scout` |
+
+These packages stay installable on their own while sharing the same Scout CLI,
+broker, and protocol surface.
+
 ## Success Criteria
 
 - `scout --help` prints the CLI help.
@@ -51,6 +64,7 @@ Routing rules:
 ## Related
 
 - [Documentation root](/docs)
+- [Host integrations](/docs/integrations)
 - [Current posture](/docs/current-posture)
 - [Agent integration contract](/docs/agent-integration-contract)
 - [Full LLM context](/llms-full.txt)

@@ -81,7 +81,7 @@
     },
     "packages/cli": {
       "name": "@openscout/scout",
-      "version": "0.2.64",
+      "version": "0.2.65",
       "bin": {
         "scout": "./bin/scout.mjs",
       },

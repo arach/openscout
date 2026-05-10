@@ -116,6 +116,7 @@
     "architecture": "https://openscout.app/docs/architecture",
     "agentIdentity": "https://openscout.app/docs/agent-identity",
     "agentIntegrationContract": "https://openscout.app/docs/agent-integration-contract",
+    "integrations": "https://openscout.app/docs/integrations",
     "dataOwnership": "https://openscout.app/docs/data-ownership",
     "operatorAttention": "https://openscout.app/docs/operator-attention-and-unblock",
     "repository": "https://github.com/arach/openscout"
@@ -125,6 +126,29 @@
     "nextSteps": [
       "scout setup",
       "scout doctor"
+    ],
+    "companionIntegrations": [
+      {
+        "host": "pi",
+        "name": "Pi Scout",
+        "repository": "https://github.com/arach/pi-scout",
+        "page": "https://arach.github.io/pi-scout/",
+        "install": "pi install git:github.com/arach/pi-scout"
+      },
+      {
+        "host": "Claude Code",
+        "name": "Claude Scout",
+        "repository": "https://github.com/arach/claude-scout",
+        "page": "https://arach.github.io/claude-scout/",
+        "install": "/plugin marketplace add arach/claude-scout"
+      },
+      {
+        "host": "Codex",
+        "name": "Codex Scout",
+        "repository": "https://github.com/arach/codex-scout",
+        "page": "https://arach.github.io/codex-scout/",
+        "install": "/plugin marketplace add arach/codex-scout"
+      }
     ]
   }
 }
