@@ -42,13 +42,29 @@ export type ScoutImplicitAskCommandOptions = ScoutAskCommandOptions;
 export type ScoutWatchCommandOptions = ContextRootOptions & {
   agentName: string | null;
   channel?: string;
+  since?: number;
+  limit?: number;
+  once: boolean;
+};
+
+export type ScoutChannelCommandOptions = ContextRootOptions & {
+  channel?: string;
+  latest?: number;
+};
+
+export type ScoutInboxCommandOptions = ContextRootOptions & {
+  agentName: string | null;
+  latest: number;
+  since?: number;
 };
 
 export type ScoutLatestCommandOptions = ContextRootOptions & {
   agentId?: string;
   actorId?: string;
+  channel?: string;
   conversationId?: string;
   limit: number;
+  messages: boolean;
 };
 
 export type ScoutEnrollCommandOptions = ContextRootOptions & {
@@ -98,6 +114,37 @@ function parseFlagValue(args: string[], index: number, flag: string): { value: s
   }
 
   missingFlagValue(flag);
+}
+
+function parseSinceTimestamp(value: string): number {
+  const trimmed = value.trim();
+  const duration = trimmed.match(/^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/i);
+  if (duration) {
+    const amount = Number.parseFloat(duration[1] ?? "");
+    const unit = (duration[2] ?? "").toLowerCase();
+    const unitMs = unit === "ms"
+      ? 1
+      : unit === "s"
+        ? 1_000
+        : unit === "m"
+          ? 60_000
+          : unit === "h"
+            ? 3_600_000
+            : 86_400_000;
+    return Date.now() - amount * unitMs;
+  }
+
+  const numeric = Number.parseInt(trimmed, 10);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric > 1_000_000_000_000 ? numeric : numeric * 1_000;
+  }
+
+  const parsedDate = Date.parse(trimmed);
+  if (Number.isFinite(parsedDate)) {
+    return parsedDate;
+  }
+
+  throw new ScoutCliError(`invalid since value: ${value}`);
 }
 
 function flagNameFor(current: string, flagNames: readonly string[]): string | null {
@@ -605,6 +652,9 @@ export function parseWatchCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentName: string | null = null;
   let channel: string | undefined;
+  let since: number | undefined;
+  let limit: number | undefined;
+  let once = false;
 
   for (let index = 0; index < parsed.args.length; index += 1) {
     const current = parsed.args[index] ?? "";
@@ -620,6 +670,26 @@ export function parseWatchCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--since" || current.startsWith("--since=")) {
+      const value = parseFlagValue(parsed.args, index, "--since");
+      since = parseSinceTimestamp(value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--limit" || current.startsWith("--limit=")) {
+      const value = parseFlagValue(parsed.args, index, "--limit");
+      const parsedLimit = Number.parseInt(value.value, 10);
+      if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+        throw new ScoutCliError(`invalid limit: ${value.value}`);
+      }
+      limit = parsedLimit;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--once") {
+      once = true;
+      continue;
+    }
     unexpectedArgs("watch", args);
   }
 
@@ -628,6 +698,100 @@ export function parseWatchCommandOptions(
     args: parsed.args,
     agentName,
     channel,
+    since,
+    limit,
+    once,
+  };
+}
+
+export function parseChannelCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutChannelCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let channel: string | undefined;
+  let latest: number | undefined;
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--channel" || current.startsWith("--channel=")) {
+      const value = parseFlagValue(parsed.args, index, "--channel");
+      channel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--latest" || current.startsWith("--latest=")) {
+      const value = parseFlagValue(parsed.args, index, "--latest");
+      const parsedLimit = Number.parseInt(value.value, 10);
+      if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+        throw new ScoutCliError(`invalid latest count: ${value.value}`);
+      }
+      latest = parsedLimit;
+      index = value.nextIndex;
+      continue;
+    }
+    if (!current.startsWith("-") && !channel) {
+      channel = current;
+      continue;
+    }
+    unexpectedArgs("channel", args);
+  }
+
+  if (channel && !latest) {
+    throw new ScoutCliError("channel name is only valid with --latest");
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    channel,
+    latest,
+  };
+}
+
+export function parseInboxCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutInboxCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let agentName: string | null = null;
+  let latest = 10;
+  let since: number | undefined;
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--as" || current.startsWith("--as=")) {
+      const value = parseFlagValue(parsed.args, index, "--as");
+      agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--latest" || current.startsWith("--latest=") || current === "--limit" || current.startsWith("--limit=")) {
+      const flag = current === "--limit" || current.startsWith("--limit=") ? "--limit" : "--latest";
+      const value = parseFlagValue(parsed.args, index, flag);
+      const parsedLimit = Number.parseInt(value.value, 10);
+      if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+        throw new ScoutCliError(`invalid latest count: ${value.value}`);
+      }
+      latest = parsedLimit;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--since" || current.startsWith("--since=")) {
+      const value = parseFlagValue(parsed.args, index, "--since");
+      since = parseSinceTimestamp(value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    unexpectedArgs("inbox", args);
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    agentName,
+    latest,
+    since,
   };
 }
 
@@ -638,8 +802,10 @@ export function parseLatestCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentId: string | undefined;
   let actorId: string | undefined;
+  let channel: string | undefined;
   let conversationId: string | undefined;
   let limit = 12;
+  let messages = false;
 
   for (let index = 0; index < parsed.args.length; index += 1) {
     const current = parsed.args[index] ?? "";
@@ -652,6 +818,12 @@ export function parseLatestCommandOptions(
     if (current === "--actor" || current.startsWith("--actor=")) {
       const value = parseFlagValue(parsed.args, index, "--actor");
       actorId = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--channel" || current.startsWith("--channel=")) {
+      const value = parseFlagValue(parsed.args, index, "--channel");
+      channel = value.value;
       index = value.nextIndex;
       continue;
     }
@@ -671,7 +843,15 @@ export function parseLatestCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--messages") {
+      messages = true;
+      continue;
+    }
     unexpectedArgs("latest", args);
+  }
+
+  if (channel && conversationId) {
+    throw new ScoutCliError("provide either --channel or --conversation, not both");
   }
 
   return {
@@ -679,8 +859,10 @@ export function parseLatestCommandOptions(
     args: parsed.args,
     agentId,
     actorId,
+    channel,
     conversationId,
     limit,
+    messages,
   };
 }
 

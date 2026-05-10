@@ -7,7 +7,7 @@ import { defaultScoutContextDirectory } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 import { parseCardCreateCommandOptions } from "../options.ts";
 import { createScoutAgentCard } from "../../core/agents/service.ts";
-import { parseScoutHarness, resolveScoutAgentName } from "../../core/broker/service.ts";
+import { parseScoutLocalHarness, resolveScoutAgentName } from "../../core/broker/service.ts";
 import { renderScoutAgentCard } from "../../ui/terminal/cards.ts";
 
 const HELP_FLAGS = new Set(["help", "--help", "-h"]);
@@ -63,7 +63,7 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
       projectPath: options.projectPath,
       agentName: options.agentName,
       displayName: options.displayName,
-      harness: parseScoutHarness(options.harness),
+      harness: parseScoutLocalHarness(options.harness),
       currentDirectory: options.currentDirectory,
     });
 
@@ -95,7 +95,7 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
     projectPath: options.projectPath,
     agentName: agentName,
     displayName: displayName,
-    harness: parseScoutHarness(options.harness),
+    harness: parseScoutLocalHarness(options.harness),
     model: options.model,
     reasoningEffort: options.reasoningEffort,
     permissionProfile: options.permissionProfile,

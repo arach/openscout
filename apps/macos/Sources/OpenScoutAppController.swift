@@ -6,6 +6,15 @@ import Foundation
 final class OpenScoutAppController: ObservableObject {
     static let shared = OpenScoutAppController()
 
+    struct ActionLogEntry: Identifiable, Sendable {
+        enum Kind: Sendable { case info, success, error }
+        let id = UUID()
+        let ts: Date
+        let kind: Kind
+        let text: String
+        let copyDetails: String?
+    }
+
     private enum RefreshReason {
         case startup
         case timer
@@ -75,6 +84,7 @@ final class OpenScoutAppController: ObservableObject {
     @Published private(set) var tailscaleActionPending = false
     @Published private(set) var webActionPending = false
     @Published private(set) var webServerStartedByApp = false
+    @Published private(set) var actionLog: [ActionLogEntry] = []
 
     private let brokerService = BrokerService()
     private let pairingService = PairingService()
@@ -83,6 +93,8 @@ final class OpenScoutAppController: ObservableObject {
     private var refreshTimer: Timer?
     private var refreshQueued = false
     private var webServerProcess: Process?
+    private var actionLogCollapseTask: Task<Void, Never>?
+    private static let actionLogMaxEntries = 50
 
     private init() {}
 
@@ -135,7 +147,7 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     func restartBroker() {
-        runBrokerAction(.restart)
+        runBrokerAction(.restart, narrate: true)
     }
 
     func startPairing() {
@@ -147,7 +159,7 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     func restartPairing() {
-        runPairingAction(.restart)
+        runPairingAction(.restart, narrate: true)
     }
 
     func openTailscale() {
@@ -196,6 +208,115 @@ final class OpenScoutAppController: ObservableObject {
         refresh()
     }
 
+    func restartWebApp() {
+        guard !webActionPending else { return }
+        Task { await runWebRestart() }
+    }
+
+    func clearActionLog() {
+        actionLogCollapseTask?.cancel()
+        actionLogCollapseTask = nil
+        actionLog.removeAll()
+    }
+
+    private func appendActionLog(_ kind: ActionLogEntry.Kind, _ text: String, copyDetails: String? = nil) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let entry = ActionLogEntry(ts: Date(), kind: kind, text: trimmed, copyDetails: copyDetails)
+        actionLog.append(entry)
+        if actionLog.count > Self.actionLogMaxEntries {
+            actionLog.removeFirst(actionLog.count - Self.actionLogMaxEntries)
+        }
+    }
+
+    private func resetActionLog() {
+        actionLogCollapseTask?.cancel()
+        actionLogCollapseTask = nil
+        actionLog.removeAll()
+    }
+
+    private func scheduleActionLogCollapse(after seconds: Double = 5) {
+        actionLogCollapseTask?.cancel()
+        actionLogCollapseTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.actionLog.removeAll()
+                self?.actionLogCollapseTask = nil
+            }
+        }
+    }
+
+    private func runWebRestart() async {
+        resetActionLog()
+        appendActionLog(.info, "Stopping web server…")
+
+        if let process = webServerProcess, process.isRunning {
+            process.terminate()
+        }
+        webServerProcess = nil
+        webServerStartedByApp = false
+        appendActionLog(.success, "Stopped")
+
+        appendActionLog(.info, "Starting web server…")
+        webActionPending = true
+        defer { webActionPending = false }
+        lastError = nil
+
+        let tailTask = Task { [weak self] in
+            await self?.tailWebServerLog(forSeconds: 6)
+        }
+
+        do {
+            try await ensureWebServerRunning()
+            appendActionLog(.success, "Reachable on :3200")
+            await tailTask.value
+            scheduleActionLogCollapse()
+        } catch {
+            tailTask.cancel()
+            let msg = error.localizedDescription
+            let logTail = readScoutWebServerLogTail(at: scoutWebServerLogPath(), maxLines: 20)
+            let copy = logTail.isEmpty ? msg : "\(msg)\n\n--- web-server.log (last 20 lines) ---\n\(logTail)"
+            appendActionLog(.error, msg, copyDetails: copy)
+            lastError = msg
+        }
+
+        requestRefresh(reason: .manual)
+    }
+
+    private func tailWebServerLog(forSeconds seconds: Double) async {
+        let path = scoutWebServerLogPath()
+        let url = URL(fileURLWithPath: path)
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+
+        do { try handle.seekToEnd() } catch { return }
+
+        let deadline = Date().addingTimeInterval(seconds)
+        var pending = ""
+
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if Task.isCancelled { return }
+            guard let data = try? handle.read(upToCount: 64 * 1024), !data.isEmpty else {
+                continue
+            }
+            guard let chunk = String(data: data, encoding: .utf8) else { continue }
+            pending += chunk
+
+            while let nl = pending.firstIndex(of: "\n") {
+                let raw = String(pending[..<nl]).trimmingCharacters(in: .whitespacesAndNewlines)
+                pending = String(pending[pending.index(after: nl)...])
+                guard !raw.isEmpty else { continue }
+                let lower = raw.lowercased()
+                let kind: ActionLogEntry.Kind = (lower.contains("error") || lower.contains("✗") || lower.contains("fatal"))
+                    ? .error
+                    : .info
+                appendActionLog(kind, raw)
+            }
+        }
+    }
+
     func openFeedback() {
         if let rawURL = ProcessInfo.processInfo.environment["OPENSCOUT_FEEDBACK_REPORT_URL"],
            let url = URL(string: rawURL) {
@@ -214,13 +335,18 @@ final class OpenScoutAppController: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func runBrokerAction(_ action: BrokerControlAction) {
+    private func runBrokerAction(_ action: BrokerControlAction, narrate: Bool = false) {
         guard !brokerActionPending else {
             return
         }
 
         brokerActionPending = true
         lastError = nil
+
+        if narrate {
+            resetActionLog()
+            appendActionLog(.info, "Restarting broker…")
+        }
 
         Task {
             defer {
@@ -230,21 +356,33 @@ final class OpenScoutAppController: ObservableObject {
             do {
                 let status = try await brokerService.control(action)
                 broker = BrokerState(from: status)
+                if narrate {
+                    appendActionLog(.success, broker.reachable ? "Broker online" : broker.statusDetail)
+                    scheduleActionLogCollapse()
+                }
             } catch {
                 lastError = error.localizedDescription
+                if narrate {
+                    appendActionLog(.error, error.localizedDescription, copyDetails: error.localizedDescription)
+                }
             }
 
             requestRefresh(reason: .manual)
         }
     }
 
-    private func runPairingAction(_ action: PairingControlAction) {
+    private func runPairingAction(_ action: PairingControlAction, narrate: Bool = false) {
         guard !pairingActionPending else {
             return
         }
 
         pairingActionPending = true
         lastError = nil
+
+        if narrate {
+            resetActionLog()
+            appendActionLog(.info, "Restarting relay…")
+        }
 
         Task {
             defer {
@@ -253,8 +391,15 @@ final class OpenScoutAppController: ObservableObject {
 
             do {
                 pairing = try await pairingService.control(action)
+                if narrate {
+                    appendActionLog(.success, pairing.statusLabel)
+                    scheduleActionLogCollapse()
+                }
             } catch {
                 lastError = error.localizedDescription
+                if narrate {
+                    appendActionLog(.error, error.localizedDescription, copyDetails: error.localizedDescription)
+                }
             }
 
             requestRefresh(reason: .manual)
@@ -341,7 +486,7 @@ final class OpenScoutAppController: ObservableObject {
         requestRefresh(reason: .manual)
     }
 
-    private func ensureWebServerRunning() async throws {
+private func ensureWebServerRunning() async throws {
         if await isWebSurfaceReachable() {
             return
         }

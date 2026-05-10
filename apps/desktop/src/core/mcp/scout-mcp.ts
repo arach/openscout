@@ -33,6 +33,7 @@ import {
   listScoutAgents,
   loadScoutFlight,
   loadScoutBrokerContext,
+  loadScoutMessages,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
   sendScoutMessage,
@@ -44,6 +45,7 @@ import {
   type ScoutAskByIdResult,
   type ScoutAskResult,
   type ScoutFlightRecord,
+  type ScoutBrokerMessageRecord,
   type ScoutMessagePostResult,
   type ScoutReplyPostResult,
   type ScoutTrackedWorkItem,
@@ -299,6 +301,15 @@ type ScoutMcpDependencies = {
     env: NodeJS.ProcessEnv,
   ) => Promise<string>;
   resolveBrokerUrl: () => string;
+  loadMessages: (input: {
+    channel?: string;
+    conversationId?: string;
+    participantId?: string;
+    inboxOnly?: boolean;
+    since?: number;
+    limit?: number;
+    baseUrl?: string;
+  }) => Promise<ScoutBrokerMessageRecord[]>;
   searchAgents: (input: {
     query?: string;
     currentDirectory: string;
@@ -555,6 +566,78 @@ const whoAmISchema = z.object({
   currentDirectory: z.string(),
   brokerUrl: z.string(),
   defaultSenderId: z.string(),
+});
+
+const brokerMessageSchema = z
+  .object({
+    id: z.string(),
+    conversationId: z.string(),
+    actorId: z.string(),
+    originNodeId: z.string(),
+    class: z.enum(["agent", "log", "system", "status", "artifact"]),
+    body: z.string(),
+    replyToMessageId: z.string().optional(),
+    threadConversationId: z.string().optional(),
+    mentions: z
+      .array(
+        z.object({
+          actorId: z.string(),
+          label: z.string().optional(),
+        }),
+      )
+      .optional(),
+    attachments: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            mediaType: z.string(),
+            fileName: z.string().optional(),
+            blobKey: z.string().optional(),
+            url: z.string().optional(),
+            metadata: z.record(z.string(), z.unknown()).optional(),
+          })
+          .catchall(z.unknown()),
+      )
+      .optional(),
+    speech: z
+      .object({
+        text: z.string(),
+        voice: z.string().optional(),
+        interruptible: z.boolean().optional(),
+      })
+      .optional(),
+    audience: z
+      .object({
+        visibleTo: z.array(z.string()).optional(),
+        notify: z.array(z.string()).optional(),
+        invoke: z.array(z.string()).optional(),
+        reason: z.string().optional(),
+      })
+      .optional(),
+    visibility: z.string(),
+    policy: z.string(),
+    createdAt: z.number(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .catchall(z.unknown());
+
+const messagesInboxResultSchema = z.object({
+  currentDirectory: z.string(),
+  brokerUrl: z.string(),
+  senderId: z.string(),
+  limit: z.number(),
+  since: z.number().nullable(),
+  messages: z.array(brokerMessageSchema),
+});
+
+const messagesChannelResultSchema = z.object({
+  currentDirectory: z.string(),
+  brokerUrl: z.string(),
+  channel: z.string(),
+  limit: z.number(),
+  since: z.number().nullable(),
+  messages: z.array(brokerMessageSchema),
 });
 
 const searchResultSchema = z.object({
@@ -1959,6 +2042,7 @@ function defaultScoutMcpDependencies(
       resolveScoutSenderId(senderId, currentDirectory, scopedEnv),
     resolveBrokerUrl: () =>
       env.OPENSCOUT_BROKER_URL?.trim() || resolveScoutBrokerUrl(),
+    loadMessages: (input) => loadScoutMessages(input),
     searchAgents: ({ query, currentDirectory, limit }) =>
       searchScoutAgentsForMcp({ query, currentDirectory, limit }),
     resolveAgent: ({ label, currentDirectory }) =>
@@ -2181,6 +2265,110 @@ export function createScoutMcpServer(options: {
         currentDirectory: resolvedCurrentDirectory,
         brokerUrl: deps.resolveBrokerUrl(),
         defaultSenderId,
+      };
+      return {
+        content: createTextContent(structuredContent),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "messages_inbox",
+    {
+      title: "Read Scout Inbox",
+      description:
+        "Read recent direct or addressed Scout broker messages for the current sender identity. Use this instead of curling broker HTTP endpoints when an MCP host needs its latest messages.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        senderId: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        since: z.number().optional(),
+      }),
+      outputSchema: messagesInboxResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ currentDirectory, senderId, limit, since }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
+        senderId,
+        resolvedCurrentDirectory,
+        env,
+      );
+      const brokerUrl = deps.resolveBrokerUrl();
+      const resolvedLimit = limit ?? 20;
+      const messages = await deps.loadMessages({
+        participantId: resolvedSenderId,
+        inboxOnly: true,
+        since,
+        limit: resolvedLimit,
+        baseUrl: brokerUrl,
+      });
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        brokerUrl,
+        senderId: resolvedSenderId,
+        limit: resolvedLimit,
+        since: since ?? null,
+        messages,
+      };
+      return {
+        content: createTextContent(structuredContent),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "messages_channel",
+    {
+      title: "Read Scout Channel",
+      description:
+        "Read recent Scout broker messages from a named channel. Use this instead of curling broker HTTP endpoints when an MCP host needs channel history.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        channel: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        since: z.number().optional(),
+      }),
+      outputSchema: messagesChannelResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ currentDirectory, channel, limit, since }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const brokerUrl = deps.resolveBrokerUrl();
+      const resolvedChannel = channel?.trim() || "shared";
+      const resolvedLimit = limit ?? 20;
+      const messages = await deps.loadMessages({
+        channel: resolvedChannel,
+        since,
+        limit: resolvedLimit,
+        baseUrl: brokerUrl,
+      });
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        brokerUrl,
+        channel: resolvedChannel,
+        limit: resolvedLimit,
+        since: since ?? null,
+        messages,
       };
       return {
         content: createTextContent(structuredContent),

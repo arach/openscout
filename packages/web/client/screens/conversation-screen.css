@@ -276,6 +276,82 @@
   margin-left: 4px;
 }
 
+.s-thread-add-channel-trigger {
+  flex-shrink: 0;
+}
+
+.s-thread-add-channel {
+  margin: 12px 20px 0;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.s-thread-add-channel-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.s-thread-add-channel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 220px;
+}
+
+.s-thread-add-channel-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-thread-add-channel-input,
+.s-thread-add-channel-textarea {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, var(--surface));
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.s-thread-add-channel-input:focus-visible,
+.s-thread-add-channel-textarea:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.s-thread-add-channel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.s-thread-add-channel-hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.s-thread-add-channel-error {
+  font-size: 11px;
+  color: var(--red);
+}
+
 /* ── Pinned ask ── */
 
 .s-thread-pinned-ask {

@@ -13,13 +13,20 @@ Fast path:
 
 1. If you know the repo/worktree, pass `currentDirectory`.
 2. If you know one target handle, call `messages_send` with `targetLabel` for tell-style writes or `invocations_ask` with `targetLabel` for ask-style handoffs.
-3. Use `whoami`, `agents_search`, or `agents_resolve` only when sender context is unclear, the target is ambiguous, or the broker says the route failed.
+3. Use `messages_inbox` or `messages_channel` when you need recent broker message context.
+4. Use `whoami`, `agents_search`, or `agents_resolve` only when sender context is unclear, the target is ambiguous, or the broker says the route failed.
 
 ## Working directory
 
 - Pass `currentDirectory` whenever you know the relevant repo or worktree path.
 - If you do not pass `currentDirectory`, Scout falls back to the plugin's default setup root.
 - This plugin wrapper sets that fallback to the user's home directory instead of the plugin folder, which is a safer default but still weaker than a real workspace path.
+
+## Reading context
+
+- Use `messages_inbox` for recent direct or addressed messages to the current sender.
+- Use `messages_channel` for recent messages in a named channel.
+- Do not curl broker HTTP endpoints or read relay files to recover Scout messages from an MCP host.
 
 ## Tell vs ask
 

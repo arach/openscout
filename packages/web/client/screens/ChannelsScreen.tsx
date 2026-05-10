@@ -11,6 +11,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo, fullTimestamp } from "../lib/time.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { saveLastViewed } from "../lib/sessionRead.ts";
+import { AgentPicker, AgentMentionTextarea } from "../lib/agent-autocomplete.tsx";
 import { useScout } from "../scout/Provider.tsx";
 import type { Agent, Message, Route, SessionEntry } from "../lib/types.ts";
 import "./conversation-screen.css";
@@ -41,89 +42,193 @@ function dayLabel(ts: number): string {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
-/* ── Right sidebar ── */
+/* ── Header members control ── */
 
-function ChannelSidebar({
+function MembersHeaderControl({
   channel,
   agents,
-  messageCount,
 }: {
   channel: SessionEntry;
   agents: Agent[];
-  messageCount: number;
 }) {
+  const memberAgentIds = useMemo(
+    () => channel.participantIds.filter((pid) => pid !== "operator"),
+    [channel.participantIds],
+  );
+
   const members = useMemo(() => {
-    return channel.participantIds.map((pid) => {
-      if (pid === "operator") {
-        return { id: "operator", name: "You", handle: "operator", state: "available" as const };
-      }
+    return memberAgentIds.map((pid) => {
       const agent = agents.find((a) => a.id === pid);
       return agent
-        ? { id: agent.id, name: agent.name, handle: agent.handle ?? agent.id, state: normalizeAgentState(agent.state) }
+        ? {
+            id: agent.id,
+            name: agent.name,
+            handle: agent.handle ?? agent.id,
+            state: normalizeAgentState(agent.state),
+          }
         : { id: pid, name: pid, handle: pid, state: "offline" as const };
     });
-  }, [channel.participantIds, agents]);
+  }, [memberAgentIds, agents]);
 
-  const online = members.filter((m) => m.state !== "offline");
-  const offline = members.filter((m) => m.state === "offline");
+  const onlineCount = members.filter((m) => m.state !== "offline").length;
+
+  const [rosterOpen, setRosterOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingActorId, setPendingActorId] = useState<string | null>(null);
+  const rosterRef = useRef<HTMLDivElement>(null);
+  const rosterTriggerRef = useRef<HTMLButtonElement>(null);
+  const addTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!rosterOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (rosterRef.current?.contains(target)) return;
+      if (rosterTriggerRef.current?.contains(target)) return;
+      setRosterOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRosterOpen(false);
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [rosterOpen]);
+
+  const addMember = async (actorId: string) => {
+    setPendingActorId(actorId);
+    try {
+      await api(`/api/conversations/${encodeURIComponent(channel.id)}/members`, {
+        method: "POST",
+        body: JSON.stringify({ actorId }),
+      });
+      setPickerOpen(false);
+    } finally {
+      setPendingActorId(null);
+    }
+  };
+
+  const removeMember = async (actorId: string) => {
+    setPendingActorId(actorId);
+    try {
+      await api(
+        `/api/conversations/${encodeURIComponent(channel.id)}/members/${encodeURIComponent(actorId)}`,
+        { method: "DELETE" },
+      );
+    } finally {
+      setPendingActorId(null);
+    }
+  };
 
   return (
-    <aside className="ch-sidebar">
-      <section className="ch-sidebar-section">
-        <div className="ch-sidebar-section-label">Channel</div>
-        <div className="ch-sidebar-info">
-          <div className="ch-sidebar-info-name">
-            <span className="ch-sidebar-info-hash">#</span>
-            <span className="ch-sidebar-info-title">{conversationDisplayTitle(channel)}</span>
-          </div>
-          <div className="ch-sidebar-info-id">{channel.id}</div>
-          <div className="ch-sidebar-stats">
-            <span className="ch-sidebar-stat">
-              <span className="ch-sidebar-stat-value">{messageCount}</span>
-              <span className="ch-sidebar-stat-label">messages</span>
-            </span>
-            <span className="ch-sidebar-stat">
-              <span className="ch-sidebar-stat-value">{members.length}</span>
-              <span className="ch-sidebar-stat-label">members</span>
-            </span>
-          </div>
-        </div>
-      </section>
-
-      <section className="ch-sidebar-section">
-        <div className="ch-sidebar-section-label">
-          Members
-          {online.length > 0 && (
-            <span className="ch-sidebar-online-badge">{online.length} online</span>
-          )}
-        </div>
-        <div className="ch-sidebar-members">
-          {[...online, ...offline].map((m) => (
-            <div key={m.id} className="ch-sidebar-member">
-              <div className="ch-sidebar-member-avatar-wrap">
-                <div
-                  className="ch-sidebar-member-avatar"
-                  style={{ background: actorColor(m.name) }}
-                >
-                  {m.name[0]?.toUpperCase() ?? "?"}
-                </div>
-                <span
-                  className="ch-sidebar-member-dot"
-                  style={{ background: stateColor(m.state) }}
-                />
-              </div>
-              <div className="ch-sidebar-member-info">
-                <span className="ch-sidebar-member-name">{m.name}</span>
-                <span className="ch-sidebar-member-handle">@{m.handle}</span>
-              </div>
-              {m.state === "working" && (
-                <span className="ch-sidebar-member-state">working</span>
-              )}
+    <div className="ch-members-control">
+      <button
+        ref={rosterTriggerRef}
+        type="button"
+        className="ch-members-trigger"
+        onClick={() => setRosterOpen((v) => !v)}
+        aria-label={`${members.length} members${onlineCount ? `, ${onlineCount} online` : ""}`}
+        aria-expanded={rosterOpen}
+        title="View members"
+      >
+        <div className="ch-members-stack">
+          {members.slice(0, 4).map((m) => (
+            <div
+              key={m.id}
+              className="ch-members-pip"
+              style={{ background: actorColor(m.name) }}
+            >
+              {m.name[0]?.toUpperCase() ?? "?"}
             </div>
           ))}
+          {members.length > 4 && (
+            <span className="ch-members-overflow">+{members.length - 4}</span>
+          )}
         </div>
-      </section>
-    </aside>
+        <span className="ch-members-count">
+          {members.length}
+          {onlineCount > 0 && (
+            <span className="ch-members-online-dot" aria-hidden />
+          )}
+        </span>
+      </button>
+
+      {rosterOpen && (
+        <div ref={rosterRef} className="ch-members-roster" role="dialog" aria-label="Members">
+          <div className="ch-members-roster-header">
+            <span className="ch-members-roster-title">
+              {members.length} member{members.length !== 1 ? "s" : ""}
+            </span>
+            {onlineCount > 0 && (
+              <span className="ch-members-roster-online">{onlineCount} online</span>
+            )}
+          </div>
+          <div className="ch-members-roster-list">
+            {members.length === 0 ? (
+              <div className="ch-members-roster-empty">No agents in this channel yet.</div>
+            ) : (
+              members.map((m) => (
+                <div key={m.id} className="ch-members-roster-row">
+                  <div className="ch-members-roster-avatar-wrap">
+                    <div
+                      className="ch-members-roster-avatar"
+                      style={{ background: actorColor(m.name) }}
+                    >
+                      {m.name[0]?.toUpperCase() ?? "?"}
+                    </div>
+                    <span
+                      className="ch-members-roster-dot"
+                      style={{ background: stateColor(m.state) }}
+                    />
+                  </div>
+                  <div className="ch-members-roster-info">
+                    <span className="ch-members-roster-name">{m.name}</span>
+                    <span className="ch-members-roster-handle">@{m.handle}</span>
+                  </div>
+                  {m.state === "working" && (
+                    <span className="ch-members-roster-state">working</span>
+                  )}
+                  <button
+                    type="button"
+                    className="ch-members-roster-remove"
+                    onClick={() => void removeMember(m.id)}
+                    disabled={pendingActorId === m.id}
+                    aria-label={`Remove ${m.name}`}
+                    title={`Remove ${m.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      <button
+        ref={addTriggerRef}
+        type="button"
+        className="ch-members-add"
+        onClick={() => setPickerOpen((v) => !v)}
+        aria-label="Add member"
+        aria-expanded={pickerOpen}
+      >
+        +
+      </button>
+      <AgentPicker
+        agents={agents}
+        excludeIds={memberAgentIds}
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(agent) => void addMember(agent.id)}
+        pendingId={pendingActorId}
+        emptyHint="All agents already in channel."
+        triggerRef={addTriggerRef}
+      />
+    </div>
   );
 }
 
@@ -147,7 +252,6 @@ function ChannelFeed({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const composeRef = useRef<HTMLTextAreaElement>(null);
   const prevCountRef = useRef(0);
   const initialScrollDoneRef = useRef(false);
 
@@ -172,8 +276,8 @@ function ChannelFeed({
 
   useBrokerEvents((event) => {
     if (event.kind === "message.posted") {
-      const payload = event.payload as { conversationId?: string } | undefined;
-      if (payload?.conversationId === channelId) void load();
+      const payload = event.payload as { message?: { conversationId?: string } } | undefined;
+      if (payload?.message?.conversationId === channelId) void load();
     }
   });
 
@@ -209,13 +313,6 @@ function ChannelFeed({
       setError(err instanceof Error ? err.message : "Failed to send");
     } finally {
       setSending(false);
-    }
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void send();
     }
   };
 
@@ -299,15 +396,15 @@ function ChannelFeed({
           className="ch-compose"
           onSubmit={(e) => { e.preventDefault(); void send(); }}
         >
-          <textarea
-            ref={composeRef}
-            className="ch-compose-input"
-            placeholder={`Message #${channelName}…`}
+          <AgentMentionTextarea
+            agents={agents}
             value={draft}
+            onChange={setDraft}
+            onSubmit={() => void send()}
+            placeholder={`Message #${channelName}…`}
             rows={1}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={onKeyDown}
             disabled={sending}
+            textareaClassName="ch-compose-input"
           />
           <button
             type="submit"
@@ -405,7 +502,6 @@ export function ChannelsScreen({
   const { agents } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [operatorName, setOperatorName] = useState("operator");
-  const [messageCount, setMessageCount] = useState(0);
 
   const channels = useMemo(
     () => sessions.filter(isGroupConversation),
@@ -446,29 +542,10 @@ export function ChannelsScreen({
               <span className="ch-center-slug">{conversationShortLabel(selectedChannel)}</span>
             </div>
             <div className="ch-center-header-right">
-              {selectedChannel.participantIds.length > 0 && (
-                <div className="ch-center-member-stack">
-                  {selectedChannel.participantIds.slice(0, 4).map((pid) => {
-                    const agent = agents.find((a) => a.id === pid);
-                    const name = agent?.name ?? pid;
-                    return (
-                      <div
-                        key={pid}
-                        className="ch-center-member-pip"
-                        style={{ background: actorColor(name) }}
-                        title={name}
-                      >
-                        {name[0]?.toUpperCase() ?? "?"}
-                      </div>
-                    );
-                  })}
-                  {selectedChannel.participantIds.length > 4 && (
-                    <span className="ch-center-member-overflow">
-                      +{selectedChannel.participantIds.length - 4}
-                    </span>
-                  )}
-                </div>
-              )}
+              <MembersHeaderControl
+                channel={selectedChannel}
+                agents={agents}
+              />
             </div>
           </div>
 
@@ -479,12 +556,7 @@ export function ChannelsScreen({
               channelName={conversationDisplayTitle(selectedChannel)}
               agents={agents}
               operatorName={operatorName}
-              onMessageCountChange={setMessageCount}
-            />
-            <ChannelSidebar
-              channel={selectedChannel}
-              agents={agents}
-              messageCount={messageCount}
+              onMessageCountChange={() => { /* noop — message count no longer surfaced */ }}
             />
           </div>
         </>

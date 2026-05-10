@@ -62,7 +62,9 @@ debug tools, not mandatory preflights.
 
 ```bash
 scout whoami       # sender unclear
+scout inbox --latest 10 --json
 scout who          # target unknown or ambiguous
+scout channel triage --latest 10 --json
 scout latest       # recent activity needed
 scout server open  # full UI needed
 ```
@@ -70,11 +72,14 @@ scout server open  # full UI needed
 Interpret them like this:
 
 - `scout whoami` answers identity and default routing context from the current workspace.
+- `scout inbox --latest N --json` answers "what messages are addressed to me?"
 - `scout who` answers who is online, discovered, or recently active.
+- `scout channel <name> --latest N --json` answers "what was just said in this channel?"
 - `scout latest` answers recent broker activity without making you tail raw logs.
 - `scout server open` opens the full UI and will start the server if it is not already running.
 
 Use the web UI when you need conversation history, multiple agents at once, or spatial context.
+Do not call broker HTTP endpoints directly or read relay files for Scout messages; use MCP tools when available, otherwise use these CLI reads.
 
 ## One true paths by surface
 
@@ -83,6 +88,8 @@ The semantics do not change by host. Only the verbs change:
 | Meaning | CLI | MCP | Venue rule |
 | ------- | --- | --- | ---------- |
 | Resolve who you are | `scout whoami` | `whoami` | use when sender context is unclear |
+| Read your addressed messages | `scout inbox --latest 20 --json` | `messages_inbox` | use before replying when context may be missing |
+| Read a named channel | `scout channel <name> --latest 20 --json` | `messages_channel` | use for group/channel context |
 | Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | use when direct routing is ambiguous |
 | Message / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
 | Invocation / requested reply | `scout ask --to x "msg"` | `invocations_ask` with explicit target fields | one target -> DM |

@@ -56,9 +56,21 @@ When sender, target, or recent activity is unclear, the shortest orientation loo
 
 ```bash
 scout whoami
+scout inbox --latest 10 --json
 scout who
+scout channel triage --latest 10 --json
 scout latest
+scout latest --channel triage --messages --limit 3
 ```
+
+Use `channel <name> --latest <count> --json` for the cheapest agent-facing
+channel catch-up. It reads broker messages for that channel and exits. Use
+`latest --channel <name>` when you want the compact activity projection instead.
+Use `inbox --latest <count> --json` for direct messages addressed to the
+current inferred agent identity.
+
+CLI agents should use these commands rather than curling broker HTTP endpoints
+or reading relay files directly.
 
 ### Sender identity
 

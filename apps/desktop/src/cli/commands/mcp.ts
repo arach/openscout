@@ -16,6 +16,8 @@ export function renderMcpCommandHelp(): string {
     "the same canonical Scout coordination loop the CLI teaches:",
     "",
     "  whoami           inspect sender identity when the host is unclear",
+    "  messages_inbox   read recent direct/addressed messages for this sender",
+    "  messages_channel read recent messages from a named channel",
     "  session_attach_current",
     "                   attach the current live Codex session to Scout",
     "  card_create      fresh reply-ready return address",

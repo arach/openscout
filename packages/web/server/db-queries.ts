@@ -2187,6 +2187,60 @@ function shouldPreferSessionSummary(
   return candidate.id < existing.id;
 }
 
+export function queryConversationDefinitionById(
+  conversationId: string,
+): {
+  id: string;
+  kind: string;
+  title: string;
+  visibility: string;
+  shareMode: string;
+  authorityNodeId: string;
+  topic: string | null;
+  parentConversationId: string | null;
+  messageId: string | null;
+  metadata: Record<string, unknown>;
+  participantIds: string[];
+} | null {
+  const row = db().prepare(
+    `SELECT id, kind, title, visibility, share_mode, authority_node_id,
+            topic, parent_conversation_id, message_id, metadata_json
+     FROM conversations WHERE id = ?`,
+  ).get(conversationId) as {
+    id: string;
+    kind: string;
+    title: string;
+    visibility: string;
+    share_mode: string;
+    authority_node_id: string;
+    topic: string | null;
+    parent_conversation_id: string | null;
+    message_id: string | null;
+    metadata_json: string | null;
+  } | null;
+  if (!row) return null;
+  const participants = (db().prepare(
+    `SELECT actor_id FROM conversation_members WHERE conversation_id = ?`,
+  ).all(conversationId) as Array<{ actor_id: string }>).map((m) => m.actor_id);
+  let metadata: Record<string, unknown> = {};
+  if (row.metadata_json) {
+    try { metadata = JSON.parse(row.metadata_json) as Record<string, unknown>; } catch {}
+  }
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    visibility: row.visibility,
+    shareMode: row.share_mode,
+    authorityNodeId: row.authority_node_id,
+    topic: row.topic,
+    parentConversationId: row.parent_conversation_id,
+    messageId: row.message_id,
+    metadata,
+    participantIds: participants,
+  };
+}
+
 export function querySessions(limit = 80): MobileSessionSummary[] {
   const rows = db().prepare(
     `SELECT

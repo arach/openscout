@@ -17,6 +17,8 @@ import { createRuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import {
   askScoutQuestion,
   loadScoutBrokerContext,
+  parseScoutHarness,
+  parseScoutLocalHarness,
   resolveScoutSenderId,
   sendScoutMessage,
   updateScoutWorkItem,
@@ -85,6 +87,18 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
   }
   testDirectories.clear();
+});
+
+describe("parseScoutHarness", () => {
+  test("accepts Flue for Scout message attribution", () => {
+    expect(parseScoutHarness("flue")).toBe("flue");
+  });
+
+  test("keeps managed local launch harnesses explicit", () => {
+    expect(() => parseScoutLocalHarness("flue")).toThrow(
+      'Unsupported local agent harness "flue". Use one of: claude, codex',
+    );
+  });
 });
 
 function useIsolatedOpenScoutHome(): string {

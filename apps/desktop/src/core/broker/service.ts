@@ -56,6 +56,7 @@ import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-pro
 import {
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
+  SUPPORTED_SCOUT_HARNESSES,
   type LocalAgentBinding,
 } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
@@ -474,11 +475,26 @@ export function parseScoutHarness(
   if (!trimmed) {
     return undefined;
   }
+  if (SUPPORTED_SCOUT_HARNESSES.includes(trimmed as AgentHarness)) {
+    return trimmed as AgentHarness;
+  }
+  throw new Error(
+    `Unsupported harness "${trimmed}". Use one of: ${SUPPORTED_SCOUT_HARNESSES.join(", ")}`,
+  );
+}
+
+export function parseScoutLocalHarness(
+  value?: string | null,
+): AgentHarness | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
   if (SUPPORTED_LOCAL_AGENT_HARNESSES.includes(trimmed as AgentHarness)) {
     return trimmed as AgentHarness;
   }
   throw new Error(
-    `Unsupported harness "${trimmed}". Use one of: ${SUPPORTED_LOCAL_AGENT_HARNESSES.join(", ")}`,
+    `Unsupported local agent harness "${trimmed}". Use one of: ${SUPPORTED_LOCAL_AGENT_HARNESSES.join(", ")}`,
   );
 }
 
@@ -3018,13 +3034,27 @@ export async function waitForScoutFlight(
 export async function loadScoutMessages(
   options: {
     channel?: string;
+    conversationId?: string;
+    participantId?: string;
+    inboxOnly?: boolean;
     since?: number;
     limit?: number;
     baseUrl?: string;
   } = {},
 ): Promise<ScoutBrokerMessageRecord[]> {
   const search = new URLSearchParams();
-  search.set("conversationId", scoutConversationIdForChannel(options.channel));
+  if (options.conversationId || options.channel || !options.participantId) {
+    search.set(
+      "conversationId",
+      options.conversationId ?? scoutConversationIdForChannel(options.channel),
+    );
+  }
+  if (options.participantId) {
+    search.set("participantId", options.participantId);
+  }
+  if (options.inboxOnly) {
+    search.set("inboxOnly", "1");
+  }
   if (
     typeof options.since === "number" &&
     Number.isFinite(options.since) &&
@@ -3416,17 +3446,18 @@ export function buildScoutEnrollmentPrompt(input: {
   task?: string;
   cliCommand?: string;
 }): string {
-  const relayLogPath = join(relayHubDirectory(), "channel.log");
   const cliCommand = input.cliCommand?.trim() || "scout";
   const task = input.task?.trim();
   return [
     `You are ${input.agentId}.`,
     "",
-    `There is a global Scout activity channel at ${relayLogPath} that other agents are watching.`,
-    "Use it to coordinate with other agents working on related packages.",
+    "Use the Scout CLI to coordinate with other agents working on related packages.",
+    "Do not read relay files or call broker HTTP endpoints directly.",
     "",
     "Scout commands:",
     `  ${cliCommand} send --as ${input.agentId} "your message"`,
+    `  ${cliCommand} inbox --latest 10 --json`,
+    `  ${cliCommand} channel shared --latest 10 --json`,
     `  ${cliCommand} watch`,
     `  ${cliCommand} who`,
     "",

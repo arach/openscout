@@ -1,11 +1,41 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { parseWatchCommandOptions } from "../options.ts";
-import { watchScoutMessages } from "../../core/broker/service.ts";
-import { renderScoutMessage } from "../../ui/terminal/broker.ts";
+import {
+  loadScoutMessages,
+  watchScoutMessages,
+  type ScoutBrokerMessageRecord,
+} from "../../core/broker/service.ts";
+import {
+  renderScoutMessage,
+  renderScoutMessageList,
+} from "../../ui/terminal/broker.ts";
 
 export async function runWatchCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   const options = parseWatchCommandOptions(args, defaultScoutContextDirectory(context));
+  const emitMessage = (message: ScoutBrokerMessageRecord) => {
+    if (context.output.mode === "json") {
+      context.stdout(JSON.stringify(message));
+      return;
+    }
+    context.output.writeValue(message, renderScoutMessage);
+  };
+
+  if (options.since || options.limit) {
+    const backlog = await loadScoutMessages({
+      channel: options.channel,
+      since: options.since,
+      limit: options.limit,
+    });
+    if (options.once) {
+      context.output.writeValue(backlog, renderScoutMessageList);
+      return;
+    }
+    for (const message of backlog) {
+      emitMessage(message);
+    }
+  }
+
   const controller = new AbortController();
   const shutdown = () => controller.abort();
   process.on("SIGINT", shutdown);
@@ -18,7 +48,7 @@ export async function runWatchCommand(context: ScoutCommandContext, args: string
       channel: options.channel,
       signal: controller.signal,
       onMessage(message) {
-        context.output.writeValue(message, renderScoutMessage);
+        emitMessage(message);
       },
     });
   } finally {

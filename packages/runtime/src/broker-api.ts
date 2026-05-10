@@ -43,6 +43,8 @@ export type ScoutBrokerHealthPayload = {
 
 export type ScoutBrokerMessageQuery = {
   conversationId?: string;
+  participantId?: string;
+  inboxOnly?: boolean;
   since?: number | null;
   limit?: number;
 };
@@ -454,6 +456,8 @@ export async function maybeReadJsonFromActiveScoutBrokerService<T>(
     }
     return handled(await service.readMessages({
       conversationId: trimOrUndefined(url.searchParams.get("conversationId")),
+      participantId: trimOrUndefined(url.searchParams.get("participantId")),
+      inboxOnly: url.searchParams.get("inboxOnly") === "1",
       since: parsePositiveInt(url.searchParams.get("since")) ?? null,
       limit: parseLimit(url.searchParams.get("limit")),
     }) as T);

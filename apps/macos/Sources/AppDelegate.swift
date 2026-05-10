@@ -74,17 +74,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         popover?.contentViewController = nil
         popover = nil
+        controller.clearActionLog()
     }
 
     private func makePopover() -> NSPopover {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.delegate = self
-        popover.contentSize = NSSize(width: 408, height: MainView.baseHeight)
         popover.appearance = ThemeManager.shared.nsAppearance
-        popover.contentViewController = NSHostingController(
-            rootView: MainView(controller: controller)
-        )
+        let host = NSHostingController(rootView: MainView(controller: controller))
+        host.sizingOptions = .preferredContentSize
+        popover.contentViewController = host
         self.popover = popover
         return popover
     }

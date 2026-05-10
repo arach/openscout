@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 import { Hono, type Context } from "hono";
-import type { CollaborationEvent, CollaborationKind, ConversationKind } from "@openscout/protocol";
+import type { CollaborationEvent, CollaborationKind, ConversationDefinition, ConversationKind } from "@openscout/protocol";
 
 import {
   controlScoutWebPairingService,
@@ -28,6 +28,7 @@ import {
   queryAgents,
   queryActivity,
   queryBrokerDiagnostics,
+  queryConversationDefinitionById,
   queryFleet,
   queryFlightRecordById,
   queryFlights,
@@ -47,6 +48,7 @@ import {
   resolveScoutBrokerUrl,
   sendScoutDirectMessage,
   sendScoutMessage,
+  upsertScoutConversation,
   upsertScoutFlight,
 } from "./core/broker/service.ts";
 import { scoutBrokerPaths } from "./core/broker/paths.ts";
@@ -748,7 +750,7 @@ function permissionSetupHint(detail: string): OperatorAttentionItem | null {
   const replyTool = /messages_reply/.test(normalized);
   const command = mentionsScoutMcpTool
     ? `/allow ${replyTool ? "mcp__scout__messages_reply" : "mcp__scout__invocations_ask"}`
-    : `{ "allowedTools": ["Bash(scout ask:*)"] }`;
+    : `{ "allowedTools": ["Bash(scout:*)"] }`;
   const title = mentionsScoutMcpTool
     ? "Claude needs Scout MCP permission"
     : "Claude needs Scout CLI permission";
@@ -760,7 +762,7 @@ function permissionSetupHint(detail: string): OperatorAttentionItem | null {
     summary: compactAttentionSummary(detail),
     detail: mentionsScoutMcpTool
       ? "Allow the Scout MCP coordination tool in the Claude session so routed asks can be delivered without stalling."
-      : "Allow the Scout ask command in the Claude session, or add it to Claude's allowed tools.",
+      : "Allow the Scout CLI in the Claude session so agents can read context and coordinate without approval loops.",
     agentId: null,
     agentName: null,
     conversationId: null,
@@ -1928,6 +1930,55 @@ export async function createOpenScoutWebServer(
       limit: Number.isFinite(rawLimit) ? Math.min(250, Math.max(1, Math.floor(rawLimit))) : undefined,
       kinds: parseConversationKinds(rawKinds),
     }));
+  });
+
+  const writeConversationMembers = async (
+    conversationId: string,
+    mutate: (current: string[]) => string[],
+  ) => {
+    const existing = queryConversationDefinitionById(conversationId);
+    if (!existing) return null;
+    const nextParticipants = mutate(existing.participantIds);
+    await upsertScoutConversation({
+      id: existing.id,
+      kind: existing.kind as ConversationDefinition["kind"],
+      title: existing.title,
+      visibility: existing.visibility as ConversationDefinition["visibility"],
+      shareMode: existing.shareMode as ConversationDefinition["shareMode"],
+      authorityNodeId: existing.authorityNodeId,
+      participantIds: nextParticipants,
+      ...(existing.topic ? { topic: existing.topic } : {}),
+      ...(existing.parentConversationId
+        ? { parentConversationId: existing.parentConversationId }
+        : {}),
+      ...(existing.messageId ? { messageId: existing.messageId } : {}),
+      ...(existing.metadata ? { metadata: existing.metadata } : {}),
+    });
+    return nextParticipants;
+  };
+
+  app.post("/api/conversations/:id/members", async (c) => {
+    const conversationId = c.req.param("id");
+    const body = (await c.req.json().catch(() => null)) as
+      | { actorId?: string }
+      | null;
+    const actorId = body?.actorId?.trim();
+    if (!actorId) return c.json({ error: "actorId is required" }, 400);
+    const next = await writeConversationMembers(conversationId, (current) =>
+      Array.from(new Set([...current, actorId])).sort(),
+    );
+    if (!next) return c.json({ error: "conversation not found" }, 404);
+    return c.json({ ok: true, participantIds: next });
+  });
+
+  app.delete("/api/conversations/:id/members/:actorId", async (c) => {
+    const conversationId = c.req.param("id");
+    const actorId = c.req.param("actorId");
+    const next = await writeConversationMembers(conversationId, (current) =>
+      current.filter((id) => id !== actorId),
+    );
+    if (!next) return c.json({ error: "conversation not found" }, 404);
+    return c.json({ ok: true, participantIds: next });
   });
 
   app.get("/api/sessions", (c) => c.json(querySessions()));
