@@ -222,9 +222,6 @@ function renderClaudePermissionHook(report: ScoutDoctorReport["claudePermissionH
     `  Settings: ${report.settingsPath}`,
     `  Hook: ${report.hookPath}`,
   ];
-  if (report.state === "installed" || report.state === "stale") {
-    lines.push("  Remove: scout setup");
-  }
   return lines;
 }
 

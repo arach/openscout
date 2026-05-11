@@ -59,7 +59,7 @@ Implemented now:
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions no longer install a project-wide `PreToolUse` permission
-  hook. Legacy Scout hook entries can be removed by rerunning `scout setup`.
+  hook.
 
 Not done yet:
 
