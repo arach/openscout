@@ -2345,7 +2345,7 @@ export default function App() {
               ))}
             </div>
             <div className="text-[13px] mt-5 leading-[1.6]" style={s.mutedText}>
-              `init` does not wake agents. It prepares the repo so the rest of OpenScout can reason about it consistently.
+              `init` does not wake agents. It prepares Scout&apos;s Relay context so the rest of OpenScout can reason about it consistently.
             </div>
             <div className="text-[13px] mt-4 leading-[1.6]" style={s.mutedText}>
               Current project config: {visibleAppSettings.currentProjectConfigPath ?? 'Not created yet.'}
