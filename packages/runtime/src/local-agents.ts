@@ -1835,6 +1835,19 @@ function invocationTitleOperator(action: InvocationRequest["action"]): string {
   }
 }
 
+const INVOCATION_TASK_PREVIEW_MAX_LENGTH = 96;
+
+function truncateInvocationPreview(value: string): string {
+  if (value.length <= INVOCATION_TASK_PREVIEW_MAX_LENGTH) {
+    return value;
+  }
+
+  const clipped = value.slice(0, INVOCATION_TASK_PREVIEW_MAX_LENGTH + 1);
+  const boundary = clipped.search(/\s+\S*$/u);
+  const truncated = (boundary > 0 ? clipped.slice(0, boundary) : clipped.slice(0, INVOCATION_TASK_PREVIEW_MAX_LENGTH)).trim();
+  return `${truncated.replace(/[.,;:!?-]+$/u, "")}...`;
+}
+
 function summarizeInvocationTask(task: string): string {
   const normalized = task
     .replace(/```[\s\S]*?```/g, " ")
@@ -1844,10 +1857,8 @@ function summarizeInvocationTask(task: string): string {
     return "broker request";
   }
 
-  const [firstClause = normalized] = normalized.split(/[.!?]\s+/u);
-  const words = firstClause.split(" ").filter(Boolean);
-  const summary = words.slice(0, 5).join(" ");
-  return words.length > 5 ? `${summary}...` : summary;
+  const firstSentence = normalized.match(/^.+?[.!?](?:\s|$)/u)?.[0].trim() ?? normalized;
+  return truncateInvocationPreview(firstSentence);
 }
 
 function buildInvocationTitle(invocation: InvocationRequest): string {
@@ -1857,7 +1868,7 @@ function buildInvocationTitle(invocation: InvocationRequest): string {
 }
 
 function buildInvocationOpener(invocation: InvocationRequest): string {
-  return `${buildInvocationTitle(invocation)} >>  ${summarizeInvocationTask(invocation.task)}`;
+  return `${buildInvocationTitle(invocation)} › ${summarizeInvocationTask(invocation.task)}`;
 }
 
 export function buildScoutReplyContext(agentName: string, invocation: InvocationRequest): ScoutReplyContext | null {

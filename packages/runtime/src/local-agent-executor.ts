@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { resolveCodexExecutable } from "@openscout/agent-sessions";
+import { resolveCodexExecutable } from "@openscout/agent-sessions/codex-executable";
 import type {
   AgentDefinition,
   AgentEndpoint,

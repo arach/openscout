@@ -1,4 +1,4 @@
-import type { ObservedHarnessTopology } from "@openscout/agent-sessions";
+import type { ObservedHarnessTopology } from "@openscout/agent-sessions/protocol/primitives";
 
 export type HarnessTopologySource = "claude" | "codex";
 

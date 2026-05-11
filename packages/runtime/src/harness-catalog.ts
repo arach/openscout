@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { resolveCodexExecutableInventory, type CodexExecutableCandidate } from "@openscout/agent-sessions";
+import { resolveCodexExecutableInventory, type CodexExecutableCandidate } from "@openscout/agent-sessions/codex-executable";
 import type { AgentCapability, AgentHarness } from "@openscout/protocol";
 
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
