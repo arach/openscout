@@ -1419,6 +1419,20 @@ export async function createOpenScoutWebServer(
   app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
   app.get("/api/ranger/session", (c) => c.json(rangerAssistant.getSessionState()));
   app.post("/api/ranger/session/reset", (c) => c.json(rangerAssistant.resetSession()));
+  app.post("/api/ranger/session/switch", async (c) => {
+    const body = await c.req.json<{ id?: unknown }>().catch(() => ({}));
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id) {
+      return c.json({ error: "id is required" }, 400);
+    }
+    try {
+      return c.json(rangerAssistant.switchSession(id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ranger switch failed";
+      const status = error instanceof RangerAssistantError ? error.status : 500;
+      return c.json({ error: message }, status as 400 | 404 | 500);
+    }
+  });
   app.get("/api/ranger/reminders", (c) => c.json(rangerReminders.getState()));
   app.post("/api/ranger/reminders", async (c) => {
     const body = await c.req.json<{

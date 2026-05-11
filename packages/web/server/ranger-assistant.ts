@@ -82,6 +82,7 @@ export type RangerAssistantService = {
   updateConfig: (input: { model?: string | null; systemPrompt?: string | null }) => RangerAssistantConfig;
   getSessionState: () => RangerAssistantSessionState;
   resetSession: () => RangerAssistantSessionState;
+  switchSession: (id: string) => RangerAssistantSessionState;
   respond: (input: { body: string; route?: unknown }) => Promise<RangerAssistantReply>;
   createBrief: (input: { route?: unknown; ttlMs?: number | null }) => Promise<RangerBrief>;
 };
@@ -188,6 +189,14 @@ export function createRangerAssistantService(input: {
       sessions.unshift(session);
       activeSessionId = session.id;
       pruneSessions(sessions);
+      return snapshot();
+    },
+    switchSession: (id) => {
+      const target = sessions.find((session) => session.id === id);
+      if (!target) {
+        throw new RangerAssistantError(`Ranger session "${id}" not found.`, 404);
+      }
+      activeSessionId = target.id;
       return snapshot();
     },
     respond: async ({ body, route }) => {

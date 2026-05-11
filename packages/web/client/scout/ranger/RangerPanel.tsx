@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Gauge, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Gauge, History, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
 import { extractRangerUiActions, normalizeRangerUiAction } from "../../lib/ranger.ts";
 import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
+import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import { isVoxSpeechStopped, playPreparedVoxSpeech, prepareVoxSpeech, startVoxSpeech, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
 import { useScout } from "../Provider.tsx";
 
@@ -145,6 +146,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [modelDraft, setModelDraft] = useState("");
   const [promptDraft, setPromptDraft] = useState("");
   const [reminderState, setReminderState] = useState<RangerReminderState | null>(null);
+  const [chatExpanded, setChatExpanded] = useState(false);
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+  const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
   const speechRef = useRef<VoxSpeakHandle | null>(null);
@@ -165,7 +169,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       return;
     }
     stopSpeech();
-    const speech = startVoxSpeech(text, { speed: voiceSpeed });
+    const speech = startVoxSpeech(toSpokenScoutText(text), { speed: voiceSpeed });
     speechRef.current = speech;
     setSpeaking(true);
     void speech.promise
@@ -305,6 +309,27 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     }
   }, [modelDraft, promptDraft]);
 
+  const switchRangerSession = useCallback(async (id: string) => {
+    if (!id || switchingSessionId) return;
+    setSwitchingSessionId(id);
+    setError(null);
+    stopSpeech();
+    try {
+      const state = await api<RangerAssistantSessionState>("/api/ranger/session/switch", {
+        method: "POST",
+        body: JSON.stringify({ id }),
+      });
+      setSessionState(state);
+      syncLastMessages(state.session);
+      setSessionPickerOpen(false);
+      setChatExpanded(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not switch Ranger session.");
+    } finally {
+      setSwitchingSessionId(null);
+    }
+  }, [stopSpeech, switchingSessionId, syncLastMessages]);
+
   const resetRangerSession = useCallback(async () => {
     setResettingSession(true);
     setError(null);
@@ -335,6 +360,20 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setVoiceProbeState("idle");
     return ok;
   }, []);
+
+  useEffect(() => {
+    void probeVoice();
+    const onFocus = () => { void probeVoice(); };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void probeVoice();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [probeVoice]);
 
   const launchVox = useCallback(() => {
     const client = clientRef.current ?? new VoxBrowserClient();
@@ -414,7 +453,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     if (!voiceRepliesRef.current) {
       return Promise.resolve(null);
     }
-    return prepareVoxSpeech(text, { speed: voiceSpeed })
+    return prepareVoxSpeech(toSpokenScoutText(text), { speed: voiceSpeed })
       .catch((err) => {
         if (!isVoxSpeechStopped(err)) {
           setError(err instanceof Error ? err.message : "Vox speech failed.");
@@ -692,142 +731,124 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const nextReminder = reminderState?.scheduled[0] ?? null;
 
   if (collapsed) {
+    const stopAndRun = (fn: () => void) => (event: React.MouseEvent) => {
+      event.stopPropagation();
+      fn();
+    };
     return (
-      <section className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-4 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <Bot size={12} className="text-lime-300" />
+      <section
+        role="button"
+        tabIndex={0}
+        aria-label="Expand Ranger panel"
+        onClick={() => setCollapsed(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setCollapsed(false);
+          }
+        }}
+        className="flex shrink-0 cursor-pointer items-center gap-2 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-3 py-1.5 transition-colors hover:bg-black/20"
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Bot size={12} className="shrink-0 text-lime-300" />
           <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--scout-chrome-ink-strong)]">
             Ranger
           </span>
-          <span className="truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
-            · direct loop
-            {activeSessionId ? ` · ${activeSessionId.slice(0, 8)}` : ""}
-            {dueReminders.length ? ` · ${dueReminders.length} due` : nextReminder ? ` · next ${relativeReminderLabel(nextReminder)}` : ""}
+          {(dueReminders.length > 0 || nextReminder) && (
+            <span className="truncate font-mono text-[9.5px] text-[var(--scout-chrome-ink-faint)]">
+              · {dueReminders.length ? `${dueReminders.length} due` : `next ${relativeReminderLabel(nextReminder!)}`}
+            </span>
+          )}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            title={recording ? "Stop talking" : voiceAvailable === false ? "Launch Vox" : "Start talking"}
+            aria-label={recording ? "Stop talking" : "Start talking"}
+            onClick={stopAndRun(() => {
+              if (voiceAvailable === false) {
+                launchVox();
+                return;
+              }
+              void (recording ? stopVoice() : startVoice());
+            })}
+            className={`flex shrink-0 items-center justify-center rounded border p-1 transition-colors ${
+              recording
+                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+            }`}
+          >
+            {recording ? <Square size={11} className="fill-current" /> : <Mic size={11} />}
+          </button>
+          <button
+            type="button"
+            title="Run a one-minute Ranger brief"
+            aria-label="Run brief"
+            onClick={stopAndRun(() => void startBrief())}
+            disabled={sending}
+            className="flex shrink-0 items-center justify-center rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {briefing ? <Loader2 size={11} className="animate-spin" /> : <ListChecks size={11} />}
+          </button>
+          <button
+            type="button"
+            title={voiceReplies ? "Voice replies on" : "Voice replies off"}
+            aria-label="Toggle voice replies"
+            onClick={stopAndRun(() => {
+              const next = !voiceReplies;
+              setVoiceReplies(next);
+              if (!next) stopSpeech();
+            })}
+            className={`flex shrink-0 items-center justify-center rounded border p-1 transition-colors ${
+              voiceReplies
+                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+            }`}
+          >
+            {voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
+          </button>
+          <span className="mx-1 h-3 w-px bg-[var(--scout-chrome-border-soft)]" aria-hidden="true" />
+          <span className="flex items-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.06] px-2 py-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] text-lime-200">
+            <ChevronUp size={11} />
+            Expand
           </span>
         </div>
-        <button
-          type="button"
-          title="Expand Ranger"
-          aria-label="Expand Ranger"
-          onClick={() => setCollapsed(false)}
-          className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-        >
-          <ChevronUp size={12} />
-        </button>
       </section>
     );
   }
 
   const expandedClassName = height === undefined
-    ? "flex max-h-[60vh] shrink-0 flex-col gap-2.5 overflow-y-auto border-t border-[var(--scout-chrome-border-soft)] p-3"
-    : "flex shrink-0 flex-col gap-2.5 overflow-y-auto border-t border-[var(--scout-chrome-border-soft)] p-3";
+    ? "flex max-h-[60vh] shrink-0 flex-col overflow-hidden border-t border-[var(--scout-chrome-border-soft)]"
+    : "flex shrink-0 flex-col overflow-hidden border-t border-[var(--scout-chrome-border-soft)]";
   const expandedStyle = height === undefined ? undefined : { height: `${height}px` };
 
   return (
     <section className={expandedClassName} style={expandedStyle}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Bot size={14} className="text-lime-300" />
-            <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--scout-chrome-ink-strong)]">
-              Ranger
-            </h2>
-          </div>
-          <p className="mt-1 truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
-            Direct Scout control loop
-            {sessionRuntimeLabel ? ` · ${sessionRuntimeLabel}` : ""}
-            {activeSessionId ? ` · session ${activeSessionId.slice(0, 8)}` : ""}
-          </p>
+      <div className="flex shrink-0 flex-col gap-2 px-3 pt-2.5 pb-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Bot size={13} className="shrink-0 text-lime-300" />
+          <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--scout-chrome-ink-strong)]">
+            Ranger
+          </h2>
+          <span className="truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
+            direct loop
+          </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
+        <div className="flex shrink-0 items-center gap-0.5">
+          <RangerIconButton
+            icon={<Settings size={11} />}
             title="Ranger settings"
             onClick={() => setSettingsOpen((open) => !open)}
-            className={`rounded border p-1.5 transition-colors ${
-              settingsOpen
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-            }`}
-          >
-            <Settings size={13} />
-          </button>
-          <button
-            type="button"
+            active={settingsOpen}
+          />
+          <RangerIconButton
+            icon={<ChevronDown size={11} />}
             title="Minimize Ranger"
-            aria-label="Minimize Ranger"
             onClick={() => setCollapsed(true)}
-            className="rounded border border-[var(--scout-chrome-border-soft)] p-1.5 text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-          >
-            <ChevronDown size={13} />
-          </button>
+          />
         </div>
       </div>
-
-      <div className="flex items-stretch gap-1.5">
-        <RangerActionButton
-          icon={<Radio size={13} />}
-          label="State"
-          onClick={() => void askRanger(STATE_PROMPT)}
-          disabled={sending || briefing}
-        />
-        <RangerActionButton
-          icon={briefing ? <Loader2 size={13} className="animate-spin" /> : <ListChecks size={13} />}
-          label={briefing ? "Briefing" : "Brief"}
-          title="Run a one-minute Ranger brief"
-          onClick={() => void startBrief()}
-          disabled={sending}
-        />
-        <RangerActionButton
-          icon={<Map size={13} />}
-          label="Ops Tail"
-          onClick={() => applyRangerUiAction({ type: "navigate", route: { view: "ops", mode: "tail" } })}
-          compact
-        />
-        <RangerActionButton
-          icon={<Compass size={13} />}
-          label="Fleet"
-          onClick={() => applyRangerUiAction({ type: "navigate", route: { view: "fleet" } })}
-          compact
-        />
-        <RangerActionButton
-          icon={voiceReplies ? <Volume2 size={13} /> : <VolumeX size={13} />}
-          label={voiceReplies ? "Replies On" : "Replies Off"}
-          onClick={() => {
-            const next = !voiceReplies;
-            setVoiceReplies(next);
-            if (!next) stopSpeech();
-          }}
-          compact
-        />
-        <RangerActionButton
-          icon={<Gauge size={13} />}
-          label={`${formatVoiceSpeed(voiceSpeed)}x`}
-          title={`Voice speed ${formatVoiceSpeed(voiceSpeed)}x`}
-          onClick={cycleVoiceSpeed}
-        />
-        <RangerActionButton
-          icon={resettingSession ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-          label="New Session"
-          onClick={() => void resetRangerSession()}
-          disabled={resettingSession || sending || briefing}
-          compact
-        />
-      </div>
-
-      {activeSessionId && (
-        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2 py-1.5 font-mono text-[9.5px] text-[var(--scout-chrome-ink-faint)]">
-          <span className="shrink-0 uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">Session</span>
-          <span className="shrink-0 text-lime-200" title={activeSessionId}>{activeSessionId.slice(0, 8)}</span>
-          {sessionStartedLabel ? <span className="shrink-0">started {sessionStartedLabel}</span> : null}
-          {sessionRuntimeLabel ? <span className="min-w-0 truncate">{sessionRuntimeLabel}</span> : null}
-          {sessionState && sessionState.sessions.length > 1 ? (
-            <span className="ml-auto shrink-0 text-[var(--scout-chrome-ink-ghost)]">
-              {sessionState.sessions.length - 1} older
-            </span>
-          ) : null}
-        </div>
-      )}
 
       {(dueReminders.length > 0 || nextReminder) && (
         <div className={`rounded border px-2.5 py-2 font-mono text-[10px] leading-relaxed ${
@@ -979,117 +1000,137 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         </div>
       )}
 
-      {voiceAvailable === false && (
-        <VoxSetupPanel
-          issue={voiceIssue}
-          probeState={voiceProbeState}
-          onLaunch={launchVox}
-          onRetry={() => void probeVoice()}
-          onSettings={openVoxSettings}
-        />
-      )}
+      </div>{/* /top stack */}
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            if (voiceAvailable === false) {
-              launchVox();
-              return;
-            }
-            void (recording ? stopVoice() : startVoice());
-          }}
-          className={`flex flex-1 items-center justify-center gap-2 rounded border px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors ${
-            recording
-              ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-              : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
-          }`}
-          disabled={sending || voiceState === "processing" || voiceProbeState === "probing"}
-        >
-          {voiceState === "processing" || voiceProbeState === "probing" ? <Loader2 size={13} className="animate-spin" /> : recording ? <Square size={12} className="fill-current" /> : <Mic size={13} />}
-          {voiceLabel}
-        </button>
-        {recording && (
-          <button
-            type="button"
-            onClick={() => void cancelVoice()}
-            className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)]"
-          >
-            Discard
-          </button>
+      <div className="flex min-h-0 flex-1 flex-col px-3 pb-1.5">
+        {sessionState && (
+          <ChatHistory
+            state={sessionState}
+            chatExpanded={chatExpanded}
+            onToggleExpanded={() => setChatExpanded((v) => !v)}
+            sessionPickerOpen={sessionPickerOpen}
+            onToggleSessionPicker={() => setSessionPickerOpen((v) => !v)}
+            onSwitchSession={(id) => void switchRangerSession(id)}
+            switchingSessionId={switchingSessionId}
+            sending={sending}
+            pendingAsk={sending ? lastAsk : null}
+          />
         )}
       </div>
 
-      {(partial || speaking) && (
-        <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-          <span className="min-w-0 truncate">{speaking ? "Speaking Ranger reply…" : partial}</span>
-          {speaking && (
+      <div className="flex shrink-0 flex-col gap-1.5 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-3 pt-2 pb-2.5">
+        {voiceAvailable === false && (
+          <VoxSetupPanel
+            issue={voiceIssue}
+            probeState={voiceProbeState}
+            onLaunch={launchVox}
+            onRetry={() => void probeVoice()}
+            onSettings={openVoxSettings}
+          />
+        )}
+
+        {(partial || speaking) && (
+          <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+            <span className="min-w-0 truncate">{speaking ? "Speaking Ranger reply…" : partial}</span>
+            {speaking && (
+              <button
+                type="button"
+                title="Stop spoken reply"
+                onClick={stopSpeech}
+                className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
+              >
+                <Square size={11} className="fill-current" />
+              </button>
+            )}
+          </div>
+        )}
+
+        {askStatus && !sending && (
+          <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+            {askStatus}
+          </div>
+        )}
+
+        <ChatInput
+          draft={draft}
+          onDraftChange={setDraft}
+          onSubmit={() => void askRanger(draft)}
+          sending={sending}
+        />
+
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              if (voiceAvailable === false) {
+                launchVox();
+                return;
+              }
+              void (recording ? stopVoice() : startVoice());
+            }}
+            className={`flex flex-1 items-center justify-center gap-2 rounded border px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors ${
+              recording
+                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
+            }`}
+            disabled={sending || voiceState === "processing" || voiceProbeState === "probing"}
+          >
+            {voiceState === "processing" || voiceProbeState === "probing" ? <Loader2 size={13} className="animate-spin" /> : recording ? <Square size={12} className="fill-current" /> : <Mic size={13} />}
+            {voiceLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => void askRanger(STATE_PROMPT)}
+            disabled={sending || briefing}
+            title="Ask Ranger for a state summary"
+            className="flex items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Radio size={12} />
+            State
+          </button>
+          <button
+            type="button"
+            onClick={() => void startBrief()}
+            disabled={sending}
+            title="Run a one-minute Ranger brief"
+            className="flex items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {briefing ? <Loader2 size={12} className="animate-spin" /> : <ListChecks size={12} />}
+            {briefing ? "Briefing" : "Brief"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !voiceReplies;
+              setVoiceReplies(next);
+              if (!next) stopSpeech();
+            }}
+            title={voiceReplies ? "Voice replies on (click to mute)" : "Voice replies off (click to enable)"}
+            className={`flex shrink-0 items-center justify-center rounded border p-2 transition-colors ${
+              voiceReplies
+                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+            }`}
+          >
+            {voiceReplies ? <Volume2 size={12} /> : <VolumeX size={12} />}
+          </button>
+          {recording && (
             <button
               type="button"
-              title="Stop spoken reply"
-              onClick={stopSpeech}
-              className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
+              onClick={() => void cancelVoice()}
+              className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)]"
             >
-              <Square size={11} className="fill-current" />
+              Discard
             </button>
           )}
         </div>
-      )}
 
-      {(lastAsk || lastReply || askStatus) && (
-        <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-          {askStatus && (
-            <div className="mb-1 uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-              {askStatus}
-            </div>
-          )}
-          {lastAsk && (
-            <p className="line-clamp-3">
-              <span className="text-[var(--scout-chrome-ink-soft)]">You: </span>
-              {lastAsk}
-            </p>
-          )}
-          {lastReply ? (
-            <p className="mt-1 line-clamp-4">
-              <span className="text-lime-200">Ranger: </span>
-              {lastReply}
-            </p>
-          ) : askStatus === "Sending to Ranger" ? (
-            <p className="mt-1 text-[var(--scout-chrome-ink-ghost)]">Reading the control plane...</p>
-          ) : null}
-        </div>
-      )}
-
-      <form
-        className="grid grid-cols-[1fr_auto] gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void askRanger(draft);
-        }}
-      >
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask Ranger to inspect state or move the UI…"
-          rows={3}
-          className="w-full resize-none rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]"
-        />
-        <button
-          type="submit"
-          title="Ask Ranger"
-          aria-label="Ask Ranger"
-          disabled={!draft.trim() || sending}
-          className="flex w-9 items-center justify-center rounded bg-lime-300/90 px-0 py-2 text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {sending ? <Loader2 size={13} className="animate-spin" /> : <SendHorizontal size={13} />}
-        </button>
-      </form>
-
-      {error && (
-        <div className="rounded border border-red-400/30 bg-red-400/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-red-200">
-          {error}
-        </div>
-      )}
+        {error && (
+          <div className="rounded border border-red-400/30 bg-red-400/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-red-200">
+            {error}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -1152,6 +1193,263 @@ function relativeReminderLabel(reminder: RangerReminder): string {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function ChatHistory({
+  state,
+  chatExpanded,
+  onToggleExpanded,
+  sessionPickerOpen,
+  onToggleSessionPicker,
+  onSwitchSession,
+  switchingSessionId,
+  sending,
+  pendingAsk,
+}: {
+  state: RangerAssistantSessionState;
+  chatExpanded: boolean;
+  onToggleExpanded: () => void;
+  sessionPickerOpen: boolean;
+  onToggleSessionPicker: () => void;
+  onSwitchSession: (id: string) => void;
+  switchingSessionId: string | null;
+  sending: boolean;
+  pendingAsk: string | null;
+}) {
+  const TRAIL = 4;
+  const messages = state.session.messages;
+  const visible = chatExpanded ? messages : messages.slice(-TRAIL);
+  const hiddenCount = chatExpanded ? 0 : Math.max(0, messages.length - visible.length);
+  const totalCount = messages.length;
+  const sessionsCount = state.sessions.length;
+  const startedAt = state.session.createdAt
+    ? new Date(state.session.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : null;
+  const titleLine = state.session.title && state.session.title !== "New Ranger Session"
+    ? state.session.title
+    : `Session ${state.session.id.slice(0, 8)}`;
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastMessageId = messages[messages.length - 1]?.id ?? null;
+  const lastMessageBody = messages[messages.length - 1]?.body ?? "";
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [lastMessageId, lastMessageBody, pendingAsk, sending, chatExpanded, state.session.id]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--scout-chrome-border-soft)] px-2.5 py-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Bot size={11} className="shrink-0 text-lime-300" />
+          <span className="min-w-0 truncate text-[var(--scout-chrome-ink)]" title={state.session.id}>
+            {titleLine}
+          </span>
+          {startedAt && (
+            <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">· {startedAt}</span>
+          )}
+          <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">· {totalCount} msg{totalCount === 1 ? "" : "s"}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            title={`Switch session (${sessionsCount} total)`}
+            aria-label="Switch session"
+            onClick={onToggleSessionPicker}
+            className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] transition-colors ${
+              sessionPickerOpen
+                ? "border-lime-300/40 bg-lime-300/10 text-lime-100"
+                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+            }`}
+          >
+            <History size={10} />
+            <span>Sessions</span>
+            <span className="text-[var(--scout-chrome-ink-ghost)]">{sessionsCount}</span>
+            <ChevronDown size={9} className={sessionPickerOpen ? "rotate-180 transition-transform" : "transition-transform"} />
+          </button>
+          {totalCount > TRAIL && (
+            <button
+              type="button"
+              title={chatExpanded ? "Collapse chat" : "View full session"}
+              aria-label={chatExpanded ? "Collapse chat" : "View full session"}
+              onClick={onToggleExpanded}
+              className="flex items-center gap-1 rounded border border-[var(--scout-chrome-border-soft)] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+            >
+              <span>{chatExpanded ? "Collapse" : "Full"}</span>
+              {chatExpanded ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {sessionPickerOpen && (
+        <div className="shrink-0 border-b border-[var(--scout-chrome-border-soft)] px-2 py-1.5">
+          <div className="mb-1 px-0.5 text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+            All sessions
+          </div>
+          <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto pr-0.5">
+            {state.sessions.map((entry) => {
+              const isActive = entry.id === state.session.id;
+              const isBusy = switchingSessionId === entry.id;
+              const ts = new Date(entry.updatedAt).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              });
+              const display = entry.title && entry.title !== "New Ranger Session"
+                ? entry.title
+                : `Session ${entry.id.slice(0, 8)}`;
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => {
+                    if (isActive) return;
+                    onSwitchSession(entry.id);
+                  }}
+                  disabled={isActive || Boolean(switchingSessionId)}
+                  className={`flex items-center gap-2 rounded border px-2 py-1 text-left transition-colors ${
+                    isActive
+                      ? "border-lime-300/40 bg-lime-300/[0.06] text-lime-100"
+                      : "border-transparent text-[var(--scout-chrome-ink-faint)] hover:border-[var(--scout-chrome-border-soft)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? "bg-lime-300" : "bg-[var(--scout-chrome-ink-ghost)]"}`} />
+                  <span className="min-w-0 flex-1 truncate text-[10px] text-[var(--scout-chrome-ink)]">{display}</span>
+                  <span className="shrink-0 text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                    {entry.messageCount} msg
+                  </span>
+                  <span className="shrink-0 text-[9px] text-[var(--scout-chrome-ink-ghost)]">{ts}</span>
+                  {isBusy && <Loader2 size={10} className="shrink-0 animate-spin text-lime-200" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2.5 py-2">
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            className="self-start text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)] hover:text-[var(--scout-chrome-ink)]"
+          >
+            ↑ {hiddenCount} earlier message{hiddenCount === 1 ? "" : "s"}
+          </button>
+        )}
+        {visible.length === 0 && !pendingAsk && (
+          <p className="text-[var(--scout-chrome-ink-ghost)]">No messages yet — ask Ranger anything below.</p>
+        )}
+        {visible.map((message) => (
+          <ChatBubble key={message.id} role={message.role} body={message.body} />
+        ))}
+        {pendingAsk && (
+          <ChatBubble role="user" body={pendingAsk} pending />
+        )}
+        {sending && !pendingAsk && (
+          <p className="text-[var(--scout-chrome-ink-ghost)]">Reading the control plane…</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChatInput({
+  draft,
+  onDraftChange,
+  onSubmit,
+  sending,
+}: {
+  draft: string;
+  onDraftChange: (next: string) => void;
+  onSubmit: () => void;
+  sending: boolean;
+}) {
+  return (
+    <form
+      className="grid grid-cols-[1fr_auto] gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <textarea
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        placeholder="Ask Ranger to inspect state or move the UI…"
+        rows={2}
+        className="w-full resize-none rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            if (draft.trim() && !sending) onSubmit();
+          }
+        }}
+      />
+      <button
+        type="submit"
+        title="Ask Ranger"
+        aria-label="Ask Ranger"
+        disabled={!draft.trim() || sending}
+        className="flex w-9 items-center justify-center self-stretch rounded bg-lime-300/90 px-0 text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {sending ? <Loader2 size={13} className="animate-spin" /> : <SendHorizontal size={13} />}
+      </button>
+    </form>
+  );
+}
+
+function ChatBubble({ role, body, pending = false }: { role: "user" | "assistant"; body: string; pending?: boolean }) {
+  const isUser = role === "user";
+  const text = isUser ? body : stripRangerUiFences(body);
+  return (
+    <div className="flex flex-col">
+      <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
+        {isUser ? "You" : "Ranger"}
+        {pending && " · sending"}
+      </span>
+      <p className={`whitespace-pre-wrap break-words text-[11px] leading-relaxed ${isUser ? "text-[var(--scout-chrome-ink)]" : "text-[var(--scout-chrome-ink)]"} ${pending ? "opacity-60" : ""}`}>
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function RangerIconButton({
+  icon,
+  title,
+  onClick,
+  disabled,
+  active,
+  badge,
+}: {
+  icon: ReactNode;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  badge?: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex shrink-0 items-center gap-1 rounded border p-1 text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        active
+          ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+          : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+      }`}
+    >
+      {icon}
+      {badge && <span className="font-mono text-[8.5px] tracking-tight">{badge}</span>}
+    </button>
+  );
 }
 
 function RangerActionButton({
