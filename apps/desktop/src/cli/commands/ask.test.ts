@@ -10,6 +10,7 @@ describe("renderAskCommandHelp", () => {
     expect(help).toContain("one target + no channel            -> DM");
     expect(help).toContain("Use ask when the meaning is \"do this and get back to me.\"");
     expect(help).toContain("--prompt-file <path>");
+    expect(help).toContain("--reply-mode notify");
   });
 });
 

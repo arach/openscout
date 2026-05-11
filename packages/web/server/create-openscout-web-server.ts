@@ -1747,6 +1747,55 @@ export async function createOpenScoutWebServer(
       return c.json({ error: message }, status as 400 | 500 | 502 | 503);
     }
   });
+  app.post("/api/ranger/actions/ask", async (c) => {
+    const body = await c.req.json<{
+      targetLabel?: string;
+      targetAgentId?: string;
+      body?: string;
+      channel?: string;
+    }>().catch(() => ({}));
+    const targetLabel = body.targetLabel?.trim() || body.targetAgentId?.trim() || "";
+    const targetAgentId = body.targetAgentId?.trim();
+    const requestBody = body.body?.trim() ?? "";
+    const channel = body.channel?.trim();
+    if (!targetLabel) {
+      return c.json({ error: "targetLabel or targetAgentId is required" }, 400);
+    }
+    if (!requestBody) {
+      return c.json({ error: "body is required" }, 400);
+    }
+
+    const result = await askScoutQuestion({
+      senderId: resolveOperatorName().trim() || "operator",
+      targetLabel,
+      ...(targetAgentId ? { targetAgentId } : {}),
+      body: requestBody,
+      ...(channel ? { channel } : {}),
+      currentDirectory,
+    });
+
+    if (!result.usedBroker) {
+      return c.json({ error: "broker unreachable" }, 502);
+    }
+    if (result.unresolvedTarget) {
+      return c.json(
+        {
+          error: `could not route ask to ${result.unresolvedTarget}`,
+          targetDiagnostic: result.targetDiagnostic ?? null,
+        },
+        409,
+      );
+    }
+
+    return c.json({
+      ok: true,
+      targetLabel,
+      conversationId: result.conversationId ?? null,
+      messageId: result.messageId ?? null,
+      flightId: result.flight?.id ?? null,
+      targetAgentId: result.flight?.targetAgentId ?? null,
+    });
+  });
   app.post("/api/ranger/brief", async (c) => {
     const body = await c.req.json<{
       route?: unknown;

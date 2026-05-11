@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Agent } from "./types.ts";
-import { resolveRangerAgentId } from "./ranger.ts";
+import { extractRangerUiActions, resolveRangerAgentId } from "./ranger.ts";
 
 function agent(input: Partial<Agent> & { id: string }): Agent {
   return {
@@ -48,5 +48,28 @@ describe("resolveRangerAgentId", () => {
     ]);
 
     expect(resolved).toBe("ranger.codex-vox-getting-started.mini");
+  });
+});
+
+describe("extractRangerUiActions", () => {
+  test("normalizes ask-agent actions", () => {
+    const actions = extractRangerUiActions([
+      "I’ll ask Hudson.",
+      "```scout-ui",
+      JSON.stringify({
+        type: "ask-agent",
+        targetLabel: "hudson",
+        body: "Can you inspect the broker handoff path?",
+      }),
+      "```",
+    ].join("\n"));
+
+    expect(actions).toEqual([
+      {
+        type: "ask-agent",
+        targetLabel: "hudson",
+        body: "Can you inspect the broker handoff path?",
+      },
+    ]);
   });
 });

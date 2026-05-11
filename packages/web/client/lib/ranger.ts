@@ -1,4 +1,3 @@
-import { conversationForAgent } from "./router.ts";
 import type { Agent, OpsMode, Route } from "./types.ts";
 
 export const DEFAULT_RANGER_AGENT_ID = "ranger.main.mini";
@@ -35,6 +34,14 @@ export type RangerUiAction =
   | { type: "navigate"; route: Route; reason?: string }
   | { type: "open-ranger"; mode?: "ask" | "tell"; reason?: string }
   | { type: "refresh"; reason?: string }
+  | {
+      type: "ask-agent";
+      targetLabel: string;
+      body: string;
+      targetAgentId?: string;
+      channel?: string;
+      reason?: string;
+    }
   | {
       type: "reminder";
       body: string;
@@ -105,7 +112,7 @@ export function resolveRangerAgentId(agents: Agent[]): string {
 }
 
 export function rangerConversationId(agentId: string): string {
-  return conversationForAgent(agentId);
+  return `dm.operator.${agentId}`;
 }
 
 export function isRangerActorId(actorId: string, rangerAgentId = DEFAULT_RANGER_AGENT_ID): boolean {
@@ -165,6 +172,24 @@ export function normalizeRangerUiAction(raw: unknown): RangerUiAction | null {
 
   if (type === "refresh") {
     return { type: "refresh", ...(reason ? { reason } : {}) };
+  }
+
+  if (type === "ask-agent" || type === "ask_agent" || type === "scout-ask" || type === "scout_ask") {
+    const targetLabel = firstString(record.targetLabel, record.target_label, record.target, record.to, record.agent, record.handle);
+    const targetAgentId = firstString(record.targetAgentId, record.target_agent_id, record.agentId, record.agent_id);
+    const body = firstString(record.body, record.message, record.prompt, record.task, record.question);
+    const channel = firstString(record.channel);
+    if (!body?.trim() || (!targetLabel?.trim() && !targetAgentId?.trim())) {
+      return null;
+    }
+    return {
+      type: "ask-agent",
+      targetLabel: (targetLabel ?? targetAgentId ?? "").trim(),
+      body: body.trim(),
+      ...(targetAgentId?.trim() ? { targetAgentId: targetAgentId.trim() } : {}),
+      ...(channel?.trim() ? { channel: channel.trim() } : {}),
+      ...(reason ? { reason } : {}),
+    };
   }
 
   if (type === "reminder" || type === "set-reminder" || type === "set_reminder" || type === "remind") {

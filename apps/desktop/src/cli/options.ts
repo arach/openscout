@@ -33,6 +33,7 @@ export type ScoutAskCommandOptions = ContextRootOptions & {
   channel?: string;
   harness?: string;
   timeoutSeconds?: number;
+  replyMode?: "inline" | "notify" | "none";
   message: string;
   promptFile?: string;
 };
@@ -438,6 +439,7 @@ export function parseAskCommandOptions(
   let channel: string | undefined;
   let harness: string | undefined;
   let timeoutSeconds: number | undefined;
+  let replyMode: ScoutAskCommandOptions["replyMode"];
   let promptFile: string | undefined;
   const messageParts: string[] = [];
 
@@ -484,6 +486,23 @@ export function parseAskCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--reply-mode" || current.startsWith("--reply-mode=")) {
+      const value = parseFlagValue(parsed.args, index, "--reply-mode");
+      if (value.value !== "inline" && value.value !== "notify" && value.value !== "none") {
+        throw new ScoutCliError(`invalid reply mode: ${value.value}`);
+      }
+      replyMode = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--no-wait") {
+      replyMode = "none";
+      continue;
+    }
+    if (current === "--notify") {
+      replyMode = "notify";
+      continue;
+    }
     const fileFlag = flagNameFor(current, ["--prompt-file", "--body-file"]);
     if (fileFlag) {
       if (promptFile) {
@@ -526,6 +545,7 @@ export function parseAskCommandOptions(
     channel,
     harness,
     timeoutSeconds,
+    replyMode,
     message,
     promptFile,
   };
@@ -540,6 +560,7 @@ export function parseImplicitAskCommandOptions(
   let channel: string | undefined;
   let harness: string | undefined;
   let timeoutSeconds: number | undefined;
+  let replyMode: ScoutAskCommandOptions["replyMode"];
   let promptFile: string | undefined;
   const messageParts: string[] = [];
 
@@ -571,6 +592,23 @@ export function parseImplicitAskCommandOptions(
       }
       timeoutSeconds = parsedTimeout;
       index = value.nextIndex;
+      continue;
+    }
+    if (current === "--reply-mode" || current.startsWith("--reply-mode=")) {
+      const value = parseFlagValue(parsed.args, index, "--reply-mode");
+      if (value.value !== "inline" && value.value !== "notify" && value.value !== "none") {
+        throw new ScoutCliError(`invalid reply mode: ${value.value}`);
+      }
+      replyMode = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--no-wait") {
+      replyMode = "none";
+      continue;
+    }
+    if (current === "--notify") {
+      replyMode = "notify";
       continue;
     }
     const fileFlag = flagNameFor(current, ["--prompt-file", "--body-file"]);
@@ -610,6 +648,7 @@ export function parseImplicitAskCommandOptions(
       channel: mergeComposerChannel(channel, routed.channel),
       harness,
       timeoutSeconds,
+      replyMode,
       message,
       promptFile,
     };
@@ -640,6 +679,7 @@ export function parseImplicitAskCommandOptions(
     channel,
     harness,
     timeoutSeconds,
+    replyMode,
     message,
     promptFile,
   };

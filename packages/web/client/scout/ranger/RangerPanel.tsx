@@ -104,6 +104,15 @@ type RangerReminderCreateResult = RangerReminderState & {
   reminder: RangerReminder;
 };
 
+type RangerAskAgentResult = {
+  ok: boolean;
+  targetLabel: string;
+  conversationId: string | null;
+  messageId: string | null;
+  flightId: string | null;
+  targetAgentId: string | null;
+};
+
 type VoiceProbeState = "idle" | "probing" | "launching";
 
 const STATE_PROMPT =
@@ -396,7 +405,27 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     const replyText = stripRangerUiFences(body);
     setLastReply(replyText);
     for (const action of extractRangerUiActions(body)) {
-      if (action.type === "reminder") {
+      if (action.type === "ask-agent") {
+        setAskStatus(`Asking ${action.targetLabel}`);
+        void api<RangerAskAgentResult>("/api/ranger/actions/ask", {
+          method: "POST",
+          body: JSON.stringify({
+            targetLabel: action.targetLabel,
+            targetAgentId: action.targetAgentId,
+            body: action.body,
+            channel: action.channel,
+          }),
+        }).then((result) => {
+          setAskStatus(
+            result.flightId
+              ? `Asked ${result.targetAgentId ?? result.targetLabel} · flight ${result.flightId}`
+              : `Asked ${result.targetAgentId ?? result.targetLabel}`,
+          );
+        }).catch((err) => {
+          setAskStatus(null);
+          setError(err instanceof Error ? err.message : "Could not ask agent.");
+        });
+      } else if (action.type === "reminder") {
         void createRangerReminder({
           title: action.title,
           body: action.body,
