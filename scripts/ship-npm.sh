@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build internal workspaces and publish the single public OpenScout npm package.
-# Reads NPM_TOKEN from .env (no 2FA needed).
+# Reads NPM_TOKEN from the env, falling back to `secret get OPENSCOUT_NPM_TOKEN`
+# (macOS keychain via the local `secret` CLI). See docs/local-secrets.md.
 #
 # Usage:
 #   ./scripts/ship-npm.sh           # build + publish @openscout/scout
@@ -12,7 +13,7 @@ cd "$(dirname "$0")/.."
 export npm_config_cache="${npm_config_cache:-${TMPDIR:-/tmp}/openscout-npm-cache}"
 mkdir -p "$npm_config_cache"
 
-# Load .env if present
+# Load .env files if present (kept for local overrides; primary store is the keychain)
 [[ -f .env.local ]] && set -a && source .env.local && set +a
 [[ -f .env ]] && set -a && source .env && set +a
 
@@ -21,7 +22,10 @@ if [[ "${1:-}" == "--dry-run" ]]; then
   DRY_RUN=true
   echo "Dry run — skipping publish."
 else
-  [[ -z "${NPM_TOKEN:-}" ]] && { echo "ERROR: NPM_TOKEN is not set."; exit 1; }
+  if [[ -z "${NPM_TOKEN:-}" ]] && command -v secret >/dev/null 2>&1; then
+    NPM_TOKEN="$(secret get OPENSCOUT_NPM_TOKEN 2>/dev/null || true)"
+  fi
+  [[ -z "${NPM_TOKEN:-}" ]] && { echo "ERROR: NPM_TOKEN is not set (try: secret set OPENSCOUT_NPM_TOKEN)"; exit 1; }
   NPMRC=$(mktemp)
   echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$NPMRC"
   trap 'rm -f "$NPMRC"' EXIT
