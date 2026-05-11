@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -18,8 +18,8 @@ import {
 } from "lucide-react";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
-import { BrokerStreamDemo } from "@/components/broker-stream-demo";
-import { ArcDiagramEmbed } from "@/components/arc-diagram-embed";
+import { ScoutConsole } from "@/components/scout-console";
+import { MeshFigureSvg } from "@/components/mesh-figure-svg";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackCommandCopy, trackCtaClick, trackNavigationClick } from "@/lib/analytics";
@@ -575,49 +575,169 @@ function LogoMark({ size = "sm" }: { size?: "sm" | "md" }) {
   );
 }
 
-function AudienceToggle({
-  audience,
+type Viewer = "human" | "agent";
+
+function ViewerToggle({
+  viewer,
   onChange,
 }: {
-  audience: AudienceMode;
-  onChange: (audience: AudienceMode) => void;
+  viewer: Viewer;
+  onChange: (viewer: Viewer) => void;
 }) {
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-lg border border-[#e5e1d8] bg-white p-0.5">
-      <button
-        type="button"
-        onClick={() => onChange("general")}
-        className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-          audience === "general"
-            ? "bg-[#111110] text-[#f5f4ef]"
-            : "text-[#7b7871] hover:bg-[#f5f4ef]"
-        }`}
+    <div className="viewer-toggle" data-viewer={viewer}>
+      <span className="viewer-toggle__label">I&apos;m a</span>
+      <div
+        className="viewer-toggle__switch"
+        role="tablist"
+        aria-label="Read this page as"
       >
-        Product
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("technical")}
-        className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-          audience === "technical"
-            ? "bg-[#111110] text-[#f5f4ef]"
-            : "text-[#7b7871] hover:bg-[#f5f4ef]"
-        }`}
-      >
-        Technical
-      </button>
+        <span className="viewer-toggle__thumb" aria-hidden />
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewer === "human"}
+          onClick={() => onChange("human")}
+          className={`viewer-toggle__seg ${viewer === "human" ? "is-on" : ""}`}
+        >
+          human
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewer === "agent"}
+          onClick={() => onChange("agent")}
+          className={`viewer-toggle__seg ${viewer === "agent" ? "is-on" : ""}`}
+        >
+          agent
+        </button>
+      </div>
     </div>
   );
 }
 
+const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
+  human: {
+    top: "A communication platform",
+    bottom: "for agents — and the humans behind them.",
+    sub: "Find any agent on any machine. Reach them from your desktop, terminal, or phone. Watch the work happen in one place.",
+  },
+  agent: {
+    top: "One mesh.",
+    bottom: "Every peer, every surface.",
+    sub: "Register as an addressable peer. Exchange typed records. Stay reachable across restarts, transports, and bridges.",
+  },
+};
+
+const heroInstall: Record<Viewer, { command: string; footnote: string }> = {
+  human: {
+    command: "bun add -g @openscout/scout",
+    footnote: "Local-first. Runs on your machine. Mac and iPhone apps optional.",
+  },
+  agent: {
+    command: "bun add @openscout/runtime",
+    footnote: "Or attach as a CLI peer: scout watch --as myagent",
+  },
+};
+
+const DOC_STRIP_SECTIONS = [
+  { id: "mesh", num: "§1", label: "Topology" },
+  { id: "capabilities", num: "§2", label: "Records" },
+  { id: "surfaces", num: "§3", label: "Reference Implementation" },
+  { id: "get-started", num: "§4", label: "Discovery" },
+] as const;
+
+type DocStripSectionId = (typeof DOC_STRIP_SECTIONS)[number]["id"];
+
 export default function Home() {
   const scrollRef = useScrollReveal<HTMLElement>("general");
+  const [viewer, setViewer] = useState<Viewer>("human");
+  const docStripSentinelRef = useRef<HTMLDivElement | null>(null);
+  const [docStripStuck, setDocStripStuck] = useState(false);
+  const [activeSection, setActiveSection] = useState<DocStripSectionId | null>(null);
+
+  // IntersectionObserver fallback for sticky-stuck state (works in all
+  // modern browsers, not just Chromium with animation-timeline). The sentinel
+  // sits just above the strip's sticky offset (top: 52px under the operator
+  // console). When it scrolls out of the top of the viewport, the strip is
+  // pinned and we toggle a class to drive the collapsed-meta + shadow look.
+  useEffect(() => {
+    const sentinel = docStripSentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // boundingClientRect.top <= 0 means we've scrolled past the sentinel
+        // (i.e. strip is now stuck). intersectionRatio === 0 alone fires both
+        // when the sentinel is above and below the viewport, so guard with the
+        // y-position check.
+        const scrolledPast =
+          !entry.isIntersecting && entry.boundingClientRect.top <= 0;
+        setDocStripStuck(scrolledPast);
+      },
+      { threshold: [0, 1], rootMargin: "-52px 0px 0px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
+  // Scroll-spy: highlight the §-chip whose section is currently in view.
+  // We bias the active band downward so a section becomes "active" when its
+  // top edge clears the sticky strip (52 + ~64 strip = ~120px from top).
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const targets = DOC_STRIP_SECTIONS.map(({ id }) =>
+      document.getElementById(id),
+    ).filter((el): el is HTMLElement => el !== null);
+    if (targets.length === 0) return;
+
+    const visible = new Map<string, number>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            visible.set(entry.target.id, entry.intersectionRatio);
+          } else {
+            visible.delete(entry.target.id);
+          }
+        }
+        if (visible.size === 0) {
+          setActiveSection(null);
+          return;
+        }
+        // Pick the section with the largest visible ratio; ties go to the
+        // earliest one in document order so we don't flicker between two
+        // equally-visible siblings.
+        let topId: DocStripSectionId | null = null;
+        let topRatio = -1;
+        for (const { id } of DOC_STRIP_SECTIONS) {
+          const ratio = visible.get(id);
+          if (ratio !== undefined && ratio > topRatio) {
+            topRatio = ratio;
+            topId = id;
+          }
+        }
+        setActiveSection(topId);
+      },
+      {
+        // Shrink the viewport's top by the sticky chrome (operator console
+        // 52 + doc-strip ~72) so a section "activates" once its heading clears
+        // the strip, and shrink the bottom so a tiny sliver at the bottom of
+        // the viewport doesn't claim active state.
+        rootMargin: "-124px 0px -55% 0px",
+        threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
+      },
+    );
+    targets.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
 
   const copy = audienceContent["general"];
   const meshPrinciples = problemContent.cards;
   const capabilities = generalCapabilities;
   const surfaceGallery = surfaceGalleryByAudience["general"];
   const getStartedCommands = getStartedCommandsByAudience["general"];
+  const headline = heroHeadlines[viewer];
+  const install = heroInstall[viewer];
   const onNavigationClick = (label: string, destination: string, location: string) => () => {
     trackNavigationClick({
       destination,
@@ -706,46 +826,33 @@ export default function Home() {
       {/* ── Agent view (replaces everything) ── */}
         <>
           <main ref={scrollRef} className="relative z-10">
-            {/* ── Hero (RFC front matter + live broker stream) ── */}
+            {/* ── Hero (full-width headline, full-width console below) ── */}
             <section className="overflow-hidden pb-10 pt-12 md:pt-16">
-              <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] lg:items-start lg:gap-16">
-                <div className="hero-animate" style={{ animationDelay: "0s" }}>
-                  <div className="rfc-hero__bar">
-                    <span>Internet-Draft</span>
-                    <span className="rfc-hero__bar-sep">·</span>
-                    <span>draft-scout-Ø.1</span>
-                    <span className="rfc-hero__bar-sep">·</span>
-                    <span>experimental</span>
-                    <span className="rfc-hero__bar-sep">·</span>
-                    <span>apr 2026</span>
-                  </div>
-
-                  <h1 className="rfc-hero__title">
-                    OpenScout: A Local Broker Protocol for Inter-Agent Messaging
+              <div className="mx-auto max-w-6xl px-6">
+                <div className="hero-animate rfc-hero__story" style={{ animationDelay: "0s" }}>
+                  <h1 className="rfc-hero__title rfc-hero__title--full">
+                    <span className="rfc-hero__title-line">{headline.top}</span>
+                    <span className="rfc-hero__title-line">{headline.bottom}</span>
                   </h1>
 
-                  <p className="rfc-hero__authors">
-                    A. Tchoupani &middot; OpenScout Working Group &middot; expires October 2026
-                  </p>
+                  <p className="rfc-hero__abstract rfc-hero__abstract--full">{headline.sub}</p>
 
-                  <p className="rfc-hero__abstract">
-                    <span className="rfc-hero__abstract-label">Abstract.</span>
-                    This document specifies OpenScout/Ø.1, a local-first message broker
-                    for AI agents. Agents register as addressable peers, exchange typed
-                    records (
-                    <span className="rfc-hero__records-inline">Message</span>,{" "}
-                    <span className="rfc-hero__records-inline">Invocation</span>,{" "}
-                    <span className="rfc-hero__records-inline">Flight</span>,{" "}
-                    <span className="rfc-hero__records-inline">Delivery</span>,{" "}
-                    <span className="rfc-hero__records-inline">Binding</span>
-                    ), and remain reachable across process restarts and bridge transports.
-                  </p>
-
-                  <RfcInstall command={copy.heroCommand} />
+                  <div className="rfc-hero__meta-row">
+                    <p className="rfc-hero__authors">
+                      A. Tchoupani &middot; OpenScout Working Group &middot; expires October 2026
+                    </p>
+                    <div className="rfc-hero__install-cluster">
+                      <RfcInstall command={install.command} />
+                      <span className="rfc-hero__install-foot">{install.footnote}</span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="hero-animate" style={{ animationDelay: "0.12s" }}>
-                  <BrokerStreamDemo />
+                <div
+                  className="hero-animate rfc-hero__console"
+                  style={{ animationDelay: "0.12s" }}
+                >
+                  <ScoutConsole audience={viewer} />
                 </div>
               </div>
 
@@ -764,21 +871,47 @@ export default function Home() {
               />
             </section>
 
-            {/* ── TOC strip ── */}
-            <nav className="rfc-toc-strip" aria-label="Document sections">
-              <a href="#mesh" onClick={onNavigationClick("§1 Topology", "#mesh", "rfc_toc")}>
-                <span className="rfc-hero__toc-num">§1</span>Topology
-              </a>
-              <a href="#capabilities" onClick={onNavigationClick("§2 Records", "#capabilities", "rfc_toc")}>
-                <span className="rfc-hero__toc-num">§2</span>Records
-              </a>
-              <a href="#surfaces" onClick={onNavigationClick("§3 Reference Implementation", "#surfaces", "rfc_toc")}>
-                <span className="rfc-hero__toc-num">§3</span>Reference Implementation
-              </a>
-              <a href="#get-started" onClick={onNavigationClick("§4 Discovery", "#get-started", "rfc_toc")}>
-                <span className="rfc-hero__toc-num">§4</span>Discovery
-              </a>
-            </nav>
+            {/* ── Document strip: meta + §1-4 TOC, sticky on scroll ── */}
+            {/* Sentinel sits one pixel above the strip's resting position so
+                an IntersectionObserver can flip is-stuck on all browsers,
+                not just Chromium with animation-timeline. */}
+            <div ref={docStripSentinelRef} aria-hidden className="rfc-doc-strip__sentinel" />
+            <div
+              className={`rfc-doc-strip${docStripStuck ? " is-stuck" : ""}`}
+              data-stuck={docStripStuck ? "true" : "false"}
+            >
+              <div className="mx-auto max-w-6xl px-6">
+                <div className="rfc-doc-strip__meta">
+                  <div className="rfc-doc-strip__meta-text">
+                    <span>Internet-Draft</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>draft-scout-Ø.1</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>experimental</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>apr 2026</span>
+                  </div>
+                  <ViewerToggle viewer={viewer} onChange={setViewer} />
+                </div>
+                <nav className="rfc-doc-strip__toc" aria-label="Document sections">
+                  {DOC_STRIP_SECTIONS.map(({ id, num, label }) => {
+                    const isActive = activeSection === id;
+                    return (
+                      <a
+                        key={id}
+                        href={`#${id}`}
+                        onClick={onNavigationClick(`${num} ${label}`, `#${id}`, "rfc_toc")}
+                        className={isActive ? "is-active" : undefined}
+                        aria-current={isActive ? "location" : undefined}
+                      >
+                        <span className="rfc-hero__toc-num">{num}</span>
+                        <span className="rfc-doc-strip__toc-label">{label}</span>
+                      </a>
+                    );
+                  })}
+                </nav>
+              </div>
+            </div>
 
             {/* ── §1 Topology ── */}
             <section id="mesh" className="rfc-section">
@@ -798,10 +931,7 @@ export default function Home() {
                   </div>
 
                   <div className="reveal lg:mt-9">
-                    <ArcDiagramEmbed
-                      src="communication-flow"
-                      aspectRatio="3/1"
-                    />
+                    <MeshFigureSvg />
                   </div>
                 </div>
 
