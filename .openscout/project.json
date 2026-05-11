@@ -24,7 +24,7 @@
   "imports": {
     "claude": {
       "sourcePath": "/Users/arach/.claude/projects/-Users-arach-dev-openscout",
-      "importedAt": 1775607126,
+      "importedAt": 1775613018,
       "slug": "-Users-arach-dev-openscout",
       "memoryPath": "/Users/arach/.claude/projects/-Users-arach-dev-openscout/memory/MEMORY.md",
       "recentDirectories": [
@@ -41,10 +41,11 @@
       "gitBranches": [
         "codex/dispatch-import",
         "codex/scout-snapshot-2026-04-03",
+        "codex/slack-for-agents",
         "feat/bridge-hono-trpc",
         "main"
       ],
-      "sessionCount": 40
+      "sessionCount": 41
     }
   }
 }
