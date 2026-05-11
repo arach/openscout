@@ -58,14 +58,13 @@ Implemented now:
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
 - Web operator attention reads active broker unblock requests.
-- Claude permission hook requests are installed for managed Claude sessions and
-  bridged from `permission-requests` files into broker-owned unblock requests
-  while preserving host-specific decision writes.
+- Managed Claude sessions no longer install a project-wide `PreToolUse` permission
+  hook. Legacy Scout hook entries can be removed by rerunning `scout setup`.
 
 Not done yet:
 
 - Answering `question` items from the iOS Inbox.
-- Host-level capture for Codex and MCP permission prompts.
+- Host-level capture for Claude, Codex, and MCP permission prompts.
 - Desktop/web notification sinks for operator attention.
 - Cross-device read/dismiss/decision synchronization beyond the current inbox item refresh. Current non-approval dismiss is intentionally local-only.
 
@@ -109,8 +108,8 @@ The session inbox can continue projecting lightweight items, but durable host an
 2. Expand broker attention/unblock projection from collaboration records and flights.
 3. Expand host ingress for permission prompts:
    - Codex: surface host approval requests into Scout as unblock records.
-   - Claude: keep permission hook file decisions host-compatible while using
-     durable broker unblock records for operator attention.
+   - Claude: use a host integration that forwards permission prompts without a
+     project-wide pre-tool gate.
    - MCP: document that server-side tools cannot see client-side approval prompts unless the host forwards them.
 4. Route all unblock records through a notification router:
    - `interrupt`: approval, question, host permission, failure.

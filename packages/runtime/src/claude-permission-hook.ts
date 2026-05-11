@@ -243,25 +243,16 @@ export function inspectClaudePermissionHook(
 ): ClaudePermissionHookStatus {
   const settingsPath = join(resolve(currentDirectory), ".claude", "settings.local.json");
   const { hookPath, command } = resolveClaudePermissionHookCommand(currentDirectory, env);
-  if (!existsSync(hookPath)) {
-    return {
-      state: "unavailable",
-      settingsPath,
-      hookPath,
-      command,
-      detail: `Hook executable not found at ${hookPath}.`,
-    };
-  }
 
   const settings = readJsonObject(settingsPath);
   const status = hasScoutHook(settings, command);
-  if (status === "exact") {
+  if (status === "none") {
     return {
-      state: "installed",
+      state: "missing",
       settingsPath,
       hookPath,
       command,
-      detail: "Scout Claude permission hook is installed.",
+      detail: "Scout Claude permission hook is not installed for this project.",
     };
   }
   if (status === "stale") {
@@ -273,12 +264,22 @@ export function inspectClaudePermissionHook(
       detail: "Scout Claude permission hook is present but points at an older command.",
     };
   }
+  if (!existsSync(hookPath)) {
+    return {
+      state: "unavailable",
+      settingsPath,
+      hookPath,
+      command,
+      detail: `Hook executable not found at ${hookPath}.`,
+    };
+  }
+
   return {
-    state: "missing",
+    state: "installed",
     settingsPath,
     hookPath,
     command,
-    detail: "Scout Claude permission hook is not installed for this project.",
+    detail: "Scout Claude permission hook is installed.",
   };
 }
 
@@ -332,6 +333,66 @@ export function installClaudePermissionHook(
   };
 
   mkdirSync(dirname(settingsPath), { recursive: true });
+  writeFileSync(settingsPath, `${JSON.stringify(nextSettings, null, 2)}\n`, "utf8");
+  return inspectClaudePermissionHook(currentDirectory, env);
+}
+
+export function removeClaudePermissionHook(
+  currentDirectory: string,
+  env: NodeJS.ProcessEnv = process.env,
+): ClaudePermissionHookStatus {
+  const settingsPath = join(resolve(currentDirectory), ".claude", "settings.local.json");
+  if (!existsSync(settingsPath)) {
+    return inspectClaudePermissionHook(currentDirectory, env);
+  }
+
+  const settings = readJsonObject(settingsPath);
+  const hooks = settings.hooks && typeof settings.hooks === "object" && !Array.isArray(settings.hooks)
+    ? settings.hooks as Record<string, unknown>
+    : null;
+  if (!hooks) {
+    return inspectClaudePermissionHook(currentDirectory, env);
+  }
+
+  let removedScoutHook = false;
+  const existingPreToolUse = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
+  const nextPreToolUse = existingPreToolUse
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return entry;
+      }
+      const record = entry as Record<string, unknown>;
+      const entryHooks = Array.isArray(record.hooks) ? record.hooks : [];
+      const nextEntryHooks = entryHooks.filter((hook) => !commandFromHook(hook)?.includes(HOOK_FILENAME));
+      if (nextEntryHooks.length !== entryHooks.length) {
+        removedScoutHook = true;
+      }
+      return {
+        ...record,
+        hooks: nextEntryHooks,
+      };
+    })
+    .filter((entry) =>
+      !(entry && typeof entry === "object" && !Array.isArray(entry) && Array.isArray((entry as Record<string, unknown>).hooks) && ((entry as Record<string, unknown>).hooks as unknown[]).length === 0));
+
+  if (!removedScoutHook) {
+    return inspectClaudePermissionHook(currentDirectory, env);
+  }
+
+  const nextHooks = { ...hooks };
+  if (nextPreToolUse.length > 0) {
+    nextHooks.PreToolUse = nextPreToolUse;
+  } else {
+    delete nextHooks.PreToolUse;
+  }
+
+  const nextSettings = { ...settings };
+  if (Object.keys(nextHooks).length > 0) {
+    nextSettings.hooks = nextHooks;
+  } else {
+    delete nextSettings.hooks;
+  }
+
   writeFileSync(settingsPath, `${JSON.stringify(nextSettings, null, 2)}\n`, "utf8");
   return inspectClaudePermissionHook(currentDirectory, env);
 }
