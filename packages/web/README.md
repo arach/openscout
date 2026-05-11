@@ -54,14 +54,25 @@ This builds:
 Run the standalone web server and the Vite client together:
 
 ```bash
-npm --prefix packages/web run dev
+bun --cwd packages/web dev
 ```
+
+From extra git worktrees, `bun dev` automatically picks an isolated port set so it does not collide with the main checkout. You can still override any port explicitly with `--port`, `--vite-port`, and `--pairing-port`.
 
 If you need to run them separately:
 
 ```bash
-npm --prefix packages/web run dev:client
-OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 npm --prefix packages/web run dev:server
+bun --cwd packages/web dev:client
+OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 bun --cwd packages/web dev:server
 ```
 
-Vite serves on `http://127.0.0.1:5180`, and the Bun server proxies non-API routes there while continuing to serve `/api` locally on port `3200`.
+### Dev routing
+
+The dev boundary is route-based:
+
+- `/api/*` and `/health` stay on the Bun server
+- `/terminal-relay` is the terminal/takeover WebSocket
+- `/__vite_hmr` is the Vite hot-reload WebSocket in dev
+- everything else is client traffic
+
+That means Bun is the public app server in dev, while Vite only serves client assets and HMR. When you open Vite directly, it proxies `/api/*`, `/health`, and `/terminal-relay` back to Bun so both entrypoints stay usable.

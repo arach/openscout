@@ -29,6 +29,7 @@ type UpstreamPayload = string | Buffer | ArrayBuffer | Uint8Array;
 export interface RelayWSData {
   upstream: WebSocket | null;
   pending: UpstreamPayload[];
+  upstreamUrl: string | null;
 }
 
 function flushPending(ws: RelayProxySocket) {
@@ -64,10 +65,18 @@ function forwardToClient(
   ws.send(data);
 }
 
-export function createRelayWebSocketProxy(targetUrl: string) {
+export function createRelayWebSocketProxy() {
   return {
     open(ws: RelayProxySocket) {
       ws.data.pending = [];
+      const targetUrl = ws.data.upstreamUrl;
+      if (!targetUrl) {
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close(1011, "Missing relay upstream");
+        }
+        return;
+      }
+
       const upstream = new WebSocket(targetUrl);
       upstream.binaryType = "arraybuffer";
       ws.data.upstream = upstream;
@@ -115,6 +124,7 @@ export function createRelayWebSocketProxy(targetUrl: string) {
       const upstream = ws.data.upstream;
       ws.data.upstream = null;
       ws.data.pending.length = 0;
+      ws.data.upstreamUrl = null;
       if (!upstream) {
         return;
       }

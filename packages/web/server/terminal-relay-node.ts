@@ -11,12 +11,10 @@ import {
   detachSession,
   destroy,
   send,
-} from "../../../../hudson/packages/hudson-relay/src/relay/session";
-import type { Session } from "../../../../hudson/packages/hudson-relay/src/relay/session";
-import type {
+  type Session,
   ClientMessage,
   RelaySocket,
-} from "../../../../hudson/packages/hudson-relay/src/relay/types";
+} from "./terminal-relay-session.ts";
 import type { WebSocket as NodeWebSocket } from "ws";
 
 const require = createRequire(import.meta.url);

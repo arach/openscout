@@ -405,8 +405,8 @@ export async function createOpenScoutWebServer(
     const hasLocalConfig = localConfigExists();
     const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);
     const configuredContextRoot = settings?.discovery.contextRoot ?? null;
-    const discoveryStart = configuredContextRoot ?? currentDirectory;
-    const projectRoot = await findNearestProjectRoot(discoveryStart).catch(() => null);
+    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(() => null)
+      ?? await findNearestProjectRoot(configuredContextRoot ?? "").catch(() => null);
     const hasProjectConfig = projectRoot !== null;
     const userName = loadUserConfig().name?.trim() ?? "";
     return c.json({

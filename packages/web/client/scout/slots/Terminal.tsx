@@ -1,9 +1,11 @@
 import { useTerminalRelay, TerminalRelay } from "@hudson/sdk";
 
+const TERMINAL_RELAY_PATH = "/ws/terminal";
+
 function relayUrl(): string {
-  if (typeof window === "undefined") return "ws://localhost:3200";
+  if (typeof window === "undefined") return `ws://localhost:3200${TERMINAL_RELAY_PATH}`;
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}`;
+  return `${proto}//${window.location.host}${TERMINAL_RELAY_PATH}`;
 }
 
 export function ScoutTerminal() {

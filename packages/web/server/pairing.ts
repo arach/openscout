@@ -211,8 +211,14 @@ type ScoutPairingBridgeClient = {
 const SCOUT_PAIRING_BRIDGE_CONNECT_TIMEOUT_MS = 1_500;
 const SCOUT_PAIRING_BRIDGE_REQUEST_TIMEOUT_MS = 2_500;
 
+function resolveScoutPairingHomeDirectory(): string {
+  const configured = process.env.OPENSCOUT_PAIRING_HOME?.trim()
+    || process.env.SCOUT_PAIRING_HOME?.trim();
+  return configured || join(homedir(), SCOUT_PAIRING_HOME_DIRECTORY);
+}
+
 export function resolveScoutPairingPaths(): ScoutPairingPaths {
-  const rootDir = join(homedir(), SCOUT_PAIRING_HOME_DIRECTORY);
+  const rootDir = resolveScoutPairingHomeDirectory();
   return {
     rootDir,
     configPath: join(rootDir, SCOUT_PAIRING_CONFIG_FILE),
@@ -420,6 +426,12 @@ function saveScoutPairingConfig(config: ScoutPairingConfig): void {
 
 function resolveScoutPairingConfig(): ScoutPairingResolvedConfig {
   const config = loadScoutPairingConfig();
+  const portFromEnv = Number.parseInt(
+    process.env.OPENSCOUT_PAIRING_PORT?.trim()
+      || process.env.SCOUT_PAIRING_PORT?.trim()
+      || "",
+    10,
+  );
   const portFromLocalConfig = loadLocalConfig().ports?.pairing;
   const portFromPairingFile = Number.isFinite(config.port) && (config.port ?? 0) > 0
     ? Number(config.port)
@@ -429,7 +441,9 @@ function resolveScoutPairingConfig(): ScoutPairingResolvedConfig {
       ? config.relay.trim()
       : null,
     secure: config.secure !== false,
-    port: portFromLocalConfig ?? portFromPairingFile ?? SCOUT_PAIRING_DEFAULT_PORT,
+    port: (Number.isFinite(portFromEnv) && portFromEnv > 0)
+      ? portFromEnv
+      : portFromLocalConfig ?? portFromPairingFile ?? SCOUT_PAIRING_DEFAULT_PORT,
     workspaceRoot: typeof config.workspace?.root === "string" && config.workspace.root.trim().length > 0
       ? config.workspace.root.trim()
       : null,
