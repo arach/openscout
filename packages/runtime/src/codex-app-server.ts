@@ -17,6 +17,7 @@ import {
 import type { ScoutReplyContext } from "@openscout/protocol";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 import type { CodexApprovalPolicy, CodexSandboxMode } from "./permission-policy.js";
+import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 
 export {
   resolveCodexExecutableCandidates,
@@ -356,7 +357,7 @@ function waitForRequesterResult<T>(
   let timer: NodeJS.Timeout | null = null;
   const timeout = new Promise<T>((_resolve, reject) => {
     timer = setTimeout(() => {
-      reject(new Error(`Timed out after ${effectiveTimeoutMs}ms waiting for ${label}.`));
+      reject(new RequesterWaitTimeoutError({ label, timeoutMs: effectiveTimeoutMs }));
     }, effectiveTimeoutMs);
   });
 
@@ -1942,7 +1943,10 @@ class CodexAppServerSession {
     if (effectiveTimeoutMs !== null) {
       watcher.timer = setTimeout(() => {
         this.removeTurnWatcher(turn, watcher);
-        reject(new Error(`Timed out after ${effectiveTimeoutMs}ms waiting for ${this.options.agentName}.`));
+        reject(new RequesterWaitTimeoutError({
+          label: this.options.agentName,
+          timeoutMs: effectiveTimeoutMs,
+        }));
       }, effectiveTimeoutMs);
     }
     turn.watchers.push(watcher);
