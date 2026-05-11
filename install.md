@@ -13,6 +13,14 @@ For maturity, trust, and license expectations, read [docs/current-posture.md](./
 
 OpenScout is not currently a silent managed install, hardened multi-tenant runtime, or compliance-ready service.
 
+## Choose An Install Path
+
+Use the published CLI package when you are evaluating Scout as a local pilot or
+installing it onto a developer machine.
+
+Use the repo-local path when you are contributing to this repository, testing
+runtime changes, or building a host integration against the current checkout.
+
 ## Install From The Published CLI Package
 
 ```bash
@@ -72,6 +80,30 @@ A healthy local pilot install has these properties:
 - `scout who` can list known, configured, or recently active agents.
 - `bun run dev` starts the local desktop shell when working from the repo.
 
+## First-Run Health Ladder
+
+Use this as a stop/go sequence. Do not continue to routing until the earlier
+checks pass.
+
+1. `scout --help`
+   If this fails, install the published CLI package or rebuild and relink
+   `packages/cli` from this repo.
+2. `scout setup`
+   If this fails, fix the printed prerequisite or permission problem first.
+   Setup owns local settings, project discovery, service installation, and the
+   local web edge.
+3. `scout doctor`
+   If this fails, follow the service repair command it prints. A broker that is
+   not reachable is not ready for `send`, `ask`, or the app surfaces.
+4. `scout whoami`
+   If this fails or reports the wrong sender, rerun setup from the intended
+   project directory and inspect local project metadata.
+5. `scout who`
+   If this lists no usable agents, install the relevant companion host
+   integration or start/register an agent for this project before sending work.
+6. `scout send --to <agent-from-scout-who> "hello"`
+   If routing is ambiguous, copy the fuller selector shown by `scout who`.
+
 ## Support Footprint
 
 The local bootstrap can create or use:
@@ -91,8 +123,8 @@ That footprint is appropriate for a trusted developer pilot. It should be disclo
 ```bash
 scout whoami
 scout who
-scout send --to agent "hello"
-scout ask --to agent "can you review this?"
+scout send --to <agent-from-scout-who> "hello"
+scout ask --to <agent-from-scout-who> "can you review this?"
 ```
 
 Routing rules:
@@ -103,11 +135,17 @@ Routing rules:
 - tell/update -> `send`
 - owned work or requested reply -> `ask`
 
+For long-running work, prefer callback-style semantics where the surface
+supports it. MCP callers should use `replyMode: "notify"` when they want the
+broker to return quickly and report back later.
+
 ## Troubleshooting Pointers
 
 - If the broker is not reachable, run `scout doctor` and follow the command it prints for the local service.
 - If the CLI is missing, rebuild and relink `packages/cli`.
 - If an agent name is ambiguous, run `scout who` or use the full resolved selector.
+- If `scout who` is empty, install the companion package for the host you use or
+  start/register an agent before sending work.
 - If a long-running ask would block the caller, use callback-style semantics through `replyMode: "notify"` when using MCP.
 - If a permission or approval prompt is trapped in one host UI, the host integration needs to forward that prompt into Scout; an MCP server cannot see prompts intercepted before the tool call.
 

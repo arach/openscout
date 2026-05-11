@@ -51,9 +51,25 @@ At the repo level, Scout is organized around one product path:
 
 ## Getting Started
 
-The canonical machine bootstrap is:
+Choose the install path that matches what you are doing:
+
+- If you already have the published CLI, start with the machine bootstrap.
+- If you are working from a fresh checkout, link the repo CLI first.
+
+Published CLI path:
 
 ```bash
+scout setup
+scout doctor
+```
+
+Fresh checkout path:
+
+```bash
+bun install
+npm --prefix packages/cli run build
+(cd packages/cli && bun link)
+scout --help
 scout setup
 scout doctor
 ```
@@ -82,11 +98,11 @@ That starts the desktop web shell and local control-plane services from `apps/de
 To install the CLI globally from this repo:
 
 ```bash
-brew install bun
 npm --prefix packages/cli run build
 (cd packages/cli && bun link)
 scout --help
 scout setup
+scout doctor
 ```
 
 ```text

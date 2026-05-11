@@ -47,6 +47,8 @@ Host-level unblock attention still needs explicit ingress:
 Implemented now:
 
 - Runtime session attention projection exists in `packages/runtime/src/session-attention.ts`.
+- Protocol and runtime support broker-owned durable `unblock_request` records
+  and unblock request events.
 - Mobile bridge inbox now uses session attention instead of approvals only.
 - Bridge websocket now emits `operator:notify` for any projected session attention item.
 - APNs alert routing now sends inbox alerts for any projected item.
@@ -55,21 +57,38 @@ Implemented now:
 - Non-approval attention items provide `Open Session` and local `Dismiss`, following the no-dead-end UI rule in `docs/eng/no-dead-end-ui.md`.
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
-- Claude permission hook requests are installed for managed Claude sessions and projected into web operator attention through `permission-requests`.
+- Web operator attention reads active broker unblock requests.
+- Claude permission hook requests are installed for managed Claude sessions and
+  bridged from `permission-requests` files into broker-owned unblock requests
+  while preserving host-specific decision writes.
 
 Not done yet:
 
 - Answering `question` items from the iOS Inbox.
-- A broker-owned durable `unblock_request` record.
 - Host-level capture for Codex and MCP permission prompts.
 - Desktop/web notification sinks for operator attention.
 - Cross-device read/dismiss/decision synchronization beyond the current inbox item refresh. Current non-approval dismiss is intentionally local-only.
 
-## Proposed Model
+## Practical Recovery Guidance
 
-Add a broker-owned unblock record for anything that needs a human action and may outlive a single websocket frame.
+When an operator prompt appears stuck, first classify where the prompt lives:
 
-Fields:
+- Scout-owned session question or action approval: answer or decide it through
+  the Scout surface that rendered it.
+- Broker unblock request: use the rendered action, or inspect the request by id
+  before dismissing it.
+- Host-side approval prompt: open the host UI or rely on a host integration that
+  forwards the prompt into Scout. An MCP server cannot observe a prompt the host
+  intercepted before the tool call reached the server.
+- Long-running agent work: mark the work item or flight waiting with the human
+  or dependency as next owner instead of leaving the caller blocked.
+
+## Durable Unblock Model
+
+Scout uses broker-owned unblock records for human actions that may outlive a
+single websocket frame.
+
+Fields include:
 
 - `id`
 - `source`: `session`, `broker`, `host`, or `system`
@@ -87,10 +106,11 @@ The session inbox can continue projecting lightweight items, but durable host an
 ## Implementation Path
 
 1. Keep session attention as the fast path for first-party pairing events.
-2. Add a broker attention/unblock projection from collaboration records and flights.
-3. Add host ingress for permission prompts:
+2. Expand broker attention/unblock projection from collaboration records and flights.
+3. Expand host ingress for permission prompts:
    - Codex: surface host approval requests into Scout as unblock records.
-   - Claude: move permission hook files/events from the current web projection into a durable broker unblock record.
+   - Claude: keep permission hook file decisions host-compatible while using
+     durable broker unblock records for operator attention.
    - MCP: document that server-side tools cannot see client-side approval prompts unless the host forwards them.
 4. Route all unblock records through a notification router:
    - `interrupt`: approval, question, host permission, failure.

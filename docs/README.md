@@ -7,21 +7,18 @@ This folder is the working documentation set for OpenScout. Use it as a map afte
 If you want the shortest path to understanding the project:
 
 1. [`../README.md`](../README.md) for what OpenScout is and how to run it locally
-2. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
-3. [`current-posture.md`](./current-posture.md) for maturity, trust, install footprint, and license-status boundaries
-4. [`architecture.md`](./architecture.md) for the system-level control-plane model
-5. [`data-ownership.md`](./data-ownership.md) for what Scout owns, observes, and intentionally does not import
-6. [`agent-integration-contract.md`](./agent-integration-contract.md) for the minimum contract expected from agents and adapters
-7. [`scout-comms.md`](./scout-comms.md) for client-facing comms workflows, records, routing rules, and contact-line grammar
-8. [`integrations.md`](./integrations.md) for the current host integration map and sibling repository policy
-9. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
-10. [`ranger.md`](./ranger.md) for the in-app control-plane assistant contract
-11. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
-12. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
-13. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
-14. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
-15. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
-16. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
+2. [`../install.md`](../install.md) for choosing published CLI vs repo-local setup
+3. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
+4. [`current-posture.md`](./current-posture.md) for maturity, trust, install footprint, and license-status boundaries
+5. [`architecture.md`](./architecture.md) for the system-level control-plane model
+
+After that, choose the role-specific next read:
+
+- Agent or adapter integration: [`agent-integration-contract.md`](./agent-integration-contract.md), then [`scout-comms.md`](./scout-comms.md)
+- Routing and identity: [`agent-identity.md`](./agent-identity.md), then [`scout-agent-delegation.md`](./scout-agent-delegation.md)
+- Data model and ownership: [`data-ownership.md`](./data-ownership.md), then [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md)
+- Human/operator surfaces: [`ask-scout.md`](./ask-scout.md), then [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md)
+- Standards and terminology: [`glossary.md`](./glossary.md), then [`a2a-alignment.md`](./a2a-alignment.md)
 
 ## Current Orientation Docs
 

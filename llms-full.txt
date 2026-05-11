@@ -156,9 +156,25 @@ At the repo level, Scout is organized around one product path:
 
 ## Getting Started
 
-The canonical machine bootstrap is:
+Choose the install path that matches what you are doing:
+
+- If you already have the published CLI, start with the machine bootstrap.
+- If you are working from a fresh checkout, link the repo CLI first.
+
+Published CLI path:
 
 ```bash
+scout setup
+scout doctor
+```
+
+Fresh checkout path:
+
+```bash
+bun install
+npm --prefix packages/cli run build
+(cd packages/cli && bun link)
+scout --help
 scout setup
 scout doctor
 ```
@@ -187,11 +203,11 @@ That starts the desktop web shell and local control-plane services from `apps/de
 To install the CLI globally from this repo:
 
 ```bash
-brew install bun
 npm --prefix packages/cli run build
 (cd packages/cli && bun link)
 scout --help
 scout setup
+scout doctor
 ```
 
 ```text
@@ -248,6 +264,14 @@ For maturity, trust, and license expectations, read [docs/current-posture.md](./
 - A trusted local developer machine
 
 OpenScout is not currently a silent managed install, hardened multi-tenant runtime, or compliance-ready service.
+
+## Choose An Install Path
+
+Use the published CLI package when you are evaluating Scout as a local pilot or
+installing it onto a developer machine.
+
+Use the repo-local path when you are contributing to this repository, testing
+runtime changes, or building a host integration against the current checkout.
 
 ## Install From The Published CLI Package
 
@@ -308,6 +332,30 @@ A healthy local pilot install has these properties:
 - `scout who` can list known, configured, or recently active agents.
 - `bun run dev` starts the local desktop shell when working from the repo.
 
+## First-Run Health Ladder
+
+Use this as a stop/go sequence. Do not continue to routing until the earlier
+checks pass.
+
+1. `scout --help`
+   If this fails, install the published CLI package or rebuild and relink
+   `packages/cli` from this repo.
+2. `scout setup`
+   If this fails, fix the printed prerequisite or permission problem first.
+   Setup owns local settings, project discovery, service installation, and the
+   local web edge.
+3. `scout doctor`
+   If this fails, follow the service repair command it prints. A broker that is
+   not reachable is not ready for `send`, `ask`, or the app surfaces.
+4. `scout whoami`
+   If this fails or reports the wrong sender, rerun setup from the intended
+   project directory and inspect local project metadata.
+5. `scout who`
+   If this lists no usable agents, install the relevant companion host
+   integration or start/register an agent for this project before sending work.
+6. `scout send --to <agent-from-scout-who> "hello"`
+   If routing is ambiguous, copy the fuller selector shown by `scout who`.
+
 ## Support Footprint
 
 The local bootstrap can create or use:
@@ -327,8 +375,8 @@ That footprint is appropriate for a trusted developer pilot. It should be disclo
 ```bash
 scout whoami
 scout who
-scout send --to agent "hello"
-scout ask --to agent "can you review this?"
+scout send --to <agent-from-scout-who> "hello"
+scout ask --to <agent-from-scout-who> "can you review this?"
 ```
 
 Routing rules:
@@ -339,11 +387,17 @@ Routing rules:
 - tell/update -> `send`
 - owned work or requested reply -> `ask`
 
+For long-running work, prefer callback-style semantics where the surface
+supports it. MCP callers should use `replyMode: "notify"` when they want the
+broker to return quickly and report back later.
+
 ## Troubleshooting Pointers
 
 - If the broker is not reachable, run `scout doctor` and follow the command it prints for the local service.
 - If the CLI is missing, rebuild and relink `packages/cli`.
 - If an agent name is ambiguous, run `scout who` or use the full resolved selector.
+- If `scout who` is empty, install the companion package for the host you use or
+  start/register an agent before sending work.
 - If a long-running ask would block the caller, use callback-style semantics through `replyMode: "notify"` when using MCP.
 - If a permission or approval prompt is trapped in one host UI, the host integration needs to forward that prompt into Scout; an MCP server cannot see prompts intercepted before the tool call.
 
@@ -372,21 +426,18 @@ This folder is the working documentation set for OpenScout. Use it as a map afte
 If you want the shortest path to understanding the project:
 
 1. [`../README.md`](../README.md) for what OpenScout is and how to run it locally
-2. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
-3. [`current-posture.md`](./current-posture.md) for maturity, trust, install footprint, and license-status boundaries
-4. [`architecture.md`](./architecture.md) for the system-level control-plane model
-5. [`data-ownership.md`](./data-ownership.md) for what Scout owns, observes, and intentionally does not import
-6. [`agent-integration-contract.md`](./agent-integration-contract.md) for the minimum contract expected from agents and adapters
-7. [`scout-comms.md`](./scout-comms.md) for client-facing comms workflows, records, routing rules, and contact-line grammar
-8. [`integrations.md`](./integrations.md) for the current host integration map and sibling repository policy
-9. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
-10. [`ranger.md`](./ranger.md) for the in-app control-plane assistant contract
-11. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
-12. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
-13. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
-14. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
-15. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
-16. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
+2. [`../install.md`](../install.md) for choosing published CLI vs repo-local setup
+3. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
+4. [`current-posture.md`](./current-posture.md) for maturity, trust, install footprint, and license-status boundaries
+5. [`architecture.md`](./architecture.md) for the system-level control-plane model
+
+After that, choose the role-specific next read:
+
+- Agent or adapter integration: [`agent-integration-contract.md`](./agent-integration-contract.md), then [`scout-comms.md`](./scout-comms.md)
+- Routing and identity: [`agent-identity.md`](./agent-identity.md), then [`scout-agent-delegation.md`](./scout-agent-delegation.md)
+- Data model and ownership: [`data-ownership.md`](./data-ownership.md), then [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md)
+- Human/operator surfaces: [`ask-scout.md`](./ask-scout.md), then [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md)
+- Standards and terminology: [`glossary.md`](./glossary.md), then [`a2a-alignment.md`](./a2a-alignment.md)
 
 ## Current Orientation Docs
 
@@ -468,7 +519,9 @@ If you only read three more pages after this one, read [`current-posture.md`](./
 
 ## 1. Bootstrap The Local Control Plane
 
-Run the machine setup and health check:
+Run the machine setup and health check. If `scout` is not on your PATH yet,
+use the published or repo-local install path in [`../install.md`](../install.md)
+first.
 
 ```bash
 scout setup
@@ -488,7 +541,7 @@ bun install
 bun run dev
 ```
 
-That should bring up the desktop shell against the same local broker and runtime layer. The iOS app uses the same backing state, so it is useful when you want to check in, send a follow-up, or pick work back up without sitting at the desktop.
+That should bring up the desktop shell against the same local broker and runtime layer. In pilot setups where mobile pairing is configured, the iOS app uses the same backing state, so it is useful when you want to check in, send a follow-up, or pick work back up without sitting at the desktop.
 
 ## 2. See Who You Are And What Exists
 
@@ -507,7 +560,12 @@ know a name yet, start here instead of guessing.
 
 An agent name is the address you type to reach one agent. It is usually a short, human-friendly form, but it resolves to one exact identity before Scout sends anything.
 
-## 2b. Use One Routing Model Everywhere
+If `scout who` does not list a usable target, the broker may be healthy but no
+agent is ready for this project yet. Install the companion integration for your
+host from [`../install.md`](../install.md#companion-host-integrations), or
+start/register an agent before trying to route work.
+
+## 3. Use One Routing Model Everywhere
 
 The routing rules do not change by surface:
 
@@ -518,14 +576,15 @@ The routing rules do not change by surface:
 - owned work / requested reply -> `ask`
 - follow-up stays in the same DM or explicit channel
 
-## 3. Try The Two Main Paths
+## 4. Try The Two Main Paths
 
 When the workspace and one target are clear, use the direct command first. Do
-not run an orientation loop before every handoff.
+not run an orientation loop before every handoff. Copy a selector from
+`scout who` and use it as the explicit target.
 
 ```bash
-scout send --to agent "hello"
-scout ask --to agent "can you review this?"
+scout send --to <agent-from-scout-who> "hello"
+scout ask --to <agent-from-scout-who> "can you review this?"
 ```
 
 `send` is the message path. Use it for a durable note or reply in a
@@ -535,6 +594,9 @@ three terminals." It does not open a tracked flight.
 `ask` is the invocation path. Use it when you want Scout to track a request for
 work or a reply. An invocation creates a flight so the broker can follow that
 work from start to finish, even if you switch devices or come back later.
+
+For long-running MCP asks, use `replyMode: "notify"` when you want the caller
+to return quickly and receive the reply as a callback notification.
 
 Concrete handoff example:
 
@@ -698,8 +760,7 @@ The next maturity bar is not just more features. It is clarity and evidence:
 - explicit install and uninstall footprint
 - documented security/trust posture
 - stable agent integration contract
-- host-level permission/approval capture
-- broker-owned durable unblock requests
+- broader host-level permission/approval capture over broker-owned unblock requests
 - clear failure, retry, and notification semantics
 - a small compatibility test suite for agent/tool integrations
 
@@ -2370,6 +2431,8 @@ Host-level unblock attention still needs explicit ingress:
 Implemented now:
 
 - Runtime session attention projection exists in `packages/runtime/src/session-attention.ts`.
+- Protocol and runtime support broker-owned durable `unblock_request` records
+  and unblock request events.
 - Mobile bridge inbox now uses session attention instead of approvals only.
 - Bridge websocket now emits `operator:notify` for any projected session attention item.
 - APNs alert routing now sends inbox alerts for any projected item.
@@ -2378,21 +2441,38 @@ Implemented now:
 - Non-approval attention items provide `Open Session` and local `Dismiss`, following the no-dead-end UI rule in `docs/eng/no-dead-end-ui.md`.
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
-- Claude permission hook requests are installed for managed Claude sessions and projected into web operator attention through `permission-requests`.
+- Web operator attention reads active broker unblock requests.
+- Claude permission hook requests are installed for managed Claude sessions and
+  bridged from `permission-requests` files into broker-owned unblock requests
+  while preserving host-specific decision writes.
 
 Not done yet:
 
 - Answering `question` items from the iOS Inbox.
-- A broker-owned durable `unblock_request` record.
 - Host-level capture for Codex and MCP permission prompts.
 - Desktop/web notification sinks for operator attention.
 - Cross-device read/dismiss/decision synchronization beyond the current inbox item refresh. Current non-approval dismiss is intentionally local-only.
 
-## Proposed Model
+## Practical Recovery Guidance
 
-Add a broker-owned unblock record for anything that needs a human action and may outlive a single websocket frame.
+When an operator prompt appears stuck, first classify where the prompt lives:
 
-Fields:
+- Scout-owned session question or action approval: answer or decide it through
+  the Scout surface that rendered it.
+- Broker unblock request: use the rendered action, or inspect the request by id
+  before dismissing it.
+- Host-side approval prompt: open the host UI or rely on a host integration that
+  forwards the prompt into Scout. An MCP server cannot observe a prompt the host
+  intercepted before the tool call reached the server.
+- Long-running agent work: mark the work item or flight waiting with the human
+  or dependency as next owner instead of leaving the caller blocked.
+
+## Durable Unblock Model
+
+Scout uses broker-owned unblock records for human actions that may outlive a
+single websocket frame.
+
+Fields include:
 
 - `id`
 - `source`: `session`, `broker`, `host`, or `system`
@@ -2410,10 +2490,11 @@ The session inbox can continue projecting lightweight items, but durable host an
 ## Implementation Path
 
 1. Keep session attention as the fast path for first-party pairing events.
-2. Add a broker attention/unblock projection from collaboration records and flights.
-3. Add host ingress for permission prompts:
+2. Expand broker attention/unblock projection from collaboration records and flights.
+3. Expand host ingress for permission prompts:
    - Codex: surface host approval requests into Scout as unblock records.
-   - Claude: move permission hook files/events from the current web projection into a durable broker unblock record.
+   - Claude: keep permission hook file decisions host-compatible while using
+     durable broker unblock records for operator attention.
    - MCP: document that server-side tools cannot see client-side approval prompts unless the host forwards them.
 4. Route all unblock records through a notification router:
    - `interrupt`: approval, question, host permission, failure.
@@ -2591,6 +2672,21 @@ Purpose: dense context for coding agents working in this repo.
 | `question` | lightweight information-seeking collaboration record |
 | `work_item` | durable owned execution record |
 
+## First-Run Ladder
+
+| Step | Command | Not Ready Means |
+|---|---|---|
+| CLI installed | `scout --help` | install published CLI or build/link `packages/cli` |
+| machine bootstrap | `scout setup` | fix printed prerequisite or local permission issue |
+| broker health | `scout doctor` | broker/service is not ready for routing |
+| sender identity | `scout whoami` | wrong cwd or project metadata; rerun setup from target project |
+| target discovery | `scout who` | no usable agent/session yet; install host integration or start/register agent |
+| first message | `scout send --to <agent-from-scout-who> "hello"` | use a fuller selector if the short name is ambiguous |
+
+Do not use placeholder names like `agent` as literal targets. Copy a selector
+from `scout who`, or pass an exact `targetAgentId` / `targetLabel` through the
+MCP tools.
+
 ## Non-Negotiable Rules
 
 - Broker is the canonical writer for Scout-owned coordination records.
@@ -2605,7 +2701,11 @@ Purpose: dense context for coding agents working in this repo.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
 - Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
 - Track token/coordination cost as metadata when available; do not import full harness transcripts.
-- If blocked, record who or what owns the next move.
+- If blocked, record who or what owns the next move. For long-running MCP work,
+  prefer `replyMode: "notify"` over holding the caller open.
+- If a host-side approval or permission prompt is stuck, open the host UI or use
+  the host integration's forwarded unblock request. An MCP server cannot see a
+  prompt intercepted by the host before the tool call reaches Scout.
 - Mesh means reachability, not distributed consistency guarantees.
 - Do not claim enterprise readiness.
 

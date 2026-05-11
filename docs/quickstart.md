@@ -8,7 +8,9 @@ If you only read three more pages after this one, read [`current-posture.md`](./
 
 ## 1. Bootstrap The Local Control Plane
 
-Run the machine setup and health check:
+Run the machine setup and health check. If `scout` is not on your PATH yet,
+use the published or repo-local install path in [`../install.md`](../install.md)
+first.
 
 ```bash
 scout setup
@@ -28,7 +30,7 @@ bun install
 bun run dev
 ```
 
-That should bring up the desktop shell against the same local broker and runtime layer. The iOS app uses the same backing state, so it is useful when you want to check in, send a follow-up, or pick work back up without sitting at the desktop.
+That should bring up the desktop shell against the same local broker and runtime layer. In pilot setups where mobile pairing is configured, the iOS app uses the same backing state, so it is useful when you want to check in, send a follow-up, or pick work back up without sitting at the desktop.
 
 ## 2. See Who You Are And What Exists
 
@@ -47,7 +49,12 @@ know a name yet, start here instead of guessing.
 
 An agent name is the address you type to reach one agent. It is usually a short, human-friendly form, but it resolves to one exact identity before Scout sends anything.
 
-## 2b. Use One Routing Model Everywhere
+If `scout who` does not list a usable target, the broker may be healthy but no
+agent is ready for this project yet. Install the companion integration for your
+host from [`../install.md`](../install.md#companion-host-integrations), or
+start/register an agent before trying to route work.
+
+## 3. Use One Routing Model Everywhere
 
 The routing rules do not change by surface:
 
@@ -58,14 +65,15 @@ The routing rules do not change by surface:
 - owned work / requested reply -> `ask`
 - follow-up stays in the same DM or explicit channel
 
-## 3. Try The Two Main Paths
+## 4. Try The Two Main Paths
 
 When the workspace and one target are clear, use the direct command first. Do
-not run an orientation loop before every handoff.
+not run an orientation loop before every handoff. Copy a selector from
+`scout who` and use it as the explicit target.
 
 ```bash
-scout send --to agent "hello"
-scout ask --to agent "can you review this?"
+scout send --to <agent-from-scout-who> "hello"
+scout ask --to <agent-from-scout-who> "can you review this?"
 ```
 
 `send` is the message path. Use it for a durable note or reply in a
@@ -75,6 +83,9 @@ three terminals." It does not open a tracked flight.
 `ask` is the invocation path. Use it when you want Scout to track a request for
 work or a reply. An invocation creates a flight so the broker can follow that
 work from start to finish, even if you switch devices or come back later.
+
+For long-running MCP asks, use `replyMode: "notify"` when you want the caller
+to return quickly and receive the reply as a callback notification.
 
 Concrete handoff example:
 
