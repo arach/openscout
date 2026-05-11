@@ -1084,11 +1084,22 @@ describe("ensureCodexAppServerAgentOnline", () => {
       launchArgs: [],
     } as const;
 
-    await expect(invokeCodexAppServerAgent({
-      ...options,
-      prompt: "late prompt",
-      timeoutMs: 50,
-    })).rejects.toThrow("Timed out after 50ms waiting for codex-late.");
+    let timeoutError: unknown;
+    try {
+      await invokeCodexAppServerAgent({
+        ...options,
+        prompt: "late prompt",
+        timeoutMs: 50,
+      });
+    } catch (error) {
+      timeoutError = error;
+    }
+
+    expect(timeoutError).toBeInstanceOf(Error);
+    expect((timeoutError as Error).message).toBe("Timed out after 50ms waiting for codex-late.");
+    expect((timeoutError as { code?: string }).code).toBe("REQUESTER_WAIT_TIMEOUT");
+    expect((timeoutError as { label?: string }).label).toBe("codex-late");
+    expect((timeoutError as { timeoutMs?: number }).timeoutMs).toBe(50);
 
     await new Promise((resolve) => setTimeout(resolve, 200));
     const snapshot = await getCodexAppServerAgentSnapshot(options);

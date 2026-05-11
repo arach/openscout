@@ -2652,7 +2652,7 @@ describe("broker daemon comms layer", () => {
     expect(typeof flight?.completedAt).toBe("number");
   }, 15_000);
 
-  test("does not treat the same invocation as newer work during stale reconciliation", async () => {
+  test("reconciles replayed active endpoints for the same invocation after restart", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const firstHarness = await startBroker({ controlHome });
     await seedBasicConversation(firstHarness);
@@ -2736,13 +2736,13 @@ describe("broker daemon comms layer", () => {
     await waitFor(async () => getJson<{
       flights: Record<string, { state: string }>;
     }>(secondHarness.baseUrl, "/v1/snapshot"), (next) => Boolean(next.flights["flt-same-arc"]));
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const snapshot = await getJson<{
-      flights: Record<string, { state: string; error?: string }>;
-    }>(secondHarness.baseUrl, "/v1/snapshot");
+    const snapshot = await waitFor(async () => getJson<{
+      flights: Record<string, { state: string; error?: string; completedAt?: number }>;
+    }>(secondHarness.baseUrl, "/v1/snapshot"), (next) => next.flights["flt-same-arc"]?.state === "failed");
 
-    expect(snapshot.flights["flt-same-arc"]?.state).toBe("running");
-    expect(snapshot.flights["flt-same-arc"]?.error).toBeUndefined();
+    expect(snapshot.flights["flt-same-arc"]?.state).toBe("failed");
+    expect(snapshot.flights["flt-same-arc"]?.error).toContain("without a live broker task");
+    expect(typeof snapshot.flights["flt-same-arc"]?.completedAt).toBe("number");
   }, 15_000);
 
   test("rebuilds the sqlite projection from the file journal after degraded writes", async () => {

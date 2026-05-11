@@ -15,6 +15,7 @@ import type {
   TurnState,
 } from "@openscout/agent-sessions";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
+import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 
 type SessionRequestOptions = {
   agentName: string;
@@ -72,7 +73,7 @@ function waitForRequesterResult<T>(
   let timer: NodeJS.Timeout | null = null;
   const timeout = new Promise<T>((_resolve, reject) => {
     timer = setTimeout(() => {
-      reject(new Error(`Timed out after ${effectiveTimeoutMs}ms waiting for ${label}.`));
+      reject(new RequesterWaitTimeoutError({ label, timeoutMs: effectiveTimeoutMs }));
     }, effectiveTimeoutMs);
   });
 
