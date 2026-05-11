@@ -51,6 +51,8 @@ import {
   maybePostJsonToActiveScoutBrokerService,
   maybeReadJsonFromActiveScoutBrokerService,
   requestScoutBrokerJson,
+  requestScoutBrokerJsonWithTrace,
+  type ScoutBrokerJsonRequestTrace,
 } from "@openscout/runtime/broker-api";
 import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-process-manager";
 import {
@@ -100,6 +102,10 @@ export type ScoutBrokerHealthState = {
   baseUrl: string;
   reachable: boolean;
   ok: boolean;
+  checkedAt: number;
+  transport: ScoutBrokerJsonRequestTrace["transport"] | "in_process" | null;
+  socketPath: string | null;
+  socketFallbackError: string | null;
   nodeId: string | null;
   meshId: string | null;
   counts: {
@@ -109,6 +115,7 @@ export type ScoutBrokerHealthState = {
     conversations: number;
     messages: number;
     flights: number;
+    collaborationRecords: number;
   } | null;
   error: string | null;
 };
@@ -765,8 +772,9 @@ function scoutTargetDiagnosticFromDeliveryFailure(
 export async function readScoutBrokerHealth(
   baseUrl = resolveScoutBrokerUrl(),
 ): Promise<ScoutBrokerHealthState> {
+  const checkedAt = Date.now();
   try {
-    const health = await brokerReadJson<{
+    const direct = await maybeReadJsonFromActiveScoutBrokerService<{
       ok?: boolean;
       nodeId?: string;
       meshId?: string;
@@ -777,13 +785,53 @@ export async function readScoutBrokerHealth(
         conversations?: number;
         messages?: number;
         flights?: number;
+        collaborationRecords?: number;
       };
-    }>(baseUrl, scoutBrokerPaths.health);
+    }>(
+      baseUrl,
+      scoutBrokerPaths.health,
+    );
+    const healthResult = direct.handled
+      ? {
+          health: direct.value,
+          transport: "in_process" as const,
+          socketPath: null,
+          socketFallbackError: null,
+        }
+      : await (async () => {
+          const result = await requestScoutBrokerJsonWithTrace<{
+            ok?: boolean;
+            nodeId?: string;
+            meshId?: string;
+            counts?: {
+              nodes?: number;
+              actors?: number;
+              agents?: number;
+              conversations?: number;
+              messages?: number;
+              flights?: number;
+              collaborationRecords?: number;
+            };
+          }>(baseUrl, scoutBrokerPaths.health, {
+            socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
+          });
+          return {
+            health: result.value,
+            transport: result.trace.transport,
+            socketPath: result.trace.socketPath ?? null,
+            socketFallbackError: result.trace.socketFallbackError ?? null,
+          };
+        })();
+    const health = healthResult.health;
 
     return {
       baseUrl,
       reachable: true,
       ok: Boolean(health.ok),
+      checkedAt,
+      transport: healthResult.transport,
+      socketPath: healthResult.socketPath,
+      socketFallbackError: healthResult.socketFallbackError,
       nodeId: health.nodeId ?? null,
       meshId: health.meshId ?? null,
       counts: health.counts
@@ -794,6 +842,7 @@ export async function readScoutBrokerHealth(
             conversations: health.counts.conversations ?? 0,
             messages: health.counts.messages ?? 0,
             flights: health.counts.flights ?? 0,
+            collaborationRecords: health.counts.collaborationRecords ?? 0,
           }
         : null,
       error: null,
@@ -803,6 +852,10 @@ export async function readScoutBrokerHealth(
       baseUrl,
       reachable: false,
       ok: false,
+      checkedAt,
+      transport: null,
+      socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
+      socketFallbackError: null,
       nodeId: null,
       meshId: null,
       counts: null,

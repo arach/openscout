@@ -43,6 +43,17 @@ export type ScoutBrokerHealthPayload = {
   } | null;
 };
 
+export type ScoutBrokerJsonRequestTrace = {
+  transport: "unix_socket" | "http";
+  socketPath?: string;
+  socketFallbackError?: string;
+};
+
+export type ScoutBrokerJsonWithTrace<T> = {
+  value: T;
+  trace: ScoutBrokerJsonRequestTrace;
+};
+
 export type ScoutBrokerMessageQuery = {
   conversationId?: string;
   participantId?: string;
@@ -155,6 +166,11 @@ type ScoutBrokerWireResponse = {
   text: string;
 };
 
+type ScoutBrokerWireResult = {
+  response: ScoutBrokerWireResponse;
+  trace: ScoutBrokerJsonRequestTrace;
+};
+
 const activeScoutBrokerServices: ActiveScoutBrokerService[] = [];
 
 function handled<T>(value: T): ActiveScoutBrokerServiceResult<T> {
@@ -229,6 +245,10 @@ function shouldFallbackFromUnixSocket(error: unknown): boolean {
     || code === "FailedToOpenSocket";
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function requestBrokerOverUnixSocket<T>(
   socketPath: string,
   baseUrl: string,
@@ -298,26 +318,45 @@ async function requestBrokerWire<T>(
   baseUrl: string,
   path: string,
   options: ScoutBrokerJsonRequestOptions<T>,
-): Promise<ScoutBrokerWireResponse> {
+): Promise<ScoutBrokerWireResult> {
   const socketPath = options.socketPath?.trim();
   if (socketPath) {
     try {
-      return await requestBrokerOverUnixSocket(socketPath, baseUrl, path, options);
+      return {
+        response: await requestBrokerOverUnixSocket(socketPath, baseUrl, path, options),
+        trace: {
+          transport: "unix_socket",
+          socketPath,
+        },
+      };
     } catch (error) {
       if (!shouldFallbackFromUnixSocket(error)) {
         throw error;
       }
+      return {
+        response: await requestBrokerOverHttp(baseUrl, path, options),
+        trace: {
+          transport: "http",
+          socketPath,
+          socketFallbackError: `${socketPath}: ${errorMessage(error)}`,
+        },
+      };
     }
   }
-  return requestBrokerOverHttp(baseUrl, path, options);
+  return {
+    response: await requestBrokerOverHttp(baseUrl, path, options),
+    trace: {
+      transport: "http",
+    },
+  };
 }
 
-export async function requestScoutBrokerJson<T>(
+export async function requestScoutBrokerJsonWithTrace<T>(
   baseUrl: string,
   path: string,
   options: ScoutBrokerJsonRequestOptions<T> = {},
-): Promise<T> {
-  const response = await requestBrokerWire(baseUrl, path, options);
+): Promise<ScoutBrokerJsonWithTrace<T>> {
+  const { response, trace } = await requestBrokerWire(baseUrl, path, options);
   let parsed: unknown;
   let parsedJson = false;
   if (response.text.length > 0) {
@@ -331,15 +370,24 @@ export async function requestScoutBrokerJson<T>(
 
   if (!response.ok) {
     if (parsedJson && options.acceptErrorJson?.(parsed)) {
-      return parsed;
+      return { value: parsed, trace };
     }
     throw new Error(`${path} returned ${response.status}: ${response.text}`);
   }
 
   if (parsedJson) {
-    return parsed as T;
+    return { value: parsed as T, trace };
   }
-  return undefined as T;
+  return { value: undefined as T, trace };
+}
+
+export async function requestScoutBrokerJson<T>(
+  baseUrl: string,
+  path: string,
+  options: ScoutBrokerJsonRequestOptions<T> = {},
+): Promise<T> {
+  const { value } = await requestScoutBrokerJsonWithTrace(baseUrl, path, options);
+  return value;
 }
 
 function parsePositiveInt(
