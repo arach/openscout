@@ -190,9 +190,42 @@ function findBin(name: string, envOverride?: string): string | null {
   }
 }
 
+function findExecutableInDirectory(directory: string, name: string): string | null {
+  const candidate = join(directory, name);
+  return existsSync(candidate) ? candidate : null;
+}
+
+function resolveConfiguredBin(envKeys: string[]): string | null {
+  for (const envKey of envKeys) {
+    const value = process.env[envKey]?.trim();
+    if (!value) continue;
+    if (existsSync(value)) return value;
+    const fromPath = findBin(value);
+    if (fromPath) return fromPath;
+  }
+  return null;
+}
+
 /** Locate the claude binary, returning null if not found. */
 function findClaudeBin(): string | null {
-  return findBin('claude', 'CLAUDE_BIN');
+  const configured = resolveConfiguredBin(['OPENSCOUT_CLAUDE_BIN', 'SCOUT_CLAUDE_BIN', 'CLAUDE_BIN']);
+  if (configured) return configured;
+
+  const home = process.env.HOME || '/tmp';
+  const commonDirectories = [
+    join(home, '.local', 'bin'),
+    join(home, '.claude', 'local'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    join(home, '.bun', 'bin'),
+  ];
+
+  for (const directory of commonDirectories) {
+    const candidate = findExecutableInDirectory(directory, 'claude');
+    if (candidate) return candidate;
+  }
+
+  return findBin('claude');
 }
 
 /** Locate the pi binary, returning null if not found. */
@@ -307,7 +340,7 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   } else {
     agentBin = findClaudeBin();
     if (!agentBin) {
-      const reason = 'Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code';
+      const reason = 'Claude CLI not found. Install it with: curl -fsSL https://claude.ai/install.sh | bash';
       console.error(`[relay] Session ${id} failed: ${reason}`);
       send(ws, { type: 'session:error', error: reason });
       return null;

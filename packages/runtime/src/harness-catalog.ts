@@ -162,10 +162,9 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     },
     install: {
       binary: "claude",
-      requires: ["node"],
-      macos: "npm install -g @anthropic-ai/claude-code",
-      linux: "npm install -g @anthropic-ai/claude-code",
-      windows: "npm install -g @anthropic-ai/claude-code",
+      macos: "curl -fsSL https://claude.ai/install.sh | bash",
+      linux: "curl -fsSL https://claude.ai/install.sh | bash",
+      windows: "irm https://claude.ai/install.ps1 | iex",
     },
     readiness: {
       anyOf: [

@@ -15,6 +15,7 @@ import {
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
+  shouldInstallClaudePermissionHook,
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
@@ -295,6 +296,13 @@ describe("local agent prompts", () => {
       "--model",
       "sonnet",
     ]);
+  });
+
+  test("claude permission hook install is opt-in for new sessions", () => {
+    expect(shouldInstallClaudePermissionHook({})).toBe(false);
+    expect(shouldInstallClaudePermissionHook({ OPENSCOUT_INSTALL_CLAUDE_PERMISSION_HOOK: "0" })).toBe(false);
+    expect(shouldInstallClaudePermissionHook({ OPENSCOUT_INSTALL_CLAUDE_PERMISSION_HOOK: "true" })).toBe(true);
+    expect(shouldInstallClaudePermissionHook({ OPENSCOUT_INSTALL_CLAUDE_PERMISSION_HOOK: "1" })).toBe(true);
   });
 });
 

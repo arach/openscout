@@ -293,6 +293,12 @@ export function resolveBunExecutable(env: NodeJS.ProcessEnv): string {
   throw new ScoutCliError("Unable to locate Bun. Install Bun (https://bun.sh) or set OPENSCOUT_BUN_BIN.");
 }
 
+function bunRunServerArgs(entry: string): string[] {
+  return entry.endsWith(".ts")
+    ? ["run", "--hot", entry]
+    : ["run", entry];
+}
+
 function buildMergedServerEnv(entry: string, mode: ScoutServerMode, flagEnv: Record<string, string>): NodeJS.ProcessEnv {
   const bundledStaticClientRoot = resolveBundledStaticClientRoot(entry, mode);
   const autoEnv: Record<string, string> = {};
@@ -700,7 +706,7 @@ async function spawnDetachedServer(entry: string, env: NodeJS.ProcessEnv): Promi
   const logFd = openSync(logPath, "a");
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn(bunExecutable, ["run", entry], {
+    const child = spawn(bunExecutable, bunRunServerArgs(entry), {
       detached: true,
       stdio: ["ignore", logFd, logFd],
       env,
@@ -844,7 +850,7 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
   const bunExecutable = resolveBunExecutable(mergedEnv);
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn(bunExecutable, ["run", selection.entry], {
+    const child = spawn(bunExecutable, bunRunServerArgs(selection.entry), {
       stdio: "inherit",
       env: mergedEnv,
     });

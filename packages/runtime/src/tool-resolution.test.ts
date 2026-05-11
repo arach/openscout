@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   resolveBunExecutable,
+  resolveClaudeExecutable,
   resolveNodeModulesPackageEntrypoint,
   resolveOpenScoutRepoRoot,
 } from "./tool-resolution.js";
@@ -23,6 +24,63 @@ describe("tool resolution", () => {
       });
 
       expect(resolved?.path).toBe(bunPath);
+      expect(resolved?.source).toBe("env");
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("prefers the native Claude installer path over an older PATH shim", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openscout-tool-resolution-claude-"));
+    const home = join(directory, "home");
+    const pathDirectory = join(directory, "path-bin");
+    const nativeDirectory = join(home, ".local", "bin");
+    const pathClaude = join(pathDirectory, "claude");
+    const nativeClaude = join(nativeDirectory, "claude");
+
+    try {
+      mkdirSync(pathDirectory, { recursive: true });
+      mkdirSync(nativeDirectory, { recursive: true });
+      writeFileSync(pathClaude, "#!/bin/sh\nexit 0\n");
+      writeFileSync(nativeClaude, "#!/bin/sh\nexit 0\n");
+      chmodSync(pathClaude, 0o755);
+      chmodSync(nativeClaude, 0o755);
+
+      const resolved = resolveClaudeExecutable({
+        HOME: home,
+        PATH: pathDirectory,
+      });
+
+      expect(resolved?.path).toBe(nativeClaude);
+      expect(resolved?.source).toBe("common-path");
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("resolves Claude from explicit environment overrides first", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openscout-tool-resolution-claude-env-"));
+    const home = join(directory, "home");
+    const nativeDirectory = join(home, ".local", "bin");
+    const explicitDirectory = join(directory, "explicit-bin");
+    const nativeClaude = join(nativeDirectory, "claude");
+    const explicitClaude = join(explicitDirectory, "claude");
+
+    try {
+      mkdirSync(nativeDirectory, { recursive: true });
+      mkdirSync(explicitDirectory, { recursive: true });
+      writeFileSync(nativeClaude, "#!/bin/sh\nexit 0\n");
+      writeFileSync(explicitClaude, "#!/bin/sh\nexit 0\n");
+      chmodSync(nativeClaude, 0o755);
+      chmodSync(explicitClaude, 0o755);
+
+      const resolved = resolveClaudeExecutable({
+        HOME: home,
+        PATH: "",
+        OPENSCOUT_CLAUDE_BIN: explicitClaude,
+      });
+
+      expect(resolved?.path).toBe(explicitClaude);
       expect(resolved?.source).toBe("env");
     } finally {
       rmSync(directory, { force: true, recursive: true });

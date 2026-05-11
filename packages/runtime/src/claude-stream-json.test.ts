@@ -1,9 +1,67 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 
 import {
   buildClaudeStreamJsonSessionSnapshot,
+  ensureClaudeStreamJsonAgentOnline,
+  invokeClaudeStreamJsonAgent,
   resolveClaudeStreamJsonOutput,
+  shutdownClaudeStreamJsonAgent,
 } from "./claude-stream-json";
+
+const tempPaths = new Set<string>();
+const originalPath = process.env.PATH;
+
+afterEach(() => {
+  if (originalPath === undefined) {
+    delete process.env.PATH;
+  } else {
+    process.env.PATH = originalPath;
+  }
+  delete process.env.OPENSCOUT_CLAUDE_BIN;
+
+  for (const path of tempPaths) {
+    rmSync(path, { recursive: true, force: true });
+  }
+  tempPaths.clear();
+});
+
+function writeFakeClaudeExecutable(baseDirectory: string): string {
+  const executablePath = join(baseDirectory, "claude");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+let turnIndex = 0;
+
+console.log(JSON.stringify({ type: "system", subtype: "init", session_id: "claude-test-session" }));
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const content = message?.message?.content;
+  const text = typeof content === "string" ? content : JSON.stringify(content);
+  turnIndex += 1;
+  const currentTurn = turnIndex;
+  if (currentTurn === 1) {
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  console.log(JSON.stringify({
+    type: "assistant",
+    message: { content: [{ type: "text", text: \`draft \${currentTurn}: \${text}\` }] },
+  }));
+  console.log(JSON.stringify({ type: "result", result: \`reply \${currentTurn}: \${text}\` }));
+}
+`);
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
 
 describe("resolveClaudeStreamJsonOutput", () => {
   test("prefers the final result payload over earlier assistant text", () => {
@@ -22,6 +80,46 @@ describe("resolveClaudeStreamJsonOutput", () => {
     );
 
     expect(output).toBe("First part. Second part.");
+  });
+});
+
+describe("invokeClaudeStreamJsonAgent", () => {
+  test("queues a second invocation behind the active stream-json turn", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-queue-test-"));
+    tempPaths.add(tempRoot);
+    const fakeClaude = writeFakeClaudeExecutable(tempRoot);
+    process.env.OPENSCOUT_CLAUDE_BIN = fakeClaude;
+    process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
+
+    const options = {
+      agentName: "hudson-copy-affordances",
+      sessionId: "relay-hudson-copy-affordances",
+      cwd: process.cwd(),
+      systemPrompt: "You are a test Claude relay agent.",
+      runtimeDirectory: join(tempRoot, "runtime"),
+      logsDirectory: join(tempRoot, "logs"),
+      launchArgs: [],
+    } as const;
+
+    await ensureClaudeStreamJsonAgentOnline(options);
+    const first = invokeClaudeStreamJsonAgent({
+      ...options,
+      prompt: "first prompt",
+      timeoutMs: 5_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const second = invokeClaudeStreamJsonAgent({
+      ...options,
+      prompt: "second prompt",
+      timeoutMs: 5_000,
+    });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { output: "reply 1: first prompt", sessionId: "claude-test-session" },
+      { output: "reply 2: second prompt", sessionId: "claude-test-session" },
+    ]);
+
+    await shutdownClaudeStreamJsonAgent(options);
   });
 });
 

@@ -121,6 +121,7 @@ import {
 } from "./pairing-session-agents.js";
 import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
+import { isRequesterWaitTimeoutError } from "./requester-timeout.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   requestScoutBrokerJson,
@@ -878,7 +879,7 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
     advertisedHost: env.OPENSCOUT_WEB_ADVERTISED_HOST,
     trustedHost: context.trustedHost,
   });
-  const child = spawn(bun.path, ["run", entry], {
+  const child = spawn(bun.path, entry.endsWith(".ts") ? ["run", "--hot", entry] : ["run", entry], {
     detached: true,
     env,
     stdio: ["ignore", logFd, logFd],
@@ -2188,6 +2189,14 @@ function staleWorkingFlightReason(
 
   const startedEndpointAt = endpointStartedAt(endpoint);
   const endpointInvocationId = endpointLastInvocationId(endpoint);
+  if (
+    endpoint.state === "active"
+    && endpointInvocationId === flight.invocationId
+    && !activeInvocationTasks.has(flight.invocationId)
+    && startedEndpointAt >= startedAt
+  ) {
+    return `endpoint ${endpoint.id} was replayed active for invocation ${flight.invocationId} without a live broker task`;
+  }
   if (
     endpoint.state === "active"
     && startedEndpointAt > startedAt
@@ -3555,8 +3564,28 @@ async function executeLocalInvocation(
   invocation: InvocationRequest,
   initialFlight: FlightRecord,
 ): Promise<void> {
-  const endpoint = await resolveLocalEndpointForInvocation(invocation);
   const agent = runtime.agent(invocation.targetAgentId);
+  let endpoint: AgentEndpoint | undefined;
+
+  try {
+    endpoint = await resolveLocalEndpointForInvocation(invocation);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const failedFlight = {
+      ...initialFlight,
+      state: "failed" as const,
+      summary: `${agent?.displayName ?? invocation.targetAgentId} could not be prepared.`,
+      error: `Endpoint resolution failed before execution: ${message}`,
+      completedAt: Date.now(),
+      metadata: {
+        ...(initialFlight.metadata ?? {}),
+        failureStage: "endpoint_resolution",
+      },
+    };
+    await persistFlight(failedFlight);
+    await postInvocationStatusMessage(invocation, failedFlight);
+    return;
+  }
 
   if (!agent || !endpoint) {
     const queuedFlight = {
@@ -3683,6 +3712,25 @@ async function executeLocalInvocation(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (isRequesterWaitTimeoutError(error)) {
+      const waitingFlight = {
+        ...runningFlight,
+        state: "waiting" as const,
+        summary: `${agent.displayName} is still working; the requester stopped waiting after ${error.timeoutMs}ms.`,
+        error: undefined,
+        completedAt: undefined,
+        metadata: {
+          ...(runningFlight.metadata ?? {}),
+          requesterTimedOut: true,
+          timeoutMs: error.timeoutMs,
+          timeoutScope: "requester_wait",
+        },
+      };
+      await persistFlight(waitingFlight);
+      await postInvocationStatusMessage(invocation, waitingFlight);
+      return;
+    }
+
     const failedFlight = {
       ...runningFlight,
       state: "failed" as const,

@@ -83,6 +83,7 @@ import {
   parseScoutPermissionProfile,
 } from "./permission-policy.js";
 import { installClaudePermissionHook } from "./claude-permission-hook.js";
+import { resolveClaudeExecutable } from "./tool-resolution.js";
 
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
@@ -784,6 +785,11 @@ export function normalizeClaudeRuntimeLaunchArgs(value: unknown): string[] {
     "--allowedTools",
     DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
   ];
+}
+
+export function shouldInstallClaudePermissionHook(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.OPENSCOUT_INSTALL_CLAUDE_PERMISSION_HOOK?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
 }
 
 function normalizeRequestedModel(value: string | undefined): string | undefined {
@@ -2174,8 +2180,11 @@ function killAgentSession(sessionName: string): void {
 }
 
 function isHarnessBinaryAvailable(transport: string): boolean {
+  if (transport === "claude_stream_json") {
+    return resolveClaudeExecutable(process.env) !== null;
+  }
+
   const binaryMap: Record<string, string> = {
-    claude_stream_json: "claude",
     codex_app_server: "codex",
   };
   const binary = binaryMap[transport];
@@ -2233,12 +2242,14 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
 
   if (normalizedRecord.transport === "claude_stream_json") {
     await writeFile(join(agentRuntimeDir, "prompt.txt"), systemPrompt);
-    try {
-      installClaudePermissionHook(normalizedRecord.cwd);
-    } catch (error) {
-      console.warn(
-        `[openscout-runtime] failed to install Claude permission hook for ${agentName} at ${normalizedRecord.cwd}: ${errorMessage(error)}`,
-      );
+    if (shouldInstallClaudePermissionHook()) {
+      try {
+        installClaudePermissionHook(normalizedRecord.cwd);
+      } catch (error) {
+        console.warn(
+          `[openscout-runtime] failed to install Claude permission hook for ${agentName} at ${normalizedRecord.cwd}: ${errorMessage(error)}`,
+        );
+      }
     }
     await ensureClaudeStreamJsonAgentOnline(buildClaudeAgentSessionOptions(agentName, normalizedRecord, systemPrompt));
 

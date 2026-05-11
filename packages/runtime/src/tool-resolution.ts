@@ -49,6 +49,17 @@ const DEFAULT_COMMON_EXECUTABLE_DIRECTORIES = [
   "/usr/local/bin",
 ] as const;
 
+function commonClaudeExecutableDirectories(env: NodeJS.ProcessEnv): string[] {
+  const home = env.HOME ?? homedir();
+  return [
+    join(home, ".local", "bin"),
+    join(home, ".claude", "local"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    join(home, ".bun", "bin"),
+  ];
+}
+
 export function expandHomePath(value: string, env: NodeJS.ProcessEnv = process.env): string {
   const home = env.HOME ?? homedir();
   if (value === "~") {
@@ -149,6 +160,46 @@ export function resolveBunExecutable(env: NodeJS.ProcessEnv = process.env): Reso
     envKeys: ["OPENSCOUT_BUN_BIN", "SCOUT_BUN_BIN", "BUN_BIN"],
     names: ["bun"],
   });
+}
+
+export function resolveClaudeExecutable(env: NodeJS.ProcessEnv = process.env): ResolvedExecutable | null {
+  for (const envKey of ["OPENSCOUT_CLAUDE_BIN", "SCOUT_CLAUDE_BIN", "CLAUDE_BIN"]) {
+    const explicit = env[envKey]?.trim();
+    if (!explicit) {
+      continue;
+    }
+
+    const expanded = expandHomePath(explicit, env);
+    if (isExecutablePath(expanded)) {
+      return { path: resolve(expanded), source: "env" };
+    }
+
+    const foundOnPath = findExecutableOnSearchPath(explicit, env);
+    if (foundOnPath) {
+      return { path: foundOnPath.path, source: "env" };
+    }
+  }
+
+  const commonDirectories = dedupeDirectories(commonClaudeExecutableDirectories(env), env);
+  const searchDirectories = dedupeDirectories(
+    [
+      ...commonDirectories,
+      ...splitPathEntries(env),
+    ],
+    env,
+  );
+
+  for (const directory of searchDirectories) {
+    const candidate = join(directory, "claude");
+    if (isExecutablePath(candidate)) {
+      return {
+        path: candidate,
+        source: commonDirectories.includes(directory) ? "common-path" : "path",
+      };
+    }
+  }
+
+  return null;
 }
 
 export function resolveJavaScriptRuntime(options: ResolveJavaScriptRuntimeOptions = {}): ResolvedJavaScriptRuntime | null {
