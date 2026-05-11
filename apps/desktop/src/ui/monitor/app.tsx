@@ -346,7 +346,12 @@ function StatsPanel({ snapshot }: { snapshot: ScoutMonitorSnapshot }) {
             {snapshot.brokerStatus.health.ok ? "reachable" : "offline"}
           </text>
           <text fg={C.dim}>url {snapshot.brokerUrl}</text>
+          <text fg={C.dim}>health via {snapshot.brokerStatus.health.transport ?? "unknown"}</text>
+          {snapshot.brokerStatus.health.socketFallbackError ? (
+            <text fg={C.yellow}>socket fallback active</text>
+          ) : null}
           {counts ? <text fg={C.dim}>agents {counts.agents} · conversations {counts.conversations} · messages {counts.messages}</text> : null}
+          {counts ? <text fg={C.dim}>flights {counts.flights} · collab {counts.collaborationRecords}</text> : null}
         </box>
       </box>
       <box border borderStyle="rounded" borderColor={C.border} padding={1} title="Workspace">

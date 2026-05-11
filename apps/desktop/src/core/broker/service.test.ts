@@ -19,6 +19,7 @@ import {
   loadScoutBrokerContext,
   parseScoutHarness,
   parseScoutLocalHarness,
+  readScoutBrokerHealth,
   resolveScoutSenderId,
   sendScoutMessage,
   updateScoutWorkItem,
@@ -193,6 +194,53 @@ describe("loadScoutBrokerContext", () => {
     expect(context).not.toBeNull();
     expect(context?.node.id).toBe("node-1");
     expect(context?.snapshot.agents["agent-1"]?.displayName).toBe("Agent One");
+  });
+
+  test("preserves broker health diagnostics from an active service", async () => {
+    useIsolatedOpenScoutHome();
+    const service: ActiveScoutBrokerService = {
+      baseUrl: "http://broker.test",
+      readHealth: async () => ({
+        ok: true,
+        nodeId: "node-1",
+        meshId: "mesh-1",
+        counts: {
+          nodes: 1,
+          actors: 1,
+          agents: 2,
+          conversations: 3,
+          messages: 4,
+          flights: 5,
+          collaborationRecords: 6,
+        },
+      }),
+      readNode: async () => ({
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "node-1",
+        advertiseScope: "local",
+        registeredAt: 1,
+        lastSeenAt: 1,
+      }),
+      readSnapshot: async () => createRuntimeRegistrySnapshot(),
+      executeCommand: async () => {
+        throw new Error("unexpected write command");
+      },
+    };
+    registerActiveScoutBrokerService(service);
+    globalThis.fetch = (async () => {
+      throw new Error(
+        "fetch should not be called when an in-process broker is active",
+      );
+    }) as unknown as typeof fetch;
+
+    const health = await readScoutBrokerHealth();
+
+    expect(health.reachable).toBe(true);
+    expect(health.transport).toBe("in_process");
+    expect(health.socketFallbackError).toBeNull();
+    expect(health.counts?.collaborationRecords).toBe(6);
+    expect(health.checkedAt).toBeGreaterThan(0);
   });
 });
 

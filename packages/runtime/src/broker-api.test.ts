@@ -17,6 +17,7 @@ import {
   maybeReadJsonFromActiveScoutBrokerService,
   registerActiveScoutBrokerService,
   requestScoutBrokerJson,
+  requestScoutBrokerJsonWithTrace,
   type ActiveScoutBrokerService,
 } from "./broker-api.js";
 import { createRuntimeRegistrySnapshot } from "./registry.js";
@@ -395,11 +396,21 @@ describe("broker JSON transport", () => {
         path: string;
         via: string;
       }>("http://127.0.0.1:1", "/health?probe=1", { socketPath });
+      const traced = await requestScoutBrokerJsonWithTrace<{
+        ok: boolean;
+        path: string;
+        via: string;
+      }>("http://127.0.0.1:1", "/health?probe=1", { socketPath });
 
       expect(result).toEqual({
         ok: true,
         path: "/health?probe=1",
         via: "unix",
+      });
+      expect(traced.value).toEqual(result);
+      expect(traced.trace).toEqual({
+        transport: "unix_socket",
+        socketPath,
       });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -437,12 +448,23 @@ describe("broker JSON transport", () => {
       }>(`http://127.0.0.1:${address.port}`, "/health?probe=1", {
         socketPath,
       });
+      const traced = await requestScoutBrokerJsonWithTrace<{
+        ok: boolean;
+        path: string;
+        via: string;
+      }>(`http://127.0.0.1:${address.port}`, "/health?probe=1", {
+        socketPath,
+      });
 
       expect(result).toEqual({
         ok: true,
         path: "/health?probe=1",
         via: "http",
       });
+      expect(traced.value).toEqual(result);
+      expect(traced.trace.transport).toBe("http");
+      expect(traced.trace.socketPath).toBe(socketPath);
+      expect(traced.trace.socketFallbackError).toContain("missing.sock");
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await rm(dir, { recursive: true, force: true });

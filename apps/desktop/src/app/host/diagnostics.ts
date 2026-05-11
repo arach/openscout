@@ -37,9 +37,13 @@ export type ScoutDesktopBrokerInspector = {
   label: string;
   mode: string;
   url: string;
+  brokerSocketPath: string;
   installed: boolean;
   loaded: boolean;
   reachable: boolean;
+  healthCheckedAtLabel: string | null;
+  healthTransport: string | null;
+  socketFallbackError: string | null;
   pid: string | null;
   processCommand: string | null;
   lastRestartLabel: string | null;
@@ -59,6 +63,7 @@ export type ScoutDesktopBrokerInspector = {
   conversationCount: number | null;
   messageCount: number | null;
   flightCount: number | null;
+  collaborationRecordCount: number | null;
   troubleshooting: string[];
   feedbackSummary: string;
 };
@@ -324,6 +329,9 @@ function brokerTroubleshootingHints(status: BrokerServiceStatus): string[] {
   if (status.loaded && !status.reachable) {
     hints.push("launchd reports the service as loaded, but the broker health endpoint is not responding.");
   }
+  if (status.health.socketFallbackError) {
+    hints.push("Broker health succeeded over HTTP after the configured Unix socket failed.");
+  }
   if (status.lastExitStatus !== null && status.lastExitStatus !== 0) {
     hints.push(`The last broker exit status was ${status.lastExitStatus}.`);
   }
@@ -406,13 +414,16 @@ function brokerFeedbackSummary(
     `mode: ${status.mode}`,
     `version: ${version ?? "not reported"}`,
     `url: ${status.brokerUrl}`,
+    `socket: ${compactHomePath(status.brokerSocketPath) ?? status.brokerSocketPath}`,
+    `health_transport: ${status.health.transport ?? "not reported"}`,
+    `socket_fallback: ${status.health.socketFallbackError ?? "none"}`,
     `pid: ${processId ?? "not reported"}`,
     `started: ${startedLabel ?? "not reported"}`,
     `launchd: ${status.launchdState ?? "not reported"}`,
     `last_exit: ${status.lastExitStatus ?? "not reported"}`,
     `node: ${status.health.nodeId ?? "not reported"}`,
     `mesh: ${status.health.meshId ?? "not reported"}`,
-    `counts: actors=${counts?.actors ?? "?"} agents=${counts?.agents ?? "?"} conversations=${counts?.conversations ?? "?"} messages=${counts?.messages ?? "?"} flights=${counts?.flights ?? "?"}`,
+    `counts: actors=${counts?.actors ?? "?"} agents=${counts?.agents ?? "?"} conversations=${counts?.conversations ?? "?"} messages=${counts?.messages ?? "?"} flights=${counts?.flights ?? "?"} collaborationRecords=${counts?.collaborationRecords ?? "?"}`,
     `command: ${processCommand ?? "not reported"}`,
     `stdout: ${compactHomePath(status.stdoutLogPath) ?? status.stdoutLogPath}`,
     `stderr: ${compactHomePath(status.stderrLogPath) ?? status.stderrLogPath}`,
@@ -597,9 +608,15 @@ export async function getScoutDesktopBrokerInspector(): Promise<ScoutDesktopBrok
     label: status.label,
     mode: status.mode,
     url: status.brokerUrl,
+    brokerSocketPath: compactHomePath(status.brokerSocketPath) ?? status.brokerSocketPath,
     installed: status.installed,
     loaded: status.loaded,
     reachable: status.reachable,
+    healthCheckedAtLabel: status.health.checkedAt
+      ? formatRelativeTime(status.health.checkedAt)
+      : null,
+    healthTransport: status.health.transport ?? null,
+    socketFallbackError: status.health.socketFallbackError ?? null,
     pid: processId ? String(processId) : null,
     processCommand,
     lastRestartLabel,
@@ -619,6 +636,7 @@ export async function getScoutDesktopBrokerInspector(): Promise<ScoutDesktopBrok
     conversationCount: counts?.conversations ?? null,
     messageCount: counts?.messages ?? null,
     flightCount: counts?.flights ?? null,
+    collaborationRecordCount: counts?.collaborationRecords ?? null,
     troubleshooting: brokerTroubleshootingHints(status),
     feedbackSummary: brokerFeedbackSummary(status, processId, processCommand, lastRestartLabel, version),
   };
@@ -737,6 +755,9 @@ export async function getScoutDesktopFeedbackBundle(
         { label: "Detail", value: brokerInspector.statusDetail ?? "None" },
         { label: "Reachable", value: yesNo(brokerInspector.reachable) },
         { label: "URL", value: brokerInspector.url },
+        { label: "Broker Socket", value: brokerInspector.brokerSocketPath },
+        { label: "Health Transport", value: brokerInspector.healthTransport ?? "Unknown" },
+        { label: "Socket Fallback", value: brokerInspector.socketFallbackError ?? "None" },
         { label: "LaunchAgent", value: brokerInspector.launchAgentPath },
         { label: "Bootout", value: brokerInspector.bootoutCommand },
         { label: "stdout", value: brokerInspector.stdoutLogPath },

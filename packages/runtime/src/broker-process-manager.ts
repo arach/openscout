@@ -4,7 +4,10 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { requestScoutBrokerJson } from "./broker-api.js";
+import {
+  requestScoutBrokerJsonWithTrace,
+  type ScoutBrokerJsonRequestTrace,
+} from "./broker-api.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { resolveBunExecutable as resolveResolvedBunExecutable } from "./tool-resolution.js";
 
@@ -15,6 +18,7 @@ function isTmpPath(p: string): boolean {
 
 export type BrokerServiceMode = "dev" | "prod" | "custom";
 export type BrokerAdvertiseScope = "local" | "mesh";
+export type BrokerHealthTransport = ScoutBrokerJsonRequestTrace["transport"] | "in_process";
 
 export type BrokerServiceConfig = {
   label: string;
@@ -42,6 +46,10 @@ export type BrokerServiceConfig = {
 export type BrokerHealthSnapshot = {
   reachable: boolean;
   ok: boolean;
+  checkedAt: number;
+  transport?: BrokerHealthTransport;
+  socketPath?: string;
+  socketFallbackError?: string;
   nodeId?: string;
   meshId?: string;
   counts?: {
@@ -51,6 +59,7 @@ export type BrokerHealthSnapshot = {
     conversations: number;
     messages: number;
     flights: number;
+    collaborationRecords: number;
   };
   error?: string;
 };
@@ -600,22 +609,44 @@ function inspectLaunchctl(config: BrokerServiceConfig): LaunchctlStatus {
 async function fetchHealthSnapshot(config: BrokerServiceConfig): Promise<BrokerHealthSnapshot> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1000);
+  const checkedAt = Date.now();
   try {
-    const payload = await requestScoutBrokerJson<BrokerHealthSnapshot & { ok: boolean }>(config.brokerUrl, "/health", {
-      signal: controller.signal,
-      socketPath: config.brokerSocketPath,
-    });
+    const { value: payload, trace } =
+      await requestScoutBrokerJsonWithTrace<BrokerHealthSnapshot & { ok: boolean }>(
+        config.brokerUrl,
+        "/health",
+        {
+          signal: controller.signal,
+          socketPath: config.brokerSocketPath,
+        },
+      );
     return {
       reachable: true,
       ok: Boolean(payload.ok),
+      checkedAt,
+      transport: trace.transport,
+      socketPath: trace.socketPath,
+      socketFallbackError: trace.socketFallbackError,
       nodeId: payload.nodeId,
       meshId: payload.meshId,
-      counts: payload.counts,
+      counts: payload.counts
+        ? {
+            nodes: payload.counts.nodes ?? 0,
+            actors: payload.counts.actors ?? 0,
+            agents: payload.counts.agents ?? 0,
+            conversations: payload.counts.conversations ?? 0,
+            messages: payload.counts.messages ?? 0,
+            flights: payload.counts.flights ?? 0,
+            collaborationRecords: payload.counts.collaborationRecords ?? 0,
+          }
+        : undefined,
     };
   } catch (error) {
     return {
       reachable: false,
       ok: false,
+      checkedAt,
+      socketPath: config.brokerSocketPath,
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
@@ -767,8 +798,13 @@ function formatBrokerServiceStatus(status: BrokerServiceStatus): string {
     `broker socket: ${status.brokerSocketPath}`,
     `reachable: ${status.reachable ? "yes" : "no"}`,
     `health: ${status.health.ok ? "ok" : status.health.error ?? "unreachable"}`,
+    `health transport: ${status.health.transport ?? "unknown"}`,
     `logs: ${status.stdoutLogPath}`,
   ];
+
+  if (status.health.socketFallbackError) {
+    lines.push(`socket fallback: ${status.health.socketFallbackError}`);
+  }
 
   if (status.lastLogLine) {
     lines.push(`last log: ${status.lastLogLine}`);

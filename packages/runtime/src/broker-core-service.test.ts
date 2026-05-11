@@ -168,6 +168,7 @@ describe("createBrokerCoreService", () => {
     });
 
     expect(health.counts?.messages).toBe(1);
+    expect(health.counts?.collaborationRecords).toBe(1);
     expect(messages?.map((message) => message.id)).toEqual(["msg-1"]);
     expect(activity?.map((item) => item.id)).toEqual(["act-1"]);
     expect(records).toEqual(Object.values(snapshot.collaborationRecords));

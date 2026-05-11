@@ -9,6 +9,19 @@ import type {
 
 type LocalEdgeDependencyReport = ScoutSetupReport["localEdge"];
 
+function renderBrokerHealthTransportLines(
+  broker: ScoutDoctorReport["broker"] | ScoutSetupReport["broker"],
+): string[] {
+  const lines = [
+    `  Broker socket: ${broker.brokerSocketPath}`,
+    `  Health transport: ${broker.health.transport ?? "unknown"}`,
+  ];
+  if (broker.health.socketFallbackError) {
+    lines.push(`  Socket fallback: ${broker.health.socketFallbackError}`);
+  }
+  return lines;
+}
+
 export function renderScoutDoctorStreamingLead(input: { repoRoot: string; currentDirectory: string }): string {
   return [
     "Scout doctor",
@@ -78,6 +91,7 @@ export function renderScoutDoctorTailAfterStream(report: ScoutDoctorReport): str
     "Base service:",
     `  Label: ${report.broker.label}`,
     `  Broker URL: ${report.broker.brokerUrl}`,
+    ...renderBrokerHealthTransportLines(report.broker),
     `  Installed: ${report.broker.installed ? "yes" : "no"}`,
     `  Loaded: ${report.broker.loaded ? "yes" : "no"}`,
     `  Reachable: ${report.broker.reachable ? "yes" : "no"}`,
@@ -253,6 +267,7 @@ export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
     "Base service:",
     `  Label: ${report.broker.label}`,
     `  Broker URL: ${report.broker.brokerUrl}`,
+    ...renderBrokerHealthTransportLines(report.broker),
     `  Installed: ${report.broker.installed ? "yes" : "no"}`,
     `  Loaded: ${report.broker.loaded ? "yes" : "no"}`,
     `  Reachable: ${report.broker.reachable ? "yes" : "no"}`,
@@ -299,6 +314,7 @@ export function renderScoutSetupReport(report: ScoutSetupReport): string {
     "Base service:",
     `  Label: ${report.broker.label}`,
     `  Broker URL: ${report.broker.brokerUrl}`,
+    ...renderBrokerHealthTransportLines(report.broker),
     `  Reachable: ${report.broker.reachable ? "yes" : "no"}`,
     `  LaunchAgent: ${report.broker.launchAgentPath}`,
     `  Bootout: ${report.broker.bootoutCommand}`,
