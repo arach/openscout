@@ -216,14 +216,14 @@ function renderLocalEdgeDoctor(edge: ScoutLocalEdgeDoctorReport): string[] {
 
 function renderClaudePermissionHook(report: ScoutDoctorReport["claudePermissionHook"] | ScoutSetupReport["claudePermissionHook"]): string[] {
   const lines = [
-    "Claude permission cockpit:",
+    "Claude permission hook:",
     `  State: ${report.state}`,
     `  Detail: ${report.detail}`,
     `  Settings: ${report.settingsPath}`,
     `  Hook: ${report.hookPath}`,
   ];
-  if (report.state !== "installed") {
-    lines.push("  Repair: scout setup");
+  if (report.state === "installed" || report.state === "stale") {
+    lines.push("  Remove: scout setup");
   }
   return lines;
 }

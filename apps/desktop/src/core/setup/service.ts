@@ -25,7 +25,7 @@ import {
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import {
   inspectClaudePermissionHook,
-  installClaudePermissionHook,
+  removeClaudePermissionHook,
   type ClaudePermissionHookStatus,
 } from "@openscout/runtime/claude-permission-hook";
 import { withScoutCoreCommandLock } from "./command-lock.ts";
@@ -260,7 +260,7 @@ export async function runScoutSetup(input: {
     const setup = await initializeOpenScoutSetup({ currentDirectory: input.currentDirectory });
     const catalog = await loadHarnessCatalogSnapshot();
     const scoutSkill = await installScoutSkillToHarnesses();
-    const claudePermissionHook = installClaudePermissionHook(input.currentDirectory);
+    const claudePermissionHook = removeClaudePermissionHook(input.currentDirectory);
     const localEdge = ensureScoutLocalEdgeDependencies();
     let broker = await getRuntimeBrokerServiceStatus();
     let brokerWarning: string | null = null;

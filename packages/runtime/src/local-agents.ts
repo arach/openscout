@@ -82,7 +82,6 @@ import {
   compileCodexPermissionProfile,
   parseScoutPermissionProfile,
 } from "./permission-policy.js";
-import { installClaudePermissionHook } from "./claude-permission-hook.js";
 
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
@@ -2233,13 +2232,6 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
 
   if (normalizedRecord.transport === "claude_stream_json") {
     await writeFile(join(agentRuntimeDir, "prompt.txt"), systemPrompt);
-    try {
-      installClaudePermissionHook(normalizedRecord.cwd);
-    } catch (error) {
-      console.warn(
-        `[openscout-runtime] failed to install Claude permission hook for ${agentName} at ${normalizedRecord.cwd}: ${errorMessage(error)}`,
-      );
-    }
     await ensureClaudeStreamJsonAgentOnline(buildClaudeAgentSessionOptions(agentName, normalizedRecord, systemPrompt));
 
     const registry = await readLocalAgentRegistry();
