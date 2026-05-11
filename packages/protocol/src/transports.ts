@@ -5,6 +5,7 @@ import type { InvocationRequest } from "./invocations.js";
 import type { NodeDefinition } from "./mesh.js";
 import type { MessageRecord } from "./messages.js";
 import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
+import type { UnblockRequestEvent, UnblockRequestRecord } from "./unblock-requests.js";
 
 export interface SubscriptionRequest {
   actorId: ScoutId;
@@ -77,6 +78,16 @@ export interface CollaborationEventAppendCommand {
   event: CollaborationEvent;
 }
 
+export interface UnblockRequestUpsertCommand {
+  kind: "unblock_request.upsert";
+  request: UnblockRequestRecord;
+}
+
+export interface UnblockRequestEventAppendCommand {
+  kind: "unblock_request.event.append";
+  event: UnblockRequestEvent;
+}
+
 export type ControlCommand =
   | NodeUpsertCommand
   | ActorUpsertCommand
@@ -86,6 +97,8 @@ export type ControlCommand =
   | BindingUpsertCommand
   | CollaborationUpsertCommand
   | CollaborationEventAppendCommand
+  | UnblockRequestUpsertCommand
+  | UnblockRequestEventAppendCommand
   | PostMessageCommand
   | InvokeAgentCommand
   | EnsureAwakeCommand

@@ -9,6 +9,10 @@ export type OperatorAttentionDismissTarget =
   | {
       flightId: string;
       itemUpdatedAt: number;
+    }
+  | {
+      unblockRequestId: string;
+      itemUpdatedAt: number;
     };
 
 export async function dismissOperatorAttention(target: OperatorAttentionDismissTarget): Promise<void> {

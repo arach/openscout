@@ -9,6 +9,7 @@ import type {
   FlightRecord,
   InvocationRequest,
   MessageRecord,
+  UnblockRequestRecord,
 } from "@openscout/protocol";
 
 import { FileBackedBrokerJournal } from "./broker-journal.ts";
@@ -99,6 +100,22 @@ function sampleFlight(): FlightRecord {
   };
 }
 
+function sampleUnblockRequest(): UnblockRequestRecord {
+  return {
+    id: "unblock-1",
+    kind: "permission",
+    state: "open",
+    source: "claude-permission-hook",
+    sourceRef: "claude-permission:req-1",
+    title: "Allow Claude tool: Bash",
+    ownerId: "operator",
+    createdById: "system",
+    actions: [{ kind: "approve", label: "Allow" }],
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_000_000,
+  };
+}
+
 describe("FileBackedBrokerJournal", () => {
   test("skips redundant entity upserts on append", async () => {
     const { journal, journalPath } = createJournal();
@@ -174,5 +191,34 @@ describe("FileBackedBrokerJournal", () => {
     expect(snapshot.flights["flt-1"]).toEqual(expect.objectContaining({
       invocationId: "inv-1",
     }));
+  });
+
+  test("replays unblock request records into snapshots", async () => {
+    const { journal, journalPath } = createJournal();
+
+    writeFileSync(
+      journalPath,
+      [
+        JSON.stringify({ kind: "unblock_request.record", request: sampleUnblockRequest() }),
+        JSON.stringify({
+          kind: "unblock_request.event.record",
+          event: {
+            id: "evt-1",
+            requestId: "unblock-1",
+            kind: "created",
+            actorId: "system",
+            at: 1_700_000_000_000,
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    await journal.load();
+
+    expect(journal.snapshot().unblockRequests["unblock-1"]).toEqual(expect.objectContaining({
+      sourceRef: "claude-permission:req-1",
+    }));
+    expect(journal.listUnblockRequestEvents({ requestId: "unblock-1" })).toHaveLength(1);
   });
 });

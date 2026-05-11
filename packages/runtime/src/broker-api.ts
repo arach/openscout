@@ -21,6 +21,8 @@ import type {
   ThreadWatchOpenResponse,
   ThreadWatchRenewRequest,
   ThreadWatchRenewResponse,
+  UnblockRequestEvent,
+  UnblockRequestRecord,
 } from "@openscout/protocol";
 
 import type { RuntimeRegistrySnapshot } from "./registry.js";
@@ -69,6 +71,21 @@ export type ScoutBrokerCollaborationEventQuery = {
   limit?: number;
 };
 
+export type ScoutBrokerUnblockRequestQuery = {
+  kind?: string;
+  state?: string;
+  ownerId?: string;
+  source?: string;
+  sourceRef?: string;
+  active?: boolean;
+  limit?: number;
+};
+
+export type ScoutBrokerUnblockRequestEventQuery = {
+  requestId?: string;
+  limit?: number;
+};
+
 export type ScoutBrokerThreadEventQuery = {
   conversationId: string;
   afterSeq?: number;
@@ -92,6 +109,12 @@ export type ActiveScoutBrokerService = {
   readCollaborationEvents?: (
     query: ScoutBrokerCollaborationEventQuery,
   ) => Promise<unknown>;
+  readUnblockRequests?: (
+    query: ScoutBrokerUnblockRequestQuery,
+  ) => Promise<UnblockRequestRecord[]>;
+  readUnblockRequestEvents?: (
+    query: ScoutBrokerUnblockRequestEventQuery,
+  ) => Promise<UnblockRequestEvent[]>;
   readThreadEvents?: (
     query: ScoutBrokerThreadEventQuery,
   ) => Promise<ThreadEventEnvelope[]>;
@@ -500,6 +523,31 @@ export async function maybeReadJsonFromActiveScoutBrokerService<T>(
     }) as T);
   }
 
+  if (url.pathname === "/v1/unblock-requests") {
+    if (!service.readUnblockRequests) {
+      return unhandled();
+    }
+    return handled(await service.readUnblockRequests({
+      kind: trimOrUndefined(url.searchParams.get("kind")),
+      state: trimOrUndefined(url.searchParams.get("state")),
+      ownerId: trimOrUndefined(url.searchParams.get("ownerId")),
+      source: trimOrUndefined(url.searchParams.get("source")),
+      sourceRef: trimOrUndefined(url.searchParams.get("sourceRef")),
+      active: url.searchParams.get("active") === "true",
+      limit: parseLimit(url.searchParams.get("limit")),
+    }) as T);
+  }
+
+  if (url.pathname === "/v1/unblock-requests/events") {
+    if (!service.readUnblockRequestEvents) {
+      return unhandled();
+    }
+    return handled(await service.readUnblockRequestEvents({
+      requestId: trimOrUndefined(url.searchParams.get("requestId")),
+      limit: parseLimit(url.searchParams.get("limit")),
+    }) as T);
+  }
+
   const threadEventsMatch = url.pathname.match(
     /^\/v1\/conversations\/([^/]+)\/thread-events$/,
   );
@@ -595,6 +643,20 @@ export async function maybePostJsonToActiveScoutBrokerService<T>(
     return handled(await service.executeCommand({
       kind: "collaboration.event.append",
       event: body as CollaborationEvent,
+    }) as T);
+  }
+
+  if (url.pathname === "/v1/unblock-requests") {
+    return handled(await service.executeCommand({
+      kind: "unblock_request.upsert",
+      request: body as UnblockRequestRecord,
+    }) as T);
+  }
+
+  if (url.pathname === "/v1/unblock-requests/events") {
+    return handled(await service.executeCommand({
+      kind: "unblock_request.event.append",
+      event: body as UnblockRequestEvent,
     }) as T);
   }
 

@@ -21,6 +21,8 @@ import type {
   MessageRecord,
   NodeDefinition,
   ScoutDispatchRecord,
+  UnblockRequestEvent,
+  UnblockRequestRecord,
 } from "@openscout/protocol";
 
 import {
@@ -40,6 +42,8 @@ export type BrokerJournalEntry =
   | { kind: "flight.record"; flight: FlightRecord }
   | { kind: "collaboration.record"; record: CollaborationRecord }
   | { kind: "collaboration.event.record"; event: CollaborationEvent }
+  | { kind: "unblock_request.record"; request: UnblockRequestRecord }
+  | { kind: "unblock_request.event.record"; event: UnblockRequestEvent }
   | { kind: "deliveries.record"; deliveries: DeliveryIntent[] }
   | { kind: "delivery.attempt.record"; attempt: DeliveryAttempt }
   | { kind: "durable.action.record"; action: DurableAction }
@@ -60,6 +64,7 @@ export type BrokerJournalEntry =
 type JournalSnapshotState = {
   snapshot: RuntimeRegistrySnapshot;
   collaborationEvents: CollaborationEvent[];
+  unblockRequestEvents: UnblockRequestEvent[];
   deliveries: Map<string, DeliveryIntent>;
   deliveryAttempts: Map<string, DeliveryAttempt[]>;
   durableActions: Map<string, DurableAction>;
@@ -86,6 +91,7 @@ function cloneSnapshot(snapshot: RuntimeRegistrySnapshot): RuntimeRegistrySnapsh
     invocations: { ...snapshot.invocations },
     flights: { ...snapshot.flights },
     collaborationRecords: { ...snapshot.collaborationRecords },
+    unblockRequests: { ...snapshot.unblockRequests },
   });
 }
 
@@ -186,6 +192,7 @@ export class FileBackedBrokerJournal {
   private readonly state: JournalSnapshotState = {
     snapshot: createRuntimeRegistrySnapshot(),
     collaborationEvents: [],
+    unblockRequestEvents: [],
     deliveries: new Map<string, DeliveryIntent>(),
     deliveryAttempts: new Map<string, DeliveryAttempt[]>(),
     durableActions: new Map<string, DurableAction>(),
@@ -295,6 +302,35 @@ export class FileBackedBrokerJournal {
     const limit = options.limit ?? 200;
     return [...this.state.collaborationEvents]
       .filter((event) => !options.recordId || event.recordId === options.recordId)
+      .sort((left, right) => right.at - left.at)
+      .slice(0, limit);
+  }
+
+  listUnblockRequests(options: {
+    limit?: number;
+    kind?: UnblockRequestRecord["kind"];
+    state?: string;
+    ownerId?: string;
+    source?: string;
+    sourceRef?: string;
+    active?: boolean;
+  } = {}): UnblockRequestRecord[] {
+    const limit = options.limit ?? 200;
+    return Object.values(this.state.snapshot.unblockRequests)
+      .filter((request) => !options.kind || request.kind === options.kind)
+      .filter((request) => !options.state || request.state === options.state)
+      .filter((request) => !options.ownerId || request.ownerId === options.ownerId)
+      .filter((request) => !options.source || request.source === options.source)
+      .filter((request) => !options.sourceRef || request.sourceRef === options.sourceRef)
+      .filter((request) => options.active !== true || request.state === "open" || request.state === "snoozed")
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .slice(0, limit);
+  }
+
+  listUnblockRequestEvents(options: { limit?: number; requestId?: string } = {}): UnblockRequestEvent[] {
+    const limit = options.limit ?? 200;
+    return [...this.state.unblockRequestEvents]
+      .filter((event) => !options.requestId || event.requestId === options.requestId)
       .sort((left, right) => right.at - left.at)
       .slice(0, limit);
   }
@@ -452,6 +488,12 @@ export class FileBackedBrokerJournal {
         return;
       case "collaboration.event.record":
         this.state.collaborationEvents.push(entry.event);
+        return;
+      case "unblock_request.record":
+        this.state.snapshot.unblockRequests[entry.request.id] = entry.request;
+        return;
+      case "unblock_request.event.record":
+        this.state.unblockRequestEvents.push(entry.event);
         return;
       case "deliveries.record":
         for (const delivery of entry.deliveries) {

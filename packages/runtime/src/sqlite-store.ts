@@ -43,6 +43,11 @@ import type {
   ThreadFlightSummary,
   ThreadMessageSummary,
   ThreadSnapshot,
+  UnblockRequestAction,
+  UnblockRequestEvent,
+  UnblockRequestRecord,
+  UnblockRequestSeverity,
+  UnblockRequestState,
 } from "@openscout/protocol";
 
 import {
@@ -446,6 +451,43 @@ interface CollaborationEventRow {
   created_at: number;
 }
 
+interface UnblockRequestRow {
+  id: string;
+  kind: UnblockRequestRecord["kind"];
+  state: string;
+  source: string;
+  source_ref: string;
+  source_label: string | null;
+  title: string;
+  summary: string | null;
+  detail: string | null;
+  owner_id: string;
+  created_by_id: string;
+  agent_id: string | null;
+  conversation_id: string | null;
+  session_id: string | null;
+  flight_id: string | null;
+  collaboration_record_id: string | null;
+  severity: string | null;
+  actions_json: string | null;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+  expires_at: number | null;
+  resolved_at: number | null;
+  resolution: string | null;
+}
+
+interface UnblockRequestEventRow {
+  id: string;
+  request_id: string;
+  kind: UnblockRequestEvent["kind"];
+  actor_id: string;
+  summary: string | null;
+  metadata_json: string | null;
+  created_at: number;
+}
+
 interface EventRow {
   id: string;
   kind: string;
@@ -533,6 +575,47 @@ interface ActivityItemRow {
   title: string | null;
   summary: string | null;
   payload_json: string | null;
+}
+
+function buildUnblockRequest(row: UnblockRequestRow): UnblockRequestRecord {
+  return {
+    id: row.id,
+    kind: row.kind,
+    state: row.state as UnblockRequestState,
+    source: row.source,
+    sourceRef: row.source_ref,
+    sourceLabel: row.source_label ?? undefined,
+    title: row.title,
+    summary: row.summary ?? undefined,
+    detail: row.detail ?? undefined,
+    ownerId: row.owner_id,
+    createdById: row.created_by_id,
+    agentId: row.agent_id ?? undefined,
+    conversationId: row.conversation_id ?? undefined,
+    sessionId: row.session_id ?? undefined,
+    flightId: row.flight_id ?? undefined,
+    collaborationRecordId: row.collaboration_record_id ?? undefined,
+    severity: (row.severity ?? undefined) as UnblockRequestSeverity | undefined,
+    actions: parseJson<UnblockRequestAction[] | undefined>(row.actions_json, undefined),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    expiresAt: row.expires_at ?? undefined,
+    resolvedAt: row.resolved_at ?? undefined,
+    resolution: row.resolution ?? undefined,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
+}
+
+function buildUnblockRequestEvent(row: UnblockRequestEventRow): UnblockRequestEvent {
+  return {
+    id: row.id,
+    requestId: row.request_id,
+    kind: row.kind,
+    actorId: row.actor_id,
+    at: row.created_at,
+    summary: row.summary ?? undefined,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
 }
 
 function buildCollaborationRecord(row: CollaborationRecordRow): CollaborationRecord {
@@ -899,6 +982,14 @@ export class SQLiteControlPlaneStore {
     );
     for (const row of collaborationRows) {
       snapshot.collaborationRecords[row.id] = buildCollaborationRecord(row);
+    }
+
+    const unblockRows = queryAll<UnblockRequestRow>(
+      this.readDb,
+      "SELECT * FROM unblock_requests",
+    );
+    for (const row of unblockRows) {
+      snapshot.unblockRequests[row.id] = buildUnblockRequest(row);
     }
 
     return snapshot;
@@ -1427,6 +1518,124 @@ export class SQLiteControlPlaneStore {
       },
     });
     return this.recordThreadCollaborationEventAppend(event);
+  }
+
+  recordUnblockRequest(request: UnblockRequestRecord): void {
+    this.db.query(
+      `INSERT OR REPLACE INTO unblock_requests (
+        id, kind, state, source, source_ref, source_label, title, summary, detail,
+        owner_id, created_by_id, agent_id, conversation_id, session_id, flight_id,
+        collaboration_record_id, severity, actions_json, metadata_json, created_at,
+        updated_at, expires_at, resolved_at, resolution
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)`,
+    ).run(
+      request.id,
+      request.kind,
+      request.state,
+      request.source,
+      request.sourceRef,
+      request.sourceLabel ?? null,
+      request.title,
+      request.summary ?? null,
+      request.detail ?? null,
+      request.ownerId,
+      request.createdById,
+      request.agentId ?? null,
+      request.conversationId ?? null,
+      request.sessionId ?? null,
+      request.flightId ?? null,
+      request.collaborationRecordId ?? null,
+      request.severity ?? null,
+      stringify(request.actions),
+      stringify(request.metadata),
+      request.createdAt,
+      request.updatedAt,
+      request.expiresAt ?? null,
+      request.resolvedAt ?? null,
+      request.resolution ?? null,
+    );
+  }
+
+  recordUnblockRequestEvent(event: UnblockRequestEvent): void {
+    this.db.query(
+      `INSERT OR REPLACE INTO unblock_request_events (
+        id, request_id, kind, actor_id, summary, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    ).run(
+      event.id,
+      event.requestId,
+      event.kind,
+      event.actorId,
+      event.summary ?? null,
+      stringify(event.metadata),
+      event.at,
+    );
+  }
+
+  listUnblockRequests(options: {
+    kind?: UnblockRequestRecord["kind"];
+    state?: string;
+    ownerId?: string;
+    source?: string;
+    sourceRef?: string;
+    active?: boolean;
+    limit?: number;
+  } = {}): UnblockRequestRecord[] {
+    const filters: string[] = [];
+    const values: Array<string | number> = [];
+
+    if (options.kind) {
+      filters.push(`kind = ?${values.length + 1}`);
+      values.push(options.kind);
+    }
+    if (options.state) {
+      filters.push(`state = ?${values.length + 1}`);
+      values.push(options.state);
+    }
+    if (options.ownerId) {
+      filters.push(`owner_id = ?${values.length + 1}`);
+      values.push(options.ownerId);
+    }
+    if (options.source) {
+      filters.push(`source = ?${values.length + 1}`);
+      values.push(options.source);
+    }
+    if (options.sourceRef) {
+      filters.push(`source_ref = ?${values.length + 1}`);
+      values.push(options.sourceRef);
+    }
+    if (options.active) {
+      filters.push("state IN ('open', 'snoozed')");
+    }
+
+    const limit = Math.max(1, Math.min(options.limit ?? 200, 500));
+    const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+    return queryAll<UnblockRequestRow, Array<string | number>>(
+      this.readDb,
+      `SELECT * FROM unblock_requests ${where} ORDER BY updated_at DESC LIMIT ?${values.length + 1}`,
+      ...values,
+      limit,
+    ).map(buildUnblockRequest);
+  }
+
+  listUnblockRequestEvents(options: {
+    requestId?: string;
+    limit?: number;
+  } = {}): UnblockRequestEvent[] {
+    const filters: string[] = [];
+    const values: Array<string | number> = [];
+    if (options.requestId) {
+      filters.push(`request_id = ?${values.length + 1}`);
+      values.push(options.requestId);
+    }
+    const limit = Math.max(1, Math.min(options.limit ?? 200, 500));
+    const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+    return queryAll<UnblockRequestEventRow, Array<string | number>>(
+      this.readDb,
+      `SELECT * FROM unblock_request_events ${where} ORDER BY created_at DESC LIMIT ?${values.length + 1}`,
+      ...values,
+      limit,
+    ).map(buildUnblockRequestEvent);
   }
 
   listActivityItems(options: {

@@ -268,6 +268,44 @@ CREATE TABLE IF NOT EXISTS collaboration_events (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS unblock_requests (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  state TEXT NOT NULL,
+  source TEXT NOT NULL,
+  source_ref TEXT NOT NULL,
+  source_label TEXT,
+  title TEXT NOT NULL,
+  summary TEXT,
+  detail TEXT,
+  owner_id TEXT NOT NULL,
+  created_by_id TEXT NOT NULL,
+  agent_id TEXT,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  session_id TEXT,
+  flight_id TEXT REFERENCES flights(id) ON DELETE SET NULL,
+  collaboration_record_id TEXT REFERENCES collaboration_records(id) ON DELETE SET NULL,
+  severity TEXT,
+  actions_json TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  expires_at INTEGER,
+  resolved_at INTEGER,
+  resolution TEXT,
+  UNIQUE (source, source_ref)
+);
+
+CREATE TABLE IF NOT EXISTS unblock_request_events (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL REFERENCES unblock_requests(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  summary TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -377,6 +415,12 @@ CREATE INDEX IF NOT EXISTS idx_collaboration_records_updated_at
   ON collaboration_records (updated_at);
 CREATE INDEX IF NOT EXISTS idx_collaboration_events_record_created_at
   ON collaboration_events (record_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_unblock_requests_state_owner_updated_at
+  ON unblock_requests (state, owner_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_unblock_requests_source_ref
+  ON unblock_requests (source, source_ref);
+CREATE INDEX IF NOT EXISTS idx_unblock_request_events_request_created_at
+  ON unblock_request_events (request_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_kind_ts
   ON events (kind, ts);
 CREATE INDEX IF NOT EXISTS idx_thread_events_conversation_seq
