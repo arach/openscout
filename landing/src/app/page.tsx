@@ -805,14 +805,16 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="reveal-stagger mt-12 grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
+                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
                   {meshPrinciples.map(({ title, description }, i) => (
                     <div
                       key={title}
                       className="reveal rfc-block"
                       style={{ "--reveal-i": i } as React.CSSProperties}
                     >
-                      <div className="rfc-block__num">§1.{i + 1}</div>
+                      <div className="rfc-block__num">
+                        <span className="rfc-block__num-mark">§1.{i + 1}</span>
+                      </div>
                       <h3 className="rfc-block__title">{title}</h3>
                       <p className="rfc-block__body">{description}</p>
                     </div>
@@ -845,7 +847,7 @@ export default function Home() {
                   </Link>
                 </div>
 
-                <div className="reveal-stagger grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
+                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
                   {capabilities.map(({ label, title, description }, i) => (
                     <div
                       key={title}
@@ -853,7 +855,8 @@ export default function Home() {
                       style={{ "--reveal-i": i } as React.CSSProperties}
                     >
                       <div className="rfc-block__num">
-                        §2.{i + 1} · {label}
+                        <span className="rfc-block__num-mark">§2.{i + 1}</span>{" "}
+                        · {label}
                       </div>
                       <h3 className="rfc-block__title">{title}</h3>
                       <p className="rfc-block__body">{description}</p>
@@ -948,7 +951,10 @@ export default function Home() {
                     </p>
 
                     <div className="mt-8 rfc-block">
-                      <div className="rfc-block__num">§4.1 · Optional</div>
+                      <div className="rfc-block__num">
+                        <span className="rfc-block__num-mark">§4.1</span> ·
+                        Optional
+                      </div>
                       <h3 className="rfc-block__title">Desktop App</h3>
                       <p className="rfc-block__body">
                         The CLI is the complete runtime. The desktop app adds a

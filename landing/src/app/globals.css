@@ -542,84 +542,159 @@ html[data-site-theme="dark"] .dot-grid {
    RFC document sections (Problem, Capabilities, Surfaces, Get Started)
    ────────────────────────────────────────────────────────── */
 
+/* §-section composition.
+   Editorial unit, not a stack. Hierarchy goes:
+     – serif title is the dominant voice (ink)
+     – eyebrow is a quiet label that attaches to the title (muted)
+     – §N hangs in the left margin as marginalia (accent — appears once)
+     – lead breathes from the title; figure/blocks sit on a real beat below
+     – enumerated blocks read as children of the title column, sharing a
+       single column rule instead of three redundant per-card rules
+   Rhythm ladder (proximity = relationship):
+     eyebrow → title       = tight (0.45rem)
+     title   → lead        = grouped but breathing (1.35rem)
+     lead    → figure/blks = real beat (3rem)                              */
+
 .rfc-section {
-  border-top: 1px solid var(--site-border-soft);
-  padding-top: 4rem;
-  padding-bottom: 4.5rem;
+  padding-top: 4.5rem;
+  padding-bottom: 5rem;
 }
 
-/* Eyebrow + title + lead read as one composed section opener.
-   Proximity ladder: eyebrow → title is tight (label attaches to title);
-   title → lead is looser but still grouped; a thin accent rule anchors
-   the eyebrow to the section column so it doesn't float. */
+/* Eyebrow: a quiet label attached to the title, not a competing banner.
+   No bottom border, no rust on §N — restraint. The §N gets promoted to a
+   hanging marginalia marker on the title itself (see below). */
 .rfc-section-eyebrow {
   font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.09em;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--site-muted);
   display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px solid var(--site-border-soft);
+  align-items: baseline;
+  gap: 0.5rem;
 }
 
+/* The inline §N is replaced visually by the hanging marker on the title;
+   keep it in the markup for screen readers and as a fallback if CSS
+   counters or absolute positioning are unavailable. */
 .rfc-section-eyebrow__num {
-  color: var(--site-accent);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-/* Visual divider between §N and label — replaces the bare gap so the
-   number reads as a marker, not a separate word. */
-.rfc-section-eyebrow__num::after {
-  content: "·";
-  color: var(--site-border-strong);
-  margin-left: 0.55rem;
-  font-weight: 400;
-}
-
+/* Title is the loudest element. Margin-top is tight to the eyebrow so they
+   read as one unit. */
 .rfc-section-title {
+  position: relative;
   font-family: var(--font-spectral), ui-serif, Georgia, serif;
   font-weight: 600;
-  font-size: clamp(1.375rem, 2.4vw, 1.875rem);
-  line-height: 1.15;
-  letter-spacing: -0.012em;
+  font-size: clamp(1.5rem, 2.6vw, 2.0625rem);
+  line-height: 1.12;
+  letter-spacing: -0.014em;
   color: var(--site-ink);
-  max-width: 26ch;
-  margin-top: 0.85rem;
+  max-width: 24ch;
+  margin-top: 0.45rem;
 }
+
+/* Marginalia §-marker: small mono §N sitting just above the serif title's
+   first line, slightly inset. The accent fires here exactly once in the
+   opener — the editorial tell that this is a numbered section of the
+   spec, without a banner-y eyebrow rule fighting the title.            */
+.rfc-section-title::before {
+  content: "§" counter(rfc-section);
+  display: inline-block;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--site-accent);
+  vertical-align: 0.6em;
+  margin-right: 0.5rem;
+}
+
+/* Use a CSS counter so each §-section auto-numbers from the page order.
+   Markup keeps the explicit §N inside .rfc-section-eyebrow__num for
+   non-CSS readers, but the counter drives what the marginalia shows.   */
+main { counter-reset: rfc-section; }
+.rfc-section { counter-increment: rfc-section; }
 
 .rfc-section-lead {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 13.5px;
-  line-height: 1.7;
+  line-height: 1.75;
   color: var(--site-copy);
-  margin-top: 1.1rem;
-  max-width: 58ch;
+  margin-top: 1.35rem;
+  max-width: 56ch;
 }
 
+/* Block row: a single shared hairline anchors the enumerated cards to the
+   section, replacing the three per-card top rules. The blocks themselves
+   become bare composition — number, title, body — with no border. The
+   container rule has a small rust tick at its start (a rendered "[" of
+   the enumerated zone) — the only second use of the accent in a section. */
+.rfc-block-row {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--site-border-soft);
+  position: relative;
+}
+
+.rfc-block-row::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 2.25rem;
+  height: 1px;
+  background: var(--site-accent);
+  opacity: 0.7;
+}
+
+/* Standalone .rfc-block (used outside the row, e.g. §3 Note + §4 Optional)
+   keeps a soft top rule for separation but no longer competes with the
+   row treatment. */
 .rfc-block {
   border-top: 1px solid var(--site-border-soft);
   padding-top: 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.55rem;
+}
+
+/* When .rfc-block sits inside .rfc-block-row, drop its own border — the
+   row owns the rule. */
+.rfc-block-row .rfc-block {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .rfc-block__num {
   font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 11.5px;
-  letter-spacing: 0.08em;
-  color: var(--site-accent);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--site-muted);
   font-weight: 600;
+}
+
+/* The §x.N portion of the block num is the only place the accent appears
+   inside the row — keeps the trail of rust readable as "section markers,
+   nothing else." */
+.rfc-block__num-mark {
+  color: var(--site-accent);
 }
 
 .rfc-block__title {
   font-family: var(--font-spectral), ui-serif, Georgia, serif;
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 1.0625rem;
   line-height: 1.3;
   letter-spacing: -0.005em;
   color: var(--site-ink);
@@ -628,7 +703,7 @@ html[data-site-theme="dark"] .dot-grid {
 .rfc-block__body {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 12.5px;
-  line-height: 1.65;
+  line-height: 1.7;
   color: var(--site-copy);
 }
 
