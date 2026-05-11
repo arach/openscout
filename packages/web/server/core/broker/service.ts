@@ -1634,7 +1634,10 @@ export async function sendScoutMessage(input: {
       task: input.body,
       conversationId: conversation.id,
       messageId,
-      execution: input.executionHarness ? { harness: input.executionHarness } : undefined,
+      execution: {
+        ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+        session: "new",
+      },
       ensureAwake: true,
       stream: false,
       createdAt: Date.now(),
@@ -1743,7 +1746,10 @@ export async function sendScoutDirectMessage(input: {
     body: input.body.trim(),
     intent: "consult",
     replyToMessageId: input.replyToMessageId ?? undefined,
-    execution: input.executionHarness ? { harness: input.executionHarness } : undefined,
+    execution: {
+      ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      session: "new",
+    },
     ensureAwake: true,
     createdAt,
     messageMetadata: {
@@ -1822,7 +1828,10 @@ export async function askScoutQuestion(input: {
     intent: "consult",
     channel: input.channel,
     speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(messageBody) : undefined,
-    execution: input.executionHarness ? { harness: input.executionHarness } : undefined,
+    execution: {
+      ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      session: "new",
+    },
     ensureAwake: true,
     createdAt: input.createdAtMs ?? Date.now(),
     messageMetadata: {

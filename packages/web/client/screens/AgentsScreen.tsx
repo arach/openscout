@@ -16,6 +16,7 @@ import type {
   Agent,
   AgentObservePayload,
   FleetState,
+  LocalAgentContextState,
   Message,
   Route,
   SessionEntry,
@@ -121,6 +122,72 @@ function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume;
           {catalog.sessions.length} session{catalog.sessions.length !== 1 ? "s" : ""} · started {timeAgo(active.startedAt)}
         </div>
       )}
+    </div>
+  );
+}
+
+function formatContextAge(ms: number | null): string {
+  if (ms === null) return "age unknown";
+  const minutes = Math.max(0, Math.round(ms / 60000));
+  if (minutes < 60) return `${minutes}m old`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder > 0 ? `${hours}h ${remainder}m old` : `${hours}h old`;
+}
+
+function contextLoadPercent(context: LocalAgentContextState): number {
+  const turnRatio = context.policy.maxTurns > 0
+    ? context.turnCount / context.policy.maxTurns
+    : 0;
+  const ageRatio = context.sessionAgeMs !== null && context.policy.maxAgeMs > 0
+    ? context.sessionAgeMs / context.policy.maxAgeMs
+    : 0;
+  return Math.max(0, Math.min(100, Math.round(Math.max(turnRatio, ageRatio) * 100)));
+}
+
+function contextStateLabel(state: LocalAgentContextState["state"]): string {
+  switch (state) {
+    case "stale":
+      return "Stale";
+    case "aging":
+      return "Aging";
+    default:
+      return "Fresh";
+  }
+}
+
+function ContextFacet({
+  context,
+  resetting,
+  onReset,
+}: {
+  context: LocalAgentContextState;
+  resetting: boolean;
+  onReset: () => void;
+}) {
+  const percent = contextLoadPercent(context);
+  const resetDisabled = resetting || context.currentTurnActive;
+  return (
+    <div className={`s-profile-facet s-profile-context s-profile-context--${context.state}`}>
+      <div className="s-profile-facet-label">Context</div>
+      <div className="s-profile-context-head">
+        <span className="s-profile-context-state">{contextStateLabel(context.state)}</span>
+        <button
+          type="button"
+          className="s-profile-facet-action"
+          disabled={resetDisabled}
+          onClick={onReset}
+          title={context.currentTurnActive ? "Agent is currently working" : "Start a fresh session"}
+        >
+          {resetting ? "Starting..." : "New"}
+        </button>
+      </div>
+      <div className="s-profile-context-gauge" aria-label={`Context load ${percent}%`}>
+        <div className="s-profile-context-gauge-fill" style={{ width: `${percent}%` }} />
+      </div>
+      <div className="s-profile-facet-detail" title={context.reason ?? undefined}>
+        {context.turnCount}/{context.policy.maxTurns} turns / {formatContextAge(context.sessionAgeMs)}
+      </div>
     </div>
   );
 }
@@ -328,6 +395,8 @@ function AgentDetailWithRail({
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const [observeLoading, setObserveLoading] = useState(false);
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const [contextState, setContextState] = useState<LocalAgentContextState | null>(null);
+  const [resettingContext, setResettingContext] = useState(false);
   const [dismissingWorkId, setDismissingWorkId] = useState<string | null>(null);
   const state = normalizeAgentState(agent.state);
   const showContextMenu = useContextMenu();
@@ -405,17 +474,53 @@ function AgentDetailWithRail({
     }
   }, [agent.id]);
 
+  const loadContextState = useCallback(async () => {
+    if (!agent.transport) {
+      setContextState(null);
+      return;
+    }
+    try {
+      const result = await api<LocalAgentContextState>(
+        `/api/agents/${encodeURIComponent(agent.id)}/session/context`,
+      );
+      setContextState(result);
+    } catch {
+      setContextState(null);
+    }
+  }, [agent.id, agent.transport]);
+
+  const resetAgentContext = useCallback(async () => {
+    setResettingContext(true);
+    try {
+      const result = await api<{ ok: boolean; catalog: SessionCatalogWithResume }>(
+        `/api/agents/${encodeURIComponent(agent.id)}/session/reset`,
+        { method: "POST" },
+      );
+      setSessionCatalog(result.catalog);
+      await loadContextState();
+      if (activeTab === "observe") {
+        await loadObserve();
+      }
+    } catch {
+      await loadContextState();
+    } finally {
+      setResettingContext(false);
+    }
+  }, [activeTab, agent.id, loadContextState, loadObserve]);
+
   useEffect(() => {
     void load();
     void loadMessages();
+    void loadContextState();
     api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agent.id)}/session-catalog`)
       .then(setSessionCatalog)
       .catch(() => {});
-  }, [load, loadMessages, agent.id]);
+  }, [load, loadMessages, loadContextState, agent.id]);
 
   useEffect(() => {
     setObserve(null);
     setObserveLoading(false);
+    setContextState(null);
   }, [agent.id]);
 
   useEffect(() => {
@@ -428,6 +533,7 @@ function AgentDetailWithRail({
   useBrokerEvents(() => {
     void load();
     void loadMessages();
+    void loadContextState();
     if (activeTab === "observe") {
       void loadObserve();
     }
@@ -605,7 +711,7 @@ function AgentDetailWithRail({
 
       {activeTab === "profile" && (
         <div className="s-profile-tab-content">
-          {(agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId) && (
+          {(agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
             <div className="s-profile-facets">
               {agent.project && (
                 <div className="s-profile-facet">
@@ -650,6 +756,13 @@ function AgentDetailWithRail({
               )}
               {sessionCatalog?.activeSessionId && (
                 <SessionFacet catalog={sessionCatalog} agentId={agent.id} />
+              )}
+              {contextState && (
+                <ContextFacet
+                  context={contextState}
+                  resetting={resettingContext}
+                  onReset={() => void resetAgentContext()}
+                />
               )}
             </div>
           )}

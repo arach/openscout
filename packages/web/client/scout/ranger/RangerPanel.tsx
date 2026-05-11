@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Gauge, History, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
@@ -1434,17 +1434,56 @@ function ChatInput({
 function ChatBubble({ role, body, pending = false }: { role: "user" | "assistant"; body: string; pending?: boolean }) {
   const isUser = role === "user";
   const text = isUser ? body : stripRangerUiFences(body);
+  const [copied, setCopied] = useState(false);
+  const copyMessage = useCallback(() => {
+    void copyTextToClipboard(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    }).catch(() => {});
+  }, [text]);
   return (
-    <div className="flex flex-col">
-      <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
-        {isUser ? "You" : "Ranger"}
-        {pending && " · sending"}
-      </span>
+    <div className="group flex flex-col gap-0.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
+          {isUser ? "You" : "Ranger"}
+          {pending && " · sending"}
+        </span>
+        <button
+          type="button"
+          title={copied ? "Copied" : "Copy message"}
+          aria-label={copied ? "Copied message" : "Copy message"}
+          disabled={pending || !text.trim()}
+          onClick={copyMessage}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-ghost)] opacity-70 transition hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-20 group-hover:opacity-100"
+        >
+          {copied ? <CheckCircle2 size={11} /> : <Copy size={11} />}
+        </button>
+      </div>
       <p className={`whitespace-pre-wrap break-words text-[11px] leading-relaxed ${isUser ? "text-[var(--scout-chrome-ink)]" : "text-[var(--scout-chrome-ink)]"} ${pending ? "opacity-60" : ""}`}>
         {text}
       </p>
     </div>
   );
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function RangerIconButton({

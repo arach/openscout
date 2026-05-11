@@ -698,6 +698,27 @@ export type SessionCatalogWithResume = SessionCatalog & {
   resumeCwd: string | null;
 };
 
+export type LocalAgentContextState = {
+  agentId: string;
+  state: "fresh" | "aging" | "stale";
+  reason: string | null;
+  generatedAt: number;
+  activeSessionId: string | null;
+  sessionStartedAt: number | null;
+  sessionAgeMs: number | null;
+  turnCount: number;
+  currentTurnActive: boolean;
+  canAutoReset: boolean;
+  policy: {
+    maxTurns: number;
+    maxAgeMs: number;
+    agingRatio: number;
+  };
+  model: string | null;
+  harness: string;
+  transport: string;
+};
+
 export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never";
 export type CommsChannel = "here" | "mobile" | "here+mobile";
 export type CommsVerbosity = "terse" | "normal" | "detailed";
