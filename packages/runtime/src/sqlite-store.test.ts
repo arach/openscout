@@ -194,14 +194,72 @@ describe("SQLiteControlPlaneStore", () => {
     const db = new Database(dbPath, { readonly: true });
 
     try {
-      const indexNames = getIndexNames(db, ["conversations", "flights", "activity_items", "invocations"]);
+      const indexNames = getIndexNames(db, [
+        "conversations",
+        "flights",
+        "activity_items",
+        "invocations",
+        "unblock_requests",
+        "unblock_request_events",
+      ]);
 
       expect(indexNames).toContain("idx_conversations_created_at");
       expect(indexNames).toContain("idx_flights_invocation_id");
       expect(indexNames).toContain("idx_activity_items_ts");
       expect(indexNames).toContain("idx_invocations_requester_created_at");
+      expect(indexNames).toContain("idx_unblock_requests_state_owner_updated_at");
+      expect(indexNames).toContain("idx_unblock_requests_source_ref");
+      expect(indexNames).toContain("idx_unblock_request_events_request_created_at");
     } finally {
       db.close();
+      store.close();
+    }
+  });
+
+  test("persists and reloads durable unblock requests", () => {
+    const store = createStore();
+
+    try {
+      store.recordUnblockRequest({
+        id: "unblock-1",
+        kind: "permission",
+        state: "open",
+        source: "claude-permission-hook",
+        sourceRef: "claude-permission:req-1",
+        title: "Allow Claude tool: Bash",
+        ownerId: "operator",
+        createdById: "system",
+        severity: "warning",
+        actions: [
+          { kind: "approve", label: "Allow" },
+          { kind: "deny", label: "Deny" },
+        ],
+        createdAt: 100,
+        updatedAt: 100,
+      });
+      store.recordUnblockRequestEvent({
+        id: "evt-1",
+        requestId: "unblock-1",
+        kind: "created",
+        actorId: "system",
+        at: 100,
+      });
+
+      expect(store.loadSnapshot().unblockRequests["unblock-1"]?.sourceRef).toBe("claude-permission:req-1");
+      expect(store.listUnblockRequests({ ownerId: "operator", active: true })).toHaveLength(1);
+      expect(store.listUnblockRequestEvents({ requestId: "unblock-1" })).toHaveLength(1);
+
+      store.recordUnblockRequest({
+        ...store.loadSnapshot().unblockRequests["unblock-1"]!,
+        state: "resolved",
+        updatedAt: 140,
+        resolvedAt: 140,
+        actions: undefined,
+      });
+
+      expect(store.listUnblockRequests({ ownerId: "operator", active: true })).toHaveLength(0);
+      expect(store.loadSnapshot().unblockRequests["unblock-1"]?.state).toBe("resolved");
+    } finally {
       store.close();
     }
   });

@@ -379,6 +379,7 @@ export type OperatorAttentionAction = {
   recordId?: string;
   recordKind?: "question" | "work_item";
   flightId?: string;
+  unblockRequestId?: string;
 };
 
 export type OperatorAttentionItem = {
@@ -394,6 +395,13 @@ export type OperatorAttentionItem = {
   severity: "critical" | "warning" | "info";
   sourceLabel: string;
   approval?: PairingApprovalRequest;
+  unblockRequest?: {
+    id: string;
+    kind: string;
+    state: string;
+    source: string;
+    sourceRef: string;
+  };
   permissionRequest?: {
     id: string;
     source: "claude-code";

@@ -961,14 +961,19 @@ function OperatorAttentionCard({
   };
 
   const dismissItem = async () => {
-    if (!dismiss?.flightId && (!dismiss?.recordKind || !dismiss.recordId)) {
+    if (!dismiss?.unblockRequestId && !dismiss?.flightId && (!dismiss?.recordKind || !dismiss.recordId)) {
       setError("This queue item cannot be dismissed from here yet.");
       return;
     }
     setBusy("dismiss");
     setError(null);
     try {
-      if (dismiss.flightId) {
+      if (dismiss.unblockRequestId) {
+        await dismissOperatorAttention({
+          unblockRequestId: dismiss.unblockRequestId,
+          itemUpdatedAt: item.updatedAt,
+        });
+      } else if (dismiss.flightId) {
         await dismissOperatorAttention({ flightId: dismiss.flightId, itemUpdatedAt: item.updatedAt });
       } else {
         const recordKind = dismiss.recordKind;

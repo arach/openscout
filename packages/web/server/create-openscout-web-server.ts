@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 import { Hono, type Context } from "hono";
-import type { CollaborationEvent, CollaborationKind, ConversationDefinition, ConversationKind } from "@openscout/protocol";
+import type {
+  CollaborationEvent,
+  CollaborationKind,
+  ConversationDefinition,
+  ConversationKind,
+  UnblockRequestEvent,
+  UnblockRequestRecord,
+} from "@openscout/protocol";
 
 import {
   controlScoutWebPairingService,
@@ -43,13 +50,16 @@ import {
 } from "./db-queries.ts";
 import {
   appendScoutCollaborationEvent,
+  appendScoutUnblockRequestEvent,
   askScoutQuestion,
   loadScoutRelayConfig,
+  readScoutUnblockRequests,
   resolveScoutBrokerUrl,
   sendScoutDirectMessage,
   sendScoutMessage,
   upsertScoutConversation,
   upsertScoutFlight,
+  upsertScoutUnblockRequest,
 } from "./core/broker/service.ts";
 import { scoutBrokerPaths } from "./core/broker/paths.ts";
 import { getScoutConversations } from "./core/conversations/service.ts";
@@ -174,6 +184,7 @@ type OperatorAttentionItem = {
   sourceLabel: string;
   approval?: ScoutPairingState["pendingApprovals"][number];
   permissionRequest?: ClaudePermissionRequest;
+  unblockRequest?: UnblockRequestRecord;
   actions: Array<{
     kind: "approve" | "deny" | "open" | "configure" | "copy" | "dismiss";
     label: string;
@@ -182,6 +193,7 @@ type OperatorAttentionItem = {
     recordId?: string;
     recordKind?: CollaborationKind;
     flightId?: string;
+    unblockRequestId?: string;
   }>;
 };
 
@@ -724,6 +736,160 @@ function decideClaudePermissionRequest(input: {
   return next;
 }
 
+const CLAUDE_PERMISSION_UNBLOCK_SOURCE = "claude-permission-hook";
+
+function permissionUnblockSourceRef(request: ClaudePermissionRequest): string {
+  return `claude-permission:${request.id}`;
+}
+
+function permissionUnblockId(request: ClaudePermissionRequest): string {
+  return `unblock:${permissionUnblockSourceRef(request)}`;
+}
+
+function stateForPermissionRequest(request: ClaudePermissionRequest): UnblockRequestRecord["state"] {
+  if (request.status === "expired") {
+    return "expired";
+  }
+  if (request.decision === "deny") {
+    return "denied";
+  }
+  if (request.status === "decided") {
+    return "resolved";
+  }
+  return "open";
+}
+
+function permissionUnblockRecord(request: ClaudePermissionRequest): UnblockRequestRecord {
+  const state = stateForPermissionRequest(request);
+  const summary = request.summary ?? summarizePermissionInput(request.toolInput) ?? undefined;
+  const resolvedAt = state === "open" ? undefined : request.updatedAt;
+  return {
+    id: permissionUnblockId(request),
+    kind: "permission",
+    state,
+    source: CLAUDE_PERMISSION_UNBLOCK_SOURCE,
+    sourceRef: permissionUnblockSourceRef(request),
+    sourceLabel: "Claude hook",
+    title: `Allow Claude tool: ${request.toolName}`,
+    summary,
+    detail: request.cwd || request.sessionId || undefined,
+    ownerId: "operator",
+    createdById: "system",
+    sessionId: request.sessionId ?? undefined,
+    severity: "warning",
+    actions: state === "open"
+      ? [
+        { kind: "approve", label: "Allow" },
+        { kind: "deny", label: "Deny" },
+      ]
+      : undefined,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    expiresAt: request.expiresAt,
+    resolvedAt,
+    resolution: request.reason,
+    metadata: {
+      toolName: request.toolName,
+      hookEventName: request.hookEventName,
+      transcriptPath: request.transcriptPath,
+      cwd: request.cwd,
+      toolInput: request.toolInput,
+      decision: request.decision,
+    },
+  };
+}
+
+async function syncClaudePermissionUnblockRequests(
+  requests = queryPendingClaudePermissionRequests(),
+): Promise<Map<string, UnblockRequestRecord>> {
+  if (requests.length === 0) {
+    return new Map();
+  }
+
+  const synced = new Map<string, UnblockRequestRecord>();
+  await Promise.all(requests.map(async (request) => {
+    const record = permissionUnblockRecord(request);
+    synced.set(request.id, record);
+    try {
+      await upsertScoutUnblockRequest(record);
+    } catch {
+      // Keep the file-backed hook visible even if the broker is starting up.
+    }
+  }));
+  return synced;
+}
+
+function operatorAttentionFromUnblockRequest(
+  request: UnblockRequestRecord,
+  permissionRequest?: ClaudePermissionRequest,
+): OperatorAttentionItem {
+  const actions = (request.actions ?? []).map((action): OperatorAttentionItem["actions"][number] => ({
+    kind: action.kind === "answer" || action.kind === "snooze" ? "open" : action.kind,
+    label: action.label,
+    route: typeof action.route?.view === "string"
+      ? action.route as OperatorAttentionItem["actions"][number]["route"]
+      : undefined,
+    value: action.value,
+    unblockRequestId: request.id,
+  }));
+  if (!actions.some((action) => action.kind === "dismiss")) {
+    actions.push({ kind: "dismiss", label: "Dismiss", unblockRequestId: request.id });
+  }
+
+  return {
+    id: request.id,
+    kind: request.kind === "permission" ? "approval" : request.kind === "flight" ? "ask" : request.kind,
+    title: request.title,
+    summary: request.summary ?? null,
+    detail: request.detail ?? null,
+    agentId: request.agentId ?? null,
+    agentName: null,
+    conversationId: request.conversationId ?? null,
+    updatedAt: request.updatedAt,
+    severity: request.severity ?? "warning",
+    sourceLabel: request.sourceLabel ?? request.source,
+    permissionRequest,
+    unblockRequest: request,
+    actions,
+  };
+}
+
+async function markUnblockRequestTerminal(input: {
+  requestId: string;
+  state: Extract<UnblockRequestRecord["state"], "resolved" | "dismissed" | "denied" | "expired">;
+  actorId?: string;
+  summary?: string;
+  resolution?: string;
+}): Promise<void> {
+  const requests = await readScoutUnblockRequests({ limit: 500 });
+  const current = requests.find((request) => request.id === input.requestId);
+  if (!current) {
+    return;
+  }
+  const at = Date.now();
+  const next: UnblockRequestRecord = {
+    ...current,
+    state: input.state,
+    updatedAt: at,
+    resolvedAt: current.resolvedAt ?? at,
+    resolution: input.resolution ?? current.resolution,
+    actions: undefined,
+  };
+  const event: UnblockRequestEvent = {
+    id: buildScoutEntityId("evt", at),
+    requestId: current.id,
+    kind: input.state,
+    actorId: input.actorId ?? "operator",
+    at,
+    summary: input.summary,
+    metadata: {
+      previousState: current.state,
+    },
+  };
+  await upsertScoutUnblockRequest(next);
+  await appendScoutUnblockRequestEvent(event);
+}
+
 function summarizePermissionInput(input: unknown): string | null {
   if (!input || typeof input !== "object") {
     return null;
@@ -853,6 +1019,17 @@ async function buildOperatorAttentionState(currentDirectory: string) {
 
   const items: OperatorAttentionItem[] = [];
   const pendingApprovalIds = new Set<string>();
+  const pendingPermissionRequests = queryPendingClaudePermissionRequests();
+  await syncClaudePermissionUnblockRequests(pendingPermissionRequests);
+  const unblockRequests = await readScoutUnblockRequests({
+    ownerId: "operator",
+    active: true,
+    limit: 200,
+  }).catch(() => []);
+  const pendingPermissionBySourceRef = new Map(
+    pendingPermissionRequests.map((request) => [permissionUnblockSourceRef(request), request] as const),
+  );
+  const permissionRequestsBackedByUnblock = new Set<string>();
 
   for (const approval of pairing?.pendingApprovals ?? []) {
     const approvalId = sessionApprovalAttentionId(
@@ -895,7 +1072,20 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     items.push(operatorAttentionFromSessionItem(sessionItem));
   }
 
-  for (const request of queryPendingClaudePermissionRequests()) {
+  for (const request of unblockRequests) {
+    const permissionRequest = request.source === CLAUDE_PERMISSION_UNBLOCK_SOURCE
+      ? pendingPermissionBySourceRef.get(request.sourceRef)
+      : undefined;
+    if (permissionRequest) {
+      permissionRequestsBackedByUnblock.add(permissionRequest.id);
+    }
+    items.push(operatorAttentionFromUnblockRequest(request, permissionRequest));
+  }
+
+  for (const request of pendingPermissionRequests) {
+    if (permissionRequestsBackedByUnblock.has(request.id)) {
+      continue;
+    }
     const summary = request.summary ?? summarizePermissionInput(request.toolInput);
     items.push({
       id: `permission:${request.id}`,
@@ -1658,6 +1848,14 @@ export async function createOpenScoutWebServer(
     if (!decided) {
       return c.json({ error: "permission request not found" }, 404);
     }
+    await markUnblockRequestTerminal({
+      requestId: permissionUnblockId(decided),
+      state: decided.decision === "deny" ? "denied" : "resolved",
+      summary: decided.decision === "deny"
+        ? `Denied Claude tool ${decided.toolName}.`
+        : `Allowed Claude tool ${decided.toolName}.`,
+      resolution: decided.reason,
+    }).catch(() => undefined);
     return c.json(await buildOperatorAttentionState(currentDirectory));
   });
   app.post("/api/operator-attention/dismiss", async (c) => {
@@ -1665,18 +1863,27 @@ export async function createOpenScoutWebServer(
       recordKind?: unknown;
       recordId?: unknown;
       flightId?: unknown;
+      unblockRequestId?: unknown;
       itemUpdatedAt?: unknown;
     };
     const recordKind = body.recordKind === "question" || body.recordKind === "work_item" ? body.recordKind : null;
     const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
     const flightId = typeof body.flightId === "string" ? body.flightId.trim() : "";
+    const unblockRequestId = typeof body.unblockRequestId === "string" ? body.unblockRequestId.trim() : "";
     const itemUpdatedAt = typeof body.itemUpdatedAt === "number" && Number.isFinite(body.itemUpdatedAt)
       ? body.itemUpdatedAt
       : 0;
-    if (itemUpdatedAt <= 0 || (!flightId && (!recordKind || !recordId))) {
-      return c.json({ error: "recordKind and recordId, or flightId, plus itemUpdatedAt are required" }, 400);
+    if (itemUpdatedAt <= 0 || (!unblockRequestId && !flightId && (!recordKind || !recordId))) {
+      return c.json({ error: "unblockRequestId, recordKind and recordId, or flightId, plus itemUpdatedAt are required" }, 400);
     }
-    if (flightId) {
+    if (unblockRequestId) {
+      await markUnblockRequestTerminal({
+        requestId: unblockRequestId,
+        state: "dismissed",
+        summary: "Dismissed from operator queue.",
+        resolution: "Dismissed by operator.",
+      });
+    } else if (flightId) {
       await dismissFlightAttention({ flightId, itemUpdatedAt });
     } else if (recordKind && recordId) {
       await dismissCollaborationAttention({ recordKind, recordId, itemUpdatedAt });

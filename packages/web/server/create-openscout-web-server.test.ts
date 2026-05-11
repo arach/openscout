@@ -22,7 +22,10 @@ const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
 const askScoutQuestionCalls: Array<Record<string, unknown>> = [];
 const queryRunsCalls: Array<Record<string, unknown>> = [];
 const decidePairingApprovalCalls: Array<Record<string, unknown>> = [];
+const upsertUnblockRequestCalls: Array<Record<string, unknown>> = [];
+const appendUnblockRequestEventCalls: Array<Record<string, unknown>> = [];
 const testDirectories = new Set<string>();
+let readUnblockRequestsResult: Array<Record<string, unknown>> = [];
 let scoutBrokerContextResult: unknown = null;
 let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
@@ -90,6 +93,7 @@ mock.module("./db-queries.ts", () => ({
     failedDeliveries: [],
     dialogue: [],
   }),
+  queryConversationDefinitionById: () => null,
   queryHeartrate: () => [],
   queryFleet: () => ({
     generatedAt: Date.now(),
@@ -130,8 +134,12 @@ mock.module("./pairing.ts", () => ({
 
 mock.module("./core/broker/service.ts", () => ({
   appendScoutCollaborationEvent: async () => null,
+  appendScoutUnblockRequestEvent: async (input: Record<string, unknown>) => {
+    appendUnblockRequestEventCalls.push(input);
+  },
   loadScoutBrokerContext: async () => scoutBrokerContextResult,
   loadScoutRelayConfig: async () => scoutRelayConfigResult,
+  readScoutUnblockRequests: async () => readUnblockRequestsResult,
   readScoutBrokerHealth: async () => ({
     baseUrl: "http://broker.test",
     reachable: false,
@@ -154,7 +162,11 @@ mock.module("./core/broker/service.ts", () => ({
     askScoutQuestionCalls.push(input);
     return askScoutQuestionResult;
   },
+  upsertScoutConversation: async () => null,
   upsertScoutFlight: async () => null,
+  upsertScoutUnblockRequest: async (input: Record<string, unknown>) => {
+    upsertUnblockRequestCalls.push(input);
+  },
 }));
 
 mock.module("./core/observe/service.ts", () => ({
@@ -381,6 +393,7 @@ beforeEach(() => {
     },
   };
   scoutRelayConfigResult = {};
+  readUnblockRequestsResult = [];
   pairingStateResult = makePairingState();
   pairingSessionSnapshotsResult = [];
   sendScoutMessageCalls.length = 0;
@@ -388,6 +401,8 @@ beforeEach(() => {
   askScoutQuestionCalls.length = 0;
   queryRunsCalls.length = 0;
   decidePairingApprovalCalls.length = 0;
+  upsertUnblockRequestCalls.length = 0;
+  appendUnblockRequestEventCalls.length = 0;
 });
 
 afterEach(() => {
@@ -622,6 +637,153 @@ describe("createOpenScoutWebServer", () => {
           }),
         }),
       ]);
+  });
+
+  test("bridges Claude permission files into broker-owned unblock attention", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const createdAt = 1_700_000_000_000;
+    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
+    mkdirSync(permissionDir, { recursive: true });
+    writeFileSync(
+      join(permissionDir, "req-1.json"),
+      `${JSON.stringify({
+        id: "req-1",
+        source: "claude-code",
+        status: "pending",
+        createdAt,
+        updatedAt: createdAt,
+        cwd: "/tmp/project",
+        hookEventName: "PreToolUse",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+        sessionId: "session-1",
+        transcriptPath: "/tmp/transcript.jsonl",
+        summary: "npm test",
+      })}\n`,
+      "utf8",
+    );
+    readUnblockRequestsResult = [{
+      id: "unblock:claude-permission:req-1",
+      kind: "permission",
+      state: "open",
+      source: "claude-permission-hook",
+      sourceRef: "claude-permission:req-1",
+      sourceLabel: "Claude hook",
+      title: "Allow Claude tool: Bash",
+      summary: "npm test",
+      detail: "/tmp/project",
+      ownerId: "operator",
+      createdById: "system",
+      sessionId: "session-1",
+      severity: "warning",
+      actions: [
+        { kind: "approve", label: "Allow" },
+        { kind: "deny", label: "Deny" },
+      ],
+      createdAt,
+      updatedAt: createdAt,
+    }];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      items: Array<{
+        id: string;
+        title: string;
+        permissionRequest?: { id: string };
+        unblockRequest?: { id: string; sourceRef: string };
+      }>;
+    };
+    expect(upsertUnblockRequestCalls).toEqual([
+      expect.objectContaining({
+        id: "unblock:claude-permission:req-1",
+        sourceRef: "claude-permission:req-1",
+      }),
+    ]);
+    expect(body.items.filter((item) => item.title === "Allow Claude tool: Bash")).toHaveLength(1);
+    expect(body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "unblock:claude-permission:req-1",
+        permissionRequest: expect.objectContaining({ id: "req-1" }),
+        unblockRequest: expect.objectContaining({
+          id: "unblock:claude-permission:req-1",
+          sourceRef: "claude-permission:req-1",
+        }),
+      }),
+    ]));
+  });
+
+  test("permission decisions resolve the broker-owned unblock request", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const createdAt = 1_700_000_000_000;
+    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
+    mkdirSync(permissionDir, { recursive: true });
+    writeFileSync(
+      join(permissionDir, "req-1.json"),
+      `${JSON.stringify({
+        id: "req-1",
+        source: "claude-code",
+        status: "pending",
+        createdAt,
+        updatedAt: createdAt,
+        cwd: "/tmp/project",
+        hookEventName: "PreToolUse",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+        sessionId: "session-1",
+        transcriptPath: "/tmp/transcript.jsonl",
+        summary: "npm test",
+      })}\n`,
+      "utf8",
+    );
+    readUnblockRequestsResult = [{
+      id: "unblock:claude-permission:req-1",
+      kind: "permission",
+      state: "open",
+      source: "claude-permission-hook",
+      sourceRef: "claude-permission:req-1",
+      title: "Allow Claude tool: Bash",
+      ownerId: "operator",
+      createdById: "system",
+      actions: [{ kind: "approve", label: "Allow" }],
+      createdAt,
+      updatedAt: createdAt,
+    }];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention/permissions/decide", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "req-1", decision: "allow" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(readFileSync(join(permissionDir, "req-1.json"), "utf8"))).toMatchObject({
+      status: "decided",
+      decision: "allow",
+    });
+    expect(upsertUnblockRequestCalls).toEqual([
+      expect.objectContaining({
+        id: "unblock:claude-permission:req-1",
+        state: "resolved",
+      }),
+    ]);
+    expect(appendUnblockRequestEventCalls).toEqual([
+      expect.objectContaining({
+        requestId: "unblock:claude-permission:req-1",
+        kind: "resolved",
+      }),
+    ]);
   });
 
   test("passes run filters to the run registry API", async () => {

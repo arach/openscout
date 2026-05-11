@@ -13,6 +13,8 @@ import type {
   ThreadWatchOpenResponse,
   ThreadWatchRenewRequest,
   ThreadWatchRenewResponse,
+  UnblockRequestEvent,
+  UnblockRequestRecord,
 } from "@openscout/protocol";
 
 import type {
@@ -21,6 +23,8 @@ import type {
   ScoutBrokerCollaborationEventQuery,
   ScoutBrokerCollaborationRecordQuery,
   ScoutBrokerMessageQuery,
+  ScoutBrokerUnblockRequestEventQuery,
+  ScoutBrokerUnblockRequestQuery,
 } from "./broker-api.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
@@ -51,6 +55,19 @@ type BrokerCoreJournal = {
     limit?: number;
     recordId?: string;
   }) => unknown;
+  listUnblockRequests: (options?: {
+    limit?: number;
+    kind?: UnblockRequestRecord["kind"];
+    state?: string;
+    ownerId?: string;
+    source?: string;
+    sourceRef?: string;
+    active?: boolean;
+  }) => UnblockRequestRecord[];
+  listUnblockRequestEvents: (options?: {
+    limit?: number;
+    requestId?: string;
+  }) => UnblockRequestEvent[];
 };
 
 type BrokerCoreThreadEvents = {
@@ -172,6 +189,31 @@ function listBrokerCollaborationEvents(
   });
 }
 
+function listBrokerUnblockRequests(
+  journal: BrokerCoreJournal,
+  input: ScoutBrokerUnblockRequestQuery,
+) {
+  return journal.listUnblockRequests({
+    limit: normalizeLimit(input.limit),
+    kind: input.kind as UnblockRequestRecord["kind"] | undefined,
+    state: input.state,
+    ownerId: input.ownerId,
+    source: input.source,
+    sourceRef: input.sourceRef,
+    active: input.active,
+  });
+}
+
+function listBrokerUnblockRequestEvents(
+  journal: BrokerCoreJournal,
+  input: ScoutBrokerUnblockRequestEventQuery,
+) {
+  return journal.listUnblockRequestEvents({
+    limit: normalizeLimit(input.limit),
+    requestId: input.requestId,
+  });
+}
+
 export function createBrokerCoreService(
   deps: BrokerCoreServiceDeps,
 ): ActiveScoutBrokerService {
@@ -210,6 +252,10 @@ export function createBrokerCoreService(
       listBrokerCollaborationRecords(deps.journal, query),
     readCollaborationEvents: async (query) =>
       listBrokerCollaborationEvents(deps.journal, query),
+    readUnblockRequests: async (query) =>
+      listBrokerUnblockRequests(deps.journal, query),
+    readUnblockRequestEvents: async (query) =>
+      listBrokerUnblockRequestEvents(deps.journal, query),
     readThreadEvents: async (query) =>
       await deps.threadEvents.replay({
         conversationId: query.conversationId,

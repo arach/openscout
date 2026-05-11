@@ -15,6 +15,8 @@ import { brokerRouter } from "./broker-trpc-router.js";
 import {
   assertValidCollaborationEvent,
   assertValidCollaborationRecord,
+  assertValidUnblockRequestEvent,
+  assertValidUnblockRequestRecord,
   buildScoutReturnAddress,
   type ActorIdentity,
   type AgentDefinition,
@@ -51,6 +53,8 @@ import {
   type ThreadWatchCloseRequest,
   type ThreadWatchOpenRequest,
   type ThreadWatchRenewRequest,
+  type UnblockRequestEvent,
+  type UnblockRequestRecord,
   OPENSCOUT_IROH_MESH_ALPN,
   OPENSCOUT_MESH_PROTOCOL_VERSION,
   SCOUT_DISPATCHER_AGENT_ID,
@@ -1071,6 +1075,43 @@ async function appendCollaborationEventDurably(
       { kind: "collaboration.event.record", event },
       async () => {
         await runtime.appendCollaborationEvent(event);
+      },
+      options,
+    );
+  });
+}
+
+async function recordUnblockRequestDurably(
+  request: UnblockRequestRecord,
+  options: { enqueueProjection?: boolean } = {},
+): Promise<BrokerJournalEntry[]> {
+  assertValidUnblockRequestRecord(request);
+  return runDurableWrite(async () => {
+    return commitDurableEntries(
+      { kind: "unblock_request.record", request },
+      async () => {
+        await runtime.upsertUnblockRequest(request);
+      },
+      options,
+    );
+  });
+}
+
+async function appendUnblockRequestEventDurably(
+  event: UnblockRequestEvent,
+  options: { enqueueProjection?: boolean } = {},
+): Promise<BrokerJournalEntry[]> {
+  return runDurableWrite(async () => {
+    const request = runtime.unblockRequest(event.requestId);
+    if (!request) {
+      throw new Error(`unknown unblock request: ${event.requestId}`);
+    }
+    assertValidUnblockRequestEvent(event, request);
+
+    return commitDurableEntries(
+      { kind: "unblock_request.event.record", event },
+      async () => {
+        await runtime.appendUnblockRequestEvent(event);
       },
       options,
     );
@@ -4032,6 +4073,22 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
         mesh,
       };
     }
+    case "unblock_request.upsert": {
+      const entries = await recordUnblockRequestDurably(command.request);
+      return {
+        ok: true,
+        requestId: command.request.id,
+        entries: entries.length,
+      };
+    }
+    case "unblock_request.event.append": {
+      const entries = await appendUnblockRequestEventDurably(command.event);
+      return {
+        ok: true,
+        eventId: command.event.id,
+        entries: entries.length,
+      };
+    }
     case "conversation.post": {
       const authority = authorityNodeForConversation(command.message.conversationId);
       if (authority) {
@@ -4378,6 +4435,27 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     json(response, 200, await brokerService.readCollaborationEvents?.({
       limit: parseLimit(url),
       recordId: url.searchParams.get("recordId") ?? undefined,
+    }));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/unblock-requests") {
+    json(response, 200, await brokerService.readUnblockRequests?.({
+      limit: parseLimit(url),
+      kind: url.searchParams.get("kind") ?? undefined,
+      state: url.searchParams.get("state") ?? undefined,
+      ownerId: url.searchParams.get("ownerId") ?? undefined,
+      source: url.searchParams.get("source") ?? undefined,
+      sourceRef: url.searchParams.get("sourceRef") ?? undefined,
+      active: url.searchParams.get("active") === "true" ? true : undefined,
+    }));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/unblock-requests/events") {
+    json(response, 200, await brokerService.readUnblockRequestEvents?.({
+      limit: parseLimit(url),
+      requestId: url.searchParams.get("requestId") ?? undefined,
     }));
     return;
   }
@@ -5118,6 +5196,34 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       const event = await readRequestBody<CollaborationEvent>(request);
       const result = await brokerService.executeCommand({
         kind: "collaboration.event.append",
+        event,
+      });
+      json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/unblock-requests") {
+    try {
+      const requestRecord = await readRequestBody<UnblockRequestRecord>(request);
+      const result = await brokerService.executeCommand({
+        kind: "unblock_request.upsert",
+        request: requestRecord,
+      });
+      json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/unblock-requests/events") {
+    try {
+      const event = await readRequestBody<UnblockRequestEvent>(request);
+      const result = await brokerService.executeCommand({
+        kind: "unblock_request.event.append",
         event,
       });
       json(response, 200, result);
