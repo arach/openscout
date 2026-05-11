@@ -47,10 +47,14 @@ finalized; package manifests currently use `UNLICENSED`.
 - Scout owns messages, invocations, flights, deliveries, bindings, agent registrations, questions, and work items created through Scout.
 - Scout observes external harness transcripts such as Claude Code and Codex JSONL; do not bulk-import those turns as first-party Scout messages.
 - Mesh means reachability and coordination, not exactly-once delivery, global consensus, or transcript replication.
+- First-run order: `scout --help`, `scout setup`, `scout doctor`, `scout whoami`, `scout who`, then `scout send --to <agent-from-scout-who> ...`.
 - Use `scout send` / `messages_send` for durable messages and update receipts.
 - Use `scout ask` / `invocations_ask` for invocations with lifecycle receipts.
 - Use session semantics for harness lifecycle: cards are identities, sessions are concrete Claude/Codex runtimes, endpoints attach agents to sessions.
 - Use explicit target fields; do not hide routing in message body text.
+- If a host-side approval prompt is stuck, use the host UI or a host integration
+  that forwards it into Scout; an MCP server cannot see prompts intercepted
+  before the Scout tool call.
 - In Scout-aware composers, `>> target` is the preferred typed route operator;
   strip it into structured routing metadata before sending payload to the broker.
 

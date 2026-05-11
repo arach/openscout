@@ -22,6 +22,9 @@ scout setup
 scout doctor
 ```
 
+First-run order: `scout --help`, `scout setup`, `scout doctor`, `scout whoami`,
+`scout who`, then `scout send --to <agent-from-scout-who> ...`.
+
 ## Machine-readable
 
 - [Tool schema](/.well-known/scout.json) — broker manifest, record types, addressing grammar (JSON)

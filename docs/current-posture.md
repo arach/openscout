@@ -123,7 +123,6 @@ The next maturity bar is not just more features. It is clarity and evidence:
 - explicit install and uninstall footprint
 - documented security/trust posture
 - stable agent integration contract
-- host-level permission/approval capture
-- broker-owned durable unblock requests
+- broader host-level permission/approval capture over broker-owned unblock requests
 - clear failure, retry, and notification semantics
 - a small compatibility test suite for agent/tool integrations
