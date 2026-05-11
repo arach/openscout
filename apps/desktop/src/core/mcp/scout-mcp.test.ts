@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -902,6 +902,8 @@ describe("createScoutMcpServer", () => {
         output: string | null;
         senderId: string;
         targetAgentId: string | null;
+        followUrl: string | null;
+        links?: { follow: string | null };
       };
     }>((resolve) => {
       client.setNotificationHandler(
@@ -914,6 +916,8 @@ describe("createScoutMcpServer", () => {
               output: z.string().nullable(),
               senderId: z.string(),
               targetAgentId: z.string().nullable(),
+              followUrl: z.string().nullable(),
+              links: z.object({ follow: z.string().nullable() }).optional(),
             })
             .catchall(z.unknown()),
         }),
@@ -955,6 +959,172 @@ describe("createScoutMcpServer", () => {
     expect(notification.params.output).toBe("hudson replied");
     expect(notification.params.senderId).toBe("operator");
     expect(notification.params.targetAgentId).toBe("hudson.main");
+    expect(notification.params.followUrl).toBe(
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    );
+    expect(notification.params.links?.follow).toBe(notification.params.followUrl);
+  });
+
+  test("inline ask by exact target returns follow-up guidance on timeout", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({
+        usedBroker: true,
+        conversationId: "dm.operator.hudson",
+        messageId: "msg-1",
+        flight: {
+          id: "flight-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: "hudson.main",
+          state: "running",
+        },
+      }),
+      getFlight: async () => ({
+        id: "flight-1",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "hudson.main",
+        state: "running",
+        summary: "Still working",
+      }),
+      waitForFlight: async () => {
+        throw new Error("Timed out waiting for flight flight-1.");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
+    });
+
+    const result = await client.callTool({
+      name: "invocations_ask",
+      arguments: {
+        body: "Review the auth module",
+        targetAgentId: "hudson.main",
+        replyMode: "inline",
+        timeoutSeconds: 1,
+      },
+    });
+
+    const structured = result.structuredContent as {
+      awaited: boolean;
+      waitStatus: string;
+      output: string | null;
+      flight: { state: string } | null;
+      followUrl: string | null;
+    };
+
+    expect(structured.awaited).toBe(true);
+    expect(structured.waitStatus).toBe("timeout");
+    expect(structured.output).toBe("Still working");
+    expect(structured.flight?.state).toBe("running");
+    expect(structured.followUrl).toBe(
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    );
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]?.text).toBe(
+      "Ask is still running; use invocations_wait with flightId=flight-1. Follow: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    );
+  });
+
+  test("inline ask by target label returns follow-up guidance on timeout", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askAgentById: async () => ({ usedBroker: true }),
+      askQuestion: async () => ({
+        usedBroker: true,
+        conversationId: "dm.operator.hudson",
+        messageId: "msg-1",
+        flight: {
+          id: "flight-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: "hudson.main",
+          state: "running",
+        },
+      }),
+      getFlight: async () => ({
+        id: "flight-1",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "hudson.main",
+        state: "running",
+        summary: "Still working",
+      }),
+      waitForFlight: async () => {
+        throw new Error("Timed out waiting for flight flight-1.");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
+    });
+
+    const result = await client.callTool({
+      name: "invocations_ask",
+      arguments: {
+        body: "Review the auth module",
+        targetLabel: "@hudson",
+        replyMode: "inline",
+        timeoutSeconds: 1,
+      },
+    });
+
+    const structured = result.structuredContent as {
+      targetAgentId: string | null;
+      targetLabel: string | null;
+      waitStatus: string;
+      followUrl: string | null;
+    };
+
+    expect(structured.targetAgentId).toBe("hudson.main");
+    expect(structured.targetLabel).toBe("@hudson");
+    expect(structured.waitStatus).toBe("timeout");
+    expect(structured.followUrl).toBe(
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    );
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]?.text).toBe(
+      "Ask is still running; use invocations_wait with flightId=flight-1. Follow: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    );
   });
 
   test("fetches a previously-created ask flight without waiting", async () => {
@@ -1299,6 +1469,9 @@ describe("createScoutMcpServer", () => {
   });
 
   test("suggests agents_start when a precise ask target is unresolved", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-mcp-start-suggestion-"));
+    tempPaths.add(tempRoot);
+    mkdirSync(join(tempRoot, ".git"));
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator",
       resolveBrokerUrl: () => "http://broker.test",
@@ -1338,6 +1511,7 @@ describe("createScoutMcpServer", () => {
       arguments: {
         body: "Have a new OpenScout Claude session review this.",
         targetLabel: "@openscout#claude?sonnet",
+        currentDirectory: tempRoot,
       },
     });
 
@@ -1361,7 +1535,7 @@ describe("createScoutMcpServer", () => {
       agentName: "openscout",
       harness: "claude",
       model: "sonnet",
-      projectPath: "/tmp/openscout-test",
+      projectPath: tempRoot,
     });
     expect(content?.[0]?.text).toContain(
       "Ask was not sent; unresolved target: @openscout#claude?sonnet.",
@@ -1729,6 +1903,78 @@ describe("createScoutMcpServer", () => {
     });
   });
 
+  test("renders actionable advice for message routing errors", async () => {
+    let nextRoutingError:
+      | "missing_destination"
+      | "multi_target_requires_explicit_channel" = "missing_destination";
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+        routingError: nextRoutingError,
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const missingDestination = await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Status update",
+      },
+    });
+    let structured = missingDestination.structuredContent as {
+      routingAdvice: { code: string; summary: string; nextAction: string } | null;
+    };
+    let content = missingDestination.content as Array<{ type: string; text: string }> | undefined;
+    expect(structured.routingAdvice).toMatchObject({
+      code: "missing_destination",
+      summary: "no destination",
+    });
+    expect(content?.[0]?.text).toBe(
+      "Message was not sent: no destination. Pass one targetAgentId or targetLabel for a DM, or pass channel for a group update.",
+    );
+
+    nextRoutingError = "multi_target_requires_explicit_channel";
+    const multiTarget = await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "@hudson @arc please coordinate",
+      },
+    });
+    structured = multiTarget.structuredContent as {
+      routingAdvice: { code: string; summary: string; nextAction: string } | null;
+    };
+    content = multiTarget.content as Array<{ type: string; text: string }> | undefined;
+    expect(structured.routingAdvice).toMatchObject({
+      code: "multi_target_requires_explicit_channel",
+      summary: "multiple targets need an explicit channel",
+    });
+    expect(content?.[0]?.text).toBe(
+      "Message was not sent: multiple targets need an explicit channel. Pass channel for group coordination, or send separate one-target DMs.",
+    );
+  });
+
   test("supports tell plus asynchronous wake from messages_send", async () => {
     let receivedWake: boolean | undefined;
     const { client } = await connectTestServer({
@@ -1771,6 +2017,8 @@ describe("createScoutMcpServer", () => {
       waitForFlight: async () => {
         throw new Error("not used");
       },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
     });
 
     const result = await client.callTool({
@@ -1785,16 +2033,90 @@ describe("createScoutMcpServer", () => {
     const structured = result.structuredContent as {
       wake: boolean;
       flightId: string | null;
+      followUrl: string | null;
+      links: { follow: string | null };
     };
     const content = result.content as Array<{ type: string; text: string }> | undefined;
 
     expect(receivedWake).toBe(true);
     expect(structured.wake).toBe(true);
     expect(structured.flightId).toBe("flt-1");
+    expect(structured.followUrl).toBe(
+      "http://scout.test/follow?view=tail&flightId=flt-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    );
+    expect(structured.links.follow).toBe(structured.followUrl);
     expect(content?.[0]).toEqual({
       type: "text",
-      text: "Message sent to hudson.main in dm.operator.hudson (msg-1). Wake queued as flt-1.",
+      text: "Message sent to hudson.main in dm.operator.hudson (msg-1). Wake queued as flt-1. Follow: http://scout.test/follow?view=tail&flightId=flt-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
     });
+  });
+
+  test("returns follow links for explicit target wake messages", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => {
+        throw new Error("wake with targetAgentId should use askAgentById");
+      },
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async ({ targetAgentId }) => ({
+        usedBroker: true,
+        conversationId: "dm.operator.hudson",
+        messageId: "msg-1",
+        flight: {
+          id: "flt-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId,
+          state: "queued",
+        },
+      }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
+    });
+
+    const result = await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Please process this when you can.",
+        targetAgentId: "hudson.main",
+        wake: true,
+      },
+    });
+
+    const structured = result.structuredContent as {
+      invokedTargetIds: string[];
+      followUrl: string | null;
+      ids: { flightId: string | null; targetAgentId: string | null };
+    };
+
+    expect(structured.invokedTargetIds).toEqual(["hudson.main"]);
+    expect(structured.ids).toMatchObject({
+      flightId: "flt-1",
+      targetAgentId: "hudson.main",
+    });
+    expect(structured.followUrl).toBe(
+      "http://scout.test/follow?view=tail&flightId=flt-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    );
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]?.text).toContain("Wake queued as flt-1. Follow: http://scout.test/follow");
   });
 
   test("preserves managed agent identity from the MCP environment", async () => {

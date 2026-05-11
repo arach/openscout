@@ -161,6 +161,9 @@ type ScoutReplyNotificationParams = {
   workItem: ScoutTrackedWorkItem | null;
   workId: string | null;
   workUrl: string | null;
+  ids?: ScoutFollowIds;
+  links?: ScoutFollowLinks;
+  followUrl?: string | null;
 };
 
 const scoutAgentToolIconMeta: ScoutMcpToolIconMeta = {
@@ -664,6 +667,30 @@ const startSuggestionSchema = z.object({
   currentDirectory: z.string(),
 });
 
+const followIdsSchema = z.object({
+  flightId: z.string().nullable(),
+  invocationId: z.string().nullable(),
+  conversationId: z.string().nullable(),
+  workId: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  targetAgentId: z.string().nullable(),
+});
+
+const followLinksSchema = z.object({
+  follow: z.string().nullable(),
+  tail: z.string().nullable(),
+  session: z.string().nullable(),
+  chat: z.string().nullable(),
+  work: z.string().nullable(),
+  agent: z.string().nullable(),
+});
+
+const sendRoutingAdviceSchema = z.object({
+  code: z.enum(MESSAGE_ROUTING_ERROR_VALUES),
+  summary: z.string(),
+  nextAction: z.string(),
+});
+
 const sendResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
@@ -677,8 +704,12 @@ const sendResultSchema = z.object({
   unresolvedTargetIds: z.array(z.string()),
   targetDiagnostic: z.object({}).catchall(z.unknown()).nullable(),
   startSuggestion: startSuggestionSchema.nullable().optional(),
+  routingAdvice: sendRoutingAdviceSchema.nullable().optional(),
   routeKind: z.enum(MESSAGE_ROUTE_KIND_VALUES).nullable(),
   routingError: z.enum(MESSAGE_ROUTING_ERROR_VALUES).nullable(),
+  ids: followIdsSchema.optional(),
+  links: followLinksSchema.optional(),
+  followUrl: z.string().nullable().optional(),
 });
 
 const replyContextSchema = z.object({
@@ -743,24 +774,6 @@ const currentSessionAttachResultSchema = z.object({
   sessionId: z.string(),
 });
 
-const followIdsSchema = z.object({
-  flightId: z.string().nullable(),
-  invocationId: z.string().nullable(),
-  conversationId: z.string().nullable(),
-  workId: z.string().nullable(),
-  sessionId: z.string().nullable(),
-  targetAgentId: z.string().nullable(),
-});
-
-const followLinksSchema = z.object({
-  follow: z.string().nullable(),
-  tail: z.string().nullable(),
-  session: z.string().nullable(),
-  chat: z.string().nullable(),
-  work: z.string().nullable(),
-  agent: z.string().nullable(),
-});
-
 const askResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
@@ -768,6 +781,7 @@ const askResultSchema = z.object({
   targetLabel: z.string().nullable(),
   usedBroker: z.boolean(),
   awaited: z.boolean(),
+  waitStatus: z.enum(["not_requested", "completed", "terminal", "timeout"]).optional(),
   replyMode: z.enum(REPLY_MODE_VALUES).optional(),
   delivery: z.enum(REPLY_DELIVERY_VALUES).optional(),
   notification: z
@@ -895,6 +909,30 @@ function createPlainTextContent(
   return [{ type: "text", text }];
 }
 
+type SendRoutingAdvice = z.infer<typeof sendRoutingAdviceSchema>;
+
+function buildSendRoutingAdvice(
+  routingError: string | null | undefined,
+): SendRoutingAdvice | null {
+  if (routingError === "missing_destination") {
+    return {
+      code: "missing_destination",
+      summary: "no destination",
+      nextAction:
+        "Pass one targetAgentId or targetLabel for a DM, or pass channel for a group update.",
+    };
+  }
+  if (routingError === "multi_target_requires_explicit_channel") {
+    return {
+      code: "multi_target_requires_explicit_channel",
+      summary: "multiple targets need an explicit channel",
+      nextAction:
+        "Pass channel for group coordination, or send separate one-target DMs.",
+    };
+  }
+  return null;
+}
+
 function renderMcpSendSummary(result: {
   usedBroker: boolean;
   conversationId: string | null;
@@ -904,13 +942,19 @@ function renderMcpSendSummary(result: {
   routingError: string | null;
   targetDiagnostic?: Record<string, unknown> | null;
   startSuggestion?: ScoutMcpStartSuggestion | null;
+  routingAdvice?: SendRoutingAdvice | null;
   flightId?: string | null;
   wake?: boolean;
+  followUrl?: string | null;
 }): string {
   if (!result.usedBroker) {
     return "Scout broker is not reachable; message was not sent.";
   }
   if (result.routingError) {
+    const advice = result.routingAdvice ?? buildSendRoutingAdvice(result.routingError);
+    if (advice) {
+      return `Message was not sent: ${advice.summary}. ${advice.nextAction}`;
+    }
     return `Message was not sent: ${result.routingError}.`;
   }
   if (result.unresolvedTargetIds.length > 0) {
@@ -926,8 +970,9 @@ function renderMcpSendSummary(result: {
     : "";
   const route = result.conversationId ? ` in ${result.conversationId}` : "";
   const message = result.messageId ? ` (${result.messageId})` : "";
+  const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
   const wakeText = result.wake && result.flightId
-    ? ` Wake queued as ${result.flightId}.`
+    ? ` Wake queued as ${result.flightId}.${followText}`
     : "";
   return `Message sent${destination}${route}${message}.${wakeText}`;
 }
@@ -942,6 +987,8 @@ function renderMcpAskSummary(result: {
   unresolvedTargetLabel: string | null;
   output: string | null;
   delivery?: string;
+  waitStatus?: string;
+  flight?: ScoutFlightRecord | null;
   followUrl?: string | null;
   targetDiagnostic?: Record<string, unknown> | null;
   startSuggestion?: ScoutMcpStartSuggestion | null;
@@ -965,6 +1012,10 @@ function renderMcpAskSummary(result: {
   ].filter(Boolean);
   const detailText = details.length > 0 ? `; ${details.join(", ")}` : "";
   const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
+  if (result.waitStatus === "timeout" && result.flightId) {
+    const state = result.flight?.state ? ` ${result.flight.state}` : "";
+    return `Ask is still${state}; use invocations_wait with flightId=${result.flightId}.${followText}`;
+  }
   if (result.output) {
     return result.output;
   }
@@ -1085,6 +1136,41 @@ function buildScoutFollowArtifacts(
 
 function isTerminalFlightState(state: string | null | undefined): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";
+}
+
+type ScoutMcpFlightWaitStatus = "not_requested" | "completed" | "terminal" | "timeout";
+
+function isFlightWaitTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Timed out waiting for flight");
+}
+
+async function waitForFlightForMcp(input: {
+  deps: ScoutMcpDependencies;
+  brokerUrl: string;
+  flight: ScoutFlightRecord | null;
+  timeoutSeconds?: number;
+}): Promise<{ flight: ScoutFlightRecord | null; waitStatus: ScoutMcpFlightWaitStatus }> {
+  if (!input.flight) {
+    return { flight: null, waitStatus: "not_requested" };
+  }
+
+  try {
+    const completedFlight = await input.deps.waitForFlight(
+      input.brokerUrl,
+      input.flight.id,
+      { timeoutSeconds: input.timeoutSeconds },
+    );
+    return { flight: completedFlight, waitStatus: "completed" };
+  } catch (error) {
+    const latestFlight = await input.deps.getFlight(input.brokerUrl, input.flight.id);
+    if (isTerminalFlightState(latestFlight?.state)) {
+      return { flight: latestFlight, waitStatus: "terminal" };
+    }
+    if (isFlightWaitTimeoutError(error)) {
+      return { flight: latestFlight ?? input.flight, waitStatus: "timeout" };
+    }
+    throw error;
+  }
 }
 
 function buildInvocationLookupContent(input: {
@@ -2900,6 +2986,15 @@ export function createScoutMcpServer(options: {
             firstResult?.targetDiagnostic ??
             buildExactTargetIdsDiagnostic(unresolvedTargetIds);
           const startSuggestion = null;
+          const followArtifacts = buildScoutFollowArtifacts(
+            {
+              flight: firstFlight,
+              conversationId: firstResult?.conversationId ?? null,
+              workItem: null,
+              targetAgentId: firstFlight?.targetAgentId ?? null,
+            },
+            env,
+          );
           const structuredContent = {
             currentDirectory: resolvedCurrentDirectory,
             senderId: resolvedSenderId,
@@ -2915,8 +3010,12 @@ export function createScoutMcpServer(options: {
             unresolvedTargetIds,
             targetDiagnostic,
             startSuggestion,
+            routingAdvice: null,
             routeKind: null,
             routingError: null,
+            ids: followArtifacts.ids,
+            links: followArtifacts.links,
+            followUrl: followArtifacts.followUrl,
           };
           return {
             content: createPlainTextContent(
@@ -2936,6 +3035,15 @@ export function createScoutMcpServer(options: {
           source: "scout-mcp",
         });
         const startSuggestion = null;
+        const followArtifacts = buildScoutFollowArtifacts(
+          {
+            flight: result.flight ?? null,
+            conversationId: result.conversationId ?? null,
+            workItem: null,
+            targetAgentId: result.flight?.targetAgentId ?? null,
+          },
+          env,
+        );
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
@@ -2951,8 +3059,12 @@ export function createScoutMcpServer(options: {
             result.targetDiagnostic ??
             buildExactTargetIdsDiagnostic(result.unresolvedTargetIds),
           startSuggestion,
+          routingAdvice: buildSendRoutingAdvice(result.routingError ?? null),
           routeKind: result.routeKind ?? null,
           routingError: result.routingError ?? null,
+          ids: followArtifacts.ids,
+          links: followArtifacts.links,
+          followUrl: followArtifacts.followUrl,
         };
         return {
           content: createPlainTextContent(
@@ -2983,6 +3095,7 @@ export function createScoutMcpServer(options: {
             unresolvedTargetIds: [targetLabel.trim()],
             targetDiagnostic: targetCheck.diagnostic,
             startSuggestion: targetCheck.startSuggestion,
+            routingAdvice: null,
             routeKind: null,
             routingError: null,
           };
@@ -3005,10 +3118,19 @@ export function createScoutMcpServer(options: {
         });
         const startSuggestion = result.unresolvedTargets.length > 0
           ? await buildStartSuggestionForTarget(
-              result.unresolvedTargets[0] ?? targetLabel.trim(),
-              resolvedCurrentDirectory,
-            )
+            result.unresolvedTargets[0] ?? targetLabel.trim(),
+            resolvedCurrentDirectory,
+          )
           : null;
+        const followArtifacts = buildScoutFollowArtifacts(
+          {
+            flight: result.flight ?? null,
+            conversationId: result.conversationId ?? null,
+            workItem: null,
+            targetAgentId: result.flight?.targetAgentId ?? null,
+          },
+          env,
+        );
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
@@ -3023,8 +3145,12 @@ export function createScoutMcpServer(options: {
           unresolvedTargetIds: result.unresolvedTargets,
           targetDiagnostic: result.targetDiagnostic ?? null,
           startSuggestion,
+          routingAdvice: buildSendRoutingAdvice(result.routingError ?? null),
           routeKind: result.routeKind ?? null,
           routingError: result.routingError ?? null,
+          ids: followArtifacts.ids,
+          links: followArtifacts.links,
+          followUrl: followArtifacts.followUrl,
         };
         return {
           content: createPlainTextContent(
@@ -3045,10 +3171,19 @@ export function createScoutMcpServer(options: {
       });
       const startSuggestion = result.unresolvedTargets.length > 0
         ? await buildStartSuggestionForTarget(
-            result.unresolvedTargets[0],
-            resolvedCurrentDirectory,
-          )
+          result.unresolvedTargets[0],
+          resolvedCurrentDirectory,
+        )
         : null;
+      const followArtifacts = buildScoutFollowArtifacts(
+        {
+          flight: result.flight ?? null,
+          conversationId: result.conversationId ?? null,
+          workItem: null,
+          targetAgentId: result.flight?.targetAgentId ?? null,
+        },
+        env,
+      );
       const structuredContent = {
         currentDirectory: resolvedCurrentDirectory,
         senderId: resolvedSenderId,
@@ -3063,8 +3198,12 @@ export function createScoutMcpServer(options: {
         unresolvedTargetIds: result.unresolvedTargets,
         targetDiagnostic: result.targetDiagnostic ?? null,
         startSuggestion,
+        routingAdvice: buildSendRoutingAdvice(result.routingError ?? null),
         routeKind: result.routeKind ?? null,
         routingError: result.routingError ?? null,
+        ids: followArtifacts.ids,
+        links: followArtifacts.links,
+        followUrl: followArtifacts.followUrl,
       };
       return {
         content: createPlainTextContent(
@@ -3167,17 +3306,27 @@ export function createScoutMcpServer(options: {
           currentDirectory: resolvedCurrentDirectory,
           source: "scout-mcp",
         });
-        const completedFlight =
-          shouldAwait && result.flight
-            ? await deps.waitForFlight(
-                deps.resolveBrokerUrl(),
-                result.flight.id,
-                { timeoutSeconds },
-              )
-            : null;
+        const waitResult = shouldAwait
+          ? await waitForFlightForMcp({
+              deps,
+              brokerUrl: deps.resolveBrokerUrl(),
+              flight: result.flight ?? null,
+              timeoutSeconds,
+            })
+          : { flight: null, waitStatus: "not_requested" as const };
+        const completedFlight = waitResult.flight;
         const trackedWorkItem = result.workItem ?? null;
         const notificationScheduled =
           resolvedReplyMode === "notify" && Boolean(result.flight);
+        const followArtifacts = buildScoutFollowArtifacts(
+          {
+            flight: completedFlight ?? result.flight ?? null,
+            conversationId: result.conversationId ?? null,
+            workItem: trackedWorkItem,
+            targetAgentId: targetAgentId.trim(),
+          },
+          env,
+        );
         if (resolvedReplyMode === "notify" && result.flight) {
           scheduleScoutReplyNotification({
             server,
@@ -3196,18 +3345,12 @@ export function createScoutMcpServer(options: {
               workItem: trackedWorkItem,
               workId: trackedWorkItem?.id ?? null,
               workUrl: workUrlFor(trackedWorkItem, env),
+              ids: followArtifacts.ids,
+              links: followArtifacts.links,
+              followUrl: followArtifacts.followUrl,
             },
           });
         }
-        const followArtifacts = buildScoutFollowArtifacts(
-          {
-            flight: completedFlight ?? result.flight ?? null,
-            conversationId: result.conversationId ?? null,
-            workItem: trackedWorkItem,
-            targetAgentId: targetAgentId.trim(),
-          },
-          env,
-        );
         const unresolvedTargetId = result.unresolvedTargetId ?? null;
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
@@ -3216,6 +3359,7 @@ export function createScoutMcpServer(options: {
           targetLabel: null,
           usedBroker: result.usedBroker,
           awaited: shouldAwait,
+          waitStatus: waitResult.waitStatus,
           replyMode: resolvedReplyMode,
           delivery: notificationScheduled
             ? "mcp_notification" as const
@@ -3267,6 +3411,7 @@ export function createScoutMcpServer(options: {
           targetLabel: targetLabel!.trim(),
           usedBroker: true,
           awaited: shouldAwait,
+          waitStatus: "not_requested" as const,
           replyMode: resolvedReplyMode,
           delivery: "none" as const,
           notification: null,
@@ -3301,17 +3446,27 @@ export function createScoutMcpServer(options: {
         currentDirectory: resolvedCurrentDirectory,
         source: "scout-mcp",
       });
-      const completedFlight =
-        shouldAwait && result.flight
-          ? await deps.waitForFlight(
-              deps.resolveBrokerUrl(),
-              result.flight.id,
-              { timeoutSeconds },
-            )
-          : null;
+      const waitResult = shouldAwait
+        ? await waitForFlightForMcp({
+            deps,
+            brokerUrl: deps.resolveBrokerUrl(),
+            flight: result.flight ?? null,
+            timeoutSeconds,
+          })
+        : { flight: null, waitStatus: "not_requested" as const };
+      const completedFlight = waitResult.flight;
       const trackedWorkItem = result.workItem ?? null;
       const notificationScheduled =
         resolvedReplyMode === "notify" && Boolean(result.flight);
+      const followArtifacts = buildScoutFollowArtifacts(
+        {
+          flight: completedFlight ?? result.flight ?? null,
+          conversationId: result.conversationId ?? null,
+          workItem: trackedWorkItem,
+          targetAgentId: result.flight?.targetAgentId ?? null,
+        },
+        env,
+      );
       if (resolvedReplyMode === "notify" && result.flight) {
         scheduleScoutReplyNotification({
           server,
@@ -3331,18 +3486,12 @@ export function createScoutMcpServer(options: {
             workItem: trackedWorkItem,
             workId: trackedWorkItem?.id ?? null,
             workUrl: workUrlFor(trackedWorkItem, env),
+            ids: followArtifacts.ids,
+            links: followArtifacts.links,
+            followUrl: followArtifacts.followUrl,
           },
         });
       }
-      const followArtifacts = buildScoutFollowArtifacts(
-        {
-          flight: completedFlight ?? result.flight ?? null,
-          conversationId: result.conversationId ?? null,
-          workItem: trackedWorkItem,
-          targetAgentId: result.flight?.targetAgentId ?? null,
-        },
-        env,
-      );
       const startSuggestion = result.unresolvedTarget
         ? await buildStartSuggestionForTarget(
             result.unresolvedTarget,
@@ -3356,6 +3505,7 @@ export function createScoutMcpServer(options: {
         targetLabel: targetLabel!.trim(),
         usedBroker: result.usedBroker,
         awaited: shouldAwait,
+        waitStatus: waitResult.waitStatus,
         replyMode: resolvedReplyMode,
         delivery: notificationScheduled
           ? "mcp_notification" as const
