@@ -772,18 +772,237 @@ describe("createOpenScoutWebServer", () => {
       status: "decided",
       decision: "allow",
     });
-    expect(upsertUnblockRequestCalls).toEqual([
+    expect(upsertUnblockRequestCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "unblock:claude-permission:req-1",
         state: "resolved",
       }),
-    ]);
+    ]));
     expect(appendUnblockRequestEventCalls).toEqual([
       expect.objectContaining({
         requestId: "unblock:claude-permission:req-1",
         kind: "resolved",
       }),
     ]);
+  });
+
+  test("expired Claude permission files close stale broker-owned unblock attention", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const createdAt = 1_700_000_000_000;
+    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
+    mkdirSync(permissionDir, { recursive: true });
+    writeFileSync(
+      join(permissionDir, "req-1.json"),
+      `${JSON.stringify({
+        id: "req-1",
+        source: "claude-code",
+        status: "expired",
+        createdAt,
+        updatedAt: createdAt + 45_000,
+        cwd: "/tmp/project",
+        hookEventName: "PreToolUse",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+        sessionId: "session-1",
+        transcriptPath: "/tmp/transcript.jsonl",
+        summary: "npm test",
+      })}\n`,
+      "utf8",
+    );
+    readUnblockRequestsResult = [{
+      id: "unblock:claude-permission:req-1",
+      kind: "permission",
+      state: "open",
+      source: "claude-permission-hook",
+      sourceRef: "claude-permission:req-1",
+      title: "Allow Claude tool: Bash",
+      ownerId: "operator",
+      createdById: "system",
+      actions: [
+        { kind: "approve", label: "Allow" },
+        { kind: "deny", label: "Deny" },
+      ],
+      createdAt,
+      updatedAt: createdAt,
+    }];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      items: Array<{ id: string; title: string }>;
+    };
+    expect(upsertUnblockRequestCalls).toEqual([
+      expect.objectContaining({
+        id: "unblock:claude-permission:req-1",
+        state: "expired",
+      }),
+    ]);
+    expect(body.items.some((item) => item.id === "unblock:claude-permission:req-1")).toBe(false);
+  });
+
+  test("timed-out pending Claude permission files close stale broker-owned unblock attention", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const createdAt = 1_700_000_000_000;
+    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
+    mkdirSync(permissionDir, { recursive: true });
+    writeFileSync(
+      join(permissionDir, "req-1.json"),
+      `${JSON.stringify({
+        id: "req-1",
+        source: "claude-code",
+        status: "pending",
+        createdAt,
+        updatedAt: createdAt,
+        expiresAt: 1,
+        cwd: "/tmp/project",
+        hookEventName: "PreToolUse",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+        sessionId: "session-1",
+        transcriptPath: "/tmp/transcript.jsonl",
+        summary: "npm test",
+      })}\n`,
+      "utf8",
+    );
+    readUnblockRequestsResult = [{
+      id: "unblock:claude-permission:req-1",
+      kind: "permission",
+      state: "open",
+      source: "claude-permission-hook",
+      sourceRef: "claude-permission:req-1",
+      title: "Allow Claude tool: Bash",
+      ownerId: "operator",
+      createdById: "system",
+      actions: [
+        { kind: "approve", label: "Allow" },
+        { kind: "deny", label: "Deny" },
+      ],
+      createdAt,
+      updatedAt: createdAt,
+    }];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      items: Array<{ id: string; title: string }>;
+    };
+    expect(upsertUnblockRequestCalls).toEqual([
+      expect.objectContaining({
+        id: "unblock:claude-permission:req-1",
+        state: "expired",
+      }),
+    ]);
+    expect(body.items.some((item) => item.id === "unblock:claude-permission:req-1")).toBe(false);
+  });
+
+  test("permission decisions reject timed-out Claude permission files", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const createdAt = 1_700_000_000_000;
+    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
+    mkdirSync(permissionDir, { recursive: true });
+    writeFileSync(
+      join(permissionDir, "req-1.json"),
+      `${JSON.stringify({
+        id: "req-1",
+        source: "claude-code",
+        status: "pending",
+        createdAt,
+        updatedAt: createdAt,
+        expiresAt: 1,
+        cwd: "/tmp/project",
+        hookEventName: "PreToolUse",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+        sessionId: "session-1",
+        transcriptPath: "/tmp/transcript.jsonl",
+        summary: "npm test",
+      })}\n`,
+      "utf8",
+    );
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention/permissions/decide", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "req-1", decision: "allow" }),
+    });
+
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({
+      error: "permission request expired",
+      id: "req-1",
+    });
+    expect(JSON.parse(readFileSync(join(permissionDir, "req-1.json"), "utf8"))).toMatchObject({
+      status: "pending",
+    });
+    expect(upsertUnblockRequestCalls).toEqual([
+      expect.objectContaining({
+        id: "unblock:claude-permission:req-1",
+        state: "expired",
+      }),
+    ]);
+  });
+
+  test("stale Claude permission unblock records cue instead of rendering dead approval actions", async () => {
+    useIsolatedOpenScoutHome();
+    const createdAt = 1_700_000_000_000;
+    readUnblockRequestsResult = [{
+      id: "unblock:claude-permission:req-missing",
+      kind: "permission",
+      state: "open",
+      source: "claude-permission-hook",
+      sourceRef: "claude-permission:req-missing",
+      sourceLabel: "Claude hook",
+      title: "Allow Claude tool: Bash",
+      summary: "npm test",
+      detail: "/tmp/project",
+      ownerId: "operator",
+      createdById: "system",
+      severity: "warning",
+      actions: [
+        { kind: "approve", label: "Allow" },
+        { kind: "deny", label: "Deny" },
+      ],
+      createdAt,
+      updatedAt: createdAt,
+    }];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      items: Array<{
+        id: string;
+        detail: string | null;
+        actions: Array<{ kind: string; value?: string }>;
+      }>;
+    };
+    const item = body.items.find((candidate) => candidate.id === "unblock:claude-permission:req-missing");
+    expect(item).toBeDefined();
+    expect(item?.detail).toContain("no longer pending");
+    expect(item?.actions.map((action) => action.kind)).toEqual(["copy", "dismiss"]);
+    expect(item?.actions[0]?.value).toBe("claude-permission:req-missing");
   });
 
   test("passes run filters to the run registry API", async () => {
