@@ -726,6 +726,9 @@ class ClaudeStreamJsonSession {
 
   private activeTurn: ActiveTurn | null = null;
 
+  // Claude stream-json has no steer primitive; overlapping broker asks cue here.
+  private turnQueue: Promise<void> = Promise.resolve();
+
   private starting: Promise<void> | null = null;
 
   private claudeSessionId: string | null = null;
@@ -761,11 +764,29 @@ class ClaudeStreamJsonSession {
 
   async invoke(prompt: string, timeoutMs?: number): Promise<{ output: string; sessionId: string | null }> {
     await this.ensureStarted();
+    const queuedTurn = this.turnQueue
+      .catch(() => undefined)
+      .then(() => this.startTurn(prompt));
+    this.turnQueue = queuedTurn.then(
+      (turn) => turn.outputPromise.then(() => undefined, () => undefined),
+      () => undefined,
+    );
+
+    const turn = await queuedTurn;
+    const output = await waitForRequesterResult(turn.outputPromise, timeoutMs, this.options.agentName);
+
+    return {
+      output,
+      sessionId: this.claudeSessionId,
+    };
+  }
+
+  private startTurn(prompt: string): { outputPromise: Promise<string> } {
     if (!this.process?.stdin) {
       throw new Error(`Claude stream-json session for ${this.options.agentName} is not running.`);
     }
     if (this.activeTurn) {
-      throw new Error(`Claude stream-json session for ${this.options.agentName} already has an active turn.`);
+      throw new Error(`Claude stream-json session for ${this.options.agentName} still has an active turn after queueing.`);
     }
 
     const outputPromise = new Promise<string>((resolve, reject) => {
@@ -789,11 +810,8 @@ class ClaudeStreamJsonSession {
     }) + "\n";
     this.process.stdin.write(payload);
 
-    const output = await waitForRequesterResult(outputPromise, timeoutMs, this.options.agentName);
-
     return {
-      output,
-      sessionId: this.claudeSessionId,
+      outputPromise,
     };
   }
 
@@ -935,10 +953,14 @@ class ClaudeStreamJsonSession {
     });
 
     child.on("exit", (code: number | null) => {
-      if (code !== 0 && this.activeTurn) {
+      if (this.activeTurn) {
         const turn = this.activeTurn;
         this.activeTurn = null;
-        turn.reject(new Error(`Claude exited with code ${code}`));
+        if (code === 0) {
+          turn.resolve(resolveClaudeStreamJsonOutput(undefined, turn.output));
+        } else {
+          turn.reject(new Error(`Claude exited with code ${code}`));
+        }
       }
     });
   }
