@@ -101,4 +101,5 @@ apps/ios/build/
 !landing/public/.well-known/scout.json
 
 # tracked env examples
+!.env.example
 !landing/.env.example
