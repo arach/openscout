@@ -2,19 +2,18 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
-import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
+import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import { extractRangerUiActions, normalizeRangerUiAction } from "../../lib/ranger.ts";
 import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
-import type { VoiceFxParams } from "@voxd/client/fx";
+import { VOICE_FX_PRESETS, type VoiceFxParams } from "@voxd/client/fx";
 
-// Voice "mood" for Ranger's spoken replies. Chill Dispatcher base + a clarity
-// pass on top — wider band, lighter saturation/crunch, quieter hiss, softer
-// comp. Keeps the dispatcher character while letting consonants through.
-// Once Settings > Voice lands, this comes from user prefs.
-const RANGER_VOICE_PRESET_ID = "chill-dispatcher";
-const RANGER_VOICE_PARAMS: Partial<VoiceFxParams> = {
+// Default voice mood + clarity-tuned overrides specific to Chill Dispatcher.
+// Other presets are used as-is (each preset already balances its own
+// character). The user-selected preset id is persisted via Ranger settings.
+const DEFAULT_RANGER_VOICE_PRESET_ID = "chill-dispatcher";
+const CHILL_DISPATCHER_OVERRIDES: Partial<VoiceFxParams> = {
   lowCutHz: 220,             // slight warmth on the bottom
   highCutHz: 4500,           // more air / presence at the top
   bandQ: 0.5,                // gentle shelves, not peaky
@@ -37,6 +36,15 @@ function rangerActivityParams(onlineCount: number): Partial<VoiceFxParams> {
     saturationAmount: 0.08 + activity * 0.06,    // 0.08 → 0.14 (a hair more grit)
     presencePeakDb: 3 + activity * 2,            // 3 → 5 dB (more bite when busy)
   };
+}
+
+// Resolve the FX params for a given preset id. For Chill Dispatcher we apply
+// the clarity-tuned overrides on top; for every other preset we use the
+// preset's own balanced character. Activity-driven variation is layered on
+// regardless so any voice "feels the room."
+function resolveRangerFxParams(presetId: string, onlineCount: number): Partial<VoiceFxParams> {
+  const base = presetId === "chill-dispatcher" ? CHILL_DISPATCHER_OVERRIDES : {};
+  return { ...base, ...rangerActivityParams(onlineCount) };
 }
 import { useScout } from "../Provider.tsx";
 
@@ -167,6 +175,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [voiceProbeState, setVoiceProbeState] = useState<VoiceProbeState>("idle");
   const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.ranger.voiceReplies", false);
   const [voiceSpeed, setVoiceSpeed] = usePersistentNumber("openscout.ranger.voiceSpeed", DEFAULT_RANGER_VOICE_SPEED);
+  const [voicePresetId, setVoicePresetId] = usePersistentString("openscout.ranger.voicePresetId", DEFAULT_RANGER_VOICE_PRESET_ID);
   const [briefing, setBriefing] = useState(false);
   const [brief, setBrief] = useState<RangerBrief | null>(null);
   const [briefStepIndex, setBriefStepIndex] = useState<number | null>(null);
@@ -212,8 +221,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     stopSpeech();
     const speech = startVoxSpeechWithEffects(toSpokenScoutText(text), {
       speed: voiceSpeed,
-      presetId: RANGER_VOICE_PRESET_ID,
-      params: { ...RANGER_VOICE_PARAMS, ...rangerActivityParams(onlineCount) },
+      presetId: voicePresetId,
+      params: resolveRangerFxParams(voicePresetId, onlineCount),
     });
     speechRef.current = speech;
     setSpeaking(true);
@@ -229,7 +238,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           setSpeaking(false);
         }
       });
-  }, [stopSpeech, voiceSpeed, onlineCount]);
+  }, [stopSpeech, voiceSpeed, onlineCount, voicePresetId]);
 
   useEffect(() => () => {
     briefRunRef.current = null;
@@ -538,8 +547,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     const controller = new AbortController();
     const promise = playPreparedVoxSpeechWithEffects(audio, {
       signal: controller.signal,
-      presetId: RANGER_VOICE_PRESET_ID,
-      params: { ...RANGER_VOICE_PARAMS, ...rangerActivityParams(onlineCount) },
+      presetId: voicePresetId,
+      params: resolveRangerFxParams(voicePresetId, onlineCount),
     });
     const speech: VoxSpeakHandle = {
       promise,
@@ -560,7 +569,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       }
     }
     return true;
-  }, [onlineCount]);
+  }, [onlineCount, voicePresetId]);
 
   const runBrief = useCallback(async (nextBrief: RangerBrief, runId: string) => {
     const segments = [
@@ -1016,6 +1025,24 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       {settingsOpen && (
         <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 p-3">
           <div className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              Voice FX
+              <select
+                value={voicePresetId}
+                onChange={(event) => setVoicePresetId(event.target.value)}
+                className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] normal-case tracking-normal text-[var(--scout-chrome-ink)]"
+              >
+                {VOICE_FX_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label} — {preset.family}
+                  </option>
+                ))}
+              </select>
+              <span className="font-mono text-[9px] normal-case leading-relaxed tracking-normal text-[var(--scout-chrome-ink-ghost)]">
+                {VOICE_FX_PRESETS.find((preset) => preset.id === voicePresetId)?.description
+                  ?? "Custom voice mood for spoken replies."}
+              </span>
+            </label>
             <label className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
               Model
               <input
