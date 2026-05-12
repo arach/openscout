@@ -6,7 +6,38 @@ import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-
 import { extractRangerUiActions, normalizeRangerUiAction } from "../../lib/ranger.ts";
 import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
-import { isVoxSpeechStopped, playPreparedVoxSpeech, prepareVoxSpeech, startVoxSpeech, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
+import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
+import type { VoiceFxParams } from "@voxd/client/fx";
+
+// Voice "mood" for Ranger's spoken replies. Chill Dispatcher base + a clarity
+// pass on top — wider band, lighter saturation/crunch, quieter hiss, softer
+// comp. Keeps the dispatcher character while letting consonants through.
+// Once Settings > Voice lands, this comes from user prefs.
+const RANGER_VOICE_PRESET_ID = "chill-dispatcher";
+const RANGER_VOICE_PARAMS: Partial<VoiceFxParams> = {
+  lowCutHz: 220,             // slight warmth on the bottom
+  highCutHz: 4500,           // more air / presence at the top
+  bandQ: 0.5,                // gentle shelves, not peaky
+  saturationAmount: 0.08,    // just enough to read as "channel"
+  bitcrushAmount: 0.02,      // a whisper of crunch, no aliasing harshness
+  hissGain: 0.010,           // very subtle carrier — present but unobtrusive
+  hissCutoffHz: 1800,        // thinner hiss tone, less broadband noise
+  compressorThresholdDb: -14,// gentle comp
+  compressorRatio: 2.5,      // very light ratio, less pumping
+};
+
+// Subtle, "low-key" variation based on how busy the fleet feels. The idea is
+// the voice should feel the room — a touch faster + slightly more bite when
+// lots of agents are online, chill and clean when it's quiet. Never dramatic;
+// just enough that you sense the mood shift over a session.
+function rangerActivityParams(onlineCount: number): Partial<VoiceFxParams> {
+  const activity = Math.min(1, onlineCount / 8); // 0 at idle, 1 at 8+ online
+  return {
+    playbackRate: 0.97 + activity * 0.06,        // 0.97 chill → 1.03 urgent
+    saturationAmount: 0.08 + activity * 0.06,    // 0.08 → 0.14 (a hair more grit)
+    presencePeakDb: 3 + activity * 2,            // 3 → 5 dB (more bite when busy)
+  };
+}
 import { useScout } from "../Provider.tsx";
 
 type RangerAgentConfig = {
@@ -124,6 +155,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const {
     applyRangerUiAction,
     route,
+    onlineCount,
   } = useScout();
 
   const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", false);
@@ -178,7 +210,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       return;
     }
     stopSpeech();
-    const speech = startVoxSpeech(toSpokenScoutText(text), { speed: voiceSpeed });
+    const speech = startVoxSpeechWithEffects(toSpokenScoutText(text), {
+      speed: voiceSpeed,
+      presetId: RANGER_VOICE_PRESET_ID,
+      params: { ...RANGER_VOICE_PARAMS, ...rangerActivityParams(onlineCount) },
+    });
     speechRef.current = speech;
     setSpeaking(true);
     void speech.promise
@@ -193,7 +229,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           setSpeaking(false);
         }
       });
-  }, [stopSpeech, voiceSpeed]);
+  }, [stopSpeech, voiceSpeed, onlineCount]);
 
   useEffect(() => () => {
     briefRunRef.current = null;
@@ -500,7 +536,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       return false;
     }
     const controller = new AbortController();
-    const promise = playPreparedVoxSpeech(audio, { signal: controller.signal });
+    const promise = playPreparedVoxSpeechWithEffects(audio, {
+      signal: controller.signal,
+      presetId: RANGER_VOICE_PRESET_ID,
+      params: { ...RANGER_VOICE_PARAMS, ...rangerActivityParams(onlineCount) },
+    });
     const speech: VoxSpeakHandle = {
       promise,
       stop: () => controller.abort(),
@@ -520,7 +560,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       }
     }
     return true;
-  }, []);
+  }, [onlineCount]);
 
   const runBrief = useCallback(async (nextBrief: RangerBrief, runId: string) => {
     const segments = [

@@ -5,6 +5,13 @@ import {
   type SessionFinalEvent,
   type SessionState,
 } from "@voxd/client";
+import {
+  DEFAULT_VOICE_FX,
+  VOICE_FX_PRESETS,
+  decodeAudioFromBase64,
+  playWithVoiceFx,
+  type VoiceFxParams,
+} from "@voxd/client/fx";
 
 export type VoxConnectionState = "unknown" | "probing" | "connected" | "unavailable";
 
@@ -259,6 +266,73 @@ export function startVoxSpeech(text: string, options: Omit<VoxSpeakOptions, "sig
   const controller = new AbortController();
   return {
     promise: speakWithVox(text, { ...options, signal: controller.signal }),
+    stop: () => controller.abort(),
+  };
+}
+
+// ─── FX-aware speak path ──────────────────────────────────────────────
+// Same shape as speakWithVox / startVoxSpeech, but pipes the synthesized
+// audio through @voxd/client/fx before playback. Pick a preset by id
+// (one of VOICE_FX_PRESETS), or pass `params` to override individual
+// knobs (merged on top of the preset / DEFAULT_VOICE_FX).
+//
+// Synthesis still flows through /api/voice/speak — Vox is unaware of
+// any FX; the engine is pure post-decode mastering in the browser.
+
+export type VoxSpeakWithEffectsOptions = VoxSpeakOptions & {
+  presetId?: string;
+  params?: Partial<VoiceFxParams>;
+};
+
+function resolveVoiceFxParams(
+  presetId: string | undefined,
+  override: Partial<VoiceFxParams> | undefined,
+): VoiceFxParams {
+  const presetParams = presetId
+    ? VOICE_FX_PRESETS.find((p) => p.id === presetId)?.params
+    : undefined;
+  return {
+    ...DEFAULT_VOICE_FX,
+    ...(presetParams ?? {}),
+    ...(override ?? {}),
+  };
+}
+
+export async function speakWithEffects(
+  text: string,
+  options: VoxSpeakWithEffectsOptions = {},
+): Promise<VoxSpeakResult> {
+  const result = await prepareVoxSpeech(text, options);
+  if (options.signal?.aborted) throw stoppedSpeechError();
+  const buffer = await decodeAudioFromBase64(result.audioBase64, result.contentType);
+  const params = resolveVoiceFxParams(options.presetId, options.params);
+  const handle = playWithVoiceFx(buffer, { params, signal: options.signal });
+  await handle.promise;
+  return result;
+}
+
+// FX-aware companion to playPreparedVoxSpeech, for the brief pre-render→play
+// flow. Takes the already-synthesized audio result and pipes it through the
+// effects chain instead of `new Audio(...)`.
+export async function playPreparedVoxSpeechWithEffects(
+  result: VoxSpeakResult,
+  options: { signal?: AbortSignal; presetId?: string; params?: Partial<VoiceFxParams> } = {},
+): Promise<VoxSpeakResult> {
+  if (options.signal?.aborted) throw stoppedSpeechError();
+  const buffer = await decodeAudioFromBase64(result.audioBase64, result.contentType);
+  const params = resolveVoiceFxParams(options.presetId, options.params);
+  const handle = playWithVoiceFx(buffer, { params, signal: options.signal });
+  await handle.promise;
+  return result;
+}
+
+export function startVoxSpeechWithEffects(
+  text: string,
+  options: Omit<VoxSpeakWithEffectsOptions, "signal"> = {},
+): VoxSpeakHandle {
+  const controller = new AbortController();
+  return {
+    promise: speakWithEffects(text, { ...options, signal: controller.signal }),
     stop: () => controller.abort(),
   };
 }

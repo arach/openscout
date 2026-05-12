@@ -2742,6 +2742,61 @@ export async function createOpenScoutWebServer(
     }
   });
 
+  // Dev-only: serve generated Ranger FX fixtures for /dev/ranger-fx lab.
+  // Fixtures are produced by packages/web/scripts/generate-ranger-fx-fixtures.mjs
+  // and live in packages/web/dev/ranger-fx-fixtures/ (gitignored).
+  if (process.env.NODE_ENV !== "production") {
+    const fixturesRoot = join(process.cwd(), "dev", "ranger-fx-fixtures");
+
+    app.get("/api/dev/ranger-fx/fixtures", (c) => {
+      if (!existsSync(fixturesRoot)) {
+        return c.json({ fixtures: [], generatedAt: null, available: false });
+      }
+      const manifestPath = join(fixturesRoot, "manifest.json");
+      if (!existsSync(manifestPath)) {
+        return c.json({ fixtures: [], generatedAt: null, available: true, note: "manifest missing — re-run the generator script" });
+      }
+      try {
+        const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+          generatedAt?: string;
+          fixtures?: unknown;
+        };
+        return c.json({
+          available: true,
+          generatedAt: parsed.generatedAt ?? null,
+          fixtures: Array.isArray(parsed.fixtures) ? parsed.fixtures : [],
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "manifest read failed";
+        return c.json({ error: message }, 500);
+      }
+    });
+
+    app.get("/api/dev/ranger-fx/audio/:name", (c) => {
+      const raw = c.req.param("name");
+      // Disallow anything that could escape the fixtures dir.
+      if (!raw || raw.includes("/") || raw.includes("\\") || raw.includes("..")) {
+        return c.json({ error: "invalid fixture name" }, 400);
+      }
+      if (!/^[a-zA-Z0-9._-]+\.wav$/.test(raw)) {
+        return c.json({ error: "invalid fixture name" }, 400);
+      }
+      const filePath = join(fixturesRoot, raw);
+      if (!existsSync(filePath)) {
+        return c.json({ error: "fixture not found" }, 404);
+      }
+      const body = readFileSync(filePath);
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "content-type": "audio/wav",
+          "content-length": String(body.length),
+          "cache-control": "no-store",
+        },
+      });
+    });
+  }
+
   app.get("/api/events", async (c) => {
     const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
     const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";

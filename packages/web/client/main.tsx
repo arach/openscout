@@ -7,6 +7,7 @@ import {
   applyScoutThemeToDocument,
   resolveScoutStartupTheme,
 } from "./lib/theme.ts";
+import { RangerFxLab } from "./dev/RangerFxLab.tsx";
 import "./arc-tailwind.css";
 import "./app.css";
 
@@ -18,8 +19,10 @@ if (!el) {
 const initialTheme = resolveScoutStartupTheme();
 applyScoutThemeToDocument(initialTheme);
 
+const isRangerFxLab = window.location.pathname === "/dev/ranger-fx";
+
 createRoot(el).render(
   <StrictMode>
-    <OpenScoutAppShell app={createScoutApp({ initialTheme })} />
+    {isRangerFxLab ? <RangerFxLab /> : <OpenScoutAppShell app={createScoutApp({ initialTheme })} />}
   </StrictMode>,
 );
