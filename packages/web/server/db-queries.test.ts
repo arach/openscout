@@ -215,6 +215,40 @@ describe("web db query flights", () => {
       store.close();
     }
   });
+
+  test("omits stale non-terminal flights from active views", () => {
+    const store = createSeededStore();
+    const old = Date.now() - 3 * 24 * 60 * 60 * 1000;
+
+    try {
+      store.recordInvocation({
+        id: "inv-stale-active",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Old queued work",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: old,
+      });
+      store.recordFlight({
+        id: "flight-stale-active",
+        invocationId: "inv-stale-active",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "queued",
+        summary: "Agent One queued for local execution.",
+        startedAt: old,
+      });
+
+      expect(queryFlights({ activeOnly: true }).some((flight) => flight.id === "flight-stale-active")).toBe(false);
+      expect(queryRuns({ active: true, limit: 50 }).some((run) => run.flightId === "flight-stale-active")).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
 });
 
 describe("web db query runs", () => {

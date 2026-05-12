@@ -18,7 +18,7 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask (--to <agent> | --ref <ref>) [--as <sender>] [--channel <name>] [--timeout <seconds>] [--harness <runtime>] [--prompt-file <path> | <message>]",
+    "Usage: scout ask (--to <agent> | --ref <ref>) [--as <sender>] [--channel <name>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -29,6 +29,7 @@ export function renderAskCommandHelp(): string {
     "",
     "Use ask when the meaning is \"do this and get back to me.\"",
     "Keep progress, review, and completion in that same DM or explicit channel.",
+    "Use --reply-mode notify or --no-wait for longer work when you only need a durable receipt.",
     "",
     "Input:",
     "  inline message                    -> primary prompt body",
@@ -40,10 +41,31 @@ export function renderAskCommandHelp(): string {
     '  scout ask --ref 7f3a9c21 "continue from that result"',
     "  scout ask --to hudson --prompt-file ./handoff.md",
     '  scout ask --as premotion.master.mini --to hudson "build the editor"',
+    '  scout ask --to hudson --reply-mode notify "take the next pass and report back"',
+    '  scout ask --to hudson --no-wait "start the longer implementation"',
     '  scout ask --to vox.harness:codex "take another pass on the runtime fix"',
     '  scout ask --to lattices#codex?5.5 "take task A"',
     '  scout ask --to lattices#claude?sonnet "take task B"',
   ].join("\n");
+}
+
+function renderScoutAskReceipt(value: {
+  conversationId?: string | null;
+  messageId?: string | null;
+  bindingRef?: string | null;
+  flight: NonNullable<ScoutAskResult["flight"]>;
+  replyMode: NonNullable<ScoutAskCommandOptions["replyMode"]>;
+}): string {
+  const pieces = [
+    `asked ${value.flight.targetAgentId}`,
+    `flight ${value.flight.id}`,
+    value.conversationId ? renderConversationRoute(value.conversationId) : null,
+    value.bindingRef,
+  ].filter((piece): piece is string => Boolean(piece));
+  const suffix = value.replyMode === "notify"
+    ? "Scout will surface the reply when it arrives."
+    : "Use the flight or conversation id to follow up.";
+  return `${pieces.join(" · ")}. ${suffix}`;
 }
 
 function renderScoutTargetLabel(targetLabel: string): string {
@@ -168,6 +190,23 @@ export async function runAskWithOptions(
   context.stderr(
     `asking ${result.flight.targetAgentId} as ${senderId} via ${renderConversationRoute(result.conversationId)}... (flight ${result.flight.id})`,
   );
+
+  const replyMode = options.replyMode ?? "inline";
+  if (replyMode !== "inline") {
+    context.output.writeValue(
+      {
+        senderId,
+        conversationId: result.conversationId ?? null,
+        messageId: result.messageId ?? null,
+        bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
+        flight: result.flight,
+        replyMode,
+      },
+      renderScoutAskReceipt,
+    );
+    return;
+  }
+
   const completed = await waitForScoutFlight(
     resolveScoutBrokerUrl(),
     result.flight.id,

@@ -91,7 +91,7 @@ describe("askScoutQuestion", () => {
       },
     });
 
-    const requests: Array<{ method: string; path: string }> = [];
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
     globalThis.fetch = (async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const url = new URL(request.url);
@@ -127,6 +127,7 @@ describe("askScoutQuestion", () => {
       }
       if (request.method === "POST" && url.pathname === "/v1/deliver") {
         const body = await request.json() as { requesterId: string; targetLabel: string; body: string };
+        requests[requests.length - 1]!.body = body;
         return jsonResponse({
           kind: "delivery",
           accepted: true,
@@ -181,6 +182,8 @@ describe("askScoutQuestion", () => {
     expect(requests.some((request) => request.path === "/v1/messages")).toBe(false);
     expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
     expect(requests.some((request) => request.path === "/v1/deliver")).toBe(true);
+    expect(requests.find((request) => request.path === "/v1/deliver")?.body?.execution)
+      .toEqual({ session: "new" });
     expect(requests.some((request) => request.path === "/v1/endpoints")).toBe(false);
   }, 15000);
 
@@ -375,6 +378,7 @@ describe("askScoutQuestion", () => {
       .toMatchObject({
         targetAgentId: configuredAgentId,
         targetLabel: configuredAgentId,
+        execution: { session: "new" },
       });
   }, 15000);
 });

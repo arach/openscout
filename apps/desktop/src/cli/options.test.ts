@@ -171,6 +171,20 @@ describe("parseImplicitAskCommandOptions", () => {
     expect(options.currentDirectory).toBe("/tmp/repo");
   });
 
+  test("parses non-blocking ask reply modes", () => {
+    const notify = parseImplicitAskCommandOptions(
+      ["--notify", "@talkie", "take", "another", "pass"],
+      "/tmp/workspace",
+    );
+    const noWait = parseImplicitAskCommandOptions(
+      ["--no-wait", "@talkie", "start", "the", "longer", "run"],
+      "/tmp/workspace",
+    );
+
+    expect(notify.replyMode).toBe("notify");
+    expect(noWait.replyMode).toBe("none");
+  });
+
   test("extracts a target agent from the composer route operator", () => {
     const options = parseImplicitAskCommandOptions(
       ["hey", ">>", "dewey", "can", "you", "review", "our", "docs?"],

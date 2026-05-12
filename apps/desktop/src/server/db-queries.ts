@@ -190,6 +190,8 @@ function isDuplicateActivityFeedItem(previous: WebActivityItem | null, next: Web
 }
 
 const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
+const ACTIVE_FLIGHT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
 const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
 
 function staleFlightActivityPredicate(alias: string): string {
@@ -968,6 +970,7 @@ export function queryFlights(opts?: {
 }): WebFlight[] {
   const where = sqlJoinClauses([
     opts?.activeOnly ? `f.state IN ${ACTIVE_FLIGHT_STATES_SQL}` : null,
+    opts?.activeOnly ? `(COALESCE(f.started_at, inv.created_at, 0) < ${EPOCH_MILLISECONDS_FLOOR} OR COALESCE(f.started_at, inv.created_at, 0) >= ?)` : null,
     opts?.agentId ? `f.target_agent_id = ?` : null,
     opts?.conversationId ? `inv.conversation_id = ?` : null,
     opts?.collaborationRecordId ? `inv.collaboration_record_id = ?` : null,
@@ -992,6 +995,7 @@ export function queryFlights(opts?: {
   LIMIT 100`;
 
   const params: string[] = [];
+  if (opts?.activeOnly) params.push(String(Date.now() - ACTIVE_FLIGHT_MAX_AGE_MS));
   if (opts?.agentId) params.push(opts.agentId);
   if (opts?.conversationId) params.push(opts.conversationId);
   if (opts?.collaborationRecordId) params.push(opts.collaborationRecordId);

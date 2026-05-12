@@ -362,6 +362,8 @@ function normalizeTimestampMs(value: number | string | null): number | null {
 }
 
 const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
+const ACTIVE_FLIGHT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
 const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
 
 function isDuplicateActivityFeedItem(previous: WebActivityItem | null, next: WebActivityItem): boolean {
@@ -1183,7 +1185,7 @@ const ACTIVE_RUN_STATES = new Set<AgentRunState>([
 ]);
 
 function isActiveRun(run: AgentRun): boolean {
-  return ACTIVE_RUN_STATES.has(run.state);
+  return ACTIVE_RUN_STATES.has(run.state) && isFreshActiveTimestamp(run.updatedAt);
 }
 
 export function queryRuns(opts?: {
@@ -1295,6 +1297,7 @@ export function queryFlights(opts?: {
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
   const where = sqlJoinClauses([
     opts?.activeOnly ? `f.state IN ${ACTIVE_FLIGHT_STATES_SQL}` : null,
+    opts?.activeOnly ? `(COALESCE(f.started_at, inv.created_at, 0) < ${EPOCH_MILLISECONDS_FLOOR} OR COALESCE(f.started_at, inv.created_at, 0) >= ?)` : null,
     opts?.agentId ? `f.target_agent_id = ?` : null,
     conversationIds.length > 0
       ? `inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
@@ -1321,6 +1324,7 @@ export function queryFlights(opts?: {
   LIMIT 100`;
 
   const params: string[] = [];
+  if (opts?.activeOnly) params.push(String(Date.now() - ACTIVE_FLIGHT_MAX_AGE_MS));
   if (opts?.agentId) params.push(opts.agentId);
   if (conversationIds.length > 0) params.push(...conversationIds);
   if (opts?.collaborationRecordId) params.push(opts.collaborationRecordId);
@@ -3230,6 +3234,15 @@ function queryFleetActivity(opts?: {
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
 const FLEET_RECENT_COMPLETED_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 
+function isFreshActiveTimestamp(timestamp: number): boolean {
+  return timestamp < EPOCH_MILLISECONDS_FLOOR || Date.now() - timestamp <= ACTIVE_FLIGHT_MAX_AGE_MS;
+}
+
+function isStaleActiveFlight(startedAt: number | null, createdAt: number): boolean {
+  const timestamp = normalizeTimestampMs(startedAt ?? createdAt) ?? createdAt;
+  return !isFreshActiveTimestamp(timestamp);
+}
+
 function fleetRequesterIds(): string[] {
   const operatorName = resolveOperatorName().trim() || "operator";
   return Array.from(new Set([operatorName, "operator"]));
@@ -3320,7 +3333,18 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
 
 function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFleetAsk {
   const hasFlight = typeof row.flight_id === "string" && row.flight_id.length > 0;
-  const isActiveFlight = hasFlight && row.flight_state !== null && !TERMINAL_FLIGHT_STATES.has(row.flight_state);
+  const replied = row.status_kind === "ask_replied";
+  const failed = row.flight_state === "failed" || row.status_kind === "ask_failed";
+  const staleActiveFlight = hasFlight
+    && row.flight_state !== null
+    && !TERMINAL_FLIGHT_STATES.has(row.flight_state)
+    && isStaleActiveFlight(row.started_at, row.created_at);
+  const isActiveFlight = hasFlight
+    && row.flight_state !== null
+    && !TERMINAL_FLIGHT_STATES.has(row.flight_state)
+    && !replied
+    && !failed
+    && !staleActiveFlight;
   const awaitingOperator = Boolean(
     (row.next_move_owner_id && requesterIdSet.has(row.next_move_owner_id))
     || row.acceptance_state === "pending",
@@ -3329,7 +3353,6 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
   const updatedAt = normalizeTimestampMs(
     row.status_ts ?? row.completed_at ?? row.started_at ?? row.work_updated_at ?? row.created_at,
   ) ?? Date.now();
-  const failed = row.flight_state === "failed" || row.status_kind === "ask_failed";
   const dismissedAt = normalizeTimestampMs(row.flight_dismissed_at);
   const failedDismissed = Boolean(dismissedAt !== null && dismissedAt >= updatedAt);
 
@@ -3340,7 +3363,7 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     status = "working";
   } else if (awaitingOperator) {
     status = "needs_attention";
-  } else if (failed) {
+  } else if (failed || staleActiveFlight) {
     status = "failed";
   } else {
     status = "completed";

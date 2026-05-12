@@ -92,3 +92,20 @@ export function usePersistentNumber(
 
   return [value, setValue];
 }
+
+export function usePersistentString(
+  key: string,
+  initialValue: string,
+): [string, (value: string) => void] {
+  const raw = useSubscribedRaw(key);
+  const value = raw ?? initialValue;
+
+  const setValue = useCallback(
+    (next: string) => {
+      writeString(key, next);
+    },
+    [key],
+  );
+
+  return [value, setValue];
+}

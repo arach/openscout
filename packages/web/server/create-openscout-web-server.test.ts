@@ -10,10 +10,12 @@ import {
 
 const originalFetch = globalThis.fetch;
 const originalHome = process.env.HOME;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
 const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
+const originalOperatorName = process.env.OPENSCOUT_OPERATOR_NAME;
 const originalOpenAIKey = process.env.OPENAI_API_KEY;
 const originalOpenAIModel = process.env.OPENAI_MODEL;
 const originalRangerAssistantModel = process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL;
@@ -327,6 +329,11 @@ function sessionSnapshotWithAttention(): {
 beforeEach(() => {
   globalThis.fetch = originalFetch;
   process.env.HOME = originalHome;
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
   if (originalSupportDirectory === undefined) {
     delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
   } else {
@@ -346,6 +353,11 @@ beforeEach(() => {
     delete process.env.OPENSCOUT_NODE_QUALIFIER;
   } else {
     process.env.OPENSCOUT_NODE_QUALIFIER = originalNodeQualifier;
+  }
+  if (originalOperatorName === undefined) {
+    delete process.env.OPENSCOUT_OPERATOR_NAME;
+  } else {
+    process.env.OPENSCOUT_OPERATOR_NAME = originalOperatorName;
   }
   if (originalOpenAIKey === undefined) {
     delete process.env.OPENAI_API_KEY;
@@ -407,6 +419,11 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.HOME = originalHome;
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
   if (originalSupportDirectory === undefined) {
     delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
   } else {
@@ -426,6 +443,11 @@ afterEach(() => {
     delete process.env.OPENSCOUT_NODE_QUALIFIER;
   } else {
     process.env.OPENSCOUT_NODE_QUALIFIER = originalNodeQualifier;
+  }
+  if (originalOperatorName === undefined) {
+    delete process.env.OPENSCOUT_OPERATOR_NAME;
+  } else {
+    process.env.OPENSCOUT_OPERATOR_NAME = originalOperatorName;
   }
   if (originalOpenAIKey === undefined) {
     delete process.env.OPENAI_API_KEY;
@@ -1438,6 +1460,52 @@ describe("createOpenScoutWebServer", () => {
     expect(await channelResponse.json()).toEqual({
       error: "ask is only available in a direct conversation with one agent",
     });
+  });
+
+  test("routes Ranger ask actions through askScoutQuestion", async () => {
+    const home = useIsolatedOpenScoutHome();
+    process.env.OPENSCOUT_HOME = join(home, ".openscout");
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/ranger/actions/ask",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          targetLabel: "hudson",
+          targetAgentId: "agent-hudson",
+          body: "Can you check the broker handoff path?",
+          channel: "ops",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      targetLabel: "hudson",
+      conversationId: "dm.operator.agent-1",
+      messageId: "msg-ask-1",
+      flightId: "flt-ask-1",
+      targetAgentId: "agent-1",
+    });
+    expect(askScoutQuestionCalls).toEqual([
+      {
+        senderId: "operator",
+        targetLabel: "hudson",
+        targetAgentId: "agent-hudson",
+        body: "Can you check the broker handoff path?",
+        channel: "ops",
+        currentDirectory: "/tmp/openscout",
+      },
+    ]);
   });
 
   test("runs Ranger assistant through direct OpenAI control loop", async () => {

@@ -1,12 +1,51 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Gauge, History, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
-import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
+import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import { extractRangerUiActions, normalizeRangerUiAction } from "../../lib/ranger.ts";
 import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
-import { isVoxSpeechStopped, playPreparedVoxSpeech, prepareVoxSpeech, startVoxSpeech, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
+import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
+import { VOICE_FX_PRESETS, type VoiceFxParams } from "@voxd/client/fx";
+
+// Default voice mood + clarity-tuned overrides specific to Chill Dispatcher.
+// Other presets are used as-is (each preset already balances its own
+// character). The user-selected preset id is persisted via Ranger settings.
+const DEFAULT_RANGER_VOICE_PRESET_ID = "chill-dispatcher";
+const CHILL_DISPATCHER_OVERRIDES: Partial<VoiceFxParams> = {
+  lowCutHz: 220,             // slight warmth on the bottom
+  highCutHz: 4500,           // more air / presence at the top
+  bandQ: 0.5,                // gentle shelves, not peaky
+  saturationAmount: 0.08,    // just enough to read as "channel"
+  bitcrushAmount: 0.02,      // a whisper of crunch, no aliasing harshness
+  hissGain: 0.010,           // very subtle carrier — present but unobtrusive
+  hissCutoffHz: 1800,        // thinner hiss tone, less broadband noise
+  compressorThresholdDb: -14,// gentle comp
+  compressorRatio: 2.5,      // very light ratio, less pumping
+};
+
+// Subtle, "low-key" variation based on how busy the fleet feels. The idea is
+// the voice should feel the room — a touch faster + slightly more bite when
+// lots of agents are online, chill and clean when it's quiet. Never dramatic;
+// just enough that you sense the mood shift over a session.
+function rangerActivityParams(onlineCount: number): Partial<VoiceFxParams> {
+  const activity = Math.min(1, onlineCount / 8); // 0 at idle, 1 at 8+ online
+  return {
+    playbackRate: 0.97 + activity * 0.06,        // 0.97 chill → 1.03 urgent
+    saturationAmount: 0.08 + activity * 0.06,    // 0.08 → 0.14 (a hair more grit)
+    presencePeakDb: 3 + activity * 2,            // 3 → 5 dB (more bite when busy)
+  };
+}
+
+// Resolve the FX params for a given preset id. For Chill Dispatcher we apply
+// the clarity-tuned overrides on top; for every other preset we use the
+// preset's own balanced character. Activity-driven variation is layered on
+// regardless so any voice "feels the room."
+function resolveRangerFxParams(presetId: string, onlineCount: number): Partial<VoiceFxParams> {
+  const base = presetId === "chill-dispatcher" ? CHILL_DISPATCHER_OVERRIDES : {};
+  return { ...base, ...rangerActivityParams(onlineCount) };
+}
 import { useScout } from "../Provider.tsx";
 
 type RangerAgentConfig = {
@@ -104,6 +143,15 @@ type RangerReminderCreateResult = RangerReminderState & {
   reminder: RangerReminder;
 };
 
+type RangerAskAgentResult = {
+  ok: boolean;
+  targetLabel: string;
+  conversationId: string | null;
+  messageId: string | null;
+  flightId: string | null;
+  targetAgentId: string | null;
+};
+
 type VoiceProbeState = "idle" | "probing" | "launching";
 
 const STATE_PROMPT =
@@ -115,6 +163,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const {
     applyRangerUiAction,
     route,
+    onlineCount,
   } = useScout();
 
   const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", false);
@@ -126,6 +175,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [voiceProbeState, setVoiceProbeState] = useState<VoiceProbeState>("idle");
   const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.ranger.voiceReplies", false);
   const [voiceSpeed, setVoiceSpeed] = usePersistentNumber("openscout.ranger.voiceSpeed", DEFAULT_RANGER_VOICE_SPEED);
+  const [voicePresetId, setVoicePresetId] = usePersistentString("openscout.ranger.voicePresetId", DEFAULT_RANGER_VOICE_PRESET_ID);
   const [briefing, setBriefing] = useState(false);
   const [brief, setBrief] = useState<RangerBrief | null>(null);
   const [briefStepIndex, setBriefStepIndex] = useState<number | null>(null);
@@ -169,7 +219,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       return;
     }
     stopSpeech();
-    const speech = startVoxSpeech(toSpokenScoutText(text), { speed: voiceSpeed });
+    const speech = startVoxSpeechWithEffects(toSpokenScoutText(text), {
+      speed: voiceSpeed,
+      presetId: voicePresetId,
+      params: resolveRangerFxParams(voicePresetId, onlineCount),
+    });
     speechRef.current = speech;
     setSpeaking(true);
     void speech.promise
@@ -184,7 +238,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           setSpeaking(false);
         }
       });
-  }, [stopSpeech, voiceSpeed]);
+  }, [stopSpeech, voiceSpeed, onlineCount, voicePresetId]);
 
   useEffect(() => () => {
     briefRunRef.current = null;
@@ -396,7 +450,27 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     const replyText = stripRangerUiFences(body);
     setLastReply(replyText);
     for (const action of extractRangerUiActions(body)) {
-      if (action.type === "reminder") {
+      if (action.type === "ask-agent") {
+        setAskStatus(`Asking ${action.targetLabel}`);
+        void api<RangerAskAgentResult>("/api/ranger/actions/ask", {
+          method: "POST",
+          body: JSON.stringify({
+            targetLabel: action.targetLabel,
+            targetAgentId: action.targetAgentId,
+            body: action.body,
+            channel: action.channel,
+          }),
+        }).then((result) => {
+          setAskStatus(
+            result.flightId
+              ? `Asked ${result.targetAgentId ?? result.targetLabel} · flight ${result.flightId}`
+              : `Asked ${result.targetAgentId ?? result.targetLabel}`,
+          );
+        }).catch((err) => {
+          setAskStatus(null);
+          setError(err instanceof Error ? err.message : "Could not ask agent.");
+        });
+      } else if (action.type === "reminder") {
         void createRangerReminder({
           title: action.title,
           body: action.body,
@@ -471,7 +545,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       return false;
     }
     const controller = new AbortController();
-    const promise = playPreparedVoxSpeech(audio, { signal: controller.signal });
+    const promise = playPreparedVoxSpeechWithEffects(audio, {
+      signal: controller.signal,
+      presetId: voicePresetId,
+      params: resolveRangerFxParams(voicePresetId, onlineCount),
+    });
     const speech: VoxSpeakHandle = {
       promise,
       stop: () => controller.abort(),
@@ -491,7 +569,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       }
     }
     return true;
-  }, []);
+  }, [onlineCount, voicePresetId]);
 
   const runBrief = useCallback(async (nextBrief: RangerBrief, runId: string) => {
     const segments = [
@@ -947,6 +1025,24 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       {settingsOpen && (
         <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 p-3">
           <div className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              Voice FX
+              <select
+                value={voicePresetId}
+                onChange={(event) => setVoicePresetId(event.target.value)}
+                className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] normal-case tracking-normal text-[var(--scout-chrome-ink)]"
+              >
+                {VOICE_FX_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label} — {preset.family}
+                  </option>
+                ))}
+              </select>
+              <span className="font-mono text-[9px] normal-case leading-relaxed tracking-normal text-[var(--scout-chrome-ink-ghost)]">
+                {VOICE_FX_PRESETS.find((preset) => preset.id === voicePresetId)?.description
+                  ?? "Custom voice mood for spoken replies."}
+              </span>
+            </label>
             <label className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
               Model
               <input
@@ -1405,17 +1501,56 @@ function ChatInput({
 function ChatBubble({ role, body, pending = false }: { role: "user" | "assistant"; body: string; pending?: boolean }) {
   const isUser = role === "user";
   const text = isUser ? body : stripRangerUiFences(body);
+  const [copied, setCopied] = useState(false);
+  const copyMessage = useCallback(() => {
+    void copyTextToClipboard(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    }).catch(() => {});
+  }, [text]);
   return (
-    <div className="flex flex-col">
-      <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
-        {isUser ? "You" : "Ranger"}
-        {pending && " · sending"}
-      </span>
+    <div className="group flex flex-col gap-0.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
+          {isUser ? "You" : "Ranger"}
+          {pending && " · sending"}
+        </span>
+        <button
+          type="button"
+          title={copied ? "Copied" : "Copy message"}
+          aria-label={copied ? "Copied message" : "Copy message"}
+          disabled={pending || !text.trim()}
+          onClick={copyMessage}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-ghost)] opacity-70 transition hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-20 group-hover:opacity-100"
+        >
+          {copied ? <CheckCircle2 size={11} /> : <Copy size={11} />}
+        </button>
+      </div>
       <p className={`whitespace-pre-wrap break-words text-[11px] leading-relaxed ${isUser ? "text-[var(--scout-chrome-ink)]" : "text-[var(--scout-chrome-ink)]"} ${pending ? "opacity-60" : ""}`}>
         {text}
       </p>
     </div>
   );
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function RangerIconButton({

@@ -481,6 +481,58 @@
   border-color: color-mix(in srgb, var(--green) 35%, transparent);
 }
 
+.s-profile-facet-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.s-profile-context-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.s-profile-context-state {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.s-profile-context--fresh .s-profile-context-state {
+  color: var(--green);
+}
+
+.s-profile-context--aging .s-profile-context-state {
+  color: var(--accent);
+}
+
+.s-profile-context--stale .s-profile-context-state {
+  color: var(--red);
+}
+
+.s-profile-context-gauge {
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.s-profile-context-gauge-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transition: width 0.18s ease;
+}
+
+.s-profile-context--aging .s-profile-context-gauge-fill {
+  background: var(--accent);
+}
+
+.s-profile-context--stale .s-profile-context-gauge-fill {
+  background: var(--red);
+}
+
 /* ── Tab bar ── */
 
 .s-profile-tabs {

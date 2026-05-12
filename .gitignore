@@ -46,6 +46,9 @@
 # local review/audit artifacts (PM/engineer reports, screenshots, logs)
 /reviews/
 
+# Ranger FX dev fixtures (generated WAVs, regenerable via scripts/generate-ranger-fx-fixtures.mjs)
+packages/web/dev/ranger-fx-fixtures/
+
 # package build artifacts
 packages/*/dist/
 apps/*/dist/
