@@ -23,10 +23,12 @@ import {
 import {
   loadLastViewedMap,
   isUnread,
+  saveLastViewed,
   type LastViewedMap,
 } from "../lib/sessionRead.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
+import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import type {
   Agent,
   Flight,
@@ -135,6 +137,8 @@ type EventMessageRecord = {
   body: string;
   createdAt: number;
   class: string;
+  attachments?: Message["attachments"];
+  metadata?: Record<string, unknown> | null;
 };
 
 type EventFlightRecord = {
@@ -962,7 +966,16 @@ export function ConversationScreen({
         ),
       ]);
 
-      setMessages(sortMessages(conversationMessages));
+      const sortedMessages = sortMessages(conversationMessages);
+      setMessages(sortedMessages);
+      saveLastViewed(canonicalConversationId);
+      const lastMessage = sortedMessages.at(-1);
+      if (lastMessage) {
+        void api(`/api/conversations/${encodeURIComponent(canonicalConversationId)}/read-cursor`, {
+          method: "POST",
+          body: JSON.stringify({ lastReadMessageId: lastMessage.id }),
+        }).catch(() => {});
+      }
       setAllFlights(activeFlights);
       trackedInvocationIdsRef.current = new Set(
         activeFlights.map((flight) => flight.invocationId),
@@ -1281,6 +1294,8 @@ export function ConversationScreen({
             body: message.body,
             createdAt: message.createdAt,
             class: isAgentMessage ? message.class : "operator",
+            attachments: message.attachments,
+            metadata: message.metadata,
           };
 
           setMessages((previous) => {
@@ -2084,6 +2099,8 @@ export function ConversationScreen({
                         <div className="s-thread-msg-body" title={absoluteTime}>
                           <MessageMarkup text={message.body} />
                         </div>
+
+                        <MessageEmbeds message={message} />
 
                         {dispatch && dispatch.candidates.length > 0 && (
                           <div className="s-thread-dispatch">

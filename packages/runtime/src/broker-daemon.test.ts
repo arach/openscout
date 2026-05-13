@@ -615,6 +615,84 @@ describe("broker daemon comms layer", () => {
     expect(acknowledged.some((candidate) => candidate.id === item!.id && candidate.status === "acknowledged")).toBe(true);
   }, 15_000);
 
+  test("records conversation read cursors and acknowledges passive message deliveries", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    await postJson(harness.baseUrl, "/v1/messages", {
+      id: "msg-read-cursor-1",
+      conversationId: "channel.shared",
+      actorId: "operator",
+      originNodeId: harness.nodeId,
+      class: "agent",
+      body: "@fabric please read this",
+      mentions: [{ actorId: "fabric", label: "@fabric" }],
+      audience: { notify: ["fabric"] },
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: Date.now(),
+    });
+
+    const pending = await getJson<Array<{ id: string; status: string; message?: { id: string } }>>(
+      harness.baseUrl,
+      "/v1/inbox?targetId=fabric&status=pending&limit=20",
+    );
+    const item = pending.find((candidate) => candidate.message?.id === "msg-read-cursor-1");
+    expect(item).toBeDefined();
+
+    const marked = await postJson<{
+      ok: boolean;
+      cursor: {
+        conversationId: string;
+        actorId: string;
+        lastReadMessageId?: string;
+      };
+      acknowledgedDeliveries: number;
+    }>(
+      harness.baseUrl,
+      "/v1/conversations/channel.shared/read-cursors",
+      {
+        actorId: "fabric",
+        lastReadMessageId: "msg-read-cursor-1",
+        metadata: { source: "test" },
+      },
+    );
+
+    expect(marked.ok).toBe(true);
+    expect(marked.cursor).toEqual(expect.objectContaining({
+      conversationId: "channel.shared",
+      actorId: "fabric",
+      lastReadMessageId: "msg-read-cursor-1",
+    }));
+    expect(marked.acknowledgedDeliveries).toBeGreaterThan(0);
+
+    const cursors = await getJson<Array<{ actorId: string; lastReadMessageId?: string }>>(
+      harness.baseUrl,
+      "/v1/conversations/channel.shared/read-cursors",
+    );
+    expect(cursors).toContainEqual(expect.objectContaining({
+      actorId: "fabric",
+      lastReadMessageId: "msg-read-cursor-1",
+    }));
+
+    const acknowledged = await getJson<Array<{ id: string; status: string; message?: { id: string } }>>(
+      harness.baseUrl,
+      "/v1/inbox?targetId=fabric&status=acknowledged&limit=20",
+    );
+    expect(acknowledged).toContainEqual(expect.objectContaining({
+      id: item!.id,
+      status: "acknowledged",
+    }));
+
+    const events = await getJson<Array<{ kind: string; payload: { cursor?: { actorId: string } } }>>(
+      harness.baseUrl,
+      "/v1/events?limit=50",
+    );
+    expect(events.some((event) =>
+      event.kind === "conversation.read_cursor.updated" && event.payload.cursor?.actorId === "fabric"
+    )).toBe(true);
+  }, 15_000);
+
   test("rejects inbox nack when the caller does not own the active lease", async () => {
     const harness = await startBroker();
     await seedBasicConversation(harness);
@@ -1702,6 +1780,145 @@ describe("broker daemon comms layer", () => {
     expect(response.accepted).toBe(true);
     expect(response.targetAgentId).toBe("ranger.test-node");
     expect(response.receipt?.targetAgentId).toBe("ranger.test-node");
+  }, 15_000);
+
+  test("reconciles queued flights when their local agent is archived as stale", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "openscout");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    await postJson(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-prime-empty-registry",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "channel",
+        channel: "shared",
+      },
+      body: "prime registry signature",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ranger.main.mini",
+      kind: "agent",
+      definitionId: "ranger",
+      nodeQualifier: "mini",
+      workspaceQualifier: "main",
+      selector: "@ranger.main.node:mini",
+      defaultSelector: "@ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        source: "relay-agent-registry",
+        projectRoot,
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const accepted = await postJson<{
+      kind: string;
+      flight?: { id: string; state: string; targetAgentId: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-stale-race",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_id",
+        agentId: "ranger.main.mini",
+      },
+      body: "race before stale sync",
+      intent: "consult",
+      createdAt: Date.now(),
+    });
+
+    expect(accepted.kind).toBe("delivery");
+    expect(accepted.flight?.targetAgentId).toBe("ranger.main.mini");
+    const flightId = accepted.flight!.id;
+    await waitFor(
+      () => getJson<{ flights: Record<string, { state: string }> }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => snapshot.flights[flightId]?.state === "queued",
+    );
+
+    writeRelayAgentRegistry(supportDirectory, {
+      ranger: {
+        agentId: "ranger.test-node",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-ranger-codex",
+          wakePolicy: "on_demand",
+        },
+        capabilities: ["chat", "invoke", "deliver"],
+      },
+    });
+
+    await postJson(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-trigger-stale-sync",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@ranger",
+      },
+      body: "trigger registry sync",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    const reconciled = await waitFor(
+      () => getJson<{
+        agents: Record<string, { metadata?: Record<string, unknown> }>;
+        flights: Record<string, { state: string; error?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => snapshot.flights[flightId]?.state === "failed",
+    );
+
+    expect(reconciled.agents["ranger.main.mini"]?.metadata).toMatchObject({
+      staleLocalRegistration: true,
+      replacedByAgentId: "ranger.test-node",
+    });
+    expect(reconciled.flights[flightId]).toMatchObject({
+      state: "failed",
+      metadata: {
+        reconciledStaleFlight: true,
+      },
+    });
+    expect(reconciled.flights[flightId]?.error).toContain(
+      "replaced by ranger.test-node",
+    );
   }, 15_000);
 
   test("accepts broker-owned channel tells without caller-side route preflight", async () => {

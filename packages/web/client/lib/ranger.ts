@@ -34,6 +34,7 @@ export type RangerUiAction =
   | { type: "navigate"; route: Route; reason?: string }
   | { type: "open-ranger"; mode?: "ask" | "tell"; reason?: string }
   | { type: "refresh"; reason?: string }
+  | { type: "view-file"; path: string; reason?: string }
   | {
       type: "ask-agent";
       targetLabel: string;
@@ -124,17 +125,59 @@ export function isRangerActorId(actorId: string, rangerAgentId = DEFAULT_RANGER_
     normalized.includes(".ranger.");
 }
 
-export function extractRangerUiActions(body: string): RangerUiAction[] {
+const RANGER_FENCE_TAGS = new Set(["scout-ui", "scout-ui-action", "ranger-ui"]);
+const FENCE_PATTERN = /```([a-zA-Z0-9_-]*)\s*([\s\S]*?)```/g;
+
+type FenceScan = {
+  stripped: string;
+  actions: RangerUiAction[];
+};
+
+function scanRangerFences(body: string): FenceScan {
   const actions: RangerUiAction[] = [];
-  const fencePattern = /```(?:scout-ui|scout-ui-action|ranger-ui)\s*([\s\S]*?)```/gi;
+  let stripped = "";
+  let cursor = 0;
+
+  FENCE_PATTERN.lastIndex = 0;
   let match: RegExpExecArray | null;
+  while ((match = FENCE_PATTERN.exec(body)) !== null) {
+    const [fullMatch, tagRaw, payloadRaw] = match;
+    const tag = (tagRaw ?? "").toLowerCase();
+    const payload = payloadRaw ?? "";
 
-  while ((match = fencePattern.exec(body)) !== null) {
-    const parsed = parseActionJson(match[1] ?? "");
-    actions.push(...parsed);
+    let parsedActions: RangerUiAction[] = [];
+    let isRangerFence = false;
+
+    if (RANGER_FENCE_TAGS.has(tag)) {
+      isRangerFence = true;
+      parsedActions = parseActionJson(payload);
+    } else if (tag === "json" || tag === "") {
+      parsedActions = parseActionJson(payload);
+      if (parsedActions.length > 0) {
+        isRangerFence = true;
+      }
+    }
+
+    if (isRangerFence) {
+      actions.push(...parsedActions);
+      stripped += body.slice(cursor, match.index);
+      cursor = match.index + fullMatch.length;
+    }
   }
+  stripped += body.slice(cursor);
 
-  return actions;
+  return {
+    stripped: stripped.replace(/\n{3,}/g, "\n\n").trim(),
+    actions,
+  };
+}
+
+export function extractRangerUiActions(body: string): RangerUiAction[] {
+  return scanRangerFences(body).actions;
+}
+
+export function stripRangerUiFences(body: string): string {
+  return scanRangerFences(body).stripped;
 }
 
 function parseActionJson(raw: string): RangerUiAction[] {
@@ -190,6 +233,14 @@ export function normalizeRangerUiAction(raw: unknown): RangerUiAction | null {
       ...(channel?.trim() ? { channel: channel.trim() } : {}),
       ...(reason ? { reason } : {}),
     };
+  }
+
+  if (type === "view-file" || type === "view_file" || type === "open-file" || type === "open_file") {
+    const path = firstString(record.path, record.file, record.target);
+    if (!path?.trim()) {
+      return null;
+    }
+    return { type: "view-file", path: path.trim(), ...(reason ? { reason } : {}) };
   }
 
   if (type === "reminder" || type === "set-reminder" || type === "set_reminder" || type === "remind") {

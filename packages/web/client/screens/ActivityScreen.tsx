@@ -260,6 +260,56 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
               ? item.summary
               : fallbackSummary(item);
 
+            const jumps: Array<{ key: string; label: string; route: Route; title: string }> = [];
+            if (item.conversationId) {
+              jumps.push({
+                key: "thread",
+                label: "Thread",
+                title: `Open thread ${shortId(item.conversationId)}`,
+                route: { view: "conversation", conversationId: item.conversationId },
+              });
+            }
+            if (item.recordId) {
+              jumps.push({
+                key: "work",
+                label: "Work",
+                title: "Open work item",
+                route: { view: "work", workId: item.recordId },
+              });
+            }
+            if (item.agentId) {
+              const agentLabel = item.agentName ?? "Agent";
+              jumps.push({
+                key: "agent",
+                label: agentLabel,
+                title: `Open agent ${agentLabel}`,
+                route: { view: "agents", agentId: item.agentId },
+              });
+            }
+            if (item.sessionId) {
+              jumps.push({
+                key: "session",
+                label: "Session",
+                title: "Open session",
+                route: { view: "sessions", sessionId: item.sessionId },
+              });
+            }
+            if (item.flightId || item.invocationId) {
+              jumps.push({
+                key: "follow",
+                label: "Follow",
+                title: "Follow live execution",
+                route: {
+                  view: "follow",
+                  ...(item.flightId ? { flightId: item.flightId } : {}),
+                  ...(item.invocationId ? { invocationId: item.invocationId } : {}),
+                  ...(item.conversationId ? { conversationId: item.conversationId } : {}),
+                },
+              });
+            }
+
+            const toggleExpanded = () => setExpandedId(isExpanded ? null : item.id);
+
             return (
               <article
                 key={item.id}
@@ -275,18 +325,31 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                   if (text) items.push({ kind: "action", label: "Copy Details", onSelect: () => navigator.clipboard.writeText(text) });
                   if (item.actorName) items.push({ kind: "action", label: "Copy Actor", onSelect: () => navigator.clipboard.writeText(item.actorName!) });
                   items.push({ kind: "action", label: "Copy Event ID", onSelect: () => navigator.clipboard.writeText(item.id) });
-                  if (item.conversationId) {
+                  if (jumps.length > 0) {
                     items.push({ kind: "separator" });
-                    items.push({ kind: "action", label: "Open Thread", onSelect: () => navigate({ view: "conversation", conversationId: item.conversationId! }) });
+                    for (const jump of jumps) {
+                      items.push({
+                        kind: "action",
+                        label: `Open ${jump.label}`,
+                        onSelect: () => navigate(jump.route),
+                      });
+                    }
                   }
                   showContextMenu(e, items);
                 }}
               >
-                <button
-                  type="button"
+                <div
                   className="sys-audit-toggle"
+                  role="button"
+                  tabIndex={0}
                   aria-expanded={isExpanded}
-                  onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                  onClick={toggleExpanded}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleExpanded();
+                    }
+                  }}
                 >
                   <div className="sys-audit-stamp">
                     <span className="sys-audit-time">{timeAgo(item.ts)}</span>
@@ -321,18 +384,32 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                           Workspace {workspaceLabel}
                         </span>
                       )}
-                      {item.conversationId && (
-                        <span className="sys-audit-meta-item">
-                          Thread {shortId(item.conversationId)}
-                        </span>
-                      )}
                     </div>
+                    {jumps.length > 0 && (
+                      <div className="sys-audit-jumps">
+                        <span className="sys-audit-jumps-label">Open</span>
+                        {jumps.map((jump) => (
+                          <button
+                            key={jump.key}
+                            type="button"
+                            className="sys-audit-jump"
+                            title={jump.title}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(jump.route);
+                            }}
+                          >
+                            {jump.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="sys-audit-expand">
                     {isExpanded ? "Close" : "Details"}
                   </div>
-                </button>
+                </div>
 
                 {isExpanded && (
                   <div className="sys-audit-details">
@@ -349,29 +426,64 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                         <span className="sys-detail-label">Actor</span>
                         <span className="sys-detail-value">{item.actorName ?? "system"}</span>
                       </div>
+                      {item.agentName && (
+                        <div className="sys-detail-card">
+                          <span className="sys-detail-label">Agent</span>
+                          <span className="sys-detail-value">{item.agentName}</span>
+                        </div>
+                      )}
                       <div className="sys-detail-card">
                         <span className="sys-detail-label">Workspace</span>
                         <span className="sys-detail-value">{item.workspaceRoot ?? "Not attached"}</span>
                       </div>
                       <div className="sys-detail-card">
                         <span className="sys-detail-label">Thread</span>
-                        <span className="sys-detail-value">{item.conversationId ?? "Not attached"}</span>
+                        <span className="sys-detail-value">
+                          {item.conversationId ? shortId(item.conversationId) : "Not attached"}
+                        </span>
                       </div>
+                      {item.recordId && (
+                        <div className="sys-detail-card">
+                          <span className="sys-detail-label">Work</span>
+                          <span className="sys-detail-value">{shortId(item.recordId)}</span>
+                        </div>
+                      )}
+                      {item.sessionId && (
+                        <div className="sys-detail-card">
+                          <span className="sys-detail-label">Session</span>
+                          <span className="sys-detail-value">{shortId(item.sessionId)}</span>
+                        </div>
+                      )}
+                      {item.flightId && (
+                        <div className="sys-detail-card">
+                          <span className="sys-detail-label">Flight</span>
+                          <span className="sys-detail-value">{shortId(item.flightId)}</span>
+                        </div>
+                      )}
+                      {item.invocationId && (
+                        <div className="sys-detail-card">
+                          <span className="sys-detail-label">Invocation</span>
+                          <span className="sys-detail-value">{shortId(item.invocationId)}</span>
+                        </div>
+                      )}
                       <div className="sys-detail-card">
                         <span className="sys-detail-label">Record id</span>
                         <code className="sys-detail-value">{item.id}</code>
                       </div>
                     </div>
 
-                    {item.conversationId && (
+                    {jumps.length > 0 && (
                       <div className="sys-inline-actions">
-                        <button
-                          type="button"
-                          className="s-btn s-btn-sm"
-                          onClick={() => navigate({ view: "conversation", conversationId: item.conversationId! })}
-                        >
-                          Open thread
-                        </button>
+                        {jumps.map((jump) => (
+                          <button
+                            key={jump.key}
+                            type="button"
+                            className="s-btn s-btn-sm"
+                            onClick={() => navigate(jump.route)}
+                          >
+                            Open {jump.label}
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>

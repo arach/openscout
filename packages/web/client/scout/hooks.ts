@@ -1,5 +1,5 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Settings } from "lucide-react";
+import { ListChecks, Settings } from "lucide-react";
 import type { CommandOption, StatusColor, TakeoverState } from "@hudsonkit";
 import { api } from "../lib/api.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
@@ -64,21 +64,26 @@ export function useScoutCommands(): CommandOption[] {
         shortcut: "Cmd+3",
       },
       {
-        id: "nav:conversations",
-        label: "Go to Conversations",
-        action: () => navigate({ view: "conversations" }),
+        id: "nav:messages",
+        label: "Go to Messages",
+        action: () => navigate({ view: "messages" }),
+        shortcut: "Cmd+4",
+      },
+      {
+        id: "nav:messages-dms",
+        label: "Go to Messages — DMs",
+        action: () => navigate({ view: "messages", filter: "dm" }),
+      },
+      {
+        id: "nav:messages-channels",
+        label: "Go to Messages — Channels",
+        action: () => navigate({ view: "messages", filter: "channel" }),
+        shortcut: "Cmd+5",
       },
       {
         id: "nav:sessions",
         label: "Go to Sessions",
         action: () => navigate({ view: "sessions" }),
-        shortcut: "Cmd+4",
-      },
-      {
-        id: "nav:channels",
-        label: "Go to Channels",
-        action: () => navigate({ view: "channels" }),
-        shortcut: "Cmd+5",
       },
       {
         id: "nav:activity",
@@ -284,9 +289,8 @@ export function useScoutNavCenter(): ReactNode | null {
   const tabItems: { label: string; view: Route["view"] }[] = [
     { label: "Fleet", view: "inbox" },
     { label: "Agents", view: "agents" },
-    { label: "Conversations", view: "conversations" },
+    { label: "Messages", view: "messages" },
     { label: "Sessions", view: "sessions" },
-    { label: "Channels", view: "channels" },
     { label: "Mesh", view: "mesh" },
     { label: "Broker", view: "broker" },
     ...(opsEnabled ? [{ label: "Ops" as const, view: "ops" as Route["view"] }] : []),
@@ -294,11 +298,11 @@ export function useScoutNavCenter(): ReactNode | null {
 
   const activeView = route.view === "fleet" ? "inbox"
     : route.view === "activity" ? "inbox"
-    : route.view === "conversation" ? "agents"
+    : route.view === "conversation" ? "messages"
     : route.view === "agent-info" ? "agents"
-    : route.view === "conversations" ? "conversations"
+    : route.view === "conversations" ? "messages"
+    : route.view === "channels" ? "messages"
     : route.view === "work" ? (opsEnabled ? "ops" : "inbox")
-    : route.view === "channels" ? "channels"
     : route.view;
 
   const breadcrumb = route.view === "conversation" || route.view === "agent-info" || route.view === "work"
@@ -322,13 +326,29 @@ export function useScoutNavCenter(): ReactNode | null {
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings, applyRangerUiAction } = useScout();
   return createElement("div", { className: "scout-nav-actions" },
-    createElement(
-      "button",
-      {
-        onClick: () => applyRangerUiAction({ type: "open-ranger", mode: "ask" }),
-        className: "scout-nav-action scout-nav-action--ranger",
-      },
-      "Ranger",
+    createElement("div", { className: "scout-nav-action-group scout-nav-action-group--ranger" },
+      createElement(
+        "button",
+        {
+          onClick: () => applyRangerUiAction({ type: "open-ranger", mode: "ask" }),
+          className: "scout-nav-action scout-nav-action--ranger",
+          title: "Open Ranger",
+        },
+        "Ranger",
+      ),
+      createElement(
+        "button",
+        {
+          onClick: () => {
+            applyRangerUiAction({ type: "open-ranger", mode: "ask" });
+            window.dispatchEvent(new CustomEvent("scout:ranger-brief-now"));
+          },
+          className: "scout-nav-action scout-nav-action--ranger-brief",
+          title: "Run a one-minute brief",
+          "aria-label": "Run brief",
+        },
+        createElement(ListChecks, { size: 12, strokeWidth: 1.6, "aria-hidden": true }),
+      ),
     ),
     createElement(
       "button",

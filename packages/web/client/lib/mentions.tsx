@@ -41,7 +41,7 @@ function segmentize(text: string, identities: AgentIdentity[]): Segment[] {
 
 function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
   const parts: ReactNode[] = [];
-  const pattern = /`([^`\n]+)`|\*\*(.+?)\*\*|\*([^*\s][^*]*?)\*|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
+  const pattern = /`([^`\n]+)`|\*\*(.+?)\*\*|\*([^*\s][^*]*?)\*|\[([^\]\n]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>"')\]]+)/g;
   let cursor = 0;
   let match: RegExpExecArray | null;
   let sub = 0;
@@ -61,6 +61,17 @@ function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
           {match[4]}
         </a>,
       );
+    } else if (match[6] !== undefined && safeInlineHref(match[6])) {
+      const href = match[6].replace(/[.,;:!?]+$/u, "");
+      const trailing = match[6].slice(href.length);
+      parts.push(
+        <a key={`${keyBase}-${sub++}`} href={href} target="_blank" rel="noreferrer">
+          {href}
+        </a>,
+      );
+      if (trailing) {
+        parts.push(<span key={`${keyBase}-${sub++}`}>{trailing}</span>);
+      }
     } else {
       parts.push(<span key={`${keyBase}-${sub++}`}>{match[0]}</span>);
     }

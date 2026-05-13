@@ -31,6 +31,11 @@ export type RangerAssistantConfig = {
 export type RangerAssistantSessionState = {
   session: RangerAssistantSession;
   sessions: RangerAssistantSessionSummary[];
+  retention: {
+    activeLimit: number;
+    archivedCount: number;
+    totalCount: number;
+  };
   config: RangerAssistantConfig;
 };
 
@@ -83,6 +88,7 @@ export type RangerAssistantService = {
   getSessionState: () => RangerAssistantSessionState;
   resetSession: () => RangerAssistantSessionState;
   switchSession: (id: string) => RangerAssistantSessionState;
+  archiveSession: (id: string) => RangerAssistantSessionState;
   respond: (input: { body: string; route?: unknown }) => Promise<RangerAssistantReply>;
   createBrief: (input: { route?: unknown; ttlMs?: number | null }) => Promise<RangerBrief>;
 };
@@ -95,6 +101,7 @@ type StoredSession = {
   model: string;
   previousResponseId: string | null;
   messages: RangerAssistantMessage[];
+  archivedAt: number | null;
 };
 
 type OpenAIResponsePayload = {
@@ -106,7 +113,9 @@ type OpenAIResponsePayload = {
 
 const DEFAULT_MODEL = "gpt-4.1-mini";
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
-const MAX_SESSIONS = 12;
+const DEFAULT_ACTIVE_SESSION_LIMIT = 8;
+const MAX_ACTIVE_SESSION_LIMIT = 24;
+const MAX_ARCHIVED_SESSIONS = 32;
 const MAX_MESSAGES_PER_SESSION = 40;
 const DEFAULT_BRIEF_TTL_MS = 2 * 60_000;
 const MAX_BRIEF_TTL_MS = 3 * 60_000;
@@ -116,13 +125,16 @@ const DEFAULT_SYSTEM_PROMPT = [
   "You are Ranger, the in-app OpenScout control-plane assistant.",
   "You are not a peer agent in the Scout fleet. You are the operator's direct loop inside the web app.",
   "Use the provided Scout state snapshot and current UI route to answer state questions quickly and concretely.",
-  "When the operator asks for navigation, include a single fenced scout-ui JSON block after your human reply.",
-  "Supported scout-ui actions are navigate, refresh, open-ranger, reminder, and ask-agent.",
+  "When the operator asks for navigation or UI actions, include a single fenced JSON block after your human reply.",
+  "The fence language tag MUST be exactly `scout-ui` (open with ```scout-ui), never `json` or any other tag.",
+  "Supported scout-ui actions are navigate, refresh, open-ranger, view-file, reminder, and ask-agent.",
+  "When the operator wants to read a specific file (a spec, doc, transcript, or source file) and you know its absolute path, emit {\"type\":\"view-file\",\"path\":\"/abs/path/to/file.md\"} so the in-app preview opens automatically. Do not just narrate the path.",
   "For reminders, emit {\"type\":\"reminder\",\"body\":\"what to revisit\",\"delayMinutes\":3} or a dueAt epoch timestamp; reminders stay in the operator-side Ranger loop.",
   "When the operator explicitly asks you to ask, delegate to, or get an answer from a specific Scout agent, emit {\"type\":\"ask-agent\",\"targetLabel\":\"agent handle or selector\",\"body\":\"the exact request to send\"}; do not use ask-agent unless the operator clearly requested durable coordination.",
   "Supported navigate views include inbox, fleet, agents, sessions, mesh, broker, activity, settings, terminal, work, conversation, and ops.",
   "Do not create or imply durable Scout messages, work items, or agent asks unless the operator explicitly requests coordination.",
   "If durable coordination is needed, say that it should go through Scout broker records and be clear about the intended target.",
+  "The operator's fleet INCLUDES organic harness sessions (Claude, Codex, etc.) listed under harnessActivity, not just registered Scout agents. Count harnessActivity.processes as active work and harnessActivity.transcripts as recent runs. If registered agents are idle but harnessActivity has running processes or recent transcripts, never say 'nothing is happening'. Frame it as: 'no Scout-registered agents are active, but N organic sessions are running.'",
   "Keep answers concise unless the operator asks for minutiae.",
 ].join("\n");
 
@@ -144,25 +156,84 @@ export function createRangerAssistantService(input: {
   ) ?? DEFAULT_MODEL;
   let systemPrompt = firstNonEmptyString(env.OPENSCOUT_RANGER_ASSISTANT_PROMPT)
     ?? DEFAULT_SYSTEM_PROMPT;
+  const activeSessionLimit = clampInteger(
+    env.OPENSCOUT_RANGER_ACTIVE_SESSION_LIMIT,
+    DEFAULT_ACTIVE_SESSION_LIMIT,
+    1,
+    MAX_ACTIVE_SESSION_LIMIT,
+  );
+
+  const activeSessions = (): StoredSession[] =>
+    sessions
+      .filter((session) => session.archivedAt === null)
+      .sort(compareSessionsByUpdatedAt);
 
   const ensureSession = (): StoredSession => {
     const existing = activeSessionId
-      ? sessions.find((session) => session.id === activeSessionId)
+      ? sessions.find((session) => session.id === activeSessionId && session.archivedAt === null)
       : null;
     if (existing) return existing;
 
+    const latest = activeSessions()[0];
+    if (latest) {
+      activeSessionId = latest.id;
+      return latest;
+    }
+
+    return createAndActivateSession();
+  };
+
+  const createAndActivateSession = (): StoredSession => {
     const session = createSession(model);
     sessions.unshift(session);
     activeSessionId = session.id;
-    pruneSessions(sessions);
+    enforceSessionRetention();
     return session;
   };
 
   const snapshot = (): RangerAssistantSessionState => ({
     session: publicSession(ensureSession()),
-    sessions: sessions.map(publicSessionSummary),
+    sessions: activeSessions()
+      .slice(0, activeSessionLimit)
+      .map(publicSessionSummary),
+    retention: {
+      activeLimit: activeSessionLimit,
+      archivedCount: sessions.filter((session) => session.archivedAt !== null).length,
+      totalCount: sessions.length,
+    },
     config: { editable: true, model, systemPrompt },
   });
+  const enforceSessionRetention = (): void => {
+    const active = activeSessions();
+    const retainedIds = new Set(active.slice(0, activeSessionLimit).map((session) => session.id));
+    const activeSession = activeSessionId
+      ? active.find((session) => session.id === activeSessionId)
+      : null;
+    if (activeSession && !retainedIds.has(activeSession.id)) {
+      const overflowId = [...retainedIds].at(-1);
+      if (overflowId) retainedIds.delete(overflowId);
+      retainedIds.add(activeSession.id);
+    }
+
+    const now = Date.now();
+    for (const session of active) {
+      if (!retainedIds.has(session.id)) {
+        session.archivedAt = now;
+        session.previousResponseId = null;
+      }
+    }
+
+    const archived = sessions
+      .filter((session) => session.archivedAt !== null)
+      .sort((left, right) => (right.archivedAt ?? 0) - (left.archivedAt ?? 0));
+    const archivedRetainedIds = new Set(archived.slice(0, MAX_ARCHIVED_SESSIONS).map((session) => session.id));
+    for (let index = sessions.length - 1; index >= 0; index -= 1) {
+      const session = sessions[index];
+      if (session?.archivedAt !== null && !archivedRetainedIds.has(session.id)) {
+        sessions.splice(index, 1);
+      }
+    }
+  };
   const resolveApiKey = async (): Promise<string | undefined> =>
     firstNonEmptyString(
       env.OPENAI_API_KEY,
@@ -186,18 +257,28 @@ export function createRangerAssistantService(input: {
     },
     getSessionState: snapshot,
     resetSession: () => {
-      const session = createSession(model);
-      sessions.unshift(session);
-      activeSessionId = session.id;
-      pruneSessions(sessions);
+      createAndActivateSession();
       return snapshot();
     },
     switchSession: (id) => {
-      const target = sessions.find((session) => session.id === id);
+      const target = sessions.find((session) => session.id === id && session.archivedAt === null);
       if (!target) {
         throw new RangerAssistantError(`Ranger session "${id}" not found.`, 404);
       }
       activeSessionId = target.id;
+      return snapshot();
+    },
+    archiveSession: (id) => {
+      const target = sessions.find((session) => session.id === id && session.archivedAt === null);
+      if (!target) {
+        throw new RangerAssistantError(`Ranger session "${id}" not found.`, 404);
+      }
+      target.archivedAt = Date.now();
+      target.previousResponseId = null;
+      if (activeSessionId === target.id) {
+        activeSessionId = null;
+      }
+      enforceSessionRetention();
       return snapshot();
     },
     respond: async ({ body, route }) => {
@@ -252,6 +333,7 @@ export function createRangerAssistantService(input: {
       if (session.title === "New Ranger Session") {
         session.title = titleFromRequest(trimmed);
       }
+      enforceSessionRetention();
 
       return {
         ...snapshot(),
@@ -325,7 +407,7 @@ async function callOpenAIResponse(input: {
                 `Operator request:\n${input.body}`,
                 "",
                 "Current Scout control-plane snapshot:",
-                JSON.stringify(input.context, null, 2),
+                JSON.stringify(input.context),
               ].join("\n"),
             },
           ],
@@ -399,6 +481,12 @@ function briefSystemPrompt(basePrompt: string): string {
     "Use short spoken narration. Each step should be roughly 8 to 22 words.",
     "Use only these routes unless the snapshot strongly suggests a more specific safe route: fleet, ops tail, sessions, broker, mesh, activity, agents.",
     "Do not create durable Scout records or imply that work has been started.",
+    "",
+    "Fleet definition (important):",
+    "The operator's fleet is NOT just the registered Scout agents. It also includes 'harnessActivity' — organic Claude, Codex, and other harness processes the operator runs locally that Scout observes via tail discovery but does not register as agents.",
+    "When you summarize what's happening, ALWAYS count harnessActivity.processes as active work (these are real running sessions) and harnessActivity.transcripts as recent runs.",
+    "If registered agents show 'none active' but harnessActivity has running processes or recent transcripts, the correct framing is: 'N organic sessions running outside Scout's registered agents.' Never say 'nothing is happening' when transcripts or processes exist.",
+    "When relevant, recommend Ops > tail or Sessions as a step so the operator can see this organic activity.",
   ].join("\n");
 }
 
@@ -602,6 +690,7 @@ function createSession(model: string): StoredSession {
     model,
     previousResponseId: null,
     messages: [],
+    archivedAt: null,
   };
 }
 
@@ -623,14 +712,20 @@ function publicSessionSummary(session: StoredSession): RangerAssistantSessionSum
   };
 }
 
-function pruneSessions(sessions: StoredSession[]): void {
-  sessions.splice(MAX_SESSIONS);
-}
-
 function titleFromRequest(body: string): string {
   const singleLine = body.replace(/\s+/g, " ").trim();
   if (singleLine.length <= 48) return singleLine || "Ranger Session";
   return `${singleLine.slice(0, 45).trimEnd()}...`;
+}
+
+function compareSessionsByUpdatedAt(left: StoredSession, right: StoredSession): number {
+  return right.updatedAt - left.updatedAt || right.createdAt - left.createdAt;
+}
+
+function clampInteger(value: string | undefined | null, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
 }
 
 function firstNonEmptyString(...values: Array<string | undefined | null>): string | undefined {

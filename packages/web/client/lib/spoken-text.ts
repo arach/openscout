@@ -14,6 +14,10 @@ const DEFAULT_BRANCH_QUALIFIERS = new Set([
 export function toSpokenScoutText(input: string): string {
   return input
     .replace(/```[\s\S]*?```/g, " code omitted ")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/(^|[\s(])\*([^\s*][^*\n]*?[^\s*]|[^\s*])\*(?=[\s)\].,!?;:]|$)/g, "$1$2")
+    .replace(/(^|[\s(])_([^\s_][^_\n]*?[^\s_]|[^\s_])_(?=[\s)\].,!?;:]|$)/g, "$1$2")
+    .replace(/^\s*[-*]\s+/gm, "")
     .replace(/\bhttps?:\/\/[^\s)]+/gi, (match) => spokenUrl(match))
     .replace(
       /\b(session|conversation|message|flight|invocation|work)(?:\s+(?:id|ref))?\s*[:#]?\s+([a-z0-9][a-z0-9._:-]{9,})\b/gi,

@@ -8,6 +8,7 @@ import type {
   FlightRecord,
   InvocationRequest,
   MessageRecord,
+  ConversationReadCursor,
   UnblockRequestRecord,
 } from "@openscout/protocol";
 import type { NodeDefinition } from "@openscout/protocol";
@@ -20,6 +21,7 @@ export interface RuntimeRegistrySnapshot {
   conversations: Record<string, ConversationDefinition>;
   bindings: Record<string, ConversationBinding>;
   messages: Record<string, MessageRecord>;
+  readCursors: Record<string, ConversationReadCursor>;
   invocations: Record<string, InvocationRequest>;
   flights: Record<string, FlightRecord>;
   collaborationRecords: Record<string, CollaborationRecord>;
@@ -37,6 +39,7 @@ export function createRuntimeRegistrySnapshot(
     conversations: value.conversations ?? {},
     bindings: value.bindings ?? {},
     messages: value.messages ?? {},
+    readCursors: value.readCursors ?? {},
     invocations: value.invocations ?? {},
     flights: value.flights ?? {},
     collaborationRecords: value.collaborationRecords ?? {},

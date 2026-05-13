@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Agent } from "./types.ts";
-import { extractRangerUiActions, resolveRangerAgentId } from "./ranger.ts";
+import {
+  extractRangerUiActions,
+  resolveRangerAgentId,
+  stripRangerUiFences,
+} from "./ranger.ts";
 
 function agent(input: Partial<Agent> & { id: string }): Agent {
   return {
@@ -27,6 +31,88 @@ function agent(input: Partial<Agent> & { id: string }): Agent {
     conversationId: input.conversationId ?? `dm.operator.${input.id}`,
   };
 }
+
+describe("extractRangerUiActions + stripRangerUiFences", () => {
+  test("handles a scout-ui fence (strips + extracts)", () => {
+    const body = [
+      "Here you go.",
+      "```scout-ui",
+      '{"type":"navigate","route":{"view":"mesh"}}',
+      "```",
+    ].join("\n");
+
+    expect(extractRangerUiActions(body)).toEqual([
+      { type: "navigate", route: { view: "mesh" } },
+    ]);
+    expect(stripRangerUiFences(body)).toBe("Here you go.");
+  });
+
+  test("handles a json fence that carries a known action shape", () => {
+    const body = [
+      "Opening Ranger.",
+      "```json",
+      '{"action":"open-ranger"}',
+      "```",
+    ].join("\n");
+
+    expect(extractRangerUiActions(body)).toEqual([{ type: "open-ranger" }]);
+    expect(stripRangerUiFences(body)).toBe("Opening Ranger.");
+  });
+
+  test("leaves unrelated json fences in place", () => {
+    const body = [
+      "Sample payload:",
+      "```json",
+      '{"foo":"bar"}',
+      "```",
+    ].join("\n");
+
+    expect(extractRangerUiActions(body)).toEqual([]);
+    expect(stripRangerUiFences(body)).toBe(body.trim());
+  });
+
+  test("leaves non-json code fences alone", () => {
+    const body = [
+      "Quick example:",
+      "```python",
+      'print("hi")',
+      "```",
+    ].join("\n");
+
+    expect(extractRangerUiActions(body)).toEqual([]);
+    expect(stripRangerUiFences(body)).toBe(body.trim());
+  });
+
+  test("strips bare fences when payload is a recognized action", () => {
+    const body = [
+      "Refreshing.",
+      "```",
+      '{"action":"refresh"}',
+      "```",
+    ].join("\n");
+
+    expect(extractRangerUiActions(body)).toEqual([{ type: "refresh" }]);
+    expect(stripRangerUiFences(body)).toBe("Refreshing.");
+  });
+
+  test("handles two leaking action fences in one body", () => {
+    const body = [
+      "```json",
+      '{"action":"open-ranger"}',
+      "```",
+      "Reply text.",
+      "```json",
+      '{"action":"navigate","view":"mesh"}',
+      "```",
+    ].join("\n");
+
+    expect(extractRangerUiActions(body)).toEqual([
+      { type: "open-ranger" },
+      { type: "navigate", route: { view: "mesh" } },
+    ]);
+    expect(stripRangerUiFences(body)).toBe("Reply text.");
+  });
+});
 
 describe("resolveRangerAgentId", () => {
   test("prefers an available Ranger over the stale default id", () => {

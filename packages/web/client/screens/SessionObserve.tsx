@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ExternalLink } from "lucide-react";
 
 import type {
   ObserveData,
@@ -584,15 +585,32 @@ function LocalPathLink({
   className: string;
   children: ReactNode;
 }) {
+  const { openFilePreview } = useScout();
+  const resolvedPath = path.startsWith("/") || path.startsWith("~/")
+    ? path
+    : basePath
+      ? `${basePath.replace(/\/$/, "")}/${path}`
+      : path;
   return (
-    <button
-      type="button"
-      className={className}
-      title={`Reveal ${path}`}
-      onClick={() => revealPath({ path, basePath, agentId, sessionId })}
-    >
-      {children}
-    </button>
+    <span className="s-observe-path-link-group">
+      <button
+        type="button"
+        className={className}
+        title={`Preview ${path} in Scout`}
+        onClick={() => openFilePreview(resolvedPath)}
+      >
+        {children}
+      </button>
+      <button
+        type="button"
+        className="s-observe-path-link-external"
+        title={`Reveal ${path} in OS`}
+        aria-label="Reveal in OS"
+        onClick={() => revealPath({ path, basePath, agentId, sessionId })}
+      >
+        <ExternalLink size={11} strokeWidth={1.6} />
+      </button>
+    </span>
   );
 }
 
@@ -778,6 +796,13 @@ function SessionHeader({
     setSent(true);
   }, [catalog.resumeCommand, catalog.resumeCwd, navigate, agentId]);
 
+  const openPair = useCallback(() => {
+    navigate({
+      view: "messages",
+      conversationId: `dm.operator.${agentId}`,
+    });
+  }, [navigate, agentId]);
+
   return (
     <div className="s-observe-session-header">
       <div className="s-observe-session-active">
@@ -792,6 +817,13 @@ function SessionHeader({
               started {fmtRelative(active.startedAt)}
             </span>
           )}
+          <button
+            className="s-observe-pair-btn"
+            onClick={openPair}
+            title="Send messages into the live session without taking the terminal"
+          >
+            Pair
+          </button>
           {catalog.resumeCommand && (
             <button
               className="s-observe-takeover-btn"

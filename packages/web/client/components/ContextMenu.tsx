@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 export type MenuItem =
   | { kind: "action"; label: string; shortcut?: string; onSelect: () => void }
@@ -33,7 +33,9 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
 
   ContextMenuContext.setMenu = setMenu;
 
-  const close = useCallback(() => setMenu(null), []);
+  const close = useCallback(() => {
+    setMenu(null);
+  }, []);
 
   useEffect(() => {
     if (!menu) return;
@@ -42,22 +44,27 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
-    const onScroll = () => close();
+    const onWheel = () => close();
+    const onContextMenu = (e: MouseEvent) => {
+      if (!e.defaultPrevented) {
+        close();
+      }
+    };
 
     window.addEventListener("mousedown", onClickOutside, true);
     window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("contextmenu", close, true);
+    window.addEventListener("wheel", onWheel, true);
+    window.addEventListener("contextmenu", onContextMenu);
 
     return () => {
       window.removeEventListener("mousedown", onClickOutside, true);
       window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("contextmenu", close, true);
+      window.removeEventListener("wheel", onWheel, true);
+      window.removeEventListener("contextmenu", onContextMenu);
     };
   }, [menu, close]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!menu || !menuRef.current) return;
     const el = menuRef.current;
     const rect = el.getBoundingClientRect();
@@ -74,6 +81,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
 
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
+    el.style.visibility = "visible";
   }, [menu]);
 
   if (!menu) return <>{children}</>;
@@ -84,7 +92,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
       <div
         ref={menuRef}
         className="s-context-menu"
-        style={{ left: menu.position.x, top: menu.position.y }}
+        style={{ left: menu.position.x, top: menu.position.y, visibility: "hidden" }}
         role="menu"
         onMouseDown={(e) => e.stopPropagation()}
       >

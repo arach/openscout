@@ -279,6 +279,14 @@ type MentionMatch = {
   query: string;
 };
 
+type PopoverPosition = {
+  top: number;
+  left: number;
+};
+
+const MENTION_POPOVER_GAP = 4;
+const MENTION_POPOVER_FALLBACK_HEIGHT = 254;
+
 function findMentionAtCaret(text: string, caret: number): MentionMatch | null {
   if (caret <= 0) return null;
   const before = text.slice(0, caret);
@@ -404,8 +412,9 @@ export const AgentMentionTextarea = forwardRef<
   ref,
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [mention, setMention] = useState<MentionMatch | null>(null);
-  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
+  const [popoverPos, setPopoverPos] = useState<PopoverPosition | null>(null);
 
   useImperativeHandle(
     ref,
@@ -441,11 +450,22 @@ export const AgentMentionTextarea = forwardRef<
     const wrap = ta.parentElement?.getBoundingClientRect();
     const offsetTop = wrap ? containerRect.top - wrap.top : 0;
     const offsetLeft = wrap ? containerRect.left - wrap.left : 0;
+    const popoverHeight = popoverRef.current?.offsetHeight || MENTION_POPOVER_FALLBACK_HEIGHT;
+    const viewport = window.visualViewport;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight);
+    const caretViewportTop = containerRect.top + top - ta.scrollTop;
+    const caretViewportBottom = caretViewportTop + height;
+    const spaceBelow = viewportBottom - caretViewportBottom - MENTION_POPOVER_GAP;
+    const spaceAbove = caretViewportTop - viewportTop - MENTION_POPOVER_GAP;
+    const placeAbove = spaceBelow < popoverHeight && spaceAbove > spaceBelow;
     setPopoverPos({
-      top: offsetTop + top + height - ta.scrollTop + 4,
+      top: placeAbove
+        ? offsetTop + top - ta.scrollTop - popoverHeight - MENTION_POPOVER_GAP
+        : offsetTop + top + height - ta.scrollTop + MENTION_POPOVER_GAP,
       left: offsetLeft + left - ta.scrollLeft,
     });
-  }, [mention, value]);
+  }, [mention, value, filtered.length]);
 
   const insertMention = useCallback(
     (agent: AgentAutocompleteAgent) => {
@@ -523,13 +543,15 @@ export const AgentMentionTextarea = forwardRef<
         onKeyDown={handleKeyDown}
         aria-autocomplete="list"
       />
-      {mention && popoverPos && (
+      {mention && (
         <div
+          ref={popoverRef}
           className="agent-mention-popover"
           style={
             {
-              top: `${popoverPos.top}px`,
-              left: `${popoverPos.left}px`,
+              top: `${popoverPos?.top ?? 0}px`,
+              left: `${popoverPos?.left ?? 0}px`,
+              visibility: popoverPos ? undefined : "hidden",
             } satisfies CSSProperties
           }
         >

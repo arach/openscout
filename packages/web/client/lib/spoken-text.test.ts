@@ -27,4 +27,24 @@ describe("toSpokenScoutText", () => {
     expect(toSpokenScoutText("Run this: ```bash\nscout who\n``` then continue."))
       .toBe("Run this: code omitted then continue.");
   });
+
+  test("drops bold and italic markdown markers", () => {
+    expect(toSpokenScoutText("I recommend **joining** the *font-studio* channel."))
+      .toBe("I recommend joining the font-studio channel.");
+  });
+
+  test("drops underscore italic markers", () => {
+    expect(toSpokenScoutText("Mark _this_ as done."))
+      .toBe("Mark this as done.");
+  });
+
+  test("leaves arithmetic asterisks alone", () => {
+    expect(toSpokenScoutText("Math: 3 * 4 stays plain."))
+      .toBe("Math: 3 * 4 stays plain.");
+  });
+
+  test("strips leading bullet markers before reading", () => {
+    expect(toSpokenScoutText("- Improving integration\n- Addressing prompts"))
+      .toBe("Improving integration Addressing prompts");
+  });
 });

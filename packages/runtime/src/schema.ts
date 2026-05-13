@@ -119,6 +119,18 @@ CREATE TABLE IF NOT EXISTS message_attachments (
   metadata_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS conversation_read_cursors (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  actor_id TEXT NOT NULL REFERENCES actors(id) ON DELETE CASCADE,
+  reader_node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL,
+  last_read_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+  last_read_seq INTEGER,
+  last_read_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  metadata_json TEXT,
+  PRIMARY KEY (conversation_id, actor_id)
+);
+
 CREATE TABLE IF NOT EXISTS invocations (
   id TEXT PRIMARY KEY,
   requester_id TEXT NOT NULL REFERENCES actors(id) ON DELETE RESTRICT,
@@ -390,6 +402,8 @@ CREATE INDEX IF NOT EXISTS idx_agent_endpoints_agent_updated_at
   ON agent_endpoints (agent_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at
   ON messages (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_read_cursors_conversation_updated_at
+  ON conversation_read_cursors (conversation_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_invocations_target_created_at
   ON invocations (target_agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_invocations_requester_created_at

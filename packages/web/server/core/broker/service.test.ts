@@ -9,7 +9,7 @@ import {
   writeProjectConfig,
 } from "@openscout/runtime/setup";
 
-import { askScoutQuestion, openScoutPeerSession } from "./service.ts";
+import { askScoutQuestion, openScoutPeerSession, sendScoutConversationMessage } from "./service.ts";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -379,6 +379,101 @@ describe("askScoutQuestion", () => {
         targetAgentId: configuredAgentId,
         targetLabel: configuredAgentId,
         execution: { session: "new" },
+      });
+  }, 15000);
+});
+
+describe("sendScoutConversationMessage", () => {
+  test("appends operator contributions to the existing conversation", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: {
+              id: "operator",
+              kind: "person",
+              displayName: "Operator",
+            },
+          },
+          agents: {
+            "hudson.main.mini": {
+              id: "hudson.main.mini",
+              kind: "agent",
+              handle: "hudson",
+              selector: "@hudson",
+              displayName: "Hudson",
+              metadata: { selector: "@hudson" },
+            },
+            "narrative-studio.main.mini": {
+              id: "narrative-studio.main.mini",
+              kind: "agent",
+              handle: "narrative-studio",
+              selector: "@narrative-studio",
+              displayName: "Narrative Studio",
+              metadata: { selector: "@narrative-studio" },
+            },
+          },
+          endpoints: {},
+          conversations: {
+            "dm.hudson.main.mini.narrative-studio.main.mini": {
+              id: "dm.hudson.main.mini.narrative-studio.main.mini",
+              kind: "direct",
+              title: "Hudson <> Narrative Studio",
+              visibility: "private",
+              authorityNodeId: "node-1",
+              participantIds: ["hudson.main.mini", "narrative-studio.main.mini"],
+            },
+          },
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutConversationMessage({
+      conversationId: "dm.hudson.main.mini.narrative-studio.main.mini",
+      senderId: "operator",
+      body: "@hudson hi",
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(result).toEqual({
+      usedBroker: true,
+      invokedTargets: ["hudson.main.mini"],
+      unresolvedTargets: [],
+    });
+    expect(requests.some((request) => request.path === "/v1/deliver")).toBe(false);
+    expect(requests.find((request) => request.path === "/v1/messages")?.body)
+      .toMatchObject({
+        conversationId: "dm.hudson.main.mini.narrative-studio.main.mini",
+        actorId: "operator",
+        body: "@hudson hi",
+        mentions: [{ actorId: "hudson.main.mini", label: "@hudson" }],
+        audience: { notify: ["hudson.main.mini"], reason: "mention" },
+        metadata: {
+          source: "scout-web",
+          destinationKind: "conversation",
+          destinationId: "dm.hudson.main.mini.narrative-studio.main.mini",
+        },
       });
   }, 15000);
 });

@@ -62,6 +62,28 @@ for await (const line of rl) {
   return executablePath;
 }
 
+function writeFakeClaudeExecutableWithResult(baseDirectory: string, resultEvent: Record<string, unknown>): string {
+  const executablePath = join(baseDirectory, "claude");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+console.log(JSON.stringify({ type: "system", subtype: "init", session_id: "claude-test-session" }));
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  console.log(JSON.stringify(${JSON.stringify(resultEvent)}));
+}
+`);
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
+
 describe("resolveClaudeStreamJsonOutput", () => {
   test("prefers the final result payload over earlier assistant text", () => {
     const output = resolveClaudeStreamJsonOutput(
@@ -116,6 +138,67 @@ describe("invokeClaudeStreamJsonAgent", () => {
       { output: "reply 1: first prompt", sessionId: "claude-test-session" },
       { output: "reply 2: second prompt", sessionId: "claude-test-session" },
     ]);
+
+    await shutdownClaudeStreamJsonAgent(options);
+  });
+
+  test("rejects stream-json result errors instead of returning empty output", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-error-test-"));
+    tempPaths.add(tempRoot);
+    writeFakeClaudeExecutableWithResult(tempRoot, {
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["No conversation found with session ID: claude-test-session"],
+    });
+    process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
+
+    const options = {
+      agentName: "hudson-error-result",
+      sessionId: "relay-hudson-error-result",
+      cwd: process.cwd(),
+      systemPrompt: "You are a test Claude relay agent.",
+      runtimeDirectory: join(tempRoot, "runtime"),
+      logsDirectory: join(tempRoot, "logs"),
+      launchArgs: [],
+    } as const;
+
+    await ensureClaudeStreamJsonAgentOnline(options);
+    await expect(invokeClaudeStreamJsonAgent({
+      ...options,
+      prompt: "trigger error",
+      timeoutMs: 5_000,
+    })).rejects.toThrow("No conversation found with session ID");
+
+    await shutdownClaudeStreamJsonAgent(options);
+  });
+
+  test("rejects completed stream-json turns with no visible output", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-empty-test-"));
+    tempPaths.add(tempRoot);
+    writeFakeClaudeExecutableWithResult(tempRoot, {
+      type: "result",
+      subtype: "success",
+      result: "",
+    });
+    process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
+
+    const options = {
+      agentName: "hudson-empty-result",
+      sessionId: "relay-hudson-empty-result",
+      cwd: process.cwd(),
+      systemPrompt: "You are a test Claude relay agent.",
+      runtimeDirectory: join(tempRoot, "runtime"),
+      logsDirectory: join(tempRoot, "logs"),
+      launchArgs: [],
+    } as const;
+
+    await ensureClaudeStreamJsonAgentOnline(options);
+    await expect(invokeClaudeStreamJsonAgent({
+      ...options,
+      prompt: "trigger empty",
+      timeoutMs: 5_000,
+    })).rejects.toThrow("completed without broker-visible output");
 
     await shutdownClaudeStreamJsonAgent(options);
   });

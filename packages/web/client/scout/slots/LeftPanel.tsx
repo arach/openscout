@@ -4,11 +4,10 @@ import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-sta
 import { stateColor, actorColor } from "../../lib/colors.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent } from "../../lib/types.ts";
-import { ScoutChannelsLeftPanel } from "./ChannelsLeftPanel.tsx";
-import { ScoutConversationLeftPanel } from "./ConversationLeftPanel.tsx";
 import { ScoutFleetLeftPanel } from "./FleetLeftPanel.tsx";
 import { ScoutEmptyLeftPanel } from "./EmptyLeftPanel.tsx";
 import { MeshLeftPanel } from "./MeshLeftPanel.tsx";
+import { ScoutMessagesLeftPanel } from "./MessagesLeftPanel.tsx";
 
 type ParentGroup = {
   key: string;
@@ -118,10 +117,10 @@ export function ScoutLeftPanel() {
     case "agents":
     case "agent-info":
       return <ScoutAgentsLeftPanel />;
+    case "messages":
     case "channels":
-      return <ScoutChannelsLeftPanel />;
     case "conversation":
-      return <ScoutConversationLeftPanel />;
+      return <ScoutMessagesLeftPanel />;
     case "inbox":
     case "fleet":
       return <ScoutFleetLeftPanel />;

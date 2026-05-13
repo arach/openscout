@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Archive, Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Plus, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
+import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
-import { extractRangerUiActions, normalizeRangerUiAction } from "../../lib/ranger.ts";
+import { extractRangerUiActions, normalizeRangerUiAction, stripRangerUiFences } from "../../lib/ranger.ts";
+import { RangerMarkdown } from "../../lib/ranger-markdown.tsx";
 import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
@@ -80,6 +82,11 @@ type RangerAssistantSessionSummary = Omit<RangerAssistantSession, "messages">;
 type RangerAssistantSessionState = {
   session: RangerAssistantSession;
   sessions: RangerAssistantSessionSummary[];
+  retention?: {
+    activeLimit: number;
+    archivedCount: number;
+    totalCount: number;
+  };
   config: RangerAgentConfig;
 };
 
@@ -189,6 +196,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sessionState, setSessionState] = useState<RangerAssistantSessionState | null>(null);
   const [resettingSession, setResettingSession] = useState(false);
+  const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -214,10 +222,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setSpeaking(false);
   }, []);
 
-  const speakRangerText = useCallback((text: string) => {
-    if (!text || !voiceRepliesRef.current) {
-      return;
-    }
+  const runSpeech = useCallback((text: string) => {
+    if (!text) return;
     stopSpeech();
     const speech = startVoxSpeechWithEffects(toSpokenScoutText(text), {
       speed: voiceSpeed,
@@ -239,6 +245,77 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         }
       });
   }, [stopSpeech, voiceSpeed, onlineCount, voicePresetId]);
+
+  const speakRangerText = useCallback((text: string) => {
+    if (!voiceRepliesRef.current) return;
+    runSpeech(text);
+  }, [runSpeech]);
+
+  const replayRangerText = useCallback((body: string) => {
+    runSpeech(stripRangerUiFences(body));
+  }, [runSpeech]);
+
+  const { openFilePreview } = useScout();
+  const showContextMenu = useContextMenu();
+  const onAssistantMessageContextMenu = useCallback(
+    (event: React.MouseEvent, body: string) => {
+      const sel = window.getSelection()?.toString().trim();
+      const text = stripRangerUiFences(body);
+      const paths = extractAbsoluteFilePaths(text);
+      const items: MenuItem[] = [];
+      if (sel) {
+        items.push({
+          kind: "action",
+          label: "Copy selection",
+          shortcut: "⌘C",
+          onSelect: () => navigator.clipboard.writeText(sel),
+        });
+        items.push({ kind: "separator" });
+      }
+      items.push({
+        kind: "action",
+        label: "Copy message",
+        onSelect: () => navigator.clipboard.writeText(text),
+      });
+      if (paths.length > 0) {
+        items.push({ kind: "separator" });
+        for (const path of paths.slice(0, 5)) {
+          const display = shortenForMenu(path);
+          items.push({
+            kind: "action",
+            label: `Preview ${display}`,
+            onSelect: () => openFilePreview(path),
+          });
+        }
+        for (const path of paths.slice(0, 5)) {
+          const display = shortenForMenu(path);
+          items.push({
+            kind: "action",
+            label: `Open ${display} in OS`,
+            onSelect: () => {
+              void api("/api/file/reveal", {
+                method: "POST",
+                body: JSON.stringify({ path }),
+              }).catch(() => {});
+            },
+          });
+        }
+        items.push({
+          kind: "action",
+          label: paths.length === 1 ? "Copy path" : "Copy first path",
+          onSelect: () => navigator.clipboard.writeText(paths[0]),
+        });
+      }
+      items.push({ kind: "separator" });
+      items.push({
+        kind: "action",
+        label: speaking ? "Say again (stop current)" : "Say",
+        onSelect: () => replayRangerText(body),
+      });
+      showContextMenu(event, items);
+    },
+    [openFilePreview, replayRangerText, showContextMenu, speaking],
+  );
 
   useEffect(() => () => {
     briefRunRef.current = null;
@@ -394,6 +471,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setSessionState(state);
       setLastAsk(null);
       setLastReply(null);
+      setChatExpanded(false);
+      setSessionPickerOpen(false);
       setAskStatus("Fresh Ranger session ready");
     } catch (err) {
       setAskStatus(null);
@@ -402,6 +481,27 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setResettingSession(false);
     }
   }, [stopSpeech]);
+
+  const archiveRangerSession = useCallback(async (id: string) => {
+    if (!id || archivingSessionId) return;
+    setArchivingSessionId(id);
+    setError(null);
+    stopSpeech();
+    try {
+      const state = await api<RangerAssistantSessionState>("/api/ranger/session/archive", {
+        method: "POST",
+        body: JSON.stringify({ id }),
+      });
+      setSessionState(state);
+      syncLastMessages(state.session);
+      setChatExpanded(false);
+      setAskStatus("Ranger session archived");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not archive Ranger session.");
+    } finally {
+      setArchivingSessionId(null);
+    }
+  }, [archivingSessionId, stopSpeech, syncLastMessages]);
 
   const probeVoice = useCallback(async () => {
     const client = clientRef.current ?? new VoxBrowserClient();
@@ -680,6 +780,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setLastAsk(trimmed);
     setLastReply(null);
     setAskStatus("Sending to Ranger");
+    setDraft((current) => current.trim() === trimmed ? "" : current);
     try {
       const reminderIntent = parseRangerReminderIntent(trimmed);
       if (reminderIntent) {
@@ -691,7 +792,6 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           context: { route, naturalLanguage: trimmed },
         });
         const reply = `Reminder set for ${formatReminderDueAt(reminder.dueAt)}: ${reminder.body}`;
-        setDraft("");
         setAskStatus("Reminder set");
         handleRangerReply(reply);
         return;
@@ -710,7 +810,6 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         sessions: result.sessions,
         config: result.config,
       });
-      setDraft("");
       setAskStatus("Ranger replied");
       handleRangerReply(result.reply.body);
     } catch (err) {
@@ -794,6 +893,17 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     return () => window.removeEventListener("scout:ranger-submit", submitHandler);
   }, [askRanger, setCollapsed]);
 
+  useEffect(() => {
+    const briefHandler = () => {
+      setCollapsed(false);
+      if (!briefing && !sending) {
+        void startBrief();
+      }
+    };
+    window.addEventListener("scout:ranger-brief-now", briefHandler);
+    return () => window.removeEventListener("scout:ranger-brief-now", briefHandler);
+  }, [briefing, sending, setCollapsed, startBrief]);
+
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"
     : voiceProbeState === "probing" ? "Checking Vox"
@@ -864,7 +974,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             aria-label="Run brief"
             onClick={stopAndRun(() => void startBrief())}
             disabled={sending}
-            className="flex shrink-0 items-center justify-center rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex shrink-0 items-center justify-center rounded border border-[var(--scout-chrome-border-soft)] p-1 text-lime-300/80 transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-lime-200 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {briefing ? <Loader2 size={11} className="animate-spin" /> : <ListChecks size={11} />}
           </button>
@@ -914,6 +1024,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          <RangerIconButton
+            icon={resettingSession ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
+            title="New Ranger chat"
+            onClick={() => void resetRangerSession()}
+            disabled={resettingSession}
+          />
           <RangerIconButton
             icon={<Settings size={11} />}
             title="Ranger settings"
@@ -1110,6 +1226,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             switchingSessionId={switchingSessionId}
             sending={sending}
             pendingAsk={sending ? lastAsk : null}
+            onArchiveSession={(id) => void archiveRangerSession(id)}
+            archivingSessionId={archivingSessionId}
+            onAssistantContextMenu={onAssistantMessageContextMenu}
           />
         )}
       </div>
@@ -1230,10 +1349,27 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     </section>
   );
 }
-function stripRangerUiFences(body: string): string {
-  return body
-    .replace(/```(?:scout-ui|scout-ui-action|ranger-ui)\s*[\s\S]*?```/gi, "")
-    .trim();
+const FILE_PATH_RE =
+  /(?:^|(?<=[\s(`'"<>]))(?:~\/|\/(?:Users|home|opt|var|etc|tmp|private)\/)[^\s)`'"<>]+\.[A-Za-z0-9]{1,8}\b/g;
+
+function extractAbsoluteFilePaths(text: string): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  FILE_PATH_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = FILE_PATH_RE.exec(text)) !== null) {
+    if (!seen.has(match[0])) {
+      seen.add(match[0]);
+      found.push(match[0]);
+    }
+  }
+  return found;
+}
+
+function shortenForMenu(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length <= 2) return path;
+  return `…/${parts.slice(-2).join("/")}`;
 }
 
 function makeScoutAudioLaunchContext() {
@@ -1287,6 +1423,46 @@ function relativeReminderLabel(reminder: RangerReminder): string {
   return deltaMs < 0 ? `${absHours}h ago` : `in ${absHours}h`;
 }
 
+const RANGER_MESSAGE_TIMESTAMP_GAP_MS = 5 * 60_000;
+
+function shouldShowRangerMessageTimestamp(
+  previous: RangerAssistantMessage | undefined,
+  current: RangerAssistantMessage,
+): boolean {
+  if (!previous) return true;
+  if (!isSameRangerMessageDay(previous.createdAt, current.createdAt)) return true;
+  return Math.abs(current.createdAt - previous.createdAt) >= RANGER_MESSAGE_TIMESTAMP_GAP_MS;
+}
+
+function isSameRangerMessageDay(left: number, right: number): boolean {
+  const leftDate = new Date(left);
+  const rightDate = new Date(right);
+  return (
+    leftDate.getFullYear() === rightDate.getFullYear() &&
+    leftDate.getMonth() === rightDate.getMonth() &&
+    leftDate.getDate() === rightDate.getDate()
+  );
+}
+
+function formatRangerMessageTimestamp(value: number): string {
+  const date = new Date(value);
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  if (isSameRangerMessageDay(value, now.getTime())) {
+    return `Today ${time}`;
+  }
+  if (isSameRangerMessageDay(value, yesterday.getTime())) {
+    return `Yesterday ${time}`;
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+  }
+  return `${date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })} ${time}`;
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -1301,6 +1477,9 @@ function ChatHistory({
   switchingSessionId,
   sending,
   pendingAsk,
+  onArchiveSession,
+  archivingSessionId,
+  onAssistantContextMenu,
 }: {
   state: RangerAssistantSessionState;
   chatExpanded: boolean;
@@ -1311,6 +1490,9 @@ function ChatHistory({
   switchingSessionId: string | null;
   sending: boolean;
   pendingAsk: string | null;
+  onArchiveSession: (id: string) => void;
+  archivingSessionId: string | null;
+  onAssistantContextMenu?: (event: React.MouseEvent, body: string) => void;
 }) {
   const TRAIL = 4;
   const messages = state.session.messages;
@@ -1318,6 +1500,7 @@ function ChatHistory({
   const hiddenCount = chatExpanded ? 0 : Math.max(0, messages.length - visible.length);
   const totalCount = messages.length;
   const sessionsCount = state.sessions.length;
+  const retention = state.retention;
   const startedAt = state.session.createdAt
     ? new Date(state.session.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : null;
@@ -1381,13 +1564,17 @@ function ChatHistory({
 
       {sessionPickerOpen && (
         <div className="shrink-0 border-b border-[var(--scout-chrome-border-soft)] px-2 py-1.5">
-          <div className="mb-1 px-0.5 text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-            All sessions
+          <div className="mb-1 flex items-center justify-between gap-2 px-0.5 text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+            <span>Recent sessions</span>
+            {retention && retention.archivedCount > 0 && (
+              <span>{retention.archivedCount} archived</span>
+            )}
           </div>
           <div className="flex max-h-40 flex-col gap-0.5 overflow-y-auto pr-0.5">
             {state.sessions.map((entry) => {
               const isActive = entry.id === state.session.id;
               const isBusy = switchingSessionId === entry.id;
+              const isArchiving = archivingSessionId === entry.id;
               const ts = new Date(entry.updatedAt).toLocaleString([], {
                 month: "short",
                 day: "numeric",
@@ -1398,28 +1585,42 @@ function ChatHistory({
                 ? entry.title
                 : `Session ${entry.id.slice(0, 8)}`;
               return (
-                <button
+                <div
                   key={entry.id}
-                  type="button"
-                  onClick={() => {
-                    if (isActive) return;
-                    onSwitchSession(entry.id);
-                  }}
-                  disabled={isActive || Boolean(switchingSessionId)}
                   className={`flex items-center gap-2 rounded border px-2 py-1 text-left transition-colors ${
                     isActive
                       ? "border-lime-300/40 bg-lime-300/[0.06] text-lime-100"
-                      : "border-transparent text-[var(--scout-chrome-ink-faint)] hover:border-[var(--scout-chrome-border-soft)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                      : "border-transparent text-[var(--scout-chrome-ink-faint)] hover:border-[var(--scout-chrome-border-soft)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
                   }`}
                 >
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? "bg-lime-300" : "bg-[var(--scout-chrome-ink-ghost)]"}`} />
-                  <span className="min-w-0 flex-1 truncate text-[10px] text-[var(--scout-chrome-ink)]">{display}</span>
-                  <span className="shrink-0 text-[9px] text-[var(--scout-chrome-ink-ghost)]">
-                    {entry.messageCount} msg
-                  </span>
-                  <span className="shrink-0 text-[9px] text-[var(--scout-chrome-ink-ghost)]">{ts}</span>
-                  {isBusy && <Loader2 size={10} className="shrink-0 animate-spin text-lime-200" />}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isActive) return;
+                      onSwitchSession(entry.id);
+                    }}
+                    disabled={isActive || Boolean(switchingSessionId) || Boolean(archivingSessionId)}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? "bg-lime-300" : "bg-[var(--scout-chrome-ink-ghost)]"}`} />
+                    <span className="min-w-0 flex-1 truncate text-[10px] text-[var(--scout-chrome-ink)]">{display}</span>
+                    <span className="shrink-0 text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                      {entry.messageCount} msg
+                    </span>
+                    <span className="shrink-0 text-[9px] text-[var(--scout-chrome-ink-ghost)]">{ts}</span>
+                    {isBusy && <Loader2 size={10} className="shrink-0 animate-spin text-lime-200" />}
+                  </button>
+                  <button
+                    type="button"
+                    title="Archive Ranger chat"
+                    aria-label={`Archive Ranger chat ${display}`}
+                    onClick={() => onArchiveSession(entry.id)}
+                    disabled={Boolean(switchingSessionId) || Boolean(archivingSessionId)}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-transparent text-[var(--scout-chrome-ink-ghost)] transition-colors hover:border-[var(--scout-chrome-border-soft)] hover:bg-black/20 hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    {isArchiving ? <Loader2 size={10} className="animate-spin" /> : <Archive size={10} />}
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -1439,9 +1640,32 @@ function ChatHistory({
         {visible.length === 0 && !pendingAsk && (
           <p className="text-[var(--scout-chrome-ink-ghost)]">No messages yet — ask Ranger anything below.</p>
         )}
-        {visible.map((message) => (
-          <ChatBubble key={message.id} role={message.role} body={message.body} />
-        ))}
+        {visible.map((message, index) => {
+          const showTimestamp = shouldShowRangerMessageTimestamp(visible[index - 1], message);
+          const timestamp = formatRangerMessageTimestamp(message.createdAt);
+          return (
+            <div key={message.id} className="flex flex-col gap-1">
+              {showTimestamp && (
+                <div
+                  className="self-center rounded-full bg-white/[0.06] px-2.5 py-0.5 font-mono text-[9px] font-medium text-[var(--scout-chrome-ink-ghost)]"
+                  title={new Date(message.createdAt).toLocaleString()}
+                  aria-label={timestamp}
+                >
+                  {timestamp}
+                </div>
+              )}
+              <ChatBubble
+                role={message.role}
+                body={message.body}
+                onContextMenu={
+                  message.role === "assistant" && onAssistantContextMenu
+                    ? (event) => onAssistantContextMenu(event, message.body)
+                    : undefined
+                }
+              />
+            </div>
+          );
+        })}
         {pendingAsk && (
           <ChatBubble role="user" body={pendingAsk} pending />
         )}
@@ -1498,7 +1722,17 @@ function ChatInput({
   );
 }
 
-function ChatBubble({ role, body, pending = false }: { role: "user" | "assistant"; body: string; pending?: boolean }) {
+function ChatBubble({
+  role,
+  body,
+  pending = false,
+  onContextMenu,
+}: {
+  role: "user" | "assistant";
+  body: string;
+  pending?: boolean;
+  onContextMenu?: (event: React.MouseEvent) => void;
+}) {
   const isUser = role === "user";
   const text = isUser ? body : stripRangerUiFences(body);
   const [copied, setCopied] = useState(false);
@@ -1509,7 +1743,7 @@ function ChatBubble({ role, body, pending = false }: { role: "user" | "assistant
     }).catch(() => {});
   }, [text]);
   return (
-    <div className="group flex flex-col gap-0.5">
+    <div className="group flex flex-col gap-0.5" onContextMenu={onContextMenu}>
       <div className="flex items-center justify-between gap-2">
         <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
           {isUser ? "You" : "Ranger"}
@@ -1526,9 +1760,15 @@ function ChatBubble({ role, body, pending = false }: { role: "user" | "assistant
           {copied ? <CheckCircle2 size={11} /> : <Copy size={11} />}
         </button>
       </div>
-      <p className={`whitespace-pre-wrap break-words text-[11px] leading-relaxed ${isUser ? "text-[var(--scout-chrome-ink)]" : "text-[var(--scout-chrome-ink)]"} ${pending ? "opacity-60" : ""}`}>
-        {text}
-      </p>
+      {isUser ? (
+        <p className={`whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] ${pending ? "opacity-60" : ""}`}>
+          {text}
+        </p>
+      ) : (
+        <div className={pending ? "opacity-60" : ""}>
+          <RangerMarkdown text={text} />
+        </div>
+      )}
     </div>
   );
 }

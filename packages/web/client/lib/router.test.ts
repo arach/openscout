@@ -64,6 +64,34 @@ describe("agents route parsing", () => {
     expect(routePath(route)).toBe("/ops/tail?q=019ddb1b-test-thread");
   });
 
+  test("messages index route round-trips", () => {
+    expect(routeFromUrl("http://127.0.0.1:3200/messages")).toEqual({
+      view: "messages",
+    });
+    expect(routePath({ view: "messages" })).toBe("/messages");
+  });
+
+  test("messages route preserves conversationId, filter, and sort", () => {
+    const route = routeFromUrl(
+      "http://127.0.0.1:3200/messages/channel.font-studio?filter=channel&sort=unread",
+    );
+    expect(route).toEqual({
+      view: "messages",
+      conversationId: "channel.font-studio",
+      filter: "channel",
+      sort: "unread",
+    });
+    expect(routePath(route)).toBe(
+      "/messages/channel.font-studio?filter=channel&sort=unread",
+    );
+  });
+
+  test("messages defaults (all + recent) stay out of the URL", () => {
+    expect(
+      routePath({ view: "messages", conversationId: "dm.operator.foo", filter: "all", sort: "recent" }),
+    ).toBe("/messages/dm.operator.foo");
+  });
+
   test("agent configuration settings routes round-trip", () => {
     expect(routeFromUrl("http://127.0.0.1:3200/settings/agents")).toEqual({
       view: "settings",

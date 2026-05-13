@@ -13,6 +13,7 @@ import { MessageMarkup } from "../lib/message-markup.tsx";
 import { saveLastViewed } from "../lib/sessionRead.ts";
 import { AgentPicker, AgentMentionTextarea } from "../lib/agent-autocomplete.tsx";
 import { useScout } from "../scout/Provider.tsx";
+import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import type { Agent, Message, Route, SessionEntry } from "../lib/types.ts";
 import "./conversation-screen.css";
 import "./channel-screen.css";
@@ -263,6 +264,13 @@ function ChannelFeed({
       const sorted = sortMessages(msgs);
       setMessages(sorted);
       saveLastViewed(channelId);
+      const lastMessage = sorted.at(-1);
+      if (lastMessage) {
+        void api(`/api/conversations/${encodeURIComponent(channelId)}/read-cursor`, {
+          method: "POST",
+          body: JSON.stringify({ lastReadMessageId: lastMessage.id }),
+        }).catch(() => {});
+      }
       if (sorted.length !== prevCountRef.current) {
         prevCountRef.current = sorted.length;
         onMessageCountChange(sorted.length);
@@ -381,6 +389,7 @@ function ChannelFeed({
                   <div className="ch-msg-body">
                     <MessageMarkup text={msg.body} />
                   </div>
+                  <MessageEmbeds message={msg} />
                 </div>
               </article>
             </div>
