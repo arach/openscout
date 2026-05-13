@@ -101,11 +101,26 @@ function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume;
     setSent(true);
   };
 
+  const openPair = () => {
+    navigate({
+      view: "messages",
+      conversationId: conversationForAgent(agentId),
+    });
+  };
+
   return (
     <div className="s-profile-facet">
       <div className="s-profile-facet-label">Session</div>
       <div className="s-profile-facet-value s-profile-facet-value--mono" title={catalog.activeSessionId ?? undefined}>
         {shortId}
+        <button
+          type="button"
+          className="s-profile-facet-action s-profile-facet-action--pair"
+          onClick={openPair}
+          title="Send messages into the live session without taking the terminal"
+        >
+          Pair
+        </button>
         {catalog.resumeCommand && (
           <button
             type="button"

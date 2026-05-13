@@ -13,6 +13,7 @@ import {
   type ControlEvent,
   type CollaborationEvent,
   type CollaborationRecord,
+  type ConversationReadCursor,
   diagnoseAgentIdentity,
   extractAgentMentions,
   extractAgentSelectors,
@@ -59,6 +60,7 @@ export type ScoutBrokerActorRecord = ActorIdentity;
 export type ScoutBrokerAgentRecord = AgentDefinition;
 export type ScoutBrokerEndpointRecord = AgentEndpoint;
 export type ScoutBrokerConversationRecord = ConversationDefinition;
+export type ScoutBrokerReadCursorRecord = ConversationReadCursor;
 export type ScoutBrokerMessageRecord = MessageRecord;
 export type ScoutBrokerNodeRecord = NodeDefinition;
 export type ScoutBrokerFlightRecord = FlightRecord;
@@ -1650,6 +1652,137 @@ export async function sendScoutMessage(input: {
   }
 
   return { usedBroker: true, invokedTargets: validTargets, unresolvedTargets };
+}
+
+export async function sendScoutConversationMessage(input: {
+  conversationId: string;
+  senderId: string;
+  body: string;
+  createdAtMs?: number;
+  currentDirectory?: string;
+  source?: string;
+}): Promise<ScoutMessagePostResult> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    return { usedBroker: false, invokedTargets: [], unresolvedTargets: [] };
+  }
+
+  const conversation = broker.snapshot.conversations[input.conversationId];
+  if (!conversation) {
+    throw new Error(`Conversation ${input.conversationId} is not available in the broker snapshot.`);
+  }
+
+  const currentDirectory = input.currentDirectory ?? process.cwd();
+  const createdAtMs = input.createdAtMs ?? Date.now();
+  const senderId = await resolveConversationActorId(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.senderId,
+    currentDirectory,
+  );
+  const mentionResolution = await resolveMentionTargets(
+    broker.snapshot,
+    input.body,
+    currentDirectory,
+  );
+
+  const availableTargets = (
+    await Promise.all(
+      mentionResolution.resolved.map(async (target) => (
+        await ensureTargetRelayAgentRegistered(
+          broker.baseUrl,
+          broker.snapshot,
+          broker.node.id,
+          target.agentId,
+          currentDirectory,
+        )
+          ? target
+          : null
+      )),
+    )
+  ).filter((target): target is ScoutMentionTarget => Boolean(target));
+
+  const validTargets = [...new Set(
+    availableTargets
+      .map((target) => target.agentId)
+      .filter((target) => target !== senderId && Boolean(broker.snapshot.agents[target])),
+  )].sort();
+  const unresolvedTargets = mentionResolution.resolved
+    .filter((target) => !validTargets.includes(target.agentId))
+    .map((target) => target.label)
+    .concat(mentionResolution.unresolved)
+    .concat(mentionResolution.ambiguous.map((entry) => entry.label));
+  const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
+    conversationId: conversation.id,
+    replyToMessageId: messageId,
+  });
+
+  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
+    id: messageId,
+    conversationId: conversation.id,
+    actorId: senderId,
+    originNodeId: broker.node.id,
+    class: conversation.kind === "system" ? "system" : "agent",
+    body: input.body,
+    mentions: mentionResolution.resolved
+      .filter((target) => validTargets.includes(target.agentId))
+      .map((target) => ({ actorId: target.agentId, label: target.label })),
+    audience: validTargets.length > 0 ? { notify: validTargets, reason: "mention" } : undefined,
+    visibility: conversation.visibility,
+    policy: "durable",
+    createdAt: createdAtMs,
+    metadata: {
+      source: input.source?.trim() || "scout-web",
+      destinationKind: "conversation",
+      destinationId: conversation.id,
+      relayMessageId: messageId,
+      returnAddress,
+    },
+  });
+
+  return { usedBroker: true, invokedTargets: validTargets, unresolvedTargets };
+}
+
+export async function loadScoutReadCursors(input: {
+  conversationId: string;
+  baseUrl?: string;
+}): Promise<ScoutBrokerReadCursorRecord[]> {
+  const path = `/v1/conversations/${encodeURIComponent(input.conversationId)}/read-cursors`;
+  return brokerReadJson<ScoutBrokerReadCursorRecord[]>(
+    input.baseUrl ?? resolveScoutBrokerUrl(),
+    path,
+  );
+}
+
+export async function markScoutConversationRead(input: {
+  conversationId: string;
+  actorId?: string;
+  readerNodeId?: string;
+  lastReadMessageId?: string;
+  lastReadSeq?: number;
+  lastReadAt?: number;
+  metadata?: Record<string, unknown>;
+  baseUrl?: string;
+}): Promise<{
+  ok: true;
+  cursor: ScoutBrokerReadCursorRecord;
+  acknowledgedDeliveries: number;
+}> {
+  const broker = await loadScoutBrokerContext(input.baseUrl);
+  if (!broker) {
+    throw new Error("broker unreachable");
+  }
+  const path = `/v1/conversations/${encodeURIComponent(input.conversationId)}/read-cursors`;
+  return brokerPostJson(broker.baseUrl, path, {
+    actorId: input.actorId,
+    readerNodeId: input.readerNodeId ?? broker.node.id,
+    lastReadMessageId: input.lastReadMessageId,
+    lastReadSeq: input.lastReadSeq,
+    lastReadAt: input.lastReadAt,
+    metadata: input.metadata,
+  });
 }
 
 export async function openScoutDirectSession(input: {

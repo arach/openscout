@@ -4,9 +4,6 @@ import { join } from "node:path";
 
 import {
   buildScoutMcpCodexLaunchArgs,
-  CodexObservedTopologyTracker,
-  OBSERVED_HARNESS_TOPOLOGY_META_KEY,
-  resolveCodexExecutable,
   type ActionBlock,
   type BlockState,
   type ReasoningBlock,
@@ -14,6 +11,9 @@ import {
   type TextBlock,
   type TurnState,
 } from "@openscout/agent-sessions";
+import { CodexObservedTopologyTracker } from "@openscout/agent-sessions/adapters/codex/topology";
+import { resolveCodexExecutable } from "@openscout/agent-sessions/codex-executable";
+import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "@openscout/agent-sessions/protocol/primitives";
 import type { ScoutReplyContext } from "@openscout/protocol";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 import type { CodexApprovalPolicy, CodexSandboxMode } from "./permission-policy.js";
@@ -22,7 +22,7 @@ import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 export {
   resolveCodexExecutableCandidates,
   resolveCodexExecutableInventory,
-} from "@openscout/agent-sessions";
+} from "@openscout/agent-sessions/codex-executable";
 
 type CodexRequest = {
   id: string | number;

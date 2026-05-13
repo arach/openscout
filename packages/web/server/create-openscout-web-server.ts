@@ -52,9 +52,12 @@ import {
   appendScoutCollaborationEvent,
   appendScoutUnblockRequestEvent,
   askScoutQuestion,
+  loadScoutReadCursors,
   loadScoutRelayConfig,
+  markScoutConversationRead,
   readScoutUnblockRequests,
   resolveScoutBrokerUrl,
+  sendScoutConversationMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
   upsertScoutConversation,
@@ -99,6 +102,11 @@ import {
   createRangerCredentialStore,
 } from "./ranger-credentials.ts";
 import { buildWorkMaterialsInventory, readWorkMaterialContent } from "./work-materials.ts";
+import {
+  collectTrustedRoots,
+  readFilePreview,
+  resolveTrustedPath,
+} from "./file-preview.ts";
 import { ensureOpenScoutVoxOrigins, synthesizeVoxSpeech } from "./vox.ts";
 import {
   loadUserConfig,
@@ -273,15 +281,27 @@ function inferDirectTargetAgentId(
   senderId: string,
 ): string | null {
   if (session?.kind === "direct") {
+    const operatorCandidates = new Set([senderId.trim(), "operator"]);
     if (session.agentId) {
-      return session.agentId;
+      const participants = session.participantIds.filter(
+        (participantId) => participantId.trim().length > 0,
+      );
+      if (
+        participants.length === 0 ||
+        participants.some((participantId) => operatorCandidates.has(participantId))
+      ) {
+        return session.agentId;
+      }
+      return null;
     }
 
     const participants = session.participantIds.filter(
       (participantId) => participantId.trim().length > 0,
     );
     if (participants.length === 2) {
-      const operatorCandidates = new Set([senderId.trim(), "operator"]);
+      if (!participants.some((participantId) => operatorCandidates.has(participantId))) {
+        return null;
+      }
       const nonOperatorParticipants = participants.filter(
         (participantId) => !operatorCandidates.has(participantId),
       );
@@ -346,6 +366,7 @@ function inferChannelName(
 function resolveConversationRouting(conversationId: string | undefined): {
   directAgentId: string | null;
   channel: string | null;
+  conversationId: string | null;
   senderId: string;
 } {
   const fallbackSenderId = "operator";
@@ -363,7 +384,10 @@ function resolveConversationRouting(conversationId: string | undefined): {
   const channel = directAgentId
     ? null
     : inferChannelName(conversationId, session);
-  return { directAgentId, channel, senderId };
+  const existingConversationId = session && !directAgentId && !channel
+    ? conversationId ?? null
+    : null;
+  return { directAgentId, channel, conversationId: existingConversationId, senderId };
 }
 
 function buildAgentSessionCatalogPayload(input: {
@@ -557,6 +581,14 @@ function severityRank(severity: OperatorAttentionItem["severity"]): number {
 }
 
 function compactAttentionSummary(value: string | null | undefined, max = 220): string | null {
+  const compacted = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!compacted) {
+    return null;
+  }
+  return compacted.length > max ? `${compacted.slice(0, max - 1)}...` : compacted;
+}
+
+function compactRangerText(value: string | null | undefined, max = 280): string | null {
   const compacted = (value ?? "").replace(/\s+/g, " ").trim();
   if (!compacted) {
     return null;
@@ -819,15 +851,24 @@ function permissionUnblockRecord(request: ClaudePermissionRequest): UnblockReque
 
 async function syncClaudePermissionUnblockRequests(
   requests = queryClaudePermissionRequests(),
+  activeUnblockRequests: UnblockRequestRecord[] = [],
 ): Promise<Map<string, UnblockRequestRecord>> {
   if (requests.length === 0) {
     return new Map();
   }
 
+  const activeBySourceRef = new Map(
+    activeUnblockRequests
+      .filter((request) => request.source === CLAUDE_PERMISSION_UNBLOCK_SOURCE)
+      .map((request) => [request.sourceRef, request] as const),
+  );
   const synced = new Map<string, UnblockRequestRecord>();
-  await Promise.all(requests.map(async (request) => {
-    const record = permissionUnblockRecord(request);
-    synced.set(request.id, record);
+  const changedRecords = requests
+    .map(permissionUnblockRecord)
+    .filter((record) => shouldSyncPermissionUnblockRecord(record, activeBySourceRef.get(record.sourceRef)));
+
+  await Promise.all(changedRecords.map(async (record) => {
+    synced.set(record.id, record);
     try {
       await upsertScoutUnblockRequest(record);
     } catch {
@@ -835,6 +876,41 @@ async function syncClaudePermissionUnblockRequests(
     }
   }));
   return synced;
+}
+
+function shouldSyncPermissionUnblockRecord(
+  record: UnblockRequestRecord,
+  existing?: UnblockRequestRecord,
+): boolean {
+  if (!existing) {
+    return record.state === "open";
+  }
+  return existing.state !== record.state
+    || existing.updatedAt !== record.updatedAt
+    || existing.title !== record.title
+    || existing.summary !== record.summary
+    || existing.detail !== record.detail
+    || existing.sessionId !== record.sessionId
+    || existing.severity !== record.severity;
+}
+
+function mergeSyncedPermissionUnblocks(
+  activeUnblockRequests: UnblockRequestRecord[],
+  syncedPermissionUnblocks: Map<string, UnblockRequestRecord>,
+): UnblockRequestRecord[] {
+  if (syncedPermissionUnblocks.size === 0) {
+    return activeUnblockRequests;
+  }
+
+  const byId = new Map(activeUnblockRequests.map((request) => [request.id, request] as const));
+  for (const request of syncedPermissionUnblocks.values()) {
+    if (request.state === "open") {
+      byId.set(request.id, request);
+    } else {
+      byId.delete(request.id);
+    }
+  }
+  return [...byId.values()];
 }
 
 function operatorAttentionFromUnblockRequest(
@@ -1056,12 +1132,19 @@ async function buildOperatorAttentionState(currentDirectory: string) {
   const pendingApprovalIds = new Set<string>();
   const permissionRequests = queryClaudePermissionRequests();
   const pendingPermissionRequests = permissionRequests.filter(isPendingClaudePermissionRequest);
-  await syncClaudePermissionUnblockRequests(permissionRequests);
   const unblockRequests = await readScoutUnblockRequests({
     ownerId: "operator",
     active: true,
     limit: 200,
   }).catch(() => []);
+  const syncedPermissionUnblocks = await syncClaudePermissionUnblockRequests(
+    permissionRequests,
+    unblockRequests as UnblockRequestRecord[],
+  );
+  const activeUnblockRequests = mergeSyncedPermissionUnblocks(
+    unblockRequests as UnblockRequestRecord[],
+    syncedPermissionUnblocks,
+  );
   const permissionBySourceRef = new Map(
     permissionRequests.map((request) => [permissionUnblockSourceRef(request), request] as const),
   );
@@ -1111,7 +1194,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     items.push(operatorAttentionFromSessionItem(sessionItem));
   }
 
-  for (const request of unblockRequests) {
+  for (const request of activeUnblockRequests) {
     const knownPermissionRequest = request.source === CLAUDE_PERMISSION_UNBLOCK_SOURCE
       ? permissionBySourceRef.get(request.sourceRef)
       : undefined;
@@ -1269,9 +1352,10 @@ async function buildOperatorAttentionState(currentDirectory: string) {
 }
 
 async function buildRangerAssistantControlState(currentDirectory: string) {
-  const [attention, mesh] = await Promise.all([
+  const [attention, mesh, tailDiscovery] = await Promise.all([
     valueOrNull(buildOperatorAttentionState(currentDirectory)),
     valueOrNull(loadMeshStatus()),
+    valueOrNull(getTailDiscovery()),
   ]);
   const broker = queryBrokerDiagnostics({ limit: 80, windowMs: 6 * 60 * 60_000 });
   const fleet = queryFleet({ limit: 16, activityLimit: 40 });
@@ -1297,10 +1381,10 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
     fleet: {
       generatedAt: fleet.generatedAt,
       totals: fleet.totals,
-      activeAsks: fleet.activeAsks,
-      needsAttention: fleet.needsAttention,
-      recentCompleted: fleet.recentCompleted,
-      activity: fleet.activity.slice(0, 16),
+      activeAsks: fleet.activeAsks.slice(0, 12).map(compactRangerFleetAsk),
+      needsAttention: fleet.needsAttention.slice(0, 12).map(compactRangerFleetAttention),
+      recentCompleted: fleet.recentCompleted.slice(0, 8).map(compactRangerFleetAsk),
+      activity: fleet.activity.slice(0, 12).map(compactRangerActivity),
     },
     operatorAttention: attention
       ? {
@@ -1314,17 +1398,17 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
       windowMs: broker.windowMs,
       totals: broker.totals,
       rates: broker.rates,
-      failedQueries: broker.failedQueries.slice(0, 12),
-      failedDeliveries: broker.failedDeliveries.slice(0, 12),
-      attempts: broker.attempts.slice(0, 20),
-      dialogue: broker.dialogue.slice(0, 20),
+      failedQueries: broker.failedQueries.slice(0, 8).map(compactRangerRouteAttempt),
+      failedDeliveries: broker.failedDeliveries.slice(0, 8).map(compactRangerRouteAttempt),
+      attempts: broker.attempts.slice(0, 12).map(compactRangerRouteAttempt),
+      dialogue: broker.dialogue.slice(0, 12).map(compactRangerDialogue),
     },
-    activeWork: queryWorkItems({ activeOnly: true, limit: 30 }),
+    activeWork: queryWorkItems({ activeOnly: true, limit: 20 }).map(compactRangerWorkItem),
     activeRuns: queryRuns({ active: true, limit: 24 }),
     activeFlights: queryFlights({ activeOnly: true }).slice(0, 24),
     sessions: querySessions(24),
-    recentMessages: queryRecentMessages(24),
-    recentActivity: queryActivity(24),
+    recentMessages: queryRecentMessages(16).map(compactRangerMessage),
+    recentActivity: queryActivity(16).map(compactRangerActivity),
     heartrate: queryHeartrate(),
     mesh: mesh
       ? {
@@ -1343,6 +1427,137 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
           },
         }
       : null,
+    harnessActivity: tailDiscovery
+      ? {
+          generatedAt: tailDiscovery.generatedAt,
+          totals: tailDiscovery.totals,
+          processes: tailDiscovery.processes.slice(0, 24).map((p) => ({
+            pid: p.pid,
+            source: p.source,
+            harness: p.harness,
+            command: compactRangerText(p.command, 140),
+            cwd: p.cwd,
+            etime: p.etime,
+          })),
+          transcripts: tailDiscovery.transcripts.slice(0, 24).map((t) => ({
+            source: t.source,
+            harness: t.harness,
+            sessionId: t.sessionId,
+            project: t.project,
+            cwd: t.cwd,
+            transcriptPath: t.transcriptPath,
+            mtimeMs: t.mtimeMs,
+            size: t.size,
+          })),
+        }
+      : null,
+  };
+}
+
+function compactRangerFleetAsk(ask: ReturnType<typeof queryFleet>["activeAsks"][number]) {
+  return {
+    invocationId: ask.invocationId,
+    flightId: ask.flightId,
+    agentId: ask.agentId,
+    agentName: ask.agentName,
+    conversationId: ask.conversationId,
+    task: compactRangerText(ask.task, 260),
+    status: ask.status,
+    statusLabel: ask.statusLabel,
+    attention: ask.attention,
+    summary: compactRangerText(ask.summary, 260),
+    startedAt: ask.startedAt,
+    completedAt: ask.completedAt,
+    updatedAt: ask.updatedAt,
+  };
+}
+
+function compactRangerFleetAttention(item: ReturnType<typeof queryFleet>["needsAttention"][number]) {
+  return {
+    kind: item.kind,
+    recordId: item.recordId,
+    title: compactRangerText(item.title, 180),
+    summary: compactRangerText(item.summary, 260),
+    agentId: item.agentId,
+    agentName: item.agentName,
+    conversationId: item.conversationId,
+    state: item.state,
+    acceptanceState: item.acceptanceState,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function compactRangerActivity(item: ReturnType<typeof queryActivity>[number]) {
+  return {
+    id: item.id,
+    kind: item.kind,
+    ts: item.ts,
+    actorName: item.actorName,
+    title: compactRangerText(item.title, 180),
+    summary: compactRangerText(item.summary, 260),
+    conversationId: item.conversationId,
+    workspaceRoot: item.workspaceRoot,
+  };
+}
+
+function compactRangerRouteAttempt(attempt: ReturnType<typeof queryBrokerDiagnostics>["attempts"][number]) {
+  return {
+    id: attempt.id,
+    kind: attempt.kind,
+    status: attempt.status,
+    ts: attempt.ts,
+    actorName: attempt.actorName,
+    target: attempt.target,
+    route: attempt.route,
+    detail: compactRangerText(attempt.detail, 320),
+    conversationId: attempt.conversationId,
+    messageId: attempt.messageId,
+    deliveryId: attempt.deliveryId,
+    invocationId: attempt.invocationId,
+  };
+}
+
+function compactRangerDialogue(item: ReturnType<typeof queryBrokerDiagnostics>["dialogue"][number]) {
+  return {
+    id: item.id,
+    ts: item.ts,
+    actorName: item.actorName,
+    conversationId: item.conversationId,
+    body: compactRangerText(item.body, 320),
+    class: item.class,
+  };
+}
+
+function compactRangerWorkItem(item: ReturnType<typeof queryWorkItems>[number]) {
+  return {
+    id: item.id,
+    title: compactRangerText(item.title, 180),
+    summary: compactRangerText(item.summary, 260),
+    ownerId: item.ownerId,
+    ownerName: item.ownerName,
+    nextMoveOwnerId: item.nextMoveOwnerId,
+    nextMoveOwnerName: item.nextMoveOwnerName,
+    conversationId: item.conversationId,
+    state: item.state,
+    acceptanceState: item.acceptanceState,
+    priority: item.priority,
+    currentPhase: item.currentPhase,
+    attention: item.attention,
+    activeChildWorkCount: item.activeChildWorkCount,
+    activeFlightCount: item.activeFlightCount,
+    lastMeaningfulAt: item.lastMeaningfulAt,
+    lastMeaningfulSummary: compactRangerText(item.lastMeaningfulSummary, 260),
+  };
+}
+
+function compactRangerMessage(message: ReturnType<typeof queryRecentMessages>[number]) {
+  return {
+    id: message.id,
+    conversationId: message.conversationId,
+    actorName: message.actorName,
+    body: compactRangerText(message.body, 320),
+    createdAt: message.createdAt,
+    class: message.class,
   };
 }
 
@@ -1668,6 +1883,20 @@ export async function createOpenScoutWebServer(
       return c.json({ error: message }, status as 400 | 404 | 500);
     }
   });
+  app.post("/api/ranger/session/archive", async (c) => {
+    const body = await c.req.json<{ id?: unknown }>().catch(() => ({}));
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id) {
+      return c.json({ error: "id is required" }, 400);
+    }
+    try {
+      return c.json(rangerAssistant.archiveSession(id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ranger archive failed";
+      const status = error instanceof RangerAssistantError ? error.status : 500;
+      return c.json({ error: message }, status as 400 | 404 | 500);
+    }
+  });
   app.get("/api/ranger/reminders", (c) => c.json(rangerReminders.getState()));
   app.post("/api/ranger/reminders", async (c) => {
     const body = await c.req.json<{
@@ -1813,6 +2042,43 @@ export async function createOpenScoutWebServer(
       return c.json({ error: message }, status as 400 | 500 | 502 | 503);
     }
   });
+  app.get("/api/file/roots", (c) => {
+    const roots = collectTrustedRoots({ currentDirectory });
+    return c.json({ roots });
+  });
+
+  app.get("/api/file/preview", (c) => {
+    const requestedPath = c.req.query("path");
+    if (!requestedPath) {
+      return c.json({ error: "missing path" }, 400);
+    }
+    const result = readFilePreview({ requestedPath, currentDirectory });
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status as 400 | 403 | 404 | 415 | 500);
+    }
+    return c.json(result.content);
+  });
+
+  app.post("/api/file/reveal", async (c) => {
+    const body = await c.req.json<{ path?: unknown }>().catch(() => null);
+    const requestedPath = typeof body?.path === "string" ? body.path : "";
+    if (!requestedPath.trim()) {
+      return c.json({ error: "missing path" }, 400);
+    }
+    const roots = collectTrustedRoots({ currentDirectory });
+    const resolved = resolveTrustedPath({ requestedPath, roots });
+    if (!resolved.ok) {
+      return c.json({ error: resolved.error }, resolved.status as 400 | 403 | 404);
+    }
+    try {
+      await (options.revealPath ?? defaultRevealLocalPath)(resolved.realPath);
+      return c.json({ ok: true, path: resolved.realPath });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to reveal path";
+      return c.json({ error: message }, 500);
+    }
+  });
+
   app.post("/api/local-path/reveal", async (c) => {
     const body = await c.req.json<{
       path?: unknown;
@@ -2260,6 +2526,47 @@ export async function createOpenScoutWebServer(
     }));
   });
 
+  app.get("/api/conversations/:id/read-cursors", async (c) => {
+    try {
+      return c.json(await loadScoutReadCursors({
+        conversationId: c.req.param("id"),
+      }));
+    } catch (cause) {
+      return c.json(
+        { error: cause instanceof Error ? cause.message : String(cause) },
+        502,
+      );
+    }
+  });
+
+  app.post("/api/conversations/:id/read-cursor", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      actorId?: string;
+      lastReadMessageId?: string;
+      lastReadSeq?: number;
+      lastReadAt?: number;
+      metadata?: Record<string, unknown>;
+    };
+    try {
+      return c.json(await markScoutConversationRead({
+        conversationId: c.req.param("id"),
+        actorId: body.actorId?.trim() || "operator",
+        lastReadMessageId: body.lastReadMessageId,
+        lastReadSeq: body.lastReadSeq,
+        lastReadAt: body.lastReadAt,
+        metadata: {
+          source: "scout-web",
+          ...(body.metadata ?? {}),
+        },
+      }));
+    } catch (cause) {
+      return c.json(
+        { error: cause instanceof Error ? cause.message : String(cause) },
+        502,
+      );
+    }
+  });
+
   const writeConversationMembers = async (
     conversationId: string,
     mutate: (current: string[]) => string[],
@@ -2645,7 +2952,7 @@ export async function createOpenScoutWebServer(
       return c.json({ error: "body is required" }, 400);
     }
 
-    const { directAgentId, channel, senderId } =
+    const { directAgentId, channel, conversationId: routedConversationId, senderId } =
       resolveConversationRouting(conversationId);
 
     if (directAgentId) {
@@ -2655,6 +2962,20 @@ export async function createOpenScoutWebServer(
         currentDirectory,
         source: "scout-web",
       });
+      return c.json(result);
+    }
+
+    if (routedConversationId) {
+      const result = await sendScoutConversationMessage({
+        conversationId: routedConversationId,
+        senderId,
+        body: body.trim(),
+        currentDirectory,
+        source: "scout-web",
+      });
+      if (!result.usedBroker) {
+        return c.json({ error: "broker unreachable" }, 502);
+      }
       return c.json(result);
     }
 

@@ -1524,6 +1524,105 @@ details[open] > .s-conv-meta-toggle::before {
   text-transform: uppercase;
 }
 
+.s-message-embeds {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  max-width: min(460px, 100%);
+}
+
+.s-message-embed {
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  color: var(--ink);
+  overflow: hidden;
+  text-decoration: none;
+}
+
+.s-message-embed--image {
+  background: color-mix(in srgb, var(--surface) 75%, var(--bg));
+  display: block;
+  width: fit-content;
+}
+
+.s-message-embed--image img {
+  display: block;
+  max-height: 320px;
+  max-width: min(460px, 100%);
+  object-fit: contain;
+}
+
+.s-message-embed--link,
+.s-message-embed--file {
+  background: color-mix(in srgb, var(--surface) 76%, var(--bg));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.s-message-embed--link:has(.s-message-embed-thumb) {
+  grid-template-columns: minmax(0, 1fr) 116px;
+}
+
+.s-message-embed-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.s-message-embed-thumb {
+  background: color-mix(in srgb, var(--bg) 80%, var(--surface));
+  border-left: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 92px;
+}
+
+.s-message-embed-thumb img {
+  display: block;
+  height: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.s-message-embed-site,
+.s-message-embed-description {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-message-embed-site {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.s-message-embed-title {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.s-message-embed-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.s-message-embed--file {
+  gap: 3px;
+  padding: 10px 12px;
+}
+
+.s-message-embed:hover .s-message-embed-title {
+  color: var(--accent);
+}
+
 .s-msg-working {
   max-width: 85%;
   align-self: flex-start;
@@ -1866,6 +1965,30 @@ details[open] > .s-conv-meta-toggle::before {
   color: var(--hud-accent);
   border-color: color-mix(in srgb, var(--hud-accent) 36%, transparent);
   background: color-mix(in srgb, var(--hud-accent) 7%, transparent);
+}
+
+.scout-nav-action-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.scout-nav-action--ranger-brief {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.35rem;
+  border-radius: 0.125rem;
+  border: none;
+  background: transparent;
+  color: var(--scout-chrome-ink-faint);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.scout-nav-action--ranger-brief:hover {
+  color: var(--hud-accent);
+  background: var(--scout-chrome-hover);
 }
 
 .scout-nav-action--settings svg {

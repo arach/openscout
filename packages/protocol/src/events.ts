@@ -4,6 +4,7 @@ import type { ConversationBinding, ConversationDefinition } from "./conversation
 import type { DeliveryAttempt, DeliveryIntent } from "./deliveries.js";
 import type { FlightRecord, InvocationRequest } from "./invocations.js";
 import type { MessageRecord } from "./messages.js";
+import type { ConversationReadCursor } from "./read-receipts.js";
 import type { AgentDefinition, AgentEndpoint, ActorIdentity } from "./actors.js";
 import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
 import type { UnblockRequestEvent, UnblockRequestRecord } from "./unblock-requests.js";
@@ -48,6 +49,10 @@ export type BindingUpsertedEvent = ControlEventBase<"binding.upserted", {
 
 export type MessagePostedEvent = ControlEventBase<"message.posted", {
   message: MessageRecord;
+}>;
+
+export type ConversationReadCursorUpdatedEvent = ControlEventBase<"conversation.read_cursor.updated", {
+  cursor: ConversationReadCursor;
 }>;
 
 export type InvocationRequestedEvent = ControlEventBase<"invocation.requested", {
@@ -100,6 +105,7 @@ export type ControlEvent =
   | ConversationUpsertedEvent
   | BindingUpsertedEvent
   | MessagePostedEvent
+  | ConversationReadCursorUpdatedEvent
   | InvocationRequestedEvent
   | FlightUpdatedEvent
   | DeliveryPlannedEvent

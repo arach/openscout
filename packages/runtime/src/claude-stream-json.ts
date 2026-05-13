@@ -44,7 +44,7 @@ type ActiveTurn = {
 type ClaudeEvent =
   | { type: "system"; subtype?: string; session_id?: string; sessionId?: string }
   | { type: "assistant"; message?: { content?: Array<{ type?: string; text?: string }> }; content?: Array<{ type?: string; text?: string }> }
-  | { type: "result"; subtype?: string; result?: string }
+  | { type: "result"; subtype?: string; result?: string; is_error?: boolean; errors?: string[]; error?: { message?: string }; message?: string }
   | { type: "error"; error?: { message?: string }; message?: string };
 
 export type ClaudeSessionSnapshotOptions = Pick<
@@ -93,6 +93,29 @@ export function resolveClaudeStreamJsonOutput(
     return trimmedResult;
   }
   return fallbackParts.join("").trim();
+}
+
+function claudeResultErrorMessage(event: Extract<ClaudeEvent, { type: "result" }>): string | null {
+  const errors = Array.isArray(event.errors)
+    ? event.errors.map((entry) => entry.trim()).filter(Boolean)
+    : [];
+  if (
+    event.is_error === true
+    || event.subtype === "error_during_execution"
+    || errors.length > 0
+  ) {
+    return errors.join("; ")
+      || event.error?.message
+      || event.message
+      || event.subtype
+      || "Claude stream-json result reported an error";
+  }
+
+  return null;
+}
+
+function emptyClaudeOutputError(): Error {
+  return new Error("Claude stream-json completed without broker-visible output.");
 }
 
 function sessionKey(options: SessionRequestOptions): string {
@@ -958,7 +981,12 @@ class ClaudeStreamJsonSession {
         const turn = this.activeTurn;
         this.activeTurn = null;
         if (code === 0) {
-          turn.resolve(resolveClaudeStreamJsonOutput(undefined, turn.output));
+          const output = resolveClaudeStreamJsonOutput(undefined, turn.output);
+          if (output) {
+            turn.resolve(output);
+          } else {
+            turn.reject(emptyClaudeOutputError());
+          }
         } else {
           turn.reject(new Error(`Claude exited with code ${code}`));
         }
@@ -996,8 +1024,20 @@ class ClaudeStreamJsonSession {
     }
 
     if (event.type === "result") {
+      const resultError = claudeResultErrorMessage(event);
       this.activeTurn = null;
-      turn.resolve(resolveClaudeStreamJsonOutput(event.result, turn.output));
+      if (resultError) {
+        turn.reject(new Error(resultError));
+        return;
+      }
+
+      const output = resolveClaudeStreamJsonOutput(event.result, turn.output);
+      if (!output) {
+        turn.reject(emptyClaudeOutputError());
+        return;
+      }
+
+      turn.resolve(output);
       return;
     }
 

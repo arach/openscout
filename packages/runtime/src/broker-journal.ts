@@ -9,6 +9,7 @@ import type {
   CollaborationRecord,
   ConversationBinding,
   ConversationDefinition,
+  ConversationReadCursor,
   DeliveryAttempt,
   DeliveryIntent,
   DurableAction,
@@ -38,6 +39,7 @@ export type BrokerJournalEntry =
   | { kind: "conversation.upsert"; conversation: ConversationDefinition }
   | { kind: "binding.upsert"; binding: ConversationBinding }
   | { kind: "message.record"; message: MessageRecord }
+  | { kind: "conversation.read_cursor.upsert"; cursor: ConversationReadCursor }
   | { kind: "invocation.record"; invocation: InvocationRequest }
   | { kind: "flight.record"; flight: FlightRecord }
   | { kind: "collaboration.record"; record: CollaborationRecord }
@@ -88,6 +90,7 @@ function cloneSnapshot(snapshot: RuntimeRegistrySnapshot): RuntimeRegistrySnapsh
     conversations: { ...snapshot.conversations },
     bindings: { ...snapshot.bindings },
     messages: { ...snapshot.messages },
+    readCursors: { ...snapshot.readCursors },
     invocations: { ...snapshot.invocations },
     flights: { ...snapshot.flights },
     collaborationRecords: { ...snapshot.collaborationRecords },
@@ -476,6 +479,9 @@ export class FileBackedBrokerJournal {
         return;
       case "message.record":
         this.state.snapshot.messages[entry.message.id] = entry.message;
+        return;
+      case "conversation.read_cursor.upsert":
+        this.state.snapshot.readCursors[`${entry.cursor.conversationId}\u0000${entry.cursor.actorId}`] = entry.cursor;
         return;
       case "invocation.record":
         this.state.snapshot.invocations[entry.invocation.id] = entry.invocation;

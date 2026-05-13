@@ -28,6 +28,7 @@ import {
   type ControlEvent,
   type ConversationBinding,
   type ConversationDefinition,
+  type ConversationReadCursor,
   type DeliveryIntent,
   type DeliveryReason,
   type DeliveryStatus,
@@ -1392,6 +1393,165 @@ async function updateDeliveryStatusDurably(input: {
   }
 }
 
+function listReadCursorsForConversation(conversationId: string): ConversationReadCursor[] {
+  return Object.values(runtime.snapshot().readCursors)
+    .filter((cursor) => cursor.conversationId === conversationId)
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+function latestMessageForConversation(conversationId: string): MessageRecord | undefined {
+  return Object.values(runtime.snapshot().messages)
+    .filter((message) => message.conversationId === conversationId)
+    .sort((left, right) => right.createdAt - left.createdAt)[0];
+}
+
+function messageCreatedAt(messageId: string | undefined): number | undefined {
+  return messageId ? runtime.message(messageId)?.createdAt : undefined;
+}
+
+function cursorProgressRank(cursor: {
+  lastReadSeq?: number;
+  lastReadMessageId?: string;
+}): number | undefined {
+  if (typeof cursor.lastReadSeq === "number" && Number.isFinite(cursor.lastReadSeq)) {
+    return cursor.lastReadSeq;
+  }
+  return messageCreatedAt(cursor.lastReadMessageId);
+}
+
+function finitePositiveNumber(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
+async function resolveReadCursor(
+  conversationId: string,
+  input: {
+    actorId?: string;
+    readerNodeId?: string;
+    lastReadMessageId?: string;
+    lastReadSeq?: number;
+    lastReadAt?: number;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<ConversationReadCursor> {
+  const conversation = runtime.conversation(conversationId);
+  if (!conversation) {
+    throw new Error(`conversation ${conversationId} not found`);
+  }
+
+  const actorId = input.actorId?.trim() || operatorActorId;
+  await ensureBrokerActorForDelivery(actorId);
+
+  const explicitMessageId = input.lastReadMessageId?.trim();
+  const lastReadMessage = explicitMessageId
+    ? runtime.message(explicitMessageId)
+    : latestMessageForConversation(conversationId);
+
+  if (explicitMessageId && !lastReadMessage) {
+    throw new Error(`message ${explicitMessageId} not found`);
+  }
+  if (lastReadMessage && lastReadMessage.conversationId !== conversationId) {
+    throw new Error(`message ${lastReadMessage.id} does not belong to ${conversationId}`);
+  }
+
+  const latestThreadSeq = await projection.latestThreadSeq(conversationId);
+  const providedSeq = finitePositiveNumber(input.lastReadSeq);
+  let lastReadSeq = providedSeq
+    ?? (!explicitMessageId && latestThreadSeq > 0 ? latestThreadSeq : undefined);
+  let lastReadAt = finitePositiveNumber(input.lastReadAt) ?? Date.now();
+  let lastReadMessageId = lastReadMessage?.id;
+
+  const current = runtime.readCursor(conversationId, actorId);
+  if (current) {
+    const currentRank = cursorProgressRank(current);
+    const nextRank = cursorProgressRank({ lastReadSeq, lastReadMessageId });
+    if (
+      currentRank !== undefined
+      && (nextRank === undefined || nextRank < currentRank)
+    ) {
+      lastReadMessageId = current.lastReadMessageId;
+      lastReadSeq = current.lastReadSeq;
+      lastReadAt = current.lastReadAt;
+    }
+  }
+
+  return {
+    conversationId,
+    actorId,
+    readerNodeId: input.readerNodeId?.trim() || nodeId,
+    lastReadMessageId,
+    lastReadSeq,
+    lastReadAt,
+    updatedAt: Date.now(),
+    metadata: input.metadata,
+  };
+}
+
+async function recordReadCursorDurably(cursor: ConversationReadCursor): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "conversation.read_cursor.upsert", cursor },
+      async () => {
+        await runtime.upsertReadCursor(cursor);
+      },
+    );
+  });
+}
+
+async function acknowledgeDeliveriesForReadCursor(cursor: ConversationReadCursor): Promise<number> {
+  const boundaryMessage = cursor.lastReadMessageId
+    ? runtime.message(cursor.lastReadMessageId)
+    : latestMessageForConversation(cursor.conversationId);
+  if (!boundaryMessage) {
+    return 0;
+  }
+
+  const readableStatuses = new Set<DeliveryIntent["status"]>([
+    "pending",
+    "accepted",
+    "deferred",
+    "sent",
+  ]);
+  const readReasons = new Set<DeliveryIntent["reason"]>([
+    "conversation_visibility",
+    "direct_message",
+    "mention",
+    "thread_reply",
+  ]);
+  let acknowledged = 0;
+
+  const deliveries = await projection.listDeliveries({ limit: 5000 });
+  for (const delivery of deliveries) {
+    if (delivery.targetId !== cursor.actorId) continue;
+    if (!delivery.messageId) continue;
+    if (!readableStatuses.has(delivery.status)) continue;
+    if (!readReasons.has(delivery.reason)) continue;
+
+    const message = runtime.message(delivery.messageId);
+    if (!message || message.conversationId !== cursor.conversationId) continue;
+    if (message.createdAt > boundaryMessage.createdAt) continue;
+
+    await updateDeliveryStatusDurably({
+      deliveryId: delivery.id,
+      status: "acknowledged",
+      metadata: {
+        acknowledgedByReadCursor: true,
+        readAt: cursor.lastReadAt,
+        readCursorUpdatedAt: cursor.updatedAt,
+        readMessageId: cursor.lastReadMessageId,
+      },
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
+    acknowledged += 1;
+  }
+
+  return acknowledged;
+}
+
 function isDeliveryClaimable(delivery: DeliveryIntent, now: number): boolean {
   if (delivery.status === "pending" || delivery.status === "accepted" || delivery.status === "deferred") {
     return true;
@@ -2218,6 +2378,14 @@ function staleWorkingFlightReason(
     return `superseded by newer ${newerTerminalFlight.state} flight ${newerTerminalFlight.id}`;
   }
 
+  const agent = snapshot.agents[flight.targetAgentId];
+  if (isStaleLocalAgent(agent)) {
+    const replacementAgentId = metadataStringValue(agent?.metadata, "replacedByAgentId");
+    return replacementAgentId
+      ? `target agent ${flight.targetAgentId} was marked stale and replaced by ${replacementAgentId}`
+      : `target agent ${flight.targetAgentId} was marked stale`;
+  }
+
   const endpoint = latestEndpointForAgent(snapshot, flight.targetAgentId);
   if (!endpoint) {
     return null;
@@ -2802,6 +2970,7 @@ async function syncRegisteredLocalAgents(): Promise<void> {
   }
 
   await archiveStaleRegisteredLocalAgents(bindings);
+  await reconcileStaleWorkingFlights();
 
   const snapshot = runtime.snapshot();
   for (const endpoint of Object.values(snapshot.endpoints)) {
@@ -3686,6 +3855,33 @@ async function executeLocalInvocation(
       runningFlight.startedAt ?? Date.now(),
     );
     const output = postedReply?.body || result.output;
+    if (!output.trim()) {
+      const failedFlight = {
+        ...runningFlight,
+        state: "failed" as const,
+        summary: `${agent.displayName} returned an empty reply.`,
+        error: `Local agent ${agent.id} completed without broker-visible output.`,
+        completedAt: Date.now(),
+        metadata: {
+          ...(runningFlight.metadata ?? {}),
+          failureStage: "empty_reply",
+        },
+      };
+      await persistFlight(failedFlight);
+
+      await persistEndpoint({
+        ...runningEndpoint,
+        state: "idle",
+        metadata: {
+          ...(runningEndpoint.metadata ?? {}),
+          lastFailedAt: Date.now(),
+          lastError: failedFlight.error,
+        },
+      });
+
+      await postInvocationStatusMessage(invocation, failedFlight);
+      return;
+    }
 
     const completedFlight = {
       ...runningFlight,
@@ -4324,6 +4520,7 @@ const brokerService = createBrokerCoreService({
   isReconciledStaleFlightActivityItem,
   readHome: brokerHomePayload,
   executeCommand: handleCommand,
+  postConversationMessage,
   deliver: acceptBrokerDelivery,
   invokeAgent: handleInvocationRequest,
 });
@@ -4344,6 +4541,9 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     : null;
   const threadSnapshotMatch = method === "GET"
     ? url.pathname.match(/^\/v1\/conversations\/([^/]+)\/thread-snapshot$/)
+    : null;
+  const readCursorsMatch = method === "GET" || method === "POST"
+    ? url.pathname.match(/^\/v1\/conversations\/([^/]+)\/read-cursors$/)
     : null;
   const threadWatchStreamMatch = method === "GET"
     ? url.pathname.match(/^\/v1\/thread-watches\/([^/]+)\/stream$/)
@@ -4449,6 +4649,33 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       json(response, 200, await brokerService.readThreadSnapshot?.(conversationId));
     } catch (error) {
       threadWatchError(response, error);
+    }
+    return;
+  }
+
+  if (readCursorsMatch && method === "GET") {
+    const conversationId = decodeURIComponent(readCursorsMatch[1] ?? "");
+    json(response, 200, listReadCursorsForConversation(conversationId));
+    return;
+  }
+
+  if (readCursorsMatch && method === "POST") {
+    try {
+      const conversationId = decodeURIComponent(readCursorsMatch[1] ?? "");
+      const body = await readRequestBody<{
+        actorId?: string;
+        readerNodeId?: string;
+        lastReadMessageId?: string;
+        lastReadSeq?: number;
+        lastReadAt?: number;
+        metadata?: Record<string, unknown>;
+      }>(request);
+      const cursor = await resolveReadCursor(conversationId, body);
+      await recordReadCursorDurably(cursor);
+      const acknowledgedDeliveries = await acknowledgeDeliveriesForReadCursor(cursor);
+      json(response, 200, { ok: true, cursor, acknowledgedDeliveries });
+    } catch (error) {
+      badRequest(response, error);
     }
     return;
   }

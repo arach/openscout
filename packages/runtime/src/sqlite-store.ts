@@ -19,6 +19,7 @@ import type {
   ControlEvent,
   ConversationBinding,
   ConversationDefinition,
+  ConversationReadCursor,
   DeliveryAttempt,
   DeliveryIntent,
   DurableAction,
@@ -291,6 +292,17 @@ interface AttachmentRow {
   file_name: string | null;
   blob_key: string | null;
   url: string | null;
+  metadata_json: string | null;
+}
+
+interface ReadCursorRow {
+  conversation_id: string;
+  actor_id: string;
+  reader_node_id: string | null;
+  last_read_message_id: string | null;
+  last_read_seq: number | null;
+  last_read_at: number;
+  updated_at: number;
   metadata_json: string | null;
 }
 
@@ -936,6 +948,21 @@ export class SQLiteControlPlaneStore {
       };
     }
 
+    const readCursorRows = queryAll<ReadCursorRow>(this.readDb, "SELECT * FROM conversation_read_cursors");
+    for (const row of readCursorRows) {
+      const cursor: ConversationReadCursor = {
+        conversationId: row.conversation_id,
+        actorId: row.actor_id,
+        readerNodeId: row.reader_node_id ?? undefined,
+        lastReadMessageId: row.last_read_message_id ?? undefined,
+        lastReadSeq: row.last_read_seq ?? undefined,
+        lastReadAt: row.last_read_at,
+        updatedAt: row.updated_at,
+        metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+      };
+      snapshot.readCursors[`${cursor.conversationId}\u0000${cursor.actorId}`] = cursor;
+    }
+
     const invocations = queryAll<InvocationRow>(this.readDb, "SELECT * FROM invocations");
     for (const row of invocations) {
       snapshot.invocations[row.id] = {
@@ -1363,6 +1390,52 @@ export class SQLiteControlPlaneStore {
         : [];
     })(message, activityItem, threadMessageEvent);
     return threadEvents;
+  }
+
+  upsertReadCursor(cursor: ConversationReadCursor): void {
+    this.db.query(
+      `INSERT INTO conversation_read_cursors (
+        conversation_id, actor_id, reader_node_id, last_read_message_id,
+        last_read_seq, last_read_at, updated_at, metadata_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+      ON CONFLICT(conversation_id, actor_id) DO UPDATE SET
+        reader_node_id = excluded.reader_node_id,
+        last_read_message_id = excluded.last_read_message_id,
+        last_read_seq = excluded.last_read_seq,
+        last_read_at = excluded.last_read_at,
+        updated_at = excluded.updated_at,
+        metadata_json = excluded.metadata_json`,
+    ).run(
+      cursor.conversationId,
+      cursor.actorId,
+      cursor.readerNodeId ?? null,
+      cursor.lastReadMessageId ?? null,
+      cursor.lastReadSeq ?? null,
+      cursor.lastReadAt,
+      cursor.updatedAt,
+      stringify(cursor.metadata),
+    );
+  }
+
+  listReadCursors(conversationId: string): ConversationReadCursor[] {
+    const rows = queryAll<ReadCursorRow, [string]>(
+      this.readDb,
+      `SELECT *
+      FROM conversation_read_cursors
+      WHERE conversation_id = ?1
+      ORDER BY updated_at DESC`,
+      conversationId,
+    );
+    return rows.map((row) => ({
+      conversationId: row.conversation_id,
+      actorId: row.actor_id,
+      readerNodeId: row.reader_node_id ?? undefined,
+      lastReadMessageId: row.last_read_message_id ?? undefined,
+      lastReadSeq: row.last_read_seq ?? undefined,
+      lastReadAt: row.last_read_at,
+      updatedAt: row.updated_at,
+      metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+    }));
   }
 
   recordInvocation(invocation: InvocationRequest): void {

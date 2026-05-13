@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
-import type { AgentTab, FollowPreferredView, OpsMode, Route } from "./types.ts";
+import type {
+  AgentTab,
+  FollowPreferredView,
+  MessagesFilter,
+  MessagesSort,
+  OpsMode,
+  Route,
+} from "./types.ts";
 
 /* ── URL ↔ Route mapping ── */
 
@@ -36,6 +43,14 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
     default:
       return undefined;
   }
+}
+
+function parseMessagesFilter(value: string | null): MessagesFilter | undefined {
+  return value === "dm" || value === "channel" || value === "all" ? value : undefined;
+}
+
+function parseMessagesSort(value: string | null): MessagesSort | undefined {
+  return value === "recent" || value === "name" || value === "unread" ? value : undefined;
 }
 
 function parseFollowPreferredView(value: string | null): FollowPreferredView | undefined {
@@ -123,6 +138,17 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return { view: "sessions", sessionId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "conversations") return { view: "conversations" };
+  if (parts[0] === "messages") {
+    const filter = parseMessagesFilter(url.searchParams.get("filter"));
+    const sort = parseMessagesSort(url.searchParams.get("sort"));
+    const base: Extract<Route, { view: "messages" }> = {
+      view: "messages",
+      ...(parts[1] ? { conversationId: decodeURIComponent(parts[1]) } : {}),
+      ...(filter ? { filter } : {}),
+      ...(sort ? { sort } : {}),
+    };
+    return base;
+  }
   if (parts[0] === "sessions") return { view: "sessions" };
   if (parts[0] === "channels" && parts[1]) {
     return { view: "channels", channelId: decodeURIComponent(parts[1]) };
@@ -238,6 +264,16 @@ export function routePath(r: Route): string {
       return "/fleet";
     case "conversations":
       return "/conversations";
+    case "messages": {
+      const params = new URLSearchParams();
+      if (r.filter && r.filter !== "all") params.set("filter", r.filter);
+      if (r.sort && r.sort !== "recent") params.set("sort", r.sort);
+      const search = params.toString();
+      const base = r.conversationId
+        ? `/messages/${encodeURIComponent(r.conversationId)}`
+        : "/messages";
+      return `${base}${search ? `?${search}` : ""}`;
+    }
     case "sessions":
       return r.sessionId
         ? `/sessions/${encodeURIComponent(r.sessionId)}`
@@ -302,6 +338,8 @@ function routeKey(r: Route): string {
           : "agents";
     case "sessions":
       return r.sessionId ? `session:${r.sessionId}` : "sessions";
+    case "messages":
+      return r.conversationId ? `messages:${r.conversationId}` : "messages";
     case "channels":
       return r.channelId ? `channel:${r.channelId}` : "channels";
     case "work":

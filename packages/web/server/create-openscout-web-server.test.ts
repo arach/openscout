@@ -20,6 +20,7 @@ const originalOpenAIKey = process.env.OPENAI_API_KEY;
 const originalOpenAIModel = process.env.OPENAI_MODEL;
 const originalRangerAssistantModel = process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL;
 const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
+const sendScoutConversationMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
 const askScoutQuestionCalls: Array<Record<string, unknown>> = [];
 const queryRunsCalls: Array<Record<string, unknown>> = [];
@@ -140,7 +141,9 @@ mock.module("./core/broker/service.ts", () => ({
     appendUnblockRequestEventCalls.push(input);
   },
   loadScoutBrokerContext: async () => scoutBrokerContextResult,
+  loadScoutReadCursors: async () => ({}),
   loadScoutRelayConfig: async () => scoutRelayConfigResult,
+  markScoutConversationRead: async () => null,
   readScoutUnblockRequests: async () => readUnblockRequestsResult,
   readScoutBrokerHealth: async () => ({
     baseUrl: "http://broker.test",
@@ -154,6 +157,10 @@ mock.module("./core/broker/service.ts", () => ({
   resolveScoutBrokerUrl: () => "http://broker.test",
   sendScoutMessage: async (input: Record<string, unknown>) => {
     sendScoutMessageCalls.push(input);
+    return sendScoutMessageResult;
+  },
+  sendScoutConversationMessage: async (input: Record<string, unknown>) => {
+    sendScoutConversationMessageCalls.push(input);
     return sendScoutMessageResult;
   },
   sendScoutDirectMessage: async (input: Record<string, unknown>) => {
@@ -409,6 +416,7 @@ beforeEach(() => {
   pairingStateResult = makePairingState();
   pairingSessionSnapshotsResult = [];
   sendScoutMessageCalls.length = 0;
+  sendScoutConversationMessageCalls.length = 0;
   sendScoutDirectMessageCalls.length = 0;
   askScoutQuestionCalls.length = 0;
   queryRunsCalls.length = 0;
@@ -684,27 +692,7 @@ describe("createOpenScoutWebServer", () => {
       })}\n`,
       "utf8",
     );
-    readUnblockRequestsResult = [{
-      id: "unblock:claude-permission:req-1",
-      kind: "permission",
-      state: "open",
-      source: "claude-permission-hook",
-      sourceRef: "claude-permission:req-1",
-      sourceLabel: "Claude hook",
-      title: "Allow Claude tool: Bash",
-      summary: "npm test",
-      detail: "/tmp/project",
-      ownerId: "operator",
-      createdById: "system",
-      sessionId: "session-1",
-      severity: "warning",
-      actions: [
-        { kind: "approve", label: "Allow" },
-        { kind: "deny", label: "Deny" },
-      ],
-      createdAt,
-      updatedAt: createdAt,
-    }];
+    readUnblockRequestsResult = [];
 
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
@@ -739,6 +727,62 @@ describe("createOpenScoutWebServer", () => {
         }),
       }),
     ]));
+  });
+
+  test("does not rewrite unchanged brokered Claude permission attention", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const createdAt = 1_700_000_000_000;
+    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
+    mkdirSync(permissionDir, { recursive: true });
+    writeFileSync(
+      join(permissionDir, "req-1.json"),
+      `${JSON.stringify({
+        id: "req-1",
+        source: "claude-code",
+        status: "pending",
+        createdAt,
+        updatedAt: createdAt,
+        cwd: "/tmp/project",
+        hookEventName: "PreToolUse",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+        sessionId: "session-1",
+        transcriptPath: "/tmp/transcript.jsonl",
+        summary: "npm test",
+      })}\n`,
+      "utf8",
+    );
+    readUnblockRequestsResult = [{
+      id: "unblock:claude-permission:req-1",
+      kind: "permission",
+      state: "open",
+      source: "claude-permission-hook",
+      sourceRef: "claude-permission:req-1",
+      sourceLabel: "Claude hook",
+      title: "Allow Claude tool: Bash",
+      summary: "npm test",
+      detail: "/tmp/project",
+      ownerId: "operator",
+      createdById: "system",
+      sessionId: "session-1",
+      severity: "warning",
+      actions: [
+        { kind: "approve", label: "Allow" },
+        { kind: "deny", label: "Deny" },
+      ],
+      createdAt,
+      updatedAt: createdAt,
+    }];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    expect(upsertUnblockRequestCalls).toHaveLength(0);
   });
 
   test("permission decisions resolve the broker-owned unblock request", async () => {
@@ -1083,6 +1127,41 @@ describe("createOpenScoutWebServer", () => {
         source: "scout-web",
       },
     ]);
+    expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("preserves sends from observed agent-to-agent conversations", async () => {
+    querySessionByIdImpl = () => ({
+      kind: "direct",
+      agentId: "hudson.main.mini",
+      participantIds: ["hudson.main.mini", "narrative-studio.main.mini"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "@hudson hi",
+        conversationId: "dm.hudson.main.mini.narrative-studio.main.mini",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationMessageCalls).toEqual([
+      {
+        conversationId: "dm.hudson.main.mini.narrative-studio.main.mini",
+        senderId: "operator",
+        body: "@hudson hi",
+        currentDirectory: "/tmp/openscout",
+        source: "scout-web",
+      },
+    ]);
+    expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
 

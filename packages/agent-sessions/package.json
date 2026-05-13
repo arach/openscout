@@ -14,6 +14,26 @@
       "types": "./dist/client.d.ts",
       "bun": "./src/client.ts",
       "default": "./dist/client.js"
+    },
+    "./adapters/claude-code/team-topology": {
+      "types": "./src/adapters/claude-code/team-topology.ts",
+      "bun": "./src/adapters/claude-code/team-topology.ts",
+      "default": "./dist/adapters/claude-code/team-topology.js"
+    },
+    "./adapters/codex/topology": {
+      "types": "./src/adapters/codex/topology.ts",
+      "bun": "./src/adapters/codex/topology.ts",
+      "default": "./dist/adapters/codex/topology.js"
+    },
+    "./codex-executable": {
+      "types": "./src/codex-executable.ts",
+      "bun": "./src/codex-executable.ts",
+      "default": "./dist/codex-executable.js"
+    },
+    "./protocol/primitives": {
+      "types": "./src/protocol/primitives.ts",
+      "bun": "./src/protocol/primitives.ts",
+      "default": "./dist/protocol/primitives.js"
     }
   },
   "types": "./dist/index.d.ts",

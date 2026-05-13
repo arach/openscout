@@ -204,6 +204,16 @@ export type Message = {
   body: string;
   createdAt: number;
   class: string;
+  attachments?: MessageAttachment[];
+  metadata?: Record<string, unknown> | null;
+};
+
+export type MessageAttachment = {
+  id: string;
+  mediaType: string;
+  fileName?: string;
+  blobKey?: string;
+  url?: string;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -216,6 +226,13 @@ export type ActivityItem = {
   summary: string | null;
   conversationId: string | null;
   workspaceRoot: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  flightId: string | null;
+  invocationId: string | null;
+  sessionId: string | null;
+  messageId: string | null;
+  recordId: string | null;
 };
 
 export type BrokerRouteAttempt = {
@@ -957,6 +974,9 @@ export type WorkDetail = WorkItem & {
   inventory?: WorkMaterialsInventory;
 };
 
+export type MessagesFilter = "all" | "dm" | "channel";
+export type MessagesSort = "recent" | "name" | "unread";
+
 export type Route =
   | { view: "inbox" }
   | {
@@ -974,6 +994,12 @@ export type Route =
     }
   | { view: "fleet" }
   | { view: "conversations" }
+  | {
+      view: "messages";
+      conversationId?: string;
+      filter?: MessagesFilter;
+      sort?: MessagesSort;
+    }
   | { view: "sessions"; sessionId?: string }
   | { view: "channels"; channelId?: string }
   | { view: "mesh" }

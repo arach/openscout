@@ -10,6 +10,7 @@ import { ConversationsScreen } from "../../screens/ConversationsScreen.tsx";
 import { FollowScreen } from "../../screens/FollowScreen.tsx";
 import { HomeScreen } from "../../screens/HomeScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
+import { MessagesScreen } from "../../screens/MessagesScreen.tsx";
 import { SessionsScreen } from "../../screens/SessionsScreen.tsx";
 import { SessionRefScreen } from "../../screens/SessionRefScreen.tsx";
 import { SettingsScreen } from "../../screens/SettingsScreen.tsx";
@@ -77,6 +78,13 @@ function renderScreen(
       return <HomeScreen navigate={navigate} />;
     case "conversations":
       return <ConversationsScreen navigate={navigate} />;
+    case "messages":
+      return (
+        <MessagesScreen
+          conversationId={route.conversationId}
+          navigate={navigate}
+        />
+      );
     case "sessions":
       if (route.sessionId) {
         return (

@@ -610,6 +610,30 @@
   text-underline-offset: 3px;
 }
 
+.s-observe-path-link-group {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.s-observe-path-link-external {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 3px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.s-observe-path-link-external:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
 .s-observe-detail-value--accent {
   color: var(--accent);
 }
@@ -941,6 +965,31 @@
 .s-observe-takeover-btn:hover {
   background: color-mix(in srgb, var(--green) 16%, transparent);
   border-color: color-mix(in srgb, var(--green) 35%, transparent);
+}
+
+.s-observe-pair-btn {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.s-observe-pair-btn + .s-observe-takeover-btn {
+  margin-left: 0;
+}
+
+.s-observe-pair-btn:hover {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 6%, transparent);
+  border-color: color-mix(in srgb, var(--green) 25%, transparent);
 }
 
 .s-observe-session-history {

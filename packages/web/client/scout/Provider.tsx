@@ -20,6 +20,7 @@ import {
   type RangerUiAction,
 } from "../lib/ranger.ts";
 import { ContextMenuProvider } from "../components/ContextMenu.tsx";
+import { FilePreviewOverlay } from "./FilePreviewOverlay.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
@@ -69,6 +70,9 @@ export interface ScoutContextValue {
   selectedBrokerAttempt: BrokerRouteAttempt | null;
   inspectBrokerAttempt: (attempt: BrokerRouteAttempt) => void;
   clearBrokerAttempt: () => void;
+
+  openFilePreview: (path: string) => void;
+  closeFilePreview: () => void;
 }
 
 const ScoutContext = createContext<ScoutContextValue | null>(null);
@@ -246,6 +250,13 @@ export function ScoutProvider({
     [agents],
   );
 
+  const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
+  const openFilePreview = useCallback((path: string) => {
+    if (!path?.trim()) return;
+    setFilePreviewPath(path.trim());
+  }, []);
+  const closeFilePreview = useCallback(() => setFilePreviewPath(null), []);
+
   const applyRangerUiAction = useCallback((action: RangerUiAction) => {
     switch (action.type) {
       case "navigate":
@@ -257,8 +268,11 @@ export function ScoutProvider({
       case "refresh":
         void reload();
         break;
+      case "view-file":
+        openFilePreview(action.path);
+        break;
     }
-  }, [navigate, reload]);
+  }, [navigate, openFilePreview, reload]);
 
   const rangerBridgeRef = useRef({
     applyRangerUiAction,
@@ -301,6 +315,7 @@ export function ScoutProvider({
       settingsOpen, openSettings, closeSettings,
       rangerAgentId, rangerConversationId: rangerDmConversationId, applyRangerUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
+      openFilePreview, closeFilePreview,
     }),
     [
       route, navigate, agents, onlineCount, reload,
@@ -308,6 +323,7 @@ export function ScoutProvider({
       settingsOpen, openSettings, closeSettings,
       rangerAgentId, rangerDmConversationId, applyRangerUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
+      openFilePreview, closeFilePreview,
     ],
   );
 
@@ -323,6 +339,10 @@ export function ScoutProvider({
         <ContextMenuProvider>
           {children}
           <SettingsDrawer open={settingsOpen} onClose={closeSettings} />
+          <FilePreviewOverlay
+            path={filePreviewPath}
+            onClose={closeFilePreview}
+          />
         </ContextMenuProvider>
       </div>
     </ScoutContext.Provider>

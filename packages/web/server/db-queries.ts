@@ -56,6 +56,13 @@ export type WebActivityItem = {
   summary: string | null;
   conversationId: string | null;
   workspaceRoot: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  flightId: string | null;
+  invocationId: string | null;
+  sessionId: string | null;
+  messageId: string | null;
+  recordId: string | null;
 };
 
 export type WebMessage = {
@@ -636,9 +643,17 @@ export function queryActivity(limit = 60): WebActivityItem[] {
          ai.title,
          ai.summary,
          ai.conversation_id,
-         ai.workspace_root
+         ai.workspace_root,
+         ai.agent_id,
+         ag.display_name AS agent_name,
+         ai.flight_id,
+         ai.invocation_id,
+         ai.session_id,
+         ai.message_id,
+         ai.record_id
        FROM activity_items ai
        LEFT JOIN actors ac ON ac.id = ai.actor_id
+       LEFT JOIN agents ag ON ag.id = ai.agent_id
        WHERE ai.kind != 'ask_replied'
          AND ${staleFlightActivityPredicate("ai")}
        ORDER BY ai.ts DESC
@@ -653,6 +668,13 @@ export function queryActivity(limit = 60): WebActivityItem[] {
     summary: string | null;
     conversation_id: string | null;
     workspace_root: string | null;
+    agent_id: string | null;
+    agent_name: string | null;
+    flight_id: string | null;
+    invocation_id: string | null;
+    session_id: string | null;
+    message_id: string | null;
+    record_id: string | null;
   }>;
 
   const items = rows.map((r) => ({
@@ -664,6 +686,13 @@ export function queryActivity(limit = 60): WebActivityItem[] {
     summary: r.summary,
     conversationId: r.conversation_id,
     workspaceRoot: compact(r.workspace_root),
+    agentId: r.agent_id,
+    agentName: r.agent_name,
+    flightId: r.flight_id,
+    invocationId: r.invocation_id,
+    sessionId: r.session_id,
+    messageId: r.message_id,
+    recordId: r.record_id,
   }));
 
   return items.filter((item, index) => !isDuplicateActivityFeedItem(items[index - 1] ?? null, item));
@@ -3100,6 +3129,7 @@ type FleetActivityRow = {
   workspace_root: string | null;
   actor_id: string | null;
   agent_id: string | null;
+  agent_name: string | null;
   message_id: string | null;
   invocation_id: string | null;
   flight_id: string | null;
@@ -3162,6 +3192,7 @@ function projectFleetActivity(row: FleetActivityRow): WebFleetActivity {
     workspaceRoot: compact(row.workspace_root),
     actorId: row.actor_id,
     agentId: row.agent_id,
+    agentName: row.agent_name,
     flightId: row.flight_id,
     invocationId: row.invocation_id,
     messageId: row.message_id,
@@ -3213,6 +3244,7 @@ function queryFleetActivity(opts?: {
     ai.workspace_root,
     ai.actor_id,
     ai.agent_id,
+    ag.display_name AS agent_name,
     ai.message_id,
     ai.invocation_id,
     ai.flight_id,
@@ -3220,6 +3252,7 @@ function queryFleetActivity(opts?: {
     ai.session_id
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
+  LEFT JOIN agents ag ON ag.id = ai.agent_id
   ${sqlWhereClause([
     staleFlightActivityPredicate("ai"),
     scopedFilters ? `(${scopedFilters})` : null,

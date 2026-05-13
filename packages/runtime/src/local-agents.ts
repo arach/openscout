@@ -1793,6 +1793,19 @@ function scoutShortName(id: string): string {
   return primary.slice(0, 10) || "agent";
 }
 
+function scoutHandle(id: string, options: { short?: boolean } = {}): string {
+  const trimmed = id.trim().replace(/^@/u, "");
+  if (!trimmed) {
+    return "@agent";
+  }
+
+  if (options.short) {
+    return `@${scoutShortName(trimmed)}`;
+  }
+
+  return `@${trimmed}`;
+}
+
 function scoutShortRef(id: string | undefined): string | null {
   const trimmed = id?.trim();
   if (!trimmed) {
@@ -1819,20 +1832,38 @@ function invocationTitleLabel(action: InvocationRequest["action"]): string {
   }
 }
 
-function invocationTitleOperator(action: InvocationRequest["action"]): string {
-  switch (action) {
-    case "execute":
-      return "↦";
-    case "summarize":
-      return "≈";
-    case "status":
-      return "⟲";
-    case "wake":
-      return "·";
-    case "consult":
-    default:
-      return "≔";
+function invocationDeliveryState(invocation: InvocationRequest): string {
+  if (invocation.execution?.session === "existing") {
+    return "routed";
   }
+
+  return invocation.ensureAwake ? "waking" : "queued";
+}
+
+function invocationSessionFreshness(invocation: InvocationRequest): string {
+  switch (invocation.execution?.session) {
+    case "new":
+      return "fresh session";
+    case "existing":
+      return "continuing session";
+    case "any":
+      return "reuse-or-new session";
+    default:
+      return "session unspecified";
+  }
+}
+
+const INVOCATION_TASK_PREVIEW_MAX_LENGTH = 96;
+
+function truncateInvocationPreview(value: string): string {
+  if (value.length <= INVOCATION_TASK_PREVIEW_MAX_LENGTH) {
+    return value;
+  }
+
+  const clipped = value.slice(0, INVOCATION_TASK_PREVIEW_MAX_LENGTH + 1);
+  const boundary = clipped.search(/\s+\S*$/u);
+  const truncated = (boundary > 0 ? clipped.slice(0, boundary) : clipped.slice(0, INVOCATION_TASK_PREVIEW_MAX_LENGTH)).trim();
+  return `${truncated.replace(/[.,;:!?-]+$/u, "")}...`;
 }
 
 function summarizeInvocationTask(task: string): string {
@@ -1844,20 +1875,22 @@ function summarizeInvocationTask(task: string): string {
     return "broker request";
   }
 
-  const [firstClause = normalized] = normalized.split(/[.!?]\s+/u);
-  const words = firstClause.split(" ").filter(Boolean);
-  const summary = words.slice(0, 5).join(" ");
-  return words.length > 5 ? `${summary}...` : summary;
+  const firstSentence = normalized.match(/^.+?[.!?](?:\s|$)/u)?.[0].trim() ?? normalized;
+  return truncateInvocationPreview(firstSentence);
 }
 
 function buildInvocationTitle(invocation: InvocationRequest): string {
   const action = invocationTitleLabel(invocation.action);
   const ref = scoutShortRef(invocation.messageId) ?? scoutShortRef(invocation.id);
-  return `⌖ ${scoutShortName(invocation.requesterId)} ${invocationTitleOperator(invocation.action)} ${ref ? `${action}:${ref}` : action}`;
+  return `⌖ ${scoutHandle(invocation.requesterId, { short: true })} → ${scoutHandle(invocation.targetAgentId)} · ${ref ? `${action}:${ref}` : action}`;
 }
 
 function buildInvocationOpener(invocation: InvocationRequest): string {
-  return `${buildInvocationTitle(invocation)} >>  ${summarizeInvocationTask(invocation.task)}`;
+  return `${buildInvocationTitle(invocation)} › ${summarizeInvocationTask(invocation.task)}`;
+}
+
+function buildInvocationDispatchLine(invocation: InvocationRequest): string {
+  return `delivery: ${invocationDeliveryState(invocation)} · session: ${invocationSessionFreshness(invocation)}`;
 }
 
 export function buildScoutReplyContext(agentName: string, invocation: InvocationRequest): ScoutReplyContext | null {
@@ -1921,6 +1954,7 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
 
   return [
     buildInvocationOpener(invocation),
+    buildInvocationDispatchLine(invocation),
     "",
     ...buildScoutReplyContextPrompt(replyContext),
     "",
@@ -1944,6 +1978,7 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
 
   return [
     buildInvocationOpener(invocation),
+    buildInvocationDispatchLine(invocation),
     "",
     ...buildScoutReplyContextPrompt(replyContext),
     "",

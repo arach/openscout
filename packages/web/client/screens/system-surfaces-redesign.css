@@ -888,6 +888,47 @@
   color: var(--accent);
 }
 
+.sys-audit-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.sys-audit-jumps-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--dim) 80%, transparent);
+  margin-right: 2px;
+}
+
+.sys-audit-jump {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1.5;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.sys-audit-jump:hover,
+.sys-audit-jump:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  color: var(--accent);
+  outline: none;
+}
+
 .sys-audit-details {
   display: flex;
   flex-direction: column;

@@ -37,6 +37,7 @@ const REPLAY_TIER: Record<string, number> = {
   "conversation.upsert": 2,
   "binding.upsert": 3,
   "message.record": 4,
+  "conversation.read_cursor.upsert": 5,
   "invocation.record": 4,
   "flight.record": 4,
   "collaboration.record": 4,
@@ -108,6 +109,11 @@ function insertStubsForOrphanedFkTargets(
         addRef(referencedActors, entry.message.actorId);
         addRef(referencedConversations, entry.message.conversationId);
         addRef(referencedConversations, entry.message.threadConversationId);
+        break;
+      case "conversation.read_cursor.upsert":
+        addRef(referencedNodes, entry.cursor.readerNodeId);
+        addRef(referencedActors, entry.cursor.actorId);
+        addRef(referencedConversations, entry.cursor.conversationId);
         break;
       case "invocation.record":
         addRef(referencedActors, entry.invocation.requesterId);
@@ -211,6 +217,9 @@ function applyJournalEntryToStore(
       return [];
     case "message.record":
       return store.recordMessage(entry.message);
+    case "conversation.read_cursor.upsert":
+      store.upsertReadCursor(entry.cursor);
+      return [];
     case "invocation.record":
       store.recordInvocation(entry.invocation);
       return [];

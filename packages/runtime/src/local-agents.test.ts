@@ -181,14 +181,17 @@ describe("local agent prompts", () => {
         task: "Review how invocation prompt titles should read in Codex conversations.",
         conversationId: "dm.operator.ranger.main.mini",
         messageId: "msg-moi5w7kt-1hjg5e",
+        execution: {
+          session: "new",
+        },
         ensureAwake: true,
         stream: false,
         createdAt: 1,
       },
     );
 
-    expect(prompt.startsWith("⌖ operator ≔ ask:1hjg5e >>  Review how invocation prompt titles...\n\n")).toBe(true);
-    expect(prompt.replace(/\n/g, "")).toContain("ask:1hjg5e >>  Review how invocation prompt titles...");
+    expect(prompt.startsWith("⌖ @operator → @ranger · ask:1hjg5e › Review how invocation prompt titles should read in Codex conversations.\ndelivery: waking · session: fresh session\n\n")).toBe(true);
+    expect(prompt.replace(/\n/g, "")).toContain("@operator → @ranger · ask:1hjg5e › Review how invocation prompt titles should read in Codex conversations.delivery: waking · session: fresh session");
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).toContain("ScoutReplyContext:");
     expect(prompt).toContain("<summary>Scout routing context</summary>");
@@ -225,15 +228,44 @@ describe("local agent prompts", () => {
           "",
           "Improve the Scout invocation title format.",
         ].join("\n"),
+        execution: {
+          session: "new",
+        },
         ensureAwake: true,
         stream: false,
         createdAt: 1,
       },
     );
 
-    expect(prompt.startsWith("⌖ operator ↦ task:inv-1 >>  Improve the Scout invocation title...\n\n")).toBe(true);
+    expect(prompt.startsWith("⌖ @operator → @ranger · task:inv-1 › Improve the Scout invocation title format.\ndelivery: waking · session: fresh session\n\n")).toBe(true);
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).not.toContain("meta: from=operator to=ranger action=execute");
+  });
+
+  test("direct invocation opener gives sidebar previews a visible payload boundary", () => {
+    const prompt = buildLocalAgentDirectInvocationPrompt(
+      "ranger",
+      {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "ranger",
+        action: "consult",
+        task: "Hey — @arach asked me to verify whether the invocation preview title is coming from a stale Claude session before changing code. Then patch the runtime if needed.",
+        conversationId: "dm.operator.ranger.main.mini",
+        messageId: "msg-recent-t5if6t",
+        execution: {
+          session: "new",
+        },
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      },
+    );
+
+    expect(prompt.startsWith("⌖ @operator → @ranger · ask:t5if6t › Hey — @arach asked me to verify whether the invocation preview title is coming from a stale...\ndelivery: waking · session: fresh session\n\n")).toBe(true);
+    expect(prompt).not.toContain("ask:t5if6t\n\nHey");
+    expect(prompt).not.toContain("ask:t5if6tHey");
   });
 
   test("attached session invocation prompt uses the same Scout opener", () => {
@@ -247,6 +279,9 @@ describe("local agent prompts", () => {
         task: "Check whether the broker reply landed.",
         conversationId: "dm.operator.ranger.main.mini",
         messageId: "msg-attached-abc123",
+        execution: {
+          session: "existing",
+        },
         ensureAwake: true,
         stream: false,
         createdAt: 1,
@@ -254,7 +289,7 @@ describe("local agent prompts", () => {
       "ranger",
     );
 
-    expect(prompt.startsWith("⌖ operator ⟲ status:abc123 >>  Check whether the broker reply...\n\n")).toBe(true);
+    expect(prompt.startsWith("⌖ @operator → @ranger · status:abc123 › Check whether the broker reply landed.\ndelivery: routed · session: continuing session\n\n")).toBe(true);
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
     expect(prompt).toContain('"conversationId": "dm.operator.ranger.main.mini"');
     expect(prompt).toContain('"replyToMessageId": "msg-attached-abc123"');

@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 
-import {
-  CodexObservedTopologyTracker,
-  readClaudeAgentTeamTopology,
-  type ObservedHarnessTopology,
-} from "@openscout/agent-sessions";
+import { readClaudeAgentTeamTopology } from "@openscout/agent-sessions/adapters/claude-code/team-topology";
+import { CodexObservedTopologyTracker } from "@openscout/agent-sessions/adapters/codex/topology";
+import type { ObservedHarnessTopology } from "@openscout/agent-sessions/protocol/primitives";
 
 import type {
   HarnessTopologyEvent,

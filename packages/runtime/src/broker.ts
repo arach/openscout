@@ -8,6 +8,7 @@ import type {
   ControlEvent,
   ConversationBinding,
   ConversationDefinition,
+  ConversationReadCursor,
   DeliveryIntent,
   DeliveryTargetKind,
   DeliveryTransport,
@@ -179,6 +180,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
       conversations: { ...this.registry.conversations },
       bindings: { ...this.registry.bindings },
       messages: { ...this.registry.messages },
+      readCursors: { ...this.registry.readCursors },
       invocations: { ...this.registry.invocations },
       flights: { ...this.registry.flights },
       collaborationRecords: { ...this.registry.collaborationRecords },
@@ -205,6 +207,10 @@ export class InMemoryControlRuntime implements ControlRuntime {
 
   message(messageId: ScoutId): MessageRecord | undefined {
     return this.registry.messages[messageId];
+  }
+
+  readCursor(conversationId: ScoutId, actorId: ScoutId) {
+    return this.registry.readCursors[`${conversationId}\u0000${actorId}`];
   }
 
   collaborationRecord(recordId: ScoutId): CollaborationRecord | undefined {
@@ -643,6 +649,18 @@ export class InMemoryControlRuntime implements ControlRuntime {
         payload: { delivery },
       });
     }
+  }
+
+  async upsertReadCursor(cursor: ConversationReadCursor): Promise<void> {
+    this.registry.readCursors[`${cursor.conversationId}\u0000${cursor.actorId}`] = cursor;
+    this.emit({
+      id: createRuntimeId("evt"),
+      kind: "conversation.read_cursor.updated",
+      ts: Date.now(),
+      actorId: cursor.actorId,
+      nodeId: cursor.readerNodeId ?? this.localNodeId,
+      payload: { cursor },
+    });
   }
 
   async invokeAgent(invocation: InvocationRequest): Promise<FlightRecord> {
