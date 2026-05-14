@@ -36,6 +36,7 @@ import {
 } from "react";
 
 import { useResizableColumns } from "../components/ResizableTable/useResizableColumns.ts";
+import { useFocusTrap } from "../lib/keyboard-nav.ts";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
@@ -614,14 +615,21 @@ export function AtopView() {
         return;
       }
       if (inEditable) return;
-      if (event.key === "j" || event.key === "k") {
+      const isDown = event.key === "j" || event.key === "ArrowDown";
+      const isUp = event.key === "k" || event.key === "ArrowUp";
+      if (isDown || isUp) {
         if (filteredRows.length === 0) return;
         event.preventDefault();
         const idx = filteredRows.findIndex((row) => row.pid === selectedPid);
-        const next = event.key === "j"
+        const next = isDown
           ? filteredRows[Math.min(filteredRows.length - 1, idx < 0 ? 0 : idx + 1)]
           : filteredRows[Math.max(0, idx < 0 ? 0 : idx - 1)];
         if (next) setSelectedPid(next.pid);
+        return;
+      }
+      if (event.key === "Enter" && selectedPid != null) {
+        event.preventDefault();
+        return;
       }
     };
     window.addEventListener("keydown", onKey);
@@ -961,21 +969,29 @@ function AgentTable({
       <table className="s-atop-table">
         <thead>
           <tr>
-            {COLUMNS.map((col) => (
-              <th
-                key={col.key}
-                className={`${col.cls ?? ""}${sortKey === col.key ? " s-atop-th--sorted" : ""}`}
-                onClick={() => onSort(col.key)}
-                title={col.tip}
-                {...getColumnProps(col.key)}
-              >
-                {col.label}
-                {sortKey === col.key && (
-                  <span className="s-atop-th-arrow">{sortDir === 1 ? "↑" : "↓"}</span>
-                )}
-                <span {...getResizeHandleProps(col.key)} />
-              </th>
-            ))}
+            {COLUMNS.map((col) => {
+              const isSorted = sortKey === col.key;
+              return (
+                <th
+                  key={col.key}
+                  className={`${col.cls ?? ""}${isSorted ? " s-atop-th--sorted" : ""}`}
+                  title={col.tip}
+                  {...getColumnProps(col.key)}
+                >
+                  <button
+                    type="button"
+                    className="s-atop-th-sort"
+                    onClick={() => onSort(col.key)}
+                  >
+                    <span className="s-atop-th-label">{col.label}</span>
+                    <span className={`s-atop-th-arrow${isSorted ? " s-atop-th-arrow--active" : ""}`}>
+                      {isSorted ? (sortDir === 1 ? "↑" : "↓") : "↕"}
+                    </span>
+                  </button>
+                  <span {...getResizeHandleProps(col.key)} />
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -1082,11 +1098,20 @@ function DetailDrawer({
   }, [events]);
 
   const peekEvents = events.slice(-PEEK_LINE_LIMIT).reverse();
+  const { ref: drawerRef, onKeyDown: onTrapKeyDown } = useFocusTrap<HTMLElement>();
 
   return (
     <>
-      <div className="s-atop-drawer-bg" onClick={onClose} />
-      <aside className="s-atop-drawer" role="dialog" aria-label={`Agent ${row.pid}`}>
+      <div className="s-atop-drawer-bg" onClick={onClose} aria-hidden="true" />
+      <aside
+        ref={drawerRef}
+        className="s-atop-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Agent ${row.pid}`}
+        onKeyDown={onTrapKeyDown}
+        tabIndex={-1}
+      >
         <header className="s-atop-drawer-head">
           <div className="s-atop-drawer-head-meta">
             <span className={`s-atop-status s-atop-status--${row.status}`}>
@@ -1107,7 +1132,7 @@ function DetailDrawer({
             session {shortSession(row.sessionId)} · runtime {formatRuntime(row.sessionRuntimeSec)}
             {" · last activity "}{formatRelative(row.lastEventAt, now)}
           </p>
-          <button className="s-atop-drawer-close" onClick={onClose} aria-label="Close">✕</button>
+          <button className="s-atop-drawer-close" onClick={onClose} aria-label="Close (Esc)">✕</button>
         </header>
 
         <div className="s-atop-drawer-body">

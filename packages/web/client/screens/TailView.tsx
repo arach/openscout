@@ -359,7 +359,19 @@ export function TailView({
           ))
         )}
         {paused && pendingCount > 0 && (
-          <div className="s-tail-divider" onClick={jumpToLive} role="button">
+          <div
+            className="s-tail-divider"
+            onClick={jumpToLive}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                jumpToLive();
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`Resume live tail · ${pendingCount} new`}
+          >
             ── paused · {pendingCount} new · click or press G to jump back to live ──
           </div>
         )}

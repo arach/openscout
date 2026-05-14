@@ -824,6 +824,11 @@
   cursor: pointer;
 }
 
+.s-observe-track:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .s-observe-track-tick {
   position: absolute;
   width: 1.5px;
