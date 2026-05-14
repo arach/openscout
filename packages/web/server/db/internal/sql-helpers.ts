@@ -8,10 +8,10 @@
  * `db/work.ts` in Phase C alongside the work-item queries.
  */
 
-import type { WebActivityItem, WebWorkItem } from "../../db-queries.ts";
+import type { WebActivityItem, WebWorkItem } from "../types/web.ts";
 
 import { db } from "./db.ts";
-import { coerceNumber } from "./parse.ts";
+import { coerceNumber, normalizeTimestampMs } from "./parse.ts";
 
 /* ── Shared internal types ── */
 
@@ -105,6 +105,16 @@ export const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "wai
 export const ACTIVE_FLIGHT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
 export const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
+
+/** Active-flight freshness — shared between runs and fleet projections. */
+export function isFreshActiveTimestamp(timestamp: number): boolean {
+  return timestamp < EPOCH_MILLISECONDS_FLOOR || Date.now() - timestamp <= ACTIVE_FLIGHT_MAX_AGE_MS;
+}
+
+export function isStaleActiveFlight(startedAt: number | null, createdAt: number): boolean {
+  const timestamp = normalizeTimestampMs(startedAt ?? createdAt) ?? createdAt;
+  return !isFreshActiveTimestamp(timestamp);
+}
 
 export function isDuplicateActivityFeedItem(
   previous: WebActivityItem | null,
