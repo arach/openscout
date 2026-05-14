@@ -60,137 +60,73 @@ import {
   workAttention,
   workPhaseFromFlightState,
   workPhaseFromState,
-  type AgentSummaryState,
-  type WorkAttention,
 } from "./db/internal/sql-helpers.ts";
 
 // Re-export internal helpers so existing consumers of db-queries.ts keep working.
 export { closeDb, configureReadonlyDb };
 
-/* ── Types (match what the client expects) ── */
+/* ── Types ──
+ *
+ * Public type surface lives in `./db/types/`. Phase B keeps the
+ * `import { WebAgent, ... } from "./db-queries.ts"` consumer API valid by
+ * re-exporting from this module.
+ */
 
-export type WebAgent = {
-  id: string;
-  name: string;
-  handle: string | null;
-  agentClass: string;
-  harness: string | null;
-  state: string | null;
-  projectRoot: string | null;
-  cwd: string | null;
-  updatedAt: number | null;
-  transport: string | null;
-  selector: string | null;
-  wakePolicy: string | null;
-  capabilities: string[];
-  project: string | null;
-  branch: string | null;
-  role: string | null;
-  model: string | null;
-  harnessSessionId: string | null;
-  harnessLogPath: string | null;
-  conversationId: string;
-};
+import type {
+  WebActivityItem,
+  WebAgent,
+  WebAgentRun,
+  WebBrokerDialogueItem,
+  WebBrokerDiagnostics,
+  WebBrokerRouteAttempt,
+  WebFleetActivity,
+  WebFleetAsk,
+  WebFleetAskStatus,
+  WebFleetAttentionItem,
+  WebFleetState,
+  WebFlight,
+  WebFollowTarget,
+  WebMessage,
+  WebWorkDetail,
+  WebWorkItem,
+  WebWorkTimelineItem,
+  WebWorkTimelineKind,
+} from "./db/types/web.ts";
+import type {
+  MobileAgentDetail,
+  MobileAgentSummary,
+  MobileSessionSummary,
+  MobileWorkspaceSummary,
+} from "./db/types/mobile.ts";
+import type { HeartrateBucket } from "./db/types/common.ts";
 
-export type WebActivityItem = {
-  id: string;
-  kind: string;
-  ts: number;
-  actorName: string | null;
-  title: string | null;
-  summary: string | null;
-  conversationId: string | null;
-  workspaceRoot: string | null;
-  agentId: string | null;
-  agentName: string | null;
-  flightId: string | null;
-  invocationId: string | null;
-  sessionId: string | null;
-  messageId: string | null;
-  recordId: string | null;
-};
-
-export type WebMessage = {
-  id: string;
-  conversationId: string;
-  actorName: string;
-  body: string;
-  createdAt: number;
-  class: string;
-  metadata: Record<string, unknown> | null;
-};
-
-export type WebBrokerRouteAttempt = {
-  id: string;
-  kind: "success" | "failed_query" | "failed_delivery" | "delivery_attempt";
-  status: string;
-  ts: number;
-  actorName: string | null;
-  target: string | null;
-  route: string | null;
-  detail: string;
-  conversationId: string | null;
-  messageId: string | null;
-  deliveryId: string | null;
-  invocationId: string | null;
-  metadata: Record<string, unknown> | null;
-};
-
-export type WebBrokerDialogueItem = {
-  id: string;
-  ts: number;
-  actorName: string | null;
-  conversationId: string;
-  body: string;
-  class: string;
-};
-
-export type WebBrokerDiagnostics = {
-  generatedAt: number;
-  windowMs: number;
-  totals: {
-    successfulDispatches: number;
-    failedQueries: number;
-    failedDeliveries: number;
-    deliveryAttempts: number;
-    failedDeliveryAttempts: number;
-    dialogueMessages: number;
-  };
-  rates: {
-    messagesPerHour: number;
-    failedQueriesPerHour: number;
-    failedDeliveriesPerHour: number;
-    failureRate: number;
-  };
-  attempts: WebBrokerRouteAttempt[];
-  failedQueries: WebBrokerRouteAttempt[];
-  failedDeliveries: WebBrokerRouteAttempt[];
-  dialogue: WebBrokerDialogueItem[];
-};
-
-export type WebWorkItem = {
-  id: string;
-  title: string;
-  summary: string | null;
-  ownerId: string | null;
-  ownerName: string | null;
-  nextMoveOwnerId: string | null;
-  nextMoveOwnerName: string | null;
-  conversationId: string | null;
-  createdAt: number;
-  updatedAt: number;
-  parentId: string | null;
-  parentTitle: string | null;
-  state: string;
-  acceptanceState: string;
-  priority: string | null;
-  currentPhase: string;
-  attention: WorkAttention;
-  activeChildWorkCount: number;
-  activeFlightCount: number;
-  lastMeaningfulAt: number;
-  lastMeaningfulSummary: string | null;
-};
+export type {
+  WebActivityItem,
+  WebAgent,
+  WebAgentRun,
+  WebBrokerDialogueItem,
+  WebBrokerDiagnostics,
+  WebBrokerRouteAttempt,
+  WebFleetActivity,
+  WebFleetAsk,
+  WebFleetAskStatus,
+  WebFleetAttentionItem,
+  WebFleetState,
+  WebFlight,
+  WebFollowTarget,
+  WebMessage,
+  WebWorkDetail,
+  WebWorkItem,
+  WebWorkTimelineItem,
+  WebWorkTimelineKind,
+} from "./db/types/web.ts";
+export type {
+  MobileAgentDetail,
+  MobileAgentSummary,
+  MobileSessionSummary,
+  MobileWorkspaceSummary,
+} from "./db/types/mobile.ts";
+export type { HeartrateBucket } from "./db/types/common.ts";
 
 /* ── Queries ── */
 
@@ -713,32 +649,6 @@ export function queryBrokerDiagnostics(opts?: {
 
 /* ── Flights (tasks) ── */
 
-export type WebFlight = {
-  id: string;
-  invocationId: string;
-  agentId: string;
-  agentName: string | null;
-  conversationId: string | null;
-  collaborationRecordId: string | null;
-  state: string;
-  summary: string | null;
-  startedAt: number | null;
-  completedAt: number | null;
-};
-
-export type WebAgentRun = AgentRun & {
-  agentName: string | null;
-};
-
-export type WebFollowTarget = {
-  flightId: string | null;
-  invocationId: string | null;
-  conversationId: string | null;
-  workId: string | null;
-  sessionId: string | null;
-  targetAgentId: string | null;
-};
-
 type RunQueryRow = {
   invocation_id: string;
   invocation_requester_id: string;
@@ -1175,37 +1085,6 @@ export function queryFollowTarget(opts: {
 
   return target;
 }
-
-export type WebWorkTimelineKind =
-  | "collaboration_event"
-  | "flight_started"
-  | "flight_completed"
-  | "message";
-
-export type WebWorkTimelineItem = {
-  id: string;
-  kind: WebWorkTimelineKind;
-  at: number;
-  actorId: string | null;
-  actorName: string | null;
-  title: string | null;
-  summary: string | null;
-  /** Discriminator: event sub-kind, flight state, or message class. */
-  detailKind: string | null;
-  flightId: string | null;
-  messageId: string | null;
-  conversationId: string | null;
-};
-
-export type WebWorkDetail = WebWorkItem & {
-  createdAt: number;
-  updatedAt: number;
-  parentId: string | null;
-  parentTitle: string | null;
-  childWork: WebWorkItem[];
-  activeFlights: WebFlight[];
-  timeline: WebWorkTimelineItem[];
-};
 
 export function queryWorkItemById(id: string): WebWorkDetail | null {
   const operatorIds = configuredOperatorActorIds();
@@ -2244,20 +2123,6 @@ function synthesizeDirectSession(
 /* Return the same shapes the iOS app expects so the bridge router
    can serve reads from SQLite instead of expensive broker snapshots. */
 
-export type MobileAgentSummary = {
-  id: string;
-  title: string;
-  selector: string | null;
-  defaultSelector: string | null;
-  workspaceRoot: string | null;
-  harness: string | null;
-  transport: string | null;
-  state: "offline" | "available" | "working";
-  statusLabel: string;
-  sessionId: string | null;
-  lastActiveAt: number | null;
-};
-
 export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
   const executingAgentIds = queryExecutingAgentIds();
 
@@ -2324,23 +2189,6 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
     };
   });
 }
-
-export type MobileSessionSummary = {
-  id: string;
-  kind: string;
-  title: string;
-  participantIds: string[];
-  agentId: string | null;
-  agentName: string | null;
-  harness: string | null;
-  harnessSessionId: string | null;
-  harnessLogPath: string | null;
-  currentBranch: string | null;
-  preview: string | null;
-  messageCount: number;
-  lastMessageAt: number | null;
-  workspaceRoot: string | null;
-};
 
 export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
   const rows = db().prepare(
@@ -2474,24 +2322,6 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
   });
 }
 
-export type MobileWorkspaceSummary = {
-  id: string;
-  title: string;
-  projectName: string;
-  root: string;
-  sourceRoot: string;
-  relativePath: string;
-  registrationKind: string;
-  defaultHarness: string;
-  harnesses: Array<{
-    harness: string;
-    source: "manifest" | "marker" | "default" | "endpoint";
-    detail: string;
-    readinessState: "ready" | "configured" | "installed" | "missing" | null;
-    readinessDetail: string | null;
-  }>;
-};
-
 /** Derive workspaces from agents in the DB — no filesystem scan needed. */
 export function queryMobileWorkspaces(limit = 50): MobileWorkspaceSummary[] {
   const rows = db().prepare(
@@ -2551,29 +2381,6 @@ export function queryMobileWorkspaces(limit = 50): MobileWorkspaceSummary[] {
 }
 
 /* ── Agent detail (single agent, richer data) ── */
-
-export type MobileAgentDetail = MobileAgentSummary & {
-  cwd: string | null;
-  wakePolicy: string | null;
-  capabilities: string[];
-  branch: string | null;
-  role: string | null;
-  model: string | null;
-  activeFlights: Array<{
-    id: string;
-    state: string;
-    summary: string | null;
-    startedAt: number | null;
-  }>;
-  recentActivity: Array<{
-    id: string;
-    kind: string;
-    ts: number;
-    title: string | null;
-    summary: string | null;
-  }>;
-  messageCount: number;
-};
 
 export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | null {
   const row = db().prepare(
@@ -2697,70 +2504,6 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
 }
 
 /* ── Fleet ── */
-
-export type WebFleetActivity = WebActivityItem & {
-  actorId: string | null;
-  agentId: string | null;
-  flightId: string | null;
-  invocationId: string | null;
-  messageId: string | null;
-  recordId: string | null;
-  sessionId: string | null;
-};
-
-export type WebFleetAskStatus =
-  | "queued"
-  | "working"
-  | "needs_attention"
-  | "completed"
-  | "failed";
-
-export type WebFleetAsk = {
-  invocationId: string;
-  flightId: string | null;
-  agentId: string;
-  agentName: string | null;
-  conversationId: string | null;
-  collaborationRecordId: string | null;
-  task: string;
-  status: WebFleetAskStatus;
-  statusLabel: string;
-  attention: WorkAttention;
-  agentState: AgentSummaryState;
-  harness: string | null;
-  transport: string | null;
-  summary: string | null;
-  startedAt: number | null;
-  completedAt: number | null;
-  updatedAt: number;
-};
-
-export type WebFleetAttentionItem = {
-  kind: "question" | "work_item";
-  recordId: string;
-  title: string;
-  summary: string | null;
-  agentId: string | null;
-  agentName: string | null;
-  conversationId: string | null;
-  state: string;
-  acceptanceState: string;
-  updatedAt: number;
-};
-
-export type WebFleetState = {
-  generatedAt: number;
-  totals: {
-    active: number;
-    recentCompleted: number;
-    needsAttention: number;
-    activity: number;
-  };
-  activeAsks: WebFleetAsk[];
-  recentCompleted: WebFleetAsk[];
-  needsAttention: WebFleetAttentionItem[];
-  activity: WebFleetActivity[];
-};
 
 type FleetActivityRow = {
   id: string;
@@ -3172,8 +2915,6 @@ export function queryFleet(opts?: {
 }
 
 /* ── Heartrate: smoothed activity over a trailing 7-day window ── */
-
-export type HeartrateBucket = { ts: number; count: number; value: number };
 
 type HeartrateResult = { windowLabel: string; bucketLabel: string; buckets: HeartrateBucket[] };
 
