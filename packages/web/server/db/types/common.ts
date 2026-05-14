@@ -7,3 +7,9 @@
  */
 
 export type HeartrateBucket = { ts: number; count: number; value: number };
+
+/** Attention level a work item carries — drives UI badges and alerts. */
+export type WorkAttention = "silent" | "badge" | "interrupt";
+
+/** High-level rollup of an agent's runtime state for list/detail surfaces. */
+export type AgentSummaryState = "offline" | "available" | "working";

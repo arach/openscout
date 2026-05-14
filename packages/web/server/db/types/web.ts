@@ -7,10 +7,7 @@
 
 import type { AgentRun } from "@openscout/protocol";
 
-import type {
-  AgentSummaryState,
-  WorkAttention,
-} from "../internal/sql-helpers.ts";
+import type { AgentSummaryState, WorkAttention } from "./common.ts";
 
 export type WebAgent = {
   id: string;
@@ -61,6 +58,8 @@ export type WebMessage = {
   createdAt: number;
   class: string;
   metadata: Record<string, unknown> | null;
+  replyToMessageId: string | null;
+  threadConversationId: string | null;
 };
 
 export type WebBrokerRouteAttempt = {
