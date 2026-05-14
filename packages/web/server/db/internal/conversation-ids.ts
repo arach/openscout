@@ -1,16 +1,25 @@
 /**
- * Direct-conversation identity helpers used by the web read path.
+ * ⚠️ LEGACY STRUCTURAL CONVERSATION-ID PARSERS — DO NOT EXTEND.
  *
- * Lifted from db-queries.ts during SCO-031 Phase C so that domain files
- * (agents/messages/runs/mobile) can compose conversation IDs without
- * importing back into db-queries.ts (which would create a circular
- * dependency once domains are split out).
+ * This module holds the *structural* `dm.{operator}.{agent}` /
+ * `dm.{agent}.scout.main.mini` parsing-and-construction logic that
+ * SCO-030 (opaque conversation IDs) is replacing. It exists only so
+ * domain files in `packages/web/server/db/` can compose conversation IDs
+ * without importing back into db-queries.ts (which would create a
+ * circular dependency once domains are split out — see SCO-031 Phase C).
  *
- * Per the SCO-031 plan §5, this cluster will migrate to
- * `ConversationsRepo` (packages/runtime/src/repos/conversations.ts) once
- * SCO-030 lands the opaque-id schema. Until then, db-queries.ts re-exports
- * the public surface (`conversationIdForAgent`) from this module so
- * external consumers keep working.
+ * Do NOT mistake this for `ConversationsRepo`. The repo (per SCO-031 §5,
+ * `packages/runtime/src/repos/conversations.ts`) is the durable home for
+ * conversation identity. This module is a transitional shim. New
+ * call sites should go through the repo, not these helpers.
+ *
+ * When SCO-030 lands:
+ *   - `ensureConversation({ kind, participants })` becomes the only mint path
+ *   - structural-form parsing collapses into `resolveLegacyId` on the repo
+ *   - this file deletes or shrinks to a re-export of the repo shims
+ *
+ * Until then, db-queries.ts re-exports `conversationIdForAgent` from here
+ * so external consumers (web/server/* and runtime bridges) keep working.
  */
 
 import { resolveOperatorName } from "@openscout/runtime/user-config";

@@ -32,7 +32,9 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
          m.body,
          m.created_at,
          m.class,
-         m.metadata_json
+         m.metadata_json,
+         m.reply_to_message_id,
+         m.thread_conversation_id
        FROM messages m
        JOIN actors ac ON ac.id = m.actor_id
        WHERE ${where}
@@ -47,6 +49,8 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
     created_at: number;
     class: string;
     metadata_json: string | null;
+    reply_to_message_id: string | null;
+    thread_conversation_id: string | null;
   }>;
 
   return rows.map((r) => {
@@ -62,6 +66,8 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
       createdAt: r.created_at,
       class: r.class,
       metadata,
+      replyToMessageId: r.reply_to_message_id,
+      threadConversationId: r.thread_conversation_id,
     };
   });
 }

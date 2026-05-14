@@ -481,4 +481,3 @@ function synthesizeDirectSession(
     workspaceRoot: compact(agent.project_root),
   };
 }
-

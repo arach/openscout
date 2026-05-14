@@ -210,6 +210,15 @@ Sequencing: SCO-030 lands *before* primitives sprint #3 and #4 start in earnest.
 - Thread URLs work: opening `/c/{opaqueThreadId}` renders the canonical thread feed with the thread's own message list (SCO-029 Phase 1 acceptance, now unblocked).
 - A message sent from `/c/channel.shared` (legacy URL) lands on the same conversation row as a message sent from `/c/{opaqueId}` — they share storage by natural key.
 
+### Guardrails against regret
+
+Option A's biggest hidden risk is **not** FK coexistence (we handle that with the lookup shim). It is **letting structural IDs stay *semantically meaningful* to any code path**. The structural form is still a valid string forever; if new code starts parsing it again, we silently re-introduce the same class of bugs SCO-029 fixed. These acceptance items prevent that:
+
+- **Single mint path.** `ensureConversation({ kind, participants, ... })` on `ConversationsRepo` is the *only* function in the codebase that constructs a conversation ID. No other module calls `nanoid()` for conversations; no other module builds `dm.` / `channel.` strings. CI enforces this with a grep against new mint sites outside the repo.
+- **Single resolve path.** `resolveConversationId(rawId)` on `ConversationsRepo` is the only function that turns a raw URL/path segment into a `ConversationDefinition`. It owns the `id` → `natural_key` fallback. All route handlers and lookups go through it.
+- **Lint/grep test in CI.** A repository check fails on any non-test, non-repo source file that matches `startsWith\("(dm|channel)\\."` or `/\^dm\\./` / `/\^channel\\./` regex. The only allowed sites are inside `packages/runtime/src/repos/conversations.ts` and the transitional `packages/web/server/db/internal/conversation-ids.ts`. Other matches block merge.
+- **No read-path writes.** Backfilling `natural_key` happens in a one-shot idempotent job (or at mint time on existing rows touched by a write path). Read handlers (`findById`, route resolvers) must not write to the conversations table — they may issue the fallback `SELECT WHERE natural_key = ?` but never `UPDATE` or `INSERT`. Enforced by code review and a comment header on the repo's read methods.
+
 ## 12. Verification commands
 
 ```bash
