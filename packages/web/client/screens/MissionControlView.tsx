@@ -23,6 +23,7 @@ import {
   setMissionSourceFilter,
   setMissionVisibleAgents,
   toggleMissionSelected,
+  clearMissionSelection,
   useMissionControlStore,
 } from "../lib/mission-control-store.ts";
 import { normalizeAgentState, agentStateLabel } from "../lib/agent-state.ts";
@@ -712,13 +713,39 @@ export function MissionControlView({
     : null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
-      if (e.key === "Escape") setFocusedId(null);
+      const target = e.target as HTMLElement;
+      const inEditable = target.tagName === "INPUT"
+        || target.tagName === "TEXTAREA"
+        || target.isContentEditable;
+      if (inEditable) return;
+      if (e.key === "Escape") {
+        if (focusedId) {
+          setFocusedId(null);
+        } else if (mc.selectedIds.length > 0) {
+          clearMissionSelection();
+        }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "a") {
+        if (mc.visibleAgents.length === 0) return;
+        e.preventDefault();
+        const ids = mc.visibleAgents.map((a) => a.id);
+        // toggle: if everything already selected, clear; otherwise select all
+        const allSelected = ids.length > 0 && ids.every((id) => mc.selectedIds.includes(id));
+        if (allSelected) {
+          clearMissionSelection();
+        } else {
+          for (const id of ids) {
+            if (!mc.selectedIds.includes(id)) toggleMissionSelected(id);
+          }
+        }
+        return;
+      }
       if (e.key === "h" || e.key === "H") triggerEntry(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusedAgent, triggerEntry]);
+  }, [focusedAgent, focusedId, mc.selectedIds, mc.visibleAgents, triggerEntry]);
 
   /* ── Minimap click ── */
   const onMinimapClick = useCallback(

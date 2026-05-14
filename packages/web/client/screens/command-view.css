@@ -497,7 +497,12 @@
   text-align: right;
 }
 
-.s-mc-stream-actor { font-weight: 600; }
+.s-mc-stream-actor {
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
 .s-mc-stream-verb {
   color: var(--muted);
   font-style: italic;

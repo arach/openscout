@@ -3,7 +3,6 @@ import "./command-view.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { api } from "../lib/api.ts";
-import { actorColor } from "../lib/colors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import type {
   Agent,
@@ -457,7 +456,7 @@ function ActivityRow({
   return (
     <button type="button" className="s-mc-stream-row" onClick={onOpen}>
       <span className="s-mc-stream-time">{formatAge(item.ts, nowMs)}</span>
-      <span className="s-mc-stream-actor" style={{ color: actorColor(actor) }}>{actor}</span>
+      <span className="s-mc-stream-actor">{actor}</span>
       <span className="s-mc-stream-verb">{verb}</span>
       <span className="s-mc-stream-text">{text}</span>
     </button>

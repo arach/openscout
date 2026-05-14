@@ -133,7 +133,7 @@ export function ScoutMissionControlLeftPanel() {
       ) : (
         <div className="ml-count">
           {visibleAgents.length} visible
-          <span className="ml-count-hint">⌘-click to select</span>
+          <span className="ml-count-hint">⌘-click · ⌘A all</span>
         </div>
       )}
 
