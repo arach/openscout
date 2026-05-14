@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { EmptyState } from "../components/EmptyState.tsx";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
@@ -278,20 +279,21 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
       )}
 
       {loading && !mesh && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">Loading mesh status</h3>
-          <p className="sys-state-body">Inspecting broker reachability and peer discovery inputs.</p>
-        </div>
+        <EmptyState
+          title="Loading mesh status"
+          body="Inspecting broker reachability and peer discovery inputs."
+        />
       )}
 
       {!loading && !mesh && error && (
-        <div className="sys-panel sys-state-card sys-state-card-error">
-          <h3 className="sys-state-title">Mesh status is unavailable</h3>
-          <p className="sys-state-body">{error}</p>
-          <div className="sys-inline-actions">
+        <EmptyState
+          className="sys-state-card-error"
+          title="Mesh status is unavailable"
+          body={error}
+          action={
             <button type="button" className="s-btn" onClick={() => void load("manual")}>Try again</button>
-          </div>
-        </div>
+          }
+        />
       )}
 
       {mesh && (
