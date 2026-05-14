@@ -273,15 +273,16 @@
 
 .s-mc-row-left {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: baseline;
   min-width: 0;
 }
 
 .s-mc-row-actor {
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -296,32 +297,49 @@
 
 .s-mc-row-title {
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--ink) 90%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
 }
 
 .s-mc-row-summary {
   font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 11px;
+  line-height: 1.45;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
 }
 
 .s-mc-row-right {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
+
+.s-mc-row-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.s-mc-row-glyph--ok { color: var(--green); }
+.s-mc-row-glyph--active { color: var(--accent); }
+.s-mc-row-glyph--hot { color: var(--red); }
 
 .s-mc-row-age {
   font-family: var(--font-mono);
