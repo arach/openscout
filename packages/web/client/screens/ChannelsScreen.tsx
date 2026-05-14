@@ -9,6 +9,7 @@ import {
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo, fullTimestamp } from "../lib/time.ts";
+import { isSameCalendarDay, formatThreadDayLabel } from "../lib/thread-days.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { saveLastViewed } from "../lib/sessionRead.ts";
 import { AgentPicker, AgentMentionTextarea } from "../lib/agent-autocomplete.tsx";
@@ -22,25 +23,6 @@ import "./channel-screen.css";
 
 function sortMessages(msgs: Message[]): Message[] {
   return [...msgs].sort((a, b) => a.createdAt - b.createdAt);
-}
-
-function isSameDay(a?: number, b?: number): boolean {
-  if (!a || !b) return false;
-  const da = new Date(a), db = new Date(b);
-  return da.getFullYear() === db.getFullYear() &&
-    da.getMonth() === db.getMonth() &&
-    da.getDate() === db.getDate();
-}
-
-function dayLabel(ts: number): string {
-  const d = new Date(ts);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const diff = Math.round((today - target) / 86400000);
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Yesterday";
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
 /* ── Header members control ── */
@@ -341,7 +323,7 @@ function ChannelFeed({
 
         {messages.map((msg, i) => {
           const isYou = msg.actorName === operatorName || msg.class === "operator";
-          const showDay = i === 0 || !isSameDay(messages[i - 1]?.createdAt, msg.createdAt);
+          const showDay = i === 0 || !isSameCalendarDay(messages[i - 1]?.createdAt, msg.createdAt);
           const showAvatar = i === 0 || messages[i - 1]?.actorName !== msg.actorName || showDay;
           const abs = fullTimestamp(msg.createdAt);
           const msgAgent = !isYou && msg.actorName
@@ -355,7 +337,7 @@ function ChannelFeed({
               {showDay && (
                 <div className="s-thread-day-divider">
                   <span className="s-thread-day-line" />
-                  <span className="s-thread-day-label">{dayLabel(msg.createdAt)}</span>
+                  <span className="s-thread-day-label">{formatThreadDayLabel(msg.createdAt)}</span>
                   <span className="s-thread-day-line" />
                 </div>
               )}
