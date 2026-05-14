@@ -6,9 +6,6 @@
  * synchronous and fast (< 1 ms for the queries below on a typical machine).
  */
 
-import { Database } from "bun:sqlite";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import {
   projectAgentRunFromInvocationFlight,
   type AgentRun,
@@ -19,8 +16,56 @@ import {
   type InvocationRequest,
   type MetadataMap,
 } from "@openscout/protocol";
-import { relayAgentLogsDirectory } from "@openscout/runtime/support-paths";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
+
+import {
+  closeDb,
+  configureReadonlyDb,
+  db,
+} from "./db/internal/db.ts";
+import {
+  coerceNumber,
+  metadataString,
+  normalizeTimestampMs,
+  parseJson,
+} from "./db/internal/parse.ts";
+import {
+  HOME,
+  compact,
+  pairingHarnessLogPath,
+  relayHarnessLogPath,
+  resolveHarnessLogPath,
+  resolveHarnessSessionId,
+} from "./db/internal/paths.ts";
+import {
+  ACTIVE_FLIGHT_MAX_AGE_MS,
+  ACTIVE_FLIGHT_STATES_SQL,
+  ACTIVE_WORK_STATES_SQL,
+  EPOCH_MILLISECONDS_FLOOR,
+  LATEST_AGENT_ENDPOINT_JOIN,
+  activeAgentMetadataPredicate,
+  isDuplicateActivityFeedItem,
+  isExecutingFlightState,
+  projectWorkItemRow,
+  queryExecutingAgentIds,
+  sqlJoinClauses,
+  sqlPlaceholders,
+  sqlQuoteLiteral,
+  sqlStringList,
+  sqlWhereClause,
+  staleFlightActivityPredicate,
+  summarizeAgentState,
+  summarizeAgentStatusLabel,
+  transientBrokerWorkingStatusPredicate,
+  workAttention,
+  workPhaseFromFlightState,
+  workPhaseFromState,
+  type AgentSummaryState,
+  type WorkAttention,
+} from "./db/internal/sql-helpers.ts";
+
+// Re-export internal helpers so existing consumers of db-queries.ts keep working.
+export { closeDb, configureReadonlyDb };
 
 /* ── Types (match what the client expects) ── */
 
@@ -123,10 +168,6 @@ export type WebBrokerDiagnostics = {
   dialogue: WebBrokerDialogueItem[];
 };
 
-type WorkAttention = "silent" | "badge" | "interrupt";
-type AgentSummaryState = "offline" | "available" | "working";
-type SqlClause = string | null | undefined | false;
-
 export type WebWorkItem = {
   id: string;
   title: string;
@@ -150,403 +191,6 @@ export type WebWorkItem = {
   lastMeaningfulAt: number;
   lastMeaningfulSummary: string | null;
 };
-
-/* ── DB path ── */
-
-function resolveDbPath(): string {
-  const controlHome =
-    process.env.OPENSCOUT_CONTROL_HOME ??
-    join(homedir(), ".openscout", "control-plane");
-  return join(controlHome, "control-plane.sqlite");
-}
-
-/* ── Readonly connection (WAL-visible without periodic reopen) ── */
-
-let _db: Database | null = null;
-const DB_BUSY_TIMEOUT_MS = 250; // keep UI reads short under broker write contention
-
-export function configureReadonlyDb(db: Database): void {
-  db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
-  db.exec("PRAGMA query_only = ON");
-}
-
-function db(): Database {
-  if (!_db) {
-    _db = new Database(resolveDbPath(), { readonly: true });
-    configureReadonlyDb(_db);
-  }
-  return _db;
-}
-
-/** Call on server shutdown. */
-export function closeDb(): void {
-  _db?.close();
-  _db = null;
-}
-
-/* ── Compact home paths (~/...) ── */
-
-const HOME = homedir();
-
-function compact(p: string | null): string | null {
-  if (!p) return null;
-  return p.startsWith(HOME) ? `~${p.slice(HOME.length)}` : p;
-}
-
-function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
-  const value = metadata?.[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
-function parseJson<T>(value: string | null, fallback: T): T {
-  if (!value) {
-    return fallback;
-  }
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function pairingHarnessLogPath(adapterType: string | null, sessionId: string | null): string | null {
-  const normalizedAdapter = adapterType?.trim();
-  const normalizedSessionId = sessionId?.trim();
-  if (!normalizedAdapter || !normalizedSessionId) {
-    return null;
-  }
-  return join(HOME, ".scout", "pairing", normalizedAdapter, normalizedSessionId, "logs", "stdout.log");
-}
-
-function relayHarnessLogPath(agentId: string): string {
-  return join(relayAgentLogsDirectory(agentId), "stdout.log");
-}
-
-function resolveHarnessSessionId(
-  transport: string | null,
-  endpointSessionId: string | null,
-  metadata: Record<string, unknown> | undefined,
-): string | null {
-  if (transport === "pairing_bridge") {
-    const attachedTransport = metadataString(metadata, "attachedTransport");
-    if (attachedTransport === "codex_app_server") {
-      return metadataString(metadata, "threadId")
-        ?? metadataString(metadata, "externalSessionId")
-        ?? endpointSessionId;
-    }
-    return metadataString(metadata, "externalSessionId") ?? endpointSessionId;
-  }
-
-  if (transport === "codex_app_server") {
-    return metadataString(metadata, "threadId") ?? endpointSessionId;
-  }
-
-  if (transport === "claude_stream_json") {
-    return metadataString(metadata, "externalSessionId") ?? endpointSessionId;
-  }
-
-  return null;
-}
-
-function resolveHarnessLogPath(
-  agentId: string,
-  transport: string | null,
-  endpointSessionId: string | null,
-  metadata: Record<string, unknown> | undefined,
-): string | null {
-  if (transport === "pairing_bridge") {
-    const pairingSessionId = metadataString(metadata, "pairingSessionId") ?? endpointSessionId;
-    const attachedTransport = metadataString(metadata, "attachedTransport");
-    const adapterType = metadataString(metadata, "pairingAdapterType")
-      ?? (attachedTransport === "codex_app_server"
-        ? "codex"
-        : attachedTransport === "claude_stream_json"
-          ? "claude"
-          : null);
-    return pairingHarnessLogPath(adapterType, pairingSessionId);
-  }
-
-  if (transport === "codex_app_server" || transport === "claude_stream_json") {
-    return relayHarnessLogPath(agentId);
-  }
-
-  return null;
-}
-
-function coerceNumber(value: number | string | null): number | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function sqlJoinClauses(clauses: SqlClause[], operator: "AND" | "OR" = "AND"): string {
-  return clauses.filter((clause): clause is string => Boolean(clause)).join(` ${operator} `);
-}
-
-function sqlWhereClause(clauses: SqlClause[], operator: "AND" | "OR" = "AND"): string {
-  const joined = sqlJoinClauses(clauses, operator);
-  return joined ? `WHERE ${joined}` : "";
-}
-
-function sqlPlaceholders(count: number): string {
-  return Array.from({ length: count }, () => "?").join(", ");
-}
-
-function sqlQuoteLiteral(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-function sqlStringList(values: readonly string[]): string {
-  return `(${values.map(sqlQuoteLiteral).join(",")})`;
-}
-
-const LATEST_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id = (
-  SELECT ep2.id
-  FROM agent_endpoints ep2
-  WHERE ep2.agent_id = a.id
-  ORDER BY ep2.updated_at DESC
-  LIMIT 1
-)`;
-
-function isExecutingFlightState(state: string | null): boolean {
-  return state === "running";
-}
-
-function queryExecutingAgentIds(): Set<string> {
-  return new Set(
-    (db().prepare(
-      `SELECT DISTINCT target_agent_id FROM flights
-       WHERE state = 'running'`,
-    ).all() as Array<{ target_agent_id: string }>).map((row) => row.target_agent_id),
-  );
-}
-
-function activeAgentMetadataPredicate(alias: string): string {
-  return `COALESCE(json_extract(${alias}.metadata_json, '$.retiredFromFleet'), 0) != 1
-    AND COALESCE(json_extract(${alias}.metadata_json, '$.staleLocalRegistration'), 0) != 1`;
-}
-
-function summarizeAgentState(
-  rawState: string | null,
-  isWorking: boolean,
-  wakePolicy?: string | null,
-): AgentSummaryState {
-  if (isWorking) {
-    return "working";
-  }
-  if (rawState === "offline" && wakePolicy === "on_demand") {
-    return "available";
-  }
-  return rawState && rawState !== "offline" ? "available" : "offline";
-}
-
-function summarizeAgentStatusLabel(
-  rawState: string | null,
-  isWorking: boolean,
-  wakePolicy?: string | null,
-): string {
-  switch (summarizeAgentState(rawState, isWorking, wakePolicy)) {
-    case "working":
-      return "Working";
-    case "available":
-      return "Available";
-    default:
-      return "Offline";
-  }
-}
-
-function normalizeTimestampMs(value: number | string | null): number | null {
-  const numeric = coerceNumber(value);
-  if (numeric === null) {
-    return null;
-  }
-  return numeric < 1e12 ? numeric * 1000 : numeric;
-}
-
-const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
-const ACTIVE_FLIGHT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
-const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
-
-function isDuplicateActivityFeedItem(previous: WebActivityItem | null, next: WebActivityItem): boolean {
-  if (!previous) {
-    return false;
-  }
-  return previous.kind === next.kind
-    && previous.title === next.title
-    && previous.summary === next.summary
-    && previous.conversationId === next.conversationId
-    && Math.abs(previous.ts - next.ts) <= 5_000;
-}
-
-function transientBrokerWorkingStatusPredicate(alias: string): string {
-  return `NOT (
-    ${alias}.class = 'status'
-    AND COALESCE(json_extract(${alias}.metadata_json, '$.source'), '') = 'broker'
-    AND ${alias}.body LIKE '% is working.'
-  )`;
-}
-
-function staleFlightActivityPredicate(alias: string): string {
-  return `NOT (
-    ${alias}.kind = 'flight_updated'
-    AND COALESCE(${alias}.summary, '') LIKE 'Stale running flight reconciled:%'
-  )`;
-}
-
-function workPhaseFromFlightState(state: string | null): string | null {
-  switch (state) {
-    case "queued":
-      return "Queued";
-    case "waking":
-      return "Waking";
-    case "waiting":
-      return "Waiting";
-    case "running":
-      return "Working";
-    case "completed":
-      return "Completed";
-    case "failed":
-      return "Failed";
-    case "cancelled":
-      return "Cancelled";
-    default:
-      return null;
-  }
-}
-
-function workPhaseFromState(state: string): string {
-  switch (state) {
-    case "open":
-      return "Open";
-    case "working":
-      return "Working";
-    case "waiting":
-      return "Waiting";
-    case "review":
-      return "In review";
-    case "done":
-      return "Done";
-    case "cancelled":
-      return "Cancelled";
-    default:
-      return state.replace(/_/g, " ");
-  }
-}
-
-function workAttention(row: {
-  updated_at: number;
-  state: string;
-  acceptance_state: string;
-  latest_flight_state: string | null;
-  latest_flight_at: number | string | null;
-  latest_dismissed_at: number | string | null;
-}): WorkAttention {
-  const dismissedAt = coerceNumber(row.latest_dismissed_at);
-  const updatedAt = coerceNumber(row.updated_at) ?? 0;
-  const latestFlightAt = coerceNumber(row.latest_flight_at);
-  const failedFlightDismissed = Boolean(
-    dismissedAt !== null
-    && dismissedAt >= (latestFlightAt ?? updatedAt),
-  );
-  const recordAttentionDismissed = Boolean(
-    dismissedAt !== null
-    && dismissedAt >= updatedAt,
-  );
-
-  if (row.latest_flight_state === "failed" && !failedFlightDismissed) {
-    return "interrupt";
-  }
-  if (
-    !recordAttentionDismissed
-    && (row.state === "waiting" || row.state === "review" || row.acceptance_state === "pending")
-  ) {
-    return "badge";
-  }
-  return "silent";
-}
-
-function projectWorkItemRow(row: {
-  id: string;
-  title: string;
-  summary: string | null;
-  owner_id: string | null;
-  owner_name: string | null;
-  next_move_owner_id: string | null;
-  next_move_owner_name: string | null;
-  conversation_id: string | null;
-  created_at?: number;
-  state: string;
-  acceptance_state: string;
-  priority: string | null;
-  updated_at: number;
-  parent_id?: string | null;
-  parent_title?: string | null;
-  active_child_work_count: number;
-  active_flight_count: number;
-  active_flight_state: string | null;
-  active_flight_summary: string | null;
-  latest_flight_state: string | null;
-  latest_flight_at: number | string | null;
-  latest_dismissed_at: number | string | null;
-  latest_event_summary: string | null;
-  latest_event_at: number | string | null;
-  progress_summary: string | null;
-}): WebWorkItem {
-  const updatedAt = coerceNumber(row.updated_at) ?? 0;
-  const latestFlightAt = coerceNumber(row.latest_flight_at);
-  const latestEventAt = coerceNumber(row.latest_event_at);
-  const currentPhase = workPhaseFromFlightState(row.active_flight_state)
-    ?? (row.latest_flight_state === "failed" ? "Failed" : workPhaseFromState(row.state));
-  const attention = workAttention(row);
-
-  const candidates = [
-    {
-      at: latestEventAt,
-      summary: row.latest_event_summary,
-    },
-    {
-      at: latestFlightAt,
-      summary: row.active_flight_summary ?? workPhaseFromFlightState(row.latest_flight_state),
-    },
-    {
-      at: updatedAt,
-      summary: row.progress_summary ?? row.summary ?? row.title,
-    },
-  ].filter((candidate): candidate is { at: number; summary: string | null } => typeof candidate.at === "number");
-
-  candidates.sort((left, right) => right.at - left.at);
-  const latest = candidates[0] ?? { at: updatedAt, summary: row.summary ?? row.title };
-
-  return {
-    id: row.id,
-    title: row.title,
-    summary: row.summary,
-    ownerId: row.owner_id,
-    ownerName: row.owner_name,
-    nextMoveOwnerId: row.next_move_owner_id,
-    nextMoveOwnerName: row.next_move_owner_name,
-    conversationId: row.conversation_id,
-    createdAt: coerceNumber(row.created_at ?? row.updated_at) ?? updatedAt,
-    updatedAt,
-    parentId: row.parent_id ?? null,
-    parentTitle: row.parent_title ?? null,
-    state: row.state,
-    acceptanceState: row.acceptance_state,
-    priority: row.priority,
-    currentPhase,
-    attention,
-    activeChildWorkCount: row.active_child_work_count ?? 0,
-    activeFlightCount: row.active_flight_count ?? 0,
-    lastMeaningfulAt: latest.at,
-    lastMeaningfulSummary: latest.summary,
-  };
-}
 
 /* ── Queries ── */
 
