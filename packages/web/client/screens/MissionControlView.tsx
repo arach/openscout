@@ -34,7 +34,7 @@ import {
 } from "../lib/observe.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
-import { SessionObserve, type SessionObserveData } from "./SessionObserve.tsx";
+import { type SessionObserveData } from "./SessionObserve.tsx";
 import type {
   Agent,
   ObserveData,
@@ -1329,16 +1329,116 @@ function FocusProfileTab({ agent }: { agent: Agent }) {
   );
 }
 
+const ACTIVITY_PREVIEW_LIMIT = 14;
+
+const KIND_GLYPH: Record<string, string> = {
+  tool: "▸",
+  think: "·",
+  ask: "?",
+  message: "✉",
+  note: "•",
+  system: "◇",
+  boot: "↑",
+};
+
+const KIND_LABEL: Record<string, string> = {
+  tool: "tool",
+  think: "think",
+  ask: "ask",
+  message: "msg",
+  note: "note",
+  system: "sys",
+  boot: "boot",
+};
+
+function formatEventAge(secondsFromStart: number, sessionStart?: number | null): string {
+  if (sessionStart) {
+    const ms = Date.now() - (sessionStart + secondsFromStart * 1000);
+    if (ms < 60_000) return `${Math.max(0, Math.round(ms / 1000))}s`;
+    if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+    if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`;
+    return `${Math.round(ms / 86_400_000)}d`;
+  }
+  const s = Math.max(0, Math.round(secondsFromStart));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  return `${Math.round(s / 3600)}h`;
+}
+
+function eventSummary(event: ObserveEvent): string {
+  if (event.kind === "tool") {
+    const head = event.tool ?? "tool";
+    return event.arg ? `${head} · ${event.arg}` : head;
+  }
+  if (event.kind === "ask") {
+    return event.text || "asked something";
+  }
+  return event.text || event.detail || KIND_LABEL[event.kind] || event.kind;
+}
+
 function FocusActivityTab({
-  agent,
+  agent: _agent,
   observe,
 }: {
   agent: Agent;
   observe: SessionObserveData | null;
 }) {
+  const events = observe?.events ?? [];
+  const usage = observe?.metadata?.usage;
+  const sessionStart = typeof (observe?.metadata?.session as Record<string, unknown> | undefined)?.["sessionStart"] === "number"
+    ? ((observe?.metadata?.session as Record<string, unknown>)["sessionStart"] as number)
+    : null;
+
+  const recent = events.slice(-ACTIVITY_PREVIEW_LIMIT).reverse();
+
+  const turnCount = usage?.assistantMessages ?? events.filter((e) => e.kind === "message").length;
+  const toolCount = events.filter((e) => e.kind === "tool").length;
+  const editCount = events.filter((e) => e.kind === "tool" && e.tool === "edit").length;
+  const ctxPct = observe?.contextUsage && observe.contextUsage.length > 0
+    ? Math.round(observe.contextUsage[observe.contextUsage.length - 1] * 100)
+    : null;
+  const ctxLabel = ctxPct !== null
+    ? `${ctxPct}%`
+    : usage?.contextWindowTokens && usage?.totalTokens
+      ? `${Math.round((usage.totalTokens / usage.contextWindowTokens) * 100)}%`
+      : "—";
+
   return (
-    <div className="s-focus-tab s-focus-tab--activity">
-      <SessionObserve data={observe ?? undefined} agentId={agent.id} />
+    <div className="s-focus-tab s-focus-tab--activity-preview">
+      <dl className="s-focus-stats">
+        <Stat label="Turns" value={turnCount || "—"} />
+        <Stat label="Tools" value={toolCount || "—"} />
+        <Stat label="Edits" value={editCount || "—"} />
+        <Stat label="Context" value={ctxLabel} />
+      </dl>
+
+      {recent.length === 0 ? (
+        <div className="s-focus-activity-empty">
+          No recent events yet. Activity will land here as the session runs.
+        </div>
+      ) : (
+        <ul className="s-focus-activity-list">
+          {recent.map((event) => (
+            <li key={event.id} className={`s-focus-activity-row s-focus-activity-row--${event.kind}`}>
+              <span className="s-focus-activity-time">{formatEventAge(event.t, sessionStart)}</span>
+              <span className="s-focus-activity-glyph" aria-hidden>
+                {KIND_GLYPH[event.kind] ?? "·"}
+              </span>
+              <span className="s-focus-activity-kind">{KIND_LABEL[event.kind] ?? event.kind}</span>
+              <span className="s-focus-activity-text">{eventSummary(event)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="s-focus-stat">
+      <dt className="s-focus-stat-label">{label}</dt>
+      <dd className="s-focus-stat-value">{value}</dd>
     </div>
   );
 }
