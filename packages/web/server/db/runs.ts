@@ -40,11 +40,10 @@ import {
   sqlWhereClause,
 } from "./internal/sql-helpers.ts";
 import { queryWorkItemById } from "./work.ts";
-// querySessionById remains in db-queries.ts during Phase C (session
-// cluster). The static cycle is safe because the reference is only used
-// inside a function body (see queryFollowTarget below) and the symbol is
-// resolved lazily at call time.
-import { querySessionById } from "../db-queries.ts";
+// Session-cluster reads moved to db/sessions.ts as the final SCO-031 Phase C
+// extraction. The import is local to db/ so there is no cycle through the
+// db-queries.ts barrel.
+import { querySessionById } from "./sessions.ts";
 import type { WebAgentRun, WebFlight, WebFollowTarget } from "./types/web.ts";
 
 /* ── Row projection helpers (private) ── */
@@ -478,11 +477,8 @@ export function queryFollowTarget(opts: {
   }
 
   if (target.conversationId && (!target.sessionId || !target.targetAgentId)) {
-    // querySessionById stays in db-queries.ts (session cluster, not in
-    // scope for this phase). The static import is safe because the
-    // reference is dereferenced lazily inside this function body, not at
-    // module init. See SCO-031 §6 — the cluster moves to ConversationsRepo
-    // next.
+    // querySessionById now lives in db/sessions.ts (SCO-031 final extraction).
+    // SCO-030 may fold this back into `ConversationsRepo` once opaque ids land.
     const session = querySessionById(target.conversationId);
     target.sessionId = target.sessionId ?? session?.harnessSessionId ?? null;
     target.targetAgentId = target.targetAgentId ?? session?.agentId ?? null;
