@@ -22,6 +22,7 @@ import {
   setMissionRecentWindow,
   setMissionSourceFilter,
   setMissionVisibleAgents,
+  toggleMissionSelected,
   useMissionControlStore,
 } from "../lib/mission-control-store.ts";
 import { normalizeAgentState, agentStateLabel } from "../lib/agent-state.ts";
@@ -930,6 +931,7 @@ export function MissionControlView({
               const pos = tilePositions[agent.id];
               if (!pos) return null;
               const cached = observeCache[agent.id];
+              const isSelected = mc.selectedIds.includes(agent.id);
               return (
                 <ObserveTile
                   key={agent.id}
@@ -937,13 +939,21 @@ export function MissionControlView({
                   observe={cached?.data ?? null}
                   x={pos.x}
                   y={pos.y}
-                  onClick={() => setFocusedId(agent.id)}
+                  selected={isSelected}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                      toggleMissionSelected(agent.id);
+                    } else {
+                      setFocusedId(agent.id);
+                    }
+                  }}
                 />
               );
             })}
             {visibleNativeSessions.map((session) => {
               const pos = tilePositions[session.id];
               if (!pos) return null;
+              const isSelected = mc.selectedIds.includes(session.id);
               return (
                 <ObserveTile
                   key={session.id}
@@ -951,7 +961,14 @@ export function MissionControlView({
                   observe={session.observe}
                   x={pos.x}
                   y={pos.y}
-                  onClick={() => setFocusedId(session.id)}
+                  selected={isSelected}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                      toggleMissionSelected(session.id);
+                    } else {
+                      setFocusedId(session.id);
+                    }
+                  }}
                 />
               );
             })}
@@ -1006,13 +1023,15 @@ function ObserveTile({
   observe,
   x,
   y,
+  selected = false,
   onClick,
 }: {
   agent: Agent;
   observe: SessionObserveData | null;
   x: number;
   y: number;
-  onClick: () => void;
+  selected?: boolean;
+  onClick: (e: React.MouseEvent) => void;
 }) {
   const streamRef = useRef<HTMLDivElement>(null);
   const state = normalizeAgentState(agent.state);
@@ -1038,9 +1057,9 @@ function ObserveTile({
 
   return (
     <div
-      className={`s-mission-tile${state === "working" ? " s-mission-tile--working" : ""}${hasAsk ? " s-mission-tile--asking" : ""}`}
+      className={`s-mission-tile${state === "working" ? " s-mission-tile--working" : ""}${hasAsk ? " s-mission-tile--asking" : ""}${selected ? " s-mission-tile--selected" : ""}`}
       style={{ left: x, top: y, height: TILE_H }}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onClick={(e) => { e.stopPropagation(); onClick(e); }}
     >
       <div className="s-mission-tile-header">
         <div

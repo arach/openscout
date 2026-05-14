@@ -5,11 +5,13 @@ import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
 import {
   MISSION_RECENT_WINDOWS,
+  clearMissionSelection,
   setMissionActivityFilter,
   setMissionFocusedId,
   setMissionQuery,
   setMissionRecentWindow,
   setMissionSourceFilter,
+  toggleMissionSelected,
   useMissionControlStore,
   type MissionVisibleAgent,
 } from "../../lib/mission-control-store.ts";
@@ -35,9 +37,21 @@ export function ScoutMissionControlLeftPanel() {
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const isRecent = mc.activityFilter === "recent";
+  const selectedCount = mc.selectedIds.length;
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
+  };
+
+  const openTailForSelection = () => {
+    if (selectedCount === 0) return;
+    const selectedAgents = visibleAgents.filter((a) => mc.selectedIds.includes(a.id));
+    const query = selectedAgents
+      .map((a) => a.handle ?? a.name)
+      .filter(Boolean)
+      .join("|");
+    if (!query) return;
+    navigate({ view: "ops", mode: "tail", tailQuery: query });
   };
 
   return (
@@ -104,7 +118,24 @@ export function ScoutMissionControlLeftPanel() {
         </div>
       </div>
 
-      <div className="ml-count">{visibleAgents.length} visible</div>
+      {selectedCount > 0 ? (
+        <div className="ml-selection">
+          <span className="ml-selection-label">{selectedCount} selected</span>
+          <div className="ml-selection-actions">
+            <button type="button" className="ml-selection-btn ml-selection-btn--primary" onClick={openTailForSelection}>
+              Tail ↗
+            </button>
+            <button type="button" className="ml-selection-btn" onClick={clearMissionSelection}>
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="ml-count">
+          {visibleAgents.length} visible
+          <span className="ml-count-hint">⌘-click to select</span>
+        </div>
+      )}
 
       <div
         ref={listRef}
@@ -119,6 +150,7 @@ export function ScoutMissionControlLeftPanel() {
           visibleAgents.map((agent, idx) => {
             const isExpanded = agent.id === expandedId;
             const hasExpanded = visibleAgents.some((a) => a.id === expandedId);
+            const isSelected = mc.selectedIds.includes(agent.id);
             const state = normalizeAgentState(agent.state);
             return (
               <AgentRow
@@ -126,8 +158,15 @@ export function ScoutMissionControlLeftPanel() {
                 agent={agent}
                 state={state}
                 isExpanded={isExpanded}
+                isSelected={isSelected}
                 tabIndex={rovingTabIndex(isExpanded, hasExpanded, idx === 0)}
-                onToggle={() => toggleExpand(agent.id)}
+                onToggle={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                    toggleMissionSelected(agent.id);
+                  } else {
+                    toggleExpand(agent.id);
+                  }
+                }}
                 onFocusOnCanvas={() => setMissionFocusedId(agent.id)}
                 onOpen={() => navigate({ view: "agents", agentId: agent.id })}
               />
@@ -143,6 +182,7 @@ function AgentRow({
   agent,
   state,
   isExpanded,
+  isSelected,
   tabIndex,
   onToggle,
   onFocusOnCanvas,
@@ -151,18 +191,21 @@ function AgentRow({
   agent: MissionVisibleAgent;
   state: ReturnType<typeof normalizeAgentState>;
   isExpanded: boolean;
+  isSelected: boolean;
   tabIndex: 0 | -1;
-  onToggle: () => void;
+  onToggle: (e: React.MouseEvent | React.KeyboardEvent) => void;
   onFocusOnCanvas: () => void;
   onOpen: () => void;
 }) {
   return (
-    <div className={`ml-row${isExpanded ? " ml-row--expanded" : ""}`}>
+    <div
+      className={`ml-row${isExpanded ? " ml-row--expanded" : ""}${isSelected ? " ml-row--selected" : ""}`}
+    >
       <button
         type="button"
         tabIndex={tabIndex}
         className="ml-row-head"
-        onClick={onToggle}
+        onClick={(e) => onToggle(e)}
         aria-expanded={isExpanded}
       >
         <span

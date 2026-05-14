@@ -32,6 +32,7 @@ type MissionControlState = {
   query: string;
   focusedId: string | null;
   visibleAgents: MissionVisibleAgent[];
+  selectedIds: string[];
 };
 
 let _state: MissionControlState = {
@@ -41,6 +42,7 @@ let _state: MissionControlState = {
   query: "",
   focusedId: null,
   visibleAgents: [],
+  selectedIds: [],
 };
 
 const _listeners = new Set<() => void>();
@@ -95,6 +97,23 @@ function visibleAgentsEqual(a: MissionVisibleAgent[], b: MissionVisibleAgent[]):
 export function setMissionVisibleAgents(visibleAgents: MissionVisibleAgent[]): void {
   if (visibleAgentsEqual(_state.visibleAgents, visibleAgents)) return;
   _state = { ..._state, visibleAgents };
+  _notify();
+}
+
+export function toggleMissionSelected(id: string): void {
+  const has = _state.selectedIds.includes(id);
+  _state = {
+    ..._state,
+    selectedIds: has
+      ? _state.selectedIds.filter((x) => x !== id)
+      : [..._state.selectedIds, id],
+  };
+  _notify();
+}
+
+export function clearMissionSelection(): void {
+  if (_state.selectedIds.length === 0) return;
+  _state = { ..._state, selectedIds: [] };
   _notify();
 }
 
