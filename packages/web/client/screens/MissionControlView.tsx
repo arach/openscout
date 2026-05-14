@@ -965,20 +965,20 @@ export function MissionControlView({
           agent={focusedAgent}
           observe={observeCache[focusedAgent.id]?.data ?? null}
           onClose={() => setFocusedId(null)}
-          onTell={() => {
-            setFocusedId(null);
-            navigate({
-              view: "conversation",
-              conversationId: conversationForAgent(focusedAgent.id),
-              composeMode: "tell",
+          onSend={async (body, mode) => {
+            await api<unknown>(mode === "ask" ? "/api/ask" : "/api/send", {
+              method: "POST",
+              body: JSON.stringify({
+                body,
+                conversationId: conversationForAgent(focusedAgent.id),
+              }),
             });
           }}
-          onAsk={() => {
+          onOpenConversation={() => {
             setFocusedId(null);
             navigate({
               view: "conversation",
               conversationId: conversationForAgent(focusedAgent.id),
-              composeMode: "ask",
             });
           }}
           onTail={() => {
@@ -1125,22 +1125,35 @@ function FocusOverlay({
   agent,
   observe,
   onClose,
-  onTell,
-  onAsk,
+  onSend,
+  onOpenConversation,
   onTail,
   onProfile,
 }: {
   agent: Agent;
   observe: SessionObserveData | null;
   onClose: () => void;
-  onTell: () => void;
-  onAsk: () => void;
+  onSend: (body: string, mode: "tell" | "ask") => Promise<void>;
+  onOpenConversation: () => void;
   onTail: () => void;
   onProfile: () => void;
 }) {
   const color = actorColor(agent.name);
   const { ref: dialogRef, onKeyDown: onTrapKeyDown } = useFocusTrap<HTMLDivElement>();
   const [tab, setTab] = useState<FocusTab>("profile");
+
+  const onDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    onTrapKeyDown(e);
+    if (e.defaultPrevented) return;
+    const target = e.target as HTMLElement | null;
+    const inEditable = target instanceof HTMLInputElement
+      || target instanceof HTMLTextAreaElement
+      || (target?.isContentEditable ?? false);
+    if (inEditable) return;
+    if (e.key === "1") { e.preventDefault(); setTab("profile"); }
+    else if (e.key === "2") { e.preventDefault(); setTab("activity"); }
+    else if (e.key === "3") { e.preventDefault(); setTab("message"); }
+  };
 
   return (
     <div className="s-mission-overlay" onClick={onClose}>
@@ -1150,7 +1163,7 @@ function FocusOverlay({
         aria-modal="true"
         aria-labelledby="mission-overlay-title"
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={onTrapKeyDown}
+        onKeyDown={onDialogKeyDown}
         tabIndex={-1}
         className="s-mission-overlay-dialog"
       >
@@ -1223,13 +1236,24 @@ function FocusOverlay({
                 Open in Tail ↗
               </button>
             )}
+            {tab === "message" && (
+              <button type="button" className="s-mission-overlay-jump" onClick={onOpenConversation}>
+                Open conversation ↗
+              </button>
+            )}
           </div>
         </div>
 
         <div className="s-mission-overlay-body">
           {tab === "profile" && <FocusProfileTab agent={agent} />}
           {tab === "activity" && <FocusActivityTab agent={agent} observe={observe} />}
-          {tab === "message" && <FocusMessageTab onSteer={onTell} onAsk={onAsk} />}
+          {tab === "message" && (
+            <FocusMessageTab
+              agent={agent}
+              onSend={onSend}
+              onOpenConversation={onOpenConversation}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -1273,18 +1297,103 @@ function FocusActivityTab({
   );
 }
 
-function FocusMessageTab({ onSteer, onAsk }: { onSteer: () => void; onAsk: () => void }) {
+function FocusMessageTab({
+  agent,
+  onSend,
+  onOpenConversation,
+}: {
+  agent: Agent;
+  onSend: (body: string, mode: "tell" | "ask") => Promise<void>;
+  onOpenConversation: () => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<"tell" | "ask" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  const send = async (mode: "tell" | "ask") => {
+    const body = draft.trim();
+    if (!body || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await onSend(body, mode);
+      setDraft("");
+      setSent(mode);
+      setTimeout(() => setSent(null), 1800);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) void send("ask");
+      else void send("tell");
+    }
+  };
+
+  const name = agent.handle ?? agent.name;
+  const canSend = draft.trim().length > 0 && !sending;
+
   return (
     <div className="s-focus-tab">
-      <div className="s-focus-actions">
-        <button type="button" className="s-focus-action" onClick={onSteer}>
-          <span className="s-focus-action-name">Steer ↗</span>
-          <span className="s-focus-action-desc">Send a message to redirect what this agent is doing.</span>
-        </button>
-        <button type="button" className="s-focus-action" onClick={onAsk}>
-          <span className="s-focus-action-name">Ask ↗</span>
-          <span className="s-focus-action-desc">Pose a question and wait for a structured answer.</span>
-        </button>
+      <div className="s-focus-compose">
+        <label className="s-focus-compose-label" htmlFor="s-focus-compose-input">
+          Message <span className="s-focus-compose-target">@{name}</span>
+        </label>
+        <textarea
+          id="s-focus-compose-input"
+          ref={textareaRef}
+          className="s-focus-compose-input"
+          placeholder={`Steer @${name}…   (⌘↩ to Steer · ⌘⇧↩ to Ask)`}
+          rows={6}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          disabled={sending}
+        />
+        <div className="s-focus-compose-foot">
+          <div className="s-focus-compose-hint">
+            {error ? (
+              <span className="s-focus-compose-error">Send failed: {error}</span>
+            ) : sent === "tell" ? (
+              <span className="s-focus-compose-ok">Steered ↗ <button type="button" className="s-focus-compose-link" onClick={onOpenConversation}>Open thread</button></span>
+            ) : sent === "ask" ? (
+              <span className="s-focus-compose-ok">Asked ↗ <button type="button" className="s-focus-compose-link" onClick={onOpenConversation}>Open thread</button></span>
+            ) : (
+              <>
+                <strong>Steer</strong> redirects what they're doing. <strong>Ask</strong> waits for a structured answer.
+              </>
+            )}
+          </div>
+          <div className="s-focus-compose-actions">
+            <button
+              type="button"
+              className="s-ops-btn"
+              onClick={() => void send("ask")}
+              disabled={!canSend}
+            >
+              Ask
+            </button>
+            <button
+              type="button"
+              className="s-ops-btn s-ops-btn--primary"
+              onClick={() => void send("tell")}
+              disabled={!canSend}
+            >
+              Steer
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -754,6 +754,116 @@
   color: var(--muted);
 }
 
+/* ── Inline composer (Message tab) ── */
+
+.s-focus-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.s-focus-compose-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-focus-compose-target {
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 10.5px;
+  margin-left: 6px;
+}
+
+.s-focus-compose-input {
+  flex: 1 1 auto;
+  min-height: 120px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 3px;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  transition: border-color 120ms;
+}
+
+.s-focus-compose-input::placeholder {
+  color: var(--dim);
+}
+
+.s-focus-compose-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.s-focus-compose-input:disabled {
+  opacity: 0.6;
+}
+
+.s-focus-compose-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.s-focus-compose-hint {
+  flex: 1 1 auto;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.s-focus-compose-hint strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.s-focus-compose-error {
+  color: var(--red);
+}
+
+.s-focus-compose-ok {
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+
+.s-focus-compose-link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-left: 8px;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.s-focus-compose-link:hover {
+  color: var(--ink);
+}
+
+.s-focus-compose-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .s-mission-overlay-name {
   font-size: 14px;
   font-weight: 500;
