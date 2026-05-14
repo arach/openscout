@@ -193,7 +193,9 @@ Three sequential PRs, but they can be one if review bandwidth allows. Each phase
 | `apps/desktop/src/server/db-queries.test.ts:15` | 12 functions | Same (this is a copy of the web test) |
 | `apps/desktop/src/server/create-scout-control-plane-server.ts:31` | imported set | Same |
 
-Note: `apps/desktop/src/server/db-queries.ts` is a copy of the web server's file (the desktop app vendors its own server). It gets the same split, mirrored, in the same PR. Confirming the apps/desktop copy is a vendor mirror, not a divergence, is a small pre-work step.
+Note: `apps/desktop/src/server/db-queries.ts` is **not** a vendor mirror — it has diverged. As of 2026-05-13 the web copy is 3611 LOC, desktop is 1863 LOC. The web copy has additional types (`WebBrokerRouteAttempt`, `WebBrokerDialogueItem`, `WebBrokerDiagnostics`), additional imports (`AgentRun`, `FlightRecord`, `InvocationExecutionPreference`), and extra fields on `WebAgent` (`model`, `harnessSessionId`, `harnessLogPath`, `conversationId`) that desktop lacks.
+
+Recommendation: **migrate web only in the SCO-031 PR**. Desktop gets its own scoped split as a follow-up when convenient — its surface is smaller and its identity helpers (the parts SCO-030 cares about) likely match web's structurally. A pre-work reconciliation pass would balloon SCO-031 scope without payoff.
 
 ## 7. Migration strategy for `ConversationsRepo`
 
