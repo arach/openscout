@@ -1,5 +1,6 @@
 import { renderSVG } from "uqr";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EmptyState } from "../components/EmptyState.tsx";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
 import type { PairingState, Route } from "../lib/types.ts";
@@ -287,24 +288,23 @@ function PairingSettingsScreen() {
       )}
 
       {loading && !pairing && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">Loading settings</h3>
-          <p className="sys-state-body">
-            Checking relay status and trusted peers.
-          </p>
-        </div>
+        <EmptyState
+          title="Loading settings"
+          body="Checking relay status and trusted peers."
+        />
       )}
 
       {showInitialError && (
-        <div className="sys-panel sys-state-card sys-state-card-error">
-          <h3 className="sys-state-title">Pairing unavailable</h3>
-          <p className="sys-state-body">{pairingError}</p>
-          <div className="sys-inline-actions">
+        <EmptyState
+          className="sys-state-card-error"
+          title="Pairing unavailable"
+          body={pairingError}
+          action={
             <button type="button" className="s-btn" onClick={() => void loadPairing("manual")}>
               Try again
             </button>
-          </div>
-        </div>
+          }
+        />
       )}
 
       {/* ── Top row: QR + Identity/Status ── */}

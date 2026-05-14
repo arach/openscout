@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Cpu, KeyRound, RefreshCw, Server, Settings, Wrench } from "lucide-react";
+import { EmptyState } from "../components/EmptyState.tsx";
 import { api } from "../lib/api.ts";
 import type {
   AgentConfigurationAgent,
@@ -295,10 +296,10 @@ export function AgentConfigurationScreen({
       )}
 
       {loading && !snapshot && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">Loading configuration</h3>
-          <p className="sys-state-body">Reading Scout settings, runtime readiness, broker agents, and project inventory.</p>
-        </div>
+        <EmptyState
+          title="Loading configuration"
+          body="Reading Scout settings, runtime readiness, broker agents, and project inventory."
+        />
       )}
 
       {snapshot && (

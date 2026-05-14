@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EmptyState } from "../components/EmptyState.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
@@ -208,17 +209,17 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
       )}
 
       {loading && !broker && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">Loading broker</h3>
-          <p className="sys-state-body">Reading the broker database snapshot.</p>
-        </div>
+        <EmptyState
+          title="Loading broker"
+          body="Reading the broker database snapshot."
+        />
       )}
 
       {!loading && !broker && !error && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">No broker data</h3>
-          <p className="sys-state-body">No broker records are available yet.</p>
-        </div>
+        <EmptyState
+          title="No broker data"
+          body="No broker records are available yet."
+        />
       )}
 
       {broker && (
@@ -270,10 +271,10 @@ function BrokerAttemptList({
 }) {
   if (attempts.length === 0) {
     return (
-      <div className="sys-panel sys-state-card">
-        <h3 className="sys-state-title">No records</h3>
-        <p className="sys-state-body">This broker slice is empty for the selected window.</p>
-      </div>
+      <EmptyState
+        title="No records"
+        body="This broker slice is empty for the selected window."
+      />
     );
   }
 
@@ -415,10 +416,10 @@ function BrokerDialogueList({
 }) {
   if (items.length === 0) {
     return (
-      <div className="sys-panel sys-state-card">
-        <h3 className="sys-state-title">No dialogue</h3>
-        <p className="sys-state-body">No messages were recorded in the selected window.</p>
-      </div>
+      <EmptyState
+        title="No dialogue"
+        body="No messages were recorded in the selected window."
+      />
     );
   }
 
