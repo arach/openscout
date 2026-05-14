@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { StatusPill } from "../../components/StatusPill.tsx";
 import { useMeshViewStore, setMeshSelection, setMeshSnapshot } from "../../lib/mesh-view-store.ts";
 import { api } from "../../lib/api.ts";
 import { timeAgo } from "../../lib/time.ts";
@@ -49,9 +50,9 @@ export function MeshInspectorPanel() {
       <div className="sys-inspector-content">
         <div className="sys-inspector-head">
           <h3 className="sys-inspector-title">{label}</h3>
-          <span className={`sys-chip sys-chip-${peer?.online ? "success" : "failed"}`}>
+          <StatusPill tone={peer?.online ? "success" : "danger"}>
             {peer?.online ? "Online" : "Offline"}
-          </span>
+          </StatusPill>
         </div>
 
         <div className="sys-detail-grid">
@@ -100,7 +101,7 @@ export function MeshInspectorPanel() {
             <div className="sys-inspector-section-label">Capabilities</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
               {entry.result.node.capabilities.map((cap) => (
-                <span key={cap} className="sys-chip sys-chip-neutral">{cap}</span>
+                <StatusPill key={cap} tone="neutral">{cap}</StatusPill>
               ))}
             </div>
           </div>
@@ -176,7 +177,7 @@ export function MeshInspectorPanel() {
           <h3 className="sys-inspector-title">
             {node.hostName?.split(".")[0] ?? node.name ?? "Node"}
           </h3>
-          {isLocal && <span className="sys-chip sys-chip-neutral">this broker</span>}
+          {isLocal && <StatusPill tone="neutral">this broker</StatusPill>}
         </div>
 
         <div className="sys-detail-grid">
@@ -253,9 +254,9 @@ export function MeshInspectorPanel() {
     <div className="sys-inspector-content">
       <div className="sys-inspector-head">
         <h3 className="sys-inspector-title">This broker</h3>
-        <span className={`sys-chip sys-chip-${mesh.identity.discoverable ? "success" : "warning"}`}>
+        <StatusPill tone={mesh.identity.discoverable ? "success" : "warning"}>
           {mesh.identity.discoverable ? "Discoverable" : "Not discoverable"}
-        </span>
+        </StatusPill>
       </div>
 
       <div className="sys-detail-grid">
