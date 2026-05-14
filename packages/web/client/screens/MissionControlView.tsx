@@ -12,6 +12,18 @@ import { ChevronDown, ChevronUp, Crosshair, Maximize2 } from "lucide-react";
 import { actorColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { useCanvasMinimapRegistration } from "../lib/canvas-minimap.tsx";
+import { useFocusTrap } from "../lib/keyboard-nav.ts";
+import {
+  MISSION_RECENT_WINDOWS,
+  missionAgentMatchesQuery,
+  setMissionActivityFilter,
+  setMissionFocusedId,
+  setMissionQuery,
+  setMissionRecentWindow,
+  setMissionSourceFilter,
+  setMissionVisibleAgents,
+  useMissionControlStore,
+} from "../lib/mission-control-store.ts";
 import { normalizeAgentState, agentStateLabel } from "../lib/agent-state.ts";
 import {
   summarizeObserveEvent,
@@ -45,11 +57,6 @@ const CANVAS_PAD = 40;
 const MINIMAP_FALLBACK_W = 244;
 const MINIMAP_MAX_H = 160;
 const ACTIVE_EVENT_WINDOW_MS = 2 * 60_000;
-const RECENT_WINDOW_OPTIONS = [
-  { label: "15m", value: 15 * 60_000 },
-  { label: "1h", value: 60 * 60_000 },
-  { label: "24h", value: 24 * 60 * 60_000 },
-] as const;
 
 /* ── Viewport persistence ── */
 
@@ -82,8 +89,6 @@ function loadViewport(): { pan: { x: number; y: number }; zoom: number } | null 
 type LayoutTile = { agentId: string; x: number; y: number };
 type LayoutGroup = { label: string; x: number; y: number; w: number; h: number; tiles: LayoutTile[] };
 type CanvasLayout = { groups: LayoutGroup[]; canvasW: number; canvasH: number };
-type MissionActivityFilter = "all" | "active" | "recent";
-type MissionSourceFilter = "all" | "scout" | "native";
 type CanvasSubject = {
   id: string;
   name: string;
@@ -365,12 +370,12 @@ export function MissionControlView({
   navigate: (r: Route) => void;
   agents: Agent[];
 }) {
-  const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [activityFilter, setActivityFilter] = useState<MissionActivityFilter>("all");
-  const [sourceFilter, setSourceFilter] = useState<MissionSourceFilter>("all");
-  const [recentWindowMs, setRecentWindowMs] = useState<(typeof RECENT_WINDOW_OPTIONS)[number]["value"]>(
-    RECENT_WINDOW_OPTIONS[1].value,
-  );
+  const mc = useMissionControlStore();
+  const { activityFilter, sourceFilter, recentWindowMs, query, focusedId } = mc;
+  const setActivityFilter = setMissionActivityFilter;
+  const setSourceFilter = setMissionSourceFilter;
+  const setRecentWindowMs = setMissionRecentWindow;
+  const setFocusedId = setMissionFocusedId;
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [tailDiscovery, setTailDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [tailEvents, setTailEvents] = useState<TailEvent[]>([]);
@@ -500,20 +505,88 @@ export function MissionControlView({
 
   const visibleAgents = useMemo(() => {
     if (sourceFilter === "native") return [];
-    if (activityFilter === "all") return agents;
-    return agents.filter((agent) => {
-      const activity = activityByAgent.get(agent.id);
-      return activityFilter === "active" ? activity?.current : activity?.recent;
-    });
-  }, [activityByAgent, activityFilter, agents, sourceFilter]);
+    let list = agents;
+    if (activityFilter !== "all") {
+      list = list.filter((agent) => {
+        const activity = activityByAgent.get(agent.id);
+        return activityFilter === "active" ? activity?.current : activity?.recent;
+      });
+    }
+    if (query.trim()) {
+      list = list.filter((agent) =>
+        missionAgentMatchesQuery(
+          {
+            name: agent.name,
+            handle: agent.handle,
+            project: agent.project,
+            branch: agent.branch,
+            harness: agent.harness,
+            id: agent.id,
+          },
+          query,
+        ),
+      );
+    }
+    return list;
+  }, [activityByAgent, activityFilter, agents, query, sourceFilter]);
 
   const visibleNativeSessions = useMemo(() => {
     if (sourceFilter === "scout") return [];
-    if (activityFilter === "all") return nativeSessions;
-    return nativeSessions.filter((session) =>
-      activityFilter === "active" ? session.current : session.recent
-    );
-  }, [activityFilter, nativeSessions, sourceFilter]);
+    let list = nativeSessions;
+    if (activityFilter !== "all") {
+      list = list.filter((session) =>
+        activityFilter === "active" ? session.current : session.recent
+      );
+    }
+    if (query.trim()) {
+      list = list.filter((session) =>
+        missionAgentMatchesQuery(
+          {
+            name: session.agent.name,
+            handle: session.agent.handle,
+            project: session.agent.project,
+            branch: session.agent.branch,
+            harness: session.agent.harness,
+            id: session.agent.id,
+          },
+          query,
+        ),
+      );
+    }
+    return list;
+  }, [activityFilter, nativeSessions, query, sourceFilter]);
+
+  useEffect(() => {
+    const merged = [
+      ...visibleAgents.map((a) => ({
+        id: a.id,
+        name: a.name,
+        handle: a.handle,
+        harness: a.harness,
+        branch: a.branch,
+        project: a.project,
+        model: a.model,
+        state: a.state,
+        agentClass: a.agentClass,
+        updatedAt: a.updatedAt,
+        source: "scout" as const,
+      })),
+      ...visibleNativeSessions.map((s) => ({
+        id: s.agent.id,
+        name: s.agent.name,
+        handle: s.agent.handle,
+        harness: s.agent.harness,
+        branch: s.agent.branch,
+        project: s.agent.project,
+        model: s.agent.model,
+        state: s.agent.state,
+        agentClass: s.agent.agentClass,
+        updatedAt: s.agent.updatedAt,
+        source: "native" as const,
+      })),
+    ];
+    setMissionVisibleAgents(merged);
+  }, [visibleAgents, visibleNativeSessions]);
 
   const canvasSubjects = useMemo(
     () => [
@@ -631,7 +704,11 @@ export function MissionControlView({
   }, [zoom]);
 
   /* ── Keyboard shortcuts ── */
-  const focusedAgent = focusedId ? agents.find((a) => a.id === focusedId) : null;
+  const focusedAgent = focusedId
+    ? (agents.find((a) => a.id === focusedId)
+        ?? visibleNativeSessions.find((s) => s.agent.id === focusedId)?.agent
+        ?? null)
+    : null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
@@ -714,6 +791,24 @@ export function MissionControlView({
             {activeCount} active
           </span>
         )}
+        <div className="s-mission-bar-search">
+          <input
+            type="text"
+            className="s-mission-bar-search-input"
+            placeholder="Search agents…  (press /)"
+            value={query}
+            onChange={(event) => setMissionQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                if (query) {
+                  setMissionQuery("");
+                } else {
+                  (event.target as HTMLInputElement).blur();
+                }
+              }
+            }}
+          />
+        </div>
         <div className="s-mission-controls" role="group" aria-label="Agent activity filter">
           <button
             type="button"
@@ -762,7 +857,7 @@ export function MissionControlView({
         </div>
         {activityFilter === "recent" && (
           <div className="s-mission-controls" role="group" aria-label="Recent activity window">
-            {RECENT_WINDOW_OPTIONS.map((option) => (
+            {MISSION_RECENT_WINDOWS.map((option) => (
               <button
                 key={option.value}
                 type="button"
@@ -856,7 +951,7 @@ export function MissionControlView({
                   observe={session.observe}
                   x={pos.x}
                   y={pos.y}
-                  onClick={() => navigate({ view: "ops", mode: "tail" })}
+                  onClick={() => setFocusedId(session.id)}
                 />
               );
             })}
@@ -884,6 +979,14 @@ export function MissionControlView({
               view: "conversation",
               conversationId: conversationForAgent(focusedAgent.id),
               composeMode: "ask",
+            });
+          }}
+          onTail={() => {
+            setFocusedId(null);
+            navigate({
+              view: "ops",
+              mode: "tail",
+              tailQuery: focusedAgent.handle ?? focusedAgent.name,
             });
           }}
           onProfile={() => {
@@ -1016,12 +1119,15 @@ function ObserveTile({
 
 /* ── Focus overlay — full SessionObserve ── */
 
+type FocusTab = "profile" | "activity" | "message";
+
 function FocusOverlay({
   agent,
   observe,
   onClose,
   onTell,
   onAsk,
+  onTail,
   onProfile,
 }: {
   agent: Agent;
@@ -1029,13 +1135,25 @@ function FocusOverlay({
   onClose: () => void;
   onTell: () => void;
   onAsk: () => void;
+  onTail: () => void;
   onProfile: () => void;
 }) {
   const color = actorColor(agent.name);
+  const { ref: dialogRef, onKeyDown: onTrapKeyDown } = useFocusTrap<HTMLDivElement>();
+  const [tab, setTab] = useState<FocusTab>("profile");
 
   return (
     <div className="s-mission-overlay" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ display: "contents" }}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mission-overlay-title"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onTrapKeyDown}
+        tabIndex={-1}
+        className="s-mission-overlay-dialog"
+      >
         <div className="s-mission-overlay-header">
           <div
             className="s-ops-avatar"
@@ -1043,10 +1161,10 @@ function FocusOverlay({
           >
             {agent.name[0]?.toUpperCase()}
           </div>
-          <div>
-            <div className="s-mission-overlay-name">
+          <div className="s-mission-overlay-identity">
+            <div className="s-mission-overlay-name" id="mission-overlay-title">
               {agent.name}{" "}
-              <span style={{ color: "var(--dim)", fontSize: 11 }}>
+              <span className="s-mission-overlay-handle">
                 {agent.handle ? `@${agent.handle}` : ""}
               </span>
             </div>
@@ -1054,16 +1172,119 @@ function FocusOverlay({
               {agent.project ?? "—"} · {agent.branch ?? "main"} · {agentStateLabel(agent.state)}
             </div>
           </div>
-          <div className="s-mission-overlay-actions">
-            <button className="s-ops-btn s-ops-btn--primary" onClick={onTell}>Tell</button>
-            <button className="s-ops-btn" onClick={onAsk}>Ask</button>
-            <button className="s-ops-btn" onClick={onProfile}>Profile ↗</button>
-            <button className="s-ops-btn" onClick={onClose}>ESC</button>
+          <button
+            className="s-mission-overlay-close"
+            onClick={onClose}
+            aria-label="Close (Esc)"
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="s-mission-overlay-tabs" role="tablist">
+          <div className="s-mission-overlay-tabs-group">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "profile"}
+              className={`s-mission-overlay-tab${tab === "profile" ? " s-mission-overlay-tab--active" : ""}`}
+              onClick={() => setTab("profile")}
+            >
+              Profile
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "activity"}
+              className={`s-mission-overlay-tab${tab === "activity" ? " s-mission-overlay-tab--active" : ""}`}
+              onClick={() => setTab("activity")}
+            >
+              Activity
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "message"}
+              className={`s-mission-overlay-tab${tab === "message" ? " s-mission-overlay-tab--active" : ""}`}
+              onClick={() => setTab("message")}
+            >
+              Message
+            </button>
+          </div>
+          <div className="s-mission-overlay-tabs-action">
+            {tab === "profile" && (
+              <button type="button" className="s-mission-overlay-jump" onClick={onProfile}>
+                Open profile ↗
+              </button>
+            )}
+            {tab === "activity" && (
+              <button type="button" className="s-mission-overlay-jump" onClick={onTail}>
+                Open in Tail ↗
+              </button>
+            )}
           </div>
         </div>
+
         <div className="s-mission-overlay-body">
-          <SessionObserve data={observe ?? undefined} agentId={agent.id} />
+          {tab === "profile" && <FocusProfileTab agent={agent} />}
+          {tab === "activity" && <FocusActivityTab agent={agent} observe={observe} />}
+          {tab === "message" && <FocusMessageTab onSteer={onTell} onAsk={onAsk} />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function FocusProfileTab({ agent }: { agent: Agent }) {
+  const rows: Array<[string, string]> = [
+    ["MODEL", [agent.harness, agent.model].filter(Boolean).join("/") || "—"],
+    ["AT", [agent.project, agent.branch].filter(Boolean).join("/") || "—"],
+    ["CWD", agent.cwd || agent.projectRoot || "—"],
+    ["AGENT", agent.agentClass || "—"],
+    ["ROLE", agent.role || agent.transport || "—"],
+    ["STATE", agentStateLabel(agent.state)],
+  ];
+  return (
+    <div className="s-focus-tab">
+      <dl className="s-focus-spec">
+        {rows.map(([k, v]) => (
+          <div key={k} className="s-focus-spec-row">
+            <dt className="s-focus-spec-label">{k}</dt>
+            <dd className="s-focus-spec-value" title={v}>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function FocusActivityTab({
+  agent,
+  observe,
+}: {
+  agent: Agent;
+  observe: SessionObserveData | null;
+}) {
+  return (
+    <div className="s-focus-tab s-focus-tab--activity">
+      <SessionObserve data={observe ?? undefined} agentId={agent.id} />
+    </div>
+  );
+}
+
+function FocusMessageTab({ onSteer, onAsk }: { onSteer: () => void; onAsk: () => void }) {
+  return (
+    <div className="s-focus-tab">
+      <div className="s-focus-actions">
+        <button type="button" className="s-focus-action" onClick={onSteer}>
+          <span className="s-focus-action-name">Steer ↗</span>
+          <span className="s-focus-action-desc">Send a message to redirect what this agent is doing.</span>
+        </button>
+        <button type="button" className="s-focus-action" onClick={onAsk}>
+          <span className="s-focus-action-name">Ask ↗</span>
+          <span className="s-focus-action-desc">Pose a question and wait for a structured answer.</span>
+        </button>
       </div>
     </div>
   );
@@ -1191,7 +1412,7 @@ function Minimap({
           </button>
         </div>
       </div>
-      <div ref={mapRef} className="s-mission-minimap-canvas" style={{ height: mmH }} onClick={handleCanvasClick}>
+      <div ref={mapRef} className="s-mission-minimap-canvas" style={{ height: mmH }} onClick={handleCanvasClick} aria-hidden="true">
         {layout.groups.flatMap((g) =>
           g.tiles.map((t) => {
             const agent = agents.find((a) => a.id === t.agentId);
