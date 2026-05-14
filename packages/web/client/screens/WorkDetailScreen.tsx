@@ -1,10 +1,12 @@
 import { BookOpen, Code2, FileText, MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DocumentFocusViewer, type DocumentFocusKind } from "../components/DocumentFocusViewer.tsx";
+import { StatusPill } from "../components/StatusPill.tsx";
 import { createTextDocument } from "../components/TextDocumentSurface.tsx";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
+import { workChildTone, workTone } from "../lib/status-tone.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { Route, WorkDetail, WorkMaterial, WorkMaterialContent, WorkMaterialsInventory, WorkTimelineItem } from "../lib/types.ts";
 
@@ -19,13 +21,6 @@ type ActionCue = {
   body: string;
   tone: "attention" | "blocked" | "active" | "quiet";
 };
-
-function pillVariant(work: WorkDetail): "updated" | "working" | "completed" | "failed" {
-  if (work.attention === "interrupt") return "failed";
-  if (work.state === "done") return "completed";
-  if (work.attention === "badge" || work.state === "waiting" || work.state === "review") return "updated";
-  return "working";
-}
 
 function stateLabel(state: string): string {
   switch (state) {
@@ -752,7 +747,7 @@ export function WorkDetailScreen({
         <div className="s-work-casefile-hero-main">
           <div className="s-work-casefile-title-row">
             <h1 className="s-work-casefile-title">{detail.title}</h1>
-            <span className={`s-pill s-pill-${pillVariant(detail)}`}>{detail.currentPhase}</span>
+            <StatusPill tone={workTone(detail)} variant="pill">{detail.currentPhase}</StatusPill>
           </div>
           {detail.lastMeaningfulSummary && (
             <div className="s-work-casefile-summary">
@@ -826,7 +821,7 @@ export function WorkDetailScreen({
                   >
                     <div className="s-work-flight-card-header">
                       <span className="s-work-flight-card-title">{flight.agentName ?? flight.agentId}</span>
-                      <span className="s-pill s-pill-working">{flight.state}</span>
+                      <StatusPill tone="working" variant="pill">{flight.state}</StatusPill>
                     </div>
                     <div className="s-work-flight-card-meta">
                       <span>{flight.startedAt ? `Started ${timeAgo(flight.startedAt)}` : "Start time unavailable"}</span>
@@ -854,9 +849,9 @@ export function WorkDetailScreen({
                   >
                     <div className="s-work-related-card-header">
                       <span className="s-work-related-card-title">{child.title}</span>
-                      <span className={`s-pill s-pill-${child.attention === "interrupt" ? "failed" : "updated"}`}>
+                      <StatusPill tone={workChildTone(child)} variant="pill">
                         {child.currentPhase}
-                      </span>
+                      </StatusPill>
                     </div>
                     <div className="s-work-related-card-meta">
                       <span>{child.ownerName ?? child.ownerId ?? "Unassigned"}</span>

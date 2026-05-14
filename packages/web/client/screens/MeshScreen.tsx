@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { StatusPill } from "../components/StatusPill.tsx";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import { stateColor } from "../lib/colors.ts";
+import { meshHealthTone, type Tone } from "../lib/status-tone.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
 import { MeshCanvas } from "./MeshCanvas.tsx";
 import { useScout } from "../scout/Provider.tsx";
@@ -23,13 +25,6 @@ function advertiseScopeLabel(scope?: string): string {
   if (scope === "local") return "Local only";
   if (scope) return scope;
   return "Not advertised";
-}
-
-function overallMeshTone(mesh: MeshStatus): "success" | "warning" | "danger" {
-  if (!mesh.health.reachable) return "danger";
-  if (mesh.issues.some((i) => i.severity === "error")) return "danger";
-  if (mesh.issues.length > 0) return "warning";
-  return "success";
 }
 
 function overallMeshLabel(mesh: MeshStatus): string {
@@ -98,7 +93,7 @@ function MeshHud({
 }: {
   mode: "map" | "fleet";
   mesh: MeshStatus | null;
-  tone: "success" | "warning" | "danger";
+  tone: Tone;
   statusLabel: string;
   loading: boolean;
   refreshing: boolean;
@@ -128,9 +123,9 @@ function MeshHud({
         </div>
       </div>
       <div className="mesh-hud-right">
-        {mesh && <span className={`sys-chip sys-chip-${tone}`}>{statusLabel}</span>}
+        {mesh && <StatusPill tone={tone}>{statusLabel}</StatusPill>}
         {mesh?.tailscale.available && !mesh.tailscale.running && (
-          <span className="sys-chip sys-chip-warning">Tailnet stopped</span>
+          <StatusPill tone="warning">Tailnet stopped</StatusPill>
         )}
         <span className="mesh-hud-sync">
           {loading
@@ -195,7 +190,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
     } finally { setTailscaleBusy(false); }
   }, []);
 
-  const tone = mesh ? overallMeshTone(mesh) : "warning";
+  const tone: Tone = mesh ? meshHealthTone(mesh) : "warning";
   const statusLabel = mesh ? overallMeshLabel(mesh) : "Loading";
   const nodes = mesh ? Object.values(mesh.nodes) : [];
   const localId = mesh?.localNode?.id;
@@ -261,7 +256,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
             <button type="button" className="mesh-mode-btn" onClick={() => setMeshViewMode("map")}>Map</button>
             <button type="button" className="mesh-mode-btn mesh-mode-btn--active">Fleet</button>
           </div>
-          {mesh && <span className={`sys-chip sys-chip-${tone}`}>{statusLabel}</span>}
+          {mesh && <StatusPill tone={tone}>{statusLabel}</StatusPill>}
           <div className="sys-sync-note">
             {loading ? "Loading…" : lastLoadedAt ? `Confirmed ${timeAgo(lastLoadedAt)}` : "—"}
           </div>
@@ -328,9 +323,9 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
                   <article key={node.id} className="sys-list-card">
                     <div className="sys-list-card-head">
                       <h3 className="sys-list-card-title">{node.name}</h3>
-                      <span className={`sys-chip sys-chip-${node.advertiseScope === "mesh" ? "success" : "neutral"}`}>
+                      <StatusPill tone={node.advertiseScope === "mesh" ? "success" : "neutral"}>
                         {advertiseScopeLabel(node.advertiseScope)}
-                      </span>
+                      </StatusPill>
                     </div>
                     <div className="sys-list-card-detail">
                       <span className="sys-detail-label">Node id</span>
@@ -376,9 +371,9 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
                   <article key={peer.id} className="sys-list-card">
                     <div className="sys-list-card-head">
                       <h3 className="sys-list-card-title">{tailnetPeerLabel(peer)}</h3>
-                      <span className={`sys-chip sys-chip-${peer.online ? "success" : "failed"}`}>
+                      <StatusPill tone={peer.online ? "success" : "danger"}>
                         {peer.online ? "Online" : "Offline"}
-                      </span>
+                      </StatusPill>
                     </div>
                     <div className="sys-list-card-detail">
                       <span className="sys-detail-label">Address</span>
