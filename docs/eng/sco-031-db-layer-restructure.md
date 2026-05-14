@@ -4,8 +4,8 @@
 Proposal — design only, no code in this proposal.
 
 **Proposal ID:** `sco-031`
-**Intent:** Split `packages/web/server/db-queries.ts` by domain, separate web vs mobile types, and introduce a single `ConversationsRepo` facade for conversation identity operations.
-**Companion to:** SCO-030 (Opaque conversation IDs). SCO-031 lands first to clean the modules SCO-030 will edit; SCO-030 then introduces the `natural_key` column and switches mint sites to `ConversationsRepo.ensureByNaturalKey`.
+**Intent:** Split `packages/web/server/db-queries.ts` by domain, separate web vs mobile types, and introduce a single `ConversationsApi` facade for conversation identity operations.
+**Companion to:** SCO-030 (Opaque conversation IDs). SCO-031 lands first to clean the modules SCO-030 will edit; SCO-030 then introduces the `natural_key` column and switches mint sites to `ConversationsApi.ensureByNaturalKey`.
 
 ## 1. Problem
 
@@ -24,7 +24,7 @@ The 683-line `packages/runtime/src/sqlite-projection.ts` is also fine — it is 
 
 - No rewrite of `SQLiteControlPlaneStore`. It stays a class, with its current methods, in its current file.
 - No type-level read/write enforcement (no `WriteStore` vs `ReadDb` split). The store already exposes a readonly handle (`this.readDb` at sqlite-store.ts:683); formalizing this in types is a separate SCO.
-- No extraction of `MessagesRepo`, `WorkRepo`, `FlightsRepo`, `FleetRepo`. Only `ConversationsRepo` lands here, because only conversations have a specific identity problem that SCO-030 needs to solve. Other repos extract opportunistically as their domains get surgery.
+- No extraction of `MessagesRepo`, `WorkRepo`, `FlightsRepo`, `FleetRepo`. Only `ConversationsApi` lands here, because only conversations have a specific identity problem that SCO-030 needs to solve. Other repos extract opportunistically as their domains get surgery.
 - No migration off drizzle (which is currently bounded to `deliveries` + `delivery_attempts` per `drizzle-schema.ts:39`) and no change to `drizzle-migrate.ts`.
 - No web client changes; this is purely server-side.
 - No projection refactor.
@@ -37,7 +37,7 @@ Three coordinated moves:
 
 **(b) Types split.** Web shapes (`WebAgent`, `WebMessage`, `WebWorkItem`, etc.) move to `db/types/web.ts`. Mobile shapes (`MobileSessionSummary`, `MobileAgentSummary`, `MobileWorkspaceSummary`, `MobileAgentDetail`) move to `db/types/mobile.ts`. Shared internal types (`SqlClause`, `WorkAttention`, `AgentSummaryState`) move to `db/internal/sql-helpers.ts`.
 
-**(c) `ConversationsRepo` facade.** A new repository module at `packages/runtime/src/repos/conversations.ts` becomes the *single* entry point for conversation identity operations across runtime and web. It wraps `SQLiteControlPlaneStore.upsertConversation` for writes and queries the conversations table directly for reads. SCO-030's new `ensureByNaturalKey` method lives here; legacy structural-ID parsing (`parseDirectConversationId` and friends) lives here as a transitional `resolveLegacyId` helper.
+**(c) `ConversationsApi` facade.** A new repository module at `packages/runtime/src/conversations/api.ts` becomes the *single* entry point for conversation identity operations across runtime and web. It wraps `SQLiteControlPlaneStore.upsertConversation` for writes and queries the conversations table directly for reads. SCO-030's new `ensureByNaturalKey` method lives here; legacy structural-ID parsing (`parseDirectConversationId` and friends) lives here as a transitional `resolveLegacyId` helper.
 
 Repository-per-aggregate is the right pattern for SQLite-backed identity logic — it gives a typed home for the "given X, find or mint the conversation" operations that SCO-030 needs and avoids leaking conversation-shape SQL across three different layers. We do not extract other aggregates yet because they don't have an identity crisis; doing them speculatively would balloon scope without payoff.
 
@@ -92,13 +92,13 @@ Concrete line-range mapping from current `db-queries.ts`:
 | `mobile/sessions.ts` | 2684-2832 | `queryMobileSessions` |
 | `mobile/workspaces.ts` | 2833-2910 | `queryMobileWorkspaces` |
 
-Conversation identity helpers (lines 2459-2530: `conversationIdForAgent`, `buildDirectConversationId`, `parseDirectConversationId`, `directConversationIdCandidates`, `conversationIdAliases`, `buildLegacyScoutSessionConversationId`, `parseLegacyScoutSessionConversationId`, `configuredOperatorActorIds`) do **not** land in `db/sessions.ts`. They move into `ConversationsRepo` (see §5). `db/sessions.ts` and any other consumer imports them from the repo.
+Conversation identity helpers (lines 2459-2530: `conversationIdForAgent`, `buildDirectConversationId`, `parseDirectConversationId`, `directConversationIdCandidates`, `conversationIdAliases`, `buildLegacyScoutSessionConversationId`, `parseLegacyScoutSessionConversationId`, `configuredOperatorActorIds`) do **not** land in `db/sessions.ts`. They move into `ConversationsApi` (see §5). `db/sessions.ts` and any other consumer imports them from the repo.
 
 Target sizes: each domain file 300-600 LOC. `work.ts` is the largest (~600 LOC because the work-item projections are dense); `agents.ts` and `messages.ts` are ~80 and ~50 LOC respectively, which is fine — keep the domain boundary.
 
-## 5. `ConversationsRepo` design
+## 5. `ConversationsApi` design
 
-**Location:** `packages/runtime/src/repos/conversations.ts`.
+**Location:** `packages/runtime/src/conversations/api.ts`.
 
 Rationale for runtime, not web: the write path is owned by `SQLiteControlPlaneStore`, which lives in runtime. Putting the repo there lets it call `store.upsertConversation` directly and re-use the store's `readDb` for queries. The web server consumes the repo through the existing `@openscout/runtime` package export. This avoids a circular dep — `packages/web` already depends on `@openscout/runtime` (see `db-queries.ts:22` importing `@openscout/runtime/support-paths`).
 
@@ -118,7 +118,7 @@ export interface EnsureConversationInput {
   metadata?: MetadataMap;
 }
 
-export interface ConversationsRepo {
+export interface ConversationsApi {
   findById(id: ScoutId): ConversationDefinition | null;
   findByNaturalKey(key: string): ConversationDefinition | null;
   findByAgent(agentId: ScoutId): ConversationDefinition | null;
@@ -146,21 +146,21 @@ export interface ConversationsRepo {
 **Constructor:**
 
 ```ts
-export class SQLiteConversationsRepo implements ConversationsRepo {
+export class Conversations implements ConversationsApi {
   constructor(private readonly store: SQLiteControlPlaneStore) {}
 }
 ```
 
-A single dependency: the existing store. This avoids opening a third connection to the SQLite file and reuses the store's `readDb` / `db` handles (which are already configured with the right pragmas). For pure-read consumers like the web server's per-request handlers we expose a thin factory `openConversationsRepoReadOnly(dbPath)` that constructs a read-only `SQLiteControlPlaneStore` internally — but for the SCO-031 first cut, web reads can continue to use the bun:sqlite `Database` handle they already have, and `ConversationsRepo` is wired in only on the writer side (broker, runtime). This keeps the SCO-031 surface small.
+A single dependency: the existing store. This avoids opening a third connection to the SQLite file and reuses the store's `readDb` / `db` handles (which are already configured with the right pragmas). For pure-read consumers like the web server's per-request handlers we expose a thin factory `openConversationsReadOnly(dbPath)` that constructs a read-only `SQLiteControlPlaneStore` internally — but for the SCO-031 first cut, web reads can continue to use the bun:sqlite `Database` handle they already have, and `ConversationsApi` is wired in only on the writer side (broker, runtime). This keeps the SCO-031 surface small.
 
 **Instantiation:**
 
 - Runtime: singleton, created where `SQLiteControlPlaneStore` is constructed (broker daemon, control-plane process). Stash it on the store as a public lazy getter `store.conversations`.
-- Web server: read-only consumers use the existing `db()` accessor from `internal/db.ts`, calling new bare functions in `db/sessions.ts` (which keep the same SQL as today, just relocated). The web server does **not** instantiate `ConversationsRepo` itself in v1 — mint operations from the web server already go through HTTP to the broker (`upsertScoutConversation` in `packages/web/server/core/broker/service.ts:316`), so the broker is the only writer-side caller. This sidesteps cross-process locking on the SQLite WAL.
+- Web server: read-only consumers use the existing `db()` accessor from `internal/db.ts`, calling new bare functions in `db/sessions.ts` (which keep the same SQL as today, just relocated). The web server does **not** instantiate `ConversationsApi` itself in v1 — mint operations from the web server already go through HTTP to the broker (`upsertScoutConversation` in `packages/web/server/core/broker/service.ts:316`), so the broker is the only writer-side caller. This sidesteps cross-process locking on the SQLite WAL.
 
 **Caching:** none in v1. `findById` is a single indexed point lookup; the dual handles in the store already keep read latency under 1ms. A `Map<ScoutId, ConversationDefinition>` LRU is a possible v2 if hot paths show up.
 
-**Naming.** `ConversationsRepo` over `ConversationRepository` (matches the brevity in this codebase: `SQLiteControlPlaneStore` not `SQLiteControlPlaneRepository`) and over `ConversationStore` (which would collide conceptually with `SQLiteControlPlaneStore`). The `SQLite*` prefix on the concrete class matches `SQLiteControlPlaneStore`.
+**Naming.** `ConversationsApi` over `ConversationRepository` (matches the brevity in this codebase: `SQLiteControlPlaneStore` not `SQLiteControlPlaneRepository`) and over `ConversationStore` (which would collide conceptually with `SQLiteControlPlaneStore`). The `SQLite*` prefix on the concrete class matches `SQLiteControlPlaneStore`.
 
 ## 6. Migration strategy for the `db-queries.ts` split
 
@@ -170,7 +170,7 @@ Three sequential PRs, but they can be one if review bandwidth allows. Each phase
 
 **Phase B: extract types.** Move all `Web*` and `Mobile*` types into `db/types/*.ts`. `db-queries.ts` re-exports them. All consumer files (`work-materials.ts:8`, `core/observe/service.ts:22`, `core/observe/service.sources.test.ts:7`, `db-queries.test.ts:11`) keep their imports unchanged because the barrel still works.
 
-**Phase C: extract domains.** Move query functions one domain at a time into `db/<domain>.ts`. Each step: copy function, replace `db-queries.ts` body with a re-export, run tests. Order: `agents.ts` → `messages.ts` → `broker.ts` → `activity.ts` → `runs.ts` → `work.ts` → `sessions.ts` → `fleet.ts` → `mobile/*`. The `sessions.ts` extraction is the only one with a wrinkle: its identity helpers move to `ConversationsRepo`, so this step is coupled with §7.
+**Phase C: extract domains.** Move query functions one domain at a time into `db/<domain>.ts`. Each step: copy function, replace `db-queries.ts` body with a re-export, run tests. Order: `agents.ts` → `messages.ts` → `broker.ts` → `activity.ts` → `runs.ts` → `work.ts` → `sessions.ts` → `fleet.ts` → `mobile/*`. The `sessions.ts` extraction is the only one with a wrinkle: its identity helpers move to `ConversationsApi`, so this step is coupled with §7.
 
 **Phase D: collapse the barrel.** Once consumers are updated to import directly from `db/<domain>` (mechanical sed-style replacement — every import site is listed below), `db-queries.ts` becomes a 30-line pure re-export barrel that we keep for one release as a deprecation shim, then delete.
 
@@ -197,11 +197,11 @@ Note: `apps/desktop/src/server/db-queries.ts` is **not** a vendor mirror — it 
 
 Recommendation: **migrate web only in the SCO-031 PR**. Desktop gets its own scoped split as a follow-up when convenient — its surface is smaller and its identity helpers (the parts SCO-030 cares about) likely match web's structurally. A pre-work reconciliation pass would balloon SCO-031 scope without payoff.
 
-## 7. Migration strategy for `ConversationsRepo`
+## 7. Migration strategy for `ConversationsApi`
 
 The repo lands with the same behavior as today's helpers, then SCO-030 changes the semantics.
 
-**Step 1:** Create `packages/runtime/src/repos/conversations.ts` and `repos/index.ts`. Export `ConversationsRepo` from `@openscout/runtime` package. Implement all eight methods using the existing structural-ID logic (lifted verbatim from `db-queries.ts:2459-2530`) and the store's `loadConversation` (promoted to public). `findByNaturalKey` returns null pending SCO-030. `ensureByNaturalKey` uses `naturalKey` as the literal `id` as a transitional bridge.
+**Step 1:** Create `packages/runtime/src/conversations/api.ts` and `repos/index.ts`. Export `ConversationsApi` from `@openscout/runtime` package. Implement all eight methods using the existing structural-ID logic (lifted verbatim from `db-queries.ts:2459-2530`) and the store's `loadConversation` (promoted to public). `findByNaturalKey` returns null pending SCO-030. `ensureByNaturalKey` uses `naturalKey` as the literal `id` as a transitional bridge.
 
 **Step 2:** Update `db/sessions.ts` to call the repo for `findByAgent` / `resolveLegacyId` lookups. The conversation-id helpers in db-queries are deleted from web; their content lives only in the repo.
 
@@ -216,7 +216,7 @@ The repo lands with the same behavior as today's helpers, then SCO-030 changes t
 - `sqlite-store.test.ts`: unchanged unless we promote `loadConversation` to public. If we do, add one test for `store.getConversation(id)`.
 - `sqlite-projection.test.ts`: unchanged.
 - `work-materials.test.ts`: import paths update mechanically.
-- **New tests:** `packages/runtime/src/repos/conversations.test.ts` covers `findById`, `findByAgent` (structural-ID path), `findByParticipants`, `upsert`, `delete`, `resolveLegacyId` (legacy parsing). `findByNaturalKey` / `ensureByNaturalKey` get tests in SCO-030, not here.
+- **New tests:** `packages/runtime/src/conversations/conversations.test.ts` covers `findById`, `findByAgent` (structural-ID path), `findByParticipants`, `upsert`, `delete`, `resolveLegacyId` (legacy parsing). `findByNaturalKey` / `ensureByNaturalKey` get tests in SCO-030, not here.
 
 No test hard-codes the path `"./db-queries.ts"` in a way that breaks if the file becomes a barrel; all imports are by name.
 
@@ -232,17 +232,17 @@ No test hard-codes the path `"./db-queries.ts"` in a way that breaks if the file
 
 SCO-031 is mechanical, low-risk, no-behavior-change. SCO-030 builds on top: adds a column, fills `findByNaturalKey`, switches mint sites, and (eventually) deprecates `resolveLegacyId`. Two separate PRs is the right shape — reviewers can verify SCO-031 with a simple "imports moved, exports unchanged" check, then focus SCO-030 review on identity semantics rather than module shuffling.
 
-If under PR-budget pressure, SCO-031 phases A+B+C can be one PR, and `ConversationsRepo` introduction (the heart of §7) can be the SCO-030 PR. We prefer two PRs.
+If under PR-budget pressure, SCO-031 phases A+B+C can be one PR, and `ConversationsApi` introduction (the heart of §7) can be the SCO-030 PR. We prefer two PRs.
 
 ## 11. Acceptance criteria
 
 - `packages/web/server/db-queries.ts` is either deleted or a pure re-export barrel under 50 lines.
 - `packages/web/server/db/` exists with 8 domain files + `mobile/` subdir + `types/` subdir + `internal/` subdir. Each domain file is 300-600 LOC except `agents.ts` (~80 LOC) and `messages.ts` (~50 LOC) where the domain is naturally small.
 - Every former export of `db-queries.ts` resolves to a single home in `db/` (no duplicate exports across files).
-- `packages/runtime/src/repos/conversations.ts` exists, exports a `ConversationsRepo` interface and a `SQLiteConversationsRepo` class, has the eight methods listed in §5.
-- `ConversationsRepo` is the only module containing the structural-ID parse/build helpers (`dm.operator.<agent>`, the `dm.<agent>.scout.main.mini` legacy form, etc.). No structural-ID string literal appears outside the repo.
-- `SQLiteControlPlaneStore` exposes `store.conversations: ConversationsRepo` (lazy getter).
-- All existing tests pass with no behavior changes. One new test file `repos/conversations.test.ts` exists.
+- `packages/runtime/src/conversations/api.ts` exists, exports a `ConversationsApi` interface and a `Conversations` class, has the eight methods listed in §5.
+- `ConversationsApi` is the only module containing the structural-ID parse/build helpers (`dm.operator.<agent>`, the `dm.<agent>.scout.main.mini` legacy form, etc.). No structural-ID string literal appears outside the repo.
+- `SQLiteControlPlaneStore` exposes `store.conversations: ConversationsApi` (lazy getter).
+- All existing tests pass with no behavior changes. One new test file `conversations/api.test.ts` exists.
 - Both `packages/web/server/db-queries.ts` and `apps/desktop/src/server/db-queries.ts` are migrated in the same PR (or coordinated PRs).
 
 ## 12. Verification
@@ -254,7 +254,7 @@ bun test packages/web/server/work-materials.test.ts
 bun test packages/web/server/core/observe/service.sources.test.ts
 bun test packages/runtime/src/sqlite-store.test.ts
 bun test packages/runtime/src/sqlite-projection.test.ts
-bun test packages/runtime/src/repos/conversations.test.ts
+bun test packages/runtime/src/conversations/conversations.test.ts
 bun run --cwd packages/web build:server
 bun run --cwd packages/runtime build
 npm --prefix packages/cli run build
@@ -264,15 +264,15 @@ Grep checks (should return zero hits after the split):
 
 ```bash
 grep -rn "from.*db-queries" packages apps  # only the barrel itself
-grep -rn "buildDirectConversationId\|parseDirectConversationId" packages apps  # only inside repos/conversations.ts
-grep -rn '"dm\.' packages/web apps/desktop  # only inside ConversationsRepo (and tests)
+grep -rn "buildDirectConversationId\|parseDirectConversationId" packages apps  # only inside conversations/api.ts
+grep -rn '"dm\.' packages/web apps/desktop  # only inside ConversationsApi (and tests)
 ```
 
 ## 13. Open questions
 
 1. **`runs.ts` vs `flights.ts` granularity.** Today `queryRuns`, `queryFlights`, `queryFlightRecordById`, and `queryFollowTarget` all live in the runs region (db-queries.ts:1098-1534) and share `RunQueryRow` projection helpers. Split into two files or stay one? Recommendation: stay one (`runs.ts`), 440 LOC, well within the target band, projections are tightly coupled.
-2. **Where the repo lives.** Proposed: `packages/runtime/src/repos/conversations.ts`. Alternative: a new package `packages/data` containing both the schema and all repos. Recommendation: stay in runtime. A new package adds a build target without adding clarity until we have ≥3 repos.
+2. **Where the repo lives.** Proposed: `packages/runtime/src/conversations/api.ts`. Alternative: a new package `packages/data` containing both the schema and all repos. Recommendation: stay in runtime. A new package adds a build target without adding clarity until we have ≥3 repos.
 3. **Promote `loadConversation` to public on `SQLiteControlPlaneStore`?** Recommendation: yes. Rename to `getConversation` and make it public. The repo then calls `store.getConversation(id)` rather than reaching into a private. The cost is one line in `sqlite-store.ts` and a tiny test.
-4. **Should the web server own a `ConversationsRepo` instance too?** Recommendation: not in SCO-031. Web mints go through HTTP to the broker. If the web server later starts writing conversations directly (e.g., for offline mode), revisit.
+4. **Should the web server own a `ConversationsApi` instance too?** Recommendation: not in SCO-031. Web mints go through HTTP to the broker. If the web server later starts writing conversations directly (e.g., for offline mode), revisit.
 5. **`ensureByNaturalKey` transitional behavior.** In SCO-031, should it (a) use `naturalKey` as the row's `id` directly, or (b) refuse with an error pending SCO-030? Recommendation: (a). It keeps the API callable and gives SCO-030 a feature flag rather than a hard switch.
-6. **Naming.** `ConversationsRepo` (plural, "repository for conversations") or `ConversationRepository` (singular, classic DDD)? Recommendation: `ConversationsRepo`. Matches OpenScout terseness; the codebase already uses `repos/` plural in directory names elsewhere (none yet — but this sets the convention).
+6. **Naming.** `ConversationsApi` (plural, "repository for conversations") or `ConversationRepository` (singular, classic DDD)? Recommendation: `ConversationsApi`. Matches OpenScout terseness; the codebase already uses `repos/` plural in directory names elsewhere (none yet — but this sets the convention).

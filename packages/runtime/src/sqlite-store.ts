@@ -57,6 +57,7 @@ import {
 } from "./registry.js";
 import { openControlPlaneDrizzle } from "./drizzle-client.js";
 import { applyControlPlaneDrizzleMigrations, stampControlPlaneSchemaVersion } from "./drizzle-migrate.js";
+import { Conversations, type ConversationsApi } from "./conversations/api.js";
 import { CONTROL_PLANE_SQLITE_SCHEMA, deliveryAttemptsTable, deliveriesTable } from "./schema.js";
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -686,6 +687,7 @@ export class SQLiteControlPlaneStore {
   private readonly persistEventsBatch: (events: ControlEvent[]) => void;
   private pendingEvents: ControlEvent[] = [];
   private flushPendingEventsTimer: ReturnType<typeof setTimeout> | null = null;
+  private conversationsApi: ConversationsApi | null = null;
 
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -1079,7 +1081,7 @@ export class SQLiteControlPlaneStore {
   }
 
   getThreadSnapshot(conversationId: string): ThreadSnapshot | null {
-    const conversation = this.loadConversation(conversationId);
+    const conversation = this.getConversation(conversationId);
     if (!conversation) {
       return null;
     }
@@ -2680,7 +2682,46 @@ export class SQLiteControlPlaneStore {
     };
   }
 
-  private loadConversation(conversationId: string, db: Database = this.db): ConversationDefinition | null {
+  /**
+   * SCO-031 §5: lazy singleton `Conversations` api bound to this store.
+   * Callers do `store.conversations.findById(id)` rather than reaching for
+   * `getConversation` directly. The api owns conversation identity logic
+   * (legacy structural-ID parsing, future `ensureByNaturalKey` semantics).
+   */
+  get conversations(): ConversationsApi {
+    if (!this.conversationsApi) {
+      this.conversationsApi = new Conversations(this);
+    }
+    return this.conversationsApi;
+  }
+
+  /**
+   * @internal SCO-031: writer-side `Database` exposed to `Conversations`
+   * so the api can issue conversation-only queries without opening a third
+   * connection. Not part of the public API; downstream code should go through
+   * `store.conversations` or other purpose-built methods.
+   */
+  get writerDb(): Database {
+    return this.db;
+  }
+
+  /**
+   * @internal SCO-031: read-side `Database` (PRAGMA `query_only`) exposed to
+   * `Conversations`. Same caveats as `writerDb` — internal only.
+   */
+  get readerDb(): Database {
+    return this.readDb;
+  }
+
+  /**
+   * Load the canonical `ConversationDefinition` for a conversation id, or
+   * `null` when the row is unknown. Promoted to public per SCO-031 §13 Q3 so
+   * `Conversations.findById` can call it without reaching into a private — the
+   * api (`packages/runtime/src/conversations/api.ts`) is the intended caller.
+   * Other call sites should prefer `store.conversations.findById` over
+   * invoking this directly.
+   */
+  getConversation(conversationId: string, db: Database = this.db): ConversationDefinition | null {
     const row = queryGet<ConversationRow, [string]>(
       db,
       "SELECT * FROM conversations WHERE id = ?1 LIMIT 1",
@@ -2781,7 +2822,7 @@ export class SQLiteControlPlaneStore {
   }
 
   private buildThreadMessageEvent(message: MessageRecord, db: Database = this.db): ThreadEventInsert | null {
-    const conversation = this.loadConversation(message.conversationId, db);
+    const conversation = this.getConversation(message.conversationId, db);
     if (!conversation) {
       return null;
     }
@@ -2811,7 +2852,7 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    const conversation = this.loadConversation(invocation.conversation_id);
+    const conversation = this.getConversation(invocation.conversation_id);
     if (!conversation) {
       return [];
     }
@@ -2837,7 +2878,7 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    const conversation = this.loadConversation(record.conversationId);
+    const conversation = this.getConversation(record.conversationId);
     if (!conversation) {
       return [];
     }
@@ -2867,7 +2908,7 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    const conversation = this.loadConversation(record.conversation_id);
+    const conversation = this.getConversation(record.conversation_id);
     if (!conversation) {
       return [];
     }

@@ -127,6 +127,16 @@
       "types": "./src/harness-topology/index.ts",
       "bun": "./src/harness-topology/index.ts",
       "default": "./dist/harness-topology/index.js"
+    },
+    "./conversations": {
+      "types": "./src/conversations/index.ts",
+      "bun": "./src/conversations/index.ts",
+      "default": "./dist/conversations/index.js"
+    },
+    "./conversations/legacy-ids": {
+      "types": "./src/conversations/legacy-ids.ts",
+      "bun": "./src/conversations/legacy-ids.ts",
+      "default": "./dist/conversations/legacy-ids.js"
     }
   },
   "types": "./src/index.ts",
