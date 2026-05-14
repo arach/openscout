@@ -5,7 +5,7 @@
  *
  * Extracted from `db-queries.ts` as SCO-031 Phase C's last extraction. The
  * queries here intentionally stay on direct SQL through `db()` — they do
- * **not** route through `ConversationsRepo` yet. SCO-030 will fold the
+ * **not** route through `Conversations` yet. SCO-030 will fold the
  * `queryConversationDefinitionById` path into `repo.findById` once opaque ids
  * land; the picker helpers below are display-ordering logic that may stay
  * here regardless.

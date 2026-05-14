@@ -11,7 +11,7 @@
  * `querySessionById` (db-queries.ts) when the requested target is sparse;
  * the latter creates a small import cycle with db-queries.ts that is only
  * exercised at call time, not at module load. Per SCO-031 §6, the session
- * cluster moves to `ConversationsRepo` in a follow-up step, at which point
+ * cluster moves to `Conversations` in a follow-up step, at which point
  * the cycle disappears.
  */
 
@@ -478,7 +478,7 @@ export function queryFollowTarget(opts: {
 
   if (target.conversationId && (!target.sessionId || !target.targetAgentId)) {
     // querySessionById now lives in db/sessions.ts (SCO-031 final extraction).
-    // SCO-030 may fold this back into `ConversationsRepo` once opaque ids land.
+    // SCO-030 may fold this back into `Conversations` once opaque ids land.
     const session = querySessionById(target.conversationId);
     target.sessionId = target.sessionId ?? session?.harnessSessionId ?? null;
     target.targetAgentId = target.targetAgentId ?? session?.agentId ?? null;

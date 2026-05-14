@@ -128,15 +128,15 @@
       "bun": "./src/harness-topology/index.ts",
       "default": "./dist/harness-topology/index.js"
     },
-    "./repos": {
-      "types": "./src/repos/index.ts",
-      "bun": "./src/repos/index.ts",
-      "default": "./dist/repos/index.js"
+    "./conversations": {
+      "types": "./src/conversations/index.ts",
+      "bun": "./src/conversations/index.ts",
+      "default": "./dist/conversations/index.js"
     },
-    "./repos/legacy-conversation-ids": {
-      "types": "./src/repos/legacy-conversation-ids.ts",
-      "bun": "./src/repos/legacy-conversation-ids.ts",
-      "default": "./dist/repos/legacy-conversation-ids.js"
+    "./conversations/legacy-ids": {
+      "types": "./src/conversations/legacy-ids.ts",
+      "bun": "./src/conversations/legacy-ids.ts",
+      "default": "./dist/conversations/legacy-ids.js"
     }
   },
   "types": "./src/index.ts",

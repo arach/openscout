@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { ConversationDefinition } from "@openscout/protocol";
 
 import { SQLiteControlPlaneStore } from "../sqlite-store.ts";
-import { conversationIdForAgent } from "./legacy-conversation-ids.ts";
+import { conversationIdForAgent } from "./legacy-ids.ts";
 
 const dbRoots = new Set<string>();
 
@@ -68,7 +68,7 @@ function makeConversation(overrides: Partial<ConversationDefinition> = {}): Conv
   };
 }
 
-describe("SQLiteConversationsRepo", () => {
+describe("Conversations", () => {
   test("exposes a singleton via store.conversations", () => {
     const store = createStore();
     try {

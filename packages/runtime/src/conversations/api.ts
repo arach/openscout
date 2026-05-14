@@ -1,6 +1,9 @@
 /**
- * `ConversationsRepo` — the single, repository-pattern entry point for
- * conversation identity operations across runtime and web (SCO-031 §5).
+ * `Conversations` — the single, service-shaped entry point for conversation
+ * identity operations across runtime and web (SCO-031 §5). Despite the
+ * "repo" framing in the design doc, this is not a pure repository — methods
+ * like `ensureByNaturalKey` and `resolveLegacyId` carry domain logic, so it
+ * is named for what it is: the conversations API on the store.
  *
  * Read methods reuse the host `SQLiteControlPlaneStore`'s connection handles
  * so we never open a third bun:sqlite connection to the same database file.
@@ -11,7 +14,7 @@
  * SCO-030 then fills in `findByNaturalKey` + `ensureByNaturalKey` once the
  * `natural_key` column lands. Until then `resolveLegacyId` carries the
  * deprecated `dm.{operator}.{agent}` parse/build helpers — see
- * `./legacy-conversation-ids.ts` for the structural form definitions.
+ * `./legacy-ids.ts` for the structural form definitions.
  */
 
 import type { Database } from "bun:sqlite";
@@ -32,7 +35,7 @@ import {
   directConversationIdCandidates,
   parseDirectConversationId,
   parseLegacyScoutSessionConversationId,
-} from "./legacy-conversation-ids.js";
+} from "./legacy-ids.js";
 
 export interface EnsureConversationInput {
   naturalKey: string;
@@ -47,7 +50,7 @@ export interface EnsureConversationInput {
   metadata?: MetadataMap;
 }
 
-export interface ConversationsRepo {
+export interface ConversationsApi {
   findById(id: ScoutId): ConversationDefinition | null;
   findByNaturalKey(key: string): ConversationDefinition | null;
   findByAgent(agentId: ScoutId): ConversationDefinition | null;
@@ -63,7 +66,7 @@ interface ConversationRow {
   id: string;
 }
 
-export class SQLiteConversationsRepo implements ConversationsRepo {
+export class Conversations implements ConversationsApi {
   constructor(private readonly store: SQLiteControlPlaneStore) {}
 
   private get readDb(): Database {

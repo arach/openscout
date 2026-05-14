@@ -57,7 +57,7 @@ import {
 } from "./registry.js";
 import { openControlPlaneDrizzle } from "./drizzle-client.js";
 import { applyControlPlaneDrizzleMigrations, stampControlPlaneSchemaVersion } from "./drizzle-migrate.js";
-import { SQLiteConversationsRepo, type ConversationsRepo } from "./repos/conversations.js";
+import { Conversations, type ConversationsApi } from "./conversations/api.js";
 import { CONTROL_PLANE_SQLITE_SCHEMA, deliveryAttemptsTable, deliveriesTable } from "./schema.js";
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -687,7 +687,7 @@ export class SQLiteControlPlaneStore {
   private readonly persistEventsBatch: (events: ControlEvent[]) => void;
   private pendingEvents: ControlEvent[] = [];
   private flushPendingEventsTimer: ReturnType<typeof setTimeout> | null = null;
-  private conversationsRepo: ConversationsRepo | null = null;
+  private conversationsApi: ConversationsApi | null = null;
 
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -2683,21 +2683,21 @@ export class SQLiteControlPlaneStore {
   }
 
   /**
-   * SCO-031 §5: lazy singleton `SQLiteConversationsRepo` bound to this store.
+   * SCO-031 §5: lazy singleton `Conversations` api bound to this store.
    * Callers do `store.conversations.findById(id)` rather than reaching for
-   * `getConversation` directly. The repo owns conversation identity logic
+   * `getConversation` directly. The api owns conversation identity logic
    * (legacy structural-ID parsing, future `ensureByNaturalKey` semantics).
    */
-  get conversations(): ConversationsRepo {
-    if (!this.conversationsRepo) {
-      this.conversationsRepo = new SQLiteConversationsRepo(this);
+  get conversations(): ConversationsApi {
+    if (!this.conversationsApi) {
+      this.conversationsApi = new Conversations(this);
     }
-    return this.conversationsRepo;
+    return this.conversationsApi;
   }
 
   /**
-   * @internal SCO-031: writer-side `Database` exposed to `SQLiteConversationsRepo`
-   * so the repo can issue conversation-only queries without opening a third
+   * @internal SCO-031: writer-side `Database` exposed to `Conversations`
+   * so the api can issue conversation-only queries without opening a third
    * connection. Not part of the public API; downstream code should go through
    * `store.conversations` or other purpose-built methods.
    */
@@ -2707,7 +2707,7 @@ export class SQLiteControlPlaneStore {
 
   /**
    * @internal SCO-031: read-side `Database` (PRAGMA `query_only`) exposed to
-   * `SQLiteConversationsRepo`. Same caveats as `writerDb` — internal only.
+   * `Conversations`. Same caveats as `writerDb` — internal only.
    */
   get readerDb(): Database {
     return this.readDb;
@@ -2716,10 +2716,10 @@ export class SQLiteControlPlaneStore {
   /**
    * Load the canonical `ConversationDefinition` for a conversation id, or
    * `null` when the row is unknown. Promoted to public per SCO-031 §13 Q3 so
-   * `SQLiteConversationsRepo.findById` can call it without reaching into a
-   * private — the repo (`packages/runtime/src/repos/conversations.ts`) is the
-   * intended caller. Other call sites should prefer `store.conversations.findById`
-   * over invoking this directly.
+   * `Conversations.findById` can call it without reaching into a private — the
+   * api (`packages/runtime/src/conversations/api.ts`) is the intended caller.
+   * Other call sites should prefer `store.conversations.findById` over
+   * invoking this directly.
    */
   getConversation(conversationId: string, db: Database = this.db): ConversationDefinition | null {
     const row = queryGet<ConversationRow, [string]>(

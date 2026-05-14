@@ -4,10 +4,10 @@
  * This module owns the *structural* `dm.{operator}.{agent}` /
  * `dm.{agent}.scout.main.mini` parsing-and-construction helpers that SCO-030
  * (Opaque Conversation IDs) is replacing. It lives in runtime, next to
- * `SQLiteConversationsRepo`, because the repo is the durable home for
+ * `Conversations`, because the conversations API is the durable home for
  * conversation identity (SCO-031 §5). `packages/web/server/db/internal/conversation-ids.ts`
  * re-exports from here for backwards compatibility with the web domain files
- * extracted in SCO-031 Phase C; new callers should reach for the repo's
+ * extracted in SCO-031 Phase C; new callers should reach for the api's
  * `findByAgent` / `resolveLegacyId` methods instead.
  *
  * When SCO-030 lands:
