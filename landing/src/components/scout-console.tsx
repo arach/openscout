@@ -302,7 +302,7 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
           <div className="scout-console__rail-self">
             <span className="scout-console__rail-dot scout-console__rail-dot--you" aria-hidden />
             <span className="scout-console__rail-name">you</span>
-            <span className="scout-console__rail-tag scout-console__rail-tag--self">dev</span>
+            <span className="scout-console__rail-tag scout-console__rail-tag--self">operator</span>
           </div>
         </aside>
 
@@ -356,7 +356,7 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
 {`@id[.workspace][.harness:<v>][.model:<v>][.node:<v>]
 @id#harness          # shorthand
 @id?model            # shorthand
-@alias               # dev-set`}
+@alias               # operator-set`}
               </pre>
             </div>
           </div>
