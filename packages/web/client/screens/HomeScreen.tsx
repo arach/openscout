@@ -1,7 +1,8 @@
 import "./fleet-home.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, ExternalLink, RefreshCw, Settings, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Settings, X } from "lucide-react";
+import HomeHero from "./HomeHero.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -365,100 +366,37 @@ export function HomeScreen({
         ? `updated ${timeAgo(lastLoadedAt)}`
         : "waiting";
 
+  const heroProps = {
+    now,
+    greeting,
+    operatorName,
+    syncLabel,
+    error,
+    loading,
+    refreshing,
+    onRefresh: () => void load("manual"),
+    activeCount: active.length,
+    waitingCount: waiting.length,
+    offlineCount: offline.length,
+    totalAgents: agents.length,
+    totalOperatorQueue,
+    narrativeParts,
+    navigate,
+    opsEnabled,
+    onReviewQueue: () => {
+      const target = document.getElementById("home-needs-you");
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    heartrate,
+    heartrateWindow,
+    heartrateBucketLabel,
+  };
+
   return (
     <div className="s-fleet-home">
       <div className="s-fleet-home-inner">
         {/* ── Hero briefing ──────────────────────────────────────── */}
-        <div className="s-hero">
-          <div>
-            <div className="s-eyebrow" style={{ marginBottom: 12 }}>
-              Fleet briefing ·{" "}
-              {now.toLocaleDateString([], {
-                weekday: "long",
-                month: "short",
-                day: "numeric",
-              })}
-              <span
-                className={`s-fleet-sync-note${error ? " s-fleet-sync-note--error" : ""}`}
-              >
-                {syncLabel}
-              </span>
-            </div>
-            <h1 className="s-hero-greeting">
-              {greeting}, <em>{operatorName}.</em>
-            </h1>
-            <p className="s-hero-narrative">
-              {narrativeParts.map((part, i) => (
-                <span key={i}>
-                  {i > 0 && ", "}
-                  {part.includes("need") ? (
-                    <span className="s-hero-warn">{part}</span>
-                  ) : (
-                    <strong>{part}</strong>
-                  )}
-                </span>
-              ))}
-              .
-            </p>
-            <div className="s-hero-actions">
-              {totalOperatorQueue > 0 && (
-                <button
-                  className="s-btn-fleet s-btn-fleet--primary"
-                  onClick={() => {
-                    const target = document.getElementById("home-needs-you");
-                    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                >
-                  Review queue · {totalOperatorQueue}
-                </button>
-              )}
-              {opsEnabled && (
-                <button
-                  className="s-btn-fleet"
-                  onClick={() => navigate({ view: "ops" })}
-                >
-                  Open ops center
-                </button>
-              )}
-              <button
-                className="s-btn-fleet"
-                onClick={() => navigate({ view: "sessions" })}
-              >
-                Jump to thread
-              </button>
-              <button
-                type="button"
-                className="s-btn-fleet s-btn-fleet--icon"
-                disabled={loading || refreshing}
-                onClick={() => void load("manual")}
-              >
-                <RefreshCw
-                  aria-hidden="true"
-                  size={12}
-                  strokeWidth={2}
-                  className={refreshing ? "s-refresh-spin" : undefined}
-                />
-                <span>{refreshing ? "Refreshing" : "Refresh"}</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="s-heartrate-card">
-            <div className="s-heartrate-header">
-              <span className="s-eyebrow">Fleet heart-rate</span>
-              <span style={{ flex: 1 }} />
-              <span className="s-heartrate-live">
-                ● {heartrateWindow}{heartrateBucketLabel ? ` · ${heartrateBucketLabel}` : ""}
-              </span>
-            </div>
-            <HeartrateGraph buckets={heartrate} />
-            <div className="s-heartrate-stats">
-              <StatCell label="Active" value={active.length} color="var(--green)" />
-              <StatCell label="Waiting" value={waiting.length} color="var(--amber)" />
-              <StatCell label="Offline" value={offline.length} color="var(--dim)" />
-            </div>
-          </div>
-        </div>
+        <HomeHero {...heroProps} />
 
         {/* ── Network signals ─────────────────────────────────────── */}
         <div className="s-fleet-section" id="home-needs-you">
@@ -584,138 +522,6 @@ export function HomeScreen({
 }
 
 /* ── Sub-components ────────────────────────────────────────────────── */
-
-function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
-  if (points.length === 0) return "";
-  if (points.length === 1) return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
-
-  const commands = [`M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`];
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[Math.min(points.length - 1, i + 2)];
-    const cp1 = {
-      x: p1.x + (p2.x - p0.x) / 6,
-      y: p1.y + (p2.y - p0.y) / 6,
-    };
-    const cp2 = {
-      x: p2.x - (p3.x - p1.x) / 6,
-      y: p2.y - (p3.y - p1.y) / 6,
-    };
-    commands.push(
-      `C ${cp1.x.toFixed(1)} ${cp1.y.toFixed(1)}, ${cp2.x.toFixed(1)} ${cp2.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`,
-    );
-  }
-  return commands.join(" ");
-}
-
-function HeartrateGraph({ buckets }: { buckets: HeartrateBucketView[] }) {
-  const W = 372;
-  const H = 82;
-  const chartTop = 6;
-  const chartBottom = 60;
-  const labelY = 77;
-  const N = buckets.length;
-  const allZero = N < 2 || buckets.every((bucket) => bucket.count === 0);
-
-  if (allZero) {
-    return (
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
-        <line x1="0" y1={chartBottom} x2={W} y2={chartBottom} stroke="var(--border)" />
-        <text
-          x={W / 2}
-          y={H / 2 - 4}
-          textAnchor="middle"
-          fill="var(--dim)"
-          fontSize="14"
-          letterSpacing="0.3em"
-        >
-          zzz
-        </text>
-        <text
-          x={W / 2}
-          y={H / 2 + 12}
-          textAnchor="middle"
-          fill="var(--dim)"
-          fontSize="10"
-          fontFamily="var(--hud-font-mono)"
-          opacity="0.7"
-        >
-          nothing to report
-        </text>
-      </svg>
-    );
-  }
-
-  const stepX = W / (N - 1);
-  const points = buckets.map((bucket, i) => ({
-    x: i * stepX,
-    y: chartBottom - Math.max(0, Math.min(1, bucket.value)) * (chartBottom - chartTop),
-  }));
-  const path = buildSmoothPath(points);
-  const areaPath = `${path} L ${W} ${chartBottom} L 0 ${chartBottom} Z`;
-
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      style={{ width: "100%", height: H, display: "block" }}
-    >
-      <defs>
-        <linearGradient id="hrFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.28" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <line x1="0" y1={chartTop} x2={W} y2={chartTop} stroke="var(--border)" opacity="0.18" />
-      <line x1="0" y1={(chartTop + chartBottom) / 2} x2={W} y2={(chartTop + chartBottom) / 2} stroke="var(--border)" opacity="0.25" />
-      <line
-        x1="0"
-        y1={chartBottom}
-        x2={W}
-        y2={chartBottom}
-        stroke="var(--border)"
-      />
-      <path d={areaPath} fill="url(#hrFill)" />
-      <path d={path} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
-      <circle
-        cx={points[N - 1].x}
-        cy={points[N - 1].y}
-        r="3.5"
-        fill="var(--accent)"
-      />
-      <text x="0" y={labelY} fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">
-        7d ago
-      </text>
-      <text x={W / 2} y={labelY} textAnchor="middle" fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">
-        3d
-      </text>
-      <text x={W} y={labelY} textAnchor="end" fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">
-        now
-      </text>
-    </svg>
-  );
-}
-
-function StatCell({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <div className="s-stat">
-      <div className="s-stat-label">
-        <span className="s-stat-dot" style={{ background: color }} />
-        <span className="s-eyebrow">{label}</span>
-      </div>
-      <span className="s-stat-value">{value}</span>
-    </div>
-  );
-}
 
 function SectionRule({
   label,

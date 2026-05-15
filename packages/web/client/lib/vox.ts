@@ -42,6 +42,9 @@ export type VoxSpeakResult = {
   modelId: string;
   voiceId: string;
   audioBytes: number;
+  metrics?: Record<string, unknown>;
+  traceId?: string;
+  speechTiming?: VoxSpeechTimingResult;
 };
 
 export type VoxSpeakHandle = {
@@ -52,6 +55,49 @@ export type VoxSpeakHandle = {
 export type VoxSpeakOptions = {
   signal?: AbortSignal;
   speed?: number;
+  instructions?: string;
+  originAppId?: string;
+  utteranceId?: string;
+  speechTiming?: VoxSpeechTimingRequest;
+};
+
+export type VoxSpeechTimingCueRequest = {
+  id: string;
+  textStart?: number;
+  textEnd?: number;
+  text?: string;
+};
+
+export type VoxSpeechTimingRequest = {
+  enabled: true;
+  modelId?: string;
+  strict?: boolean;
+  cues?: VoxSpeechTimingCueRequest[];
+};
+
+export type VoxSpeechTimingWord = {
+  word: string;
+  startMs: number;
+  endMs: number;
+  confidence?: number;
+  sourceTextStart?: number;
+  sourceTextEnd?: number;
+};
+
+export type VoxSpeechTimingCueResult = {
+  id: string;
+  startMs: number;
+  endMs?: number;
+  confidence?: number;
+  source?: string;
+};
+
+export type VoxSpeechTimingResult = {
+  source?: string;
+  modelId?: string;
+  elapsedMs?: number;
+  words?: VoxSpeechTimingWord[];
+  cues?: VoxSpeechTimingCueResult[];
 };
 
 export type VoxLaunchOptions = {
@@ -183,13 +229,26 @@ export async function prepareVoxSpeech(
   text: string,
   options: VoxSpeakOptions = {},
 ): Promise<VoxSpeakResult> {
+  const body: Record<string, unknown> = {
+    text,
+    speed: normalizeSpeechSpeed(options.speed),
+  };
+  if (options.originAppId) {
+    body.originAppId = options.originAppId;
+  }
+  if (options.utteranceId) {
+    body.utteranceId = options.utteranceId;
+  }
+  if (options.instructions) {
+    body.instructions = options.instructions;
+  }
+  if (options.speechTiming?.enabled) {
+    body.speechTiming = options.speechTiming;
+  }
   const response = await fetch("/api/voice/speak", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      text,
-      speed: normalizeSpeechSpeed(options.speed),
-    }),
+    body: JSON.stringify(body),
     signal: options.signal,
   });
   if (!response.ok) {
@@ -209,7 +268,7 @@ export async function prepareVoxSpeech(
 
 export async function playPreparedVoxSpeech(
   result: VoxSpeakResult,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; onPlaybackStart?: () => void } = {},
 ): Promise<VoxSpeakResult> {
   if (options.signal?.aborted) {
     throw stoppedSpeechError();
@@ -221,6 +280,7 @@ export async function playPreparedVoxSpeech(
   };
   options.signal?.addEventListener("abort", stopPlayback, { once: true });
   await audio.play();
+  options.onPlaybackStart?.();
   try {
     await new Promise<void>((resolve, reject) => {
       const cleanup = () => {
@@ -316,12 +376,13 @@ export async function speakWithEffects(
 // effects chain instead of `new Audio(...)`.
 export async function playPreparedVoxSpeechWithEffects(
   result: VoxSpeakResult,
-  options: { signal?: AbortSignal; presetId?: string; params?: Partial<VoiceFxParams> } = {},
+  options: { signal?: AbortSignal; presetId?: string; params?: Partial<VoiceFxParams>; onPlaybackStart?: () => void } = {},
 ): Promise<VoxSpeakResult> {
   if (options.signal?.aborted) throw stoppedSpeechError();
   const buffer = await decodeAudioFromBase64(result.audioBase64, result.contentType);
   const params = resolveVoiceFxParams(options.presetId, options.params);
   const handle = playWithVoiceFx(buffer, { params, signal: options.signal });
+  options.onPlaybackStart?.();
   await handle.promise;
   return result;
 }

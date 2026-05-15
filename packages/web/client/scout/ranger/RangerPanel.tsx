@@ -8,23 +8,35 @@ import { extractRangerUiActions, normalizeRangerUiAction, stripRangerUiFences } 
 import { RangerMarkdown } from "../../lib/ranger-markdown.tsx";
 import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
-import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult } from "../../lib/vox.ts";
+import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult, type VoxSpeechTimingCueRequest } from "../../lib/vox.ts";
 import { VOICE_FX_PRESETS, type VoiceFxParams } from "@voxd/client/fx";
 
-// Default voice mood + clarity-tuned overrides specific to Chill Dispatcher.
-// Other presets are used as-is (each preset already balances its own
-// character). The user-selected preset id is persisted via Ranger settings.
+// Default voice mood + clean-dispatch overrides specific to Chill Dispatcher.
+// The stock Vox presets are intentionally characterful; Ranger's default should
+// read closer to a clean mic with dispatch bookends than a noisy radio.
 const DEFAULT_RANGER_VOICE_PRESET_ID = "chill-dispatcher";
+const RANGER_BRIEF_CUE_EARLY_MS = 100;
 const CHILL_DISPATCHER_OVERRIDES: Partial<VoiceFxParams> = {
-  lowCutHz: 220,             // slight warmth on the bottom
-  highCutHz: 4500,           // more air / presence at the top
-  bandQ: 0.5,                // gentle shelves, not peaky
-  saturationAmount: 0.08,    // just enough to read as "channel"
-  bitcrushAmount: 0.02,      // a whisper of crunch, no aliasing harshness
-  hissGain: 0.010,           // very subtle carrier — present but unobtrusive
-  hissCutoffHz: 1800,        // thinner hiss tone, less broadband noise
-  compressorThresholdDb: -14,// gentle comp
-  compressorRatio: 2.5,      // very light ratio, less pumping
+  lowCutHz: 160,
+  highCutHz: 5200,
+  bandQ: 0.35,
+  saturationAmount: 0.035,
+  bitcrushAmount: 0,
+  hissGain: 0,
+  hissCutoffHz: 1800,
+  presencePeakDb: 1.5,
+  presenceCenterHz: 1500,
+  presenceQ: 0.65,
+  compressorThresholdDb: -15,
+  compressorRatio: 2.2,
+  clickEnabled: true,
+  clickGain: 0.24,
+  clickDurationMs: 45,
+  squelchTailEnabled: true,
+  squelchTailGain: 0.018,
+  squelchTailDurationMs: 95,
+  outputGain: 1,
+  wetMix: 0.38,
 };
 
 // Subtle, "low-key" variation based on how busy the fleet feels. The idea is
@@ -34,9 +46,8 @@ const CHILL_DISPATCHER_OVERRIDES: Partial<VoiceFxParams> = {
 function rangerActivityParams(onlineCount: number): Partial<VoiceFxParams> {
   const activity = Math.min(1, onlineCount / 8); // 0 at idle, 1 at 8+ online
   return {
-    playbackRate: 0.97 + activity * 0.06,        // 0.97 chill → 1.03 urgent
-    saturationAmount: 0.08 + activity * 0.06,    // 0.08 → 0.14 (a hair more grit)
-    presencePeakDb: 3 + activity * 2,            // 3 → 5 dB (more bite when busy)
+    saturationAmount: 0.035 + activity * 0.025,  // tiny edge without audible crunch
+    presencePeakDb: 1.5 + activity * 1.5,        // clarity lift, not radio bite
   };
 }
 
@@ -126,6 +137,31 @@ type RangerBrief = {
   actions: RangerBriefAction[];
 };
 
+type PreparedBriefSpeech = {
+  promise: Promise<VoxSpeakResult | null>;
+  abort: () => void;
+};
+
+type RangerBriefSegment = {
+  id: string;
+  cueId: string;
+  label: string;
+  route: Record<string, unknown> | null;
+  narration: string;
+  durationMs: number;
+};
+
+type RangerBriefSpeechPlan = {
+  text: string;
+  cues: VoxSpeechTimingCueRequest[];
+};
+
+type RangerBriefCueSchedule = {
+  cueId: string;
+  segmentIndex: number;
+  activateMs: number;
+};
+
 type RangerReminder = {
   id: string;
   title: string;
@@ -165,6 +201,64 @@ const STATE_PROMPT =
   "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.";
 const RANGER_VOICE_SPEEDS = [1, 1.2, 1.35] as const;
 const DEFAULT_RANGER_VOICE_SPEED = 1.2;
+const RANGER_BRIEF_SEGMENT_SEPARATOR = "\n\n";
+const RANGER_BRIEF_SPEECH_INSTRUCTIONS = [
+  "Read as a calm local operations briefer.",
+  "Use the paragraph breaks as short breath moments so the operator can look at the screen.",
+  "Keep the tone warm, focused, and unhurried; do not sound like an advertisement.",
+].join(" ");
+
+type RangerVoiceDefaults = {
+  modelId: string;
+  voiceId?: string;
+};
+
+function buildRangerBriefSpeechPlan(segments: RangerBriefSegment[]): RangerBriefSpeechPlan {
+  let text = "";
+  const cues: VoxSpeechTimingCueRequest[] = [];
+  for (const segment of segments) {
+    const spoken = toSpokenScoutText(segment.narration);
+    if (!spoken) {
+      continue;
+    }
+    if (text) {
+      text += RANGER_BRIEF_SEGMENT_SEPARATOR;
+    }
+    const textStart = text.length;
+    text += spoken;
+    cues.push({
+      id: segment.cueId,
+      textStart,
+      textEnd: text.length,
+    });
+  }
+  return { text, cues };
+}
+
+function resolveRangerBriefCueSchedule(
+  result: VoxSpeakResult,
+  segments: RangerBriefSegment[],
+): RangerBriefCueSchedule[] | null {
+  const timingCues = result.speechTiming?.cues;
+  if (!timingCues?.length) {
+    return null;
+  }
+  const byId = new globalThis.Map(timingCues.map((cue) => [cue.id, cue]));
+  const schedule: RangerBriefCueSchedule[] = [];
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+    const segment = segments[segmentIndex];
+    const cue = byId.get(segment.cueId);
+    if (!cue || !Number.isFinite(cue.startMs)) {
+      return null;
+    }
+    schedule.push({
+      cueId: segment.cueId,
+      segmentIndex,
+      activateMs: Math.max(0, cue.startMs - RANGER_BRIEF_CUE_EARLY_MS),
+    });
+  }
+  return schedule;
+}
 
 export function RangerPanel({ height }: { height?: number } = {}) {
   const {
@@ -203,6 +297,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [configStatus, setConfigStatus] = useState<string | null>(null);
   const [modelDraft, setModelDraft] = useState("");
   const [promptDraft, setPromptDraft] = useState("");
+  const [voiceDefaults, setVoiceDefaults] = useState<RangerVoiceDefaults | null>(null);
   const [reminderState, setReminderState] = useState<RangerReminderState | null>(null);
   const [chatExpanded, setChatExpanded] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
@@ -210,6 +305,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
   const speechRef = useRef<VoxSpeakHandle | null>(null);
+  const speechPrepareAbortRef = useRef<AbortController | null>(null);
   const briefRunRef = useRef<string | null>(null);
   const initializedDueReminderIdsRef = useRef(false);
   const announcedDueReminderIdsRef = useRef<Set<string>>(new Set());
@@ -217,6 +313,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   voiceRepliesRef.current = voiceReplies;
 
   const stopSpeech = useCallback(() => {
+    speechPrepareAbortRef.current?.abort();
+    speechPrepareAbortRef.current = null;
     speechRef.current?.stop();
     speechRef.current = null;
     setSpeaking(false);
@@ -414,6 +512,25 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       void loadRangerConfig();
     }
   }, [loadRangerConfig, settingsOpen]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    let cancelled = false;
+    void api<RangerVoiceDefaults>("/api/voice/defaults")
+      .then((defaults) => {
+        if (!cancelled) {
+          setVoiceDefaults(defaults);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setVoiceDefaults(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsOpen]);
 
   const saveRangerConfig = useCallback(async () => {
     setConfigSaving(true);
@@ -623,37 +740,98 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setVoiceSpeed(RANGER_VOICE_SPEEDS[(nearestIndex + 1) % RANGER_VOICE_SPEEDS.length]);
   }, [setVoiceSpeed, voiceSpeed]);
 
-  const prepareBriefSpeech = useCallback((text: string): Promise<VoxSpeakResult | null> => {
+  const prepareBriefSpeech = useCallback((
+    text: string,
+    cues: VoxSpeechTimingCueRequest[],
+    runId: string,
+  ): PreparedBriefSpeech => {
     if (!voiceRepliesRef.current) {
-      return Promise.resolve(null);
+      return {
+        promise: Promise.resolve(null),
+        abort: () => undefined,
+      };
     }
-    return prepareVoxSpeech(toSpokenScoutText(text), { speed: voiceSpeed })
+    speechPrepareAbortRef.current?.abort();
+    const controller = new AbortController();
+    speechPrepareAbortRef.current = controller;
+    const abort = () => {
+      controller.abort();
+      if (speechPrepareAbortRef.current === controller) {
+        speechPrepareAbortRef.current = null;
+      }
+    };
+    const promise = prepareVoxSpeech(text, {
+      speed: voiceSpeed,
+      instructions: RANGER_BRIEF_SPEECH_INSTRUCTIONS,
+      signal: controller.signal,
+      originAppId: "openscout.ranger",
+      utteranceId: `ranger-brief:${runId}`,
+      ...(cues.length > 0 ? { speechTiming: { enabled: true, cues } } : {}),
+    })
       .catch((err) => {
         if (!isVoxSpeechStopped(err)) {
           setError(err instanceof Error ? err.message : "Vox speech failed.");
         }
         return null;
+      })
+      .finally(() => {
+        if (speechPrepareAbortRef.current === controller) {
+          speechPrepareAbortRef.current = null;
+        }
       });
+    return { promise, abort };
   }, [voiceSpeed]);
 
   const playBriefSpeech = useCallback(async (
     prepared: Promise<VoxSpeakResult | null>,
     runId: string,
+    options: {
+      cueSchedule?: RangerBriefCueSchedule[];
+      onCue?: (cue: RangerBriefCueSchedule) => void;
+    } = {},
   ): Promise<boolean> => {
     const audio = await prepared;
     if (!audio || briefRunRef.current !== runId || !voiceRepliesRef.current) {
       return false;
     }
     const controller = new AbortController();
+    const cueTimers: number[] = [];
+    const fxParams = resolveRangerFxParams(voicePresetId, onlineCount);
+    const playbackRate = Math.min(2, Math.max(0.5, fxParams.playbackRate ?? 1));
+    const clearCueTimers = () => {
+      for (const timer of cueTimers) {
+        window.clearTimeout(timer);
+      }
+      cueTimers.length = 0;
+    };
+    const scheduleCueTimers = () => {
+      if (!options.cueSchedule?.length) {
+        return;
+      }
+      for (const cue of options.cueSchedule) {
+        const delayMs = Math.max(0, cue.activateMs / playbackRate);
+        cueTimers.push(window.setTimeout(() => {
+          if (controller.signal.aborted || briefRunRef.current !== runId) {
+            return;
+          }
+          options.onCue?.(cue);
+        }, delayMs));
+      }
+    };
     const promise = playPreparedVoxSpeechWithEffects(audio, {
       signal: controller.signal,
       presetId: voicePresetId,
-      params: resolveRangerFxParams(voicePresetId, onlineCount),
+      params: fxParams,
+      onPlaybackStart: scheduleCueTimers,
     });
     const speech: VoxSpeakHandle = {
       promise,
-      stop: () => controller.abort(),
+      stop: () => {
+        clearCueTimers();
+        controller.abort();
+      },
     };
+    speechRef.current?.stop();
     speechRef.current = speech;
     setSpeaking(true);
     try {
@@ -663,6 +841,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         throw err;
       }
     } finally {
+      clearCueTimers();
       if (speechRef.current === speech) {
         speechRef.current = null;
         setSpeaking(false);
@@ -672,9 +851,10 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   }, [onlineCount, voicePresetId]);
 
   const runBrief = useCallback(async (nextBrief: RangerBrief, runId: string) => {
-    const segments = [
+    const segments: RangerBriefSegment[] = [
       ...nextBrief.steps.map((step) => ({
         id: step.id,
+        cueId: `step:${step.id}`,
         label: step.label,
         route: step.route,
         narration: step.narration,
@@ -682,6 +862,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       })),
       {
         id: "recommendation",
+        cueId: "recommendation",
         label: "Recommendation",
         route: null,
         narration: `Recommendation: ${nextBrief.recommendation}`,
@@ -689,22 +870,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       },
     ];
     const spokenLines: string[] = [];
-    let preparedSpeech = prepareBriefSpeech(segments[0]?.narration ?? nextBrief.summary);
+    const speechPlan = buildRangerBriefSpeechPlan(segments);
+    let preparedBriefSpeech: PreparedBriefSpeech | null = null;
+    let preparedAudio: VoxSpeakResult | null = null;
 
-    for (let index = 0; index < segments.length; index += 1) {
-      if (briefRunRef.current !== runId) return;
-      if (Date.now() > nextBrief.expiresAt) {
-        setAskStatus("Brief expired; refresh before acting");
-        break;
-      }
-
-      const segment = segments[index];
-      const nextSegment = segments[index + 1];
-      const currentSpeech = preparedSpeech;
-      preparedSpeech = nextSegment
-        ? prepareBriefSpeech(nextSegment.narration)
-        : Promise.resolve(null);
-
+    const activateSegment = (segment: RangerBriefSegment, index: number) => {
       setBriefStepIndex(Math.min(index, nextBrief.steps.length - 1));
       setAskStatus(`Brief ${Math.min(index + 1, nextBrief.steps.length)}/${nextBrief.steps.length}: ${segment.label}`);
       if (segment.route) {
@@ -714,14 +884,75 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         }
       }
       spokenLines.push(`${segment.label}: ${segment.narration}`);
+    };
 
-      if (voiceRepliesRef.current) {
-        const played = await playBriefSpeech(currentSpeech, runId);
-        if (!played) {
-          await wait(Math.min(segment.durationMs, 2400));
+    const runEstimatedSequence = async () => {
+      for (let index = 0; index < segments.length; index += 1) {
+        if (briefRunRef.current !== runId) return;
+        if (Date.now() > nextBrief.expiresAt) {
+          setAskStatus("Brief expired; refresh before acting");
+          break;
         }
-      } else {
+
+        const segment = segments[index];
+        activateSegment(segment, index);
         await wait(Math.min(segment.durationMs, 2400));
+      }
+    };
+
+    if (voiceRepliesRef.current) {
+      setAskStatus("Preparing brief audio");
+      preparedBriefSpeech = prepareBriefSpeech(
+        speechPlan.text || toSpokenScoutText(nextBrief.summary),
+        speechPlan.cues,
+        runId,
+      );
+      preparedAudio = await preparedBriefSpeech.promise;
+      if (briefRunRef.current !== runId) {
+        preparedBriefSpeech.abort();
+        return;
+      }
+    }
+
+    const cueSchedule = preparedAudio ? resolveRangerBriefCueSchedule(preparedAudio, segments) : null;
+    if (preparedAudio && cueSchedule) {
+      const activatedSegmentIndexes = new Set<number>();
+      try {
+        const playedWithTiming = await playBriefSpeech(Promise.resolve(preparedAudio), runId, {
+          cueSchedule,
+          onCue: (cue) => {
+            if (activatedSegmentIndexes.has(cue.segmentIndex)) {
+              return;
+            }
+            if (Date.now() > nextBrief.expiresAt) {
+              setAskStatus("Brief expired; refresh before acting");
+              return;
+            }
+            activatedSegmentIndexes.add(cue.segmentIndex);
+            activateSegment(segments[cue.segmentIndex], cue.segmentIndex);
+          },
+        });
+        if (!playedWithTiming && briefRunRef.current === runId) {
+          await runEstimatedSequence();
+        }
+      } catch (err) {
+        if (!isVoxSpeechStopped(err)) {
+          setError(err instanceof Error ? err.message : "Vox speech failed.");
+        }
+      }
+    } else {
+      const playback = preparedAudio && voiceRepliesRef.current
+        ? playBriefSpeech(Promise.resolve(preparedAudio), runId)
+        : null;
+      await runEstimatedSequence();
+      if (playback) {
+        try {
+          await playback;
+        } catch (err) {
+          if (!isVoxSpeechStopped(err)) {
+            setError(err instanceof Error ? err.message : "Vox speech failed.");
+          }
+        }
       }
     }
 
@@ -1159,6 +1390,14 @@ export function RangerPanel({ height }: { height?: number } = {}) {
                   ?? "Custom voice mood for spoken replies."}
               </span>
             </label>
+            <div className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              Vox Voice
+              <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] normal-case tracking-normal text-[var(--scout-chrome-ink)]">
+                {voiceDefaults
+                  ? `${voiceDefaults.modelId}${voiceDefaults.voiceId ? ` / ${voiceDefaults.voiceId}` : ""}`
+                  : "Unavailable"}
+              </div>
+            </div>
             <label className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
               Model
               <input

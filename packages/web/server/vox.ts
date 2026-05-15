@@ -6,8 +6,9 @@ import { randomUUID } from "node:crypto";
 const VOX_CLIENT_ID = "openscout-web";
 const DEFAULT_VOX_RPC_PORT = 42137;
 const DEFAULT_VOX_RPC_HOST = "127.0.0.1";
-const VOX_RPC_TIMEOUT_MS = 30_000;
+const VOX_RPC_TIMEOUT_MS = 300_000;
 const DEFAULT_VOX_SYNTHESIS_MODEL_ID = "avspeech:system";
+const DEFAULT_VOX_SPEECH_TIMING_MODEL_ID = "parakeet:v3";
 const OPENSCOUT_VOX_ORIGINS = [
   "http://127.0.0.1:*",
   "http://localhost:*",
@@ -23,6 +24,9 @@ export type VoxSpeechResult = {
   modelId: string;
   voiceId: string;
   audioBytes: number;
+  metrics?: Record<string, unknown>;
+  traceId?: string;
+  speechTiming?: VoxSpeechTimingResult;
 };
 
 export type VoxSpeechDefaults = {
@@ -30,28 +34,94 @@ export type VoxSpeechDefaults = {
   voiceId?: string;
 };
 
+export type VoxSpeechTimingCueRequest = {
+  id: string;
+  textStart?: number;
+  textEnd?: number;
+  text?: string;
+};
+
+export type VoxSpeechTimingRequest = {
+  enabled: true;
+  modelId?: string;
+  strict?: boolean;
+  cues?: VoxSpeechTimingCueRequest[];
+};
+
+export type VoxSpeechTimingWord = {
+  word: string;
+  startMs: number;
+  endMs: number;
+  confidence?: number;
+  sourceTextStart?: number;
+  sourceTextEnd?: number;
+};
+
+export type VoxSpeechTimingCueResult = {
+  id: string;
+  startMs: number;
+  endMs?: number;
+  confidence?: number;
+  source?: string;
+};
+
+export type VoxSpeechTimingResult = {
+  source?: string;
+  modelId?: string;
+  elapsedMs?: number;
+  words?: VoxSpeechTimingWord[];
+  cues?: VoxSpeechTimingCueResult[];
+};
+
 export async function synthesizeVoxSpeech(input: {
   text: string;
   modelId?: string;
   voiceId?: string;
   speed?: number;
+  instructions?: string;
+  originAppId?: string;
+  utteranceId?: string;
+  speechTiming?: VoxSpeechTimingRequest;
+  signal?: AbortSignal;
 }): Promise<VoxSpeechResult> {
   const defaults = resolveVoxSpeechDefaults();
   const modelId = input.modelId ?? defaults.modelId;
   const voiceId = input.voiceId ?? (modelId === defaults.modelId ? defaults.voiceId : undefined);
-  const result = await callVoxRpc("synthesize.generate", {
+  const params: Record<string, unknown> = {
     clientId: VOX_CLIENT_ID,
     text: input.text,
     modelId,
     voiceId,
     format: "wav",
     speed: input.speed,
-  });
+  };
+  if (input.instructions) {
+    params.instructions = input.instructions;
+  }
+  if (input.originAppId) {
+    params.originAppId = input.originAppId;
+  }
+  if (input.utteranceId) {
+    params.utteranceId = input.utteranceId;
+  }
+  if (input.speechTiming?.enabled) {
+    params.speechTiming = {
+      enabled: true,
+      modelId: input.speechTiming.modelId ?? DEFAULT_VOX_SPEECH_TIMING_MODEL_ID,
+      strict: input.speechTiming.strict ?? false,
+      ...(input.speechTiming.cues ? { cues: input.speechTiming.cues } : {}),
+    };
+  }
+  const result = await callVoxRpc("synthesize.generate", params, { signal: input.signal });
 
   const audioBase64 = stringValue(result.audioBase64);
   if (!audioBase64) {
     throw new Error("Vox returned no audio.");
   }
+
+  const metrics = recordValue(result.metrics);
+  const traceId = stringValue(metrics?.traceId);
+  const speechTiming = recordValue(result.speechTiming) as VoxSpeechTimingResult | undefined;
 
   return {
     contentType: stringValue(result.contentType) || "audio/wav",
@@ -59,6 +129,9 @@ export async function synthesizeVoxSpeech(input: {
     modelId: stringValue(result.modelId) || modelId,
     voiceId: stringValue(result.voiceId) || voiceId || "",
     audioBytes: Number(result.audioBytes ?? 0),
+    ...(metrics ? { metrics } : {}),
+    ...(traceId ? { traceId } : {}),
+    ...(speechTiming ? { speechTiming } : {}),
   };
 }
 
@@ -135,8 +208,9 @@ export function resolveVoxRpcPort(): number {
 async function callVoxRpc(
   method: string,
   params: Record<string, unknown>,
-  timeoutMs = VOX_RPC_TIMEOUT_MS,
+  options: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<Record<string, unknown>> {
+  const timeoutMs = options.timeoutMs ?? VOX_RPC_TIMEOUT_MS;
   const port = resolveVoxRpcPort();
   const socket = new WebSocket(`ws://${DEFAULT_VOX_RPC_HOST}:${port}`);
   const id = randomUUID();
@@ -145,6 +219,7 @@ async function callVoxRpc(
     let timeout: ReturnType<typeof setTimeout>;
     const cleanup = () => {
       clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", onAbort);
       socket.onopen = null;
       socket.onmessage = null;
       socket.onerror = null;
@@ -153,6 +228,17 @@ async function callVoxRpc(
         socket.close();
       }
     };
+
+    const onAbort = () => {
+      cleanup();
+      reject(abortError(`Vox ${method} aborted.`));
+    };
+
+    if (options.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true });
 
     timeout = setTimeout(() => {
       cleanup();
@@ -188,6 +274,12 @@ async function callVoxRpc(
   });
 }
 
+function abortError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
 function parseRpcPayload(data: unknown): Record<string, unknown> | null {
   const raw = typeof data === "string" ? data : data instanceof ArrayBuffer ? new TextDecoder().decode(data) : "";
   if (!raw) return null;
@@ -200,6 +292,12 @@ function parseRpcPayload(data: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function firstNonEmptyString(...values: Array<string | undefined>): string | undefined {
