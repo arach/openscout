@@ -12,6 +12,7 @@ import {
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
+  buildTmuxPromptSubmitKeys,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
@@ -27,6 +28,7 @@ describe("local agent prompts", () => {
   test("Scout harness attribution accepts Flue without making it a managed local launcher", () => {
     expect(SUPPORTED_SCOUT_HARNESSES).toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("flue");
+    expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("pi");
   });
 
   test("system prompt composes shared base, project context, and broker-backed protocol", () => {
@@ -52,6 +54,8 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Do not use channel.shared for ordinary delegation or follow-up");
     expect(prompt).toContain("Treat known offline / on-demand agents as wakeable");
     expect(prompt).toContain("Use send for tells and status; use ask when the meaning is 'do this and get back to me'");
+    expect(prompt).toContain("For substantial reports, specs, code, diffs, logs, or research bundles, create or update a durable file when you have write access");
+    expect(prompt).toContain("If you do not have write access, keep the reply useful inline");
     expect(prompt).toContain(scoutSkillPath);
   });
 
@@ -91,6 +95,38 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("OpenScout runtime:");
     expect(prompt).toContain("Do not call Scout reply tools for the final answer in this runtime");
     expect(prompt).toContain("the broker captures your final assistant message");
+  });
+
+  test("tmux claude runtime remains the default local agent context", () => {
+    process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
+    process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
+
+    const prompt = buildLocalAgentSystemPrompt(
+      "shaper",
+      "shaper",
+      "/Users/arach/dev/shaper",
+    );
+
+    expect(prompt).toContain("Relay protocol:");
+    expect(prompt).toContain("Use the Scout CLI for broker reads and writes");
+    expect(prompt).not.toContain("OpenScout runtime:");
+    expect(prompt).not.toContain("the broker captures your final assistant message");
+  });
+
+  test("explicit tmux generated prompts normalize away as current defaults", () => {
+    process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
+    process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
+
+    const prompt = buildLocalAgentSystemPrompt(
+      "shaper",
+      "shaper",
+      "/Users/arach/dev/shaper",
+      { transport: "tmux" },
+    );
+
+    expect(
+      normalizeLocalAgentSystemPrompt("shaper", "shaper", "/Users/arach/dev/shaper", prompt),
+    ).toBeUndefined();
   });
 
   test("system prompt template renders shared fragments, path aliases, and env variables at wake time", () => {
@@ -169,6 +205,31 @@ describe("local agent prompts", () => {
     expect(prompt).toContain(`${scoutCli} send --as shaper "[ask:flt-1] @hudson <your response>"`);
   });
 
+  test("wake nudge delivers direct messages without reply marker instructions", () => {
+    const prompt = buildLocalAgentNudge(
+      "shaper",
+      {
+        id: "inv-1",
+        requesterId: "hudson",
+        requesterNodeId: "node-1",
+        targetAgentId: "shaper",
+        action: "wake",
+        task: "The branch is ready for review.",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      },
+      "flt-1",
+    );
+
+    expect(prompt).toContain("New broker message from hudson.");
+    expect(prompt).toContain("Message: The branch is ready for review.");
+    expect(prompt).toContain("not a reply-required ask");
+    expect(prompt).toContain(`${scoutCli} latest --agent shaper --limit 20`);
+    expect(prompt).not.toContain("[ask:flt-1]");
+    expect(prompt).not.toContain(`${scoutCli} send --as shaper`);
+  });
+
   test("direct invocation prompt starts with a compact Scout title and collapses routing context", () => {
     const prompt = buildLocalAgentDirectInvocationPrompt(
       "ranger",
@@ -193,8 +254,13 @@ describe("local agent prompts", () => {
     expect(prompt.startsWith("⌖ @operator → @ranger · ask:1hjg5e › Review how invocation prompt titles should read in Codex conversations.\ndelivery: waking · session: fresh session\n\n")).toBe(true);
     expect(prompt.replace(/\n/g, "")).toContain("@operator → @ranger · ask:1hjg5e › Review how invocation prompt titles should read in Codex conversations.delivery: waking · session: fresh session");
     expect(prompt).toContain("<!-- SCOUT BROKER REPLY MODE -->");
+    expect(prompt).toContain("<!-- SCOUT ARTIFACT GUIDANCE -->");
+    expect(prompt).toContain("For long-form deliverables, prefer a durable file when you have write access");
+    expect(prompt).toContain("Inline replies are still valid");
     expect(prompt).toContain("ScoutReplyContext:");
     expect(prompt).toContain("<summary>Scout routing context</summary>");
+    expect(prompt).toContain("First, immediately publish a short broker-visible acknowledgement in the same conversation");
+    expect(prompt).toContain("are only for acknowledgement, progress, or delegation");
     expect(prompt).toContain('"mode": "broker_reply"');
     expect(prompt).toContain('"fromAgentId": "operator"');
     expect(prompt).toContain('"toAgentId": "ranger"');
@@ -202,7 +268,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain('"messageId": "msg-moi5w7kt-1hjg5e"');
     expect(prompt).toContain('"replyToMessageId": "msg-moi5w7kt-1hjg5e"');
     expect(prompt).toContain('"replyPath": "final_response"');
-    expect(prompt).toContain("> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.");
+    expect(prompt).not.toContain("> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.");
     expect(prompt).not.toContain("[scout] @operator asks @ranger");
     expect(prompt).not.toContain("meta: from=operator to=ranger action=consult");
     expect(prompt).not.toContain("ref: convo=dm.operator.ranger.main.mini msg=msg-moi5w7kt-1hjg5e");
@@ -303,6 +369,11 @@ describe("local agent prompts", () => {
   test("tmux launch shell command quotes script paths with spaces", () => {
     expect(buildTmuxLaunchShellCommand("/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"))
       .toBe('exec bash "/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"');
+  });
+
+  test("tmux prompt submission leaves Claude Code insert mode before Enter", () => {
+    expect(buildTmuxPromptSubmitKeys()).toEqual(["C-[", "Enter"]);
+    expect(buildTmuxPromptSubmitKeys("pi")).toEqual(["Enter"]);
   });
 
   test("claude runtime launch args preapprove Scout MCP coordination tools", () => {

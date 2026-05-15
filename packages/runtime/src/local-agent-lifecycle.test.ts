@@ -353,6 +353,125 @@ describe("local agent lifecycle", () => {
     expect(resolved.instanceId).toContain("test-node");
   });
 
+  test("starts a new Claude local agent with tmux as the default transport", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "gamma");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "gamma",
+      harness: "claude",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status).toMatchObject({
+      definitionId: "gamma",
+      harness: "claude",
+      transport: "tmux",
+      isOnline: false,
+    });
+    expect(override?.runtime).toMatchObject({
+      harness: "claude",
+      transport: "tmux",
+    });
+    expect(override?.runtime?.sessionId).not.toContain(".");
+    expect(override?.harnessProfiles?.claude?.transport).toBe("tmux");
+    expect(override?.harnessProfiles?.claude?.sessionId).not.toContain(".");
+  });
+
+  test("preserves explicit Claude stream-json configuration for specialized agents", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "batch-runner");
+
+    mkdirSync(projectRoot, { recursive: true });
+    await writeRelayAgentOverrides({
+      "batch-runner": {
+        agentId: "batch-runner",
+        definitionId: "batch-runner",
+        displayName: "Batch Runner",
+        projectName: "Batch Runner",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "claude",
+        runtime: {
+          cwd: projectRoot,
+          harness: "claude",
+          transport: "claude_stream_json",
+          sessionId: "batch-runner-claude",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const statuses = await listLocalAgents();
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0]).toMatchObject({
+      definitionId: "batch-runner",
+      harness: "claude",
+      transport: "claude_stream_json",
+    });
+  });
+
+  test("forks a new same-project Claude agent with tmux even when sibling used stream-json", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "preframe");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    await writeRelayAgentOverrides({
+      "preframe.test-node": {
+        agentId: "preframe.test-node",
+        definitionId: "preframe",
+        displayName: "Preframe",
+        projectName: "Preframe",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "claude",
+        harnessProfiles: {
+          claude: {
+            cwd: projectRoot,
+            transport: "claude_stream_json",
+            sessionId: "relay-preframe-claude",
+            launchArgs: [],
+          },
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "claude",
+          transport: "claude_stream_json",
+          sessionId: "relay-preframe-claude",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "preframux",
+      harness: "claude",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status).toMatchObject({
+      definitionId: "preframux",
+      harness: "claude",
+      transport: "tmux",
+    });
+    expect(override?.runtime?.transport).toBe("tmux");
+    expect(override?.runtime?.sessionId).not.toContain(".");
+    expect(override?.harnessProfiles?.claude?.transport).toBe("tmux");
+    expect(override?.harnessProfiles?.claude?.sessionId).not.toContain(".");
+    expect(overrides["preframe.test-node"]?.runtime?.transport).toBe("claude_stream_json");
+  });
+
   test("forks a same-root probe without replacing the configured main agent", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");

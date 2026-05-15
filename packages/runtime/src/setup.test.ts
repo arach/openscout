@@ -186,6 +186,14 @@ describe("setup inventory", () => {
     expect(alpha?.harnesses.map((harness) => harness.harness).sort()).toEqual(["claude", "codex"]);
     const alphaManifest = JSON.parse(readFileSync(join(repoAlpha, ".openscout", "project.json"), "utf8")) as {
       project: { name: string };
+      agent?: {
+        runtime?: {
+          defaultHarness?: string;
+          profiles?: {
+            claude?: { transport?: string };
+          };
+        };
+      };
       environment?: {
         setup?: { default?: string };
         actions?: Array<{ name: string; scripts?: { default?: string } }>;
@@ -196,6 +204,8 @@ describe("setup inventory", () => {
       };
     };
     expect(alphaManifest.project.name).toBe("Alpha Workspace");
+    expect(alphaManifest.agent?.runtime?.defaultHarness).toBe("claude");
+    expect(alphaManifest.agent?.runtime?.profiles?.claude?.transport).toBe("tmux");
     expect(alphaManifest.environment?.setup?.default).toBe("npm install\nnpm run build");
     expect(alphaManifest.environment?.actions?.map((action) => action.name)).toEqual(["Run"]);
     expect(alphaManifest.environment?.actions?.[0]?.scripts?.default).toBe("npm start");
@@ -247,6 +257,20 @@ describe("setup inventory", () => {
     const setup = await initializeOpenScoutSetup({ currentDirectory: sourceRoot });
 
     expect(setup.currentProjectConfigPath).toBe(join(sourceRoot, ".openscout", "project.json"));
+    const manifest = JSON.parse(readFileSync(join(sourceRoot, ".openscout", "project.json"), "utf8")) as {
+      agent?: {
+        runtime?: {
+          defaultHarness?: string;
+          profiles?: {
+            claude?: {
+              transport?: string;
+            };
+          };
+        };
+      };
+    };
+    expect(manifest.agent?.runtime?.defaultHarness).toBe("claude");
+    expect(manifest.agent?.runtime?.profiles?.claude?.transport).toBe("tmux");
     expect(readFileSync(join(sourceRoot, ".gitignore"), "utf8")).toContain(".openscout/project.json");
   });
 });
