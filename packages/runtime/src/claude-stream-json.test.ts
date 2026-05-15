@@ -20,6 +20,7 @@ afterEach(() => {
   } else {
     process.env.PATH = originalPath;
   }
+  delete process.env.OPENSCOUT_CLAUDE_BIN;
 
   for (const path of tempPaths) {
     rmSync(path, { recursive: true, force: true });
@@ -150,7 +151,8 @@ describe("invokeClaudeStreamJsonAgent", () => {
   test("queues a second invocation behind the active stream-json turn", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-queue-test-"));
     tempPaths.add(tempRoot);
-    writeFakeClaudeExecutable(tempRoot);
+    const fakeClaude = writeFakeClaudeExecutable(tempRoot);
+    process.env.OPENSCOUT_CLAUDE_BIN = fakeClaude;
     process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
 
     const options = {
@@ -187,12 +189,13 @@ describe("invokeClaudeStreamJsonAgent", () => {
   test("rejects stream-json result errors instead of returning empty output", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-error-test-"));
     tempPaths.add(tempRoot);
-    writeFakeClaudeExecutableWithResult(tempRoot, {
+    const fakeClaude = writeFakeClaudeExecutableWithResult(tempRoot, {
       type: "result",
       subtype: "error_during_execution",
       is_error: true,
       errors: ["No conversation found with session ID: claude-test-session"],
     });
+    process.env.OPENSCOUT_CLAUDE_BIN = fakeClaude;
     process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
 
     const options = {
@@ -218,7 +221,8 @@ describe("invokeClaudeStreamJsonAgent", () => {
   test("resets stale Claude resume ids and retries once", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-stale-resume-test-"));
     tempPaths.add(tempRoot);
-    writeFakeClaudeExecutableWithStaleResumeRecovery(tempRoot);
+    const fakeClaude = writeFakeClaudeExecutableWithStaleResumeRecovery(tempRoot);
+    process.env.OPENSCOUT_CLAUDE_BIN = fakeClaude;
     process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
 
     const runtimeDirectory = join(tempRoot, "runtime");
@@ -253,11 +257,12 @@ describe("invokeClaudeStreamJsonAgent", () => {
   test("rejects completed stream-json turns with no visible output", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-empty-test-"));
     tempPaths.add(tempRoot);
-    writeFakeClaudeExecutableWithResult(tempRoot, {
+    const fakeClaude = writeFakeClaudeExecutableWithResult(tempRoot, {
       type: "result",
       subtype: "success",
       result: "",
     });
+    process.env.OPENSCOUT_CLAUDE_BIN = fakeClaude;
     process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
 
     const options = {
