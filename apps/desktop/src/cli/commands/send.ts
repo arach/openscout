@@ -27,7 +27,8 @@ export function renderSendCommandHelp(): string {
     "",
     "Use send for heads-up, replies, and status updates.",
     "Use `scout ask` when the meaning is \"do this and get back to me.\"",
-    "Add --wake to post the message and create an asynchronous visible turn/flight without waiting for a reply.",
+    "Targeted DMs dispatch automatically when the broker can reach the agent.",
+    "Add --wake only when you need to force an explicit wake turn or runtime harness.",
     "",
     "Input:",
     "  inline message                    -> message body",
@@ -151,6 +152,7 @@ export async function runSendCommand(
     {
       senderId,
       conversationId: result.conversationId,
+      messageId: result.messageId,
       message: body,
       bindingRef: result.bindingRef,
       flightId: result.flight?.id,

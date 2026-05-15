@@ -104,7 +104,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   }
 
   if (!target) {
-    throw new ScoutCliError(`usage: scout up <name|path> [--name <alias>] [--harness <claude|codex>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <${formatScoutPermissionProfiles()}>]`);
+    throw new ScoutCliError(`usage: scout up <name|path> [--name <alias>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <${formatScoutPermissionProfiles()}>]`);
   }
 
   let projectPath: string;

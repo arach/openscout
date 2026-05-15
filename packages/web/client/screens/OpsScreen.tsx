@@ -1,10 +1,11 @@
 import "./ops-screen.css";
 
 import { useScout } from "../scout/Provider.tsx";
+import { PageStatusBar } from "../components/PageStatusBar.tsx";
 import { ConductorView } from "./ConductorView.tsx";
 import { MissionControlView } from "./MissionControlView.tsx";
 import { OpsAgentsView } from "./OpsAgentsView.tsx";
-import { PlanView } from "./PlanView.tsx";
+import { PlanArchiveView } from "./PlanArchiveView.tsx";
 import { RunsView } from "./RunsView.tsx";
 import { AtopView } from "./AtopView.tsx";
 import { TailView } from "./TailView.tsx";
@@ -51,13 +52,14 @@ export function OpsScreen({
       <div className="s-ops-body">
         {mode === "mission" && <MissionControlView navigate={navigate} agents={agents} />}
         {mode === "agents" && <OpsAgentsView navigate={navigate} agents={agents} />}
-        {mode === "plan" && <PlanView navigate={navigate} agents={agents} />}
+        {mode === "plan" && <PlanArchiveView navigate={navigate} agents={agents} />}
         {mode === "conductor" && <ConductorView navigate={navigate} agents={agents} />}
         {mode === "command" && <CommandView navigate={navigate} agents={agents} />}
         {mode === "tail" && <TailView navigate={navigate} initialFilter={tailQuery} />}
         {mode === "atop" && <AtopView />}
         {mode === "runs" && <RunsView navigate={navigate} agents={agents} />}
       </div>
+      <PageStatusBar />
     </div>
   );
 }

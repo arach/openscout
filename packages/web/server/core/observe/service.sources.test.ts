@@ -9,6 +9,7 @@ import type { WebAgent } from "../../db-queries.ts";
 let queryAgentsResult: WebAgent[] = [];
 let brokerContextResult: { snapshot: { endpoints: Record<string, Record<string, unknown>> } } | null = null;
 let localSnapshotResult: SessionState | null = null;
+let localAgentSnapshotResult: SessionState | null = null;
 let pairingSnapshotResult: SessionState | null = null;
 let tailDiscoveryResult: {
   generatedAt: number;
@@ -42,6 +43,7 @@ mock.module("../broker/service.ts", () => ({
 
 mock.module("@openscout/runtime/local-agents", () => ({
   getLocalAgentEndpointSessionSnapshot: async () => localSnapshotResult,
+  getLocalAgentSessionSnapshot: async () => localAgentSnapshotResult,
 }));
 
 mock.module("@openscout/runtime/tail", () => ({
@@ -136,6 +138,7 @@ beforeEach(() => {
   queryAgentsResult = [];
   brokerContextResult = null;
   localSnapshotResult = null;
+  localAgentSnapshotResult = null;
   pairingSnapshotResult = null;
   tailDiscoveryResult = null;
 });
@@ -280,6 +283,82 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.historyPath).toBe(historyPath);
     expect(payload?.sessionId).toBe("codex-live-session-1");
     expect(payload?.data.events.some((event) => event.text.includes("from live snapshot"))).toBe(true);
+  });
+
+  test("uses the configured local agent snapshot for full instance ids", async () => {
+    queryAgentsResult = [
+      makeAgent({
+        id: "talkie-codex.feat-design-tokens-reimagined.mini",
+        harness: "codex",
+        transport: "codex_app_server",
+        harnessSessionId: "relay-talkie-codex-feat-design-tokens-reimagined-mini-codex",
+      }),
+    ];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "talkie-codex.feat-design-tokens-reimagined.mini",
+            state: "idle",
+            sessionId: "relay-talkie-codex-feat-design-tokens-reimagined-mini-codex",
+            transport: "codex_app_server",
+            metadata: {
+              agentName: "talkie-codex",
+              runtimeInstanceId: "relay-talkie-codex-feat-design-tokens-reimagined-mini-codex",
+            },
+          },
+        },
+      },
+    };
+    localSnapshotResult = {
+      session: {
+        id: "relay-talkie-codex-feat-design-tokens-reimagined-mini-codex",
+        name: "talkie-codex",
+        adapterType: "codex",
+        status: "idle",
+        cwd: "/Users/arach/dev/openscout",
+      },
+      turns: [],
+    };
+    localAgentSnapshotResult = {
+      session: {
+        id: "relay-talkie-codex-feat-design-tokens-reimagined-mini-codex",
+        name: "talkie-codex.feat-design-tokens-reimagined.mini",
+        adapterType: "codex",
+        status: "active",
+        cwd: "/Users/arach/dev/talkie",
+      },
+      turns: [
+        {
+          id: "turn-1",
+          status: "streaming",
+          startedAt: Date.parse("2026-04-22T12:00:04.000Z"),
+          blocks: [
+            {
+              status: "completed",
+              block: {
+                id: "message-1",
+                turnId: "turn-1",
+                index: 0,
+                type: "text",
+                text: "configured full instance snapshot",
+                status: "completed",
+              },
+            },
+          ],
+        },
+      ],
+      currentTurnId: "turn-1",
+    };
+
+    const payload = await loadAgentObservePayload("talkie-codex.feat-design-tokens-reimagined.mini");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.source).toBe("live");
+    expect(payload?.sessionId).toBe("relay-talkie-codex-feat-design-tokens-reimagined-mini-codex");
+    expect(payload?.data.metadata?.session?.cwd).toBe("/Users/arach/dev/talkie");
+    expect(payload?.data.events.some((event) => event.text.includes("configured full instance snapshot"))).toBe(true);
   });
 
   test("maps a Claude session ref id directly to its history file", async () => {

@@ -98,7 +98,7 @@ const SLIDER_GROUPS: SliderGroup[] = [
   {
     title: "Delivery",
     sliders: [
-      { key: "playbackRate", label: "Speed", min: 0.75, max: 1.35, step: 0.01, format: (v) => `${v.toFixed(2)}×` },
+      { key: "playbackRate", label: "Speed (pitch-shifts)", min: 0.75, max: 1.35, step: 0.01, format: (v) => `${v.toFixed(2)}×` },
     ],
   },
   {
@@ -117,14 +117,62 @@ const SPEED_VARY_RANGE = 0.12; // ±12% around the configured speed when vary-pe
 const clampSpeed = (v: number) => Math.max(0.7, Math.min(1.45, v));
 
 const LOOP_GAP_MS = 220;
+const RANGER_CLEAN_DISPATCH_FX: VoiceFxParams = {
+  ...DEFAULT_VOICE_FX,
+  lowCutHz: 160,
+  highCutHz: 5200,
+  bandQ: 0.35,
+  saturationAmount: 0.035,
+  bitcrushAmount: 0,
+  hissGain: 0,
+  hissCutoffHz: 1800,
+  presencePeakDb: 1.5,
+  presenceCenterHz: 1500,
+  presenceQ: 0.65,
+  compressorThresholdDb: -15,
+  compressorRatio: 2.2,
+  clickEnabled: true,
+  clickGain: 0.24,
+  clickDurationMs: 45,
+  squelchTailEnabled: true,
+  squelchTailGain: 0.018,
+  squelchTailDurationMs: 95,
+  playbackRate: 1,
+  outputGain: 1,
+  wetMix: 0.38,
+};
+
+const CODEX_CLEAN_DISPATCH_FX: VoiceFxParams = {
+  ...RANGER_CLEAN_DISPATCH_FX,
+  lowCutHz: 190,
+  highCutHz: 5000,
+  saturationAmount: 0.055,
+  bitcrushAmount: 0.01,
+  hissGain: 0.006,
+  presencePeakDb: 2.5,
+  compressorThresholdDb: -17,
+  compressorRatio: 2.8,
+  clickGain: 0.28,
+  squelchTailGain: 0.024,
+  squelchTailDurationMs: 105,
+  wetMix: 0.44,
+};
+
+function voiceFxParamsCode(params: VoiceFxParams): string {
+  const entries = Object.entries(params)
+    .map(([key, value]) => `  ${key}: ${typeof value === "number" ? Number(value.toFixed(3)) : String(value)},`)
+    .join("\n");
+  return `const RANGER_VOICE_FX: Partial<VoiceFxParams> = {\n${entries}\n};`;
+}
 
 export function RangerFxLab() {
   const [response, setResponse] = useState<FixturesResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [buffers, setBuffers] = useState<Record<string, LoadedBuffer>>({});
-  const [params, setParams] = useState<VoiceFxParams>(DEFAULT_VOICE_FX);
+  const [params, setParams] = useState<VoiceFxParams>(RANGER_CLEAN_DISPATCH_FX);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [playingSlug, setPlayingSlug] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [varySpeed, setVarySpeed] = useState(false);
   const handleRef = useRef<VoiceFxHandle | null>(null);
@@ -172,6 +220,16 @@ export function RangerFxLab() {
     setParams(preset.params);
     setActivePresetId(id);
   }, []);
+
+  const copyParams = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(voiceFxParamsCode(params));
+      setCopyStatus("Copied");
+      window.setTimeout(() => setCopyStatus(null), 1600);
+    } catch (error) {
+      setCopyStatus(error instanceof Error ? error.message : "Copy failed");
+    }
+  }, [params]);
 
   const playSession = useCallback(async (
     fixture: Fixture,
@@ -314,11 +372,38 @@ export function RangerFxLab() {
               type="button"
               style={buttonStyle}
               onClick={() => {
+                setActivePresetId("ranger-clean-dispatch");
+                setParams(RANGER_CLEAN_DISPATCH_FX);
+              }}
+            >
+              Ranger default
+            </button>
+            <button
+              type="button"
+              style={buttonStyle}
+              onClick={() => {
+                setActivePresetId("codex-clean-dispatch");
+                setParams(CODEX_CLEAN_DISPATCH_FX);
+              }}
+            >
+              Codex take
+            </button>
+            <button
+              type="button"
+              style={buttonStyle}
+              onClick={() => {
                 setActivePresetId(null);
                 setParams(DEFAULT_VOICE_FX);
               }}
             >
-              Reset
+              Raw default
+            </button>
+            <button
+              type="button"
+              style={buttonPrimaryStyle}
+              onClick={() => void copyParams()}
+            >
+              {copyStatus ?? "Copy params"}
             </button>
           </div>
         </div>

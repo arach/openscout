@@ -1,109 +1,46 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
-import { stateColor } from "../lib/colors.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
 import { MeshCanvas } from "./MeshCanvas.tsx";
-import { useScout } from "../scout/Provider.tsx";
-import { useMeshViewStore, setMeshViewMode, setMeshSnapshot } from "../lib/mesh-view-store.ts";
+import { AgentTree } from "../components/AgentTree.tsx";
+import { useLocalAgents } from "../lib/local-agents.ts";
+import {
+  useMeshViewStore,
+  setMeshViewMode,
+  setMeshSnapshot,
+  setMeshDensity,
+  setMeshQuery,
+  setMeshStateFilter,
+  type MeshDensity,
+  type MeshStateFilter,
+} from "../lib/mesh-view-store.ts";
 import "./system-surfaces-redesign.css";
 import "./mesh-screen.css";
 
-function tailnetPeerLabel(peer: MeshStatus["tailscale"]["peers"][number]): string {
-  const hostName = peer.hostName?.trim();
-  if (hostName && hostName.toLowerCase() !== "localhost") return hostName;
-  const dnsName = peer.dnsName?.trim().replace(/\.$/, "");
-  if (dnsName) return dnsName.split(".")[0] ?? dnsName;
-  return peer.name;
-}
-
-function advertiseScopeLabel(scope?: string): string {
-  if (scope === "mesh") return "Announced to mesh";
-  if (scope === "local") return "Local only";
-  if (scope) return scope;
-  return "Not advertised";
-}
-
-function overallMeshTone(mesh: MeshStatus): "success" | "warning" | "danger" {
-  if (!mesh.health.reachable) return "danger";
-  if (mesh.issues.some((i) => i.severity === "error")) return "danger";
-  if (mesh.issues.length > 0) return "warning";
-  return "success";
-}
-
-function overallMeshLabel(mesh: MeshStatus): string {
-  if (!mesh.health.reachable) return "Broker unreachable";
-  if (mesh.issues.some((i) => i.severity === "error")) return "Degraded";
-  if (mesh.issues.length > 0) return "Needs attention";
-  return "Healthy";
-}
-
-const STATE_RANK: Record<string, number> = { working: 0, available: 1, offline: 2 };
-
-function MeshAgentTable() {
-  const { agents, navigate } = useScout();
-
-  if (agents.length === 0) {
-    return (
-      <div className="sys-list-empty">
-        <h3>No agents registered</h3>
-        <p>Agents connected to this broker will appear here.</p>
-      </div>
-    );
-  }
-
-  const sorted = [...agents].sort((a, b) => {
-    const ra = STATE_RANK[normalizeAgentState(a.state)] ?? 3;
-    const rb = STATE_RANK[normalizeAgentState(b.state)] ?? 3;
-    if (ra !== rb) return ra - rb;
-    return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
-  });
-
-  return (
-    <div className="mesh-agent-table">
-      {sorted.map((agent) => {
-        const state = normalizeAgentState(agent.state);
-        return (
-          <button
-            key={agent.id}
-            type="button"
-            className="mesh-agent-row"
-            onClick={() => navigate({ view: "agents", agentId: agent.id })}
-          >
-            <span className={`mesh-agent-dot mesh-agent-dot--${state}`} style={{ background: stateColor(agent.state) }} />
-            <span className="mesh-agent-name">{agent.handle ?? agent.name}</span>
-            <span className="mesh-agent-project">
-              {agent.project ?? "—"}{agent.branch ? ` · ${agent.branch}` : ""}
-            </span>
-            <span className={`mesh-agent-state mesh-agent-state--${state}`}>{state}</span>
-            <span className="mesh-agent-time">{agent.updatedAt ? timeAgo(agent.updatedAt) : ""}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 function MeshHud({
   mode,
-  mesh,
-  tone,
-  statusLabel,
+  density,
+  query,
+  stateFilter,
   loading,
   refreshing,
   error,
   lastLoadedAt,
+  hasMesh,
   onRefresh,
 }: {
-  mode: "map" | "fleet";
-  mesh: MeshStatus | null;
-  tone: "success" | "warning" | "danger";
-  statusLabel: string;
+  mode: "map" | "tree";
+  density: MeshDensity;
+  query: string;
+  stateFilter: MeshStateFilter;
   loading: boolean;
   refreshing: boolean;
   error: string | null;
   lastLoadedAt: number | null;
+  hasMesh: boolean;
   onRefresh: () => void;
 }) {
   return (
@@ -120,22 +57,83 @@ function MeshHud({
           </button>
           <button
             type="button"
-            className={`mesh-mode-btn${mode === "fleet" ? " mesh-mode-btn--active" : ""}`}
-            onClick={() => setMeshViewMode("fleet")}
+            className={`mesh-mode-btn${mode === "tree" ? " mesh-mode-btn--active" : ""}`}
+            onClick={() => setMeshViewMode("tree")}
           >
-            Fleet
+            Tree
           </button>
         </div>
-      </div>
-      <div className="mesh-hud-right">
-        {mesh && <span className={`sys-chip sys-chip-${tone}`}>{statusLabel}</span>}
-        {mesh?.tailscale.available && !mesh.tailscale.running && (
-          <span className="sys-chip sys-chip-warning">Tailnet stopped</span>
+        {mode === "map" && (
+          <div className="mesh-mode-toggle mesh-density-toggle" role="group" aria-label="Density">
+            <button
+              type="button"
+              className={`mesh-mode-btn${density === "compact" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshDensity("compact")}
+              title="Compact — dots"
+            >
+              Compact
+            </button>
+            <button
+              type="button"
+              className={`mesh-mode-btn${density === "comfortable" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshDensity("comfortable")}
+              title="Comfortable — chips"
+            >
+              Comfortable
+            </button>
+            <button
+              type="button"
+              className={`mesh-mode-btn${density === "spacious" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshDensity("spacious")}
+              title="Spacious — cards"
+            >
+              Spacious
+            </button>
+          </div>
         )}
+      </div>
+      {mode === "map" && hasMesh && (
+        <div className="mesh-hud-filters">
+          <input
+            type="search"
+            className="mesh-hud-search"
+            placeholder="Filter agents…"
+            value={query}
+            onChange={(e) => setMeshQuery(e.target.value)}
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+          />
+          <div className="mesh-mode-toggle" role="group" aria-label="State">
+            <button
+              type="button"
+              className={`mesh-mode-btn${stateFilter === "all" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshStateFilter("all")}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className={`mesh-mode-btn${stateFilter === "working" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshStateFilter("working")}
+            >
+              Working
+            </button>
+            <button
+              type="button"
+              className={`mesh-mode-btn${stateFilter === "available" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshStateFilter("available")}
+            >
+              Available
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="mesh-hud-right">
         <span className="mesh-hud-sync">
           {loading
             ? "Loading…"
-            : error && mesh
+            : error && hasMesh
               ? `Stale — ${lastLoadedAt ? timeAgo(lastLoadedAt) : "unknown"}`
               : lastLoadedAt
                 ? timeAgo(lastLoadedAt)
@@ -153,12 +151,11 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
   const [mesh, setMesh] = useState<MeshStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [tailscaleBusy, setTailscaleBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
 
-  const { mode } = useMeshViewStore();
-  const { agents } = useScout();
+  const { mode, density, query, stateFilter } = useMeshViewStore();
+  const { agents } = useLocalAgents();
   const meshRef = useRef<MeshStatus | null>(null);
   const requestIdRef = useRef(0);
 
@@ -187,28 +184,28 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
     return () => clearInterval(t);
   }, [load]);
 
-  const openTailscale = useCallback(async () => {
-    setTailscaleBusy(true);
-    try {
-      const data = await api<MeshStatus>("/api/mesh/tailscale", { method: "POST", body: JSON.stringify({ action: "open_app" }) });
-      setMesh(data); setMeshSnapshot(data); meshRef.current = data; setError(null); setLastLoadedAt(Date.now());
-    } finally { setTailscaleBusy(false); }
-  }, []);
+  const filteredAgents = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return agents.filter((a) => {
+      if (stateFilter !== "all" && normalizeAgentState(a.state) !== stateFilter) return false;
+      if (!needle) return true;
+      const hay = `${a.name ?? ""} ${a.handle ?? ""} ${a.harness ?? ""} ${a.project ?? ""} ${a.branch ?? ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [agents, query, stateFilter]);
 
-  const tone = mesh ? overallMeshTone(mesh) : "warning";
-  const statusLabel = mesh ? overallMeshLabel(mesh) : "Loading";
-  const nodes = mesh ? Object.values(mesh.nodes) : [];
-  const localId = mesh?.localNode?.id;
-  const localHostName = mesh?.localNode?.hostName?.toLowerCase();
-  const remoteNodes = nodes.filter((n) => n.id !== localId);
-  const externalTailscalePeers = (mesh?.tailscale.peers ?? []).filter((peer) => {
-    const host = peer.hostName?.toLowerCase();
-    if (!host || host === "localhost") return true;
-    if (localHostName && (host === localHostName || host.startsWith(`${localHostName.split(".")[0]}.`))) return false;
-    return true;
-  });
-
-  const hudProps = { mode, mesh, tone, statusLabel, loading, refreshing, error, lastLoadedAt, onRefresh: () => void load("manual") };
+  const hudProps = {
+    mode,
+    density,
+    query,
+    stateFilter,
+    loading,
+    refreshing,
+    error,
+    lastLoadedAt,
+    hasMesh: Boolean(mesh),
+    onRefresh: () => void load("manual"),
+  };
 
   // ── MAP MODE: full-bleed canvas ──
   if (mode === "map") {
@@ -229,53 +226,68 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
           </div>
         )}
 
-        {error && mesh && (
-          <div className="mesh-hud-banner">
-            Mesh refresh failed — showing stale data
-          </div>
-        )}
-
-        {mesh?.tailscale.available && !mesh.tailscale.running && (
-          <div className="mesh-hud-banner mesh-hud-banner--warning">
-            Tailscale is stopped.{" "}
-            <button type="button" className="s-btn" disabled={tailscaleBusy} onClick={() => void openTailscale()}>
-              {tailscaleBusy ? "Opening…" : "Open Tailscale"}
-            </button>
-          </div>
-        )}
-
         <MeshHud {...hudProps} />
       </div>
     );
   }
 
-  // ── FLEET MODE: panel layout ──
+  // ── TREE MODE: panel layout ──
   return (
-    <div className="sys-surface-page">
-      <div className="sys-page-head">
+    <div className="sys-surface-page sys-surface-page-wide mesh-tree-page">
+      <div className="sys-page-head mesh-tree-head">
         <div className="sys-page-title-group">
           <h2 className="sys-page-title">Mesh</h2>
-        </div>
-        <div className="sys-page-actions">
           <div className="mesh-mode-toggle">
             <button type="button" className="mesh-mode-btn" onClick={() => setMeshViewMode("map")}>Map</button>
-            <button type="button" className="mesh-mode-btn mesh-mode-btn--active">Fleet</button>
+            <button type="button" className="mesh-mode-btn mesh-mode-btn--active">Tree</button>
           </div>
-          {mesh && <span className={`sys-chip sys-chip-${tone}`}>{statusLabel}</span>}
-          <div className="sys-sync-note">
-            {loading ? "Loading…" : lastLoadedAt ? `Confirmed ${timeAgo(lastLoadedAt)}` : "—"}
+        </div>
+        {mesh && (
+          <div className="mesh-hud-filters mesh-hud-filters--inline">
+            <input
+              type="search"
+              className="mesh-hud-search"
+              placeholder="Filter agents…"
+              value={query}
+              onChange={(e) => setMeshQuery(e.target.value)}
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+            />
+            <div className="mesh-mode-toggle" role="group" aria-label="State">
+              <button
+                type="button"
+                className={`mesh-mode-btn${stateFilter === "all" ? " mesh-mode-btn--active" : ""}`}
+                onClick={() => setMeshStateFilter("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`mesh-mode-btn${stateFilter === "working" ? " mesh-mode-btn--active" : ""}`}
+                onClick={() => setMeshStateFilter("working")}
+              >
+                Working
+              </button>
+              <button
+                type="button"
+                className={`mesh-mode-btn${stateFilter === "available" ? " mesh-mode-btn--active" : ""}`}
+                onClick={() => setMeshStateFilter("available")}
+              >
+                Available
+              </button>
+            </div>
           </div>
+        )}
+        <div className="sys-page-actions">
+          <span className="mesh-hud-sync">
+            {loading ? "Loading…" : lastLoadedAt ? timeAgo(lastLoadedAt) : "—"}
+          </span>
           <button type="button" className="s-btn" disabled={loading || refreshing} onClick={() => void load("manual")}>
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </div>
-
-      {error && mesh && (
-        <div className="sys-banner sys-banner-warning">
-          <strong>Mesh refresh failed.</strong><span>{error}</span>
-        </div>
-      )}
 
       {loading && !mesh && (
         <div className="sys-panel sys-state-card">
@@ -295,120 +307,28 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
       )}
 
       {mesh && (
-        <>
-          <div className="mesh-fleet-mini">
-            <MeshCanvas mesh={mesh} agents={agents} />
+        <section className="sys-panel mesh-tree-panel">
+          <div className="mesh-tree-hint" aria-hidden>
+            <kbd>↑</kbd><kbd>↓</kbd>
+            <span>navigate</span>
+            <span className="mesh-tree-hint-sep">·</span>
+            <kbd>enter</kbd>
+            <span>pin</span>
+            <span className="mesh-tree-hint-sep">·</span>
+            <kbd>o</kbd>
+            <span>open</span>
+            <span className="mesh-tree-hint-sep">·</span>
+            <kbd>esc</kbd>
+            <span>clear</span>
           </div>
-
-          <section className="sys-panel">
-            <div className="sys-section-head">
-              <div>
-                <h3 className="sys-section-title">Agents</h3>
-                <p className="sys-section-subtitle">All agents registered with this broker.</p>
-              </div>
-            </div>
-            <MeshAgentTable />
-          </section>
-
-          <section className="sys-panel">
-            <div className="sys-section-head">
-              <div>
-                <h3 className="sys-section-title">Discovered peers</h3>
-                <p className="sys-section-subtitle">Remote brokers registered in {mesh.meshId ?? "this mesh"}.</p>
-              </div>
-            </div>
-            {remoteNodes.length === 0 ? (
-              <div className="sys-list-empty">
-                <h3>No remote brokers discovered</h3>
-                <p>This can be normal on a single-node setup. If you expect peers, check mesh health in the inspector.</p>
-              </div>
-            ) : (
-              <div className="sys-list-grid">
-                {remoteNodes.map((node) => (
-                  <article key={node.id} className="sys-list-card">
-                    <div className="sys-list-card-head">
-                      <h3 className="sys-list-card-title">{node.name}</h3>
-                      <span className={`sys-chip sys-chip-${node.advertiseScope === "mesh" ? "success" : "neutral"}`}>
-                        {advertiseScopeLabel(node.advertiseScope)}
-                      </span>
-                    </div>
-                    <div className="sys-list-card-detail">
-                      <span className="sys-detail-label">Node id</span>
-                      <code className="sys-detail-value">{node.id}</code>
-                    </div>
-                    {node.brokerUrl && (
-                      <div className="sys-list-card-detail">
-                        <span className="sys-detail-label">Broker</span>
-                        <code className="sys-detail-value">{node.brokerUrl}</code>
-                      </div>
-                    )}
-                    <div className="sys-list-card-detail">
-                      <span className="sys-detail-label">Last seen</span>
-                      <span className="sys-detail-value">{node.lastSeenAt ? timeAgo(node.lastSeenAt) : "Recently registered"}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="sys-panel">
-            <div className="sys-section-head">
-              <div>
-                <h3 className="sys-section-title">Tailnet</h3>
-                <p className="sys-section-subtitle">External Tailscale peers visible from this machine.</p>
-              </div>
-            </div>
-            {externalTailscalePeers.length === 0 ? (
-              <div className="sys-list-empty">
-                <h3>No external tailnet peers</h3>
-                <p>
-                  {!mesh.tailscale.available
-                    ? "Tailscale peers were not detected on this machine."
-                    : !mesh.tailscale.running
-                      ? "Tailscale is installed but currently stopped."
-                      : "Only this host is visible in the current tailnet snapshot."}
-                </p>
-              </div>
-            ) : (
-              <div className="sys-list-grid">
-                {externalTailscalePeers.map((peer) => (
-                  <article key={peer.id} className="sys-list-card">
-                    <div className="sys-list-card-head">
-                      <h3 className="sys-list-card-title">{tailnetPeerLabel(peer)}</h3>
-                      <span className={`sys-chip sys-chip-${peer.online ? "success" : "failed"}`}>
-                        {peer.online ? "Online" : "Offline"}
-                      </span>
-                    </div>
-                    <div className="sys-list-card-detail">
-                      <span className="sys-detail-label">Address</span>
-                      <code className="sys-detail-value">{peer.addresses?.[0] ?? "Unavailable"}</code>
-                    </div>
-                    <div className="sys-list-card-detail">
-                      <span className="sys-detail-label">Platform</span>
-                      <span className="sys-detail-value">{peer.os ?? "Unknown"}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {mesh.tailscale.available && !mesh.tailscale.running && (
-            <div className="sys-banner sys-banner-warning">
-              <strong>Tailscale is stopped.</strong>
-              <span>{mesh.tailscale.health[0] ?? "This machine is showing cached Tailnet peers, but the local Tailscale backend is not running."}</span>
-              <div className="sys-inline-actions">
-                <button type="button" className="s-btn" disabled={tailscaleBusy} onClick={() => void openTailscale()}>
-                  {tailscaleBusy ? "Opening Tailscale…" : "Open Tailscale"}
-                </button>
-                <button type="button" className="s-btn" disabled={tailscaleBusy || refreshing} onClick={() => void load("manual")}>
-                  {refreshing ? "Refreshing…" : "Refresh status"}
-                </button>
-              </div>
-            </div>
-          )}
-        </>
+          <AgentTree
+            agents={filteredAgents}
+            emptyTitle={agents.length === 0 ? "No agents registered" : "No agents match your filter"}
+            emptyBody={agents.length === 0
+              ? "Agents connected to this broker will appear here."
+              : "Try clearing the search or switching the state pill back to All."}
+          />
+        </section>
       )}
     </div>
   );

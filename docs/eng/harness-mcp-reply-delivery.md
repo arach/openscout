@@ -39,10 +39,11 @@ spec tracks collapsing those fallbacks into `/v1/deliver`.
 `replyMode: "none" | "inline" | "notify"`, with `awaitReply: true` retained as a
 compatibility alias for `replyMode: "inline"`.
 
-When `replyMode` is `inline`, the tool calls `waitForScoutFlight` and blocks the
-MCP tool call until the flight reaches `completed`, `failed`, `cancelled`, or the
-optional timeout. The returned `output` is `flight.output` with `flight.summary`
-as fallback.
+When `replyMode` is `inline`, the tool waits only until the target has
+acknowledged the ask (`running` / `waiting`) or the flight has already reached a
+terminal state. This keeps the initiating tool call short while still proving the
+target picked up the work. `output` is only populated for terminal results; use
+`invocations_wait` or `invocations_get` to observe the later completion.
 
 When `replyMode` is `notify`, the tool returns immediately with durable
 `conversationId`, `messageId`, `flightId`, and optional `workId` data, then the
@@ -50,10 +51,10 @@ MCP server waits in the background and emits `notifications/scout/reply` when th
 flight completes or fails. This is the native MCP callback path for hosts that
 surface server notifications.
 
-Important implication: `inline` is still an inline wait. `notify` is push-style
-from the MCP server to the connected host, but it still depends on the current
-MCP server process staying alive and the host choosing to surface custom server
-notifications.
+Important implication: `inline` is an acknowledgement wait, not a completion
+wait. `notify` is push-style from the MCP server to the connected host, but it
+still depends on the current MCP server process staying alive and the host
+choosing to surface custom server notifications.
 
 ### Claude channel server
 
@@ -152,7 +153,7 @@ MCP servers, and LSP from cwd. Scout does not inject its own MCP server here.
 
 ### Web / terminal-only
 
-The tmux fallback path in
+The tmux terminal transport path in
 `/Users/arach/dev/openscout/packages/runtime/src/local-agents.ts` sends prompts
 into a terminal session and then polls broker messages for a tagged
 `[ask:<flightId>]` reply. This is the least native path: it relies on prompting,
@@ -188,10 +189,11 @@ Inline waiting requires all of the following:
 - the caller is willing to keep the MCP tool call open
 - the timeout is acceptable for the host and user
 
-Scout supports this today through `invocations_ask.awaitReply`. This is simple
-and useful for short tasks, but it ties reply delivery to the initiating tool
-call. It is fragile for long-running work, human-in-the-loop states, host
-timeouts, and cases where the caller can continue doing other work.
+Scout supports acknowledgement waits today through `invocations_ask.awaitReply`.
+This is simple and useful when the caller must know the target started, but it
+should not be used as the completion delivery path for long-running work,
+human-in-the-loop states, host timeouts, or cases where the caller can continue
+doing other work.
 
 Callback-style notification requires a live addressable receiver. Current
 partial mechanisms are:
@@ -232,8 +234,9 @@ Fallback: always available if the broker accepts the delivery.
 
 ### `inline`
 
-Block the current call until the flight completes or times out. This maps to the
-existing `awaitReply` behavior.
+Block the current call until the target acknowledges, the flight immediately
+completes, or the ask times out. This maps to the `awaitReply` compatibility
+behavior.
 
 Use for:
 
@@ -317,9 +320,9 @@ Fallback: downgrade to `none` and return durable ids plus a
 
 7. Avoid prompt-only reply tags where direct transports exist.
 
-   The tmux `[ask:<id>]` loop should remain a fallback for terminal-only
-   harnesses. Codex app-server and Claude stream-json should continue returning
-   final assistant output directly to the broker.
+   The tmux `[ask:<id>]` loop should remain the terminal transport reply path
+   for terminal-only harnesses. Codex app-server and Claude stream-json should
+   continue returning final assistant output directly to the broker.
 
 ## Risks
 
@@ -353,7 +356,7 @@ Fallback: downgrade to `none` and return durable ids plus a
 ## Tests To Add
 
 - `scout-mcp` unit test: `invocations_ask` maps `replyMode: "inline"` to
-  `waitForFlight` and preserves existing `awaitReply` behavior.
+  acknowledgement waiting and preserves `awaitReply` compatibility.
 - `scout-mcp` unit test: `replyMode: "notify"` emits
   `notifications/scout/reply` when the background flight completes. **Added.**
 - `scout-mcp` unit test: `replyMode: "notify"` downgrades to `none` with a

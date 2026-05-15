@@ -28,7 +28,7 @@ export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | 
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
 export const SCOUT_PRIMARY_CONVERSATION_ID = "dm.scout.primary";
-export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor"] as const;
+export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor", "pi"] as const;
 export type ManagedAgentHarness = typeof MANAGED_AGENT_HARNESSES[number];
 
 export type RelayHarnessProfile = {
@@ -119,6 +119,50 @@ export type OpenScoutProjectConfig = {
   };
 };
 
+export type SceneSurface = "mission-control";
+
+export type SceneMatcher =
+  | { kind: "all" }
+  | { kind: "harness"; value: string }
+  | { kind: "project"; value: string }
+  | { kind: "branch"; value: string }
+  | { kind: "agentClass"; value: string }
+  | { kind: "agentIds"; ids: string[] }
+  | { kind: "and"; of: SceneMatcher[] }
+  | { kind: "or"; of: SceneMatcher[] };
+
+export type SceneZone = {
+  id: string;
+  label: string;
+  rect: { x: number; y: number; w: number; h: number };
+  layout: "auto-pack" | "manual";
+  match: SceneMatcher;
+  color?: string;
+};
+
+export type SceneAgentOverride = {
+  agentId: string;
+  zoneId: string | null;
+  position?: { x: number; y: number };
+};
+
+export type SceneBody = {
+  version: 1;
+  viewport: { pan: { x: number; y: number }; zoom: number } | null;
+  zones: SceneZone[];
+  overrides: SceneAgentOverride[];
+  fallback: "auto-pack" | "hide";
+};
+
+export type Scene = {
+  id: string;
+  surface: SceneSurface;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  body: SceneBody;
+};
+
 export type OpenScoutSettings = {
   version: 1;
   profile: {
@@ -167,6 +211,10 @@ export type OpenScoutSettings = {
     favorites: string[];
     quickHits: string[];
     preparedAt: number | null;
+  };
+  ui: {
+    scenes: Scene[];
+    activeSceneIdBySurface: Partial<Record<SceneSurface, string | null>>;
   };
 };
 
@@ -267,6 +315,7 @@ export type UpdateOpenScoutSettingsInput = {
   node?: Partial<OpenScoutSettings["node"]>;
   discovery?: Partial<OpenScoutSettings["discovery"]>;
   agents?: Partial<OpenScoutSettings["agents"]>;
+  ui?: Partial<OpenScoutSettings["ui"]>;
   bridges?: {
     telegram?: Partial<OpenScoutSettings["bridges"]["telegram"]>;
   };
@@ -339,7 +388,7 @@ function guessedOperatorName(): string {
 
 export const DEFAULT_OPERATOR_NAME = guessedOperatorName();
 const DEFAULT_CAPABILITIES: AgentCapability[] = ["chat", "invoke", "deliver"];
-const DEFAULT_TRANSPORT: RelayRuntimeTransport = "claude_stream_json";
+const DEFAULT_TRANSPORT: RelayRuntimeTransport = "tmux";
 const DEFAULT_TELEGRAM_MODE: TelegramBridgeMode = "polling";
 const LEGACY_DEFAULT_TELEGRAM_CONVERSATION_ID = "channel.shared";
 const DEFAULT_TELEGRAM_CONVERSATION_ID = SCOUT_PRIMARY_CONVERSATION_ID;
@@ -432,6 +481,10 @@ const PROJECT_HARNESS_MARKERS: Record<ManagedAgentHarness, readonly string[]> = 
     ".cursor",
     ".cursorrules",
   ],
+  pi: [
+    "PI.md",
+    ".pi",
+  ],
 };
 
 function partitionFlatAndNestedMarkers(markers: readonly string[]): { flat: string[]; nested: string[] } {
@@ -519,6 +572,9 @@ function normalizeManagedHarness(
   if (value === "cursor") {
     return "cursor";
   }
+  if (value === "pi") {
+    return "pi";
+  }
   return fallback;
 }
 
@@ -531,7 +587,7 @@ function titleCase(value: string): string {
 }
 
 function normalizeSessionPrefix(value: string | undefined): string {
-  const trimmed = (value ?? "").trim().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
+  const trimmed = (value ?? "").trim().replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "");
   return trimmed || "relay";
 }
 
@@ -750,8 +806,11 @@ export function buildRelayAgentInstance(agentId: string, projectRoot: string): R
 
 function normalizeTmuxSessionName(value: string | undefined, fallbackId: string, prefix = "relay"): string {
   const trimmed = (value ?? "").trim();
-  const normalized = trimmed.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
-  return normalized || `${normalizeSessionPrefix(prefix)}-${fallbackId}`;
+  const normalized = trimmed.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "");
+  const fallback = `${normalizeSessionPrefix(prefix)}-${fallbackId}`
+    .replace(/[^\w-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || fallback || "relay-agent";
 }
 
 function normalizeCapabilities(value: unknown): AgentCapability[] {
@@ -775,7 +834,15 @@ function normalizeCapabilities(value: unknown): AgentCapability[] {
 }
 
 function normalizeHarness(value: string | undefined, fallback: AgentHarness): AgentHarness {
-  return value === "codex" ? "codex" : value === "claude" ? "claude" : value === "cursor" ? "cursor" : fallback;
+  return value === "codex"
+    ? "codex"
+    : value === "claude"
+      ? "claude"
+      : value === "cursor"
+        ? "cursor"
+        : value === "pi"
+          ? "pi"
+          : fallback;
 }
 
 function normalizeTransport(
@@ -797,6 +864,10 @@ function normalizeTransport(
 
   if (value === "codex_app_server") {
     return "codex_app_server";
+  }
+
+  if (value === "tmux") {
+    return "tmux";
   }
 
   return fallback === "codex_app_server" ? "claude_stream_json" : fallback;
@@ -1031,6 +1102,10 @@ function defaultSettings(): OpenScoutSettings {
       favorites: [],
       quickHits: [],
       preparedAt: null,
+    },
+    ui: {
+      scenes: [],
+      activeSceneIdBySurface: {},
     },
   };
 }
@@ -1442,6 +1517,7 @@ async function detectHarnessMarkers(projectRoot: string): Promise<Record<Managed
     claude: [],
     codex: [],
     cursor: [],
+    pi: [],
   };
 
   for (const harness of MANAGED_AGENT_HARNESSES) {
@@ -1483,6 +1559,7 @@ async function normalizeSettingsRecord(
   const bridges = typeof candidate.bridges === "object" && candidate.bridges ? candidate.bridges as Record<string, unknown> : {};
   const telegram = typeof bridges.telegram === "object" && bridges.telegram ? bridges.telegram as Record<string, unknown> : {};
   const phone = typeof candidate.phone === "object" && candidate.phone ? candidate.phone as Record<string, unknown> : {};
+  const ui = typeof candidate.ui === "object" && candidate.ui ? candidate.ui as Record<string, unknown> : {};
   const oldOperatorName = typeof candidate.operatorName === "string" ? candidate.operatorName : undefined;
 
   const seededWorkspaceRoots = await seedWorkspaceRoots({
@@ -1568,7 +1645,48 @@ async function normalizeSettingsRecord(
       quickHits: normalizeStringList(phone.quickHits),
       preparedAt: normalizeOptionalTimestamp(phone.preparedAt),
     },
+    ui: normalizeUi(ui),
   };
+}
+
+function normalizeUi(value: Record<string, unknown>): OpenScoutSettings["ui"] {
+  const scenesRaw = Array.isArray(value.scenes) ? value.scenes : [];
+  const scenes: Scene[] = [];
+  for (const raw of scenesRaw) {
+    if (typeof raw !== "object" || !raw) continue;
+    const r = raw as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id : null;
+    const name = typeof r.name === "string" ? r.name : null;
+    const surface = r.surface === "mission-control" ? "mission-control" : null;
+    const body = typeof r.body === "object" && r.body ? r.body as Record<string, unknown> : null;
+    if (!id || !name || !surface || !body) continue;
+    const viewport = typeof body.viewport === "object" && body.viewport ? body.viewport as Record<string, unknown> : null;
+    const pan = viewport && typeof viewport.pan === "object" && viewport.pan ? viewport.pan as Record<string, unknown> : null;
+    scenes.push({
+      id,
+      name,
+      surface,
+      createdAt: typeof r.createdAt === "number" ? r.createdAt : Date.now(),
+      updatedAt: typeof r.updatedAt === "number" ? r.updatedAt : Date.now(),
+      body: {
+        version: 1,
+        viewport: viewport && pan && typeof pan.x === "number" && typeof pan.y === "number" && typeof viewport.zoom === "number"
+          ? { pan: { x: pan.x, y: pan.y }, zoom: viewport.zoom }
+          : null,
+        zones: Array.isArray(body.zones) ? body.zones as SceneZone[] : [],
+        overrides: Array.isArray(body.overrides) ? body.overrides as SceneAgentOverride[] : [],
+        fallback: body.fallback === "hide" ? "hide" : "auto-pack",
+      },
+    });
+  }
+  const activeRaw = typeof value.activeSceneIdBySurface === "object" && value.activeSceneIdBySurface
+    ? value.activeSceneIdBySurface as Record<string, unknown>
+    : {};
+  const activeSceneIdBySurface: Partial<Record<SceneSurface, string | null>> = {};
+  if (typeof activeRaw["mission-control"] === "string") {
+    activeSceneIdBySurface["mission-control"] = activeRaw["mission-control"] as string;
+  }
+  return { scenes, activeSceneIdBySurface };
 }
 
 async function seedWorkspaceRoots(options: {
@@ -1703,6 +1821,10 @@ export async function writeOpenScoutSettings(settings: UpdateOpenScoutSettingsIn
       ...current.phone,
       ...(settings.phone ?? {}),
     },
+    ui: {
+      ...current.ui,
+      ...(settings.ui ?? {}),
+    },
   } satisfies OpenScoutSettings;
 
   const normalized = await normalizeSettingsRecord(merged, {
@@ -1724,6 +1846,7 @@ const SCOUT_SKILL_REPO_ROOT = resolve(SETUP_MODULE_DIRECTORY, "..", "..", "..");
 const SCOUT_SKILL_INSTALL_PATHS: Partial<Record<ManagedAgentHarness, string>> = {
   claude: join(homedir(), ".claude", "skills", "scout", SCOUT_SKILL_FILE_NAME),
   codex: join(homedir(), ".agents", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+  pi: join(homedir(), ".pi", "agent", "skills", "scout", SCOUT_SKILL_FILE_NAME),
 };
 
 function resolveScoutSkillSourcePath(): string | null {
@@ -2878,7 +3001,7 @@ export async function ensureScoutRelayAgentConfigured(options: {
     runtime: {
       cwd: resolvedProjectRoot,
       harness: "claude",
-      transport: "claude_stream_json",
+      transport: "tmux",
       sessionId: normalizeTmuxSessionName(existing?.runtime?.sessionId, `${SCOUT_AGENT_ID}-claude`, settings.agents.sessionPrefix),
       wakePolicy: "on_demand",
     },

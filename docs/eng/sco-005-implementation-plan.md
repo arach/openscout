@@ -11,7 +11,7 @@ Draft.
 
 This plan turns SCO-005 into a concrete implementation track:
 
-- remove `tmux/logs` as the primary session model
+- stop treating `tmux/logs` as the canonical session model
 - make trace the default session surface
 - bring Claude Code and Codex to observer-grade coverage
 
@@ -23,9 +23,10 @@ This plan assumes SCO-003 and SCO-004 already exist as the substrate:
 ## What This Plan Optimizes For
 
 - one session model across product surfaces
-- no host/API branches on `tmux` vs `logs` vs `trace`
+- no host/API branches that make `tmux` vs `logs` vs `trace` separate product
+  ontologies
 - clear adapter completeness bar for Claude Code and Codex
-- aggressive retirement of transport-shaped session UX
+- transport-aware session UX backed by the same broker/session contract
 
 ## Core Constraints
 
@@ -33,14 +34,15 @@ This plan assumes SCO-003 and SCO-004 already exist as the substrate:
 2. `@openscout/session-trace` and `@openscout/session-trace-react` remain the
    canonical trace-consumer layers.
 3. No workstream adds durable session trace storage.
-4. “Open session” should converge on “open trace,” not “attach terminal.”
+4. “Open session” should converge on a broker-backed session view that can open
+   trace, tmux, or logs as current surfaces for the same endpoint.
 
 ## Workstream 1: Replace the Session Inspector Model
 
 ### Goal
 
-Remove `tmux/logs` as first-class session modes in the desktop host/session
-API.
+Stop modeling `tmux/logs` as separate session modes outside the desktop
+host/session API's shared endpoint model.
 
 ### Deliverables
 
@@ -50,7 +52,8 @@ API.
 
 ### Acceptance Criteria
 
-- the host API no longer describes session inspection as `tmux | logs | none`
+- the host API no longer describes session inspection as a mutually exclusive
+  `tmux | logs | none` route
 - pairing-backed agents can be opened by session reference
 - the desktop/web app routes “open session” into the shared trace view
 
@@ -70,7 +73,8 @@ of falling back to host transport logic.
 ### Acceptance Criteria
 
 - a pairing-backed agent can be opened from the UI into trace directly
-- no `tmux` or log fallback is required for the primary open-session path
+- tmux and logs are available as current endpoint surfaces, not required
+  fallback routes for the primary open-session path
 
 ## Workstream 3: Claude Code Observer Completion
 
@@ -90,7 +94,8 @@ and close any remaining fidelity gaps at the adapter/trace layer.
 - Claude Code sessions open directly into shared trace
 - tool use, tool result, reasoning, and AskUserQuestion remain visible through
   the shared trace path
-- no Claude session requires the legacy `tmux/logs` session route
+- Claude sessions can expose tmux/log surfaces without those surfaces becoming
+  the canonical session route
 
 ## Workstream 4: Codex Observer Upgrade
 
@@ -113,23 +118,25 @@ Upgrade Codex from managed final-text bridge to observer-grade adapter.
 - Codex sessions open and resume as trace sessions
 - Codex reaches the SCO-005 “perfect” bar
 
-## Workstream 5: Kill the Product Dependence on `tmux` and Logs
+## Workstream 5: Fold `tmux` and Logs Into The Session Model
 
 ### Goal
 
-Demote pane capture and raw logs to explicit engineering tools.
+Present pane capture and raw logs as current endpoint surfaces under the shared
+session model.
 
 ### Deliverables
 
 - remove transport-first wording from UI and host API
-- rename or relocate any remaining terminal/log features as debug affordances
+- rename or relocate any remaining terminal/log features that imply legacy
+  fallback status
 - prevent “open session” from silently becoming terminal attach
 
 ### Acceptance Criteria
 
 - terminal attach is not the default session opening behavior
 - logs are not presented as the session surface
-- any remaining debug actions are explicitly labeled as such
+- terminal/log actions are clearly labeled as current endpoint surfaces
 
 ## Workstream 6: Cross-Surface Validation
 
@@ -144,7 +151,7 @@ broker-projected agents.
 - Claude Code trace contains structured blocks and interactive question updates
 - Codex trace contains structured blocks rather than only final output
 - interrupt works through the shared session contract
-- product session APIs no longer branch on `tmux/logs`
+- product session APIs no longer treat `tmux/logs` as a separate ontology
 
 ## Suggested Order
 
@@ -152,7 +159,8 @@ broker-projected agents.
 2. Route pairing-backed session opening into shared trace UI.
 3. Finish Claude Code trace-first product wiring.
 4. Upgrade Codex to observer-grade structured trace.
-5. Remove `tmux/logs` from the primary user journey.
+5. Present `tmux/logs` as current endpoint surfaces inside the primary session
+   journey, not as a separate route.
 6. Add cross-surface tests and tighten the invariants.
 
 ## What Should Be Considered “Done”
@@ -162,7 +170,8 @@ SCO-005 should be considered done only when:
 - “open session” is trace-first everywhere users reach it
 - Claude Code is observer-grade
 - Codex is observer-grade
-- `tmux/logs` are no longer product-level session concepts
+- `tmux/logs` are current endpoint surfaces under the same product-level session
+  concept
 
 If Codex remains final-text-only or if the desktop host API still exports
-`tmux/logs` as first-class modes, SCO-005 is not done.
+`tmux/logs` as a separate model, SCO-005 is not done.

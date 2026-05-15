@@ -22,7 +22,9 @@ import {
   readScoutBrokerHealth,
   resolveScoutSenderId,
   sendScoutMessage,
+  sendScoutMessageToAgentIds,
   updateScoutWorkItem,
+  waitForScoutFlight,
   watchScoutMessages,
 } from "./service.ts";
 
@@ -97,8 +99,9 @@ describe("parseScoutHarness", () => {
 
   test("keeps managed local launch harnesses explicit", () => {
     expect(() => parseScoutLocalHarness("flue")).toThrow(
-      'Unsupported local agent harness "flue". Use one of: claude, codex',
+      'Unsupported local agent harness "flue". Use one of: claude, codex, pi',
     );
+    expect(parseScoutLocalHarness("pi")).toBe("pi");
   });
 });
 
@@ -882,6 +885,34 @@ describe("askScoutQuestion", () => {
   }, 15000);
 });
 
+describe("waitForScoutFlight", () => {
+  test("can return on target acknowledgement without waiting for completion", async () => {
+    useIsolatedOpenScoutHome();
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      expect(url.pathname).toBe("/v1/snapshot");
+      return jsonResponse({
+        flights: {
+          "flight-1": {
+            id: "flight-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "hudson",
+            state: "running",
+            summary: "Hudson acknowledged via codex_app_server.",
+          },
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    const flight = await waitForScoutFlight("http://broker.test", "flight-1", {
+      waitUntil: "acknowledged",
+    });
+
+    expect(flight.state).toBe("running");
+  });
+});
+
 describe("updateScoutWorkItem", () => {
   test("updates an existing work item and appends a collaboration event", async () => {
     useIsolatedOpenScoutHome();
@@ -1388,6 +1419,125 @@ describe("sendScoutMessage", () => {
     });
   }, 15000);
 
+  test("routes a single explicit target id through broker delivery", async () => {
+    useIsolatedOpenScoutHome();
+
+    const captured = {
+      delivery: null as {
+        caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
+        target?: { kind?: string; agentId?: string };
+        body?: string;
+        intent?: string;
+        ensureAwake?: boolean;
+        messageMetadata?: Record<string, unknown>;
+        invocationMetadata?: Record<string, unknown>;
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {
+            "hudson.main": {
+              id: "hudson.main",
+              kind: "agent",
+              displayName: "Hudson",
+              handle: "hudson",
+              selector: "@hudson",
+              defaultSelector: "@hudson",
+              homeNodeId: "node-1",
+              authorityNodeId: "node-1",
+              wakePolicy: "on_demand",
+            },
+          },
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = await request.json() as NonNullable<typeof captured.delivery>;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.hudson",
+            kind: "direct",
+            title: "Hudson",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "hudson.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.hudson",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: captured.delivery.body,
+            audience: {
+              notify: ["hudson.main"],
+              reason: "direct_message",
+            },
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "hudson.main",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "hudson.main",
+            state: "waking",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutMessageToAgentIds({
+      senderId: "operator",
+      targetAgentIds: ["hudson.main"],
+      body: "please look when you can",
+      currentDirectory: "/worktree/project",
+      source: "scout-mcp",
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.invokedTargetIds).toEqual(["hudson.main"]);
+    expect(result.flight?.id).toBe("flt-1");
+    expect(captured.delivery?.target).toEqual({
+      kind: "agent_id",
+      agentId: "hudson.main",
+    });
+    expect(captured.delivery?.intent).toBe("tell");
+    expect(captured.delivery?.ensureAwake).toBeUndefined();
+    expect(captured.delivery?.messageMetadata).toEqual({
+      source: "scout-mcp",
+    });
+    expect(captured.delivery?.invocationMetadata).toEqual({
+      source: "scout-mcp",
+    });
+  }, 15000);
+
   test("can post a tell and wake the target asynchronously", async () => {
     useIsolatedOpenScoutHome();
 
@@ -1775,5 +1925,93 @@ describe("watchScoutMessages", () => {
         body: "hello from a sibling session",
       },
     ]);
+  });
+
+  test("filters messages by explicit conversation id", async () => {
+    useIsolatedOpenScoutHome();
+
+    const encoder = new TextEncoder();
+    const received: string[] = [];
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/events/stream") {
+        const matchingPayload = JSON.stringify({
+          kind: "message.posted",
+          payload: {
+            message: {
+              id: "m-1",
+              conversationId: "dm.operator.hudson",
+              actorId: "hudson",
+              body: "matching",
+              class: "agent",
+              createdAt: Date.now(),
+            },
+          },
+        });
+        const otherPayload = JSON.stringify({
+          kind: "message.posted",
+          payload: {
+            message: {
+              id: "m-2",
+              conversationId: "channel.shared",
+              actorId: "hudson",
+              body: "other",
+              class: "agent",
+              createdAt: Date.now(),
+            },
+          },
+        });
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(`event: message.posted\ndata: ${otherPayload}\n\n`),
+              );
+              controller.enqueue(
+                encoder.encode(`event: message.posted\ndata: ${matchingPayload}\n\n`),
+              );
+              controller.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream",
+            },
+          },
+        );
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    await watchScoutMessages({
+      conversationId: "dm.operator.hudson",
+      onMessage(message) {
+        received.push(message.body);
+      },
+    });
+
+    expect(received).toEqual(["matching"]);
   });
 });

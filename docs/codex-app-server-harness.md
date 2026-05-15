@@ -45,7 +45,8 @@ This transport means:
 
 - the endpoint is backed by a persistent Codex app-server session
 - the runtime owns the child process and thread lifecycle
-- the broker can invoke the agent directly without going through tmux nudges
+- the broker can invoke the agent through the app-server adapter instead of the
+  tmux prompt-delivery adapter
 
 ### Session Model
 
@@ -79,7 +80,7 @@ Compared with the current Codex path:
 - no prompt queue files
 - no `codex exec resume` loop
 - no broker polling for tagged replies
-- no fake tmux transport for a non-tmux runtime
+- no mislabeling an app-server-backed endpoint as a tmux-backed endpoint
 
 Compared with replacing Scout semantics wholesale:
 
@@ -90,11 +91,13 @@ Compared with replacing Scout semantics wholesale:
 ## First Implementation Slice
 
 1. Add `codex_app_server` to protocol and runtime endpoint transport unions.
-2. Derive Codex-backed Scout agents to that transport instead of `tmux`.
+2. Derive app-server-backed Codex agents to that transport; keep tmux as the
+   current transport for tmux-backed agents.
 3. Add a persistent `CodexAppServerSessionManager` in `@openscout/runtime`.
 4. Resume or create a Codex thread per agent and persist its thread id locally.
 5. Route broker invocations for Codex agents through `turn/start`.
-6. Keep the existing tmux path unchanged for Claude agents.
+6. Keep the tmux path current for agents that use tmux as their runtime
+   transport.
 
 ## Next Steps After This Slice
 

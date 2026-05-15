@@ -80,7 +80,7 @@ and live session until the product language converges.
 - Do not turn live trace into a second workflow engine.
 - Do not persist raw reasoning as canonical work state.
 - Do not synthesize durable work steps from every tool call or stdout delta.
-- Do not make tmux or logs the primary product model.
+- Do not make tmux or logs the canonical work projection model.
 - Do not require every harness to expose identical trace fidelity.
 
 ## Canonical Source Planes
@@ -554,8 +554,8 @@ If trace cannot be recovered:
 
 ### Diagnostics
 
-tmux and logs may remain available as drill-down surfaces, especially for
-harnesses that do not expose rich runtime events, but they must stay outside the
+tmux and logs remain available as drill-down surfaces, especially for harnesses
+that do not expose rich runtime events, but they must stay outside the
 normalized work projection path.
 
 ## Example: Vox DJ Real-Time Voice Commands
@@ -672,4 +672,5 @@ It should do both, but on different layers:
 - durable artifacts for outputs
 
 That separation gives the operator a coherent fleet view without forcing every
-harness to look like tmux or every tool call to become product state.
+harness to expose the same terminal shape or every tool call to become product
+state.

@@ -23,6 +23,7 @@ import {
   useSlashToFocus,
 } from "../../lib/keyboard-nav.ts";
 import { timeAgo } from "../../lib/time.ts";
+import { statusOnHover } from "../../lib/page-status.ts";
 
 export function ScoutMissionControlLeftPanel() {
   const { navigate } = useScout();
@@ -197,6 +198,10 @@ function AgentRow({
   onFocusOnCanvas: () => void;
   onOpen: () => void;
 }) {
+  const hoverHandlers = statusOnHover({
+    label: `Focus ${agent.handle ?? agent.name}`,
+    route: `/ops/control · ${agent.id}`,
+  });
   return (
     <div
       className={`ml-row${isExpanded ? " ml-row--expanded" : ""}${isSelected ? " ml-row--selected" : ""}`}
@@ -206,6 +211,8 @@ function AgentRow({
         tabIndex={tabIndex}
         className="ml-row-head"
         onClick={(e) => onToggle(e)}
+        onPointerEnter={hoverHandlers.onPointerEnter}
+        onPointerLeave={hoverHandlers.onPointerLeave}
         aria-expanded={isExpanded}
       >
         <span

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -78,6 +78,48 @@ for await (const line of rl) {
   const trimmed = line.trim();
   if (!trimmed) continue;
   console.log(JSON.stringify(${JSON.stringify(resultEvent)}));
+}
+`);
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
+
+function writeFakeClaudeExecutableWithStaleResumeRecovery(baseDirectory: string): string {
+  const executablePath = join(baseDirectory, "claude");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const args = process.argv.slice(2);
+const staleResume = args.includes("--resume");
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+if (!staleResume) {
+  console.log(JSON.stringify({ type: "system", subtype: "init", session_id: "fresh-claude-session" }));
+}
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  if (staleResume) {
+    console.log(JSON.stringify({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["No conversation found with session ID: stale-claude-session"],
+    }));
+    continue;
+  }
+
+  const message = JSON.parse(trimmed);
+  const content = message?.message?.content;
+  console.log(JSON.stringify({
+    type: "assistant",
+    message: { content: [{ type: "text", text: \`recovered: \${content}\` }] },
+  }));
+  console.log(JSON.stringify({ type: "result", result: \`recovered: \${content}\` }));
 }
 `);
   chmodSync(executablePath, 0o755);
@@ -169,6 +211,41 @@ describe("invokeClaudeStreamJsonAgent", () => {
       prompt: "trigger error",
       timeoutMs: 5_000,
     })).rejects.toThrow("No conversation found with session ID");
+
+    await shutdownClaudeStreamJsonAgent(options);
+  });
+
+  test("resets stale Claude resume ids and retries once", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-stale-resume-test-"));
+    tempPaths.add(tempRoot);
+    writeFakeClaudeExecutableWithStaleResumeRecovery(tempRoot);
+    process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
+
+    const runtimeDirectory = join(tempRoot, "runtime");
+    mkdirSync(runtimeDirectory, { recursive: true });
+    writeFileSync(join(runtimeDirectory, "session-catalog.json"), JSON.stringify({
+      activeSessionId: "stale-claude-session",
+      sessions: [{ id: "stale-claude-session", startedAt: 1, cwd: process.cwd() }],
+    }));
+
+    const options = {
+      agentName: "hudson-stale-resume",
+      sessionId: "relay-hudson-stale-resume",
+      cwd: process.cwd(),
+      systemPrompt: "You are a test Claude relay agent.",
+      runtimeDirectory,
+      logsDirectory: join(tempRoot, "logs"),
+      launchArgs: [],
+    } as const;
+
+    await expect(invokeClaudeStreamJsonAgent({
+      ...options,
+      prompt: "retry prompt",
+      timeoutMs: 5_000,
+    })).resolves.toEqual({
+      output: "recovered: retry prompt",
+      sessionId: "fresh-claude-session",
+    });
 
     await shutdownClaudeStreamJsonAgent(options);
   });

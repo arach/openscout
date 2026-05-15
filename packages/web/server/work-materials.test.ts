@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -9,6 +9,7 @@ import type { WebAgent, WebWorkDetail } from "./db-queries.ts";
 
 const tempRoots = new Set<string>();
 let agentObservePayload: AgentObservePayload | null = null;
+const originalHome = process.env.HOME;
 
 const agents: WebAgent[] = [
   {
@@ -46,13 +47,22 @@ mock.module("./core/observe/service.ts", () => ({
   loadSessionRefObservePayload: async () => null,
 }));
 
-const { readWorkMaterialContent } = await import("./work-materials.ts");
+const { buildWorkMaterialsInventory, readWorkMaterialContent } = await import("./work-materials.ts");
 
 beforeEach(() => {
+  const home = makeTempRoot("openscout-work-materials-home-");
+  process.env.HOME = home;
   agentObservePayload = null;
+  agents[0]!.cwd = null;
+  agents[0]!.projectRoot = null;
 });
 
 afterEach(() => {
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
+  }
   for (const root of tempRoots) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -63,6 +73,22 @@ function makeTempRoot(prefix: string): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   tempRoots.add(root);
   return root;
+}
+
+function runGit(root: string, args: string[]): void {
+  execFileSync("git", args, { cwd: root, stdio: "ignore" });
+}
+
+function initRepo(root: string): void {
+  runGit(root, ["init"]);
+  runGit(root, ["config", "user.email", "test@example.com"]);
+  runGit(root, ["config", "user.name", "Test User"]);
+  runGit(root, ["checkout", "-B", "main"]);
+}
+
+function commitAll(root: string, message: string): void {
+  runGit(root, ["add", "."]);
+  runGit(root, ["commit", "-m", message]);
 }
 
 function makeWork(): WebWorkDetail {
@@ -176,5 +202,97 @@ describe("readWorkMaterialContent", () => {
     }
     expect(result.status).toBe(403);
     expect(result.error).toBe("material path is outside its trusted root");
+  });
+});
+
+describe("buildWorkMaterialsInventory", () => {
+  test("reports branch contribution stats for committed files", async () => {
+    const repoRoot = makeTempRoot("openscout-work-materials-branch-");
+    initRepo(repoRoot);
+    writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+    commitAll(repoRoot, "base");
+    runGit(repoRoot, ["checkout", "-b", "feature/materials"]);
+    writeFileSync(join(repoRoot, "committed.ts"), "one\ntwo\n", "utf8");
+    commitAll(repoRoot, "add committed material");
+    writeFileSync(join(repoRoot, "committed.ts"), "one\ntwo\nthree\n", "utf8");
+    agents[0]!.cwd = repoRoot;
+
+    const inventory = await buildWorkMaterialsInventory(makeWork());
+    const material = inventory.materials.find((entry) => entry.path === "committed.ts");
+
+    expect(material).toBeDefined();
+    expect(material?.diffStat).toEqual({
+      branch: { additions: 2, deletions: 0 },
+      inflight: { additions: 1, deletions: 0 },
+    });
+    expect(material?.evidence).toContain("git-diff");
+  });
+
+  test("keeps branch stats null on trunk and reports inflight edits", async () => {
+    const repoRoot = makeTempRoot("openscout-work-materials-main-");
+    initRepo(repoRoot);
+    writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+    commitAll(repoRoot, "base");
+    writeFileSync(join(repoRoot, "README.md"), "base\nnext\n", "utf8");
+    agents[0]!.cwd = repoRoot;
+
+    const inventory = await buildWorkMaterialsInventory(makeWork());
+    const material = inventory.materials.find((entry) => entry.path === "README.md");
+
+    expect(material).toBeDefined();
+    expect(material?.diffStat).toEqual({
+      branch: null,
+      inflight: { additions: 1, deletions: 0 },
+    });
+  });
+
+  test("excludes default generated and dependency paths at indexing time", async () => {
+    const repoRoot = makeTempRoot("openscout-work-materials-exclude-");
+    initRepo(repoRoot);
+    writeFileSync(join(repoRoot, "package.json"), "{}\n", "utf8");
+    commitAll(repoRoot, "base");
+    mkdirSync(join(repoRoot, "node_modules", "pkg"), { recursive: true });
+    writeFileSync(join(repoRoot, "node_modules", "pkg", "README.md"), "dependency docs\n", "utf8");
+    writeFileSync(join(repoRoot, "package.json"), "{\"changed\":true}\n", "utf8");
+    agents[0]!.cwd = repoRoot;
+
+    const inventory = await buildWorkMaterialsInventory(makeWork());
+
+    expect(inventory.materials.some((entry) => entry.path.includes("node_modules/"))).toBe(false);
+    expect(inventory.materials.find((entry) => entry.path === "package.json")?.kind).toBe("config");
+  });
+
+  test("does not classify every markdown file as documentation by default", async () => {
+    const repoRoot = makeTempRoot("openscout-work-materials-markdown-default-");
+    initRepo(repoRoot);
+    writeFileSync(join(repoRoot, "package.json"), "{}\n", "utf8");
+    commitAll(repoRoot, "base");
+    writeFileSync(join(repoRoot, "notes.md"), "scratch notes\n", "utf8");
+    agents[0]!.cwd = repoRoot;
+
+    const inventory = await buildWorkMaterialsInventory(makeWork());
+
+    expect(inventory.materials.find((entry) => entry.path === "notes.md")?.kind).toBe("other");
+  });
+
+  test("uses project heuristics to add local conventions without shipping them as defaults", async () => {
+    const repoRoot = makeTempRoot("openscout-work-materials-project-heuristics-");
+    initRepo(repoRoot);
+    writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+    commitAll(repoRoot, "base");
+    mkdirSync(join(repoRoot, ".openscout"), { recursive: true });
+    writeFileSync(
+      join(repoRoot, ".openscout", "heuristics.json"),
+      JSON.stringify({ classify: { spec: { include: ["sco-*.md"] }, doc: { exclude: ["README.md"] } } }),
+      "utf8",
+    );
+    writeFileSync(join(repoRoot, "sco-123.md"), "local convention\n", "utf8");
+    writeFileSync(join(repoRoot, "README.md"), "base\nchanged\n", "utf8");
+    agents[0]!.cwd = repoRoot;
+
+    const inventory = await buildWorkMaterialsInventory(makeWork());
+
+    expect(inventory.materials.find((entry) => entry.path === "sco-123.md")?.kind).toBe("spec");
+    expect(inventory.materials.find((entry) => entry.path === "README.md")?.kind).toBe("other");
   });
 });
