@@ -1,11 +1,13 @@
 import "./ops-agents.css";
 
 import { Search, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
+import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
+import { useAgentHoverCard } from "../components/useAgentHoverCard.tsx";
 import {
   estimateAdapterCost,
   type AdapterCostEstimate,
@@ -40,6 +42,119 @@ type AgentOpsRow = {
 
 const DAY_MS = 24 * 60 * 60_000;
 const LATENCY_WINDOW_MS = 90 * 60_000;
+
+
+type AgentOpsColumnKey =
+  | "agent"
+  | "team"
+  | "machine"
+  | "active"
+  | "sessions24h"
+  | "throughput"
+  | "avgLatency"
+  | "input"
+  | "cacheRead"
+  | "cacheWrite"
+  | "output"
+  | "apiEquiv"
+  | "billed"
+  | "errors"
+  | "lastActive";
+
+const AGENT_COLUMNS: DataTableColumn<AgentOpsRow, AgentOpsColumnKey>[] = [
+  {
+    key: "agent",
+    label: "Agent",
+    kind: "custom",
+    sortable: false,
+    resizable: false,
+    defaultWidth: 220,
+    minWidth: 180,
+    render: (row) => (
+      <div className="s-ops-agents-agent-cell">
+        <span className={`s-ops-agents-status s-ops-agents-status--${row.state}`} />
+        <span>
+          <strong>{row.agent.name}</strong>
+          <small>{agentStateLabel(row.agent.state)}</small>
+        </span>
+      </div>
+    ),
+  },
+  { key: "team", label: "Team", kind: "text", sortable: false, resizable: false, defaultWidth: 160, minWidth: 120, render: (row) => row.team },
+  { key: "machine", label: "Machine", kind: "text", sortable: false, resizable: false, defaultWidth: 132, minWidth: 108, render: (row) => row.machine },
+  { key: "active", label: "Active", kind: "number", sortable: false, resizable: false, defaultWidth: 90, minWidth: 72, cls: "s-ops-agents-num", render: (row) => row.activeFlights },
+  { key: "sessions24h", label: "24h sessions", kind: "number", sortable: false, resizable: false, defaultWidth: 108, minWidth: 88, cls: "s-ops-agents-num", render: (row) => row.sessions24h },
+  {
+    key: "throughput",
+    label: "Throughput",
+    kind: "custom",
+    sortable: false,
+    resizable: false,
+    defaultWidth: 110,
+    minWidth: 100,
+    render: (row) => <Sparkline values={row.throughput} warn={row.errors > 0} />,
+  },
+  { key: "avgLatency", label: "Avg latency", kind: "number", sortable: false, resizable: false, defaultWidth: 108, minWidth: 88, cls: "s-ops-agents-num", render: (row) => formatLatency(row.avgLatencyMs) },
+  { key: "input", label: "Input", kind: "number", sortable: false, resizable: false, defaultWidth: 88, minWidth: 72, cls: "s-ops-agents-num", render: (row) => compactNumber(row.usage.uncachedInput ?? row.usage.input) },
+  { key: "cacheRead", label: "Cache read", kind: "number", sortable: false, resizable: false, defaultWidth: 98, minWidth: 80, cls: "s-ops-agents-num", render: (row) => compactNumber(row.usage.cachedInput) },
+  { key: "cacheWrite", label: "Cache write", kind: "number", sortable: false, resizable: false, defaultWidth: 98, minWidth: 80, cls: "s-ops-agents-num", render: (row) => compactNumber(row.usage.cacheWrite) },
+  { key: "output", label: "Output", kind: "number", sortable: false, resizable: false, defaultWidth: 88, minWidth: 72, cls: "s-ops-agents-num", render: (row) => compactNumber(row.usage.output) },
+  {
+    key: "apiEquiv",
+    label: "API equiv",
+    kind: "number",
+    sortable: false,
+    resizable: false,
+    defaultWidth: 92,
+    minWidth: 78,
+    cls: "s-ops-agents-num",
+    render: (row) => (
+      <span className={row.cost.rateCardSource === "unknown" ? "s-ops-agents-num--dim" : undefined}>
+        {formatCost(row.cost.totalUsd)}
+      </span>
+    ),
+  },
+  {
+    key: "billed",
+    label: "Billed",
+    kind: "number",
+    sortable: false,
+    resizable: false,
+    defaultWidth: 92,
+    minWidth: 78,
+    cls: "s-ops-agents-num",
+    render: (row) => (
+      <span className={row.cost.billingMode === "subscription" ? "s-ops-agents-num--covered" : undefined}>
+        {formatCost(row.cost.billedTotalUsd)}
+      </span>
+    ),
+  },
+  {
+    key: "errors",
+    label: "Errors",
+    kind: "number",
+    sortable: false,
+    resizable: false,
+    defaultWidth: 72,
+    minWidth: 64,
+    cls: "s-ops-agents-num",
+    render: (row) => (
+      <span className={row.errors > 0 ? "s-ops-agents-num--warn" : undefined}>{row.errors}</span>
+    ),
+  },
+  {
+    key: "lastActive",
+    label: "Last active",
+    kind: "time",
+    sortable: false,
+    resizable: false,
+    defaultWidth: 104,
+    minWidth: 88,
+    cls: "s-ops-agents-last",
+    render: (row) => (row.lastActiveAt ? timeAgo(row.lastActiveAt) : "—"),
+  },
+];
+
 
 function basename(path: string | null | undefined): string | null {
   if (!path) return null;
@@ -235,6 +350,15 @@ export function OpsAgentsView({
     );
   }, [query, rows]);
 
+  const filteredAgents = useMemo(() => filteredRows.map((r) => r.agent), [filteredRows]);
+  const orderedIds = useMemo(() => filteredRows.map((r) => r.agent.id), [filteredRows]);
+  const hover = useAgentHoverCard({
+    agents: filteredAgents,
+    orderedIds,
+    navigate,
+    selectMode: "preview",
+  });
+
   const running = rows.filter((row) => row.state === "working").length;
   const online = rows.filter((row) => row.state !== "offline").length;
   const tokens = rows.reduce((sum, row) => sum + (row.usage.total ?? 0), 0);
@@ -329,70 +453,37 @@ export function OpsAgentsView({
         </section>
 
         <section className="s-ops-agents-table-panel">
-          <div className="s-ops-agents-table-title">Agents <span>{filteredRows.length}</span></div>
-          <div className="s-ops-agents-table-wrap">
-            <table className="s-ops-agents-table">
-              <thead>
-                <tr>
-                  <th>Agent</th>
-                  <th>Team</th>
-                  <th>Machine</th>
-                  <th>Active</th>
-                  <th>24h sessions</th>
-                  <th>Throughput</th>
-                  <th>Avg latency</th>
-                  <th>Input</th>
-                  <th>Cache read</th>
-                  <th>Cache write</th>
-                  <th>Output</th>
-                  <th>API equiv</th>
-                  <th>Billed</th>
-                  <th>Errors</th>
-                  <th>Last active</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((row) => (
-                  <tr key={row.agent.id} onClick={() => navigate({ view: "agents", agentId: row.agent.id })}>
-                    <td>
-                      <div className="s-ops-agents-agent-cell">
-                        <span className={`s-ops-agents-status s-ops-agents-status--${row.state}`} />
-                        <span>
-                          <strong>{row.agent.name}</strong>
-                          <small>{agentStateLabel(row.agent.state)}</small>
-                        </span>
-                      </div>
-                    </td>
-                    <td>{row.team}</td>
-                    <td>{row.machine}</td>
-                    <td className="s-ops-agents-num">{row.activeFlights}</td>
-                    <td className="s-ops-agents-num">{row.sessions24h}</td>
-                    <td><Sparkline values={row.throughput} warn={row.errors > 0} /></td>
-                    <td className="s-ops-agents-num">{formatLatency(row.avgLatencyMs)}</td>
-                    <td className="s-ops-agents-num">{compactNumber(row.usage.uncachedInput ?? row.usage.input)}</td>
-                    <td className="s-ops-agents-num">{compactNumber(row.usage.cachedInput)}</td>
-                    <td className="s-ops-agents-num">{compactNumber(row.usage.cacheWrite)}</td>
-                    <td className="s-ops-agents-num">{compactNumber(row.usage.output)}</td>
-                    <td className={`s-ops-agents-num${row.cost.rateCardSource === "unknown" ? " s-ops-agents-num--dim" : ""}`}>
-                      {formatCost(row.cost.totalUsd)}
-                    </td>
-                    <td className={`s-ops-agents-num${row.cost.billingMode === "subscription" ? " s-ops-agents-num--covered" : ""}`}>
-                      {formatCost(row.cost.billedTotalUsd)}
-                    </td>
-                    <td className={`s-ops-agents-num${row.errors > 0 ? " s-ops-agents-num--warn" : ""}`}>{row.errors}</td>
-                    <td className="s-ops-agents-last">{row.lastActiveAt ? timeAgo(row.lastActiveAt) : "—"}</td>
-                  </tr>
-                ))}
-                {filteredRows.length === 0 && (
-                  <tr>
-                    <td colSpan={15} className="s-ops-agents-empty">No agents match the current search.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="s-ops-agents-table-title">
+            Agents <span>{filteredRows.length}</span>
+            <span className="s-ops-agents-hint" aria-hidden>
+              <kbd>↑</kbd><kbd>↓</kbd> navigate · <kbd>enter</kbd> pin · <kbd>o</kbd> open · <kbd>esc</kbd> clear
+            </span>
+          </div>
+          <div className="s-ops-agents-table-wrap" ref={hover.containerRef}>
+            <DataTable
+              rows={filteredRows}
+              columns={AGENT_COLUMNS}
+              rowId={(row) => row.agent.id}
+              rowBindings={(id) => {
+                const bindings = hover.bind<HTMLTableRowElement>(id);
+                return {
+                  ...bindings,
+                  onKeyDown: (event: ReactKeyboardEvent<HTMLTableRowElement>) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    bindings.onClick();
+                  },
+                };
+              }}
+              rowState={(id) => hover.getState(id)}
+              empty={{ title: "No agents match", body: "Adjust the search to find a different slice of the fleet." }}
+              className="s-ops-agents-data-table"
+              ariaLabel="Fleet agents"
+            />
           </div>
         </section>
       </main>
+      {hover.card}
     </div>
   );
 }
