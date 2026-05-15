@@ -900,7 +900,7 @@ export async function updateScoutDesktopAppSettings(
     },
     agents: {
       defaultHarness,
-      defaultTransport: defaultHarness === "codex" ? "codex_app_server" : "claude_stream_json",
+      defaultTransport: defaultHarness === "codex" ? "codex_app_server" : "tmux",
       defaultCapabilities: splitDelimitedTokens(input.defaultCapabilitiesText) as Array<"chat" | "invoke" | "deliver" | "speak" | "listen" | "bridge" | "summarize" | "review" | "execute">,
       sessionPrefix: normalizeSessionPrefix(input.sessionPrefix),
     },

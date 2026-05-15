@@ -269,6 +269,26 @@ describe("parseWatchCommandOptions", () => {
     expect(options.since ?? 0).toBeGreaterThanOrEqual(before - 3_600_000 - 1_000);
     expect(options.since ?? 0).toBeLessThanOrEqual(Date.now() - 3_600_000 + 1_000);
   });
+
+  test("accepts conversation backlog flags", () => {
+    const options = parseWatchCommandOptions(
+      ["--conversation", "dm.operator.hudson", "--since", "1700000000", "--limit", "20", "--once"],
+      "/tmp/workspace",
+    );
+
+    expect(options.conversationId).toBe("dm.operator.hudson");
+    expect(options.limit).toBe(20);
+    expect(options.once).toBe(true);
+    expect(options.since).toBe(1_700_000_000_000);
+  });
+
+  test("rejects channel and conversation together", () => {
+    expect(() =>
+      parseWatchCommandOptions(
+        ["--channel", "ops", "--conversation", "dm.operator.hudson"],
+        "/tmp/workspace",
+      )).toThrow("provide either --channel or --conversation, not both");
+  });
 });
 
 describe("parseInboxCommandOptions", () => {

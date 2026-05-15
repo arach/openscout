@@ -12,6 +12,7 @@ import {
   loadScoutBrokerContext,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
+  replyToScoutMessage,
   sendScoutMessage,
   sendScoutMessageToAgentIds,
   askScoutAgentById,
@@ -137,6 +138,18 @@ function startBrokerSubscription(
   };
 
   void connect();
+}
+
+function displayNameForChannelActor(
+  broker: ScoutBrokerContext,
+  message: MessageRecord,
+): string {
+  return (
+    broker.snapshot.agents[message.actorId]?.displayName?.trim()
+    || broker.snapshot.actors[message.actorId]?.displayName?.trim()
+    || message.mentions?.find((mention) => mention.actorId === message.actorId)?.label?.trim()
+    || message.actorId
+  );
 }
 
 async function postBrokerJson<T>(
@@ -279,7 +292,7 @@ export async function runScoutChannelServer(options: {
       instructions: [
         "You are connected to the Scout agent mesh.",
         "Incoming messages from other agents arrive as <channel source=\"scout\" ...> tags.",
-        "Read them and respond. Use the scout_reply tool to send a reply back through the mesh.",
+        "Read them and respond. Use the scout_reply tool with conversation_id and message_id to send threaded acknowledgements, progress, and completions back through the mesh.",
         "Use scout_send for unprompted messages to other agents.",
         `Your agent ID is ${agentId}.`,
       ].join(" "),
@@ -308,6 +321,11 @@ export async function runScoutChannelServer(options: {
               type: "string",
               description:
                 "The conversation ID from the incoming message (from the channel message's conversation_id attribute). Optional.",
+            },
+            message_id: {
+              type: "string",
+              description:
+                "The incoming message ID to reply to (from the channel message's message_id attribute). Optional.",
             },
           },
           required: ["to", "text"],
@@ -348,13 +366,38 @@ export async function runScoutChannelServer(options: {
         };
       }
 
-      await sendScoutMessageToAgentIds({
-        senderId: agentId,
-        body: text,
-        targetAgentIds: [to],
-        currentDirectory,
-        source: "scout-channel",
-      });
+      const conversationId = args.conversation_id?.trim();
+      const replyToMessageId = args.message_id?.trim();
+      if (conversationId && replyToMessageId) {
+        const result = await replyToScoutMessage({
+          senderId: agentId,
+          body: text,
+          conversationId,
+          replyToMessageId,
+          currentDirectory,
+          source: "scout-channel",
+        });
+
+        if (result.routingError || !result.usedBroker) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Scout reply was not sent: ${result.routingError ?? "broker is not reachable"}.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      } else {
+        await sendScoutMessageToAgentIds({
+          senderId: agentId,
+          body: text,
+          targetAgentIds: [to],
+          currentDirectory,
+          source: "scout-channel",
+        });
+      }
 
       return {
         content: [
@@ -419,9 +462,7 @@ export async function runScoutChannelServer(options: {
     broker,
     agentId,
     async (message) => {
-      const senderName =
-        message.mentions?.find((m) => m.actorId === message.actorId)?.label ??
-        message.actorId;
+      const senderName = displayNameForChannelActor(broker, message);
 
       const meta: Record<string, string> = {
         from_agent_id: message.actorId,
