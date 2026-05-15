@@ -32,6 +32,7 @@ import {
   type ScoutWebAssetMode,
 } from "./server-core.ts";
 import {
+  queryAgentById,
   queryAgents,
   queryActivity,
   queryBrokerDiagnostics,
@@ -103,11 +104,19 @@ import {
 } from "./ranger-credentials.ts";
 import { buildWorkMaterialsInventory, readWorkMaterialContent } from "./work-materials.ts";
 import {
+  defaultHeuristicsResponse,
+  globalHeuristicsFile,
+  projectHeuristicsFile,
+  startGlobalHeuristicsWatcher,
+  writeGlobalHeuristicsFile,
+  writeProjectHeuristicsFile,
+} from "./material-heuristics.ts";
+import {
   collectTrustedRoots,
   readFilePreview,
   resolveTrustedPath,
 } from "./file-preview.ts";
-import { ensureOpenScoutVoxOrigins, synthesizeVoxSpeech } from "./vox.ts";
+import { ensureOpenScoutVoxOrigins, resolveVoxSpeechDefaults, synthesizeVoxSpeech, type VoxSpeechTimingRequest } from "./vox.ts";
 import {
   loadUserConfig,
   saveUserConfig,
@@ -260,6 +269,16 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function optionalFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordInput(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
 function stringList(value: unknown, fallback: string[]): string[] {
   if (!Array.isArray(value)) {
     return fallback;
@@ -269,6 +288,53 @@ function stringList(value: unknown, fallback: string[]): string[] {
 
 function hasOwn(object: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function parseVoxSpeechTimingRequest(value: unknown): VoxSpeechTimingRequest | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const record = recordInput(value);
+  if (!record) {
+    return null;
+  }
+  if (record.enabled !== true) {
+    return undefined;
+  }
+  const rawCues = record.cues;
+  if (rawCues !== undefined && !Array.isArray(rawCues)) {
+    return null;
+  }
+  const cues = rawCues?.map((rawCue) => {
+    const cue = recordInput(rawCue);
+    if (!cue) {
+      return null;
+    }
+    const id = optionalString(cue.id)?.trim();
+    if (!id) {
+      return null;
+    }
+    const text = optionalString(cue.text);
+    if (text !== undefined) {
+      return { id, text };
+    }
+    const textStart = optionalFiniteNumber(cue.textStart);
+    const textEnd = optionalFiniteNumber(cue.textEnd);
+    if (textStart === undefined || textEnd === undefined || textEnd < textStart) {
+      return null;
+    }
+    return { id, textStart, textEnd };
+  });
+  if (cues?.some((cue) => cue === null)) {
+    return null;
+  }
+  const modelId = optionalString(record.modelId)?.trim();
+  return {
+    enabled: true,
+    ...(modelId ? { modelId } : {}),
+    ...(typeof record.strict === "boolean" ? { strict: record.strict } : {}),
+    ...(cues ? { cues: cues as NonNullable<VoxSpeechTimingRequest["cues"]> } : {}),
+  };
 }
 
 function inferDirectTargetAgentId(
@@ -1824,6 +1890,7 @@ export async function createOpenScoutWebServer(
   const currentDirectory = options.currentDirectory;
   const routes = resolveOpenScoutWebRoutes(process.env);
   ensureOpenScoutVoxOrigins();
+  startGlobalHeuristicsWatcher();
   const app = new Hono();
   const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(
     loadOpenScoutWebShellState,
@@ -1867,6 +1934,33 @@ export async function createOpenScoutWebServer(
     }),
   );
   app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
+
+  app.get("/api/ui/scenes", async (c) => {
+    const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);
+    return c.json(settings?.ui ?? { scenes: [], activeSceneIdBySurface: {} });
+  });
+
+  app.put("/api/ui/scenes", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      scenes?: unknown;
+      activeSceneIdBySurface?: unknown;
+    };
+    try {
+      const updated = await writeOpenScoutSettings({
+        ui: {
+          scenes: Array.isArray(body.scenes) ? (body.scenes as never) : [],
+          activeSceneIdBySurface: typeof body.activeSceneIdBySurface === "object" && body.activeSceneIdBySurface
+            ? (body.activeSceneIdBySurface as never)
+            : {},
+        },
+      }, { currentDirectory });
+      return c.json(updated.ui);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[ui/scenes]", message);
+      return c.json({ error: message }, 500);
+    }
+  });
   app.get("/api/ranger/session", (c) => c.json(rangerAssistant.getSessionState()));
   app.post("/api/ranger/session/reset", (c) => c.json(rangerAssistant.resetSession()));
   app.post("/api/ranger/session/switch", async (c) => {
@@ -2292,6 +2386,10 @@ export async function createOpenScoutWebServer(
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
   app.get("/api/agents", (c) => c.json(queryAgents()));
+  app.get("/api/agents/:id", (c) => {
+    const agent = queryAgentById(c.req.param("id"));
+    return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
+  });
   app.get("/api/observe/agents", async (c) => {
     const ids = c.req.query("ids")
       ?.split(",")
@@ -2405,6 +2503,38 @@ export async function createOpenScoutWebServer(
       ),
     ),
   );
+  const rawHeuristicsFromRequest = async (c: Context): Promise<string> => {
+    const body = await c.req.json().catch(() => null) as unknown;
+    if (body && typeof body === "object" && !Array.isArray(body) && typeof (body as { raw?: unknown }).raw === "string") {
+      return (body as { raw: string }).raw;
+    }
+    return `${JSON.stringify(body ?? {}, null, 2)}\n`;
+  };
+  app.get("/api/heuristics/defaults", (c) => c.json(defaultHeuristicsResponse()));
+  app.get("/api/heuristics/global", (c) => {
+    const result = globalHeuristicsFile();
+    return "config" in result ? c.json(result) : c.json(result, 400);
+  });
+  app.put("/api/heuristics/global", async (c) => {
+    const result = writeGlobalHeuristicsFile(await rawHeuristicsFromRequest(c));
+    return "config" in result ? c.json(result) : c.json(result, 400);
+  });
+  app.get("/api/heuristics/project", (c) => {
+    const workspaceRoot = c.req.query("workspaceRoot");
+    if (!workspaceRoot) {
+      return c.json({ error: "workspaceRoot is required" }, 400);
+    }
+    const result = projectHeuristicsFile(workspaceRoot);
+    return "config" in result ? c.json(result) : c.json(result, 400);
+  });
+  app.put("/api/heuristics/project", async (c) => {
+    const workspaceRoot = c.req.query("workspaceRoot");
+    if (!workspaceRoot) {
+      return c.json({ error: "workspaceRoot is required" }, 400);
+    }
+    const result = writeProjectHeuristicsFile(workspaceRoot, await rawHeuristicsFromRequest(c));
+    return "config" in result ? c.json(result) : c.json(result, 400);
+  });
   const handleListWork = (c: Context) => {
     const agentId = c.req.query("agentId");
     const activeOnly = c.req.query("active") !== "false";
@@ -3039,15 +3169,23 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/voice/speak", async (c) => {
-    const body = (await c.req.json()) as {
+    const body = (await c.req.json().catch(() => ({}))) as {
       text?: string;
       modelId?: string;
       voiceId?: string;
       speed?: number;
+      instructions?: string;
+      originAppId?: string;
+      utteranceId?: string;
+      speechTiming?: unknown;
     };
     const text = body.text?.trim();
     if (!text) {
       return c.json({ error: "text is required" }, 400);
+    }
+    const speechTiming = parseVoxSpeechTimingRequest(body.speechTiming);
+    if (speechTiming === null) {
+      return c.json({ error: "speechTiming is invalid" }, 400);
     }
 
     try {
@@ -3056,11 +3194,20 @@ export async function createOpenScoutWebServer(
         modelId: body.modelId,
         voiceId: body.voiceId,
         speed: body.speed,
+        instructions: optionalString(body.instructions),
+        originAppId: optionalString(body.originAppId),
+        utteranceId: optionalString(body.utteranceId),
+        speechTiming,
+        signal: c.req.raw.signal,
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Vox speech failed";
       return c.json({ error: message }, 503);
     }
+  });
+
+  app.get("/api/voice/defaults", (c) => {
+    return c.json(resolveVoxSpeechDefaults());
   });
 
   // Dev-only: serve generated Ranger FX fixtures for /dev/ranger-fx lab.
