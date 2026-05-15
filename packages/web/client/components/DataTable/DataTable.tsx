@@ -36,6 +36,8 @@ export type DataTableProps<Row, K extends string = string> = {
   rowId: (row: Row) => string;
   storageKey?: string;
   initialSort?: { key: K; dir?: 1 | -1 };
+  sort?: { key: K; dir: 1 | -1 } | null;
+  onSortChange?: (sort: { key: K; dir: 1 | -1 }) => void;
   secondarySort?: (a: Row, b: Row) => number;
   onRowClick?: (row: Row) => void;
   rowBindings?: (id: string) => Record<string, unknown>;
@@ -140,6 +142,8 @@ export function DataTable<Row, K extends string = string>({
   rowId,
   storageKey,
   initialSort,
+  sort: controlledSort,
+  onSortChange,
   secondarySort,
   onRowClick,
   rowBindings,
@@ -168,12 +172,13 @@ export function DataTable<Row, K extends string = string>({
     [normalizedColumns],
   );
 
-  const [sort, setSort] = useState<SortState<K>>(() => {
+  const [internalSort, setInternalSort] = useState<SortState<K>>(() => {
     if (!initialSort) return null;
     const column = columns.find((entry) => entry.key === initialSort.key);
     const kind = column?.kind ?? "text";
     return { key: initialSort.key, dir: initialSort.dir ?? defaultSortDir(kind) };
   });
+  const sort = controlledSort ?? internalSort;
 
   const { getColumnProps, getResizeHandleProps } = useResizableColumns<K>({
     storageKey,
@@ -203,6 +208,13 @@ export function DataTable<Row, K extends string = string>({
       .map((entry) => entry.row);
   }, [rows, sort, columnsByKey, secondarySort]);
 
+  const applySortChange = (next: { key: K; dir: 1 | -1 }) => {
+    if (controlledSort == null) {
+      setInternalSort(next);
+    }
+    onSortChange?.(next);
+  };
+
   return (
     <div className={`dt-wrap dt-wrap--${density}${className ? ` ${className}` : ""}`}>
       <table className="dt-table" aria-label={ariaLabel}>
@@ -231,12 +243,11 @@ export function DataTable<Row, K extends string = string>({
                       type="button"
                       className="dt-th-sort"
                       onClick={() => {
-                        setSort((current) => {
-                          if (current?.key === column.key) {
-                            return { key: column.key, dir: current.dir === 1 ? -1 : 1 };
-                          }
-                          return { key: column.key, dir: defaultSortDir(column.kind) };
-                        });
+                        if (sort?.key === column.key) {
+                          applySortChange({ key: column.key, dir: sort.dir === 1 ? -1 : 1 });
+                          return;
+                        }
+                        applySortChange({ key: column.key, dir: defaultSortDir(column.kind) });
                       }}
                     >
                       <span className="dt-th-label">{column.label}</span>

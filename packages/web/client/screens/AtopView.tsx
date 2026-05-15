@@ -25,7 +25,6 @@
  */
 
 import "./ops-atop.css";
-import "../components/ResizableTable/resizable-columns.css";
 
 import {
   useCallback,
@@ -35,7 +34,7 @@ import {
   useState,
 } from "react";
 
-import { useResizableColumns } from "../components/ResizableTable/useResizableColumns.ts";
+import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
 import { useFocusTrap } from "../lib/keyboard-nav.ts";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { api } from "../lib/api.ts";
@@ -487,8 +486,7 @@ export function AtopView() {
   const [search, setSearch] = useState("");
   const [harnessFilter, setHarnessFilter] = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<Set<AtopStatus>>(() => new Set());
-  const [sortKey, setSortKey] = useState<SortKey>("status");
-  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "status", dir: 1 });
   const [selectedPid, setSelectedPid] = useState<number | null>(null);
 
   const runHistoryRef = useRef<number[]>([]);
@@ -577,7 +575,7 @@ export function AtopView() {
   /* filter + sort */
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = rows.filter((row) => {
+    return rows.filter((row) => {
       if (harnessFilter.size > 0 && !harnessFilter.has(row.harness)) return false;
       if (statusFilter.size > 0 && !statusFilter.has(row.status)) return false;
       if (!q) return true;
@@ -585,14 +583,25 @@ export function AtopView() {
       const hay = `${row.pid} ${row.project} ${row.command} ${row.harness} ${row.attribution} ${attribution} ${row.sessionId ?? ""} ${row.lastSummary ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
-    return filtered.slice().sort((a, b) => {
-      // Always promote tool/run above idle even when sort key isn't status,
-      // so the busy agents stay visible during e.g. project sort.
-      const sr = STATUS_RANK[a.status] - STATUS_RANK[b.status];
-      if (sr !== 0 && sortKey !== "status") return sr;
-      return compare(a, b, sortKey, sortDir);
-    });
-  }, [rows, search, harnessFilter, statusFilter, sortKey, sortDir]);
+  }, [rows, search, harnessFilter, statusFilter]);
+
+  const secondarySort = useMemo(
+    () => (sort.key === "status" ? undefined : (a: AtopRow, b: AtopRow) => STATUS_RANK[a.status] - STATUS_RANK[b.status]),
+    [sort.key],
+  );
+
+  const displayRows = useMemo(() => (
+    filteredRows
+      .map((row, index) => ({ row, index }))
+      .sort((left, right) => {
+        const primary = compare(left.row, right.row, sort.key, sort.dir);
+        if (primary !== 0) return primary;
+        const secondary = secondarySort?.(left.row, right.row) ?? 0;
+        if (secondary !== 0) return secondary;
+        return left.index - right.index;
+      })
+      .map((entry) => entry.row)
+  ), [filteredRows, sort, secondarySort]);
 
   /* keep selected pid valid */
   useEffect(() => {
@@ -618,12 +627,12 @@ export function AtopView() {
       const isDown = event.key === "j" || event.key === "ArrowDown";
       const isUp = event.key === "k" || event.key === "ArrowUp";
       if (isDown || isUp) {
-        if (filteredRows.length === 0) return;
+        if (displayRows.length === 0) return;
         event.preventDefault();
-        const idx = filteredRows.findIndex((row) => row.pid === selectedPid);
+        const idx = displayRows.findIndex((row) => row.pid === selectedPid);
         const next = isDown
-          ? filteredRows[Math.min(filteredRows.length - 1, idx < 0 ? 0 : idx + 1)]
-          : filteredRows[Math.max(0, idx < 0 ? 0 : idx - 1)];
+          ? displayRows[Math.min(displayRows.length - 1, idx < 0 ? 0 : idx + 1)]
+          : displayRows[Math.max(0, idx < 0 ? 0 : idx - 1)];
         if (next) setSelectedPid(next.pid);
         return;
       }
@@ -634,17 +643,7 @@ export function AtopView() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [filteredRows, selectedPid]);
-
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((dir) => (dir === 1 ? -1 : 1));
-    } else {
-      setSortKey(key);
-      // string-ordered axes ascend by default; numeric axes descend (most-of-X first)
-      setSortDir(key === "project" || key === "agent" ? 1 : -1);
-    }
-  };
+  }, [displayRows, selectedPid]);
 
   const toggleHarness = (harness: string) => {
     setHarnessFilter((prev) => {
@@ -700,18 +699,24 @@ export function AtopView() {
         summary={summary}
       />
 
-      <AgentTable
+      <DataTable
         rows={filteredRows}
-        sortKey={sortKey}
-        sortDir={sortDir}
-        onSort={toggleSort}
-        selectedPid={selectedPid}
-        onSelect={setSelectedPid}
-        now={now}
+        columns={COLUMNS}
+        rowId={(row) => String(row.pid)}
+        storageKey="openscout.atop.cols"
+        sort={sort}
+        onSortChange={setSort}
+        secondarySort={secondarySort}
+        onRowClick={(row) => setSelectedPid(row.pid)}
+        rowClassName={(row) => (selectedPid === row.pid ? "s-atop-row--selected" : undefined)}
+        empty={{ title: "no agents match", body: "adjust filters or start a session to populate" }}
+        density="compact"
+        className="s-atop-data-table"
+        ariaLabel="Agent activity inventory"
       />
 
       <KeyHints
-        shown={filteredRows.length}
+        shown={displayRows.length}
         total={rows.length}
         hasSelection={selectedPid != null}
       />
@@ -893,36 +898,145 @@ function FilterBar({
   );
 }
 
-const COLUMNS: {
-  key: SortKey;
-  label: string;
-  cls?: string;
-  tip?: string;
-  defaultWidth: number;
-  minWidth?: number;
-  maxWidth?: number;
-}[] = [
-  { key: "status", label: "Status", cls: "s-atop-col-status", defaultWidth: 96, minWidth: 70 },
-  { key: "agent", label: "Agent", cls: "s-atop-col-agent",
-    tip: "Harness · short session id", defaultWidth: 168, minWidth: 110 },
-  { key: "project", label: "Project", cls: "s-atop-col-project", defaultWidth: 200, minWidth: 96, maxWidth: 480 },
-  { key: "reqs", label: "Reqs", cls: "s-atop-col-num",
-    tip: "Model invocations (assistant turns) for this session", defaultWidth: 64, minWidth: 56 },
-  { key: "tokIn", label: "Tok ↓", cls: "s-atop-col-num",
-    tip: "Input tokens — populated when backend emits usage", defaultWidth: 64, minWidth: 56 },
-  { key: "tokOut", label: "Tok ↑", cls: "s-atop-col-num",
-    tip: "Output tokens — populated when backend emits usage", defaultWidth: 64, minWidth: 56 },
-  { key: "cache", label: "Cache", cls: "s-atop-col-num",
-    tip: "Cache hit rate — populated when backend emits usage", defaultWidth: 64, minWidth: 56 },
-  { key: "tools", label: "Tools", cls: "s-atop-col-num", defaultWidth: 64, minWidth: 56 },
-  { key: "perms", label: "Perms", cls: "s-atop-col-num",
-    tip: "Permission requests — heuristic count of permission-mode events", defaultWidth: 64, minWidth: 56 },
-  { key: "last", label: "Last", cls: "s-atop-col-last", defaultWidth: 86, minWidth: 64 },
-  { key: "runtime", label: "Runtime", cls: "s-atop-col-runtime",
-    tip: "Session duration (active period in current buffer)", defaultWidth: 80, minWidth: 64 },
+const COLUMNS: DataTableColumn<AtopRow, SortKey>[] = [
+  {
+    key: "status",
+    label: "Status",
+    cls: "s-atop-col-status",
+    kind: "text",
+    defaultWidth: 96,
+    minWidth: 70,
+    sortValue: (row) => STATUS_RANK[row.status],
+    render: (row) => (
+      <span className={`s-atop-status s-atop-status--${row.status}`}>
+        <span className="s-atop-status-dot" />
+        {STATUS_LABEL[row.status]}
+      </span>
+    ),
+  },
+  {
+    key: "agent",
+    label: "Agent",
+    cls: "s-atop-col-agent",
+    kind: "text",
+    tip: "Harness · short session id",
+    defaultWidth: 168,
+    minWidth: 110,
+    sortValue: (row) => `${row.harness}\0${row.sessionId ?? ""}`,
+    render: (row) => (
+      <div className="s-atop-agent-cell">
+        <span
+          className={harnessChipClass(row.harness)}
+          title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
+        >
+          {row.harness}
+        </span>
+        <span className="s-atop-agent-id" title={row.sessionId ?? `pid ${row.pid}`}>
+          {shortSession(row.sessionId)}
+        </span>
+      </div>
+    ),
+  },
+  {
+    key: "project",
+    label: "Project",
+    cls: "s-atop-col-project",
+    kind: "text",
+    defaultWidth: 200,
+    minWidth: 96,
+    maxWidth: 480,
+    sortValue: (row) => row.project,
+    render: (row) => <span title={row.cwd}>{row.project}</span>,
+  },
+  {
+    key: "reqs",
+    label: "Reqs",
+    cls: "s-atop-col-num",
+    kind: "number",
+    tip: "Model invocations (assistant turns) for this session",
+    defaultWidth: 64,
+    minWidth: 56,
+    sortValue: (row) => row.reqCount,
+    render: (row) => <MetricValue value={row.reqCount || null} />,
+  },
+  {
+    key: "tokIn",
+    label: "Tok ↓",
+    cls: "s-atop-col-num",
+    kind: "number",
+    tip: "Input tokens — populated when backend emits usage",
+    defaultWidth: 64,
+    minWidth: 56,
+    sortValue: (row) => row.tokIn,
+    render: (row) => <MetricValue value={row.tokIn} />,
+  },
+  {
+    key: "tokOut",
+    label: "Tok ↑",
+    cls: "s-atop-col-num",
+    kind: "number",
+    tip: "Output tokens — populated when backend emits usage",
+    defaultWidth: 64,
+    minWidth: 56,
+    sortValue: (row) => row.tokOut,
+    render: (row) => <MetricValue value={row.tokOut} />,
+  },
+  {
+    key: "cache",
+    label: "Cache",
+    cls: "s-atop-col-num",
+    kind: "number",
+    tip: "Cache hit rate — populated when backend emits usage",
+    defaultWidth: 64,
+    minWidth: 56,
+    sortValue: (row) => cacheHitRate(row),
+    render: (row) => <MetricPct value={cacheHitRate(row)} />,
+  },
+  {
+    key: "tools",
+    label: "Tools",
+    cls: "s-atop-col-num",
+    kind: "number",
+    defaultWidth: 64,
+    minWidth: 56,
+    sortValue: (row) => row.toolCount,
+    render: (row) => <MetricValue value={row.toolCount || null} />,
+  },
+  {
+    key: "perms",
+    label: "Perms",
+    cls: "s-atop-col-num",
+    kind: "number",
+    tip: "Permission requests — heuristic count of permission-mode events",
+    defaultWidth: 64,
+    minWidth: 56,
+    sortValue: (row) => row.permCount,
+    render: (row) => <MetricValue value={row.permCount || null} accent={row.permCount > 0 ? "amber" : undefined} />,
+  },
+  {
+    key: "last",
+    label: "Last",
+    cls: "s-atop-col-last",
+    kind: "time",
+    defaultWidth: 86,
+    minWidth: 64,
+    sortValue: (row) => row.lastEventAt,
+    render: (row) => formatRelative(row.lastEventAt, Date.now()),
+  },
+  {
+    key: "runtime",
+    label: "Runtime",
+    cls: "s-atop-col-runtime",
+    kind: "number",
+    tip: "Session duration (active period in current buffer)",
+    defaultWidth: 80,
+    minWidth: 64,
+    sortValue: (row) => row.sessionRuntimeSec,
+    render: (row) => formatRuntime(row.sessionRuntimeSec),
+  },
 ];
 
-function Cell({
+function MetricValue({
   value,
   accent,
 }: {
@@ -932,120 +1046,14 @@ function Cell({
   const cls = value == null
     ? "s-atop-col-num s-atop-col-num--dim"
     : `s-atop-col-num${accent ? ` s-atop-col-num--${accent}` : ""}`;
-  return <td className={cls}>{fmtCount(value)}</td>;
+  return <span className={cls}>{fmtCount(value)}</span>;
 }
 
-function CellPct({ value }: { value: number | null }) {
+function MetricPct({ value }: { value: number | null }) {
   const cls = value == null
     ? "s-atop-col-num s-atop-col-num--dim"
     : "s-atop-col-num";
-  return <td className={cls}>{fmtPct(value)}</td>;
-}
-
-function AgentTable({
-  rows,
-  sortKey,
-  sortDir,
-  onSort,
-  selectedPid,
-  onSelect,
-  now,
-}: {
-  rows: AtopRow[];
-  sortKey: SortKey;
-  sortDir: 1 | -1;
-  onSort: (key: SortKey) => void;
-  selectedPid: number | null;
-  onSelect: (pid: number) => void;
-  now: number;
-}) {
-  const { getColumnProps, getResizeHandleProps } = useResizableColumns<SortKey>({
-    storageKey: "openscout.atop.cols",
-    columns: COLUMNS,
-  });
-
-  return (
-    <div className="s-atop-table-wrap">
-      <table className="s-atop-table">
-        <thead>
-          <tr>
-            {COLUMNS.map((col) => {
-              const isSorted = sortKey === col.key;
-              return (
-                <th
-                  key={col.key}
-                  className={`${col.cls ?? ""}${isSorted ? " s-atop-th--sorted" : ""}`}
-                  title={col.tip}
-                  {...getColumnProps(col.key)}
-                >
-                  <button
-                    type="button"
-                    className="s-atop-th-sort"
-                    onClick={() => onSort(col.key)}
-                  >
-                    <span className="s-atop-th-label">{col.label}</span>
-                    <span className={`s-atop-th-arrow${isSorted ? " s-atop-th-arrow--active" : ""}`}>
-                      {isSorted ? (sortDir === 1 ? "↑" : "↓") : "↕"}
-                    </span>
-                  </button>
-                  <span {...getResizeHandleProps(col.key)} />
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr className="s-atop-empty-row">
-              <td colSpan={COLUMNS.length}>
-                <div className="s-atop-empty">
-                  <span className="s-atop-empty-title">no agents match</span>
-                  <span>adjust filters or start a session to populate</span>
-                </div>
-              </td>
-            </tr>
-          ) : (
-            rows.map((row) => (
-              <tr
-                key={row.pid}
-                className={`s-atop-row${selectedPid === row.pid ? " s-atop-row--selected" : ""}`}
-                onClick={() => onSelect(row.pid)}
-              >
-                <td className="s-atop-col-status">
-                  <span className={`s-atop-status s-atop-status--${row.status}`}>
-                    <span className="s-atop-status-dot" />
-                    {STATUS_LABEL[row.status]}
-                  </span>
-                </td>
-                <td className="s-atop-col-agent">
-                  <div className="s-atop-agent-cell">
-                    <span
-                      className={harnessChipClass(row.harness)}
-                      title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
-                    >
-                      {row.harness}
-                    </span>
-                    <span className="s-atop-agent-id" title={row.sessionId ?? `pid ${row.pid}`}>
-                      {shortSession(row.sessionId)}
-                    </span>
-                  </div>
-                </td>
-                <td className="s-atop-col-project" title={row.cwd}>{row.project}</td>
-                <Cell value={row.reqCount || null} />
-                <Cell value={row.tokIn} />
-                <Cell value={row.tokOut} />
-                <CellPct value={cacheHitRate(row)} />
-                <Cell value={row.toolCount || null} />
-                <Cell value={row.permCount || null} accent={row.permCount > 0 ? "amber" : undefined} />
-                <td className="s-atop-col-last">{formatRelative(row.lastEventAt, now)}</td>
-                <td className="s-atop-col-runtime">{formatRuntime(row.sessionRuntimeSec)}</td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <span className={cls}>{fmtPct(value)}</span>;
 }
 
 function KeyHints({
