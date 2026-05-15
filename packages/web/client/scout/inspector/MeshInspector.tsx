@@ -9,6 +9,10 @@ import "../../screens/system-surfaces-redesign.css";
 import "../../screens/mesh-screen.css";
 
 type ReachState = "discoverable" | "local-only" | "tailnet-stopped" | "unavailable" | "loopback";
+type MeshActionMessage = {
+  tone: "info" | "success" | "warning" | "error";
+  text: string;
+};
 
 function reachState(mesh: MeshStatus): ReachState {
   if (mesh.issues.some((i) => i.code === "mesh_loopback")) return "loopback";
@@ -42,17 +46,59 @@ function cleanIp(addr: string): string {
   return addr.split("/")[0];
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function pollMeshStatus(
+  predicate: (mesh: MeshStatus) => boolean,
+  options: { attempts: number; intervalMs: number },
+): Promise<MeshStatus> {
+  let latest = await api<MeshStatus>("/api/mesh");
+  setMeshSnapshot(latest);
+  for (let attempt = 0; attempt < options.attempts && !predicate(latest); attempt += 1) {
+    await delay(options.intervalMs);
+    latest = await api<MeshStatus>("/api/mesh");
+    setMeshSnapshot(latest);
+  }
+  return latest;
+}
+
+function firstActionableIssue(mesh: MeshStatus): string | null {
+  return mesh.issues.find((issue) =>
+    issue.code === "local_only" || issue.code === "mesh_loopback" || issue.code === "tailscale_stopped"
+  )?.summary ?? null;
+}
+
 export function MeshInspectorPanel() {
   const { meshSnapshot, selectedId, selectedType, probeCache } = useMeshViewStore();
   const { agents } = useLocalAgents();
   const [announcing, setAnnouncing] = useState(false);
   const [tailscaleBusy, setTailscaleBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState<MeshActionMessage | null>(null);
 
   const handleAnnounce = useCallback(async () => {
     setAnnouncing(true);
+    setActionMessage({ tone: "info", text: "Restarting broker with mesh discovery enabled..." });
     try {
       const data = await api<MeshStatus>("/api/mesh/announce", { method: "POST", body: "{}" });
       setMeshSnapshot(data);
+      const final = data.identity.discoverable
+        ? data
+        : await pollMeshStatus((mesh) => mesh.identity.discoverable, { attempts: 6, intervalMs: 750 });
+      if (final.identity.discoverable) {
+        setActionMessage({
+          tone: "success",
+          text: `Discoverable at ${shortHost(final.identity.announceUrl ?? final.brokerUrl)}.`,
+        });
+      } else {
+        setActionMessage({
+          tone: "warning",
+          text: firstActionableIssue(final) ?? "Scout restarted the broker, but it is not discoverable yet.",
+        });
+      }
+    } catch (error) {
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : String(error) });
     } finally {
       setAnnouncing(false);
     }
@@ -60,12 +106,29 @@ export function MeshInspectorPanel() {
 
   const handleStartTailscale = useCallback(async () => {
     setTailscaleBusy(true);
+    setActionMessage({ tone: "info", text: "Opening Tailscale and waiting for the backend..." });
     try {
       const data = await api<MeshStatus>("/api/mesh/tailscale", {
         method: "POST",
         body: JSON.stringify({ action: "open_app" }),
       });
       setMeshSnapshot(data);
+      const final = data.tailscale.running
+        ? data
+        : await pollMeshStatus((mesh) => mesh.tailscale.running, { attempts: 12, intervalMs: 1000 });
+      if (final.tailscale.running) {
+        setActionMessage({
+          tone: "success",
+          text: `Tailscale is running with ${final.tailscale.onlineCount} online peer${final.tailscale.onlineCount === 1 ? "" : "s"}.`,
+        });
+      } else {
+        setActionMessage({
+          tone: "warning",
+          text: `Tailscale opened, but the backend is still ${final.tailscale.backendState ?? "not running"}. Finish startup or sign-in in Tailscale.app.`,
+        });
+      }
+    } catch (error) {
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : String(error) });
     } finally {
       setTailscaleBusy(false);
     }
@@ -378,6 +441,11 @@ export function MeshInspectorPanel() {
           onAnnounce={() => void handleAnnounce()}
           onStartTailscale={() => void handleStartTailscale()}
         />
+        {actionMessage && (
+          <div className={`sys-banner mesh-action-message sys-banner-${actionMessage.tone}`}>
+            <span>{actionMessage.text}</span>
+          </div>
+        )}
       </section>
     </div>
   );
