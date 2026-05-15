@@ -332,6 +332,7 @@ export type ScoutDirectMessageResult = {
 
 export type ScoutWatchOptions = {
   channel?: string;
+  conversationId?: string;
   signal?: AbortSignal;
   onMessage: (message: ScoutBrokerMessageRecord) => void;
 };
@@ -2581,6 +2582,49 @@ export async function sendScoutMessageToAgentIds(input: {
     };
   }
 
+  if (availableTargets.length === 1 && !input.channel) {
+    const targetAgentId = availableTargets[0]!;
+    const delivery = await brokerPostDeliver(broker.baseUrl, {
+      caller: {
+        actorId: senderId,
+        nodeId: broker.node.id,
+        currentDirectory,
+        metadata: { source },
+      },
+      target: {
+        kind: "agent_id",
+        agentId: targetAgentId,
+      },
+      body: input.body,
+      intent: "tell",
+      speechText: input.shouldSpeak ? input.body.trim() : undefined,
+      createdAt: createdAtMs,
+      messageMetadata: {
+        source,
+      },
+      invocationMetadata: {
+        source,
+      },
+    });
+    if (delivery.kind !== "delivery") {
+      return {
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [targetAgentId],
+        targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
+      };
+    }
+    return {
+      usedBroker: true,
+      conversationId: delivery.conversation.id,
+      messageId: delivery.message.id,
+      flight: delivery.flight,
+      invokedTargetIds: delivery.targetAgentId ? [delivery.targetAgentId] : [targetAgentId],
+      unresolvedTargetIds: [],
+      routeKind: delivery.routeKind,
+    };
+  }
+
   if (availableTargets.length === 0 && !input.channel) {
     return {
       usedBroker: true,
@@ -3046,6 +3090,7 @@ export async function waitForScoutFlight(
   flightId: string,
   options: {
     timeoutSeconds?: number;
+    waitUntil?: "acknowledged" | "completed";
     onUpdate?: (flight: ScoutFlightRecord, detail: string) => void;
   } = {},
 ): Promise<ScoutFlightRecord> {
@@ -3071,6 +3116,12 @@ export async function waitForScoutFlight(
       lastSummary = flight.summary ?? "";
     }
 
+    if (
+      options.waitUntil === "acknowledged"
+      && ["running", "waiting", "completed"].includes(flight.state)
+    ) {
+      return flight;
+    }
     if (flight.state === "completed") return flight;
     if (flight.state === "failed" || flight.state === "cancelled") {
       throw new Error(
@@ -3177,7 +3228,7 @@ export async function watchScoutMessages(
   options: ScoutWatchOptions,
 ): Promise<void> {
   const broker = await requireScoutBrokerContext();
-  const conversationId = scoutConversationIdForChannel(options.channel);
+  const conversationId = options.conversationId ?? scoutConversationIdForChannel(options.channel);
   const controller = new AbortController();
   const abort = () => controller.abort();
 

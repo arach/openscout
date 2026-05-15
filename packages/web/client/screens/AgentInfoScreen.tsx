@@ -11,7 +11,7 @@ import { agentIdFromConversation } from "../lib/router.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
-import type { Route, SessionEntry } from "../lib/types.ts";
+import type { Agent, Route, SessionEntry } from "../lib/types.ts";
 
 type ProfileField = {
   label: string;
@@ -71,6 +71,7 @@ export function AgentInfoScreen({
 }) {
   const { agents } = useScout();
   const [session, setSession] = useState<SessionEntry | null>(null);
+  const [agentDetail, setAgentDetail] = useState<Agent | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const legacyAgentId = agentIdFromConversation(conversationId);
@@ -96,9 +97,32 @@ export function AgentInfoScreen({
   });
 
   const resolvedAgentId = session?.agentId ?? legacyAgentId;
+  useEffect(() => {
+    if (!resolvedAgentId || agents.some((candidate) => candidate.id === resolvedAgentId)) {
+      setAgentDetail(null);
+      return;
+    }
+
+    let cancelled = false;
+    api<Agent>(`/api/agents/${encodeURIComponent(resolvedAgentId)}`)
+      .then((next) => {
+        if (!cancelled) setAgentDetail(next);
+      })
+      .catch(() => {
+        if (!cancelled) setAgentDetail(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agents, resolvedAgentId]);
+
   const agent = useMemo(
-    () => (resolvedAgentId ? agents.find((candidate) => candidate.id === resolvedAgentId) ?? null : null),
-    [agents, resolvedAgentId],
+    () => (resolvedAgentId
+      ? agents.find((candidate) => candidate.id === resolvedAgentId) ??
+        (agentDetail?.id === resolvedAgentId ? agentDetail : null)
+      : null),
+    [agentDetail, agents, resolvedAgentId],
   );
 
   if (!agent) {

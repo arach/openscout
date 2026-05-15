@@ -76,7 +76,8 @@ const MESSAGE_ROUTING_ERROR_VALUES = [
 ] as const;
 const REPLY_MODE_VALUES = ["none", "inline", "notify"] as const;
 const REPLY_DELIVERY_VALUES = ["none", "inline", "mcp_notification"] as const;
-const LOCAL_AGENT_HARNESS_VALUES = ["claude", "codex"] as const;
+const LOCAL_AGENT_HARNESS_VALUES = ["claude", "codex", "pi"] as const;
+const DEFAULT_ASK_ACK_TIMEOUT_SECONDS = 30;
 export const SCOUT_MCP_UI_META_KEY = "openscout/ui";
 
 type SearchableAgentState = (typeof AGENT_STATE_VALUES)[number];
@@ -781,7 +782,7 @@ const askResultSchema = z.object({
   targetLabel: z.string().nullable(),
   usedBroker: z.boolean(),
   awaited: z.boolean(),
-  waitStatus: z.enum(["not_requested", "completed", "terminal", "timeout"]).optional(),
+  waitStatus: z.enum(["not_requested", "acknowledged", "completed", "terminal", "timeout"]).optional(),
   replyMode: z.enum(REPLY_MODE_VALUES).optional(),
   delivery: z.enum(REPLY_DELIVERY_VALUES).optional(),
   notification: z
@@ -973,6 +974,8 @@ function renderMcpSendSummary(result: {
   const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
   const wakeText = result.wake && result.flightId
     ? ` Wake queued as ${result.flightId}.${followText}`
+    : result.flightId
+    ? ` Dispatch queued as ${result.flightId}.${followText}`
     : "";
   return `Message sent${destination}${route}${message}.${wakeText}`;
 }
@@ -1014,7 +1017,11 @@ function renderMcpAskSummary(result: {
   const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
   if (result.waitStatus === "timeout" && result.flightId) {
     const state = result.flight?.state ? ` ${result.flight.state}` : "";
-    return `Ask is still${state}; use invocations_wait with flightId=${result.flightId}.${followText}`;
+    return `Ask dispatch is still${state}; use invocations_wait with flightId=${result.flightId}.${followText}`;
+  }
+  if (result.waitStatus === "acknowledged" && result.flightId) {
+    const state = result.flight?.state ? ` ${result.flight.state}` : "";
+    return `Ask acknowledged${state}; use invocations_wait with flightId=${result.flightId}.${followText}`;
   }
   if (result.output) {
     return result.output;
@@ -1138,10 +1145,15 @@ function isTerminalFlightState(state: string | null | undefined): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";
 }
 
-type ScoutMcpFlightWaitStatus = "not_requested" | "completed" | "terminal" | "timeout";
+type ScoutMcpFlightWaitStatus =
+  | "not_requested"
+  | "acknowledged"
+  | "completed"
+  | "terminal"
+  | "timeout";
 
-function isFlightWaitTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("Timed out waiting for flight");
+function isAcknowledgedFlightState(state: string | null | undefined): boolean {
+  return state === "running" || state === "waiting";
 }
 
 async function waitForFlightForMcp(input: {
@@ -1154,22 +1166,27 @@ async function waitForFlightForMcp(input: {
     return { flight: null, waitStatus: "not_requested" };
   }
 
-  try {
-    const completedFlight = await input.deps.waitForFlight(
-      input.brokerUrl,
-      input.flight.id,
-      { timeoutSeconds: input.timeoutSeconds },
-    );
-    return { flight: completedFlight, waitStatus: "completed" };
-  } catch (error) {
-    const latestFlight = await input.deps.getFlight(input.brokerUrl, input.flight.id);
-    if (isTerminalFlightState(latestFlight?.state)) {
+  const deadline =
+    typeof input.timeoutSeconds === "number" && input.timeoutSeconds > 0
+      ? Date.now() + input.timeoutSeconds * 1000
+      : Date.now() + DEFAULT_ASK_ACK_TIMEOUT_SECONDS * 1000;
+  let latestFlight = input.flight;
+
+  while (true) {
+    if (latestFlight.state === "completed") {
+      return { flight: latestFlight, waitStatus: "completed" };
+    }
+    if (isTerminalFlightState(latestFlight.state)) {
       return { flight: latestFlight, waitStatus: "terminal" };
     }
-    if (isFlightWaitTimeoutError(error)) {
-      return { flight: latestFlight ?? input.flight, waitStatus: "timeout" };
+    if (isAcknowledgedFlightState(latestFlight.state)) {
+      return { flight: latestFlight, waitStatus: "acknowledged" };
     }
-    throw error;
+    if (deadline !== null && Date.now() > deadline) {
+      return { flight: latestFlight, waitStatus: "timeout" };
+    }
+    latestFlight = await input.deps.getFlight(input.brokerUrl, input.flight.id) ?? latestFlight;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 }
 
@@ -1308,7 +1325,7 @@ function parseStartTargetLabel(
   }
 
   const label = rawLabel.replace(/^@+/, "");
-  const harnessMatch = label.match(/(?:#|harness:)(claude|codex)\b/i);
+  const harnessMatch = label.match(/(?:#|harness:)(claude|codex|pi)\b/i);
   const shorthandModelMatch = label.match(/\?([^#\s.]+)/);
   const qualifiedModelMatch = label.match(/(?:^|\.)model:([^#?\s.]+)/i);
   const base = label
@@ -1318,10 +1335,7 @@ function parseStartTargetLabel(
     ?? "";
   const agentName = base.split(".")[0]?.trim() || null;
   const harnessValue = harnessMatch?.[1]?.toLowerCase();
-  const harness =
-    harnessValue === "claude" || harnessValue === "codex"
-      ? harnessValue
-      : null;
+  const harness = LOCAL_AGENT_HARNESS_VALUES.find((value) => value === harnessValue) ?? null;
   const model =
     shorthandModelMatch?.[1]?.trim()
     || qualifiedModelMatch?.[1]?.trim()
@@ -2890,7 +2904,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. Use wake=true to wake/process the target asynchronously after posting when a visible non-blocking turn is useful. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For owned work or a reply lifecycle, use invocations_ask instead.",
+        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Targeted DMs are dispatched by the broker when the target can be reached; callers should not preflight wake/session mechanics. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For owned work or a reply lifecycle, use invocations_ask instead.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -2903,7 +2917,7 @@ export function createScoutMcpServer(options: {
         wake: z
           .boolean()
           .describe(
-            "Wake/process the target asynchronously after posting the message; returns immediately and exposes the created flight when available.",
+            "Advanced override: force a visible wake turn after posting. Omit this for normal targeted DMs; the broker dispatches reachable targets automatically.",
           )
           .optional(),
       }),
@@ -3219,7 +3233,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask Scout Agent",
       description:
-        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' Pass targetLabel or targetAgentId as routing fields; one target without a channel becomes a DM and the body remains payload text. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with exactTargetAgentId instead of substituting a different agent. Provide workItem to mint a durable workId beyond the message and flight ids. Use replyMode='inline' for short blocking waits, replyMode='notify' for callback-style MCP notifications, and replyMode='none' for fire-and-forget. awaitReply is kept as a boolean alias for replyMode='inline'.",
+        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' Pass targetLabel or targetAgentId as routing fields; one target without a channel becomes a DM and the body remains payload text. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with exactTargetAgentId instead of substituting a different agent. Provide workItem to mint a durable workId beyond the message and flight ids. replyMode='inline' returns once the ask is acknowledged or already complete; use invocations_wait for a longer follow-up poll. replyMode='notify' returns immediately and emits notifications/scout/reply later; replyMode='none' returns the durable receipt only. awaitReply is kept as a boolean alias for replyMode='inline'.",
       inputSchema: z
         .object({
           body: z.string().min(1),
@@ -3237,7 +3251,7 @@ export function createScoutMcpServer(options: {
           replyMode: z
             .enum(REPLY_MODE_VALUES)
             .describe(
-              "Reply delivery mode: 'none' returns durable ids only, 'inline' blocks until the flight completes, and 'notify' returns immediately then emits notifications/scout/reply.",
+              "Reply delivery mode: 'inline' returns a quick acknowledgement or immediate completion, 'notify' returns immediately then emits notifications/scout/reply, and 'none' returns durable ids only. Inline acknowledgement waits default to 30 seconds unless timeoutSeconds is set.",
             )
             .optional(),
           timeoutSeconds: z.number().int().min(1).optional(),
@@ -3376,7 +3390,10 @@ export function createScoutMcpServer(options: {
           messageId: result.messageId ?? null,
           flight: completedFlight ?? result.flight ?? null,
           flightId: completedFlight?.id ?? result.flight?.id ?? null,
-          output: completedFlight?.output ?? completedFlight?.summary ?? null,
+          output:
+            waitResult.waitStatus === "completed" || waitResult.waitStatus === "terminal"
+              ? completedFlight?.output ?? completedFlight?.summary ?? null
+              : null,
           unresolvedTargetId,
           unresolvedTargetLabel: null,
           workItem: trackedWorkItem,
@@ -3523,7 +3540,10 @@ export function createScoutMcpServer(options: {
         bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
         flight: completedFlight ?? result.flight ?? null,
         flightId: completedFlight?.id ?? result.flight?.id ?? null,
-        output: completedFlight?.output ?? completedFlight?.summary ?? null,
+        output:
+          waitResult.waitStatus === "completed" || waitResult.waitStatus === "terminal"
+            ? completedFlight?.output ?? completedFlight?.summary ?? null
+            : null,
         unresolvedTargetId: null,
         unresolvedTargetLabel: result.unresolvedTarget ?? null,
         workItem: trackedWorkItem,

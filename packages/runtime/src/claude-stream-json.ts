@@ -118,6 +118,10 @@ function emptyClaudeOutputError(): Error {
   return new Error("Claude stream-json completed without broker-visible output.");
 }
 
+function isMissingClaudeConversationError(error: unknown): boolean {
+  return errorMessage(error).toLowerCase().includes("no conversation found with session id");
+}
+
 function sessionKey(options: SessionRequestOptions): string {
   return `${options.agentName}:${options.sessionId}`;
 }
@@ -757,6 +761,8 @@ class ClaudeStreamJsonSession {
 
   private claudeSessionId: string | null = null;
 
+  private resumedSessionId: string | null = null;
+
   private lastConfigSignature: string;
 
   constructor(private options: SessionRequestOptions) {
@@ -787,6 +793,14 @@ class ClaudeStreamJsonSession {
   }
 
   async invoke(prompt: string, timeoutMs?: number): Promise<{ output: string; sessionId: string | null }> {
+    return this.invokeWithRetry(prompt, timeoutMs, true);
+  }
+
+  private async invokeWithRetry(
+    prompt: string,
+    timeoutMs: number | undefined,
+    allowStaleResumeRetry: boolean,
+  ): Promise<{ output: string; sessionId: string | null }> {
     await this.ensureStarted();
     const queuedTurn = this.turnQueue
       .catch(() => undefined)
@@ -797,7 +811,20 @@ class ClaudeStreamJsonSession {
     );
 
     const turn = await queuedTurn;
-    const output = await waitForRequesterResult(turn.outputPromise, timeoutMs, this.options.agentName);
+    let output: string;
+    try {
+      output = await waitForRequesterResult(turn.outputPromise, timeoutMs, this.options.agentName);
+    } catch (error) {
+      if (allowStaleResumeRetry && this.resumedSessionId && isMissingClaudeConversationError(error)) {
+        await appendFile(
+          this.stderrLogPath,
+          `[openscout] Claude resume id ${this.resumedSessionId} was stale for ${this.options.agentName}; resetting and retrying once.\n`,
+        ).catch(() => undefined);
+        await this.shutdown({ resetSession: true });
+        return this.invokeWithRetry(prompt, timeoutMs, false);
+      }
+      throw error;
+    }
 
     return {
       output,
@@ -870,6 +897,7 @@ class ClaudeStreamJsonSession {
     this.process = null;
     this.starting = null;
     this.lineBuffer = "";
+    this.resumedSessionId = null;
 
     if (child && !child.killed && child.exitCode === null) {
       child.kill();
@@ -914,6 +942,7 @@ class ClaudeStreamJsonSession {
     await writeFile(join(this.options.runtimeDirectory, "prompt.txt"), this.options.systemPrompt);
     const catalog = await readSessionCatalog(this.catalogDirectory);
     this.claudeSessionId = catalog.activeSessionId;
+    this.resumedSessionId = this.claudeSessionId;
 
     const args = [
       "--verbose",
@@ -947,6 +976,9 @@ class ClaudeStreamJsonSession {
     // Without this handler, the error event becomes an uncaught exception
     // that crashes the entire broker process.
     child.on("error", (error) => {
+      if (this.process !== child) {
+        return;
+      }
       console.error(`[openscout-runtime] claude process error for ${this.options.agentName}: ${error.message}`);
       this.process = null;
       if (this.activeTurn) {
@@ -977,6 +1009,9 @@ class ClaudeStreamJsonSession {
     });
 
     child.on("exit", (code: number | null) => {
+      if (this.process !== child) {
+        return;
+      }
       if (this.activeTurn) {
         const turn = this.activeTurn;
         this.activeTurn = null;

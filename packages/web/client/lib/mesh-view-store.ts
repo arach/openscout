@@ -30,20 +30,32 @@ export type ProbeEntry = {
   fetchedAt: number;
 };
 
+export type MeshViewMode = "map" | "tree";
+
+export type MeshDensity = "compact" | "comfortable" | "spacious";
+
+export type MeshStateFilter = "all" | "working" | "available";
+
 type MeshViewState = {
-  mode: "map" | "fleet";
+  mode: MeshViewMode;
+  density: MeshDensity;
   selectedId: string | null;
   selectedType: "node" | "agent" | null;
   meshSnapshot: MeshStatus | null;
   probeCache: Record<string, ProbeEntry>;
+  query: string;
+  stateFilter: MeshStateFilter;
 };
 
 let _state: MeshViewState = {
   mode: "map",
+  density: "comfortable",
   selectedId: null,
   selectedType: null,
   meshSnapshot: null,
   probeCache: {},
+  query: "",
+  stateFilter: "all",
 };
 
 const _listeners = new Set<() => void>();
@@ -52,9 +64,15 @@ function _notify() {
   for (const fn of _listeners) fn();
 }
 
-export function setMeshViewMode(mode: "map" | "fleet"): void {
+export function setMeshViewMode(mode: MeshViewMode): void {
   if (_state.mode === mode) return;
   _state = { ..._state, mode };
+  _notify();
+}
+
+export function setMeshDensity(density: MeshDensity): void {
+  if (_state.density === density) return;
+  _state = { ..._state, density };
   _notify();
 }
 
@@ -71,6 +89,18 @@ export function setMeshSnapshot(snapshot: MeshStatus | null): void {
 
 export function setProbeEntry(nodeId: string, entry: ProbeEntry): void {
   _state = { ..._state, probeCache: { ..._state.probeCache, [nodeId]: entry } };
+  _notify();
+}
+
+export function setMeshQuery(query: string): void {
+  if (_state.query === query) return;
+  _state = { ..._state, query };
+  _notify();
+}
+
+export function setMeshStateFilter(stateFilter: MeshStateFilter): void {
+  if (_state.stateFilter === stateFilter) return;
+  _state = { ..._state, stateFilter };
   _notify();
 }
 

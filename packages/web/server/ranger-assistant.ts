@@ -477,8 +477,11 @@ function briefSystemPrompt(basePrompt: string): string {
     "One-minute brief mode:",
     "Return only a JSON object. Do not wrap it in markdown.",
     "The object must include title, summary, steps, recommendation, and actions.",
-    "steps must contain 3 to 5 safe UI stops. Each step needs id, label, route, and narration.",
-    "Use short spoken narration. Each step should be roughly 8 to 22 words.",
+    "steps must contain 3 to 5 safe UI stops. Prefer 3 or 4 stops unless a fifth is genuinely useful. Each step needs id, label, route, and narration.",
+    "Write for spoken briefing, not dashboard captions. Each narration should be one natural sentence, roughly 14 to 30 words.",
+    "At each stop, say what changed or what matters, not just what the screen contains.",
+    "Use light transitions when helpful, but do not repeat labels inside the narration.",
+    "The recommendation should be a plain-spoken final beat: what to do next and why it matters.",
     "Use only these routes unless the snapshot strongly suggests a more specific safe route: fleet, ops tail, sessions, broker, mesh, activity, agents.",
     "Do not create durable Scout records or imply that work has been started.",
     "",
@@ -494,7 +497,8 @@ function briefOperatorRequest(ttlMs: number): string {
   return [
     "Prepare a one-minute OpenScout control-plane brief for spoken narration.",
     `The prepared snapshot TTL is ${Math.round(ttlMs / 1000)} seconds.`,
-    "Walk through only the relevant views, explain what matters at each stop, and finish with one recommended next action.",
+    "Walk through only the relevant views, give the operator a moment to visually orient at each stop, and finish with one recommended next action.",
+    "Make the script feel like a calm guided tour: overview, a few meaningful stops, then the final call.",
     "Return this exact JSON shape:",
     JSON.stringify({
       title: "One-minute brief",

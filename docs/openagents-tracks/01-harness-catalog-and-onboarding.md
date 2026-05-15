@@ -153,7 +153,9 @@ Suggested runtime responsibilities:
 - `catalog.configure(name)`
 - `catalog.listVisibleCapabilities()`
 
-As part of this track, the runtime should model a tmux-backed project agent directly as an agent endpoint using a harness and transport, not as a separate legacy object class.
+As part of this track, the runtime should model a tmux-backed project agent
+directly as an agent endpoint using a harness and transport, not as a separate
+object class.
 
 The runtime should also track why a harness is not ready, not just whether it is not ready. A single boolean is not enough for onboarding.
 

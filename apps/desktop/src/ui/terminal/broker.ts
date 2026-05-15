@@ -58,6 +58,7 @@ export function renderScoutMessagePostResult(result: {
   message: string;
   senderId?: string;
   conversationId?: string;
+  messageId?: string;
   bindingRef?: string;
   flightId?: string;
   invokedTargets: string[];
@@ -66,11 +67,18 @@ export function renderScoutMessagePostResult(result: {
 }): string {
   const sentToScout = result.invokedTargets.some((target) => target === "scout");
   const lines = [sentToScout ? "Sent to Scout." : "Sent."];
+  if (result.conversationId) {
+    lines.push(`Conversation: ${result.conversationId}`);
+  }
+  if (result.messageId) {
+    lines.push(`Message: ${result.messageId}`);
+  }
   if (result.bindingRef) {
     lines.push(`Ref: ref:${result.bindingRef}`);
   }
   if (result.flightId) {
-    lines.push(`Wake flight: ${result.flightId}`);
+    lines.push(`Delivery flight: ${result.flightId}`);
+    lines.push(`Next: scout flight wait ${result.flightId} --timeout 30`);
   }
   if (result.unresolvedTargets.length > 0) {
     lines.push(`Unresolved: ${result.unresolvedTargets.join(", ")}`);

@@ -155,6 +155,7 @@
         "ai": "^6.0.105",
         "lucide-react": "^0.577.0",
         "node-pty": "1.2.0-beta.12",
+        "picomatch": "^4.0.4",
         "react": "19.2.3",
         "react-dom": "19.2.3",
         "uqr": "^0.1.2",

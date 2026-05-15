@@ -72,7 +72,7 @@ The `MicButton` already has `onLongPressStart`/`onLongPressEnd` slots wired to n
 
 ### What NOT to build
 
-- No special "scout agent" running in tmux
+- No hidden tmux-only control agent just to make Scout answer
 - No persistent conversation history
 - No streaming response (Haiku is fast enough as single response)
 - No plan review step

@@ -85,7 +85,10 @@ work or a reply. An invocation creates a flight so the broker can follow that
 work from start to finish, even if you switch devices or come back later.
 
 For long-running MCP asks, use `replyMode: "notify"` when you want the caller
-to return quickly and receive the reply as a callback notification.
+to return quickly and receive completion as a callback notification. Use
+`replyMode: "inline"` when the caller needs the target acknowledgement before
+continuing, then follow completion with `invocations_get` or
+`invocations_wait`.
 
 Concrete handoff example:
 

@@ -61,7 +61,7 @@ codex     →  broker (post reply)
 broker    →  operator (deliver reply via SSE)
 ```
 
-One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, waits for the reply, and stores the whole exchange as a flight. A flight is the broker's tracked record for an ask-style request, including timeout and retry state.
+One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, records the target acknowledgement, and tracks the later completion as a flight. A flight is the broker's tracked record for an ask-style request, including timeout, retry, acknowledgement, and completion state.
 
 ## Core Moving Parts
 

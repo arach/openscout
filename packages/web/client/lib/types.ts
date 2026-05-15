@@ -10,6 +10,7 @@ export type Agent = {
   projectRoot: string | null;
   cwd: string | null;
   updatedAt: number | null;
+  createdAt: number | null;
   transport: string | null;
   selector: string | null;
   wakePolicy: string | null;
@@ -21,6 +22,11 @@ export type Agent = {
   harnessSessionId: string | null;
   harnessLogPath: string | null;
   conversationId: string;
+  homeNodeId: string | null;
+  homeNodeName: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+  ownerHandle: string | null;
 };
 
 export type ObservedHarnessTopology = {
@@ -303,6 +309,7 @@ export type FleetAsk = {
   task: string;
   status: "queued" | "working" | "needs_attention" | "completed" | "failed";
   statusLabel: string;
+  acknowledgedAt: number | null;
   attention: "silent" | "badge" | "interrupt";
   agentState: "offline" | "available" | "working";
   harness: string | null;

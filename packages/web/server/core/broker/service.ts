@@ -157,6 +157,9 @@ export type ScoutTargetDiagnostic =
 
 export type ScoutMessagePostResult = {
   usedBroker: boolean;
+  conversationId?: string;
+  messageId?: string;
+  flight?: ScoutFlightRecord;
   invokedTargets: string[];
   unresolvedTargets: string[];
   targetDiagnostic?: ScoutTargetDiagnostic;
@@ -1496,6 +1499,9 @@ export async function sendScoutMessage(input: {
     }
     return {
       usedBroker: true,
+      conversationId: delivery.conversation.id,
+      messageId: delivery.message.id,
+      flight: delivery.flight,
       invokedTargets: delivery.targetAgentId ? [delivery.targetAgentId] : [],
       unresolvedTargets: [],
     };
@@ -1531,6 +1537,9 @@ export async function sendScoutMessage(input: {
     }
     return {
       usedBroker: true,
+      conversationId: delivery.conversation.id,
+      messageId: delivery.message.id,
+      flight: delivery.flight,
       invokedTargets: delivery.targetAgentId ? [delivery.targetAgentId] : [],
       unresolvedTargets: [],
     };
@@ -2001,6 +2010,7 @@ export async function waitForScoutFlight(
   flightId: string,
   options: {
     timeoutSeconds?: number;
+    waitUntil?: "acknowledged" | "completed";
     onUpdate?: (flight: ScoutFlightRecord, detail: string) => void;
   } = {},
 ): Promise<ScoutFlightRecord> {
@@ -2025,6 +2035,12 @@ export async function waitForScoutFlight(
       lastSummary = flight.summary ?? "";
     }
 
+    if (
+      options.waitUntil === "acknowledged"
+      && ["running", "waiting", "completed"].includes(flight.state)
+    ) {
+      return flight;
+    }
     if (flight.state === "completed") return flight;
     if (flight.state === "failed" || flight.state === "cancelled") {
       throw new Error(flight.error || flight.summary || `Flight ${flight.id} failed.`);

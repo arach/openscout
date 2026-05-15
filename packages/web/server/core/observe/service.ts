@@ -14,6 +14,7 @@ import {
 } from "@openscout/agent-sessions";
 import {
   getLocalAgentEndpointSessionSnapshot,
+  getLocalAgentSessionSnapshot,
 } from "@openscout/runtime/local-agents";
 import { getTailDiscovery } from "@openscout/runtime/tail";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
@@ -684,7 +685,12 @@ function readHistorySnapshot(
   };
 }
 
-async function readLiveSnapshot(endpoint: AgentEndpoint | null): Promise<SessionState | null> {
+async function readLiveSnapshot(agent: WebAgent, endpoint: AgentEndpoint | null): Promise<SessionState | null> {
+  const configuredSnapshot = await getLocalAgentSessionSnapshot(agent.id).catch(() => null);
+  if (configuredSnapshot) {
+    return configuredSnapshot;
+  }
+
   if (!endpoint?.sessionId) {
     return null;
   }
@@ -1161,7 +1167,7 @@ async function resolveSnapshotSource(
   broker: ObserveBrokerContext,
 ): Promise<SnapshotSource> {
   const endpoint = broker ? activeEndpoint(broker.snapshot, agent.id) : null;
-  const liveSnapshot = await readLiveSnapshot(endpoint);
+  const liveSnapshot = await readLiveSnapshot(agent, endpoint);
   const live = Boolean(
     liveSnapshot
     && (liveSnapshot.currentTurnId || liveSnapshot.session.status === "active"),

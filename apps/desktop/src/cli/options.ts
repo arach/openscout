@@ -43,6 +43,7 @@ export type ScoutImplicitAskCommandOptions = ScoutAskCommandOptions;
 export type ScoutWatchCommandOptions = ContextRootOptions & {
   agentName: string | null;
   channel?: string;
+  conversationId?: string;
   since?: number;
   limit?: number;
   once: boolean;
@@ -692,6 +693,7 @@ export function parseWatchCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentName: string | null = null;
   let channel: string | undefined;
+  let conversationId: string | undefined;
   let since: number | undefined;
   let limit: number | undefined;
   let once = false;
@@ -707,6 +709,12 @@ export function parseWatchCommandOptions(
     if (current === "--channel" || current.startsWith("--channel=")) {
       const value = parseFlagValue(parsed.args, index, "--channel");
       channel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--conversation" || current.startsWith("--conversation=")) {
+      const value = parseFlagValue(parsed.args, index, "--conversation");
+      conversationId = value.value;
       index = value.nextIndex;
       continue;
     }
@@ -733,11 +741,16 @@ export function parseWatchCommandOptions(
     unexpectedArgs("watch", args);
   }
 
+  if (channel && conversationId) {
+    throw new ScoutCliError("provide either --channel or --conversation, not both");
+  }
+
   return {
     currentDirectory: parsed.currentDirectory,
     args: parsed.args,
     agentName,
     channel,
+    conversationId,
     since,
     limit,
     once,

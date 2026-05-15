@@ -29,7 +29,8 @@ core architecture:
 - Scout-owned coordination records remain broker-owned.
 - External harness transcripts remain observed source material.
 - Trace and activity projections are derived read models.
-- Tmux is a debug attach transport, not the primary control plane.
+- Tmux is a current runtime attach transport; broker records remain the primary
+  control plane.
 - Harness capability detail is explicit, source-attributed, and honest about
   partial support.
 
@@ -53,7 +54,7 @@ force operators to infer the runtime story from scattered state:
 - run state says what an execution projected to
 - pairing/session traces say what blocks and actions happened
 - tails and logs show harness-owned evidence
-- tmux can expose the actual process, but only as a debug tool
+- tmux can expose and control the actual process as a runtime surface
 
 Scion's useful lesson is a clearer operator model:
 
@@ -63,7 +64,7 @@ Scion's useful lesson is a clearer operator model:
 - agent role should be separated from harness/runtime mechanics
 
 OpenScout should borrow that clarity without importing Scion's product posture
-or making tmux the center of the system.
+or making tmux the only center of the system.
 
 ## Relationship To Existing SCOs
 
@@ -78,7 +79,7 @@ SCO-025 adds the read-only observability ceiling above those:
 - observed facts from every open-ish local source
 - normalized traces and activity evidence
 - derived phase/activity/status projection
-- debug terminal attach as an explicit secondary path
+- terminal attach as an explicit endpoint surface
 - feature-level harness capability support
 
 ## Decision
@@ -89,7 +90,7 @@ coordinated tracks:
 | Track | Purpose |
 |---|---|
 | Observed status projection | A derived `phase` / `activity` / `detail` read model with provenance and confidence |
-| Debug attach transport | Broker-mediated tmux attach, detach, and reattach metadata for engineering/debug views |
+| Tmux attach transport | Broker-mediated tmux attach, detach, and reattach metadata for runtime views |
 | Harness feature support | Fine-grained `yes` / `partial` / `no` / `unknown` capability truth with reasons and evidence |
 
 The key rule is:
@@ -122,8 +123,8 @@ document are to be interpreted as normative requirements.
    events that explain it.
 4. **Confidence matters.** A broker flight has higher confidence than a tail
    inference. UI should be able to distinguish observed from inferred state.
-5. **Trace remains the product session surface.** Tmux and raw logs are debug
-   drill-downs, not the primary "open session" behavior.
+5. **Trace remains the canonical read model.** Tmux and raw logs are current
+   endpoint drill-downs, not separate product semantics.
 6. **Feature support must be honest.** Unsupported and partially supported
    harness features should be visible with reasons, not hidden behind boolean
    readiness.
@@ -151,7 +152,7 @@ document are to be interpreted as normative requirements.
 | **Observed evidence** | External source material such as harness JSONL, stream events, logs, process state, file signals, or tmux output |
 | **Normalized trace** | OpenScout's session/turn/block/action/question/approval representation of runtime behavior |
 | **Status projection** | Derived phase/activity/detail read model computed from Scout-owned records and observed evidence |
-| **Debug attach transport** | A terminal attachment path, usually tmux, exposed for inspection and debugging |
+| **Tmux attach transport** | A terminal attachment path exposed for inspection and control |
 | **Harness feature support** | Fine-grained support truth for runtime capabilities, with level, reason, and evidence |
 | **Role** | Harness-agnostic behavior package: instructions, system prompt, skills, and defaults |
 | **Harness config** | Harness-specific mechanics: binary, launch args, auth mode, model knobs, native files, MCP mapping |
@@ -293,15 +294,17 @@ events.
 If persisted later, status projection rows MUST be rebuildable. They MUST NOT
 be treated as canonical state.
 
-## Track 2: Debug Tmux Attach, Detach, Reattach
+## Track 2: Tmux Attach, Detach, Reattach
 
 ### Current State
 
-OpenScout's mainline Codex and Claude paths are not tmux:
+OpenScout now treats tmux as a current local runtime transport alongside the
+newer structured adapters:
 
 - Codex uses `codex_app_server`.
 - Claude uses `claude_stream_json`.
-- Tmux remains a fallback/debug process transport and terminal surface.
+- Tmux-backed agents remain first-class endpoints with attach, detach, and
+  reattach semantics.
 
 There are still useful tmux pieces:
 
@@ -319,8 +322,8 @@ The gaps are attach quality and explicit lifecycle:
 
 ### Decision
 
-OpenScout SHOULD expose tmux as a debug attach transport through typed
-broker-mediated metadata, without changing the product session model.
+OpenScout SHOULD expose tmux as a current attach transport through typed
+broker-mediated metadata, without changing the broker-owned session model.
 
 Recommended optional endpoint field:
 
@@ -638,7 +641,8 @@ The first useful implementation is complete when:
 2. The status projection explains whether each source is broker-owned,
    observed, or inferred.
 3. Existing endpoint/flight/run/work item records remain canonical.
-4. Tmux attach is labeled and routed as debug attach, not product session open.
+4. Tmux attach is labeled and routed as an endpoint attach surface, not a
+   separate session model.
 5. Debug attach waits for readiness and supports reattach without stale UI
    state.
 6. Harness inventory can say `yes`, `partial`, `no`, or `unknown` for at least
@@ -653,7 +657,7 @@ The first useful implementation is complete when:
 | Projection becomes a second source of truth | Keep it rebuildable and source-attributed |
 | UI treats inferred state as certain | Carry confidence and provenance into the model |
 | Sticky terminal states go stale | Clear them only on explicit newer work and test precedence |
-| Tmux debug attach leaks into product semantics | Keep debug routes and labels explicit |
+| Tmux attach leaks into a separate product model | Keep attach routes and labels explicit |
 | Capability map becomes badge clutter | Use it to drive affordances, not decoration |
 | Cross-harness support is uneven | Represent `partial`, `unknown`, and downgrade modes honestly |
 | Observability oversteps data ownership | Preserve Scout-owned vs observed boundary in every API |
@@ -683,5 +687,5 @@ mechanically possible, normalize it into trace and activity evidence, and
 project an honest, source-attributed view of what the system is doing.
 
 That gives operators the compact Scion-style clarity of phase/activity, the
-OpenScout-native richness of broker records and traces, and a practical debug
-escape hatch through tmux without making tmux the product model.
+OpenScout-native richness of broker records and traces, and a practical tmux
+attach surface without making tmux the whole product model.

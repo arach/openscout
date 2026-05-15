@@ -83,24 +83,40 @@ export function MeshLeftPanel() {
         </button>
       ))}
 
-      {tailnetOnly.slice(0, 5).map((peer) => (
-        <button
-          key={peer.id}
-          type="button"
-          className="mesh-left-node-row mesh-left-node-row--dim"
-          disabled
-        >
-          <span
-            className={`mesh-left-node-dot${peer.online ? " mesh-left-node-dot--tailnet" : " mesh-left-node-dot--offline"}`}
-          />
-          <span className="mesh-left-node-body">
-            <span className="mesh-left-node-name">
-              {peer.hostName?.split(".")[0] ?? peer.name ?? "tailnet peer"}
-            </span>
-            <span className="mesh-left-node-sub">tailnet only</span>
-          </span>
-        </button>
-      ))}
+      {tailnetOnly.length > 0 && (
+        <>
+          <div className={`mesh-left-section-label mesh-left-tailnet-label${meshSnapshot.tailscale.running ? "" : " mesh-left-tailnet-label--off"}`}>
+            <span>TAILNET</span>
+            {!meshSnapshot.tailscale.running && <span className="mesh-left-tailnet-state">stopped</span>}
+          </div>
+          <div className={`mesh-left-tailnet-group${meshSnapshot.tailscale.running ? "" : " mesh-left-tailnet-group--dim"}`}>
+            {tailnetOnly.slice(0, 5).map((peer) => {
+              const id = `tailnet:${peer.id}`;
+              const active = selectedId === id && selectedType === "node";
+              return (
+                <button
+                  key={peer.id}
+                  type="button"
+                  className={`mesh-left-node-row${active ? " mesh-left-node-row--active" : ""}`}
+                  onClick={() =>
+                    setMeshSelection(active ? null : id, active ? null : "node")
+                  }
+                  disabled={!meshSnapshot.tailscale.running}
+                >
+                  <span
+                    className={`mesh-left-node-dot${peer.online && meshSnapshot.tailscale.running ? " mesh-left-node-dot--tailnet" : " mesh-left-node-dot--offline"}`}
+                  />
+                  <span className="mesh-left-node-body">
+                    <span className="mesh-left-node-name">
+                      {peer.hostName?.split(".")[0] ?? peer.name ?? "tailnet peer"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {remoteNodes.length === 0 && tailnetOnly.length === 0 && (
         <div className="mesh-left-empty">No remote peers discovered</div>

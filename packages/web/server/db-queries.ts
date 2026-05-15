@@ -34,6 +34,7 @@ export type WebAgent = {
   projectRoot: string | null;
   cwd: string | null;
   updatedAt: number | null;
+  createdAt: number | null;
   transport: string | null;
   selector: string | null;
   wakePolicy: string | null;
@@ -45,6 +46,36 @@ export type WebAgent = {
   harnessSessionId: string | null;
   harnessLogPath: string | null;
   conversationId: string;
+  homeNodeId: string | null;
+  homeNodeName: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+  ownerHandle: string | null;
+};
+
+type AgentQueryRow = {
+  id: string;
+  name: string;
+  handle: string | null;
+  actor_created_at: number | null;
+  agent_class: string;
+  default_selector: string | null;
+  wake_policy: string | null;
+  capabilities_json: string | null;
+  metadata_json: string | null;
+  home_node_id: string | null;
+  home_node_name: string | null;
+  owner_id: string | null;
+  owner_name: string | null;
+  owner_handle: string | null;
+  harness: string | null;
+  transport: string | null;
+  state: string | null;
+  project_root: string | null;
+  cwd: string | null;
+  session_id: string | null;
+  endpoint_metadata_json: string | null;
+  updated_at: number | null;
 };
 
 export type WebActivityItem = {
@@ -558,11 +589,17 @@ export function queryAgents(limit = 50): WebAgent[] {
          a.id,
          ac.display_name AS name,
          ac.handle,
+         ac.created_at AS actor_created_at,
          a.agent_class,
          a.default_selector,
          a.wake_policy,
          a.capabilities_json,
          a.metadata_json,
+         a.home_node_id,
+         hn.name AS home_node_name,
+         a.owner_id,
+         oa.display_name AS owner_name,
+         oa.handle AS owner_handle,
          ep.harness,
          ep.transport,
          ep.state,
@@ -573,30 +610,60 @@ export function queryAgents(limit = 50): WebAgent[] {
          ep.updated_at
        FROM agents a
        JOIN actors ac ON ac.id = a.id
+       LEFT JOIN nodes hn ON hn.id = a.home_node_id
+       LEFT JOIN actors oa ON oa.id = a.owner_id
        ${LATEST_AGENT_ENDPOINT_JOIN}
        WHERE ${activeAgentMetadataPredicate("a")}
        ORDER BY COALESCE(ep.updated_at, 0) DESC, ac.display_name ASC
        LIMIT ?`,
     )
-    .all(limit) as Array<{
-    id: string;
-    name: string;
-    handle: string | null;
-    agent_class: string;
-    default_selector: string | null;
-    wake_policy: string | null;
-    capabilities_json: string | null;
-    metadata_json: string | null;
-    harness: string | null;
-    transport: string | null;
-    state: string | null;
-    project_root: string | null;
-    cwd: string | null;
-    session_id: string | null;
-    endpoint_metadata_json: string | null;
-    updated_at: number | null;
-  }>;
+    .all(limit) as AgentQueryRow[];
 
+  return mapAgentRows(rows, executingAgentIds);
+}
+
+export function queryAgentById(agentId: string): WebAgent | null {
+  const executingAgentIds = queryExecutingAgentIds();
+  const row = db()
+    .prepare(
+      `SELECT
+         a.id,
+         ac.display_name AS name,
+         ac.handle,
+         ac.created_at AS actor_created_at,
+         a.agent_class,
+         a.default_selector,
+         a.wake_policy,
+         a.capabilities_json,
+         a.metadata_json,
+         a.home_node_id,
+         hn.name AS home_node_name,
+         a.owner_id,
+         oa.display_name AS owner_name,
+         oa.handle AS owner_handle,
+         ep.harness,
+         ep.transport,
+         ep.state,
+         ep.project_root,
+         ep.cwd,
+         ep.session_id,
+         ep.metadata_json AS endpoint_metadata_json,
+         ep.updated_at
+       FROM agents a
+       JOIN actors ac ON ac.id = a.id
+       LEFT JOIN nodes hn ON hn.id = a.home_node_id
+       LEFT JOIN actors oa ON oa.id = a.owner_id
+       ${LATEST_AGENT_ENDPOINT_JOIN}
+       WHERE a.id = ?
+         AND ${activeAgentMetadataPredicate("a")}
+       LIMIT 1`,
+    )
+    .get(agentId) as AgentQueryRow | null;
+
+  return row ? mapAgentRows([row], executingAgentIds)[0] ?? null : null;
+}
+
+function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): WebAgent[] {
   return rows.map((r) => {
     let capabilities: string[] = [];
     try { capabilities = r.capabilities_json ? JSON.parse(r.capabilities_json) : []; } catch {}
@@ -617,6 +684,7 @@ export function queryAgents(limit = 50): WebAgent[] {
       projectRoot: compact(r.project_root),
       cwd: compact(r.cwd),
       updatedAt: normalizeTimestampMs(r.updated_at),
+      createdAt: normalizeTimestampMs(r.actor_created_at),
       transport: r.transport,
       selector: r.default_selector,
       wakePolicy: r.wake_policy,
@@ -628,6 +696,11 @@ export function queryAgents(limit = 50): WebAgent[] {
       harnessSessionId: resolveHarnessSessionId(r.transport, r.session_id, endpointMeta),
       harnessLogPath: resolveHarnessLogPath(r.id, r.transport, r.session_id, endpointMeta),
       conversationId: conversationIdForAgent(r.id),
+      homeNodeId: r.home_node_id,
+      homeNodeName: r.home_node_name,
+      ownerId: r.owner_id,
+      ownerName: r.owner_name,
+      ownerHandle: r.owner_handle,
     };
   });
 }
@@ -645,7 +718,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
          ai.conversation_id,
          ai.workspace_root,
          ai.agent_id,
-         ag.display_name AS agent_name,
+         agent_actor.display_name AS agent_name,
          ai.flight_id,
          ai.invocation_id,
          ai.session_id,
@@ -653,7 +726,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
          ai.record_id
        FROM activity_items ai
        LEFT JOIN actors ac ON ac.id = ai.actor_id
-       LEFT JOIN agents ag ON ag.id = ai.agent_id
+       LEFT JOIN actors agent_actor ON agent_actor.id = ai.agent_id
        WHERE ai.kind != 'ask_replied'
          AND ${staleFlightActivityPredicate("ai")}
        ORDER BY ai.ts DESC
@@ -3081,6 +3154,7 @@ export type WebFleetAsk = {
   task: string;
   status: WebFleetAskStatus;
   statusLabel: string;
+  acknowledgedAt: number | null;
   attention: WorkAttention;
   agentState: AgentSummaryState;
   harness: string | null;
@@ -3149,9 +3223,11 @@ type FleetAskRow = {
   flight_id: string | null;
   flight_state: string | null;
   flight_summary: string | null;
+  flight_error: string | null;
   started_at: number | null;
   completed_at: number | null;
   flight_dismissed_at: number | string | null;
+  recovered_after_failure_at: number | string | null;
   status_kind: string | null;
   status_title: string | null;
   status_summary: string | null;
@@ -3244,7 +3320,7 @@ function queryFleetActivity(opts?: {
     ai.workspace_root,
     ai.actor_id,
     ai.agent_id,
-    ag.display_name AS agent_name,
+    agent_actor.display_name AS agent_name,
     ai.message_id,
     ai.invocation_id,
     ai.flight_id,
@@ -3252,7 +3328,7 @@ function queryFleetActivity(opts?: {
     ai.session_id
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
-  LEFT JOIN agents ag ON ag.id = ai.agent_id
+  LEFT JOIN actors agent_actor ON agent_actor.id = ai.agent_id
   ${sqlWhereClause([
     staleFlightActivityPredicate("ai"),
     scopedFilters ? `(${scopedFilters})` : null,
@@ -3311,9 +3387,19 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
        f.id AS flight_id,
        f.state AS flight_state,
        f.summary AS flight_summary,
+       f.error AS flight_error,
        f.started_at,
        f.completed_at,
        json_extract(f.metadata_json, '$.operatorAttentionDismissedAt') AS flight_dismissed_at,
+       (
+         SELECT MAX(COALESCE(recovery_f.completed_at, recovery_f.started_at, 0))
+         FROM flights recovery_f
+         JOIN invocations recovery_inv ON recovery_inv.id = recovery_f.invocation_id
+         WHERE recovery_inv.target_agent_id = inv.target_agent_id
+           AND COALESCE(recovery_inv.conversation_id, '') = COALESCE(inv.conversation_id, '')
+           AND recovery_f.state = 'completed'
+           AND COALESCE(recovery_f.completed_at, recovery_f.started_at, 0) > COALESCE(f.completed_at, f.started_at, inv.created_at)
+       ) AS recovered_after_failure_at,
        latest_ai.kind AS status_kind,
        latest_ai.title AS status_title,
        latest_ai.summary AS status_summary,
@@ -3339,7 +3425,13 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
      LEFT JOIN activity_items latest_ai ON latest_ai.id = (
        SELECT ai.id
        FROM activity_items ai
-       WHERE ai.conversation_id = inv.conversation_id
+       WHERE (
+           ai.invocation_id = inv.id
+           OR (
+             inv.message_id IS NOT NULL
+             AND json_extract(ai.payload_json, '$.replyToMessageId') = inv.message_id
+           )
+         )
          AND ai.agent_id = inv.target_agent_id
          AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
          AND ai.ts >= inv.created_at
@@ -3364,6 +3456,16 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
   ).all(...requesterIds, limit) as Array<FleetAskRow>;
 }
 
+function isRecoverableDeliveryFailure(row: FleetAskRow): boolean {
+  const text = [
+    row.flight_error,
+    row.flight_summary,
+    row.status_summary,
+    row.status_title,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return text.includes("no conversation found with session id");
+}
+
 function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFleetAsk {
   const hasFlight = typeof row.flight_id === "string" && row.flight_id.length > 0;
   const replied = row.status_kind === "ask_replied";
@@ -3375,7 +3477,6 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
   const isActiveFlight = hasFlight
     && row.flight_state !== null
     && !TERMINAL_FLIGHT_STATES.has(row.flight_state)
-    && !replied
     && !failed
     && !staleActiveFlight;
   const awaitingOperator = Boolean(
@@ -3387,7 +3488,14 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     row.status_ts ?? row.completed_at ?? row.started_at ?? row.work_updated_at ?? row.created_at,
   ) ?? Date.now();
   const dismissedAt = normalizeTimestampMs(row.flight_dismissed_at);
+  const recoveredAfterFailureAt = normalizeTimestampMs(row.recovered_after_failure_at);
   const failedDismissed = Boolean(dismissedAt !== null && dismissedAt >= updatedAt);
+  const recoveredDeliveryFailure = Boolean(
+    failed
+    && recoveredAfterFailureAt !== null
+    && recoveredAfterFailureAt > updatedAt
+    && isRecoverableDeliveryFailure(row),
+  );
 
   let status: WebFleetAskStatus;
   if (!hasFlight) {
@@ -3411,8 +3519,15 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     collaborationRecordId: row.collaboration_record_id,
     task: row.task,
     status,
-    statusLabel: fleetStatusLabel(status),
-    attention: status === "needs_attention" ? "badge" : status === "failed" && !failedDismissed ? "interrupt" : "silent",
+    statusLabel: status === "working" && replied ? "Acknowledged" : fleetStatusLabel(status),
+    acknowledgedAt: status === "working" && replied
+      ? normalizeTimestampMs(row.status_ts)
+      : null,
+    attention: status === "needs_attention"
+      ? "badge"
+      : status === "failed" && !failedDismissed && !recoveredDeliveryFailure
+        ? "interrupt"
+        : "silent",
     agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
     harness: row.harness,
     transport: row.transport,

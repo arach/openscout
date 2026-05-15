@@ -13,6 +13,8 @@ import { actorColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { useCanvasMinimapRegistration } from "../lib/canvas-minimap.tsx";
 import { useFocusTrap } from "../lib/keyboard-nav.ts";
+import { timeAgo } from "../lib/time.ts";
+import { statusOnHover } from "../lib/page-status.ts";
 import {
   MISSION_RECENT_WINDOWS,
   missionAgentMatchesQuery,
@@ -327,6 +329,7 @@ function nativeSessionAgent(
     projectRoot: transcript.cwd,
     cwd: transcript.cwd,
     updatedAt: lastActiveAt,
+    createdAt: null,
     transport: "tail",
     selector: null,
     wakePolicy: null,
@@ -338,6 +341,11 @@ function nativeSessionAgent(
     harnessSessionId: transcript.sessionId,
     harnessLogPath: transcript.transcriptPath,
     conversationId: nativeSessionId(transcript),
+    homeNodeId: null,
+    homeNodeName: null,
+    ownerId: null,
+    ownerName: null,
+    ownerHandle: null,
   };
 }
 
@@ -1076,6 +1084,11 @@ function ObserveTile({
   const toolCount = events.filter((e) => e.kind === "tool").length;
   const editCount = events.filter((e) => e.kind === "tool" && e.tool === "edit").length;
 
+  const hoverHandlers = statusOnHover({
+    label: `Focus ${agent.handle ?? agent.name}`,
+    route: `/ops/control · ${agent.id}`,
+  });
+
   useEffect(() => {
     if (streamRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
@@ -1087,6 +1100,8 @@ function ObserveTile({
       className={`s-mission-tile${state === "working" ? " s-mission-tile--working" : ""}${hasAsk ? " s-mission-tile--asking" : ""}${selected ? " s-mission-tile--selected" : ""}`}
       style={{ left: x, top: y, height: TILE_H }}
       onClick={(e) => { e.stopPropagation(); onClick(e); }}
+      onPointerEnter={hoverHandlers.onPointerEnter}
+      onPointerLeave={hoverHandlers.onPointerLeave}
     >
       <div className="s-mission-tile-header">
         <div
@@ -1273,17 +1288,41 @@ function FocusOverlay({
           </div>
           <div className="s-mission-overlay-tabs-action">
             {tab === "profile" && (
-              <button type="button" className="s-mission-overlay-jump" onClick={onProfile}>
+              <button
+                type="button"
+                className="s-mission-overlay-jump"
+                onClick={onProfile}
+                {...statusOnHover({
+                  label: `Open profile · ${agent.handle ?? agent.name}`,
+                  route: `/agents/${agent.id}`,
+                })}
+              >
                 Open profile ↗
               </button>
             )}
             {tab === "activity" && (
-              <button type="button" className="s-mission-overlay-jump" onClick={onTail}>
+              <button
+                type="button"
+                className="s-mission-overlay-jump"
+                onClick={onTail}
+                {...statusOnHover({
+                  label: `Tail · ${agent.handle ?? agent.name}`,
+                  route: `/ops/tail?q=${encodeURIComponent(agent.handle ?? agent.name)}`,
+                })}
+              >
                 Open in Tail ↗
               </button>
             )}
             {tab === "message" && (
-              <button type="button" className="s-mission-overlay-jump" onClick={onOpenConversation}>
+              <button
+                type="button"
+                className="s-mission-overlay-jump"
+                onClick={onOpenConversation}
+                {...statusOnHover({
+                  label: `Open conversation with ${agent.handle ?? agent.name}`,
+                  route: `/c/${agent.conversationId}`,
+                })}
+              >
                 Open conversation ↗
               </button>
             )}
@@ -1292,7 +1331,14 @@ function FocusOverlay({
 
         <div className="s-mission-overlay-body">
           {tab === "profile" && <FocusProfileTab agent={agent} />}
-          {tab === "activity" && <FocusActivityTab agent={agent} observe={observe} />}
+          {tab === "activity" && (
+            <FocusActivityTab
+              agent={agent}
+              observe={observe}
+              onOpenConversation={onOpenConversation}
+              onMessage={() => setTab("message")}
+            />
+          )}
           {tab === "message" && (
             <FocusMessageTab
               agent={agent}
@@ -1313,6 +1359,9 @@ function FocusProfileTab({ agent }: { agent: Agent }) {
     ["CWD", agent.cwd || agent.projectRoot || "—"],
     ["AGENT", agent.agentClass || "—"],
     ["ROLE", agent.role || agent.transport || "—"],
+    ["HOME", agent.homeNodeName ?? agent.homeNodeId ?? "—"],
+    ["OWNER", agent.ownerHandle ?? agent.ownerName ?? agent.ownerId ?? "—"],
+    ["SPAWNED", agent.createdAt ? timeAgo(agent.createdAt) : "—"],
     ["STATE", agentStateLabel(agent.state)],
   ];
   return (
@@ -1341,16 +1390,6 @@ const KIND_GLYPH: Record<string, string> = {
   boot: "↑",
 };
 
-const KIND_LABEL: Record<string, string> = {
-  tool: "tool",
-  think: "think",
-  ask: "ask",
-  message: "msg",
-  note: "note",
-  system: "sys",
-  boot: "boot",
-};
-
 function formatEventAge(secondsFromStart: number, sessionStart?: number | null): string {
   if (sessionStart) {
     const ms = Date.now() - (sessionStart + secondsFromStart * 1000);
@@ -1377,11 +1416,15 @@ function eventSummary(event: ObserveEvent): string {
 }
 
 function FocusActivityTab({
-  agent: _agent,
+  agent,
   observe,
+  onOpenConversation,
+  onMessage,
 }: {
   agent: Agent;
   observe: SessionObserveData | null;
+  onOpenConversation: () => void;
+  onMessage: () => void;
 }) {
   const events = observe?.events ?? [];
   const usage = observe?.metadata?.usage;
@@ -1393,7 +1436,9 @@ function FocusActivityTab({
 
   const turnCount = usage?.assistantMessages ?? events.filter((e) => e.kind === "message").length;
   const toolCount = events.filter((e) => e.kind === "tool").length;
-  const editCount = events.filter((e) => e.kind === "tool" && e.tool === "edit").length;
+  const editCount = events.filter(
+    (e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write"),
+  ).length;
   const ctxPct = observe?.contextUsage && observe.contextUsage.length > 0
     ? Math.round(observe.contextUsage[observe.contextUsage.length - 1] * 100)
     : null;
@@ -1413,9 +1458,11 @@ function FocusActivityTab({
       </dl>
 
       {recent.length === 0 ? (
-        <div className="s-focus-activity-empty">
-          No recent events yet. Activity will land here as the session runs.
-        </div>
+        <FocusActivityEmpty
+          agent={agent}
+          onOpenConversation={onOpenConversation}
+          onMessage={onMessage}
+        />
       ) : (
         <ul className="s-focus-activity-list">
           {recent.map((event) => (
@@ -1430,6 +1477,77 @@ function FocusActivityTab({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function FocusActivityEmpty({
+  agent,
+  onOpenConversation,
+  onMessage,
+}: {
+  agent: Agent;
+  onOpenConversation: () => void;
+  onMessage: () => void;
+}) {
+  const role = agent.role?.trim();
+  const harness = [agent.harness, agent.model].filter(Boolean).join("/");
+  const where = [agent.project, agent.branch].filter(Boolean).join("/");
+  const state = normalizeAgentState(agent.state);
+  const stateLabel = agentStateLabel(state);
+  const spawned = agent.createdAt ? timeAgo(agent.createdAt) : null;
+  const lastSeen = agent.updatedAt ? timeAgo(agent.updatedAt) : null;
+  const home = agent.homeNodeName ?? agent.homeNodeId;
+
+  const owner = agent.ownerHandle ?? agent.ownerName ?? agent.ownerId;
+
+  const facts: { label: string; value: string }[] = [];
+  if (role) facts.push({ label: "Role", value: role });
+  if (harness) facts.push({ label: "Stack", value: harness });
+  if (where) facts.push({ label: "At", value: where });
+  if (home) facts.push({ label: "Home", value: home });
+  if (owner) facts.push({ label: "Owner", value: owner });
+  if (spawned) facts.push({ label: "Spawned", value: spawned });
+  facts.push({ label: "State", value: stateLabel });
+  if (lastSeen) facts.push({ label: "Last seen", value: lastSeen });
+
+  return (
+    <div className="s-focus-activity-empty s-focus-activity-empty--rich">
+      <div className="s-focus-activity-empty-head">
+        <span className="s-focus-activity-empty-eyebrow">No tool or turn events recorded</span>
+        <span className="s-focus-activity-empty-title">{agent.handle ?? agent.name}</span>
+      </div>
+      <dl className="s-focus-activity-empty-facts">
+        {facts.map((f) => (
+          <div key={f.label} className="s-focus-activity-empty-fact">
+            <dt>{f.label}</dt>
+            <dd title={f.value}>{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="s-focus-activity-empty-actions">
+        <button
+          type="button"
+          className="s-focus-activity-empty-btn"
+          onClick={onOpenConversation}
+          {...statusOnHover({
+            label: `Open conversation with ${agent.handle ?? agent.name}`,
+            route: `/c/${agent.conversationId}`,
+          })}
+        >
+          Open conversation ↗
+        </button>
+        <button
+          type="button"
+          className="s-focus-activity-empty-btn s-focus-activity-empty-btn--primary"
+          onClick={onMessage}
+          {...statusOnHover({
+            label: `Compose message · ${agent.handle ?? agent.name}`,
+          })}
+        >
+          Send a message
+        </button>
+      </div>
     </div>
   );
 }

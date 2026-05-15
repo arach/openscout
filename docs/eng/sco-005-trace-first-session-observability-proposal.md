@@ -10,9 +10,9 @@ Proposed.
 
 ## Intent
 
-Make live session trace the only first-class session inspection model in
-OpenScout, and retire `tmux` capture and raw log tailing as product-level
-session surfaces.
+Make live session trace the canonical session inspection model in OpenScout,
+with `tmux` capture and raw log tailing treated as current endpoint surfaces
+inside that model.
 
 SCO-005 builds on SCO-003 and SCO-004:
 
@@ -29,8 +29,9 @@ specific terminal or log views?
 
 The target outcome is:
 
-- OpenScout session inspection is trace-only as a product concept
-- `tmux` and raw logs stop being user-facing session modes
+- OpenScout session inspection is trace-first as a product concept
+- `tmux` and raw logs remain user-facing endpoint surfaces without becoming a
+  separate session model
 - Claude Code and Codex both have observer-grade coverage
 - any inspectable live session can be opened through the shared trace surface
 - interactive questions, approvals, and interrupts work through the same
@@ -74,10 +75,12 @@ Today that mismatch causes two concrete failures:
      single text block, but it does not yet expose the full structured trace
      surface Scout wants to depend on.
 
-As long as the product surface remains `tmux/logs`, the system keeps the wrong
-mental model:
+As long as the product surface treats `tmux/logs` as the canonical record
+instead of a current runtime surface backed by broker state, the system keeps an
+incomplete mental model:
 
-- a session looks like a terminal transport instead of a trace capability
+- a session looks only like a terminal transport instead of also exposing trace
+  capability
 - trace is optional instead of canonical
 - adapter completeness is hard to reason about
 - “open session” means “attach to a process” rather than “inspect and steer a
@@ -101,8 +104,8 @@ The user-facing session model MUST NOT be:
 - raw log tail
 - transport-specific attach behavior
 
-`tmux` capture and raw logs MAY remain as engineering debug fallbacks, but they
-MUST NOT define the primary session API, the primary session route, or the
+`tmux` capture and raw logs MAY remain as current runtime inspection surfaces,
+but they MUST NOT define the canonical session API, the canonical session route, or the
 primary session UI.
 
 Claude Code and Codex are tier-1 observer targets for SCO-005. Both MUST reach
@@ -119,7 +122,7 @@ document are to be interpreted as normative requirements.
 1. Trace is the session product.
 2. Transport is an implementation detail.
 3. An inspectable session MUST expose turns and blocks, not just final text.
-4. `tmux` and raw logs are debug artifacts, not product semantics.
+4. `tmux` and raw logs are endpoint surfaces, not standalone product semantics.
 5. Claude Code and Codex MUST be modeled by the same trace contract even if
    their native runtimes differ.
 6. Session observability MUST work for Scout-created sessions and externally
@@ -128,8 +131,9 @@ document are to be interpreted as normative requirements.
 
 ## Goals
 
-- make trace the only first-class session inspection surface
-- remove `tmux` and `logs` from the desktop host session model
+- make trace the canonical session inspection surface
+- fold `tmux` and `logs` into the desktop host session model as endpoint
+  surfaces
 - ensure pairing-backed sessions open into the shared trace surface
 - define observer-grade acceptance criteria for Claude Code and Codex
 - upgrade Codex from managed text bridge to full trace adapter
@@ -181,7 +185,7 @@ An observer-grade session integration MUST provide:
 7. **Replay fidelity**
    Reconnect and resume produce coherent snapshots and replay.
 8. **No pane scraping requirement**
-   The primary inspection path does not depend on `tmux` capture or raw logs.
+   The canonical inspection path does not depend on `tmux` capture or raw logs.
 
 ### Claude Code: “Perfect”
 
@@ -224,7 +228,7 @@ Codex reaches “perfect” for SCO-005 when:
 
 ## Architecture
 
-### 1. Trace-Only Session Surface
+### 1. Trace-First Session Surface
 
 The desktop/web host session contract SHOULD stop returning a transport-shaped
 mode such as `tmux | logs | none`.
@@ -325,7 +329,7 @@ sessions are part of the long-term model.
 
 SCO-005 is done when all of the following are true:
 
-1. The primary desktop session route no longer models sessions as
+1. The primary desktop session route no longer models sessions solely as
    `tmux | logs | none`.
 2. Pairing-backed agents open into the shared trace surface.
 3. Claude Code sessions open into shared trace with no transport-specific host
@@ -333,7 +337,8 @@ SCO-005 is done when all of the following are true:
 4. Codex sessions open into shared trace with structured turn/block/action
    fidelity.
 5. “Open session” means “open trace,” not “attach terminal.”
-6. `tmux` and raw logs, if still present, are explicit debug affordances only.
+6. `tmux` and raw logs, when present, are explicit runtime inspection and
+   control affordances backed by the same broker/session model.
 
 ## Risks
 
@@ -341,15 +346,17 @@ SCO-005 is done when all of the following are true:
   current final-text wrapper exposes.
 - Some legacy local-agent paths may temporarily lose inspection until they are
   upgraded into true observer adapters.
-- If we leave the transport-shaped API in place during migration, product code
-  will keep branching on `tmux/logs` and the old model will survive.
+- If we leave the transport-shaped API as the canonical model during migration,
+  product code will keep branching on `tmux/logs` and the old model will
+  survive.
 
 ## Recommended Direction
 
 SCO-005 should be pursued aggressively.
 
-The current `tmux/logs` model is not just incomplete. It is the wrong product
-model.
+Treating `tmux/logs` as the canonical product model is incomplete. Tmux itself
+is a current runtime transport; the wrong model is making raw transport output
+the source of truth.
 
 The clean move is:
 
