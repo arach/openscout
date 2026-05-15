@@ -17,14 +17,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
-  background: linear-gradient(to bottom,
-    color-mix(in srgb, var(--bg) 80%, transparent) 0%,
-    transparent 100%);
-  pointer-events: none;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent),
+    0 10px 22px color-mix(in srgb, var(--bg) 35%, transparent);
 }
-
-.mesh-hud > * { pointer-events: all; }
 
 .mesh-hud-left {
   display: flex;
@@ -36,6 +37,413 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mesh-hud-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  justify-content: center;
+  min-width: 0;
+}
+
+.mesh-hud-search {
+  flex: 0 1 240px;
+  min-width: 120px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  outline: none;
+  transition: border-color 120ms, background 120ms;
+}
+
+.mesh-hud-search::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.mesh-hud-search:focus {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+/* Tree-mode header: integrate filters alongside title + mode toggle */
+.mesh-tree-head {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mesh-tree-head .sys-page-title-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.mesh-hud-filters--inline {
+  flex: 1 1 320px;
+  justify-content: flex-start;
+}
+
+.mesh-tree-panel {
+  padding: 4px 0;
+}
+
+.mesh-tree-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 38%, transparent);
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.mesh-tree-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  color: var(--muted);
+  letter-spacing: 0;
+  min-width: 16px;
+  text-align: center;
+}
+
+.mesh-tree-hint-sep {
+  margin: 0 6px;
+  color: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+/* ── Active/pinned agent row in the tree ── */
+.mesh-tree-agent--active {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.mesh-tree-agent--pinned {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.mesh-tree-agent:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+/* Inline middle column — only carries content on the active row */
+.mesh-tree-agent-inline {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.mesh-tree-agent--active .mesh-tree-agent-inline {
+  opacity: 1;
+}
+
+.mesh-tree-agent-inline-part {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.mesh-tree-agent-inline-part--cwd {
+  /* Allow cwd to shrink first when space is tight */
+  flex: 1 1 auto;
+  min-width: 40px;
+}
+
+.mesh-tree-agent-inline-part--model {
+  color: color-mix(in srgb, var(--accent) 75%, var(--ink));
+}
+
+.mesh-tree-agent-inline-part--sess {
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+
+.mesh-tree-agent-inline-sep {
+  margin: 0 8px;
+  color: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+/* ── Floating agent detail card (Pi-evocative) ── */
+@keyframes agentCardEnterRight {
+  from { opacity: 0; transform: translateX(-6px) scale(0.985); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes agentCardEnterLeft {
+  from { opacity: 0; transform: translateX(6px) scale(0.985); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.agent-card {
+  z-index: 1000;
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  /* Match .sys-panel surface so the card reads as the same material */
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  /* Thin, just a touch more present than the panel's 6% border */
+  border: 1px solid color-mix(in srgb, var(--ink) 11%, transparent);
+  /* Tiny blur for any translucency over non-panel areas */
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  /* Inner top highlight = the "extra shine"; soft shadow gives lift */
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--ink) 8%, transparent),
+    0 8px 22px rgba(0, 0, 0, 0.22),
+    0 1px 4px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+  transform-origin: center left;
+  will-change: transform, opacity;
+}
+
+.agent-card--side-right {
+  animation: agentCardEnterRight 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center left;
+}
+
+.agent-card--side-left {
+  animation: agentCardEnterLeft 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center right;
+}
+
+@keyframes agentCardEnterCenter {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.agent-card--side-center {
+  animation: agentCardEnterCenter 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--ink) 8%, transparent),
+    0 14px 36px rgba(0, 0, 0, 0.30),
+    0 3px 10px rgba(0, 0, 0, 0.14);
+}
+
+.agent-card--pinned {
+  pointer-events: auto;
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--ink) 10%, transparent),
+    0 10px 26px rgba(0, 0, 0, 0.26),
+    0 1px 6px rgba(0, 0, 0, 0.12);
+}
+
+.agent-card--pinned .agent-card-link,
+.agent-card--pinned .agent-card-close {
+  pointer-events: auto;
+}
+
+.agent-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.agent-card-name {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  color: var(--ink);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.agent-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.agent-card-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.agent-card-dot--working {
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.agent-card-dot--available { background: var(--green, #4ade80); }
+.agent-card-dot--offline   { background: color-mix(in srgb, var(--ink) 25%, transparent); }
+
+.agent-card-state {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  font-size: 10px;
+}
+
+.agent-card-state--working   { color: var(--accent); }
+.agent-card-state--available { color: var(--green, #4ade80); }
+.agent-card-state--offline   { color: var(--muted); }
+
+.agent-card-sep {
+  color: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.agent-card-sep--inline {
+  margin: 0 6px;
+}
+
+.agent-card-time {
+  color: var(--muted);
+}
+
+.agent-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0 12px;
+}
+
+.agent-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.agent-card-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
+}
+
+.agent-card-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.4;
+  letter-spacing: 0.005em;
+}
+
+.agent-card-mono {
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.agent-card-branch {
+  color: var(--muted);
+}
+
+.agent-card-model {
+  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+}
+
+.agent-card-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.agent-card-cap {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--muted);
+}
+
+.agent-card-cap--more {
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
+}
+
+.agent-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.agent-card-link {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.agent-card-link span {
+  margin-left: 4px;
+  transition: transform 140ms;
+  display: inline-block;
+}
+
+.agent-card-link:hover span {
+  transform: translateX(2px);
+}
+
+.agent-card-close {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.agent-card-close:hover {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-card--side-right,
+  .agent-card--side-left {
+    animation: none;
+  }
 }
 
 .mesh-hud-title {
@@ -50,6 +458,10 @@
   color: var(--dim);
   font-family: var(--font-mono);
   opacity: 0.6;
+}
+
+.mesh-discoverability-action {
+  white-space: nowrap;
 }
 
 /* ── HUD inline banners ── */
@@ -463,99 +875,252 @@
   height: 100%;
 }
 
-/* ── Fleet mode: mini topology ── */
-.mesh-fleet-mini {
-  height: 180px;
-  border: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
-  border-radius: 10px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
-  margin-bottom: 4px;
+/* ── Tree view: agents grouped by project · branch ── */
+@keyframes meshTreeFadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.mesh-fleet-mini .s-mesh-topology {
-  border: none;
-  border-radius: 0;
-  aspect-ratio: unset;
-  height: 180px;
-  width: 100%;
-}
-
-/* ── Fleet mode: agent table ── */
-.mesh-agent-table {
+.mesh-tree {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 12px;
+  animation: meshTreeFadeIn 120ms ease-out;
 }
 
-.mesh-agent-row {
+.mesh-tree-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.mesh-tree-project {
   display: grid;
-  grid-template-columns: 8px 1fr 1fr auto auto;
-  align-items: center;
+  grid-template-columns: 14px auto auto 1fr auto;
+  align-items: baseline;
   gap: 10px;
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: 6px 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
   cursor: pointer;
   text-align: left;
+  color: inherit;
+  width: 100%;
+  transition: border-color 120ms;
+}
+
+.mesh-tree-project:hover {
+  border-bottom-color: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.mesh-tree-caret {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1);
+  transform: rotate(0deg);
+  transform-origin: center;
+  width: 10px;
+  text-align: center;
+}
+
+.mesh-tree-caret--open {
+  transform: rotate(90deg);
+}
+
+.mesh-tree-project-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mesh-tree-project-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.mesh-tree-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
+.mesh-tree-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mesh-tree-count-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.mesh-tree-count--working { color: var(--ink); }
+.mesh-tree-count--working .mesh-tree-count-dot {
+  background: var(--green);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--green) 50%, transparent);
+}
+
+.mesh-tree-count--available { color: var(--ink); }
+.mesh-tree-count--available .mesh-tree-count-dot {
+  background: var(--accent);
+}
+
+.mesh-tree-count--offline { color: var(--muted); }
+.mesh-tree-count--offline .mesh-tree-count-dot {
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.mesh-tree-project-time {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  opacity: 0.7;
+  white-space: nowrap;
+  justify-self: end;
+}
+
+.mesh-tree-branches {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 11px;
+  padding: 8px 0 4px;
+  border-left: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.mesh-tree-branch {
+  display: flex;
+  flex-direction: column;
+}
+
+.mesh-tree-branch-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 4px;
+}
+
+.mesh-tree-branch-elbow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  width: 10px;
+  text-align: center;
+  user-select: none;
+}
+
+.mesh-tree-branch-name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mesh-tree-agents {
+  display: flex;
+  flex-direction: column;
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.mesh-tree-agent {
+  display: grid;
+  grid-template-columns: 8px auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 5px;
   background: transparent;
   border: none;
   color: inherit;
+  cursor: pointer;
+  text-align: left;
   width: 100%;
   transition: background 100ms;
 }
 
-.mesh-agent-row:hover {
+.mesh-tree-agent-organic {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  user-select: none;
+}
+
+.mesh-tree-agent--organic .mesh-tree-agent-name {
+  /* Keep ink colour (per no-dim-text-in-menu); the ○ glyph is the sole cue */
+  font-weight: 500;
+}
+
+.mesh-tree-agent:hover {
   background: color-mix(in srgb, var(--ink) 5%, transparent);
 }
 
-.mesh-agent-dot {
+.mesh-tree-agent-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.mesh-agent-dot--offline {
-  opacity: 0.35;
+.mesh-tree-agent-dot--offline {
+  opacity: 0.4;
 }
 
-.mesh-agent-name {
-  font-size: 12.5px;
+.mesh-tree-agent-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
   font-weight: 500;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mesh-tree-agent-state {
   font-family: var(--font-mono);
-}
-
-.mesh-agent-project {
-  font-size: 11.5px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mesh-agent-state {
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   font-weight: 500;
   white-space: nowrap;
-  font-family: var(--font-mono);
 }
 
-.mesh-agent-state--working { color: var(--accent); }
-.mesh-agent-state--available { color: var(--muted); }
-.mesh-agent-state--offline { color: var(--dim); opacity: 0.5; }
+.mesh-tree-agent-state--working   { color: var(--green); }
+.mesh-tree-agent-state--available { color: var(--accent); }
+.mesh-tree-agent-state--offline   { color: var(--dim); opacity: 0.55; }
 
-.mesh-agent-time {
+.mesh-tree-agent-time {
+  font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--dim);
+  opacity: 0.65;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  opacity: 0.6;
 }
 
 /* ── Mesh left panel ── */
@@ -638,6 +1203,36 @@
   opacity: 0.5;
 }
 
+.mesh-left-tailnet-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.mesh-left-tailnet-state {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: rgba(245, 158, 11, 0.85);
+  padding-right: 12px;
+}
+
+.mesh-left-tailnet-group {
+  display: flex;
+  flex-direction: column;
+  transition: opacity 160ms ease;
+}
+
+.mesh-left-tailnet-group--dim {
+  opacity: 0.42;
+}
+
+.mesh-left-tailnet-group--dim .mesh-left-node-row {
+  cursor: default;
+}
+
 /* ── Agent sub-nodes (fan from selected tailnet peer) ── */
 @keyframes meshAgentPopIn {
   from { transform: translate(-50%, -50%) scale(0); opacity: 0; }
@@ -679,6 +1274,135 @@
   white-space: nowrap;
 }
 
+/* ── Local agent fan cards (Map view, around local node) ── */
+.mesh-local-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  min-width: 148px;
+  max-width: 188px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-mono);
+  color: inherit;
+  transition: border-color 130ms, box-shadow 130ms, transform 130ms;
+}
+
+.mesh-local-card:hover {
+  border-color: color-mix(in srgb, var(--ink) 18%, transparent);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.45);
+  transform: translateY(-1px);
+}
+
+.mesh-local-card--working {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.32),
+              0 0 12px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.mesh-local-card--offline {
+  opacity: 0.55;
+}
+
+.mesh-local-card--organic {
+  border-style: dashed;
+}
+
+.mesh-local-card-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mesh-local-card--working .mesh-local-card-dot {
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 65%, transparent);
+  animation: meshLocalDotPulse 2s ease-in-out infinite;
+}
+
+@keyframes meshLocalDotPulse {
+  0%, 100% {
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 65%, transparent);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 85%, transparent);
+    transform: scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mesh-local-card--working .mesh-local-card-dot {
+    animation: none;
+  }
+}
+
+.mesh-local-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.mesh-local-card-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mesh-local-card-sub {
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mesh-local-card-time {
+  font-size: 9.5px;
+  color: var(--dim);
+  opacity: 0.65;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Local fan overflow chip ── */
+.mesh-local-overflow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 14%, transparent);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  backdrop-filter: blur(12px);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+
+.mesh-local-overflow:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 22%, transparent);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+
 /* ── Mesh inspector ── */
 .sys-inspector-content {
   padding: 16px;
@@ -711,6 +1435,173 @@
   margin-bottom: 6px;
 }
 
+/* ── Mesh inspector: machine summary (default state) ── */
+.mesh-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.mesh-summary-mode {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.mesh-summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mesh-summary-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mesh-summary-count {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.mesh-summary-count-value {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+.mesh-summary-count-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.mesh-summary-count--working .mesh-summary-count-value { color: var(--accent); }
+.mesh-summary-count--offline .mesh-summary-count-value { color: var(--ink); opacity: 0.55; }
+
+.mesh-summary-harness {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mesh-summary-harness-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.mesh-summary-harness-row:last-child { border-bottom: none; }
+
+.mesh-summary-harness-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.mesh-summary-harness-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.mesh-summary-harness-working {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.mesh-summary-peers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mesh-summary-peer-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 3px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.mesh-summary-peer-row:last-child { border-bottom: none; }
+.mesh-summary-peer-label { color: var(--muted); }
+.mesh-summary-peer-value { color: var(--ink); font-weight: 500; }
+.mesh-summary-peer-value--dim { opacity: 0.55; }
+
+/* Reach control: single discoverability toggle */
+.mesh-summary-reach { margin-top: 4px; }
+
+.mesh-reach {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+
+.mesh-reach--on {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  border-color: color-mix(in srgb, var(--green, #4ade80) 32%, transparent);
+}
+
+.mesh-reach--neutral { opacity: 0.7; }
+
+.mesh-reach-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mesh-reach-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green, #4ade80);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--green, #4ade80) 55%, transparent);
+  flex-shrink: 0;
+}
+
+.mesh-reach-dot--off {
+  background: color-mix(in srgb, var(--ink) 30%, transparent);
+  box-shadow: none;
+}
+
+.mesh-reach-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.mesh-reach-action {
+  align-self: stretch;
+}
+
 .sys-inspector-empty {
   display: flex;
   flex-direction: column;
@@ -722,4 +1613,337 @@
   font-size: 12px;
   text-align: center;
   padding: 24px;
+}
+
+/* ── Packed agent clusters (MeshCanvas) ── */
+.mesh-density-toggle {
+  margin-left: 4px;
+}
+
+.mesh-host-frame {
+  position: absolute;
+  top: 56px;
+  left: 16px;
+  z-index: 18;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+  user-select: none;
+}
+
+.mesh-host-frame-eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  opacity: 0.7;
+}
+
+.mesh-host-frame-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+
+.mesh-host-frame-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.mesh-host-frame-stat {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+.mesh-host-frame-stat--working {
+  color: var(--accent);
+}
+
+.mesh-cluster {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 3%, transparent);
+}
+
+.mesh-cluster-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.mesh-cluster-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mesh-cluster-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+.mesh-cluster-states {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.mesh-cluster-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.mesh-cluster-state-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.mesh-cluster-state--working .mesh-cluster-state-dot { background: var(--accent); }
+.mesh-cluster-state--available .mesh-cluster-state-dot { background: var(--green, #4ade80); }
+.mesh-cluster-state--offline .mesh-cluster-state-dot { background: var(--dim); opacity: 0.5; }
+.mesh-cluster-state--working { color: var(--accent); }
+
+/* ── Industrial spec tag base — shared by compact / comfortable / spacious ── */
+.mesh-instance-spec,
+.mesh-instance-sheet {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  font-family: var(--font-mono);
+  color: var(--ink);
+  text-align: left;
+  overflow: hidden;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.mesh-instance-spec::before,
+.mesh-instance-sheet::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--state-stripe, var(--dim));
+}
+
+.mesh-instance-spec:hover,
+.mesh-instance-sheet:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+
+.mesh-instance--active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent) !important;
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.mesh-instance-spec--offline,
+.mesh-instance-sheet--offline { opacity: 0.55; }
+
+.mesh-instance-spec--organic,
+.mesh-instance-sheet--organic { border-style: dashed; }
+
+/* Open-arrow button — top-right of card, navigates to agent view */
+.mesh-sheet-open {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 0;
+  transition: color 100ms ease, background 100ms ease, border-color 100ms ease;
+}
+
+.mesh-sheet-open:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.mesh-sheet-open:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Compact spec tag — 2 rows of facts, 138×32 */
+.mesh-instance-spec {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 4px 5px 10px;
+}
+
+.mesh-instance-spec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mesh-instance-spec-primary {
+  flex: 1 1 auto;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mesh-instance-spec-secondary {
+  flex: 1 1 auto;
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mesh-instance-spec-time {
+  flex: 0 0 auto;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+/* Comfortable / spacious spec sheet body — 2 or 3 inline lines */
+.mesh-instance-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 5px 6px 11px;
+  justify-content: center;
+}
+
+.mesh-sheet-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mesh-sheet-line--head {
+  gap: 8px;
+}
+
+.mesh-sheet-id {
+  flex: 1 1 auto;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.mesh-sheet-time {
+  flex: 0 0 auto;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.mesh-sheet-path {
+  flex: 1 1 auto;
+  font-size: 9.5px;
+  color: var(--muted, var(--dim));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.mesh-sheet-ctx {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.mesh-sheet-ctx-label {
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-right: 4px;
+}
+
+.mesh-sheet-tag {
+  flex: 0 0 auto;
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.mesh-empty-pill {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  font-size: 11px;
+  color: var(--dim);
+  font-family: var(--font-mono);
 }
