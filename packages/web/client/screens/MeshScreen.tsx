@@ -148,13 +148,12 @@ function MeshHud({
 }
 
 export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => void }) {
-  const [mesh, setMesh] = useState<MeshStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
 
-  const { mode, density, query, stateFilter } = useMeshViewStore();
+  const { mode, density, query, stateFilter, meshSnapshot: mesh } = useMeshViewStore();
   const { agents } = useLocalAgents();
   const meshRef = useRef<MeshStatus | null>(null);
   const requestIdRef = useRef(0);
@@ -169,7 +168,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
     try {
       const data = await api<MeshStatus>("/api/mesh");
       if (requestId !== requestIdRef.current) return;
-      setMesh(data); setMeshSnapshot(data); setError(null); setLastLoadedAt(Date.now());
+      setMeshSnapshot(data); setError(null); setLastLoadedAt(Date.now());
     } catch (e) {
       if (requestId !== requestIdRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
