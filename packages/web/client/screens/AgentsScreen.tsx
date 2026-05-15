@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useListArrowNav } from "../lib/keyboard-nav.ts";
 import { WorkList } from "../components/WorkList.tsx";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
@@ -1254,9 +1255,11 @@ function AgentList({
     });
   };
 
+  const onListKeyDown = useListArrowNav();
+
   if (viewMode === "rows") {
     return (
-      <div className="s-agent-rows">
+      <div className="s-agent-rows" onKeyDown={onListKeyDown}>
         {agents.map((agent) => (
           <AgentRow
             key={agent.id}
@@ -1271,7 +1274,7 @@ function AgentList({
 
   if (viewMode === "cards") {
     return (
-      <div className="s-agent-grid">
+      <div className="s-agent-grid" onKeyDown={onListKeyDown}>
         {agents.map((agent) => (
           <AgentCard
             key={agent.id}
@@ -1285,7 +1288,7 @@ function AgentList({
   }
 
   return (
-    <div className="s-agent-log">
+    <div className="s-agent-log" onKeyDown={onListKeyDown}>
       {agents.map((agent) => (
         <AgentLogLine
           key={agent.id}

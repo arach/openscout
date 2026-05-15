@@ -96,7 +96,10 @@ function matchesFilter(event: TailEvent, query: string): boolean {
   if (!query) return true;
   const attribution = ATTRIBUTION_LABEL[event.harness];
   const haystack = `${event.summary} ${event.project} ${event.sessionId} ${event.source} ${event.harness} ${attribution}`.toLowerCase();
-  return haystack.includes(query.toLowerCase());
+  // Pipe-separated terms are OR-matched ("hudson|claude" matches either)
+  const terms = query.toLowerCase().split("|").map((t) => t.trim()).filter(Boolean);
+  if (terms.length === 0) return true;
+  return terms.some((term) => haystack.includes(term));
 }
 
 export function TailView({
@@ -359,7 +362,19 @@ export function TailView({
           ))
         )}
         {paused && pendingCount > 0 && (
-          <div className="s-tail-divider" onClick={jumpToLive} role="button">
+          <div
+            className="s-tail-divider"
+            onClick={jumpToLive}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                jumpToLive();
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`Resume live tail · ${pendingCount} new`}
+          >
             ── paused · {pendingCount} new · click or press G to jump back to live ──
           </div>
         )}

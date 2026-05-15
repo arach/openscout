@@ -11,6 +11,8 @@ import {
   useCanvasMinimap,
 } from "./lib/canvas-minimap.tsx";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
+import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
+import { usePaneNav } from "./lib/keyboard-nav.ts";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -75,6 +77,8 @@ function OpenScoutStatusBarRight({ statusBar }: { statusBar: ScoutStatusBarState
 
 function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; assistantEnabled: boolean }) {
   const { navTotalHeight } = usePlatformLayout();
+  const keyboardHelp = useKeyboardHelp();
+  usePaneNav();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -401,7 +405,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 footer={!leftCollapsed ? canvasMinimapNode : undefined}
                 headerActions={app.leftPanel?.headerActions && <app.leftPanel.headerActions />}
               >
-                {app.slots.LeftPanel && <app.slots.LeftPanel />}
+                <div data-pane="left" style={{ display: "contents" }}>
+                  {app.slots.LeftPanel && <app.slots.LeftPanel />}
+                </div>
               </SidePanel>
 
               {leftCollapsed ? floatingCanvasMinimapNode : null}
@@ -436,7 +442,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   </>
                 }
               >
-                {rightContent}
+                <div data-pane="right" style={{ display: "contents" }}>
+                  {rightContent}
+                </div>
               </SidePanel>
 
               <StatusBar
@@ -498,7 +506,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
             </>
           }
         >
-          <div style={contentStyle} className="frame-scrollbar">
+          <div style={contentStyle} className="frame-scrollbar" data-pane="center">
             <app.slots.Content />
           </div>
         </Frame>
@@ -514,6 +522,10 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           <TakeoverSlot />
         </div>
       ) : null}
+      <KeyboardHelpOverlay
+        open={keyboardHelp.open}
+        onClose={() => keyboardHelp.setOpen(false)}
+      />
     </>
   );
 }

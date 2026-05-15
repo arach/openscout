@@ -1,0 +1,324 @@
+/* ── Mission Control left panel — primary source, secondary activity/time ── */
+
+.ml-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ml-section {
+  padding: 12px 12px 6px;
+}
+
+.ml-section--secondary {
+  padding-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.ml-section-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 6px;
+}
+
+.ml-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Primary chips — solid, prominent */
+.ml-chips--primary .ml-chip {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-align: center;
+  border-radius: 2px;
+  transition: background 120ms, border-color 120ms;
+}
+
+.ml-chips--primary .ml-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.ml-chips--primary .ml-chip--active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+/* Secondary chips — ghost, low contrast */
+.ml-chips--secondary {
+  align-items: center;
+  gap: 2px;
+}
+
+.ml-chip--ghost {
+  padding: 3px 7px;
+  background: transparent;
+  border: 0;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: color 120ms, background 120ms;
+}
+
+.ml-chip--ghost:hover {
+  color: var(--ink);
+}
+
+.ml-chip--ghost-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.ml-divider {
+  display: inline-block;
+  width: 1px;
+  height: 10px;
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
+  margin: 0 4px;
+}
+
+.ml-count {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.ml-count-hint {
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  opacity: 0.7;
+}
+
+/* ── Selection bar ── */
+
+.ml-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.ml-selection-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ml-selection-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ml-selection-btn {
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  color: var(--accent);
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 120ms;
+}
+
+.ml-selection-btn:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ml-selection-btn--primary {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.ml-selection-btn--primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}
+
+/* ── Row selected ── */
+
+.ml-row--selected .ml-row-head {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+/* ── Agent rows ── */
+
+.ml-row {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.ml-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 0;
+}
+
+.ml-row-head:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.ml-row-head:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.ml-row-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ml-row-name {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.ml-row-time {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+}
+
+.ml-row-caret {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--dim);
+  width: 12px;
+  text-align: center;
+}
+
+.ml-row--expanded .ml-row-head {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.ml-row-detail {
+  padding: 6px 12px 10px 24px;
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+
+.ml-detail-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ml-spec {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  margin: 0;
+}
+
+.ml-spec-label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.ml-spec-value {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ml-detail-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ml-detail-btn {
+  flex: 1 1 0;
+  padding: 5px 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 120ms, border-color 120ms;
+}
+
+.ml-detail-btn:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.ml-detail-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.ml-detail-btn--primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}

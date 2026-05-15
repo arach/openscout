@@ -1,5 +1,4 @@
 import "./ops-atop.css";
-import "../components/ResizableTable/resizable-columns.css";
 
 import {
   useCallback,
@@ -9,7 +8,7 @@ import {
   useState,
 } from "react";
 
-import { useResizableColumns } from "../components/ResizableTable/useResizableColumns.ts";
+import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
 import type {
@@ -21,22 +20,6 @@ import type {
 } from "../lib/types.ts";
 
 type SessionColumnKey = "status" | "session" | "project" | "updated" | "size" | "path";
-
-const COLUMNS: {
-  key: SessionColumnKey;
-  label: string;
-  cls?: string;
-  defaultWidth: number;
-  minWidth?: number;
-  maxWidth?: number;
-}[] = [
-  { key: "status", label: "status", cls: "s-atop-col-status", defaultWidth: 96, minWidth: 70 },
-  { key: "session", label: "session", cls: "s-atop-col-agent", defaultWidth: 168, minWidth: 110, maxWidth: 280 },
-  { key: "project", label: "project", cls: "s-atop-col-project", defaultWidth: 200, minWidth: 96, maxWidth: 360 },
-  { key: "updated", label: "updated", cls: "s-atop-col-last", defaultWidth: 86, minWidth: 64 },
-  { key: "size", label: "size", cls: "s-atop-col-runtime", defaultWidth: 80, minWidth: 64 },
-  { key: "path", label: "path", defaultWidth: 360, minWidth: 160, maxWidth: 800 },
-];
 
 const DISCOVERY_INTERVAL_MS = 10_000;
 const RECENT_REPLAY_LIMIT = 500;
@@ -59,6 +42,87 @@ type RawSessionRow = {
   lastEvent: TailEvent | null;
   process: TailDiscoveredProcess | null;
 };
+
+const COLUMNS: DataTableColumn<RawSessionRow, SessionColumnKey>[] = [
+  {
+    key: "status",
+    label: "status",
+    cls: "s-atop-col-status",
+    kind: "text",
+    sortable: false,
+    defaultWidth: 96,
+    minWidth: 70,
+    render: (row) => (
+      <span className={`s-atop-status s-atop-status--${row.status}`}>
+        <span className="s-atop-status-dot" aria-hidden="true" />
+        {row.statusLabel}
+      </span>
+    ),
+  },
+  {
+    key: "session",
+    label: "session",
+    cls: "s-atop-col-agent",
+    kind: "text",
+    sortable: false,
+    defaultWidth: 168,
+    minWidth: 110,
+    maxWidth: 280,
+    render: (row) => (
+      <div className="s-atop-agent-cell" title={row.sessionId ?? row.refId}>
+        <span className={`s-atop-chip s-atop-chip--harness s-atop-chip--harness-${classPart(row.source)}`}>
+          {row.source}
+        </span>
+        <span className="s-atop-agent-id">{row.refId.slice(0, 8)}</span>
+      </div>
+    ),
+  },
+  {
+    key: "project",
+    label: "project",
+    cls: "s-atop-col-project",
+    kind: "text",
+    sortable: false,
+    defaultWidth: 200,
+    minWidth: 96,
+    maxWidth: 360,
+    render: (row) => <span title={row.cwd ?? row.project}>{row.project}</span>,
+  },
+  {
+    key: "updated",
+    label: "updated",
+    cls: "s-atop-col-last",
+    kind: "time",
+    sortable: false,
+    defaultWidth: 86,
+    minWidth: 64,
+    render: (row) => (
+      <span title={formatAbsolute(row.mtimeMs)}>
+        {formatRelative(Math.max(row.mtimeMs, row.lastEvent?.ts ?? 0), Date.now())}
+      </span>
+    ),
+  },
+  {
+    key: "size",
+    label: "size",
+    cls: "s-atop-col-runtime",
+    kind: "number",
+    sortable: false,
+    defaultWidth: 80,
+    minWidth: 64,
+    render: (row) => formatBytes(row.size),
+  },
+  {
+    key: "path",
+    label: "path",
+    kind: "text",
+    sortable: false,
+    defaultWidth: 360,
+    minWidth: 160,
+    maxWidth: 800,
+    render: (row) => <span title={row.transcriptPath}>{row.cwd ?? row.transcriptPath}</span>,
+  },
+];
 
 function normalizeSessionRef(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -321,11 +385,12 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
 
   const activeCount = rows.filter((row) => row.status === "run").length;
   const transcriptCount = discovery?.totals.transcripts ?? discovery?.transcripts?.length ?? 0;
-
-  const { getColumnProps, getResizeHandleProps } = useResizableColumns<SessionColumnKey>({
-    storageKey: "openscout.sessions.cols",
-    columns: COLUMNS,
-  });
+  const visibleRows = error ? [] : filtered;
+  const rowId = useCallback((row: RawSessionRow) => `${row.source}:${row.transcriptPath}`, []);
+  const indexById = useMemo(
+    () => new Map(filtered.map((row, index) => [rowId(row), index])),
+    [filtered, rowId],
+  );
 
   return (
     <div className="s-atop">
@@ -403,78 +468,33 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
         <div className="s-atop-fbar-spacer" />
       </div>
 
-      <div className="s-atop-table-wrap">
-        <table className="s-atop-table">
-          <thead>
-            <tr>
-              {COLUMNS.map((col) => (
-                <th
-                  key={col.key}
-                  className={col.cls}
-                  {...getColumnProps(col.key)}
-                >
-                  {col.label}
-                  <span {...getResizeHandleProps(col.key)} />
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {error ? (
-              <tr className="s-atop-empty-row">
-                <td colSpan={6}>
-                  <div className="s-atop-empty">
-                    <div className="s-atop-empty-title">Discovery failed</div>
-                    <div>{error}</div>
-                  </div>
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
-              <tr className="s-atop-empty-row">
-                <td colSpan={6}>
-                  <div className="s-atop-empty">
-                    <div className="s-atop-empty-title">No raw sessions</div>
-                    <div>{query ? "No sessions match the current filter." : "No transcript sessions were discovered."}</div>
-                  </div>
-                </td>
-              </tr>
-            ) : filtered.map((row, index) => (
-              <tr
-                key={`${row.source}:${row.transcriptPath}`}
-                className={`s-atop-row${index === selectedIdx ? " s-atop-row--selected" : ""}`}
-                tabIndex={0}
-                onClick={() => openSelected(row)}
-                onMouseEnter={() => setSelectedIdx(index)}
-              >
-                <td className="s-atop-col-status">
-                  <span className={`s-atop-status s-atop-status--${row.status}`}>
-                    <span className="s-atop-status-dot" aria-hidden="true" />
-                    {row.statusLabel}
-                  </span>
-                </td>
-                <td className="s-atop-col-agent" title={row.sessionId ?? row.refId}>
-                  <div className="s-atop-agent-cell">
-                    <span className={`s-atop-chip s-atop-chip--harness s-atop-chip--harness-${classPart(row.source)}`}>
-                      {row.source}
-                    </span>
-                    <span className="s-atop-agent-id">{row.refId.slice(0, 8)}</span>
-                  </div>
-                </td>
-                <td className="s-atop-col-project" title={row.cwd ?? row.project}>
-                  {row.project}
-                </td>
-                <td className="s-atop-col-last" title={formatAbsolute(row.mtimeMs)}>
-                  {formatRelative(Math.max(row.mtimeMs, row.lastEvent?.ts ?? 0), now)}
-                </td>
-                <td className="s-atop-col-runtime">{formatBytes(row.size)}</td>
-                <td title={row.transcriptPath}>
-                  {row.cwd ?? row.transcriptPath}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        rows={visibleRows}
+        columns={COLUMNS}
+        rowId={rowId}
+        storageKey="openscout.sessions.cols"
+        rowBindings={(id) => ({
+          onMouseEnter: () => {
+            const index = indexById.get(id);
+            if (index != null) setSelectedIdx(index);
+          },
+          onFocus: () => {
+            const index = indexById.get(id);
+            if (index != null) setSelectedIdx(index);
+          },
+        })}
+        onRowClick={(row) => openSelected(row)}
+        rowClassName={(row) => (indexById.get(rowId(row)) === selectedIdx ? "s-atop-row--selected" : undefined)}
+        empty={error
+          ? { title: "Discovery failed", body: error }
+          : {
+              title: "No raw sessions",
+              body: query ? "No sessions match the current filter." : "No transcript sessions were discovered.",
+            }}
+        density="compact"
+        className="s-atop-data-table"
+        ariaLabel="Raw sessions"
+      />
 
       <div className="s-atop-keys">
         <span><kbd>/</kbd>filter</span>

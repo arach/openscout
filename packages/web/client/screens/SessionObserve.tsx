@@ -715,10 +715,54 @@ function Scrubber({
     },
     [duration, onCursor],
   );
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (duration <= 0) return;
+      const small = duration * 0.01;
+      const large = duration * 0.05;
+      let next = cursor;
+      switch (e.key) {
+        case "ArrowLeft":
+          next = cursor - (e.shiftKey ? large : small);
+          break;
+        case "ArrowRight":
+          next = cursor + (e.shiftKey ? large : small);
+          break;
+        case "PageDown":
+          next = cursor - large;
+          break;
+        case "PageUp":
+          next = cursor + large;
+          break;
+        case "Home":
+          next = 0;
+          break;
+        case "End":
+          next = duration;
+          break;
+        default:
+          return;
+      }
+      e.preventDefault();
+      onCursor(Math.max(0, Math.min(duration, next)));
+    },
+    [cursor, duration, onCursor],
+  );
 
   return (
     <div className="s-observe-track-wrap">
-      <div ref={trackRef} className="s-observe-track" onClick={onClick}>
+      <div
+        ref={trackRef}
+        className="s-observe-track"
+        onClick={onClick}
+        onKeyDown={onKeyDown}
+        role="slider"
+        tabIndex={duration > 0 ? 0 : -1}
+        aria-label="Session timeline"
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={Math.max(0, Math.min(duration, cursor))}
+      >
         {events.map((e) => {
           const h = e.kind === "tool" ? 6 : e.kind === "think" ? 4 : 5;
           return (
