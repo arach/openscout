@@ -1,11 +1,13 @@
 import "./ops-agents.css";
 
 import { Search, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
+import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
+import { useAgentHoverCard } from "../components/useAgentHoverCard.tsx";
 import {
   estimateAdapterCost,
   type AdapterCostEstimate,
@@ -40,6 +42,195 @@ type AgentOpsRow = {
 
 const DAY_MS = 24 * 60 * 60_000;
 const LATENCY_WINDOW_MS = 90 * 60_000;
+
+
+type AgentOpsColumnKey =
+  | "agent"
+  | "team"
+  | "machine"
+  | "active"
+  | "sessions24h"
+  | "throughput"
+  | "avgLatency"
+  | "input"
+  | "cacheRead"
+  | "cacheWrite"
+  | "output"
+  | "apiEquiv"
+  | "billed"
+  | "errors"
+  | "lastActive";
+
+const STATE_RANK: Record<AgentOpsRow["state"], number> = { working: 0, available: 1, offline: 2 };
+
+const AGENT_COLUMNS: DataTableColumn<AgentOpsRow, AgentOpsColumnKey>[] = [
+  {
+    key: "agent",
+    label: "Agent",
+    kind: "custom",
+    sortable: true,
+    sortValue: (row) => row.agent.name.toLowerCase(),
+    defaultWidth: 220,
+    minWidth: 160,
+    render: (row) => (
+      <div className="s-ops-agents-agent-cell">
+        <span className={`s-ops-agents-status s-ops-agents-status--${row.state}`} />
+        <span>
+          <strong>{row.agent.name}</strong>
+          <small>{agentStateLabel(row.agent.state)}</small>
+        </span>
+      </div>
+    ),
+  },
+  {
+    key: "team",
+    label: "Team",
+    kind: "text",
+    defaultWidth: 160,
+    minWidth: 100,
+    render: (row) => row.team,
+    sortValue: (row) => row.team.toLowerCase(),
+  },
+  {
+    key: "machine",
+    label: "Machine",
+    kind: "text",
+    defaultWidth: 132,
+    minWidth: 100,
+    render: (row) => row.machine,
+    sortValue: (row) => row.machine.toLowerCase(),
+  },
+  {
+    key: "active",
+    label: "Active",
+    kind: "number",
+    defaultWidth: 90,
+    minWidth: 64,
+    cls: "s-ops-agents-num",
+    render: (row) => row.activeFlights,
+    sortValue: (row) => row.activeFlights,
+  },
+  {
+    key: "sessions24h",
+    label: "24h sessions",
+    kind: "number",
+    defaultWidth: 108,
+    minWidth: 78,
+    cls: "s-ops-agents-num",
+    render: (row) => row.sessions24h,
+    sortValue: (row) => row.sessions24h,
+  },
+  {
+    key: "throughput",
+    label: "Throughput",
+    kind: "custom",
+    sortable: false,
+    defaultWidth: 110,
+    minWidth: 90,
+    render: (row) => <Sparkline values={row.throughput} warn={row.errors > 0} />,
+  },
+  {
+    key: "avgLatency",
+    label: "Avg latency",
+    kind: "number",
+    defaultWidth: 108,
+    minWidth: 80,
+    cls: "s-ops-agents-num",
+    render: (row) => formatLatency(row.avgLatencyMs),
+    sortValue: (row) => row.avgLatencyMs,
+  },
+  {
+    key: "input",
+    label: "Input",
+    kind: "number",
+    defaultWidth: 88,
+    minWidth: 64,
+    cls: "s-ops-agents-num",
+    render: (row) => compactNumber(row.usage.uncachedInput ?? row.usage.input),
+    sortValue: (row) => row.usage.uncachedInput ?? row.usage.input ?? null,
+  },
+  {
+    key: "cacheRead",
+    label: "Cache read",
+    kind: "number",
+    defaultWidth: 98,
+    minWidth: 72,
+    cls: "s-ops-agents-num",
+    render: (row) => compactNumber(row.usage.cachedInput),
+    sortValue: (row) => row.usage.cachedInput ?? null,
+  },
+  {
+    key: "cacheWrite",
+    label: "Cache write",
+    kind: "number",
+    defaultWidth: 98,
+    minWidth: 72,
+    cls: "s-ops-agents-num",
+    render: (row) => compactNumber(row.usage.cacheWrite),
+    sortValue: (row) => row.usage.cacheWrite ?? null,
+  },
+  {
+    key: "output",
+    label: "Output",
+    kind: "number",
+    defaultWidth: 88,
+    minWidth: 64,
+    cls: "s-ops-agents-num",
+    render: (row) => compactNumber(row.usage.output),
+    sortValue: (row) => row.usage.output ?? null,
+  },
+  {
+    key: "apiEquiv",
+    label: "API equiv",
+    kind: "number",
+    defaultWidth: 92,
+    minWidth: 72,
+    cls: "s-ops-agents-num",
+    render: (row) => (
+      <span className={row.cost.rateCardSource === "unknown" ? "s-ops-agents-num--dim" : undefined}>
+        {formatCost(row.cost.totalUsd)}
+      </span>
+    ),
+    sortValue: (row) => row.cost.totalUsd ?? null,
+  },
+  {
+    key: "billed",
+    label: "Billed",
+    kind: "number",
+    defaultWidth: 92,
+    minWidth: 72,
+    cls: "s-ops-agents-num",
+    render: (row) => (
+      <span className={row.cost.billingMode === "subscription" ? "s-ops-agents-num--covered" : undefined}>
+        {formatCost(row.cost.billedTotalUsd)}
+      </span>
+    ),
+    sortValue: (row) => row.cost.billedTotalUsd ?? null,
+  },
+  {
+    key: "errors",
+    label: "Errors",
+    kind: "number",
+    defaultWidth: 72,
+    minWidth: 58,
+    cls: "s-ops-agents-num",
+    render: (row) => (
+      <span className={row.errors > 0 ? "s-ops-agents-num--warn" : undefined}>{row.errors}</span>
+    ),
+    sortValue: (row) => row.errors,
+  },
+  {
+    key: "lastActive",
+    label: "Last active",
+    kind: "time",
+    defaultWidth: 104,
+    minWidth: 78,
+    cls: "s-ops-agents-last",
+    render: (row) => (row.lastActiveAt ? timeAgo(row.lastActiveAt) : "—"),
+    sortValue: (row) => row.lastActiveAt,
+  },
+];
+
 
 function basename(path: string | null | undefined): string | null {
   if (!path) return null;
@@ -215,14 +406,9 @@ export function OpsAgentsView({
 
   const rows = useMemo(() => {
     const activeAsks = fleet?.activeAsks ?? [];
-    return agents
-      .map((agent) => rowForAgent(agent, sessions, activity, activeAsks, observeByAgent, now))
-      .sort((left, right) => {
-        const stateRank = { working: 0, available: 1, offline: 2 };
-        const byState = stateRank[left.state] - stateRank[right.state];
-        if (byState !== 0) return byState;
-        return (right.lastActiveAt ?? 0) - (left.lastActiveAt ?? 0);
-      });
+    return agents.map((agent) =>
+      rowForAgent(agent, sessions, activity, activeAsks, observeByAgent, now),
+    );
   }, [activity, agents, fleet?.activeAsks, now, observeByAgent, sessions]);
 
   const filteredRows = useMemo(() => {
@@ -234,6 +420,29 @@ export function OpsAgentsView({
         .includes(q),
     );
   }, [query, rows]);
+
+  const [sort, setSort] = useState<{ key: AgentOpsColumnKey; dir: 1 | -1 } | null>({
+    key: "lastActive",
+    dir: -1,
+  });
+
+  // Status promotion: working > available > offline, applied as a tiebreaker so
+  // user-chosen sort always wins within a tier but busy agents stay near the top.
+  const secondarySort = useMemo(
+    () => (sort?.key === "agent"
+      ? undefined
+      : (a: AgentOpsRow, b: AgentOpsRow) => STATE_RANK[a.state] - STATE_RANK[b.state]),
+    [sort?.key],
+  );
+
+  const filteredAgents = useMemo(() => filteredRows.map((r) => r.agent), [filteredRows]);
+  const orderedIds = useMemo(() => filteredRows.map((r) => r.agent.id), [filteredRows]);
+  const hover = useAgentHoverCard({
+    agents: filteredAgents,
+    orderedIds,
+    navigate,
+    selectMode: "preview",
+  });
 
   const running = rows.filter((row) => row.state === "working").length;
   const online = rows.filter((row) => row.state !== "offline").length;
@@ -329,70 +538,41 @@ export function OpsAgentsView({
         </section>
 
         <section className="s-ops-agents-table-panel">
-          <div className="s-ops-agents-table-title">Agents <span>{filteredRows.length}</span></div>
-          <div className="s-ops-agents-table-wrap">
-            <table className="s-ops-agents-table">
-              <thead>
-                <tr>
-                  <th>Agent</th>
-                  <th>Team</th>
-                  <th>Machine</th>
-                  <th>Active</th>
-                  <th>24h sessions</th>
-                  <th>Throughput</th>
-                  <th>Avg latency</th>
-                  <th>Input</th>
-                  <th>Cache read</th>
-                  <th>Cache write</th>
-                  <th>Output</th>
-                  <th>API equiv</th>
-                  <th>Billed</th>
-                  <th>Errors</th>
-                  <th>Last active</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((row) => (
-                  <tr key={row.agent.id} onClick={() => navigate({ view: "agents", agentId: row.agent.id })}>
-                    <td>
-                      <div className="s-ops-agents-agent-cell">
-                        <span className={`s-ops-agents-status s-ops-agents-status--${row.state}`} />
-                        <span>
-                          <strong>{row.agent.name}</strong>
-                          <small>{agentStateLabel(row.agent.state)}</small>
-                        </span>
-                      </div>
-                    </td>
-                    <td>{row.team}</td>
-                    <td>{row.machine}</td>
-                    <td className="s-ops-agents-num">{row.activeFlights}</td>
-                    <td className="s-ops-agents-num">{row.sessions24h}</td>
-                    <td><Sparkline values={row.throughput} warn={row.errors > 0} /></td>
-                    <td className="s-ops-agents-num">{formatLatency(row.avgLatencyMs)}</td>
-                    <td className="s-ops-agents-num">{compactNumber(row.usage.uncachedInput ?? row.usage.input)}</td>
-                    <td className="s-ops-agents-num">{compactNumber(row.usage.cachedInput)}</td>
-                    <td className="s-ops-agents-num">{compactNumber(row.usage.cacheWrite)}</td>
-                    <td className="s-ops-agents-num">{compactNumber(row.usage.output)}</td>
-                    <td className={`s-ops-agents-num${row.cost.rateCardSource === "unknown" ? " s-ops-agents-num--dim" : ""}`}>
-                      {formatCost(row.cost.totalUsd)}
-                    </td>
-                    <td className={`s-ops-agents-num${row.cost.billingMode === "subscription" ? " s-ops-agents-num--covered" : ""}`}>
-                      {formatCost(row.cost.billedTotalUsd)}
-                    </td>
-                    <td className={`s-ops-agents-num${row.errors > 0 ? " s-ops-agents-num--warn" : ""}`}>{row.errors}</td>
-                    <td className="s-ops-agents-last">{row.lastActiveAt ? timeAgo(row.lastActiveAt) : "—"}</td>
-                  </tr>
-                ))}
-                {filteredRows.length === 0 && (
-                  <tr>
-                    <td colSpan={15} className="s-ops-agents-empty">No agents match the current search.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="s-ops-agents-table-title">
+            Agents <span>{filteredRows.length}</span>
+            <span className="s-ops-agents-hint" aria-hidden>
+              <kbd>↑</kbd><kbd>↓</kbd> navigate · <kbd>enter</kbd> pin · <kbd>o</kbd> open · <kbd>esc</kbd> clear
+            </span>
+          </div>
+          <div className="s-ops-agents-table-wrap" ref={hover.containerRef}>
+            <DataTable
+              rows={filteredRows}
+              columns={AGENT_COLUMNS}
+              rowId={(row) => row.agent.id}
+              storageKey="openscout.opsAgents.cols"
+              sort={sort}
+              onSortChange={setSort}
+              secondarySort={secondarySort}
+              rowBindings={(id) => {
+                const bindings = hover.bind<HTMLTableRowElement>(id);
+                return {
+                  ...bindings,
+                  onKeyDown: (event: ReactKeyboardEvent<HTMLTableRowElement>) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    bindings.onClick();
+                  },
+                };
+              }}
+              rowState={(id) => hover.getState(id)}
+              empty={{ title: "No agents match", body: "Adjust the search to find a different slice of the fleet." }}
+              className="s-ops-agents-data-table"
+              ariaLabel="Fleet agents"
+            />
           </div>
         </section>
       </main>
+      {hover.card}
     </div>
   );
 }

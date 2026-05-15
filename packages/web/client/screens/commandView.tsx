@@ -3,7 +3,6 @@ import "./command-view.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { api } from "../lib/api.ts";
-import { actorColor } from "../lib/colors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import type {
   Agent,
@@ -391,23 +390,27 @@ function AskRow({
 }) {
   const summary = summarize(ask.summary ?? ask.task, 160);
   const ageStamp = lane === "done" ? (ask.completedAt ?? ask.updatedAt) : ask.updatedAt;
-  const pillTone =
-    ask.status === "failed" ? "hot" :
-    lane === "active" ? "active" : "ok";
+  const isFailed = ask.status === "failed";
+  const tone = isFailed ? "hot" : lane === "active" ? "active" : "ok";
+  const glyph = isFailed ? "⚠" : lane === "active" ? "•" : "✓";
 
   return (
     <button type="button" className="s-mc-row" onClick={onOpen}>
       <div className="s-mc-row-left">
-        <span className={`s-mc-pill s-mc-pill--${pillTone}`}>{ask.statusLabel}</span>
-        <span className="s-mc-row-actor" style={{ color: actorColor(ask.agentName ?? ask.agentId) }}>
-          {ask.agentName ?? ask.agentId}
-        </span>
+        <span className="s-mc-row-actor">{ask.agentName ?? ask.agentId}</span>
       </div>
       <div className="s-mc-row-main">
         <div className="s-mc-row-title">{ask.task || "(no task text)"}</div>
         {summary && summary !== ask.task && <div className="s-mc-row-summary">{summary}</div>}
       </div>
       <div className="s-mc-row-right">
+        <span
+          className={`s-mc-row-glyph s-mc-row-glyph--${tone}`}
+          aria-label={ask.statusLabel}
+          title={ask.statusLabel}
+        >
+          {glyph}
+        </span>
         <span className="s-mc-row-age">{formatAge(ageStamp, nowMs)}</span>
       </div>
     </button>
@@ -453,7 +456,7 @@ function ActivityRow({
   return (
     <button type="button" className="s-mc-stream-row" onClick={onOpen}>
       <span className="s-mc-stream-time">{formatAge(item.ts, nowMs)}</span>
-      <span className="s-mc-stream-actor" style={{ color: actorColor(actor) }}>{actor}</span>
+      <span className="s-mc-stream-actor">{actor}</span>
       <span className="s-mc-stream-verb">{verb}</span>
       <span className="s-mc-stream-text">{text}</span>
     </button>

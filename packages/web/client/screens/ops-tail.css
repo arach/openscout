@@ -310,6 +310,12 @@
   background: color-mix(in srgb, var(--amber) 14%, transparent);
 }
 
+.s-tail-divider:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+}
+
 .s-tail-empty {
   display: flex;
   flex-direction: column;

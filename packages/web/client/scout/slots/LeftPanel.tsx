@@ -8,6 +8,7 @@ import { ScoutFleetLeftPanel } from "./FleetLeftPanel.tsx";
 import { ScoutEmptyLeftPanel } from "./EmptyLeftPanel.tsx";
 import { MeshLeftPanel } from "./MeshLeftPanel.tsx";
 import { ScoutMessagesLeftPanel } from "./MessagesLeftPanel.tsx";
+import { ScoutMissionControlLeftPanel } from "./MissionControlLeftPanel.tsx";
 
 type ParentGroup = {
   key: string;
@@ -113,6 +114,9 @@ function navigateToAgent(
 
 export function ScoutLeftPanel() {
   const { route } = useScout();
+  if (route.view === "ops" && route.mode === "mission") {
+    return <ScoutMissionControlLeftPanel />;
+  }
   switch (route.view) {
     case "agents":
     case "agent-info":

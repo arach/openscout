@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
 import { Avatar } from "../../components/Avatar.tsx";
+import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
 import {
   conversationDisplayTitle,
   isGroupConversation,
@@ -54,31 +55,45 @@ export function ScoutChannelsLeftPanel() {
     navigate({ view: "channels", channelId: id });
   };
 
+  const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const onListKeyDown = useListArrowNav();
+  const onSearchKeyDown = makeSearchHandoff(() => listRef.current);
+  useSlashToFocus(useCallback(() => inputRef.current, []));
+
   return (
     <div className="ctx-panel">
       <div className="ctx-panel-search">
         <input
+          ref={inputRef}
           type="text"
           className="ctx-panel-search-input"
-          placeholder="Filter channels…"
+          placeholder="Filter channels…  (press /)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onSearchKeyDown}
         />
       </div>
-      <div className="ctx-panel-list ctx-panel-list--scroll">
+      <div
+        ref={listRef}
+        className="ctx-panel-list ctx-panel-list--scroll"
+        onKeyDown={onListKeyDown}
+      >
         {filtered.length === 0 ? (
           <div className="ctx-panel-empty">
             {query ? "No match" : channels.length === 0 ? "No channels yet" : "No channels"}
           </div>
         ) : (
-          filtered.map((ch) => {
+          filtered.map((ch, idx) => {
             const active = ch.id === activeId;
             const unread = isUnread(ch.lastMessageAt, ch.id, lastViewed);
             const name = conversationDisplayTitle(ch);
+            const hasAnyActive = filtered.some((c) => c.id === activeId);
             return (
               <button
                 key={ch.id}
                 type="button"
+                tabIndex={rovingTabIndex(active, hasAnyActive, idx === 0)}
                 className={[
                   "ctx-panel-item",
                   active && "ctx-panel-item--active",
