@@ -16,6 +16,8 @@
  */
 
 import {
+  AGENT_RUN_SOURCES,
+  AGENT_RUN_STATES,
   projectAgentRunFromInvocationFlight,
   type AgentRun,
   type AgentRunSource,
@@ -37,6 +39,7 @@ import {
   isFreshActiveTimestamp,
   sqlJoinClauses,
   sqlPlaceholders,
+  sqlStringList,
   sqlWhereClause,
 } from "./internal/sql-helpers.ts";
 import { queryWorkItemById } from "./work.ts";
@@ -165,9 +168,82 @@ const ACTIVE_RUN_STATES = new Set<AgentRunState>([
   "review",
   "unknown",
 ]);
+const ACTIVE_RUN_STATES_SQL = sqlStringList([...ACTIVE_RUN_STATES]);
+const AGENT_RUN_STATES_SQL = sqlStringList(AGENT_RUN_STATES);
+const AGENT_RUN_SOURCES_SQL = sqlStringList(AGENT_RUN_SOURCES);
 
 function isActiveRun(run: AgentRun): boolean {
   return ACTIVE_RUN_STATES.has(run.state) && isFreshActiveTimestamp(run.updatedAt);
+}
+
+function sqlRunReviewNeededExpression(): string {
+  return `(
+    COALESCE(json_extract(f.metadata_json, '$.reviewState'), json_extract(inv.metadata_json, '$.reviewState')) IN ('needed', 'blocked')
+    OR COALESCE(json_extract(f.metadata_json, '$.reviewNeeded'), 0) = 1
+    OR COALESCE(json_extract(f.metadata_json, '$.needsReview'), 0) = 1
+    OR COALESCE(json_extract(f.metadata_json, '$.requiresReview'), 0) = 1
+    OR COALESCE(json_extract(inv.metadata_json, '$.reviewNeeded'), 0) = 1
+    OR COALESCE(json_extract(inv.metadata_json, '$.needsReview'), 0) = 1
+    OR COALESCE(json_extract(inv.metadata_json, '$.requiresReview'), 0) = 1
+    OR COALESCE(json_array_length(json_extract(f.metadata_json, '$.reviewTaskIds')), 0) > 0
+    OR COALESCE(json_array_length(json_extract(inv.metadata_json, '$.reviewTaskIds')), 0) > 0
+  )`;
+}
+
+function sqlRunStateExpression(): string {
+  return `CASE
+    WHEN f.state = 'failed' THEN 'failed'
+    WHEN f.state = 'cancelled' THEN 'cancelled'
+    WHEN f.state = 'completed' AND ${sqlRunReviewNeededExpression()} THEN 'review'
+    WHEN f.state IN ${AGENT_RUN_STATES_SQL} THEN f.state
+    ELSE 'unknown'
+  END`;
+}
+
+function sqlRunSourceExpression(): string {
+  const explicitSource = `COALESCE(
+    NULLIF(trim(json_extract(inv.metadata_json, '$.agentRunSource')), ''),
+    NULLIF(trim(json_extract(inv.metadata_json, '$.runSource')), '')
+  )`;
+  const rawSource = `NULLIF(trim(json_extract(inv.metadata_json, '$.source')), '')`;
+  return `CASE
+    WHEN ${explicitSource} IN ${AGENT_RUN_SOURCES_SQL} THEN ${explicitSource}
+    WHEN ${rawSource} IN ${AGENT_RUN_SOURCES_SQL} THEN ${rawSource}
+    WHEN ${rawSource} = 'collaboration-record' THEN 'ask'
+    WHEN ${rawSource} = 'broker-deliver' THEN 'message'
+    WHEN ${rawSource} = 'scout-app' AND inv.message_id IS NOT NULL THEN 'message'
+    WHEN ${rawSource} = 'scout-app' THEN 'manual'
+    WHEN ${rawSource} = 'scout-cli' AND inv.message_id IS NOT NULL THEN 'message'
+    WHEN ${rawSource} = 'scout-cli' THEN 'ask'
+    WHEN inv.collaboration_record_id IS NOT NULL THEN 'ask'
+    WHEN json_type(inv.context_json, '$.collaboration') IS NOT NULL THEN 'ask'
+    WHEN json_extract(inv.context_json, '$.collaborationRecordId') IS NOT NULL THEN 'ask'
+    WHEN inv.message_id IS NOT NULL OR inv.conversation_id IS NOT NULL THEN 'message'
+    WHEN inv.action = 'wake' THEN 'manual'
+    ELSE 'ask'
+  END`;
+}
+
+function sqlRunWorkIdClause(): string {
+  return `(
+    inv.collaboration_record_id = ?
+    OR json_extract(inv.metadata_json, '$.workId') = ?
+    OR json_extract(inv.metadata_json, '$.collaborationRecordId') = ?
+    OR json_extract(inv.context_json, '$.workId') = ?
+    OR json_extract(inv.context_json, '$.collaborationRecordId') = ?
+    OR json_extract(inv.context_json, '$.collaboration.recordId') = ?
+  )`;
+}
+
+function optionalRunBoundary(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function queryRuns(opts?: {
@@ -178,24 +254,59 @@ export function queryRuns(opts?: {
   state?: AgentRunState | string;
   source?: AgentRunSource | string;
   active?: boolean;
+  before?: number | string;
+  after?: number | string;
+  cursor?: number | string;
   limit?: number;
 }): WebAgentRun[] {
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
   const requestedWorkId = opts?.collaborationRecordId ?? opts?.workId;
+  const runStateExpression = sqlRunStateExpression();
+  const runSourceExpression = sqlRunSourceExpression();
+  const runUpdatedAtExpression = `COALESCE(f.completed_at, f.started_at, inv.created_at)`;
+  const explicitActiveFilter = opts?.active;
+  const activeOnly = explicitActiveFilter ?? (opts?.state ? false : true);
+  const before = optionalRunBoundary(opts?.before ?? opts?.cursor);
+  const after = optionalRunBoundary(opts?.after);
   const where = sqlJoinClauses([
     opts?.agentId ? `inv.target_agent_id = ?` : null,
     conversationIds.length > 0
       ? `inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
       : null,
+    requestedWorkId ? sqlRunWorkIdClause() : null,
+    opts?.state ? `${runStateExpression} = ?` : null,
+    opts?.source ? `${runSourceExpression} = ?` : null,
+    activeOnly
+      ? `${runStateExpression} IN ${ACTIVE_RUN_STATES_SQL}
+        AND (${runUpdatedAtExpression} < ${EPOCH_MILLISECONDS_FLOOR} OR ${runUpdatedAtExpression} >= ?)`
+      : null,
+    before !== null ? `${runUpdatedAtExpression} < ?` : null,
+    after !== null ? `${runUpdatedAtExpression} > ?` : null,
   ]);
   const requestedLimit = opts?.limit;
   const limit = typeof requestedLimit === "number" && Number.isFinite(requestedLimit)
     ? Math.min(500, Math.max(1, Math.floor(requestedLimit)))
     : 100;
 
-  const params: string[] = [];
+  const params: Array<number | string> = [];
   if (opts?.agentId) params.push(opts.agentId);
   if (conversationIds.length > 0) params.push(...conversationIds);
+  if (requestedWorkId) {
+    params.push(
+      requestedWorkId,
+      requestedWorkId,
+      requestedWorkId,
+      requestedWorkId,
+      requestedWorkId,
+      requestedWorkId,
+    );
+  }
+  if (opts?.state) params.push(opts.state);
+  if (opts?.source) params.push(opts.source);
+  if (activeOnly) params.push(Date.now() - ACTIVE_FLIGHT_MAX_AGE_MS);
+  if (before !== null) params.push(before);
+  if (after !== null) params.push(after);
+  params.push(limit);
 
   const rows = db().prepare(
     `SELECT
@@ -240,11 +351,9 @@ export function queryRuns(opts?: {
      LEFT JOIN actors ac ON ac.id = inv.target_agent_id
      LEFT JOIN collaboration_records cr ON cr.id = inv.collaboration_record_id
      ${sqlWhereClause([where])}
-     ORDER BY COALESCE(f.completed_at, f.started_at, inv.created_at) DESC, inv.created_at DESC`,
+     ORDER BY ${runUpdatedAtExpression} DESC, inv.created_at DESC, COALESCE(f.id, inv.id) ASC
+     LIMIT ?`,
   ).all(...params) as RunQueryRow[];
-
-  const explicitActiveFilter = opts?.active;
-  const activeOnly = explicitActiveFilter ?? (opts?.state ? false : true);
 
   return rows
     .map((row) => {

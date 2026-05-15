@@ -142,4 +142,3 @@ export function staleFlightActivityPredicate(alias: string): string {
     AND COALESCE(${alias}.summary, '') LIKE 'Stale running flight reconciled:%'
   )`;
 }
-

@@ -138,23 +138,23 @@ export function queryConversationDefinitionById(
   };
 }
 
-export function querySessions(limit = 80): MobileSessionSummary[] {
-  const rows = db().prepare(
-    `SELECT
-       c.id,
-       c.kind,
-       c.title,
-       c.metadata_json
-     FROM conversations c
-     ORDER BY c.created_at DESC
-     LIMIT ?`,
-  ).all(limit) as Array<{
-    id: string;
-    kind: string;
-    title: string;
-    metadata_json: string | null;
-  }>;
+type SessionConversationRow = {
+  id: string;
+  kind: string;
+  title: string;
+  metadata_json: string | null;
+  message_count: number;
+  last_message_at: number | null;
+};
 
+function projectSessionConversationRows(
+  rows: SessionConversationRow[],
+  opts?: {
+    dedupeLocalSessionDirects?: boolean;
+    limit?: number;
+  },
+): MobileSessionSummary[] {
+  const dedupeLocalSessionDirects = opts?.dedupeLocalSessionDirects ?? false;
   const memberStmt = db().prepare(
     `SELECT actor_id FROM conversation_members WHERE conversation_id = ?`,
   );
@@ -173,9 +173,6 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
      JOIN actors ac ON ac.id = a.id
      ${LATEST_AGENT_ENDPOINT_JOIN}
      WHERE cm.conversation_id = ?`,
-  );
-  const statsStmt = db().prepare(
-    `SELECT COUNT(*) AS cnt, MAX(created_at) AS last_at FROM messages WHERE conversation_id = ?`,
   );
   const previewStmt = db().prepare(
     `SELECT body
@@ -206,7 +203,6 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
       ? agentParticipants.find((entry) => entry.agent_id === primaryAgentId) ?? null
       : null;
     const agentId = primaryAgent?.agent_id ?? null;
-    const stats = statsStmt.get(r.id) as { cnt: number; last_at: number | null } | null;
 
     let agentName: string | null = null;
     let harness: string | null = null;
@@ -270,11 +266,22 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
       harnessLogPath,
       currentBranch: branch,
       preview: preview ? preview.slice(0, 200) : null,
-      messageCount: stats?.cnt ?? 0,
-      lastMessageAt: stats?.last_at ?? null,
+      messageCount: r.message_count,
+      lastMessageAt: r.last_message_at,
       workspaceRoot,
     }];
   });
+
+  if (!dedupeLocalSessionDirects) {
+    return summaries.sort((left, right) => {
+      const leftTs = left.lastMessageAt ?? 0;
+      const rightTs = right.lastMessageAt ?? 0;
+      if (rightTs !== leftTs) {
+        return rightTs - leftTs;
+      }
+      return right.messageCount - left.messageCount;
+    }).slice(0, opts?.limit ?? summaries.length);
+  }
 
   const deduped = new Map<string, MobileSessionSummary>();
 
@@ -302,12 +309,56 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
       return rightTs - leftTs;
     }
     return right.messageCount - left.messageCount;
-  }).slice(0, limit);
+  }).slice(0, opts?.limit ?? deduped.size);
+}
+
+export function querySessions(limit = 80): MobileSessionSummary[] {
+  const rows = db().prepare(
+    `SELECT
+       c.id,
+       c.kind,
+       c.title,
+       c.metadata_json,
+       COALESCE(ms.message_count, 0) AS message_count,
+       ms.last_message_at
+     FROM conversations c
+     LEFT JOIN (
+       SELECT conversation_id, COUNT(*) AS message_count, MAX(created_at) AS last_message_at
+       FROM messages
+       GROUP BY conversation_id
+     ) ms ON ms.conversation_id = c.id
+     ORDER BY COALESCE(ms.last_message_at, c.created_at, 0) DESC, c.created_at DESC, c.id ASC
+     LIMIT ?`,
+  ).all(limit) as SessionConversationRow[];
+
+  return projectSessionConversationRows(rows, {
+    dedupeLocalSessionDirects: true,
+    limit,
+  });
 }
 
 export function querySessionById(conversationId: string): MobileSessionSummary | null {
-  const results = querySessions(200);
-  const existing = results.find((s) => s.id === conversationId) ?? null;
+  const row = db().prepare(
+    `SELECT
+       c.id,
+       c.kind,
+       c.title,
+       c.metadata_json,
+       COALESCE(ms.message_count, 0) AS message_count,
+       ms.last_message_at
+     FROM conversations c
+     LEFT JOIN (
+       SELECT conversation_id, COUNT(*) AS message_count, MAX(created_at) AS last_message_at
+       FROM messages
+       WHERE conversation_id = ?
+       GROUP BY conversation_id
+     ) ms ON ms.conversation_id = c.id
+     WHERE c.id = ?
+     LIMIT 1`,
+  ).get(conversationId, conversationId) as SessionConversationRow | null;
+  const existing = row
+    ? projectSessionConversationRows([row], { dedupeLocalSessionDirects: false, limit: 1 })[0] ?? null
+    : null;
   if (existing) {
     return existing;
   }

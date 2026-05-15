@@ -160,6 +160,15 @@ function createSeededStore(): SQLiteControlPlaneStore {
   return store;
 }
 
+function setConversationCreatedAt(conversationId: string, createdAt: number): void {
+  const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
+  try {
+    rawDb.query("UPDATE conversations SET created_at = ?1 WHERE id = ?2").run(createdAt, conversationId);
+  } finally {
+    rawDb.close();
+  }
+}
+
 describe("web db query flights", () => {
   test("surfaces durable collaboration joins from invocations", () => {
     const store = createSeededStore();
@@ -799,6 +808,73 @@ describe("web db query agents", () => {
 
       expect(sessions).toHaveLength(1);
       expect(sessions[0]?.id).toBe("dm.operator.local-session-agent-test");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("orders the session list by latest message activity before applying the limit", () => {
+    const store = createSeededStore();
+
+    try {
+      setConversationCreatedAt("conv-1", 1);
+
+      store.recordMessage({
+        id: "conv-1-late-message",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "I am the active old conversation.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 10_000,
+      });
+
+      for (let i = 0; i < 5; i += 1) {
+        const conversationId = `new-empty-conv-${i}`;
+        store.upsertConversation({
+          id: conversationId,
+          kind: "channel",
+          title: `New empty ${i}`,
+          visibility: "private",
+          shareMode: "local",
+          authorityNodeId: "node-1",
+          participantIds: ["operator"],
+        });
+        setConversationCreatedAt(conversationId, 1_000 + i);
+      }
+
+      expect(querySessions(1).map((session) => session.id)).toEqual(["conv-1"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("looks up an exact session id without depending on the capped session list", () => {
+    const store = createSeededStore();
+
+    try {
+      setConversationCreatedAt("conv-1", 1);
+
+      for (let i = 0; i < 205; i += 1) {
+        const conversationId = `newer-conv-${i}`;
+        store.upsertConversation({
+          id: conversationId,
+          kind: "channel",
+          title: `Newer ${i}`,
+          visibility: "private",
+          shareMode: "local",
+          authorityNodeId: "node-1",
+          participantIds: ["operator"],
+        });
+        setConversationCreatedAt(conversationId, 1_000 + i);
+      }
+
+      const session = querySessionById("conv-1");
+
+      expect(session?.id).toBe("conv-1");
+      expect(session?.agentId).toBe("agent-1");
     } finally {
       store.close();
     }

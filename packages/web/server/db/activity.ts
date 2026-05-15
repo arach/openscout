@@ -26,7 +26,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
          ai.conversation_id,
          ai.workspace_root,
          ai.agent_id,
-         ag.display_name AS agent_name,
+         agent_actor.display_name AS agent_name,
          ai.flight_id,
          ai.invocation_id,
          ai.session_id,
@@ -34,7 +34,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
          ai.record_id
        FROM activity_items ai
        LEFT JOIN actors ac ON ac.id = ai.actor_id
-       LEFT JOIN agents ag ON ag.id = ai.agent_id
+       LEFT JOIN actors agent_actor ON agent_actor.id = ai.agent_id
        WHERE ai.kind != 'ask_replied'
          AND ${staleFlightActivityPredicate("ai")}
        ORDER BY ai.ts DESC

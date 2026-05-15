@@ -161,7 +161,7 @@ export function queryFleetActivity(opts?: {
     ai.workspace_root,
     ai.actor_id,
     ai.agent_id,
-    ag.display_name AS agent_name,
+    agent_actor.display_name AS agent_name,
     ai.message_id,
     ai.invocation_id,
     ai.flight_id,
@@ -169,7 +169,7 @@ export function queryFleetActivity(opts?: {
     ai.session_id
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
-  LEFT JOIN agents ag ON ag.id = ai.agent_id
+  LEFT JOIN actors agent_actor ON agent_actor.id = ai.agent_id
   ${sqlWhereClause([
     staleFlightActivityPredicate("ai"),
     scopedFilters ? `(${scopedFilters})` : null,
