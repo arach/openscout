@@ -81,13 +81,15 @@ MCP tools.
 - Group coordination means explicit channel.
 - Shared broadcast is opt-in.
 - `send` / `messages_send` is a durable message/update with receipt ids.
-- `ask` / `invocations_ask` is an invocation with receipt ids and lifecycle state.
+- `ask` / `invocations_ask` is an invocation with receipt ids, target acknowledgement, and lifecycle state.
 - Cards describe identities and return addresses; sessions are concrete harness lifecycles.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
 - Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
 - Track token/coordination cost as metadata when available; do not import full harness transcripts.
 - If blocked, record who or what owns the next move. For long-running MCP work,
-  prefer `replyMode: "notify"` over holding the caller open.
+  prefer `replyMode: "notify"` over holding the caller open for completion; use
+  `replyMode: "inline"` only when the caller needs an acknowledgement before
+  continuing.
 - If a host-side approval or permission prompt is stuck, open the host UI or use
   the host integration's forwarded unblock request. An MCP server cannot see a
   prompt intercepted by the host before the tool call reaches Scout.

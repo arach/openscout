@@ -103,8 +103,11 @@ messages_send({
 Expected client behavior:
 
 - send an explicit target field, not only `@hudson` in the body
-- render the returned `conversationId` and `messageId` when useful
+- render the returned `conversationId`, `messageId`, and optional `flightId`
+  when useful
 - treat one explicit target as a DM
+- let the broker decide whether a targeted DM needs a wake/start/attach turn;
+  callers should not need to choose wake mechanics for normal sends
 - require an explicit channel for group coordination
 - do not treat message delivery as fire-and-forget; keep the receipt available
 
@@ -133,10 +136,64 @@ Expected client behavior:
 
 - create or display a durable message for the request
 - surface returned ids such as `conversationId`, `messageId`, and `flightId`
-- show flight state rather than assuming immediate completion
-- use `replyMode: "inline"` only for short bounded waits
-- use `replyMode: "notify"` for longer work that should return later
+- treat the initial `invocations_ask` response as the broker receipt, not as the
+  target agent's acknowledgement
+- expect the target agent to promptly post a broker-visible acknowledgement in
+  the same conversation when it starts working
+- expect target-authored completion as a later message and flight completion
+- use `invocations_wait` / `invocations_get` for longer follow-up polling
+- use `replyMode: "notify"` when completion should return by notification
 - show wake/session failures as lifecycle state, not as silent background limbo
+
+Client API shape:
+
+```mermaid
+sequenceDiagram
+  participant Caller
+  participant ScoutAPI as Scout client API<br/>invocations_ask / invocations_wait
+  participant Broker
+  participant Target
+
+  Caller->>ScoutAPI: invocations_ask(target, body)
+  ScoutAPI->>Broker: create message + invocation + flight
+  Broker-->>ScoutAPI: receipt<br/>flightId + conversationId
+  ScoutAPI-->>Caller: dispatched receipt
+
+  Broker->>Target: deliver ask
+  Target->>Broker: ack message<br/>"Received, working on it now"
+  Broker-->>Caller: target-authored ack in DM
+
+  Target->>Broker: completion<br/>final reply + flight completed
+  Broker-->>Caller: target-authored completion in DM
+
+  Caller->>ScoutAPI: invocations_wait(flightId)
+  ScoutAPI->>Broker: read/wait flight
+  Broker-->>ScoutAPI: completed + output
+  ScoutAPI-->>Caller: final state/output
+```
+
+Product architecture shape:
+
+```mermaid
+sequenceDiagram
+  participant Caller
+  participant Broker
+  participant Target
+
+  Caller->>Broker: ask request<br/>create message + invocation + flight
+  Broker-->>Caller: broker receipt<br/>flightId + conversationId
+
+  Broker->>Target: deliver ask
+  Target->>Broker: "Received, working on it now"
+  Broker-->>Caller: target-authored ack
+
+  Target->>Broker: final answer / result
+  Broker-->>Caller: target-authored completion
+  Broker-->>Caller: flight marked completed
+
+  Caller->>Broker: wait/get flight
+  Broker-->>Caller: completed / failed / still running
+```
 
 ### Broker Reply Mode
 
@@ -161,10 +218,14 @@ interface ScoutReplyContext {
 
 Rules:
 
+- first publish a short broker-visible acknowledgement in the same conversation
+  when starting work
 - if `replyPath` is `final_response`, the harness final assistant message is
   the broker-visible reply
-- if `replyPath` is `mcp_reply`, call the provided reply tool exactly once
-- do not use `messages_send` or `invocations_ask` to answer the original ask
+- if `replyPath` is `mcp_reply`, use the provided reply tool for the initial
+  acknowledgement and the final answer
+- do not use `messages_send` or `invocations_ask` for the final answer to the
+  original ask
 - use Scout tools only to ask or delegate while solving the request
 
 ### Durable Work
