@@ -61,15 +61,17 @@ type AgentOpsColumnKey =
   | "errors"
   | "lastActive";
 
+const STATE_RANK: Record<AgentOpsRow["state"], number> = { working: 0, available: 1, offline: 2 };
+
 const AGENT_COLUMNS: DataTableColumn<AgentOpsRow, AgentOpsColumnKey>[] = [
   {
     key: "agent",
     label: "Agent",
     kind: "custom",
-    sortable: false,
-    resizable: false,
+    sortable: true,
+    sortValue: (row) => row.agent.name.toLowerCase(),
     defaultWidth: 220,
-    minWidth: 180,
+    minWidth: 160,
     render: (row) => (
       <div className="s-ops-agents-agent-cell">
         <span className={`s-ops-agents-status s-ops-agents-status--${row.state}`} />
@@ -80,78 +82,152 @@ const AGENT_COLUMNS: DataTableColumn<AgentOpsRow, AgentOpsColumnKey>[] = [
       </div>
     ),
   },
-  { key: "team", label: "Team", kind: "text", sortable: false, resizable: false, defaultWidth: 160, minWidth: 120, render: (row) => row.team },
-  { key: "machine", label: "Machine", kind: "text", sortable: false, resizable: false, defaultWidth: 132, minWidth: 108, render: (row) => row.machine },
-  { key: "active", label: "Active", kind: "number", sortable: false, resizable: false, defaultWidth: 90, minWidth: 72, cls: "s-ops-agents-num", render: (row) => row.activeFlights },
-  { key: "sessions24h", label: "24h sessions", kind: "number", sortable: false, resizable: false, defaultWidth: 108, minWidth: 88, cls: "s-ops-agents-num", render: (row) => row.sessions24h },
+  {
+    key: "team",
+    label: "Team",
+    kind: "text",
+    defaultWidth: 160,
+    minWidth: 100,
+    render: (row) => row.team,
+    sortValue: (row) => row.team.toLowerCase(),
+  },
+  {
+    key: "machine",
+    label: "Machine",
+    kind: "text",
+    defaultWidth: 132,
+    minWidth: 100,
+    render: (row) => row.machine,
+    sortValue: (row) => row.machine.toLowerCase(),
+  },
+  {
+    key: "active",
+    label: "Active",
+    kind: "number",
+    defaultWidth: 90,
+    minWidth: 64,
+    cls: "s-ops-agents-num",
+    render: (row) => row.activeFlights,
+    sortValue: (row) => row.activeFlights,
+  },
+  {
+    key: "sessions24h",
+    label: "24h sessions",
+    kind: "number",
+    defaultWidth: 108,
+    minWidth: 78,
+    cls: "s-ops-agents-num",
+    render: (row) => row.sessions24h,
+    sortValue: (row) => row.sessions24h,
+  },
   {
     key: "throughput",
     label: "Throughput",
     kind: "custom",
     sortable: false,
-    resizable: false,
     defaultWidth: 110,
-    minWidth: 100,
+    minWidth: 90,
     render: (row) => <Sparkline values={row.throughput} warn={row.errors > 0} />,
   },
-  { key: "avgLatency", label: "Avg latency", kind: "number", sortable: false, resizable: false, defaultWidth: 108, minWidth: 88, cls: "s-ops-agents-num", render: (row) => formatLatency(row.avgLatencyMs) },
-  { key: "input", label: "Input", kind: "number", sortable: false, resizable: false, defaultWidth: 88, minWidth: 72, cls: "s-ops-agents-num", render: (row) => compactNumber(row.usage.uncachedInput ?? row.usage.input) },
-  { key: "cacheRead", label: "Cache read", kind: "number", sortable: false, resizable: false, defaultWidth: 98, minWidth: 80, cls: "s-ops-agents-num", render: (row) => compactNumber(row.usage.cachedInput) },
-  { key: "cacheWrite", label: "Cache write", kind: "number", sortable: false, resizable: false, defaultWidth: 98, minWidth: 80, cls: "s-ops-agents-num", render: (row) => compactNumber(row.usage.cacheWrite) },
-  { key: "output", label: "Output", kind: "number", sortable: false, resizable: false, defaultWidth: 88, minWidth: 72, cls: "s-ops-agents-num", render: (row) => compactNumber(row.usage.output) },
+  {
+    key: "avgLatency",
+    label: "Avg latency",
+    kind: "number",
+    defaultWidth: 108,
+    minWidth: 80,
+    cls: "s-ops-agents-num",
+    render: (row) => formatLatency(row.avgLatencyMs),
+    sortValue: (row) => row.avgLatencyMs,
+  },
+  {
+    key: "input",
+    label: "Input",
+    kind: "number",
+    defaultWidth: 88,
+    minWidth: 64,
+    cls: "s-ops-agents-num",
+    render: (row) => compactNumber(row.usage.uncachedInput ?? row.usage.input),
+    sortValue: (row) => row.usage.uncachedInput ?? row.usage.input ?? null,
+  },
+  {
+    key: "cacheRead",
+    label: "Cache read",
+    kind: "number",
+    defaultWidth: 98,
+    minWidth: 72,
+    cls: "s-ops-agents-num",
+    render: (row) => compactNumber(row.usage.cachedInput),
+    sortValue: (row) => row.usage.cachedInput ?? null,
+  },
+  {
+    key: "cacheWrite",
+    label: "Cache write",
+    kind: "number",
+    defaultWidth: 98,
+    minWidth: 72,
+    cls: "s-ops-agents-num",
+    render: (row) => compactNumber(row.usage.cacheWrite),
+    sortValue: (row) => row.usage.cacheWrite ?? null,
+  },
+  {
+    key: "output",
+    label: "Output",
+    kind: "number",
+    defaultWidth: 88,
+    minWidth: 64,
+    cls: "s-ops-agents-num",
+    render: (row) => compactNumber(row.usage.output),
+    sortValue: (row) => row.usage.output ?? null,
+  },
   {
     key: "apiEquiv",
     label: "API equiv",
     kind: "number",
-    sortable: false,
-    resizable: false,
     defaultWidth: 92,
-    minWidth: 78,
+    minWidth: 72,
     cls: "s-ops-agents-num",
     render: (row) => (
       <span className={row.cost.rateCardSource === "unknown" ? "s-ops-agents-num--dim" : undefined}>
         {formatCost(row.cost.totalUsd)}
       </span>
     ),
+    sortValue: (row) => row.cost.totalUsd ?? null,
   },
   {
     key: "billed",
     label: "Billed",
     kind: "number",
-    sortable: false,
-    resizable: false,
     defaultWidth: 92,
-    minWidth: 78,
+    minWidth: 72,
     cls: "s-ops-agents-num",
     render: (row) => (
       <span className={row.cost.billingMode === "subscription" ? "s-ops-agents-num--covered" : undefined}>
         {formatCost(row.cost.billedTotalUsd)}
       </span>
     ),
+    sortValue: (row) => row.cost.billedTotalUsd ?? null,
   },
   {
     key: "errors",
     label: "Errors",
     kind: "number",
-    sortable: false,
-    resizable: false,
     defaultWidth: 72,
-    minWidth: 64,
+    minWidth: 58,
     cls: "s-ops-agents-num",
     render: (row) => (
       <span className={row.errors > 0 ? "s-ops-agents-num--warn" : undefined}>{row.errors}</span>
     ),
+    sortValue: (row) => row.errors,
   },
   {
     key: "lastActive",
     label: "Last active",
     kind: "time",
-    sortable: false,
-    resizable: false,
     defaultWidth: 104,
-    minWidth: 88,
+    minWidth: 78,
     cls: "s-ops-agents-last",
     render: (row) => (row.lastActiveAt ? timeAgo(row.lastActiveAt) : "—"),
+    sortValue: (row) => row.lastActiveAt,
   },
 ];
 
@@ -330,14 +406,9 @@ export function OpsAgentsView({
 
   const rows = useMemo(() => {
     const activeAsks = fleet?.activeAsks ?? [];
-    return agents
-      .map((agent) => rowForAgent(agent, sessions, activity, activeAsks, observeByAgent, now))
-      .sort((left, right) => {
-        const stateRank = { working: 0, available: 1, offline: 2 };
-        const byState = stateRank[left.state] - stateRank[right.state];
-        if (byState !== 0) return byState;
-        return (right.lastActiveAt ?? 0) - (left.lastActiveAt ?? 0);
-      });
+    return agents.map((agent) =>
+      rowForAgent(agent, sessions, activity, activeAsks, observeByAgent, now),
+    );
   }, [activity, agents, fleet?.activeAsks, now, observeByAgent, sessions]);
 
   const filteredRows = useMemo(() => {
@@ -349,6 +420,20 @@ export function OpsAgentsView({
         .includes(q),
     );
   }, [query, rows]);
+
+  const [sort, setSort] = useState<{ key: AgentOpsColumnKey; dir: 1 | -1 } | null>({
+    key: "lastActive",
+    dir: -1,
+  });
+
+  // Status promotion: working > available > offline, applied as a tiebreaker so
+  // user-chosen sort always wins within a tier but busy agents stay near the top.
+  const secondarySort = useMemo(
+    () => (sort?.key === "agent"
+      ? undefined
+      : (a: AgentOpsRow, b: AgentOpsRow) => STATE_RANK[a.state] - STATE_RANK[b.state]),
+    [sort?.key],
+  );
 
   const filteredAgents = useMemo(() => filteredRows.map((r) => r.agent), [filteredRows]);
   const orderedIds = useMemo(() => filteredRows.map((r) => r.agent.id), [filteredRows]);
@@ -464,6 +549,10 @@ export function OpsAgentsView({
               rows={filteredRows}
               columns={AGENT_COLUMNS}
               rowId={(row) => row.agent.id}
+              storageKey="openscout.opsAgents.cols"
+              sort={sort}
+              onSortChange={setSort}
+              secondarySort={secondarySort}
               rowBindings={(id) => {
                 const bindings = hover.bind<HTMLTableRowElement>(id);
                 return {
