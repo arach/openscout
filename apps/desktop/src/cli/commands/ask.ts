@@ -67,7 +67,7 @@ function renderScoutAskReceipt(value: {
   ].filter((piece): piece is string => Boolean(piece));
   const suffix = value.replyMode === "notify"
     ? "Scout will surface the completion when it arrives."
-    : `Next: scout flight wait ${value.flight.id} --timeout 30`;
+    : `Next: scout wait ${value.flight.invocationId} --timeout 600`;
   return `${pieces.join(" · ")}. ${suffix}`;
 }
 
@@ -270,5 +270,5 @@ function renderScoutAskInlineResult(value: {
     value.conversationId ? renderConversationRoute(value.conversationId) : null,
     value.bindingRef,
   ].filter((piece): piece is string => Boolean(piece));
-  return `${pieces.join(" · ")}. Next: scout flight wait ${value.flight.id} --timeout 30.`;
+  return `${pieces.join(" · ")}. Next: scout wait ${value.flight.invocationId} --timeout 600.`;
 }

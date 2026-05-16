@@ -78,7 +78,7 @@ export function renderScoutMessagePostResult(result: {
   }
   if (result.flightId) {
     lines.push(`Delivery flight: ${result.flightId}`);
-    lines.push(`Next: scout flight wait ${result.flightId} --timeout 30`);
+    lines.push(`Next: scout wait ${result.flightId} --timeout 600`);
   }
   if (result.unresolvedTargets.length > 0) {
     lines.push(`Unresolved: ${result.unresolvedTargets.join(", ")}`);

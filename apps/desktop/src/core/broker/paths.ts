@@ -29,4 +29,12 @@ export function scoutBrokerMessagesListPath(search: URLSearchParams): string {
   return q ? `${scoutBrokerPaths.v1.messages}?${q}` : scoutBrokerPaths.v1.messages;
 }
 
+export function scoutBrokerInvocationPath(invocationId: string): string {
+  return `${scoutBrokerPaths.v1.invocations}/${encodeURIComponent(invocationId)}`;
+}
+
+export function scoutBrokerInvocationStreamPath(invocationId: string): string {
+  return `${scoutBrokerInvocationPath(invocationId)}/stream`;
+}
+
 export const openAiAudioSpeechUrl = "https://api.openai.com/v1/audio/speech" as const;
