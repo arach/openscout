@@ -198,12 +198,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
     if (!isOpsEnabledForUrl(url)) {
       return { view: "inbox" };
     }
-    const mode = parseOpsMode(parts[1]);
-    if (mode) {
-      const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
-      return { view: "ops", mode, ...(tailQuery ? { tailQuery } : {}) };
-    }
-    return { view: "ops" };
+    const mode = parseOpsMode(parts[1]) ?? "mission";
+    const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
+    return { view: "ops", mode, ...(tailQuery ? { tailQuery } : {}) };
   }
   return { view: "inbox" };
 }
