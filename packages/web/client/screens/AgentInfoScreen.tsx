@@ -12,6 +12,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import type { Agent, Route, SessionEntry } from "../lib/types.ts";
 
 type ProfileField = {
@@ -129,13 +130,11 @@ export function AgentInfoScreen({
   if (!agent) {
     return (
       <div>
-        <button
-          type="button"
-          className="s-back"
-          onClick={() => openContent(navigate, { view: "conversation", conversationId }, { returnTo: route })}
-        >
-          &larr; Back
-        </button>
+        <BackToPicker
+          slot="agent-info"
+          fallback={{ view: "conversation", conversationId }}
+          navigate={navigate}
+        />
         {error && <p className="s-error">{error}</p>}
         <div className="s-empty"><p>Agent not found</p></div>
       </div>
@@ -177,13 +176,11 @@ export function AgentInfoScreen({
   return (
     <div className="s-agent-profile-page">
       <div className="s-agent-profile-page-topbar">
-        <button
-          type="button"
-          className="s-back"
-          onClick={() => openContent(navigate, { view: "conversation", conversationId }, { returnTo: route })}
-        >
-          &larr; Conversation
-        </button>
+        <BackToPicker
+          slot="agent-info"
+          fallback={{ view: "conversation", conversationId }}
+          navigate={navigate}
+        />
         <button
           type="button"
           className="s-btn"

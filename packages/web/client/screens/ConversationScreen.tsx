@@ -1660,7 +1660,13 @@ export function ConversationScreen({
         {!embedded && <div
           className="s-thread-center-header"
           onClick={() =>
-            isDm ? navigate({ view: "agent-info", conversationId }) : undefined
+            isDm
+              ? openContent(
+                  navigate,
+                  { view: "agent-info", conversationId },
+                  { returnTo: route },
+                )
+              : undefined
           }
           style={isDm ? { cursor: "pointer" } : undefined}
           onContextMenu={(e) => {
@@ -2049,10 +2055,14 @@ export function ConversationScreen({
                       {(() => {
                         const profileNav = !isYou && messageAgent
                           ? () =>
-                              navigate({
-                                view: "agent-info",
-                                conversationId: conversationForAgent(messageAgent.id),
-                              })
+                              openContent(
+                                navigate,
+                                {
+                                  view: "agent-info",
+                                  conversationId: conversationForAgent(messageAgent.id),
+                                },
+                                { returnTo: route },
+                              )
                           : null;
                         const avatarLabel = (isYou
                           ? operatorName[0]
@@ -2089,10 +2099,14 @@ export function ConversationScreen({
                                 type="button"
                                 className="s-thread-msg-actor s-thread-msg-actor--nav"
                                 onClick={() =>
-                                  navigate({
-                                    view: "agent-info",
-                                    conversationId: conversationForAgent(messageAgent.id),
-                                  })
+                                  openContent(
+                                    navigate,
+                                    {
+                                      view: "agent-info",
+                                      conversationId: conversationForAgent(messageAgent.id),
+                                    },
+                                    { returnTo: route },
+                                  )
                                 }
                                 title={`View profile for ${message.actorName}`}
                               >
