@@ -1,5 +1,5 @@
 import "./fleet-home.css";
-import "./command-view.css";
+import "./activity-stream.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Settings, X } from "lucide-react";

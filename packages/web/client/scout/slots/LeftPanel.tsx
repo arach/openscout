@@ -143,7 +143,11 @@ function navigateToAgent(
   agent: Agent,
   options: { observe?: boolean } = {},
 ): void {
-  openAgent(navigate, agent, { ...options, from: "agents-tree" });
+  openAgent(navigate, agent, {
+    ...options,
+    from: "agents-tree",
+    returnTo: { view: "agents" },
+  });
 }
 
 export function ScoutLeftPanel() {

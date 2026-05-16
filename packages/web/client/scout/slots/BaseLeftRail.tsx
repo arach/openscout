@@ -7,6 +7,7 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
+import { openAgent } from "./openAgent.ts";
 import { RailRow } from "./RailRow.tsx";
 import type {
   Agent,
@@ -32,7 +33,7 @@ type BaseLeftRailProps = {
 };
 
 export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
-  const { agents, navigate } = useScout();
+  const { agents, navigate, route } = useScout();
   const [fleet, setFleet] = useState<FleetState | null>(null);
 
   const load = useCallback(async () => {
@@ -68,7 +69,7 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
         agents={recentAgents}
         totalCount={agents.length}
         onlineCount={agents.filter((a) => isAgentOnline(a.state)).length}
-        onSelect={(agent) => navigate({ view: "agents", agentId: agent.id })}
+        onSelect={(agent) => openAgent(navigate, agent, { from: "base-rail", returnTo: route })}
         onSeeAll={() => navigate({ view: "agents" })}
       />
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useScout } from "../Provider.tsx";
+import { openAgent } from "./openAgent.ts";
 import { openContent } from "./openContent.ts";
 import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
@@ -100,7 +101,7 @@ export function ScoutInspector() {
       content = <MeshInspectorPanel />;
       break;
     case "ops":
-      content = <OpsInspectorPanel mode={route.mode ?? "mission"} agents={agents} navigate={navigate} />;
+      content = <OpsInspectorPanel mode={route.mode ?? "mission"} agents={agents} navigate={navigate} returnRoute={route} />;
       break;
     case "broker":
       content = selectedBrokerAttempt
@@ -161,10 +162,12 @@ function OpsInspectorPanel({
   mode,
   agents,
   navigate,
+  returnRoute,
 }: {
   mode: OpsMode;
   agents: Agent[];
   navigate: (route: Route) => void;
+  returnRoute: Route;
 }) {
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [detail, setDetail] = useState<OpsDetailSnapshot | null>(() => {
@@ -285,7 +288,7 @@ function OpsInspectorPanel({
               key={agent.id}
               type="button"
               className="ctx-panel-pulse-row"
-              onClick={() => navigate({ view: "agents", agentId: agent.id })}
+              onClick={() => openAgent(navigate, agent, { from: "inspector", returnTo: returnRoute })}
             >
               <span className={`ctx-panel-pulse-dot ctx-panel-pulse-dot--${normalizeAgentState(agent.state)}`} />
               <span>{agent.name}</span>
