@@ -10,6 +10,7 @@ import { api } from "../lib/api.ts";
 import { agentIdFromConversation } from "../lib/router.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
+import { formatLabel } from "../lib/text.ts";
 import { useScout } from "../scout/Provider.tsx";
 import type { Agent, Route, SessionEntry } from "../lib/types.ts";
 
@@ -17,10 +18,6 @@ type ProfileField = {
   label: string;
   value: ReactNode;
 };
-
-function formatLabel(value: string | null | undefined): string | null {
-  return value ? value.replace(/_/g, " ") : null;
-}
 
 function CapabilityTokens({ values }: { values: string[] }) {
   return (

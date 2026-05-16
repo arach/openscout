@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
+import { Avatar } from "../../components/Avatar.tsx";
 import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
 import { actorColor } from "../../lib/colors.ts";
 import {
@@ -223,14 +224,17 @@ export function ScoutMessagesLeftPanel() {
                 onClick={() => onSelect(s)}
               >
                 {channel ? (
-                  <div className="ctx-panel-hash">#</div>
+                  <Avatar
+                    kind="channel"
+                    name={title}
+                    channelClassName="ctx-panel-hash"
+                  />
                 ) : (
-                  <div
+                  <Avatar
                     className="ctx-panel-avatar"
-                    style={{ background: actorColor(s.agentName ?? title) }}
-                  >
-                    {title[0]?.toUpperCase() ?? "?"}
-                  </div>
+                    name={title}
+                    background={actorColor(s.agentName ?? title)}
+                  />
                 )}
                 <div className="ctx-panel-body">
                   <span className="ctx-panel-name">{title}</span>

@@ -402,6 +402,10 @@ CREATE INDEX IF NOT EXISTS idx_agent_endpoints_agent_updated_at
   ON agent_endpoints (agent_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at
   ON messages (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at
+  ON messages (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_actor_created_at
+  ON messages (actor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_read_cursors_conversation_updated_at
   ON conversation_read_cursors (conversation_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_invocations_target_created_at
@@ -414,6 +418,10 @@ CREATE INDEX IF NOT EXISTS idx_flights_invocation_id
   ON flights (invocation_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_status_transport
   ON deliveries (status, transport);
+CREATE INDEX IF NOT EXISTS idx_deliveries_created_at
+  ON deliveries (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_delivery_attempts_created_at
+  ON delivery_attempts (created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_durable_actions_idempotency_key
   ON durable_actions (authority_cell_id, kind, idempotency_key)
   WHERE idempotency_key IS NOT NULL;
@@ -421,12 +429,29 @@ CREATE INDEX IF NOT EXISTS idx_durable_actions_authority_state_lease
   ON durable_actions (authority_cell_id, state, lease_expires_at);
 CREATE INDEX IF NOT EXISTS idx_durable_actions_subject
   ON durable_actions (kind, subject_id);
+CREATE INDEX IF NOT EXISTS idx_durable_actions_kind_due_at_updated_at
+  ON durable_actions (
+    kind,
+    COALESCE(
+      CAST(json_extract(metadata_json, '$.dueAt') AS REAL),
+      CAST(json_extract(metadata_json, '$.due_at') AS REAL)
+    ),
+    updated_at
+  );
 CREATE INDEX IF NOT EXISTS idx_durable_attempts_action_attempt
   ON durable_attempts (action_id, attempt);
 CREATE INDEX IF NOT EXISTS idx_collaboration_records_state
   ON collaboration_records (state);
 CREATE INDEX IF NOT EXISTS idx_collaboration_records_updated_at
   ON collaboration_records (updated_at);
+CREATE INDEX IF NOT EXISTS idx_collaboration_records_kind_state_updated_at
+  ON collaboration_records (kind, state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_collaboration_records_parent_kind_state_updated_at
+  ON collaboration_records (parent_id, kind, state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_collaboration_records_owner_kind_state_updated_at
+  ON collaboration_records (owner_id, kind, state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_collaboration_records_next_move_owner_kind_state_updated_at
+  ON collaboration_records (next_move_owner_id, kind, state, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_collaboration_events_record_created_at
   ON collaboration_events (record_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_unblock_requests_state_owner_updated_at

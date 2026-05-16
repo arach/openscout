@@ -8,6 +8,7 @@ import { api } from "../lib/api.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
+import { formatLabel } from "../lib/text.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import { useScout } from "../scout/Provider.tsx";
@@ -38,13 +39,6 @@ function agentLabel(
   if (siblings.length <= 1) return { name: agent.name, qualifier: null };
   const qualifier = agent.project ?? agent.branch ?? agent.id.replace(/^.*\./, "");
   return { name: agent.name, qualifier };
-}
-
-function formatLabel(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const cleaned = value.replace(/_/g, " ");
-  if (cleaned.toLowerCase() === "relay agent") return "agent";
-  return cleaned;
 }
 
 function directSessionMaps(sessions: SessionEntry[]): {

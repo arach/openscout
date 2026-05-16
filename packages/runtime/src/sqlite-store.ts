@@ -57,6 +57,7 @@ import {
 } from "./registry.js";
 import { openControlPlaneDrizzle } from "./drizzle-client.js";
 import { applyControlPlaneDrizzleMigrations, stampControlPlaneSchemaVersion } from "./drizzle-migrate.js";
+import { Conversations, type ConversationsApi } from "./conversations/api.js";
 import { CONTROL_PLANE_SQLITE_SCHEMA, deliveryAttemptsTable, deliveriesTable } from "./schema.js";
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -686,6 +687,7 @@ export class SQLiteControlPlaneStore {
   private readonly persistEventsBatch: (events: ControlEvent[]) => void;
   private pendingEvents: ControlEvent[] = [];
   private flushPendingEventsTimer: ReturnType<typeof setTimeout> | null = null;
+  private conversationsApi: ConversationsApi | null = null;
 
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -1079,7 +1081,7 @@ export class SQLiteControlPlaneStore {
   }
 
   getThreadSnapshot(conversationId: string): ThreadSnapshot | null {
-    const conversation = this.loadConversation(conversationId);
+    const conversation = this.getConversation(conversationId);
     if (!conversation) {
       return null;
     }
@@ -1342,10 +1344,24 @@ export class SQLiteControlPlaneStore {
       nextThreadMessageEvent: ThreadEventInsert | null,
     ) => {
       this.db.query(
-        `INSERT OR REPLACE INTO messages (
+        `INSERT INTO messages (
           id, conversation_id, actor_id, origin_node_id, class, body, reply_to_message_id,
           thread_conversation_id, speech_json, audience_json, visibility, policy, metadata_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        ON CONFLICT(id) DO UPDATE SET
+          conversation_id = excluded.conversation_id,
+          actor_id = excluded.actor_id,
+          origin_node_id = excluded.origin_node_id,
+          class = excluded.class,
+          body = excluded.body,
+          reply_to_message_id = excluded.reply_to_message_id,
+          thread_conversation_id = excluded.thread_conversation_id,
+          speech_json = excluded.speech_json,
+          audience_json = excluded.audience_json,
+          visibility = excluded.visibility,
+          policy = excluded.policy,
+          metadata_json = excluded.metadata_json,
+          created_at = excluded.created_at`,
       ).run(
         nextMessage.id,
         nextMessage.conversationId,
@@ -1441,11 +1457,28 @@ export class SQLiteControlPlaneStore {
   recordInvocation(invocation: InvocationRequest): void {
     const collaborationRecordId = resolveInvocationCollaborationRecordId(invocation);
     this.db.query(
-      `INSERT OR REPLACE INTO invocations (
+      `INSERT INTO invocations (
         id, requester_id, requester_node_id, target_agent_id, target_node_id, action, task,
         collaboration_record_id, conversation_id, message_id, context_json, execution_json,
         ensure_awake, stream, timeout_ms, metadata_json, created_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+      ON CONFLICT(id) DO UPDATE SET
+        requester_id = excluded.requester_id,
+        requester_node_id = excluded.requester_node_id,
+        target_agent_id = excluded.target_agent_id,
+        target_node_id = excluded.target_node_id,
+        action = excluded.action,
+        task = excluded.task,
+        collaboration_record_id = excluded.collaboration_record_id,
+        conversation_id = excluded.conversation_id,
+        message_id = excluded.message_id,
+        context_json = excluded.context_json,
+        execution_json = excluded.execution_json,
+        ensure_awake = excluded.ensure_awake,
+        stream = excluded.stream,
+        timeout_ms = excluded.timeout_ms,
+        metadata_json = excluded.metadata_json,
+        created_at = excluded.created_at`,
     ).run(
       invocation.id,
       invocation.requesterId,
@@ -1533,11 +1566,28 @@ export class SQLiteControlPlaneStore {
     }
 
     this.db.query(
-      `INSERT OR REPLACE INTO collaboration_records (
+      `INSERT INTO collaboration_records (
         id, kind, state, acceptance_state, title, summary, created_by_id, owner_id,
         next_move_owner_id, conversation_id, parent_id, priority, labels_json, relations_json,
         detail_json, created_at, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+      ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        state = excluded.state,
+        acceptance_state = excluded.acceptance_state,
+        title = excluded.title,
+        summary = excluded.summary,
+        created_by_id = excluded.created_by_id,
+        owner_id = excluded.owner_id,
+        next_move_owner_id = excluded.next_move_owner_id,
+        conversation_id = excluded.conversation_id,
+        parent_id = excluded.parent_id,
+        priority = excluded.priority,
+        labels_json = excluded.labels_json,
+        relations_json = excluded.relations_json,
+        detail_json = excluded.detail_json,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at`,
     ).run(
       record.id,
       record.kind,
@@ -1595,12 +1645,36 @@ export class SQLiteControlPlaneStore {
 
   recordUnblockRequest(request: UnblockRequestRecord): void {
     this.db.query(
-      `INSERT OR REPLACE INTO unblock_requests (
+      `INSERT INTO unblock_requests (
         id, kind, state, source, source_ref, source_label, title, summary, detail,
         owner_id, created_by_id, agent_id, conversation_id, session_id, flight_id,
         collaboration_record_id, severity, actions_json, metadata_json, created_at,
         updated_at, expires_at, resolved_at, resolution
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)`,
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+      ON CONFLICT DO UPDATE SET
+        kind = excluded.kind,
+        state = excluded.state,
+        source = excluded.source,
+        source_ref = excluded.source_ref,
+        source_label = excluded.source_label,
+        title = excluded.title,
+        summary = excluded.summary,
+        detail = excluded.detail,
+        owner_id = excluded.owner_id,
+        created_by_id = excluded.created_by_id,
+        agent_id = excluded.agent_id,
+        conversation_id = excluded.conversation_id,
+        session_id = excluded.session_id,
+        flight_id = excluded.flight_id,
+        collaboration_record_id = excluded.collaboration_record_id,
+        severity = excluded.severity,
+        actions_json = excluded.actions_json,
+        metadata_json = excluded.metadata_json,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        expires_at = excluded.expires_at,
+        resolved_at = excluded.resolved_at,
+        resolution = excluded.resolution`,
     ).run(
       request.id,
       request.kind,
@@ -2036,10 +2110,22 @@ export class SQLiteControlPlaneStore {
 
   recordDurableAction(action: DurableAction): void {
     this.db.query(
-      `INSERT OR REPLACE INTO durable_actions (
+      `INSERT INTO durable_actions (
         id, kind, subject_id, authority_cell_id, state, idempotency_key, lease_owner,
         lease_generation, lease_expires_at, metadata_json, created_at, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+      ON CONFLICT DO UPDATE SET
+        kind = excluded.kind,
+        subject_id = excluded.subject_id,
+        authority_cell_id = excluded.authority_cell_id,
+        state = excluded.state,
+        idempotency_key = excluded.idempotency_key,
+        lease_owner = excluded.lease_owner,
+        lease_generation = excluded.lease_generation,
+        lease_expires_at = excluded.lease_expires_at,
+        metadata_json = excluded.metadata_json,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at`,
     ).run(
       action.id,
       action.kind,
@@ -2680,7 +2766,46 @@ export class SQLiteControlPlaneStore {
     };
   }
 
-  private loadConversation(conversationId: string, db: Database = this.db): ConversationDefinition | null {
+  /**
+   * SCO-031 §5: lazy singleton `Conversations` api bound to this store.
+   * Callers do `store.conversations.findById(id)` rather than reaching for
+   * `getConversation` directly. The api owns conversation identity logic
+   * (legacy structural-ID parsing, future `ensureByNaturalKey` semantics).
+   */
+  get conversations(): ConversationsApi {
+    if (!this.conversationsApi) {
+      this.conversationsApi = new Conversations(this);
+    }
+    return this.conversationsApi;
+  }
+
+  /**
+   * @internal SCO-031: writer-side `Database` exposed to `Conversations`
+   * so the api can issue conversation-only queries without opening a third
+   * connection. Not part of the public API; downstream code should go through
+   * `store.conversations` or other purpose-built methods.
+   */
+  get writerDb(): Database {
+    return this.db;
+  }
+
+  /**
+   * @internal SCO-031: read-side `Database` (PRAGMA `query_only`) exposed to
+   * `Conversations`. Same caveats as `writerDb` — internal only.
+   */
+  get readerDb(): Database {
+    return this.readDb;
+  }
+
+  /**
+   * Load the canonical `ConversationDefinition` for a conversation id, or
+   * `null` when the row is unknown. Promoted to public per SCO-031 §13 Q3 so
+   * `Conversations.findById` can call it without reaching into a private — the
+   * api (`packages/runtime/src/conversations/api.ts`) is the intended caller.
+   * Other call sites should prefer `store.conversations.findById` over
+   * invoking this directly.
+   */
+  getConversation(conversationId: string, db: Database = this.db): ConversationDefinition | null {
     const row = queryGet<ConversationRow, [string]>(
       db,
       "SELECT * FROM conversations WHERE id = ?1 LIMIT 1",
@@ -2781,7 +2906,7 @@ export class SQLiteControlPlaneStore {
   }
 
   private buildThreadMessageEvent(message: MessageRecord, db: Database = this.db): ThreadEventInsert | null {
-    const conversation = this.loadConversation(message.conversationId, db);
+    const conversation = this.getConversation(message.conversationId, db);
     if (!conversation) {
       return null;
     }
@@ -2811,7 +2936,7 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    const conversation = this.loadConversation(invocation.conversation_id);
+    const conversation = this.getConversation(invocation.conversation_id);
     if (!conversation) {
       return [];
     }
@@ -2837,7 +2962,7 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    const conversation = this.loadConversation(record.conversationId);
+    const conversation = this.getConversation(record.conversationId);
     if (!conversation) {
       return [];
     }
@@ -2867,7 +2992,7 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    const conversation = this.loadConversation(record.conversation_id);
+    const conversation = this.getConversation(record.conversation_id);
     if (!conversation) {
       return [];
     }

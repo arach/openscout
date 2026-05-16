@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
-import { stateColor, actorColor } from "../../lib/colors.ts";
+import { Avatar, PresenceDot } from "../../components/Avatar.tsx";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent } from "../../lib/types.ts";
 import { ScoutFleetLeftPanel } from "./FleetLeftPanel.tsx";
@@ -223,15 +223,13 @@ function ScoutAgentsLeftPanel() {
                 }}
               >
                 <span className="s-left-roster-avatar-wrap">
-                  <span
+                  <Avatar
                     className="s-left-roster-avatar"
-                    style={{ background: actorColor(group.label) }}
-                  >
-                    {group.label[0].toUpperCase()}
-                  </span>
-                  <span
+                    name={group.label}
+                  />
+                  <PresenceDot
+                    state={group.bestState}
                     className={`s-left-roster-dot s-left-roster-dot--${group.bestState}`}
-                    style={{ background: stateColor(group.bestState === "working" ? "working" : group.bestState === "available" ? "available" : null) }}
                   />
                 </span>
 
@@ -280,9 +278,9 @@ function ScoutAgentsLeftPanel() {
                       })}
                       title={matchedSessionIdentifier(agent, normalizedQuery) ?? undefined}
                     >
-                      <span
+                      <PresenceDot
+                        state={agent.state}
                         className={`s-left-roster-instance-dot s-left-roster-dot--${normalizeAgentState(agent.state)}`}
-                        style={{ background: stateColor(agent.state) }}
                       />
                       <span className="s-left-roster-instance-label">
                         {agent.name}

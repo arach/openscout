@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
+import { Avatar } from "../../components/Avatar.tsx";
 import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
 import {
   conversationDisplayTitle,
@@ -100,7 +101,11 @@ export function ScoutChannelsLeftPanel() {
                 ].filter(Boolean).join(" ")}
                 onClick={() => onSelect(ch.id)}
               >
-                <div className="ctx-panel-hash">#</div>
+                <Avatar
+                  kind="channel"
+                  name={name}
+                  channelClassName="ctx-panel-hash"
+                />
                 <div className="ctx-panel-body">
                   <span className="ctx-panel-name">{name}</span>
                   {ch.preview && (

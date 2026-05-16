@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
-import { actorColor } from "../../lib/colors.ts";
+import { Avatar } from "../../components/Avatar.tsx";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
@@ -61,12 +61,10 @@ export function ScoutFleetLeftPanel() {
                 className="ctx-panel-item ctx-panel-item--attention"
                 onClick={() => openAttention(item)}
               >
-                <div
+                <Avatar
                   className="ctx-panel-avatar"
-                  style={{ background: actorColor(item.agentName ?? item.agentId ?? item.title) }}
-                >
-                  {(item.agentName ?? item.agentId ?? "?")[0]?.toUpperCase()}
-                </div>
+                  name={item.agentName ?? item.agentId ?? item.title}
+                />
                 <div className="ctx-panel-body">
                   <span className="ctx-panel-name">{item.title}</span>
                   <span className="ctx-panel-sub">
@@ -95,12 +93,10 @@ export function ScoutFleetLeftPanel() {
                 className="ctx-panel-item"
                 onClick={() => openAsk(ask)}
               >
-                <div
+                <Avatar
                   className="ctx-panel-avatar"
-                  style={{ background: actorColor(ask.agentName ?? ask.agentId) }}
-                >
-                  {(ask.agentName ?? ask.agentId)[0]?.toUpperCase()}
-                </div>
+                  name={ask.agentName ?? ask.agentId}
+                />
                 <div className="ctx-panel-body">
                   <span className="ctx-panel-name">{ask.task}</span>
                   <span className="ctx-panel-sub">
