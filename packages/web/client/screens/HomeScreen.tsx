@@ -3,7 +3,11 @@ import "./command-view.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Settings, X } from "lucide-react";
-import HomeHero from "./HomeHero.tsx";
+import HomeHero, {
+  type HomeHeroBriefObservation,
+  type HomeHeroSignal,
+  type ServiceGauge,
+} from "./HomeHero.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -32,6 +36,20 @@ const LOOKBACK_WINDOWS: LookbackOption[] = [
   { label: "24h", value: 24 * 60 * 60_000 },
 ];
 const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[1].value;
+// Service-budget data (claude/codex/github usage) is expensive to compute
+// and doesn't change minute-to-minute. Refresh once an hour; the server
+// caches the same window. Easy to tune later if we want fresher numbers.
+const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
+const FLEET_BRIEF_REFRESH_MS = 5 * 60_000;
+
+type FleetHomeBrief = {
+  id: string;
+  statement: string;
+  observations?: HomeHeroBriefObservation[];
+  preparedAt: number;
+  expiresAt: number;
+  ttlMs: number;
+};
 
 function formatAge(timestamp: number | null | undefined, nowMs: number): string {
   if (!timestamp || !Number.isFinite(timestamp)) return "—";
@@ -77,6 +95,18 @@ function formatLookback(ms: number): string {
   return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
 }
 
+function formatTimeUntil(timestamp: number | null | undefined, nowMs: number): string {
+  if (!timestamp || !Number.isFinite(timestamp)) return "unknown";
+  const seconds = Math.floor((timestamp - nowMs) / 1000);
+  if (seconds <= 0) return "expired";
+  if (seconds < 60) return `in ${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `in ${hours}h`;
+  return `in ${Math.floor(hours / 24)}d`;
+}
+
 type HeartrateBucketView = {
   ts: number;
   count: number;
@@ -108,6 +138,9 @@ export function HomeScreen({
   const [heartrate, setHeartrate] = useState<HeartrateBucketView[]>([]);
   const [heartrateWindow, setHeartrateWindow] = useState("trailing 7d");
   const [heartrateBucketLabel, setHeartrateBucketLabel] = useState("3h buckets");
+  const [serviceGauges, setServiceGauges] = useState<ServiceGauge[]>([]);
+  const [fleetBrief, setFleetBrief] = useState<FleetHomeBrief | null>(null);
+  const [briefRefreshing, setBriefRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +221,43 @@ export function HomeScreen({
     };
   }, [load]);
   useBrokerEvents(scheduleRefresh);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchBudgets = async () => {
+      try {
+        const result = await api<{ gauges: ServiceGauge[] }>("/api/service-budgets");
+        if (!cancelled) setServiceGauges(result.gauges ?? []);
+      } catch {
+        // Silent: gauges are best-effort. If the endpoint fails, we just hide them.
+      }
+    };
+    void fetchBudgets();
+    const id = setInterval(fetchBudgets, SERVICE_BUDGETS_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  const fetchFleetBrief = useCallback(async (force = false) => {
+    if (force) setBriefRefreshing(true);
+    try {
+      const path = force ? "/api/fleet/brief?refresh=1" : "/api/fleet/brief";
+      const result = await api<FleetHomeBrief>(path);
+      setFleetBrief(result);
+    } catch {
+      // Silent: the generated brief is additive; the computed status line remains available.
+    } finally {
+      if (force) setBriefRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchFleetBrief();
+    const id = setInterval(() => void fetchFleetBrief(), FLEET_BRIEF_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [fetchFleetBrief]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -337,6 +407,97 @@ export function HomeScreen({
     return [...byActor.values()].sort((a, b) => b.ts - a.ts);
   }, [fleet?.activity, nowMs, agents, operatorName]);
 
+  const systemSignals = useMemo<HomeHeroSignal[]>(() => {
+    const signals: HomeHeroSignal[] = [];
+
+    if (totalOperatorQueue > 0) {
+      signals.push({
+        id: "attention-age",
+        label: "needs you",
+        value: oldestNeedsTs
+          ? `oldest item has waited ${timeAgo(oldestNeedsTs)}`
+          : "operator queue has waiting work",
+        tone: "warn",
+      });
+    } else {
+      signals.push({
+        id: "attention-clear",
+        label: "needs you",
+        value: "no human-only queue in the current snapshot",
+        tone: "ok",
+      });
+    }
+
+    if (movingAsksWithoutActiveAgent.length > 0) {
+      signals.push({
+        id: "unanchored-work",
+        label: "hidden motion",
+        value: `${movingAsksWithoutActiveAgent.length} moving ask${movingAsksWithoutActiveAgent.length === 1 ? "" : "s"} without an active registered agent`,
+        tone: "warn",
+        route: { view: "activity" },
+      });
+    } else if (observedActiveActors.length > 0) {
+      signals.push({
+        id: "organic-work",
+        label: "organic work",
+        value: `${observedActiveActors.length} recent actor${observedActiveActors.length === 1 ? "" : "s"} outside the managed roster`,
+        tone: "ok",
+        route: { view: "activity" },
+      });
+    } else {
+      signals.push({
+        id: "hidden-clear",
+        label: "hidden motion",
+        value: "no recent untracked movement detected",
+        tone: "dim",
+      });
+    }
+
+    const stressedGauge = serviceGauges.find((g) =>
+      g.kind === "status"
+        ? g.tone === "warn" || g.tone === "err"
+        : g.fill >= 0.75,
+    );
+    if (stressedGauge) {
+      signals.push({
+        id: "service-pressure",
+        label: "service pressure",
+        value: stressedGauge.kind === "status"
+          ? `${stressedGauge.label} reports ${stressedGauge.statusLabel.toLowerCase()}`
+          : `${stressedGauge.label} is at ${Math.round(stressedGauge.fill * 100)}% of ${stressedGauge.unitLabel}`,
+        tone: stressedGauge.kind === "status" ? stressedGauge.tone : "warn",
+        route: { view: "ops" },
+      });
+    } else {
+      signals.push({
+        id: "service-pressure",
+        label: "service pressure",
+        value: "no usage pressure above threshold",
+        tone: "ok",
+        route: { view: "ops" },
+      });
+    }
+
+    signals.push({
+      id: "brief-memory",
+      label: "brief memory",
+      value: fleetBrief
+        ? `prepared ${timeAgo(fleetBrief.preparedAt)} · expires ${formatTimeUntil(fleetBrief.expiresAt, nowMs)}`
+        : "no generated brief loaded yet",
+      tone: fleetBrief && fleetBrief.expiresAt > nowMs ? "dim" : "warn",
+    });
+
+    return signals;
+  }, [
+    fleetBrief,
+    movingAsksWithoutActiveAgent.length,
+    nowMs,
+    observedActiveActors.length,
+    oldestNeedsTs,
+    serviceGauges,
+    totalOperatorQueue,
+  ]);
+
   const narrativeParts = useMemo(() => {
     const parts: string[] = [];
     if (active.length > 0)
@@ -367,13 +528,13 @@ export function HomeScreen({
     error,
     loading,
     refreshing,
+    briefRefreshing,
     onRefresh: () => void load("manual"),
-    activeCount: active.length,
-    waitingCount: waiting.length,
-    offlineCount: offline.length,
-    totalAgents: agents.length,
+    onRegenerateBrief: () => void fetchFleetBrief(true),
     totalOperatorQueue,
     narrativeParts,
+    briefStatement: fleetBrief && fleetBrief.expiresAt > nowMs ? fleetBrief.statement : null,
+    briefObservations: fleetBrief && fleetBrief.expiresAt > nowMs ? fleetBrief.observations ?? [] : [],
     navigate,
     opsEnabled,
     onReviewQueue: () => {
@@ -383,6 +544,8 @@ export function HomeScreen({
     heartrate,
     heartrateWindow,
     heartrateBucketLabel,
+    serviceGauges,
+    systemSignals,
   };
 
   return (
