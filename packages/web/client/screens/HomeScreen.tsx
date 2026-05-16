@@ -14,6 +14,12 @@ import { timeAgo } from "../lib/time.ts";
 import { actorColor } from "../lib/colors.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
+import {
+  isVoxSpeechStopped,
+  startVoxSpeech,
+  type VoxSpeakHandle,
+} from "../lib/vox.ts";
+import { toSpokenScoutText } from "../lib/spoken-text.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
@@ -41,6 +47,7 @@ const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[1].value;
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
 const FLEET_BRIEF_REFRESH_MS = 5 * 60_000;
+const LAST_SPOKEN_BRIEF_KEY = "openscout.home.lastSpokenBriefId.v1";
 
 type FleetHomeBrief = {
   id: string;
@@ -251,6 +258,23 @@ export function HomeScreen({
     } finally {
       if (force) setBriefRefreshing(false);
     }
+  }, []);
+
+  const [lastSpokenBriefId, setLastSpokenBriefId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(LAST_SPOKEN_BRIEF_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const [briefSpeaking, setBriefSpeaking] = useState(false);
+  const briefSpeechRef = useRef<VoxSpeakHandle | null>(null);
+
+  useEffect(() => {
+    return () => {
+      briefSpeechRef.current?.stop();
+      briefSpeechRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -520,6 +544,61 @@ export function HomeScreen({
         ? `updated ${timeAgo(lastLoadedAt)}`
         : "waiting";
 
+  const briefSpeechText = useMemo(() => {
+    if (!fleetBrief || fleetBrief.expiresAt <= nowMs) return "";
+    const parts: string[] = [];
+    const statement = fleetBrief.statement?.trim();
+    if (statement) parts.push(statement);
+    for (const obs of fleetBrief.observations ?? []) {
+      const text = obs.text?.trim();
+      if (text) parts.push(text);
+    }
+    return parts.join(". ");
+  }, [fleetBrief, nowMs]);
+
+  const stopBriefSpeech = useCallback(() => {
+    briefSpeechRef.current?.stop();
+    briefSpeechRef.current = null;
+    setBriefSpeaking(false);
+  }, []);
+
+  const speakBrief = useCallback(() => {
+    if (briefSpeaking) {
+      stopBriefSpeech();
+      return;
+    }
+    if (!fleetBrief || !briefSpeechText) return;
+    const briefId = fleetBrief.id;
+    const handle = startVoxSpeech(toSpokenScoutText(briefSpeechText));
+    briefSpeechRef.current = handle;
+    setBriefSpeaking(true);
+    setLastSpokenBriefId(briefId);
+    try {
+      localStorage.setItem(LAST_SPOKEN_BRIEF_KEY, briefId);
+    } catch {
+      // ignore storage failures; in-memory state still tracks the speak.
+    }
+    void handle.promise
+      .catch((err) => {
+        if (!isVoxSpeechStopped(err)) {
+          console.warn("brief speech failed", err);
+        }
+      })
+      .finally(() => {
+        if (briefSpeechRef.current === handle) {
+          briefSpeechRef.current = null;
+          setBriefSpeaking(false);
+        }
+      });
+  }, [briefSpeaking, briefSpeechText, fleetBrief, stopBriefSpeech]);
+
+  const briefSpeakable = Boolean(briefSpeechText);
+  const briefIsNew = Boolean(
+    fleetBrief
+      && fleetBrief.expiresAt > nowMs
+      && fleetBrief.id !== lastSpokenBriefId,
+  );
+
   const heroProps = {
     now,
     greeting,
@@ -531,6 +610,9 @@ export function HomeScreen({
     briefRefreshing,
     onRefresh: () => void load("manual"),
     onRegenerateBrief: () => void fetchFleetBrief(true),
+    onSpeakBrief: briefSpeakable ? speakBrief : undefined,
+    briefSpeaking,
+    briefIsNew,
     totalOperatorQueue,
     narrativeParts,
     briefStatement: fleetBrief && fleetBrief.expiresAt > nowMs ? fleetBrief.statement : null,
@@ -553,6 +635,59 @@ export function HomeScreen({
       <div className="s-fleet-home-inner">
         {/* ── Hero briefing ──────────────────────────────────────── */}
         <HomeHero {...heroProps} />
+
+        {/* ── What's moving ──────────────────────────────────────── */}
+        {(active.length > 0 || observedActiveActors.length > 0 || movingAsksWithoutActiveAgent.length > 0) && (
+          <div className="s-fleet-section">
+            <SectionRule
+              label={`What's moving · ${active.length + observedActiveActors.length + movingAsksWithoutActiveAgent.length}`}
+              right={
+                <button
+                  className="s-link-btn"
+                  onClick={() => navigate({ view: "mesh" })}
+                >
+                  open mesh ↗
+                </button>
+              }
+            />
+            {(active.length > 0 || observedActiveActors.length > 0) && (
+              <div
+                className="s-now-grid"
+                style={{
+                  gridTemplateColumns: `repeat(${Math.min(active.length + observedActiveActors.length, 3)}, 1fr)`,
+                }}
+              >
+                {active.map((agent) => (
+                  <NowCard
+                    key={agent.id}
+                    agent={agent}
+                    ask={activeAskByAgent.get(agent.id) ?? null}
+                    navigate={navigate}
+                  />
+                ))}
+                {observedActiveActors.map((actor) => (
+                  <ObservedActorCard
+                    key={actor.id}
+                    actor={actor}
+                    nowMs={nowMs}
+                    navigate={navigate}
+                  />
+                ))}
+              </div>
+            )}
+            {movingAsksWithoutActiveAgent.length > 0 && (
+              <div className="s-moving-ask-list">
+                {movingAsksWithoutActiveAgent.map((ask) => (
+                  <MovingAskRow
+                    key={ask.invocationId}
+                    ask={ask}
+                    navigate={navigate}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Live activity (windowed) ───────────────────────────── */}
         <div className="s-fleet-section">
@@ -627,59 +762,6 @@ export function HomeScreen({
                   <AttentionRow
                     key={item.recordId}
                     item={item}
-                    navigate={navigate}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── What's moving ──────────────────────────────────────── */}
-        {(active.length > 0 || observedActiveActors.length > 0 || movingAsksWithoutActiveAgent.length > 0) && (
-          <div className="s-fleet-section">
-            <SectionRule
-              label={`What's moving · ${active.length + observedActiveActors.length + movingAsksWithoutActiveAgent.length}`}
-              right={
-                <button
-                  className="s-link-btn"
-                  onClick={() => navigate({ view: "mesh" })}
-                >
-                  open mesh ↗
-                </button>
-              }
-            />
-            {(active.length > 0 || observedActiveActors.length > 0) && (
-              <div
-                className="s-now-grid"
-                style={{
-                  gridTemplateColumns: `repeat(${Math.min(active.length + observedActiveActors.length, 3)}, 1fr)`,
-                }}
-              >
-                {active.map((agent) => (
-                  <NowCard
-                    key={agent.id}
-                    agent={agent}
-                    ask={activeAskByAgent.get(agent.id) ?? null}
-                    navigate={navigate}
-                  />
-                ))}
-                {observedActiveActors.map((actor) => (
-                  <ObservedActorCard
-                    key={actor.id}
-                    actor={actor}
-                    nowMs={nowMs}
-                    navigate={navigate}
-                  />
-                ))}
-              </div>
-            )}
-            {movingAsksWithoutActiveAgent.length > 0 && (
-              <div className="s-moving-ask-list">
-                {movingAsksWithoutActiveAgent.map((ask) => (
-                  <MovingAskRow
-                    key={ask.invocationId}
-                    ask={ask}
                     navigate={navigate}
                   />
                 ))}

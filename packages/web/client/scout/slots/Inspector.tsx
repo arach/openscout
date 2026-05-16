@@ -100,7 +100,7 @@ export function ScoutInspector() {
       content = <MeshInspectorPanel />;
       break;
     case "ops":
-      content = <OpsInspectorPanel mode={route.mode ?? "command"} agents={agents} navigate={navigate} />;
+      content = <OpsInspectorPanel mode={route.mode ?? "mission"} agents={agents} navigate={navigate} />;
       break;
     case "broker":
       content = selectedBrokerAttempt
@@ -142,14 +142,11 @@ function BrokerInspectorEmpty() {
 }
 
 const OPS_MODE_LABELS: Record<OpsMode, string> = {
-  command: "Command",
   mission: "Control",
   plan: "Plan",
-  conductor: "Conduct",
   tail: "Tail",
   atop: "Atop",
   agents: "Agents",
-  runs: "Runs",
 };
 
 type OpsDetailSnapshot = {
@@ -354,7 +351,7 @@ function OpsAttentionButton({
         if (item.conversationId) {
           openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route });
         } else {
-          navigate({ view: "ops", mode: "command" });
+          navigate({ view: "ops", mode: "mission" });
         }
       }}
     >
@@ -382,7 +379,7 @@ function OpsAskButton({
         if (ask.conversationId) {
           openContent(navigate, { view: "conversation", conversationId: ask.conversationId }, { returnTo: route });
         } else {
-          navigate({ view: "ops", mode: "runs" });
+          navigate({ view: "ops", mode: "mission" });
         }
       }}
     >

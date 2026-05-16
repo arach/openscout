@@ -24,13 +24,11 @@ function parseAgentTab(value: string | null): AgentTab | undefined {
 
 function parseOpsMode(value: string | undefined): OpsMode | undefined {
   switch (value) {
-    case "command":
-      return "command";
-    case "warroom":
-      return "command";
     case "control":
     case "mission":
-    // Conduct/Conductor view retired 2026-05-15 — fold legacy URLs into Control.
+    // Command/Conductor views retired — fold legacy URLs into Control.
+    case "command":
+    case "warroom":
     case "conduct":
     case "conductor":
       return "mission";
@@ -38,7 +36,6 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
     case "agents":
     case "tail":
     case "atop":
-    case "runs":
       return value;
     default:
       return undefined;
@@ -67,8 +64,6 @@ function parseFollowPreferredView(value: string | null): FollowPreferredView | u
 
 function opsModePath(mode: OpsMode): string {
   switch (mode) {
-    case "command":
-      return "command";
     case "mission":
       return "control";
     default:

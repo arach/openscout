@@ -59,6 +59,9 @@ export type HomeHeroProps = {
   briefRefreshing: boolean;
   onRefresh: () => void;
   onRegenerateBrief: () => void;
+  onSpeakBrief?: () => void;
+  briefSpeaking?: boolean;
+  briefIsNew?: boolean;
   totalOperatorQueue: number;
   narrativeParts: string[];
   briefStatement: string | null;
@@ -369,6 +372,9 @@ export default function HomeHero(props: HomeHeroProps) {
     briefRefreshing,
     onRefresh,
     onRegenerateBrief,
+    onSpeakBrief,
+    briefSpeaking = false,
+    briefIsNew = false,
     totalOperatorQueue,
     narrativeParts,
     briefStatement,
@@ -488,6 +494,16 @@ export default function HomeHero(props: HomeHeroProps) {
             >
               [jump to thread]
             </button>
+            {onSpeakBrief && (
+              <button
+                type="button"
+                className={`hd-btn${briefIsNew && !briefSpeaking ? " hd-btn--primary" : ""}`}
+                onClick={onSpeakBrief}
+                title={briefSpeaking ? "Stop reading the brief" : briefIsNew ? "Read the new brief aloud" : "Replay the brief"}
+              >
+                [{briefSpeaking ? "■ stop" : briefIsNew ? "▸ speak brief" : "▸ replay"}]
+              </button>
+            )}
             <button
               type="button"
               className="hd-btn"

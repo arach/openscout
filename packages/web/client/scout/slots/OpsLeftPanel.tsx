@@ -38,7 +38,7 @@ export function ScoutOpsLeftPanel() {
     if (item.conversationId) {
       openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route });
     } else {
-      navigate({ view: "ops", mode: "command" });
+      navigate({ view: "ops", mode: "mission" });
     }
   };
 
@@ -46,7 +46,7 @@ export function ScoutOpsLeftPanel() {
     if (ask.conversationId) {
       openContent(navigate, { view: "conversation", conversationId: ask.conversationId }, { returnTo: route });
     } else {
-      navigate({ view: "ops", mode: "runs" });
+      navigate({ view: "ops", mode: "mission" });
     }
   };
 

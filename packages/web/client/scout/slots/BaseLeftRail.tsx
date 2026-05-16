@@ -84,7 +84,7 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
           navigate(
             item.conversationId
               ? { view: "conversation", conversationId: item.conversationId }
-              : { view: "ops", mode: "command" },
+              : { view: "ops", mode: "mission" },
           )
         }
       />
