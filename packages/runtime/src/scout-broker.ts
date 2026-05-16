@@ -7,6 +7,7 @@ import {
   extractAgentSelectors,
   formatMinimalAgentIdentity,
   normalizeAgentSelectorSegment,
+  withAgentReferenceAliases,
   type AgentHarness,
   type AgentSelector,
   type AgentSelectorCandidate,
@@ -149,6 +150,9 @@ export type ScoutTargetDiagnostic =
 
 export type ScoutMessagePostResult = {
   usedBroker: boolean;
+  conversationId?: string;
+  messageId?: string;
+  flight?: ScoutFlightRecord;
   invokedTargets: string[];
   unresolvedTargets: string[];
   targetDiagnostic?: ScoutTargetDiagnostic;
@@ -544,14 +548,20 @@ function buildMentionCandidate(
   const profile = metadataString(agent.metadata, "profile");
   const model = metadataString(preferred?.metadata, "model")
     ?? metadataString(agent.metadata, "model");
+  const workspaceQualifier = agent.workspaceQualifier ?? metadataString(agent.metadata, "workspaceQualifier");
+  const referenceId = workspaceQualifier
+    ?? metadataString(preferred?.metadata, "runtimeInstanceId")
+    ?? preferred?.sessionId
+    ?? agent.id;
   return {
     agentId: agent.id,
     definitionId: agent.definitionId || metadataString(agent.metadata, "definitionId") || agent.id,
     nodeQualifier: agent.nodeQualifier ?? metadataString(agent.metadata, "nodeQualifier"),
-    workspaceQualifier: agent.workspaceQualifier ?? metadataString(agent.metadata, "workspaceQualifier"),
+    workspaceQualifier,
     ...(harness ? { harness } : {}),
     ...(profile ? { profile } : {}),
     ...(model ? { model } : {}),
+    ...(referenceId ? { referenceId } : {}),
     aliases: [
       agent.selector,
       agent.defaultSelector,
@@ -569,10 +579,13 @@ function formatMentionCandidateLabel(
   if (!current) {
     return `@${agentId}`;
   }
-  const candidates = Object.values(snapshot.agents)
-    .map((agent) => buildMentionCandidate(snapshot, agent));
+  const candidates = withAgentReferenceAliases(
+    Object.values(snapshot.agents).map((agent) => buildMentionCandidate(snapshot, agent)),
+  );
+  const currentCandidate = candidates.find((candidate) => candidate.agentId === current.id)
+    ?? buildMentionCandidate(snapshot, current);
   return formatMinimalAgentIdentity(
-    buildMentionCandidate(snapshot, current),
+    currentCandidate,
     candidates,
   );
 }
@@ -770,7 +783,7 @@ async function resolveMentionTargets(
       });
     }
 
-    const candidates = Array.from(candidateMap.values());
+    const candidates = withAgentReferenceAliases(Array.from(candidateMap.values()));
     if (selector.definitionId === "all") {
       const targetAgentIds = endpointBackedAgentIds.length > 0
         ? endpointBackedAgentIds
@@ -1310,6 +1323,9 @@ export async function sendScoutMessage(input: {
     }
     return {
       usedBroker: true,
+      conversationId: delivery.conversation.id,
+      messageId: delivery.message.id,
+      flight: delivery.flight,
       invokedTargets: delivery.targetAgentId ? [delivery.targetAgentId] : [],
       unresolvedTargets: [],
       routeKind: delivery.routeKind,
@@ -1513,6 +1529,7 @@ export async function waitForScoutFlight(
   flightId: string,
   options: {
     timeoutSeconds?: number;
+    waitUntil?: "acknowledged" | "completed";
     onUpdate?: (flight: ScoutFlightRecord, detail: string) => void;
   } = {},
 ): Promise<ScoutFlightRecord> {
@@ -1535,6 +1552,13 @@ export async function waitForScoutFlight(
       }
       lastState = flight.state;
       lastSummary = flight.summary ?? "";
+    }
+
+    if (
+      options.waitUntil === "acknowledged"
+      && ["running", "waiting", "completed"].includes(flight.state)
+    ) {
+      return flight;
     }
 
     if (flight.state === "completed") {

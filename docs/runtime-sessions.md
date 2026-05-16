@@ -251,22 +251,23 @@ Codex profile or reject the mismatch with a clear remediation.
 ## Message And Work Semantics
 
 The old "tell means no reply needed" wording is too weak for agent experience.
-Agents usually need an acknowledgement that the broker accepted the interaction
-and a handle they can follow.
+Agents need two separate signals: a broker receipt that proves Scout accepted
+and recorded the interaction, and a target-authored acknowledgement that the
+receiving agent has started working.
 
 Use this model instead:
 
 | Interaction | Use When | Required Result |
 | --- | --- | --- |
 | Message | Status, update, note, or channel post | Broker receipt with ids |
-| Invocation | Question, review, investigation, or owned work | Broker receipt plus flight ids |
+| Invocation | Question, review, investigation, or owned work | Broker receipt plus flight ids, then target acknowledgement and later completion in the same conversation |
 | Work item | Durable multi-step ownership | Work id plus progress states |
 
 The CLI verbs can remain `send` and `ask` for compatibility, but docs and
 skills should teach them as:
 
 - `send`: post a message and return a durable receipt
-- `ask`: create an invocation and return a durable receipt plus lifecycle state
+- `ask`: create an invocation, return a durable receipt plus lifecycle state, and let the target acknowledge quickly before final completion
 
 No route should depend on fire-and-forget behavior. Even a channel post should
 have a receipt.

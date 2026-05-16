@@ -1365,6 +1365,82 @@ describe("broker daemon comms layer", () => {
     expect(followup.receipt?.bindingRef).toBe(followup.bindingRef);
   }, 15_000);
 
+  test("dispatches a direct tell without requiring the sender to request wake", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "hudson",
+      kind: "agent",
+      definitionId: "hudson",
+      displayName: "Hudson",
+      handle: "hudson",
+      labels: ["test"],
+      selector: "@hudson",
+      defaultSelector: "@hudson",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      routeKind: string;
+      receipt?: {
+        messageId: string;
+        flightId?: string;
+      };
+      message?: { id: string; conversationId: string; body: string };
+      flight?: { id: string; invocationId: string; state: string; targetAgentId: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-tell-1",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@hudson",
+      },
+      body: "Can you take a look at this when you get a turn?",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.routeKind).toBe("dm");
+    expect(response.message?.body).toBe("Can you take a look at this when you get a turn?");
+    expect(response.flight?.state).toBe("waking");
+    expect(response.flight?.targetAgentId).toBe("hudson");
+    expect(response.receipt?.flightId).toBe(response.flight?.id);
+
+    const recorded = await getJson<{
+      invocation: {
+        id: string;
+        action: string;
+        ensureAwake: boolean;
+        execution?: { session?: string };
+        metadata?: Record<string, unknown>;
+      } | null;
+      flight: { id: string; state: string } | null;
+    }>(harness.baseUrl, `/v1/invocations/${response.flight?.invocationId}`);
+
+    expect(recorded.invocation).toEqual(expect.objectContaining({
+      action: "wake",
+      ensureAwake: true,
+      execution: { session: "any" },
+      metadata: expect.objectContaining({
+        sourceIntent: "direct_message",
+      }),
+    }));
+    expect(recorded.flight?.id).toBe(response.flight?.id);
+  }, 15_000);
+
   test("links broker delivery work items to invocations and terminal flights", async () => {
     const harness = await startBroker();
     await seedBasicConversation(harness);

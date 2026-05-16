@@ -21,6 +21,13 @@ import {
   type ObserveFile,
   type SessionRefObservePayload,
 } from "./core/observe/service.ts";
+import {
+  classifyMaterialPath,
+  isMaterialExcluded,
+  materialExcludePatterns,
+  resolveMaterialClassifier,
+  type MaterialClassifier,
+} from "./material-heuristics.ts";
 
 export type WorkInventoryMode =
   | "isolated-git-worktree"
@@ -59,6 +66,13 @@ export type WorkMaterialEvidence =
   | "trace-command"
   | "inferred-path";
 
+export type WorkMaterialDiffPart = { additions: number; deletions: number };
+
+export type WorkMaterialDiffStat = {
+  branch: WorkMaterialDiffPart | null;
+  inflight: WorkMaterialDiffPart | null;
+};
+
 export type WorkInventoryAgentRef = {
   id: string;
   name: string | null;
@@ -91,7 +105,7 @@ export type WorkMaterial = {
   scopePath: string | null;
   baseRef: string | null;
   headRef: string | null;
-  diffStat: { additions: number; deletions: number } | null;
+  diffStat: WorkMaterialDiffStat | null;
   evidence: WorkMaterialEvidence[];
   confidence: WorkInventoryConfidence;
 };
@@ -149,9 +163,11 @@ type GitContext = {
   scopePath: string | null;
   headRef: string | null;
   branch: string | null;
+  baseRef: string | null;
   isolatedWorktree: boolean;
   files: GitFileStatus[];
-  diffStats: Map<string, { additions: number; deletions: number }>;
+  diffStats: Map<string, WorkMaterialDiffStat>;
+  classifier: MaterialClassifier;
 };
 
 type MaterialDraft = Omit<WorkMaterial, "id" | "kind" | "evidence" | "confidence"> & {
@@ -167,6 +183,7 @@ type InventoryBuildState = {
   sessionRefs: Map<string, WorkInventorySessionRef>;
   materials: Map<string, MaterialDraft>;
   gitContexts: GitContext[];
+  classifierByRoot: Map<string, MaterialClassifier>;
   limitations: string[];
 };
 
@@ -267,6 +284,13 @@ function runGit(cwd: string, args: string[], trim = true): string | null {
   } catch {
     return null;
   }
+}
+
+function gitPathspecArgs(scopeArg: string, classifier: MaterialClassifier): string[] {
+  return [
+    scopeArg,
+    ...materialExcludePatterns(classifier).map((pattern) => `:(exclude)${pattern}`),
+  ];
 }
 
 function pathInsideRoot(path: string, root: string): boolean {
@@ -374,6 +398,49 @@ function parseDiffStats(raw: string | null): Map<string, { additions: number; de
   return stats;
 }
 
+function combineDiffStats(
+  branchStats: Map<string, WorkMaterialDiffPart>,
+  inflightStats: Map<string, WorkMaterialDiffPart>,
+): Map<string, WorkMaterialDiffStat> {
+  const stats = new Map<string, WorkMaterialDiffStat>();
+  for (const path of new Set([...branchStats.keys(), ...inflightStats.keys()])) {
+    stats.set(path, {
+      branch: branchStats.get(path) ?? null,
+      inflight: inflightStats.get(path) ?? null,
+    });
+  }
+  return stats;
+}
+
+function mergeMaterialDiffStat(
+  existing: WorkMaterialDiffStat | null | undefined,
+  next: WorkMaterialDiffStat | null | undefined,
+): WorkMaterialDiffStat | null {
+  if (!existing) {
+    return next ?? null;
+  }
+  if (!next) {
+    return existing;
+  }
+  return {
+    branch: existing.branch ?? next.branch,
+    inflight: existing.inflight ?? next.inflight,
+  };
+}
+
+function resolveTrunkRef(root: string, branch: string | null): string | null {
+  if (branch === "main" || branch === "master") {
+    return null;
+  }
+  for (const ref of ["origin/main", "main", "origin/master", "master"]) {
+    const resolved = runGit(root, ["rev-parse", "--verify", `${ref}^{commit}`]);
+    if (resolved) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
 function resolveGitContext(candidatePath: string): GitContext | null {
   const root = runGit(candidatePath, ["rev-parse", "--show-toplevel"]);
   if (!root) {
@@ -385,21 +452,35 @@ function resolveGitContext(candidatePath: string): GitContext | null {
     : null;
   const gitDir = runGit(absoluteRoot, ["rev-parse", "--git-dir"]);
   const scopeArg = scopedPath ?? ".";
+  const classifier = resolveMaterialClassifier(absoluteRoot);
+  const pathspecArgs = gitPathspecArgs(scopeArg, classifier);
   const status = parseGitStatus(
-    runGit(absoluteRoot, ["status", "--porcelain=v1", "-z", "--", scopeArg], false),
+    runGit(absoluteRoot, ["status", "--porcelain=v1", "-z", "--", ...pathspecArgs], false),
   );
-  const diffStats = parseDiffStats(
-    runGit(absoluteRoot, ["diff", "--numstat", "HEAD", "--", scopeArg]),
-  );
+  const headRef = runGit(absoluteRoot, ["rev-parse", "--short", "HEAD"]);
+  const branch = headRef ? runGit(absoluteRoot, ["rev-parse", "--abbrev-ref", "HEAD"]) : null;
+  const trunkRef = headRef ? resolveTrunkRef(absoluteRoot, branch) : null;
+  const mergeBase = trunkRef ? runGit(absoluteRoot, ["merge-base", trunkRef, "HEAD"]) : null;
+  const branchStats = mergeBase
+    ? parseDiffStats(
+      runGit(absoluteRoot, ["diff", "--numstat", `${mergeBase}...HEAD`, "--", ...pathspecArgs]),
+    )
+    : new Map<string, WorkMaterialDiffPart>();
+  const inflightStats = headRef
+    ? parseDiffStats(runGit(absoluteRoot, ["diff", "--numstat", "HEAD", "--", ...pathspecArgs]))
+    : new Map<string, WorkMaterialDiffPart>();
+  const diffStats = combineDiffStats(branchStats, inflightStats);
 
   return {
     root: absoluteRoot,
     scopePath: scopedPath,
-    headRef: runGit(absoluteRoot, ["rev-parse", "--short", "HEAD"]),
-    branch: runGit(absoluteRoot, ["rev-parse", "--abbrev-ref", "HEAD"]),
+    headRef,
+    branch,
+    baseRef: mergeBase ? mergeBase.slice(0, 12) : null,
     isolatedWorktree: Boolean(gitDir?.includes("/.git/worktrees/")),
     files: status,
     diffStats,
+    classifier,
   };
 }
 
@@ -461,6 +542,16 @@ function materialRootForPath(path: string, gitContexts: GitContext[]): string | 
   return matching[0]?.root ?? null;
 }
 
+function classifierForRoot(state: InventoryBuildState, root: string | null): MaterialClassifier {
+  const key = root ?? "global";
+  let classifier = state.classifierByRoot.get(key);
+  if (!classifier) {
+    classifier = resolveMaterialClassifier(root);
+    state.classifierByRoot.set(key, classifier);
+  }
+  return classifier;
+}
+
 function upsertMaterial(
   state: InventoryBuildState,
   input: {
@@ -472,7 +563,7 @@ function upsertMaterial(
     scopePath?: string | null;
     baseRef?: string | null;
     headRef?: string | null;
-    diffStat?: { additions: number; deletions: number } | null;
+    diffStat?: WorkMaterialDiffStat | null;
     evidence: WorkMaterialEvidence[];
     touchedByGit?: boolean;
     touchedByTrace?: boolean;
@@ -484,6 +575,9 @@ function upsertMaterial(
   }
   const root = input.worktreeRoot ?? materialRootForPath(rawPath, state.gitContexts);
   const displayPath = pathDisplayForRoot(rawPath, root);
+  if (isMaterialExcluded(displayPath, classifierForRoot(state, root))) {
+    return;
+  }
   const key = materialKey(displayPath, root);
   const existing = state.materials.get(key);
   if (!existing) {
@@ -510,7 +604,7 @@ function upsertMaterial(
   existing.scopePath ??= input.scopePath ?? null;
   existing.baseRef ??= input.baseRef ?? null;
   existing.headRef ??= input.headRef ?? null;
-  existing.diffStat ??= input.diffStat ?? null;
+  existing.diffStat = mergeMaterialDiffStat(existing.diffStat, input.diffStat);
   existing.touchedByGit ||= Boolean(input.touchedByGit);
   existing.touchedByTrace ||= Boolean(input.touchedByTrace);
   for (const evidence of input.evidence) {
@@ -661,73 +755,6 @@ function addObservePayload(
   }
 }
 
-function classifyMaterial(path: string): WorkMaterialKind {
-  const lower = path.toLowerCase();
-  const fileName = lower.split("/").at(-1) ?? lower;
-
-  if (
-    fileName.includes("plan")
-    || lower.includes("/plans/")
-    || lower.includes("/planning/")
-  ) {
-    return "plan";
-  }
-  if (
-    fileName.includes("spec")
-    || fileName.includes("proposal")
-    || fileName.startsWith("sco-")
-    || lower.includes("/proposals/")
-    || lower.includes("/rfcs/")
-  ) {
-    return "spec";
-  }
-  if (
-    fileName === "readme.md"
-    || fileName === "agents.md"
-    || fileName === "llms.txt"
-    || fileName === "install.md"
-    || lower.startsWith("docs/")
-    || lower.endsWith(".md")
-    || lower.endsWith(".mdx")
-    || lower.endsWith(".txt")
-    || lower.endsWith(".docx")
-    || lower.endsWith(".pdf")
-  ) {
-    return "doc";
-  }
-  if (
-    lower.includes("/test/")
-    || lower.includes("/tests/")
-    || lower.includes("__tests__")
-    || /\b(test|spec)\.[jt]sx?$/u.test(fileName)
-    || fileName.endsWith(".test.ts")
-    || fileName.endsWith(".test.tsx")
-  ) {
-    return "test";
-  }
-  if (
-    fileName === "package.json"
-    || fileName.endsWith(".config.ts")
-    || fileName.endsWith(".config.js")
-    || fileName.endsWith(".config.mjs")
-    || fileName.endsWith(".json")
-    || fileName.endsWith(".jsonc")
-    || fileName.endsWith(".yaml")
-    || fileName.endsWith(".yml")
-    || fileName.endsWith(".toml")
-    || fileName.endsWith(".lock")
-  ) {
-    return "config";
-  }
-  if (/\.(ts|tsx|js|jsx|mjs|cjs|py|swift|kt|java|go|rs|css|scss|html|sql|sh)$/u.test(fileName)) {
-    return "code";
-  }
-  if (/\.(png|jpg|jpeg|gif|svg|webp|avif)$/u.test(fileName)) {
-    return "asset";
-  }
-  return "other";
-}
-
 function materialSortRank(material: WorkMaterial): number {
   switch (material.kind) {
     case "plan":
@@ -778,10 +805,12 @@ function finalizeMaterials(state: InventoryBuildState): WorkMaterial[] {
   return [...state.materials.values()]
     .map((draft) => {
       const evidence = [...draft.evidence].sort();
+      const root = expandHome(draft.worktreeRoot);
+      const classifier = classifierForRoot(state, root);
       return {
         ...draft,
         id: materialKey(draft.path, draft.worktreeRoot),
-        kind: classifyMaterial(draft.path),
+        kind: classifyMaterialPath(draft.path, classifier) ?? "other",
         evidence,
         confidence: materialConfidence(draft, state.gitContexts),
       };
@@ -832,20 +861,24 @@ function inventoryConfidence(mode: WorkInventoryMode, materials: WorkMaterial[])
 }
 
 function addGitMaterials(state: InventoryBuildState, context: GitContext, agentId: string | null): void {
-  for (const file of context.files) {
+  const filesByPath = new Map(context.files.map((file) => [file.path, file]));
+  const materialPaths = new Set([...filesByPath.keys(), ...context.diffStats.keys()]);
+  for (const path of materialPaths) {
+    const file = filesByPath.get(path);
+    const hasDiffStat = context.diffStats.has(path);
     upsertMaterial(state, {
-      path: file.path,
-      status: file.status,
+      path,
+      status: file?.status ?? "modified",
       agentId,
       sessionId: null,
       worktreeRoot: context.root,
       scopePath: context.scopePath,
-      baseRef: "HEAD",
+      baseRef: context.baseRef,
       headRef: context.headRef,
-      diffStat: context.diffStats.get(file.path) ?? null,
+      diffStat: context.diffStats.get(path) ?? null,
       evidence: [
-        "git-status",
-        ...(context.diffStats.has(file.path) ? (["git-diff"] as WorkMaterialEvidence[]) : []),
+        ...(file ? (["git-status"] as WorkMaterialEvidence[]) : []),
+        ...(hasDiffStat ? (["git-diff"] as WorkMaterialEvidence[]) : []),
       ],
       touchedByGit: true,
     });
@@ -885,6 +918,7 @@ function addGitContextsForAgents(state: InventoryBuildState): void {
       existing.root === context.root && existing.scopePath === context.scopePath
     )) {
       state.gitContexts.push(context);
+      state.classifierByRoot.set(context.root, context.classifier);
       addGitMaterials(state, context, candidate.agentId);
     }
   }
@@ -992,6 +1026,7 @@ export async function buildWorkMaterialsInventory(
     sessionRefs: new Map(),
     materials: new Map(),
     gitContexts: [],
+    classifierByRoot: new Map(),
     limitations: [],
   };
 

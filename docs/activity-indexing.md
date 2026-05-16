@@ -8,8 +8,8 @@ detail views.
 
 The problem today is not storage capacity. The problem is that several desktop
 views reconstruct operational state ad hoc from snapshots, thread cards, and
-runtime tails. That makes the product over-index on tmux/logs when the real
-story already exists in canonical broker records.
+runtime tails. Tmux and logs are current runtime inspection surfaces, but the
+product should not ask them to substitute for canonical broker records.
 
 ## Decision
 
@@ -32,7 +32,7 @@ SQLite is still the right default for OpenScout:
 The real scaling risk is not SQLite itself. It is:
 
 - rebuilding views from snapshots repeatedly at read time
-- overusing tmux/log tails as the primary operational surface
+- overusing tmux/log tails as canonical operational state
 - mixing large raw runtime artifacts into canonical relational state
 
 ## Worldview
@@ -92,8 +92,9 @@ Recommended indexes:
 
 ## Read Model
 
-The live operational view should prefer `activity_items`, not tmux, for
-understanding what an agent is doing.
+The live operational view should use `activity_items` as the canonical summary
+of what an agent is doing, with tmux available as a current runtime inspection
+and control surface.
 
 That live view should include:
 
@@ -151,4 +152,4 @@ an agent:
 - bridge traffic
 
 It should not try to be the raw source for every byte of runtime output. Logs
-and tmux remain secondary drill-down surfaces.
+and tmux remain current drill-down and control surfaces.

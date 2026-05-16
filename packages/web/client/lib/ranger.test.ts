@@ -18,6 +18,7 @@ function agent(input: Partial<Agent> & { id: string }): Agent {
     projectRoot: input.projectRoot ?? null,
     cwd: input.cwd ?? null,
     updatedAt: input.updatedAt ?? null,
+    createdAt: input.createdAt ?? null,
     transport: input.transport ?? "codex_app_server",
     selector: input.selector ?? null,
     wakePolicy: input.wakePolicy ?? "on_demand",
@@ -29,6 +30,11 @@ function agent(input: Partial<Agent> & { id: string }): Agent {
     harnessSessionId: input.harnessSessionId ?? null,
     harnessLogPath: input.harnessLogPath ?? null,
     conversationId: input.conversationId ?? `dm.operator.${input.id}`,
+    homeNodeId: input.homeNodeId ?? null,
+    homeNodeName: input.homeNodeName ?? null,
+    ownerId: input.ownerId ?? null,
+    ownerName: input.ownerName ?? null,
+    ownerHandle: input.ownerHandle ?? null,
   };
 }
 

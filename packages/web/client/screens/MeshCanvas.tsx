@@ -1,33 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Canvas } from "@hudsonkit/canvas";
 import type { Agent, MeshStatus } from "../lib/types.ts";
 import {
   useMeshViewStore,
-  setMeshSelection,
-  setProbeEntry,
-  type ProbeEntry,
-  type ProbeResult,
-  type ProbeAgent,
+  type MeshDensity,
 } from "../lib/mesh-view-store.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
+import { stateColor } from "../lib/colors.ts";
 import { timeAgo } from "../lib/time.ts";
-import { api } from "../lib/api.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { useAgentHoverCard } from "../components/useAgentHoverCard.tsx";
 
-type NodeInfo = {
-  id: string;
-  label: string;
-  sublabel: string;
-  kind: "local" | "mesh" | "tailnet";
-  online: boolean;
-  discoverable?: boolean;
-};
-
-type EdgeInfo = {
-  fromId: string;
-  toId: string;
-  transport: "mesh" | "tailnet";
-  online: boolean;
-};
+type TileBindings = ReturnType<ReturnType<typeof useAgentHoverCard>["bind"]>;
 
 type Pos = { x: number; y: number };
 
@@ -50,312 +34,435 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
   return state;
 }
 
-function shortName(s?: string | null): string {
+function shortHost(s?: string | null): string {
   if (!s) return "";
   return s.replace(/^https?:\/\//, "").split("/")[0].split(":")[0].split(".")[0] || s.slice(0, 8);
 }
 
-function cleanIp(addr: string): string {
-  return addr.split("/")[0];
+type AgentCluster = {
+  key: string;
+  label: string;
+  instances: Agent[];
+};
+
+function clusterKey(agent: Agent): { key: string; label: string } {
+  const raw =
+    (agent.name && agent.name.trim()) ||
+    (agent.handle && agent.handle.trim()) ||
+    (agent.harness && agent.harness.trim()) ||
+    "agent";
+  return { key: raw.toLowerCase(), label: raw };
 }
 
-function fanPositions(nodePos: Pos, count: number, radius = 130, spreadDeg = 90): Pos[] {
-  if (count === 0) return [];
-  const isAtOrigin = Math.abs(nodePos.x) < 10 && Math.abs(nodePos.y) < 10;
-  const baseAngle = isAtOrigin ? 0 : Math.atan2(nodePos.y, nodePos.x);
-  const spreadRad = (spreadDeg * Math.PI) / 180;
-  return Array.from({ length: count }, (_, i) => {
-    const t = count === 1 ? 0 : i / (count - 1) - 0.5;
-    const angle = baseAngle + t * spreadRad;
+function groupAgentsByName(agents: Agent[]): AgentCluster[] {
+  const byKey = new Map<string, AgentCluster>();
+  for (const agent of agents) {
+    const { key, label } = clusterKey(agent);
+    let cluster = byKey.get(key);
+    if (!cluster) {
+      cluster = { key, label, instances: [] };
+      byKey.set(key, cluster);
+    }
+    cluster.instances.push(agent);
+  }
+  // Stable order: alphabetical by label, total instance count as tiebreaker.
+  // Working/available state never reorders clusters, so the map doesn't reshuffle on refresh.
+  return Array.from(byKey.values())
+    .map((c) => {
+      c.instances.sort((a, b) => {
+        const byId = a.id.localeCompare(b.id);
+        return byId;
+      });
+      return c;
+    })
+    .sort((a, b) => {
+      const byLabel = a.label.localeCompare(b.label);
+      if (byLabel !== 0) return byLabel;
+      return b.instances.length - a.instances.length;
+    });
+}
+
+type DensityMetrics = {
+  density: MeshDensity;
+  instanceW: number;
+  instanceH: number;
+  stepX: number;
+  stepY: number;
+  clusterPadX: number;
+  clusterPadY: number;
+  labelH: number;
+  clusterGap: number;
+};
+
+function densityMetrics(density: MeshDensity): DensityMetrics {
+  switch (density) {
+    case "compact":
+      return { density, instanceW: 138, instanceH: 32, stepX: 144, stepY: 38, clusterPadX: 12, clusterPadY: 12, labelH: 22, clusterGap: 16 };
+    case "spacious":
+      return { density, instanceW: 260, instanceH: 68, stepX: 268, stepY: 76, clusterPadX: 14, clusterPadY: 14, labelH: 26, clusterGap: 16 };
+    default:
+      return { density: "comfortable", instanceW: 210, instanceH: 52, stepX: 218, stepY: 60, clusterPadX: 12, clusterPadY: 12, labelH: 24, clusterGap: 14 };
+  }
+}
+
+type ClusterLayout = {
+  cluster: AgentCluster;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  cols: number;
+};
+
+function chooseCols(count: number, targetAspect: number): number {
+  // targetAspect = width / height. Want cols/rows ≈ targetAspect for a single cluster.
+  // cols * rows >= count, cols = sqrt(count * targetAspect).
+  return Math.max(1, Math.round(Math.sqrt(count * targetAspect)));
+}
+
+function packClusters(
+  clusters: AgentCluster[],
+  m: DensityMetrics,
+  viewportAspect: number,
+): ClusterLayout[] {
+  if (clusters.length === 0) return [];
+
+  // Per-cluster size: cols proportional to sqrt(count) with viewport aspect bias.
+  const sized = clusters.map((c) => {
+    const count = c.instances.length;
+    const cols = chooseCols(count, Math.max(0.6, Math.min(viewportAspect, 2.0)));
+    const rows = Math.ceil(count / cols);
+    const innerW = cols * m.stepX - (m.stepX - m.instanceW);
+    const innerH = rows * m.stepY - (m.stepY - m.instanceH);
     return {
-      x: nodePos.x + Math.round(radius * Math.cos(angle)),
-      y: nodePos.y + Math.round(radius * Math.sin(angle)),
+      cluster: c,
+      cols,
+      width: innerW + m.clusterPadX * 2,
+      height: innerH + m.clusterPadY * 2 + m.labelH,
     };
   });
-}
 
-function buildGraph(mesh: MeshStatus): { nodes: NodeInfo[]; edges: EdgeInfo[] } {
-  const localId = mesh.localNode?.id;
-  const nodes: NodeInfo[] = [];
-  const edges: EdgeInfo[] = [];
-
-  if (mesh.localNode) {
-    nodes.push({
-      id: mesh.localNode.id,
-      label: shortName(mesh.localNode.hostName) || mesh.localNode.name,
-      sublabel: "this node",
-      kind: "local",
-      online: mesh.health.reachable,
-      discoverable: mesh.identity.discoverable,
-    });
-  }
-
-  const allMeshNodes = Object.values(mesh.nodes);
-  const remoteMesh = allMeshNodes.filter((n) => n.id !== localId);
-  const meshHostNames = new Set(
-    allMeshNodes.flatMap((n) => [shortName(n.hostName), shortName(n.brokerUrl)]).filter(Boolean),
+  // Choose canvas target width to roughly match viewport aspect after wrapping.
+  const totalArea = sized.reduce((acc, s) => acc + s.width * s.height, 0);
+  const targetWidth = Math.max(
+    Math.max(...sized.map((s) => s.width)),
+    Math.sqrt(totalArea * viewportAspect),
   );
 
-  for (const node of remoteMesh) {
-    nodes.push({
-      id: node.id,
-      label: shortName(node.hostName) || node.name || node.id.slice(0, 8),
-      sublabel: node.advertiseScope === "mesh" ? "mesh peer" : "local only",
-      kind: "mesh",
-      online: node.advertiseScope === "mesh",
+  const gap = m.clusterGap;
+  const placed: ClusterLayout[] = [];
+  let rowX = 0;
+  let rowY = 0;
+  let rowH = 0;
+
+  for (const s of sized) {
+    if (rowX > 0 && rowX + s.width > targetWidth) {
+      rowY += rowH + gap;
+      rowX = 0;
+      rowH = 0;
+    }
+    placed.push({
+      cluster: s.cluster,
+      x: rowX,
+      y: rowY,
+      width: s.width,
+      height: s.height,
+      cols: s.cols,
     });
-    if (localId) {
-      edges.push({ fromId: localId, toId: node.id, transport: "mesh", online: node.advertiseScope === "mesh" });
-    }
+    rowX += s.width + gap;
+    rowH = Math.max(rowH, s.height);
   }
 
-  for (const peer of mesh.tailscale.peers) {
-    const label = shortName(peer.hostName) || shortName(peer.name);
-    if (label && meshHostNames.has(label)) continue;
-    const peerId = `tailnet:${peer.id}`;
-    nodes.push({ id: peerId, label: label || "tailnet", sublabel: "tailnet only", kind: "tailnet", online: peer.online });
-    if (localId) {
-      edges.push({ fromId: localId, toId: peerId, transport: "tailnet", online: peer.online });
-    }
-  }
-
-  return { nodes, edges };
+  // Re-center on origin.
+  const minX = Math.min(...placed.map((r) => r.x));
+  const maxX = Math.max(...placed.map((r) => r.x + r.width));
+  const minY = Math.min(...placed.map((r) => r.y));
+  const maxY = Math.max(...placed.map((r) => r.y + r.height));
+  const dx = -((minX + maxX) / 2);
+  const dy = -((minY + maxY) / 2);
+  return placed.map((r) => ({ ...r, x: r.x + dx, y: r.y + dy }));
 }
 
-function layoutNodes(nodes: NodeInfo[]): Map<string, Pos> {
-  const map = new Map<string, Pos>();
-  const local = nodes.find((n) => n.kind === "local");
-  if (local) map.set(local.id, { x: 0, y: 0 });
-
-  const meshPeers = nodes.filter((n) => n.kind === "mesh");
-  const tailnetPeers = nodes.filter((n) => n.kind === "tailnet");
-  const hasBoth = meshPeers.length > 0 && tailnetPeers.length > 0;
-  const meshR = 170;
-  const tailR = hasBoth ? 260 : 170;
-
-  meshPeers.forEach((node, i) => {
-    const angle = (i / meshPeers.length) * Math.PI * 2 - Math.PI / 2;
-    map.set(node.id, { x: Math.round(meshR * Math.cos(angle)), y: Math.round(meshR * Math.sin(angle)) });
-  });
-
-  const tailOffset = hasBoth ? Math.PI / Math.max(tailnetPeers.length, 1) : 0;
-  tailnetPeers.forEach((node, i) => {
-    const angle = (i / Math.max(tailnetPeers.length, 1)) * Math.PI * 2 - Math.PI / 2 + tailOffset;
-    map.set(node.id, { x: Math.round(tailR * Math.cos(angle)), y: Math.round(tailR * Math.sin(angle)) });
-  });
-
-  const hasPeers = meshPeers.length > 0 || tailnetPeers.length > 0;
-  if (!hasPeers) map.set("__placeholder", { x: 200, y: 0 });
-
-  return map;
+function instanceCoord(index: number, cols: number, m: DensityMetrics): Pos {
+  const col = index % cols;
+  const row = Math.floor(index / cols);
+  return {
+    x: m.clusterPadX + col * m.stepX,
+    y: m.labelH + m.clusterPadY + row * m.stepY,
+  };
 }
 
-function NodeCard({ node, isSelected }: { node: NodeInfo; isSelected: boolean }) {
-  const isLocal = node.kind === "local";
+function harnessModel(agent: Agent): string {
+  const h = agent.harness?.trim();
+  const m = agent.model?.trim();
+  if (h && m) return `${h}/${m}`;
+  return h || m || "—";
+}
 
-  let cardClass = "mesh-card";
-  if (isLocal) cardClass += " mesh-card--local";
-  else if (node.kind === "mesh") cardClass += node.online ? " mesh-card--mesh-online" : " mesh-card--mesh-offline";
-  else cardClass += node.online ? " mesh-card--tailnet-online" : " mesh-card--tailnet-offline";
-  if (isSelected) cardClass += " mesh-card--selected";
+function cwdBranch(agent: Agent): string {
+  const project = agent.project?.trim();
+  const branch = agent.branch?.trim();
+  if (project && branch) return `${project}/${branch}`;
+  return project || branch || "—";
+}
 
-  let dotClass = "mesh-card-dot";
-  if (isLocal) dotClass += " mesh-card-dot--local";
-  else if (node.kind === "mesh") dotClass += node.online ? " mesh-card-dot--green" : " mesh-card-dot--dim";
-  else dotClass += node.online ? " mesh-card-dot--sky" : " mesh-card-dot--dim";
+function cwdFull(agent: Agent): string {
+  return agent.cwd || agent.projectRoot || "—";
+}
 
+function SpecRow({ label, value, path }: { label: string; value: string; path?: boolean }) {
   return (
-    <div className={cardClass} data-interactive="true">
-      <span className={dotClass} />
-      <div className="mesh-card-body">
-        <span className="mesh-card-name">{node.label}</span>
-        <span className="mesh-card-sub">{node.sublabel}</span>
-      </div>
-    </div>
+    <span className="mesh-sheet-row">
+      <span className="mesh-sheet-row-label">{label}</span>
+      <span className={`mesh-sheet-row-value${path ? " mesh-sheet-row-value--path" : ""}`} title={value}>{value}</span>
+    </span>
   );
 }
 
-function AgentSubNode({ agent, pos, index }: { agent: ProbeAgent; pos: Pos; index: number }) {
-  const state = agent.state === "working" ? "working" : agent.state === "available" ? "available" : "offline";
+function OpenBtn({ onClick }: { onClick: () => void }) {
   return (
-    <div
-      style={{
-        position: "absolute",
-        left: pos.x,
-        top: pos.y,
-        transform: "translate(-50%, -50%)",
-        pointerEvents: "none",
-        animationName: "meshAgentPopIn",
-        animationDuration: "0.4s",
-        animationTimingFunction: "cubic-bezier(0.34, 1.56, 0.64, 1)",
-        animationDelay: `${index * 55}ms`,
-        animationFillMode: "both",
+    <button
+      type="button"
+      className="mesh-sheet-open"
+      title="Open agent view"
+      aria-label="Open agent view"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
       }}
     >
-      <div className="mesh-agent-sub">
-        <span className={`mesh-agent-sub-dot mesh-agent-sub-dot--${state}`} />
-        <span className="mesh-agent-sub-name">{agent.title}</span>
-      </div>
-    </div>
+      ↗
+    </button>
   );
 }
 
-function NodeDetailPanel({
-  selectedId,
-  mesh,
-  agents,
-  positions,
-  probeEntry,
+function AgentSpec({
+  agent,
+  onOpen,
+  bindings,
+  active,
 }: {
-  selectedId: string;
-  mesh: MeshStatus;
-  agents: Agent[];
-  positions: Map<string, Pos>;
-  probeEntry: ProbeEntry | null;
+  agent: Agent;
+  onOpen: () => void;
+  bindings: TileBindings | null;
+  active: boolean;
 }) {
-  const pos = positions.get(selectedId);
-  if (!pos) return null;
+  const state = normalizeAgentState(agent.state);
+  const isOrganic = agent.agentClass === "organic";
+  const time = agent.updatedAt ? timeAgo(agent.updatedAt) : "";
+  const primary = harnessModel(agent);
+  const secondary = cwdBranch(agent);
+  return (
+    <div
+      {...(bindings ?? {})}
+      className={`mesh-instance-spec mesh-instance-spec--${state}${isOrganic ? " mesh-instance-spec--organic" : ""}${active ? " mesh-instance--active" : ""}`}
+      style={{ "--state-stripe": stateColor(agent.state) } as React.CSSProperties}
+      title={`${primary} — ${secondary}`}
+    >
+      <span className="mesh-instance-spec-row">
+        <span className="mesh-instance-spec-primary">{primary}</span>
+        {time && <span className="mesh-instance-spec-time">{time}</span>}
+      </span>
+      <span className="mesh-instance-spec-row">
+        <span className="mesh-instance-spec-secondary">{secondary}</span>
+        <OpenBtn onClick={onOpen} />
+      </span>
+    </div>
+  );
+}
 
-  const isLocal = mesh.localNode?.id === selectedId;
-  const isTailnet = selectedId.startsWith("tailnet:");
-  const tailnetPeerId = isTailnet ? selectedId.slice("tailnet:".length) : null;
-  const tailnetPeer = tailnetPeerId ? mesh.tailscale.peers.find((p) => p.id === tailnetPeerId) : null;
-  const meshNode = !isLocal && !isTailnet ? mesh.nodes[selectedId] : null;
+function AgentChip({
+  agent,
+  onOpen,
+  bindings,
+  active,
+}: {
+  agent: Agent;
+  onOpen: () => void;
+  bindings: TileBindings | null;
+  active: boolean;
+}) {
+  const state = normalizeAgentState(agent.state);
+  const isOrganic = agent.agentClass === "organic";
+  const time = agent.updatedAt ? timeAgo(agent.updatedAt) : "—";
+  const identity = `${harnessModel(agent)} · ${cwdBranch(agent)}`;
+  return (
+    <div
+      {...(bindings ?? {})}
+      className={`mesh-instance-sheet mesh-instance-sheet--${state}${isOrganic ? " mesh-instance-sheet--organic" : ""}${active ? " mesh-instance--active" : ""}`}
+      style={{ "--state-stripe": stateColor(agent.state) } as React.CSSProperties}
+      title={`${identity}\n${cwdFull(agent)}`}
+    >
+      <span className="mesh-sheet-line mesh-sheet-line--head">
+        <span className="mesh-sheet-id">{identity}</span>
+        <span className="mesh-sheet-time">{time}</span>
+        <OpenBtn onClick={onOpen} />
+      </span>
+      <span className="mesh-sheet-line">
+        <span className="mesh-sheet-path">{cwdFull(agent)}</span>
+        <span className="mesh-sheet-ctx"><span className="mesh-sheet-ctx-label">CTX</span> —</span>
+      </span>
+    </div>
+  );
+}
 
-  const tailnetIp = tailnetPeer?.addresses?.[0] ? cleanIp(tailnetPeer.addresses[0]) : null;
+function AgentCard({
+  agent,
+  onOpen,
+  bindings,
+  active,
+}: {
+  agent: Agent;
+  onOpen: () => void;
+  bindings: TileBindings | null;
+  active: boolean;
+}) {
+  const state = normalizeAgentState(agent.state);
+  const isOrganic = agent.agentClass === "organic";
+  const time = agent.updatedAt ? timeAgo(agent.updatedAt) : "—";
+  const identity = `${harnessModel(agent)} · ${cwdBranch(agent)}`;
+  const agentClass = agent.agentClass?.trim();
+  return (
+    <div
+      {...(bindings ?? {})}
+      className={`mesh-instance-sheet mesh-instance-sheet--spacious mesh-instance-sheet--${state}${isOrganic ? " mesh-instance-sheet--organic" : ""}${active ? " mesh-instance--active" : ""}`}
+      style={{ "--state-stripe": stateColor(agent.state) } as React.CSSProperties}
+      title={`${identity}\n${cwdFull(agent)}`}
+    >
+      <span className="mesh-sheet-line mesh-sheet-line--head">
+        <span className="mesh-sheet-id">{identity}</span>
+        <span className="mesh-sheet-time">{time}</span>
+        <OpenBtn onClick={onOpen} />
+      </span>
+      <span className="mesh-sheet-line">
+        <span className="mesh-sheet-path">{cwdFull(agent)}</span>
+      </span>
+      <span className="mesh-sheet-line">
+        <span className="mesh-sheet-ctx"><span className="mesh-sheet-ctx-label">CTX</span> —</span>
+        {agentClass && <span className="mesh-sheet-tag">{agentClass}</span>}
+      </span>
+    </div>
+  );
+}
 
-  const allCaps = isLocal
-    ? [...new Set(agents.flatMap((a) => a.capabilities ?? []))].slice(0, 6)
-    : [];
-  const topAgents = isLocal
-    ? [...agents]
-        .sort((a, b) => {
-          const rank: Record<string, number> = { working: 0, available: 1 };
-          return (rank[normalizeAgentState(a.state)] ?? 2) - (rank[normalizeAgentState(b.state)] ?? 2);
-        })
-        .slice(0, 5)
-    : [];
+function ClusterRegion({
+  layout,
+  metrics,
+  onAgentOpen,
+  bindFor,
+  activeId,
+}: {
+  layout: ClusterLayout;
+  metrics: DensityMetrics;
+  onAgentOpen: (agent: Agent) => void;
+  bindFor: (agentId: string) => TileBindings | null;
+  activeId: string | null;
+}) {
+  const { cluster, x, y, width, height, cols } = layout;
+  const counts = useMemo(() => {
+    const acc = { working: 0, available: 0, offline: 0 };
+    for (const agent of cluster.instances) {
+      acc[normalizeAgentState(agent.state)] += 1;
+    }
+    return acc;
+  }, [cluster.instances]);
 
   return (
     <div
-      className="mesh-node-detail"
+      className="mesh-cluster"
       style={{
         position: "absolute",
-        left: pos.x + 78,
-        top: pos.y,
-        transform: "translate(0, -50%)",
+        left: x,
+        top: y,
+        width,
+        height,
       }}
     >
-      {isLocal && (
-        <>
-          {topAgents.length > 0 && (
-            <div className="mesh-detail-section">
-              <div className="mesh-detail-label">agents</div>
-              {topAgents.map((agent) => {
-                const state = normalizeAgentState(agent.state);
-                return (
-                  <div key={agent.id} className="mesh-detail-agent">
-                    <span className={`mesh-detail-dot mesh-detail-dot--${state}`} />
-                    <div className="mesh-detail-agent-body">
-                      <span className="mesh-detail-agent-name">{agent.handle ?? agent.name}</span>
-                    </div>
-                    <span className={`mesh-detail-agent-state mesh-detail-agent-state--${state}`}>{state}</span>
-                  </div>
-                );
-              })}
-            </div>
+      <div className="mesh-cluster-header" style={{ height: metrics.labelH }}>
+        <span className="mesh-cluster-name">{cluster.label}</span>
+        <span className="mesh-cluster-count">{cluster.instances.length}</span>
+        <span className="mesh-cluster-states">
+          {counts.working > 0 && (
+            <span className="mesh-cluster-state mesh-cluster-state--working">
+              <span className="mesh-cluster-state-dot" />
+              {counts.working}
+            </span>
           )}
-          {topAgents.length === 0 && (
-            <div className="mesh-detail-section">
-              <div className="mesh-detail-label">agents</div>
-              <div className="mesh-detail-empty">none running</div>
-            </div>
+          {counts.available > 0 && (
+            <span className="mesh-cluster-state mesh-cluster-state--available">
+              <span className="mesh-cluster-state-dot" />
+              {counts.available}
+            </span>
           )}
-          {allCaps.length > 0 && (
-            <div className="mesh-detail-section">
-              <div className="mesh-detail-label">capabilities</div>
-              <div className="mesh-detail-caps">
-                {allCaps.map((cap) => (
-                  <span key={cap} className="mesh-detail-cap">{cap}</span>
-                ))}
-              </div>
-            </div>
+          {counts.offline > 0 && (
+            <span className="mesh-cluster-state mesh-cluster-state--offline">
+              <span className="mesh-cluster-state-dot" />
+              {counts.offline}
+            </span>
           )}
-        </>
-      )}
-
-      {meshNode && (
-        <div className="mesh-detail-section">
-          <div className="mesh-detail-label">broker</div>
-          {meshNode.brokerUrl && (
-            <div className="mesh-detail-row">
-              <span className="mesh-detail-key">url</span>
-              <code className="mesh-detail-val">{shortName(meshNode.brokerUrl)}</code>
-            </div>
-          )}
-          <div className="mesh-detail-row">
-            <span className="mesh-detail-key">scope</span>
-            <span className="mesh-detail-val">{meshNode.advertiseScope === "mesh" ? "announced" : "local only"}</span>
-          </div>
-          {meshNode.lastSeenAt && (
-            <div className="mesh-detail-row">
-              <span className="mesh-detail-key">last seen</span>
-              <span className="mesh-detail-val">{timeAgo(meshNode.lastSeenAt)}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {tailnetPeer && (
-        <>
-          <div className="mesh-detail-section">
-            <div className="mesh-detail-label">tailnet peer</div>
-            {tailnetIp && (
-              <div className="mesh-detail-row">
-                <span className="mesh-detail-key">address</span>
-                <code className="mesh-detail-val">{tailnetIp}</code>
-              </div>
-            )}
-            {tailnetPeer.os && (
-              <div className="mesh-detail-row">
-                <span className="mesh-detail-key">platform</span>
-                <span className="mesh-detail-val">{tailnetPeer.os}</span>
-              </div>
+        </span>
+      </div>
+      {cluster.instances.map((agent, i) => {
+        const coord = instanceCoord(i, cols, metrics);
+        return (
+          <div
+            key={agent.id}
+            style={{
+              position: "absolute",
+              left: coord.x,
+              top: coord.y,
+              width: metrics.instanceW,
+              height: metrics.instanceH,
+            }}
+          >
+            {metrics.density === "compact" ? (
+              <AgentSpec
+                agent={agent}
+                onOpen={() => onAgentOpen(agent)}
+                bindings={bindFor(agent.id)}
+                active={activeId === agent.id}
+              />
+            ) : metrics.density === "spacious" ? (
+              <AgentCard
+                agent={agent}
+                onOpen={() => onAgentOpen(agent)}
+                bindings={bindFor(agent.id)}
+                active={activeId === agent.id}
+              />
+            ) : (
+              <AgentChip
+                agent={agent}
+                onOpen={() => onAgentOpen(agent)}
+                bindings={bindFor(agent.id)}
+                active={activeId === agent.id}
+              />
             )}
           </div>
+        );
+      })}
+    </div>
+  );
+}
 
-          {(!probeEntry || probeEntry.status === "loading") && (
-            <div className="mesh-detail-section">
-              <div className="mesh-detail-empty">Connecting to broker…</div>
-            </div>
-          )}
-
-          {probeEntry?.status === "error" && (
-            <div className="mesh-detail-section">
-              <div className="mesh-detail-empty">{probeEntry.result?.error ?? "Broker unreachable"}</div>
-            </div>
-          )}
-
-          {probeEntry?.status === "done" && probeEntry.result?.node?.capabilities?.length && (
-            <div className="mesh-detail-section">
-              <div className="mesh-detail-label">capabilities</div>
-              <div className="mesh-detail-caps">
-                {probeEntry.result.node.capabilities.map((cap) => (
-                  <span key={cap} className="mesh-detail-cap">{cap}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {probeEntry?.status === "done" && probeEntry.result?.home && (
-            <div className="mesh-detail-section">
-              <div className="mesh-detail-empty" style={{ fontStyle: "normal", opacity: 0.5 }}>
-                {probeEntry.result.home.agents.length} agent{probeEntry.result.home.agents.length !== 1 ? "s" : ""} ↗
-              </div>
-            </div>
-          )}
-        </>
-      )}
+function HostFrame({
+  hostLabel,
+  totalAgents,
+  workingAgents,
+}: {
+  hostLabel: string;
+  totalAgents: number;
+  workingAgents: number;
+}) {
+  return (
+    <div className="mesh-host-frame">
+      <span className="mesh-host-frame-eyebrow">Local host</span>
+      <span className="mesh-host-frame-name">{hostLabel}</span>
+      <span className="mesh-host-frame-stats">
+        <span className="mesh-host-frame-stat">{totalAgents} agent{totalAgents === 1 ? "" : "s"}</span>
+        {workingAgents > 0 && (
+          <span className="mesh-host-frame-stat mesh-host-frame-stat--working">{workingAgents} working</span>
+        )}
+      </span>
     </div>
   );
 }
@@ -364,10 +471,8 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [canvas, dispatch] = useReducer(canvasReducer, { pan: { x: 0, y: 0 }, scale: 1 });
-  const { selectedId, probeCache } = useMeshViewStore();
-
-  const probeCacheRef = useRef<Record<string, ProbeEntry>>({});
-  useEffect(() => { probeCacheRef.current = probeCache; }, [probeCache]);
+  const { density, query, stateFilter } = useMeshViewStore();
+  const { navigate } = useScout();
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -392,70 +497,64 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // Auto-probe tailnet nodes on selection
-  useEffect(() => {
-    if (!selectedId?.startsWith("tailnet:")) return;
-    const cached = probeCacheRef.current[selectedId];
-    if (cached && cached.status !== "loading" && Date.now() - cached.fetchedAt < 30_000) return;
+  const metrics = useMemo(() => densityMetrics(density), [density]);
+  const filteredAgents = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return agents.filter((a) => {
+      if (stateFilter !== "all" && normalizeAgentState(a.state) !== stateFilter) return false;
+      if (!needle) return true;
+      const hay = `${a.name ?? ""} ${a.handle ?? ""} ${a.harness ?? ""} ${a.project ?? ""} ${a.branch ?? ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [agents, query, stateFilter]);
+  const clusters = useMemo(() => groupAgentsByName(filteredAgents), [filteredAgents]);
 
-    const peerId = selectedId.slice("tailnet:".length);
-    const peer = mesh.tailscale.peers.find((p) => p.id === peerId);
-    const ip = peer?.addresses?.[0] ? cleanIp(peer.addresses[0]) : null;
-    if (!ip) return;
+  const viewportAspect = size.w > 0 && size.h > 0 ? size.w / size.h : 1.6;
+  const layouts = useMemo(
+    () => packClusters(clusters, metrics, viewportAspect),
+    [clusters, metrics, viewportAspect],
+  );
 
-    setProbeEntry(selectedId, { status: "loading", result: null, fetchedAt: Date.now() });
+  const handleAgentOpen = useCallback(
+    (agent: Agent) => {
+      if (agent.agentClass === "organic") return;
+      navigate({ view: "agents", agentId: agent.id });
+    },
+    [navigate],
+  );
 
-    void (async () => {
-      try {
-        const result = await api<ProbeResult>("/api/mesh/tailnet-probe", {
-          method: "POST",
-          body: JSON.stringify({ ip }),
-        });
-        setProbeEntry(selectedId, {
-          status: result.reachable ? "done" : "error",
-          result,
-          fetchedAt: Date.now(),
-        });
-      } catch (e) {
-        setProbeEntry(selectedId, {
-          status: "error",
-          result: { reachable: false, home: null, node: null, error: e instanceof Error ? e.message : String(e) },
-          fetchedAt: Date.now(),
-        });
-      }
-    })();
-  }, [selectedId, mesh]);
+  const hoverableAgents = useMemo(
+    () => filteredAgents.filter((a) => a.agentClass !== "organic"),
+    [filteredAgents],
+  );
+  const hoverableIds = useMemo(() => hoverableAgents.map((a) => a.id), [hoverableAgents]);
 
-  const { nodes, edges } = buildGraph(mesh);
-  const positions = layoutNodes(nodes);
-  const hasPeers = nodes.some((n) => n.kind !== "local");
+  const hover = useAgentHoverCard({
+    agents: hoverableAgents,
+    orderedIds: hoverableIds,
+    navigate,
+    selectMode: "preview",
+  });
+
+  const bindFor = useCallback(
+    (agentId: string): TileBindings | null => {
+      if (!hoverableIds.includes(agentId)) return null;
+      return hover.bind(agentId);
+    },
+    [hover, hoverableIds],
+  );
+  const activeId = hover.activeAgent?.id ?? null;
+
   const { pan, scale } = canvas;
   const cx = size.w / 2;
   const cy = size.h / 2;
 
-  const handleNodeClick = useCallback(
-    (nodeId: string) => {
-      if (nodeId === "__placeholder") return;
-      setMeshSelection(selectedId === nodeId ? null : nodeId, selectedId === nodeId ? null : "node");
-    },
-    [selectedId],
+  const totalAgents = agents.length;
+  const workingAgents = useMemo(
+    () => agents.filter((a) => normalizeAgentState(a.state) === "working").length,
+    [agents],
   );
-
-  // Compute fan positions for probed tailnet agents
-  const probeEntry = selectedId ? probeCache[selectedId] ?? null : null;
-  const fanAgents: Array<{ agent: ProbeAgent; pos: Pos }> = [];
-  if (
-    selectedId?.startsWith("tailnet:") &&
-    probeEntry?.status === "done" &&
-    probeEntry.result?.home?.agents?.length
-  ) {
-    const nodePos = positions.get(selectedId) ?? { x: 0, y: 0 };
-    const agentList = probeEntry.result.home.agents;
-    const fanPos = fanPositions(nodePos, agentList.length, 135, 90);
-    agentList.forEach((agent, i) => {
-      fanAgents.push({ agent, pos: fanPos[i] });
-    });
-  }
+  const hostLabel = shortHost(mesh.localNode?.hostName) || mesh.localNode?.name || "this host";
 
   return (
     <div ref={containerRef} style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
@@ -468,7 +567,7 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
         />
       )}
 
-      {/* World-space transform — all content lives here */}
+      {/* World-space content */}
       <div
         style={{
           position: "absolute",
@@ -481,126 +580,40 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
           pointerEvents: "none",
         }}
       >
-        {/* Edges */}
-        <svg style={{ position: "absolute", overflow: "visible", left: 0, top: 0, width: 0, height: 0 }} fill="none">
-          {edges.map((edge) => {
-            const from = positions.get(edge.fromId);
-            const to = positions.get(edge.toId);
-            if (!from || !to) return null;
-            const color =
-              edge.transport === "mesh"
-                ? edge.online ? "#4ade80" : "#3f3f46"
-                : edge.online ? "#38bdf8" : "#27272a";
-            return (
-              <line
-                key={`${edge.fromId}-${edge.toId}`}
-                x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                stroke={color}
-                strokeWidth={edge.transport === "mesh" ? 1.5 : 1}
-                strokeDasharray={edge.transport === "tailnet" ? "6 4" : undefined}
-                opacity={edge.online ? 0.45 : 0.15}
+        {layouts.length === 0 ? (
+          <div
+            style={{
+              position: "absolute",
+              left: -120,
+              top: -20,
+              width: 240,
+              textAlign: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <div className="mesh-empty-pill">no local agents</div>
+          </div>
+        ) : (
+          layouts.map((layout) => (
+            <div key={layout.cluster.key} style={{ position: "absolute", pointerEvents: "all" }}>
+              <ClusterRegion
+                layout={layout}
+                metrics={metrics}
+                onAgentOpen={handleAgentOpen}
+                bindFor={bindFor}
+                activeId={activeId}
               />
-            );
-          })}
-
-          {!hasPeers &&
-            (() => {
-              const localNode = nodes.find((n) => n.kind === "local");
-              const from = localNode ? positions.get(localNode.id) : undefined;
-              const to = positions.get("__placeholder");
-              if (!from || !to) return null;
-              return (
-                <line
-                  x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                  stroke="#3f3f46"
-                  strokeWidth={1}
-                  strokeDasharray="4 4"
-                  opacity={0.2}
-                />
-              );
-            })()}
-
-          {/* Detail panel connector */}
-          {selectedId && (() => {
-            const pos = positions.get(selectedId);
-            if (!pos) return null;
-            return (
-              <line
-                x1={pos.x + 10} y1={pos.y}
-                x2={pos.x + 74} y2={pos.y}
-                stroke="rgba(255,255,255,0.1)"
-                strokeWidth={1}
-              />
-            );
-          })()}
-
-          {/* Agent fan connector lines */}
-          {fanAgents.map(({ agent, pos: aPos }) => {
-            const nodePos = selectedId ? positions.get(selectedId) : null;
-            if (!nodePos) return null;
-            return (
-              <line
-                key={`fan-line-${agent.id}`}
-                x1={nodePos.x} y1={nodePos.y}
-                x2={aPos.x} y2={aPos.y}
-                stroke="rgba(56, 189, 248, 0.18)"
-                strokeWidth={1}
-                strokeDasharray="3 4"
-              />
-            );
-          })}
-        </svg>
-
-        {/* Nodes */}
-        {nodes.map((node) => {
-          const pos = positions.get(node.id);
-          if (!pos) return null;
-          return (
-            <div
-              key={node.id}
-              style={{ position: "absolute", left: pos.x, top: pos.y, transform: "translate(-50%, -50%)", pointerEvents: "all" }}
-              onClick={() => handleNodeClick(node.id)}
-            >
-              <NodeCard node={node} isSelected={selectedId === node.id} />
             </div>
-          );
-        })}
-
-        {/* Agent fan sub-nodes */}
-        {fanAgents.map(({ agent, pos }, i) => (
-          <AgentSubNode key={agent.id} agent={agent} pos={pos} index={i} />
-        ))}
-
-        {/* Node detail panel */}
-        {selectedId && (
-          <NodeDetailPanel
-            selectedId={selectedId}
-            mesh={mesh}
-            agents={agents}
-            positions={positions}
-            probeEntry={probeEntry}
-          />
+          ))
         )}
-
-        {/* No-peers placeholder */}
-        {!hasPeers &&
-          (() => {
-            const pos = positions.get("__placeholder");
-            if (!pos) return null;
-            return (
-              <div
-                style={{ position: "absolute", left: pos.x, top: pos.y, transform: "translate(-50%, -50%)", pointerEvents: "none" }}
-              >
-                <div className="mesh-card mesh-card--placeholder">
-                  <span className="mesh-card-name" style={{ opacity: 0.35 }}>no peers</span>
-                </div>
-              </div>
-            );
-          })()}
       </div>
+
+      <HostFrame hostLabel={hostLabel} totalAgents={totalAgents} workingAgents={workingAgents} />
 
       {/* Zoom hint */}
       <div className="mesh-canvas-hint">scroll to zoom · drag to pan</div>
+
+      {hover.card}
     </div>
   );
 }

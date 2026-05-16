@@ -5,6 +5,7 @@ import {
   constructAgentIdentity,
   diagnoseAgentIdentity,
   extractAgentIdentities,
+  formatAgentReferenceIdentity,
   formatAgentAlias,
   formatAgentIdentity,
   formatMinimalAgentIdentity,
@@ -14,6 +15,7 @@ import {
   resolveAgentAlias,
   resolveAgentIdentity,
   resolveAgentSelector,
+  withAgentReferenceAliases,
   OPENSCOUT_COORDINATOR_AGENT_ID,
   SCOUT_DISPATCHER_AGENT_ID,
 } from "./agent-identity.js";
@@ -333,6 +335,49 @@ describe("agent identity resolution", () => {
       "@hudson.profile:dev-browser",
     );
     expect(formatMinimalAgentIdentity(candidates[5], candidates)).toBe("@hudson.node:backup-mac-mini");
+  });
+
+  test("formats compact reference identities and expands on family collisions", () => {
+    const referenceCandidates = [
+      {
+        agentId: "hudson.branch-alpha-12345.mini",
+        definitionId: "hudson",
+        referenceId: "branch-alpha-12345",
+      },
+      {
+        agentId: "hudson.branch-beta-12345.mini",
+        definitionId: "hudson",
+        referenceId: "branch-beta-12345",
+      },
+      {
+        agentId: "arc.branch-alpha-12345.mini",
+        definitionId: "arc",
+        referenceId: "branch-alpha-12345",
+      },
+    ];
+
+    expect(formatAgentReferenceIdentity(referenceCandidates[0]!, referenceCandidates)).toBe("@hudson.ha12345");
+    expect(formatAgentReferenceIdentity(referenceCandidates[1]!, referenceCandidates)).toBe("@hudson.ta12345");
+    expect(formatAgentReferenceIdentity(referenceCandidates[2]!, referenceCandidates)).toBe("@arc.12345");
+  });
+
+  test("resolves compact reference identities through generated aliases", () => {
+    const referenceCandidates = withAgentReferenceAliases([
+      {
+        agentId: "hudson.branch-alpha-12345.mini",
+        definitionId: "hudson",
+        referenceId: "branch-alpha-12345",
+      },
+      {
+        agentId: "hudson.branch-beta-12345.mini",
+        definitionId: "hudson",
+        referenceId: "branch-beta-12345",
+      },
+    ]);
+
+    const identity = parseAgentIdentity("@hudson.ha12345");
+    expect(identity).not.toBeNull();
+    expect(resolveAgentIdentity(identity!, referenceCandidates)?.agentId).toBe("hudson.branch-alpha-12345.mini");
   });
 });
 

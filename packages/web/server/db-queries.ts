@@ -42,7 +42,7 @@ export type {
 } from "./db/types/mobile.ts";
 export type { HeartrateBucket } from "./db/types/common.ts";
 
-export { queryAgents } from "./db/agents.ts";
+export { queryAgentById, queryAgents } from "./db/agents.ts";
 export { queryRecentMessages } from "./db/messages.ts";
 export { queryActivity, queryHeartrate } from "./db/activity.ts";
 export { queryBrokerDiagnostics } from "./db/broker.ts";

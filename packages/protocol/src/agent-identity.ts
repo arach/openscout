@@ -21,6 +21,7 @@ export interface AgentIdentityCandidate {
   profile?: string;
   harness?: string;
   model?: string;
+  referenceId?: string;
   aliases?: string[];
 }
 
@@ -420,6 +421,82 @@ function candidateDimensionValue(
   if (dimension === "harness") return canonical.harness;
   if (dimension === "model") return canonical.model;
   return canonical.nodeQualifier;
+}
+
+function normalizeAgentReferenceValue(value: string | null | undefined): string {
+  return value?.trim().toLowerCase().replace(/[^a-z0-9]/g, "") ?? "";
+}
+
+function candidateReferenceValue(candidate: AgentIdentityCandidate): string {
+  return normalizeAgentReferenceValue(
+    candidate.referenceId
+      || candidate.workspaceQualifier
+      || candidate.agentId,
+  );
+}
+
+function candidateReferenceSuffix(candidate: AgentIdentityCandidate, length: number): string {
+  const value = candidateReferenceValue(candidate);
+  if (!value) {
+    return "";
+  }
+  return value.length <= length ? value : value.slice(-length);
+}
+
+export function formatAgentReferenceIdentity<T extends AgentIdentityCandidate>(
+  candidate: T,
+  candidates: T[],
+  options: { includeSigil?: boolean; minLength?: number; maxLength?: number } = {},
+): string {
+  const canonical = candidateCanonicalIdentity(candidate);
+  if (!canonical) {
+    return options.includeSigil === false ? "" : "@";
+  }
+
+  const minLength = Math.max(1, options.minLength ?? 5);
+  const maxLength = Math.max(minLength, options.maxLength ?? 8);
+  const peers = candidates.filter((peer) => {
+    if (peer === candidate) {
+      return false;
+    }
+    const peerCanonical = candidateCanonicalIdentity(peer);
+    return peerCanonical?.definitionId === canonical.definitionId;
+  });
+
+  let suffix = "";
+  for (let length = minLength; length <= maxLength; length += 1) {
+    const candidateSuffix = candidateReferenceSuffix(candidate, length);
+    if (!candidateSuffix) {
+      break;
+    }
+    suffix = candidateSuffix;
+    const collides = peers.some((peer) => candidateReferenceSuffix(peer, length) === candidateSuffix);
+    if (!collides) {
+      break;
+    }
+  }
+
+  if (!suffix) {
+    return formatAgentIdentity({ definitionId: canonical.definitionId }, options);
+  }
+
+  return formatAgentIdentity({
+    definitionId: canonical.definitionId,
+    workspaceQualifier: suffix,
+  }, options);
+}
+
+export function withAgentReferenceAliases<T extends AgentIdentityCandidate>(
+  candidates: T[],
+): T[] {
+  return candidates.map((candidate) => {
+    const alias = formatAgentReferenceIdentity(candidate, candidates);
+    const aliases = Array.from(new Set([...(candidate.aliases ?? []), alias].filter(Boolean)));
+    return {
+      ...candidate,
+      aliases,
+    };
+  });
 }
 
 function modelAliasKeys(value: string | undefined): string[] {

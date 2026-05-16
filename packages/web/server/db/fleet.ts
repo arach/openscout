@@ -66,9 +66,11 @@ type FleetAskRow = {
   flight_id: string | null;
   flight_state: string | null;
   flight_summary: string | null;
+  flight_error: string | null;
   started_at: number | null;
   completed_at: number | null;
   flight_dismissed_at: number | string | null;
+  recovered_after_failure_at: number | string | null;
   status_kind: string | null;
   status_title: string | null;
   status_summary: string | null;
@@ -219,9 +221,19 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
        f.id AS flight_id,
        f.state AS flight_state,
        f.summary AS flight_summary,
+       f.error AS flight_error,
        f.started_at,
        f.completed_at,
        json_extract(f.metadata_json, '$.operatorAttentionDismissedAt') AS flight_dismissed_at,
+       (
+         SELECT MAX(COALESCE(recovery_f.completed_at, recovery_f.started_at, 0))
+         FROM flights recovery_f
+         JOIN invocations recovery_inv ON recovery_inv.id = recovery_f.invocation_id
+         WHERE recovery_inv.target_agent_id = inv.target_agent_id
+           AND COALESCE(recovery_inv.conversation_id, '') = COALESCE(inv.conversation_id, '')
+           AND recovery_f.state = 'completed'
+           AND COALESCE(recovery_f.completed_at, recovery_f.started_at, 0) > COALESCE(f.completed_at, f.started_at, inv.created_at)
+       ) AS recovered_after_failure_at,
        latest_ai.kind AS status_kind,
        latest_ai.title AS status_title,
        latest_ai.summary AS status_summary,
@@ -247,7 +259,13 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
      LEFT JOIN activity_items latest_ai ON latest_ai.id = (
        SELECT ai.id
        FROM activity_items ai
-       WHERE ai.conversation_id = inv.conversation_id
+       WHERE (
+           ai.invocation_id = inv.id
+           OR (
+             inv.message_id IS NOT NULL
+             AND json_extract(ai.payload_json, '$.replyToMessageId') = inv.message_id
+           )
+         )
          AND ai.agent_id = inv.target_agent_id
          AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
          AND ai.ts >= inv.created_at
@@ -272,6 +290,16 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
   ).all(...requesterIds, limit) as Array<FleetAskRow>;
 }
 
+function isRecoverableDeliveryFailure(row: FleetAskRow): boolean {
+  const text = [
+    row.flight_error,
+    row.flight_summary,
+    row.status_summary,
+    row.status_title,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return text.includes("no conversation found with session id");
+}
+
 function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFleetAsk {
   const hasFlight = typeof row.flight_id === "string" && row.flight_id.length > 0;
   const replied = row.status_kind === "ask_replied";
@@ -283,7 +311,6 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
   const isActiveFlight = hasFlight
     && row.flight_state !== null
     && !TERMINAL_FLIGHT_STATES.has(row.flight_state)
-    && !replied
     && !failed
     && !staleActiveFlight;
   const awaitingOperator = Boolean(
@@ -295,7 +322,14 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     row.status_ts ?? row.completed_at ?? row.started_at ?? row.work_updated_at ?? row.created_at,
   ) ?? Date.now();
   const dismissedAt = normalizeTimestampMs(row.flight_dismissed_at);
+  const recoveredAfterFailureAt = normalizeTimestampMs(row.recovered_after_failure_at);
   const failedDismissed = Boolean(dismissedAt !== null && dismissedAt >= updatedAt);
+  const recoveredDeliveryFailure = Boolean(
+    failed
+    && recoveredAfterFailureAt !== null
+    && recoveredAfterFailureAt > updatedAt
+    && isRecoverableDeliveryFailure(row),
+  );
 
   let status: WebFleetAskStatus;
   if (!hasFlight) {
@@ -319,8 +353,15 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     collaborationRecordId: row.collaboration_record_id,
     task: row.task,
     status,
-    statusLabel: fleetStatusLabel(status),
-    attention: status === "needs_attention" ? "badge" : status === "failed" && !failedDismissed ? "interrupt" : "silent",
+    statusLabel: status === "working" && replied ? "Acknowledged" : fleetStatusLabel(status),
+    acknowledgedAt: status === "working" && replied
+      ? normalizeTimestampMs(row.status_ts)
+      : null,
+    attention: status === "needs_attention"
+      ? "badge"
+      : status === "failed" && !failedDismissed && !recoveredDeliveryFailure
+        ? "interrupt"
+        : "silent",
     agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
     harness: row.harness,
     transport: row.transport,

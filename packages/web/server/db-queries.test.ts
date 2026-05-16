@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   closeDb,
   queryActivity,
+  queryAgentById,
   queryAgents,
   queryFleet,
   queryFollowTarget,
@@ -617,6 +618,7 @@ describe("web db query agents", () => {
       }
 
       const agents = queryAgents(10);
+      const exactAgent = queryAgentById("agent-1");
 
       expect(agents).toHaveLength(2);
       expect(agents.map((agent) => agent.id)).toEqual(["agent-2", "agent-1"]);
@@ -626,6 +628,9 @@ describe("web db query agents", () => {
       expect(agents.map((agent) => agent.projectRoot)).toEqual(["/tmp/agent-2-new", "/tmp/agent-1-new"]);
       expect(agents.map((agent) => agent.updatedAt)).toEqual([30_000, 20_000]);
       expect(agents.map((agent) => agent.conversationId)).toEqual(["dm.operator.agent-2", "dm.operator.agent-1"]);
+      expect(exactAgent?.id).toBe("agent-1");
+      expect(exactAgent?.transport).toBe("codex_app_server");
+      expect(exactAgent?.updatedAt).toBe(20_000);
     } finally {
       store.close();
     }
@@ -1653,6 +1658,248 @@ describe("web db query fleet", () => {
       expect(fleet.activity.map((item) => item.ts)).toEqual([...fleet.activity.map((item) => item.ts)].sort((a, b) => b - a));
       expect(fleet.recentCompleted.some((ask) => ask.agentId === "agent-4")).toBe(false);
       expect(fleet.activity.some((item) => item.id === "activity:flight:flight-4")).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("does not let later replies refresh older unrelated ask failures", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.upsertActor({
+        id: "system",
+        kind: "system",
+        displayName: "System",
+      });
+      store.recordMessage({
+        id: "msg-recovered-stale-resume-request",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Recovered stale resume failure",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 70_500,
+      });
+      store.recordInvocation({
+        id: "inv-recovered-stale-resume",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Recovered stale resume failure",
+        conversationId: "conv-1",
+        messageId: "msg-recovered-stale-resume-request",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 70_000,
+      });
+      store.recordFlight({
+        id: "flight-recovered-stale-resume",
+        invocationId: "inv-recovered-stale-resume",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        summary: "Agent One failed to respond.",
+        error: "No conversation found with session ID: stale-session",
+        startedAt: now - 69_000,
+        completedAt: now - 68_000,
+      });
+      store.recordMessage({
+        id: "msg-recovered-stale-resume-status",
+        conversationId: "conv-1",
+        actorId: "system",
+        originNodeId: "node-1",
+        class: "status",
+        body: "Agent One failed to respond.\nNo conversation found with session ID: stale-session",
+        replyToMessageId: "msg-recovered-stale-resume-request",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 67_000,
+        metadata: { targetAgentId: "agent-1" },
+      });
+
+      store.recordMessage({
+        id: "msg-task-failure-request",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Task failure should stay visible",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 60_500,
+      });
+      store.recordInvocation({
+        id: "inv-task-failure",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Task failure should stay visible",
+        conversationId: "conv-1",
+        messageId: "msg-task-failure-request",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 60_000,
+      });
+      store.recordFlight({
+        id: "flight-task-failure",
+        invocationId: "inv-task-failure",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        summary: "Agent One failed the task.",
+        error: "Tests failed.",
+        startedAt: now - 59_000,
+        completedAt: now - 58_000,
+      });
+      store.recordMessage({
+        id: "msg-task-failure-status",
+        conversationId: "conv-1",
+        actorId: "system",
+        originNodeId: "node-1",
+        class: "status",
+        body: "Task failed for this specific invocation.",
+        replyToMessageId: "msg-task-failure-request",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 57_000,
+        metadata: { targetAgentId: "agent-1" },
+      });
+
+      store.recordMessage({
+        id: "msg-later-success-request",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Later successful smoke check",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 40_500,
+      });
+      store.recordInvocation({
+        id: "inv-later-success",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Later successful smoke check",
+        conversationId: "conv-1",
+        messageId: "msg-later-success-request",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 40_000,
+      });
+      store.recordFlight({
+        id: "flight-later-success",
+        invocationId: "inv-later-success",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Agent One replied.",
+        startedAt: now - 39_000,
+        completedAt: now - 38_000,
+      });
+      store.recordMessage({
+        id: "msg-later-success-reply",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Recovered and healthy.",
+        replyToMessageId: "msg-later-success-request",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 37_000,
+      });
+
+      const fleet = queryFleet({ limit: 10, activityLimit: 20 });
+
+      expect(fleet.recentCompleted.some((ask) => ask.invocationId === "inv-recovered-stale-resume")).toBe(false);
+      expect(fleet.recentCompleted).toContainEqual(expect.objectContaining({
+        invocationId: "inv-later-success",
+        status: "completed",
+        summary: "Recovered and healthy.",
+      }));
+      expect(fleet.recentCompleted).toContainEqual(expect.objectContaining({
+        invocationId: "inv-task-failure",
+        status: "failed",
+        attention: "interrupt",
+        summary: "Task failed for this specific invocation.",
+        updatedAt: now - 57_000,
+      }));
+    } finally {
+      store.close();
+    }
+  });
+
+  test("keeps an acknowledged running ask active until the flight completes", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.recordMessage({
+        id: "msg-ack-request",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Please review the current patch.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 10_000,
+      });
+      store.recordInvocation({
+        id: "inv-ack",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Review the current patch",
+        conversationId: "conv-1",
+        messageId: "msg-ack-request",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 9_000,
+      });
+      store.recordFlight({
+        id: "flight-ack",
+        invocationId: "inv-ack",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "running",
+        summary: "Agent One acknowledged via codex_app_server.",
+        startedAt: now - 8_000,
+      });
+      store.recordMessage({
+        id: "msg-ack-reply",
+        conversationId: "conv-1",
+        replyToMessageId: "msg-ack-request",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "I have it and am working on it.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 7_000,
+      });
+
+      const acknowledgedAsk = queryFleet({ limit: 10, activityLimit: 20 })
+        .activeAsks
+        .find((ask) => ask.invocationId === "inv-ack");
+
+      expect(acknowledgedAsk).toMatchObject({
+        invocationId: "inv-ack",
+        status: "working",
+        statusLabel: "Acknowledged",
+        acknowledgedAt: now - 7_000,
+        summary: "I have it and am working on it.",
+      });
     } finally {
       store.close();
     }

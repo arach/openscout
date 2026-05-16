@@ -7,6 +7,7 @@ import {
 import { resolvePromptBody } from "../input-file.ts";
 import {
   askScoutQuestion,
+  loadScoutFlight,
   parseScoutHarness,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
@@ -15,6 +16,7 @@ import {
 } from "../../core/broker/service.ts";
 
 const HELP_FLAGS = new Set(["--help", "-h"]);
+const DEFAULT_ASK_ACK_TIMEOUT_SECONDS = 30;
 
 export function renderAskCommandHelp(): string {
   return [
@@ -28,8 +30,9 @@ export function renderAskCommandHelp(): string {
     "  short @name                        -> must resolve to exactly one routable agent",
     "",
     "Use ask when the meaning is \"do this and get back to me.\"",
-    "Keep progress, review, and completion in that same DM or explicit channel.",
-    "Use --reply-mode notify or --no-wait for longer work when you only need a durable receipt.",
+    "The command creates durable broker work; the target should acknowledge quickly in the same DM or channel.",
+    `Default inline mode returns once the target has acknowledged, completed immediately, or stays unacknowledged for ${DEFAULT_ASK_ACK_TIMEOUT_SECONDS}s.`,
+    "Use the flight id, conversation, notify mode, or an explicit wait to follow the final completion.",
     "",
     "Input:",
     "  inline message                    -> primary prompt body",
@@ -63,8 +66,8 @@ function renderScoutAskReceipt(value: {
     value.bindingRef,
   ].filter((piece): piece is string => Boolean(piece));
   const suffix = value.replyMode === "notify"
-    ? "Scout will surface the reply when it arrives."
-    : "Use the flight or conversation id to follow up.";
+    ? "Scout will surface the completion when it arrives."
+    : `Next: scout flight wait ${value.flight.id} --timeout 30`;
   return `${pieces.join(" · ")}. ${suffix}`;
 }
 
@@ -207,14 +210,26 @@ export async function runAskWithOptions(
     return;
   }
 
-  const completed = await waitForScoutFlight(
-    resolveScoutBrokerUrl(),
-    result.flight.id,
-    {
-      timeoutSeconds: options.timeoutSeconds,
-      onUpdate: (_flight, detail) => context.stderr(detail),
-    },
-  );
+  const brokerUrl = resolveScoutBrokerUrl();
+  let completed: NonNullable<ScoutAskResult["flight"]>;
+  let timedOut = false;
+  try {
+    completed = await waitForScoutFlight(
+      brokerUrl,
+      result.flight.id,
+      {
+        timeoutSeconds: options.timeoutSeconds ?? DEFAULT_ASK_ACK_TIMEOUT_SECONDS,
+        waitUntil: "acknowledged",
+        onUpdate: (_flight, detail) => context.stderr(detail),
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("Timed out waiting for flight")) {
+      throw error;
+    }
+    timedOut = true;
+    completed = await loadScoutFlight(brokerUrl, result.flight.id) ?? result.flight;
+  }
 
   context.output.writeValue(
     {
@@ -223,8 +238,37 @@ export async function runAskWithOptions(
       messageId: result.messageId ?? null,
       bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
       flight: completed,
-      output: completed.output ?? completed.summary ?? "",
+      output: renderScoutAskInlineResult({
+        conversationId: result.conversationId ?? null,
+        messageId: result.messageId ?? null,
+        bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
+        flight: completed,
+        timedOut,
+      }),
     },
     (value) => value.output,
   );
+}
+
+function renderScoutAskInlineResult(value: {
+  conversationId?: string | null;
+  messageId?: string | null;
+  bindingRef?: string | null;
+  flight: NonNullable<ScoutAskResult["flight"]>;
+  timedOut?: boolean;
+}): string {
+  if (value.flight.state === "completed") {
+    return value.flight.output ?? value.flight.summary ?? "";
+  }
+
+  const pieces = [
+    value.timedOut
+      ? `not yet acknowledged ${value.flight.targetAgentId}`
+      : `acknowledged ${value.flight.targetAgentId}`,
+    `state ${value.flight.state}`,
+    `flight ${value.flight.id}`,
+    value.conversationId ? renderConversationRoute(value.conversationId) : null,
+    value.bindingRef,
+  ].filter((piece): piece is string => Boolean(piece));
+  return `${pieces.join(" · ")}. Next: scout flight wait ${value.flight.id} --timeout 30.`;
 }

@@ -884,11 +884,15 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
     advertisedHost: env.OPENSCOUT_WEB_ADVERTISED_HOST,
     trustedHost: context.trustedHost,
   });
-  const child = spawn(bun.path, ["run", entry], {
-    detached: true,
-    env,
-    stdio: ["ignore", logFd, logFd],
-  });
+  const child = spawn(
+    bun.path,
+    entry.endsWith(".ts") ? ["run", "--hot", entry] : ["run", entry],
+    {
+      detached: true,
+      env,
+      stdio: ["ignore", logFd, logFd],
+    },
+  );
   child.once("exit", () => {
     if (webServerProcess === child) {
       webServerProcess = null;
@@ -3596,6 +3600,7 @@ async function postConversationMessage(
 async function postInvocationStatusMessage(
   invocation: InvocationRequest,
   flight: {
+    id?: string;
     summary?: string;
     error?: string;
   },
@@ -3631,7 +3636,8 @@ async function postInvocationStatusMessage(
     policy: "durable",
     createdAt: Date.now(),
     metadata: {
-      flightId: invocation.id,
+      ...(flight.id ? { flightId: flight.id } : {}),
+      invocationId: invocation.id,
       source: "broker",
       targetAgentId: invocation.targetAgentId,
     },
@@ -3671,6 +3677,27 @@ function activeLocalEndpointForAgent(agentId: string, harness?: AgentEndpoint["h
       ? endpoint.state !== "offline"
       : isLocalAgentEndpointAlive(endpoint)
   ));
+}
+
+function dispatchAckStrategyForEndpoint(input: {
+  invocation: InvocationRequest;
+  endpoint: AgentEndpoint;
+  previousEndpoint?: AgentEndpoint;
+}): string {
+  if (input.invocation.execution?.session === "existing") {
+    return "steer";
+  }
+  if (input.previousEndpoint?.id === input.endpoint.id) {
+    return "attach";
+  }
+  const lastResumedAt = Number(input.endpoint.metadata?.lastResumedAt);
+  if (Number.isFinite(lastResumedAt) && Date.now() - lastResumedAt < 10_000) {
+    return "wake";
+  }
+  if (input.invocation.ensureAwake) {
+    return "spawn";
+  }
+  return "queued";
 }
 
 function onlineConversationNotifyTargets(
@@ -3776,6 +3803,10 @@ async function executeLocalInvocation(
 ): Promise<void> {
   const agent = runtime.agent(invocation.targetAgentId);
   let endpoint: AgentEndpoint | undefined;
+  const previousEndpoint = activeLocalEndpointForAgent(
+    invocation.targetAgentId,
+    invocation.execution?.harness,
+  );
 
   try {
     endpoint = await resolveLocalEndpointForInvocation(invocation);
@@ -3836,12 +3867,29 @@ async function executeLocalInvocation(
   };
   await persistEndpoint(runningEndpoint);
 
+  const dispatchAck = {
+    strategy: dispatchAckStrategyForEndpoint({
+      invocation,
+      endpoint: runningEndpoint,
+      previousEndpoint,
+    }),
+    endpointId: runningEndpoint.id,
+    transport: runningEndpoint.transport,
+    harness: runningEndpoint.harness,
+    sessionId: runningEndpoint.sessionId ?? null,
+    nodeId: runningEndpoint.nodeId,
+    acknowledgedAt: Date.now(),
+  };
   const runningFlight = {
     ...initialFlight,
     state: "running" as const,
-    summary: `${agent.displayName} is working.`,
+    summary: `${agent.displayName} acknowledged via ${dispatchAck.strategy}.`,
     error: undefined,
     completedAt: undefined,
+    metadata: {
+      ...(initialFlight.metadata ?? {}),
+      dispatchAck,
+    },
   };
   await persistFlight(runningFlight);
 
@@ -3849,6 +3897,28 @@ async function executeLocalInvocation(
     const result = endpoint.transport === "pairing_bridge"
       ? await invokePairingSessionEndpoint(runningEndpoint, invocation)
       : await invokeLocalAgentEndpoint(runningEndpoint, invocation);
+
+    if (invocation.action === "wake") {
+      const completedFlight = {
+        ...runningFlight,
+        state: "completed" as const,
+        summary: `${agent.displayName} received the message.`,
+        output: result.output,
+        completedAt: Date.now(),
+      };
+      await persistFlight(completedFlight);
+
+      await persistEndpoint({
+        ...runningEndpoint,
+        state: "idle",
+        metadata: {
+          ...(runningEndpoint.metadata ?? {}),
+          lastCompletedAt: Date.now(),
+        },
+      });
+      return;
+    }
+
     const postedReply = existingBrokerReplyForInvocation(
       invocation,
       agent.id,
@@ -6528,7 +6598,13 @@ async function acceptBrokerDelivery(
   };
   await postConversationMessage(message);
 
-  if (payload.intent !== "consult") {
+  const shouldDispatchTargetTurn =
+    payload.intent === "consult"
+    || (payload.intent === "tell"
+      && conversation.kind === "direct"
+      && payload.ensureAwake !== false);
+
+  if (!shouldDispatchTargetTurn) {
     const receipt = buildDeliveryReceipt({
       requestId,
       routeKind,
@@ -6551,22 +6627,31 @@ async function acceptBrokerDelivery(
     };
   }
 
+  const invocationMetadata = {
+    ...(typeof payload.messageMetadata?.source === "string" && payload.invocationMetadata?.source === undefined
+      ? { source: payload.messageMetadata.source }
+      : {}),
+    ...(payload.invocationMetadata ?? {}),
+    ...(payload.intent === "tell" && payload.invocationMetadata?.sourceIntent === undefined
+      ? { sourceIntent: "direct_message" }
+      : {}),
+  };
   const invocation: InvocationRequest = {
     id: createRuntimeId("inv"),
     requesterId,
     requesterNodeId,
     targetAgentId: resolved.agent.id,
-    action: "consult",
+    action: payload.intent === "tell" ? "wake" : "consult",
     task: payload.body.trim(),
     ...(collaborationRecordId ? { collaborationRecordId } : {}),
     conversationId: conversation.id,
     messageId,
-    execution: payload.execution,
+    execution: payload.execution ?? (payload.intent === "tell" ? { session: "any" } : undefined),
     ensureAwake: payload.ensureAwake ?? true,
     stream: false,
     createdAt,
     metadata: {
-      ...(payload.invocationMetadata ?? {}),
+      ...invocationMetadata,
       relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       ...(collaborationRecordId ? { collaborationRecordId, workId: collaborationRecordId } : {}),

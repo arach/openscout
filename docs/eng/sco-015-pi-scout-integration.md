@@ -131,7 +131,7 @@ pi.registerTool({
 pi.registerTool({
   name: "scout_ask",
   label: "Scout Ask",
-  description: "Ask a Scout agent to do work and wait for the result",
+  description: "Ask a Scout agent to do work and return durable broker tracking",
   parameters: Type.Object({
     target: Type.String({ description: "Agent label" }),
     body: Type.String({ description: "Task description" }),
@@ -211,13 +211,13 @@ This makes pi sessions routable by other Scout agents.
 
 Broker supports three reply modes (SCO-014):
 
-- `none` — return immediately with IDs, caller inspects history
-- `inline` — block until flight completes (existing `awaitReply` behavior)
-- `notify` — return immediately, SSE emits `notifications/scout/reply`
+- `none` — return immediately with durable IDs, caller inspects history
+- `inline` — wait for target acknowledgement or immediate terminal state
+- `notify` — return immediately, SSE emits `notifications/scout/reply` on completion
 
 The extension handles the complexity:
 
-- For `inline`: `await waitForFlight(flightId)` in tool execute
+- For `inline`: `await waitForFlight(flightId, { waitUntil: "acknowledged" })` in tool execute
 - For `notify`: register SSE handler for flight completion, surface as inline message
 - For `none`: return receipt immediately
 

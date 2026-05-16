@@ -3,15 +3,16 @@ import { describe, expect, test } from "bun:test";
 import { renderScoutActivityList, renderScoutMessagePostResult } from "./broker.ts";
 
 describe("renderScoutMessagePostResult", () => {
-  test("hides broker internals for normal sends", () => {
+  test("renders durable handles for normal sends", () => {
     expect(renderScoutMessagePostResult({
       message: "hello",
       senderId: "lattices.codex-event-tap-thread.mini",
       conversationId: "dm.operator.hudson.main.mini",
+      messageId: "msg-1",
       invokedTargets: ["hudson.main.mini"],
       unresolvedTargets: [],
       routeKind: "dm",
-    })).toBe("Sent.");
+    })).toBe("Sent.\nConversation: dm.operator.hudson.main.mini\nMessage: msg-1");
   });
 
   test("renders the local product target as Scout", () => {
@@ -21,7 +22,7 @@ describe("renderScoutMessagePostResult", () => {
       invokedTargets: ["scout"],
       unresolvedTargets: [],
       routeKind: "broadcast",
-    })).toBe("Sent to Scout.");
+    })).toBe("Sent to Scout.\nConversation: channel.shared");
   });
 
   test("renders wake flight ids when a send queued work", () => {
@@ -32,7 +33,7 @@ describe("renderScoutMessagePostResult", () => {
       invokedTargets: ["hudson.main"],
       unresolvedTargets: [],
       routeKind: "dm",
-    })).toBe("Sent.\nWake flight: flt-1");
+    })).toBe("Sent.\nConversation: dm.operator.hudson\nDelivery flight: flt-1\nNext: scout flight wait flt-1 --timeout 30");
   });
 });
 

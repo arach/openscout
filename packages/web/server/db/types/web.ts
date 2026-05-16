@@ -19,6 +19,7 @@ export type WebAgent = {
   projectRoot: string | null;
   cwd: string | null;
   updatedAt: number | null;
+  createdAt: number | null;
   transport: string | null;
   selector: string | null;
   wakePolicy: string | null;
@@ -30,6 +31,11 @@ export type WebAgent = {
   harnessSessionId: string | null;
   harnessLogPath: string | null;
   conversationId: string;
+  homeNodeId: string | null;
+  homeNodeName: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+  ownerHandle: string | null;
 };
 
 export type WebActivityItem = {
@@ -218,6 +224,7 @@ export type WebFleetAsk = {
   task: string;
   status: WebFleetAskStatus;
   statusLabel: string;
+  acknowledgedAt: number | null;
   attention: WorkAttention;
   agentState: AgentSummaryState;
   harness: string | null;

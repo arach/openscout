@@ -12,36 +12,36 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 8px;
+  width: 12px;             /* roomier hit target so you don't graze sort */
   cursor: col-resize;
   user-select: none;
-  z-index: 1;
-  /* small invisible hit-target — the visual line is drawn via ::after */
+  z-index: 2;              /* sits above the sort button so right-edge clicks resize */
+  /* visual line via ::after */
 }
 
 .s-resize-handle::after {
   content: "";
   position: absolute;
-  top: 25%;
-  bottom: 25%;
-  right: 3px;
-  width: 2px;
-  background: color-mix(in srgb, var(--accent, #62b6ff) 60%, transparent);
+  top: 22%;
+  bottom: 22%;
+  right: 4px;
+  width: 1px;
+  background: color-mix(in srgb, var(--ink, #fff) 14%, transparent);
   border-radius: 2px;
-  opacity: 0;
-  transition: opacity 120ms ease-out, top 120ms ease-out, bottom 120ms ease-out;
+  opacity: 1;              /* faintly visible always — users can see the edge */
+  transition: background 120ms ease-out, top 120ms ease-out, bottom 120ms ease-out, width 120ms ease-out;
 }
 
 .s-resize-handle:hover::after {
-  opacity: 1;
+  background: color-mix(in srgb, var(--accent, #62b6ff) 70%, transparent);
   top: 10%;
   bottom: 10%;
+  width: 2px;
 }
 
-/* While dragging, body[data-col-resizing] keeps the handle visible and the
- * cursor locked even when the pointer leaves the th. */
 .s-resize-handle:active::after {
-  opacity: 1;
+  background: var(--accent, #62b6ff);
   top: 0;
   bottom: 0;
+  width: 2px;
 }

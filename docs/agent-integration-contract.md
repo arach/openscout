@@ -138,7 +138,7 @@ Agents connected through Scout's MCP server should prefer:
 - future `sessions_*` tools for explicit harness session start, attach, inspect,
   and stop operations
 
-Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` only for short bounded waits.
+Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` when the caller needs the target acknowledgement inline; follow completion with `invocations_get` or `invocations_wait`.
 Use `replyMode: "none"` only when a caller explicitly wants tracking without an
 agent-authored reply.
 

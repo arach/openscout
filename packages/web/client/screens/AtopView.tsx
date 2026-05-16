@@ -42,6 +42,7 @@ import { useTailEvents } from "../lib/tail-events.ts";
 import type {
   TailDiscoverySnapshot,
   TailDiscoveredProcess,
+  TailDiscoveredTranscript,
   TailEvent,
 } from "../lib/types.ts";
 
@@ -60,10 +61,12 @@ const PEEK_LINE_LIMIT = 40;
 type AtopStatus = "tool" | "run" | "idle";
 
 type AtopRow = {
+  key: string;
   /* identity — process + session combined */
   pid: number;
   ppid: number;
   sessionId: string | null;
+  transcriptPath: string | null;
   harness: string;
   attribution: TailEvent["harness"];
   project: string;
@@ -260,6 +263,7 @@ function deriveRows(
   if (!discovery) return [];
 
   const byPid = new Map<number, EventStats>();
+  const bySession = new Map<string, EventStats>();
   for (const event of events) {
     let stats = byPid.get(event.pid);
     if (!stats) {
@@ -292,16 +296,85 @@ function deriveRows(
     if (isRequestEvent(event)) stats.reqCount++;
     if (isPermissionEvent(event)) stats.permCount++;
     if (event.sessionId && !stats.sessionId) stats.sessionId = event.sessionId;
+
+    if (event.sessionId) {
+      let sessionStats = bySession.get(event.sessionId);
+      if (!sessionStats) {
+        sessionStats = {
+          firstEventAt: event.ts,
+          lastEventAt: event.ts,
+          lastKind: event.kind,
+          lastSummary: event.summary,
+          reqCount: 0,
+          toolCount: 0,
+          permCount: 0,
+          eventCount: 0,
+          sessionId: event.sessionId,
+          model: null,
+          tokIn: null,
+          tokOut: null,
+          cacheReadIn: null,
+          cacheWriteIn: null,
+        };
+        bySession.set(event.sessionId, sessionStats);
+      }
+      if (event.ts < sessionStats.firstEventAt) sessionStats.firstEventAt = event.ts;
+      if (event.ts >= sessionStats.lastEventAt) {
+        sessionStats.lastEventAt = event.ts;
+        sessionStats.lastKind = event.kind;
+        sessionStats.lastSummary = event.summary;
+      }
+      sessionStats.eventCount++;
+      if (event.kind === "tool") sessionStats.toolCount++;
+      if (isRequestEvent(event)) sessionStats.reqCount++;
+      if (isPermissionEvent(event)) sessionStats.permCount++;
+    }
   }
 
-  return discovery.processes.map((proc): AtopRow => {
-    const stats = byPid.get(proc.pid);
+  const processByCwd = new Map<string, TailDiscoveredProcess>();
+  for (const proc of discovery.processes) {
+    if (!proc.cwd) continue;
+    const key = sourceCwdKey(proc.source, proc.cwd);
+    const current = processByCwd.get(key);
+    if (!current || proc.pid < current.pid) {
+      processByCwd.set(key, proc);
+    }
+  }
+
+  const latestTranscriptKeyByCwd = new Map<string, string>();
+  const latestTranscriptMtimeByCwd = new Map<string, number>();
+  for (const transcript of discovery.transcripts ?? []) {
+    const cwdKey = sourceCwdKey(transcript.source, transcript.cwd);
+    const rowKey = rowKeyForTranscript(transcript);
+    const currentMtime = latestTranscriptMtimeByCwd.get(cwdKey) ?? Number.NEGATIVE_INFINITY;
+    const currentKey = latestTranscriptKeyByCwd.get(cwdKey) ?? "";
+    if (transcript.mtimeMs > currentMtime || (transcript.mtimeMs === currentMtime && rowKey > currentKey)) {
+      latestTranscriptMtimeByCwd.set(cwdKey, transcript.mtimeMs);
+      latestTranscriptKeyByCwd.set(cwdKey, rowKey);
+    }
+  }
+
+  const usedProcessIds = new Set<number>();
+
+  const buildRow = (
+    key: string,
+    proc: TailDiscoveredProcess | null,
+    stats: EventStats | undefined,
+    transcript: TailDiscoveredTranscript | null,
+  ): AtopRow => {
+    if (proc) {
+      usedProcessIds.add(proc.pid);
+    }
     let status: AtopStatus = "idle";
+    const lastActivityAt = Math.max(stats?.lastEventAt ?? 0, transcript?.mtimeMs ?? 0);
     if (stats) {
       const fresh = now - stats.lastEventAt < ACTIVE_WINDOW_MS;
       if (fresh) status = stats.lastKind === "tool" ? "tool" : "run";
     }
-    const procRuntimeSec = parseEtimeSeconds(proc.etime);
+    if (status === "idle" && now - lastActivityAt < 60_000) {
+      status = "run";
+    }
+    const procRuntimeSec = proc ? parseEtimeSeconds(proc.etime) : 0;
     const sessionStartAt = stats?.firstEventAt ?? null;
     const sessionRuntimeSec = stats && stats.firstEventAt < stats.lastEventAt
       ? Math.min(
@@ -309,22 +382,26 @@ function deriveRows(
           procRuntimeSec || Number.POSITIVE_INFINITY,
         )
       : 0;
+    const pid = proc?.pid ?? virtualPidForKey(key);
+    const cwd = transcript?.cwd ?? proc?.cwd ?? "";
     return {
-      pid: proc.pid,
-      ppid: proc.ppid,
-      sessionId: stats?.sessionId ?? null,
-      harness: displayHarness(proc.source),
-      attribution: proc.harness,
-      project: proc.cwd ? basename(proc.cwd) : "(unknown)",
-      cwd: proc.cwd ?? "",
-      command: proc.command,
-      parentLabel: parentLabelFromChain(proc.parentChain ?? []),
+      key,
+      pid,
+      ppid: proc?.ppid ?? 0,
+      sessionId: transcript?.sessionId ?? stats?.sessionId ?? null,
+      transcriptPath: transcript?.transcriptPath ?? null,
+      harness: displayHarness(transcript?.source ?? proc?.source),
+      attribution: proc?.harness ?? transcript?.harness ?? "unattributed",
+      project: transcript?.project?.trim() || (cwd ? basename(cwd) : "(unknown)"),
+      cwd,
+      command: proc?.command ?? `${transcript?.source ?? "unknown"} transcript`,
+      parentLabel: proc ? parentLabelFromChain(proc.parentChain ?? []) : "transcript",
       procRuntimeSec,
-      procEtime: proc.etime,
+      procEtime: proc?.etime ?? "0",
       sessionStartAt,
       sessionRuntimeSec,
       status,
-      lastEventAt: stats?.lastEventAt ?? null,
+      lastEventAt: lastActivityAt || null,
       lastEventKind: stats?.lastKind ?? null,
       lastSummary: stats?.lastSummary ?? null,
       reqCount: stats?.reqCount ?? 0,
@@ -337,7 +414,23 @@ function deriveRows(
       cacheReadIn: stats?.cacheReadIn ?? null,
       cacheWriteIn: stats?.cacheWriteIn ?? null,
     };
+  };
+
+  const transcriptRows = (discovery.transcripts ?? []).map((transcript) => {
+    const key = rowKeyForTranscript(transcript);
+    const cwdKey = sourceCwdKey(transcript.source, transcript.cwd);
+    const proc = latestTranscriptKeyByCwd.get(cwdKey) === key
+      ? processByCwd.get(cwdKey) ?? null
+      : null;
+    const stats = transcript.sessionId ? bySession.get(transcript.sessionId) : undefined;
+    return buildRow(key, proc, stats, transcript);
   });
+
+  const processRows = discovery.processes
+    .filter((proc) => !usedProcessIds.has(proc.pid))
+    .map((proc) => buildRow(rowKeyForProcess(proc), proc, byPid.get(proc.pid), null));
+
+  return [...transcriptRows, ...processRows];
 }
 
 function cacheHitRate(row: AtopRow): number | null {
@@ -366,6 +459,27 @@ function basename(p: string): string {
   if (!p) return "";
   const idx = p.lastIndexOf("/");
   return idx >= 0 ? p.slice(idx + 1) : p;
+}
+
+function rowKeyForTranscript(transcript: TailDiscoveredTranscript): string {
+  return `session:${transcript.source}:${transcript.sessionId ?? transcript.transcriptPath}`;
+}
+
+function rowKeyForProcess(process: TailDiscoveredProcess): string {
+  return `process:${process.source}:${process.pid}`;
+}
+
+function virtualPidForKey(key: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < key.length; index += 1) {
+    hash ^= key.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return -((hash >>> 0) % 900_000 + 1_000);
+}
+
+function sourceCwdKey(source: string, cwd: string | null | undefined): string {
+  return `${source}\0${cwd ?? ""}`;
 }
 
 function summarize(rows: AtopRow[], events: TailEvent[], now: number): AtopSummary {
@@ -487,7 +601,7 @@ export function AtopView() {
   const [harnessFilter, setHarnessFilter] = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<Set<AtopStatus>>(() => new Set());
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "status", dir: 1 });
-  const [selectedPid, setSelectedPid] = useState<number | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const runHistoryRef = useRef<number[]>([]);
   const toolHistoryRef = useRef<number[]>([]);
@@ -580,7 +694,7 @@ export function AtopView() {
       if (statusFilter.size > 0 && !statusFilter.has(row.status)) return false;
       if (!q) return true;
       const attribution = ATTRIBUTION_LABEL[row.attribution];
-      const hay = `${row.pid} ${row.project} ${row.command} ${row.harness} ${row.attribution} ${attribution} ${row.sessionId ?? ""} ${row.lastSummary ?? ""}`.toLowerCase();
+      const hay = `${row.pid} ${row.project} ${row.command} ${row.harness} ${row.attribution} ${attribution} ${row.sessionId ?? ""} ${row.transcriptPath ?? ""} ${row.lastSummary ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, search, harnessFilter, statusFilter]);
@@ -603,13 +717,13 @@ export function AtopView() {
       .map((entry) => entry.row)
   ), [filteredRows, sort, secondarySort]);
 
-  /* keep selected pid valid */
+  /* keep selected row valid */
   useEffect(() => {
-    if (selectedPid == null) return;
-    if (!rows.some((row) => row.pid === selectedPid)) {
-      setSelectedPid(null);
+    if (selectedKey == null) return;
+    if (!rows.some((row) => row.key === selectedKey)) {
+      setSelectedKey(null);
     }
-  }, [rows, selectedPid]);
+  }, [rows, selectedKey]);
 
   /* keyboard nav */
   useEffect(() => {
@@ -618,9 +732,9 @@ export function AtopView() {
       const inEditable = target instanceof HTMLInputElement
         || target instanceof HTMLTextAreaElement
         || (target?.isContentEditable ?? false);
-      if (event.key === "Escape" && selectedPid != null) {
+      if (event.key === "Escape" && selectedKey != null) {
         event.preventDefault();
-        setSelectedPid(null);
+        setSelectedKey(null);
         return;
       }
       if (inEditable) return;
@@ -629,21 +743,21 @@ export function AtopView() {
       if (isDown || isUp) {
         if (displayRows.length === 0) return;
         event.preventDefault();
-        const idx = displayRows.findIndex((row) => row.pid === selectedPid);
+        const idx = displayRows.findIndex((row) => row.key === selectedKey);
         const next = isDown
           ? displayRows[Math.min(displayRows.length - 1, idx < 0 ? 0 : idx + 1)]
           : displayRows[Math.max(0, idx < 0 ? 0 : idx - 1)];
-        if (next) setSelectedPid(next.pid);
+        if (next) setSelectedKey(next.key);
         return;
       }
-      if (event.key === "Enter" && selectedPid != null) {
+      if (event.key === "Enter" && selectedKey != null) {
         event.preventDefault();
         return;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [displayRows, selectedPid]);
+  }, [displayRows, selectedKey]);
 
   const toggleHarness = (harness: string) => {
     setHarnessFilter((prev) => {
@@ -663,19 +777,21 @@ export function AtopView() {
   };
 
   const selectedRow = useMemo(
-    () => (selectedPid != null ? rows.find((row) => row.pid === selectedPid) ?? null : null),
-    [rows, selectedPid],
+    () => (selectedKey != null ? rows.find((row) => row.key === selectedKey) ?? null : null),
+    [rows, selectedKey],
   );
   const selectedProcess = useMemo(
-    () => (selectedPid != null
-      ? discovery?.processes.find((p) => p.pid === selectedPid) ?? null
+    () => (selectedRow
+      ? discovery?.processes.find((process) => process.pid === selectedRow.pid) ?? null
       : null),
-    [discovery, selectedPid],
+    [discovery, selectedRow],
   );
   const selectedEvents = useMemo(() => {
-    if (selectedPid == null) return [];
-    return events.filter((event) => event.pid === selectedPid).slice(-PEEK_LINE_LIMIT);
-  }, [events, selectedPid]);
+    if (!selectedRow) return [];
+    return events
+      .filter((event) => selectedRow.sessionId ? event.sessionId === selectedRow.sessionId : event.pid === selectedRow.pid)
+      .slice(-PEEK_LINE_LIMIT);
+  }, [events, selectedRow]);
 
   return (
     <div className="s-atop">
@@ -702,13 +818,13 @@ export function AtopView() {
       <DataTable
         rows={filteredRows}
         columns={COLUMNS}
-        rowId={(row) => String(row.pid)}
+        rowId={(row) => row.key}
         storageKey="openscout.atop.cols"
         sort={sort}
         onSortChange={setSort}
         secondarySort={secondarySort}
-        onRowClick={(row) => setSelectedPid(row.pid)}
-        rowClassName={(row) => (selectedPid === row.pid ? "s-atop-row--selected" : undefined)}
+        onRowClick={(row) => setSelectedKey(row.key)}
+        rowClassName={(row) => (selectedKey === row.key ? "s-atop-row--selected" : undefined)}
         empty={{ title: "no agents match", body: "adjust filters or start a session to populate" }}
         density="compact"
         className="s-atop-data-table"
@@ -718,7 +834,7 @@ export function AtopView() {
       <KeyHints
         shown={displayRows.length}
         total={rows.length}
-        hasSelection={selectedPid != null}
+        hasSelection={selectedKey != null}
       />
 
       {selectedRow && (
@@ -727,7 +843,7 @@ export function AtopView() {
           process={selectedProcess}
           events={selectedEvents}
           now={now}
-          onClose={() => setSelectedPid(null)}
+          onClose={() => setSelectedKey(null)}
         />
       )}
     </div>
@@ -1116,7 +1232,7 @@ function DetailDrawer({
         className="s-atop-drawer"
         role="dialog"
         aria-modal="true"
-        aria-label={`Agent ${row.pid}`}
+        aria-label={`Agent ${row.key}`}
         onKeyDown={onTrapKeyDown}
         tabIndex={-1}
       >
@@ -1126,7 +1242,7 @@ function DetailDrawer({
               <span className="s-atop-status-dot" />
               {STATUS_LABEL[row.status]}
             </span>
-            <span className="s-atop-drawer-pid">pid {row.pid}</span>
+            <span className="s-atop-drawer-pid">{row.pid > 0 ? `pid ${row.pid}` : "transcript"}</span>
             <span
               className={harnessChipClass(row.harness)}
               title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
@@ -1211,11 +1327,17 @@ function DetailDrawer({
             <code className="s-atop-codeblock">{row.command}</code>
             <dl className="s-atop-kvs">
               <dt>PID</dt>
-              <dd>{row.pid}</dd>
+              <dd>{row.pid > 0 ? row.pid : "transcript-only"}</dd>
               <dt>Parent</dt>
               <dd>{row.parentLabel} (ppid {row.ppid})</dd>
               <dt>Process etime</dt>
               <dd>{row.procEtime}</dd>
+              {row.transcriptPath && (
+                <>
+                  <dt>Transcript</dt>
+                  <dd>{row.transcriptPath}</dd>
+                </>
+              )}
               <dt>Origin</dt>
               <dd>{ATTRIBUTION_LABEL[row.attribution]}</dd>
               <dt>CWD</dt>

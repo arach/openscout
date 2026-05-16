@@ -14,11 +14,12 @@ Scout asks are durable broker flights. The MCP `invocations_ask` tool already
 returns `flightId`, `conversationId`, optional `workId`, and follow links when it
 does not wait inline.
 
-The problem is that answer retrieval is still overloaded onto ask submission:
+The problem is that completion retrieval must not be overloaded onto ask submission:
 
-- `replyMode: "none"` returns immediately, but the model has no direct MCP tool
-  to check the answer later.
-- `replyMode: "inline"` blocks the MCP tool call until the flight completes.
+- `replyMode: "none"` returns immediately, so the caller needs a direct MCP tool
+  to check completion later.
+- `replyMode: "inline"` waits for target acknowledgement or immediate terminal
+  state, but it is still the submission call.
 - `replyMode: "notify"` returns immediately, but depends on the MCP host keeping
   the server alive and surfacing custom notifications.
 
@@ -35,8 +36,8 @@ tools read or briefly wait on that flight:
 - `invocations_wait({ flightId, timeoutSeconds })` performs a bounded wait and
   returns the latest state instead of making ask submission block indefinitely.
 
-This preserves the existing broker model and keeps `replyMode: "inline"` as a
-short-consult compatibility mode, not the recommended long-task path.
+This preserves the existing broker model and keeps `replyMode: "inline"` as an
+acknowledgement path, not the recommended completion path for long tasks.
 
 ## Goals
 
@@ -135,5 +136,5 @@ flight state.
 - `invocations_ask` still returns durable `flightId` data for non-inline asks.
 - `invocations_get` can fetch the latest state for a returned `flightId`.
 - `invocations_wait` is bounded and returns latest state on timeout.
-- Inline ask remains available for short consults.
+- Inline ask remains available for acknowledgement and immediate completions.
 - Tests cover non-blocking get and bounded wait behavior.

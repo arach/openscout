@@ -82,6 +82,7 @@ import {
   compileCodexPermissionProfile,
   parseScoutPermissionProfile,
 } from "./permission-policy.js";
+import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
@@ -323,7 +324,7 @@ function titleCaseLocalAgentName(value: string): string {
     .join(" ");
 }
 
-export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex"];
+export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "pi"];
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
   "flue",
@@ -606,7 +607,7 @@ function generatedLocalAgentSystemPromptCandidates(
 ): string[] {
   const baseContext = buildLocalAgentTemplateContext(agentId, projectName, projectPath);
   const relayCommands = [brokerRelayCommand(), legacyNodeBrokerRelayCommand()];
-  const transportModes: Array<RelayRuntimeTransport | undefined> = [undefined, "codex_app_server", "claude_stream_json"];
+  const transportModes: Array<RelayRuntimeTransport | undefined> = [undefined, "tmux", "codex_app_server", "claude_stream_json"];
   const candidates = new Set<string>();
 
   for (const relayCommand of relayCommands) {
@@ -691,15 +692,18 @@ function normalizeTmuxSessionName(value: string | undefined, agentId: string): s
   const fallback = `relay-${agentId}`;
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
-    return fallback;
+    return fallback.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "relay-agent";
   }
 
-  const normalized = trimmed.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
-  return normalized || fallback;
+  const normalized = trimmed.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "");
+  return normalized || fallback.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "relay-agent";
 }
 
 function normalizeLocalAgentHarness(value: string | undefined): AgentHarness {
-  return value === "codex" ? "codex" : DEFAULT_LOCAL_AGENT_HARNESS;
+  if (value === "codex" || value === "claude" || value === "pi") {
+    return value;
+  }
+  return DEFAULT_LOCAL_AGENT_HARNESS;
 }
 
 function normalizeLocalAgentTransport(value: string | undefined, harness: AgentHarness): RelayRuntimeTransport {
@@ -719,7 +723,7 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
     return "tmux";
   }
 
-  return "claude_stream_json";
+  return "tmux";
 }
 
 function normalizeLocalAgentCapabilities(value: unknown): AgentCapability[] {
@@ -806,6 +810,22 @@ function readClaudeLaunchModel(launchArgs: string[]): string | undefined {
   return undefined;
 }
 
+function readFlagValue(launchArgs: string[], flag: string): string | undefined {
+  for (let index = 0; index < launchArgs.length; index += 1) {
+    const current = launchArgs[index] ?? "";
+    if (current === flag) {
+      const next = launchArgs[index + 1]?.trim();
+      return next || undefined;
+    }
+    if (current.startsWith(`${flag}=`)) {
+      const next = current.slice(flag.length + 1).trim();
+      return next || undefined;
+    }
+  }
+
+  return undefined;
+}
+
 function normalizeLaunchArgsForHarness(harness: AgentHarness, value: unknown): string[] {
   const normalized = normalizeLocalAgentLaunchArgs(value);
   if (harness === "codex") {
@@ -820,6 +840,9 @@ function readLaunchModelForHarness(harness: AgentHarness, launchArgs: string[] |
   }
   if (harness === "claude") {
     return readClaudeLaunchModel(launchArgs ?? []);
+  }
+  if (harness === "pi") {
+    return readFlagValue(launchArgs ?? [], "--model");
   }
   return undefined;
 }
@@ -853,7 +876,7 @@ function stripLaunchModelForHarness(harness: AgentHarness, launchArgs: string[])
     return next;
   }
 
-  if (harness === "claude") {
+  if (harness === "claude" || harness === "pi") {
     const next: string[] = [];
     const normalized = normalizeLocalAgentLaunchArgs(launchArgs);
     for (let index = 0; index < normalized.length; index += 1) {
@@ -880,6 +903,9 @@ function buildLaunchArgsForRequestedModel(harness: AgentHarness, model: string):
   if (harness === "claude") {
     return ["--model", model];
   }
+  if (harness === "pi") {
+    return ["--model", model];
+  }
   return [];
 }
 
@@ -889,6 +915,23 @@ function normalizeRequestedReasoningEffort(reasoningEffort: string | undefined):
 }
 
 function stripLaunchReasoningEffortForHarness(harness: AgentHarness, launchArgs: string[]): string[] {
+  if (harness === "pi") {
+    const next: string[] = [];
+    const normalized = normalizeLocalAgentLaunchArgs(launchArgs);
+    for (let index = 0; index < normalized.length; index += 1) {
+      const current = normalized[index] ?? "";
+      if (current === "--thinking") {
+        index += 1;
+        continue;
+      }
+      if (current.startsWith("--thinking=")) {
+        continue;
+      }
+      next.push(current);
+    }
+    return next;
+  }
+
   if (harness !== "codex") {
     return normalizeLaunchArgsForHarness(harness, launchArgs);
   }
@@ -923,6 +966,9 @@ function stripLaunchReasoningEffortForHarness(harness: AgentHarness, launchArgs:
 function buildLaunchArgsForRequestedReasoningEffort(harness: AgentHarness, reasoningEffort: string): string[] {
   if (harness === "codex") {
     return normalizeCodexAppServerLaunchArgs(["--reasoning-effort", reasoningEffort]);
+  }
+  if (harness === "pi") {
+    return ["--thinking", reasoningEffort];
   }
   return [];
 }
@@ -1022,7 +1068,15 @@ function overrideHarnessProfile(
 }
 
 function normalizeManagedHarness(value: string | undefined, fallback: ManagedAgentHarness): ManagedAgentHarness {
-  return value === "codex" ? "codex" : value === "claude" ? "claude" : value === "cursor" ? "cursor" : fallback;
+  return value === "codex"
+    ? "codex"
+    : value === "claude"
+      ? "claude"
+      : value === "cursor"
+        ? "cursor"
+        : value === "pi"
+          ? "pi"
+          : fallback;
 }
 
 function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord): RelayHarnessProfiles {
@@ -1031,7 +1085,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
     "claude",
   );
   const nextProfiles: RelayHarnessProfiles = {};
-  for (const harness of ["claude", "codex", "cursor"] as const) {
+  for (const harness of ["claude", "codex", "cursor", "pi"] as const) {
     const profile = record.harnessProfiles?.[harness];
     if (!profile) {
       continue;
@@ -1066,7 +1120,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
     };
   }
 
-  for (const harness of ["claude", "codex", "cursor"] as const) {
+  for (const harness of ["claude", "codex", "cursor", "pi"] as const) {
     const profile = nextProfiles[harness];
     if (!profile) {
       continue;
@@ -1894,6 +1948,9 @@ function buildInvocationDispatchLine(invocation: InvocationRequest): string {
 }
 
 export function buildScoutReplyContext(agentName: string, invocation: InvocationRequest): ScoutReplyContext | null {
+  if (invocation.action === "wake") {
+    return null;
+  }
   if (!invocation.conversationId || !invocation.messageId) {
     return null;
   }
@@ -1914,13 +1971,20 @@ function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string
   const header = [
     "<!-- SCOUT BROKER REPLY MODE -->",
     "> **Reply mode:** You are answering a Scout ask.",
+    "> First, immediately publish a short broker-visible acknowledgement in the same conversation, e.g. that you received the ask and are working on it now.",
+    "> Use `messages_reply` / `scout_reply` for that acknowledgement when available; if only the Scout CLI is available, use the same DM/conversation route rather than a new ask.",
     context?.replyPath === "mcp_reply"
-      ? "> Use the provided Scout reply tool for the final answer; do not create a new send/ask."
+      ? "> Use the provided Scout reply tool for progress acknowledgement and the final answer; do not create a new send/ask."
       : "> Your final assistant message will be delivered back through the Scout broker.",
     context?.replyPath === "mcp_reply"
-      ? "> Call `messages_reply` or `scout_reply` exactly once with the reply intended for the requester."
-      : "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.",
+      ? "> Call `messages_reply` or `scout_reply` for the initial acknowledgement, then again for the final reply intended for the requester."
+      : "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` for the final answer; those are only for acknowledgement, progress, or delegation.",
     "> Only use Scout tools if you need to ask or delegate to another agent.",
+    "",
+    "<!-- SCOUT ARTIFACT GUIDANCE -->",
+    "> For long-form deliverables, prefer a durable file when you have write access: reports, specs, diffs, logs, research bundles, or generated code.",
+    "> Keep the broker reply as the useful handoff: short summary, key decision, and absolute file path.",
+    "> Inline replies are still valid when the answer is naturally small, the requester asked for inline text, or you do not have write access.",
   ];
 
   if (!context) {
@@ -1948,19 +2012,22 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
   const collaborationContext = buildInvocationCollaborationContextPrompt(invocation);
   const actionRules = invocation.action === "execute"
     ? "You may inspect and modify the workspace when needed. End with the concise broker-visible reply for the requester."
+    : invocation.action === "wake"
+    ? "Treat this as a message/update, not a reply-required ask. Continue your current work and reply only if useful."
     : "Do not modify files unless the request explicitly requires it. End with the concise broker-visible reply for the requester.";
 
   const replyContext = buildScoutReplyContext(agentName, invocation);
+  const replyContextPrompt = invocation.action === "wake" ? [] : buildScoutReplyContextPrompt(replyContext);
 
   return [
     buildInvocationOpener(invocation),
     buildInvocationDispatchLine(invocation),
-    "",
-    ...buildScoutReplyContextPrompt(replyContext),
+    replyContextPrompt.length > 0 ? "" : undefined,
+    ...replyContextPrompt,
     "",
     actionRules,
     collaborationContract,
-    "Return only the broker-visible reply for the requester.",
+    invocation.action === "wake" ? undefined : "Return only the broker-visible reply for the requester.",
     "",
     collaborationContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
@@ -1975,14 +2042,17 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
   const contextLines = Object.entries(invocation.context ?? {})
     .map(([key, value]) => `- ${key}: ${String(value)}`);
   const replyContext = buildScoutReplyContext(agentName, invocation);
+  const replyContextPrompt = invocation.action === "wake" ? [] : buildScoutReplyContextPrompt(replyContext);
 
   return [
     buildInvocationOpener(invocation),
     buildInvocationDispatchLine(invocation),
+    replyContextPrompt.length > 0 ? "" : undefined,
+    ...replyContextPrompt,
     "",
-    ...buildScoutReplyContextPrompt(replyContext),
-    "",
-    "Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.",
+    invocation.action === "wake"
+      ? "Treat this as a direct message/update to the current session. No reply is required; respond only if it is useful."
+      : "Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.",
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
     "",
     invocation.task,
@@ -1993,6 +2063,21 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
 
 export function buildLocalAgentNudge(agentName: string, invocation: InvocationRequest, flightId: string): string {
   const relayCommand = brokerRelayCommand();
+  if (invocation.action === "wake") {
+    const parts = [
+      `New broker message from ${invocation.requesterId}.`,
+      `Message: ${invocation.task}`,
+      "This is a message/update, not a reply-required ask. Read it and continue your current work; reply only if a human-useful response is needed.",
+    ];
+
+    if (invocation.context && Object.keys(invocation.context).length > 0) {
+      parts.push(`Context: ${JSON.stringify(invocation.context)}`);
+    }
+
+    parts.push(`Read recent context if needed: ${relayCommand} latest --agent ${agentName} --limit 20.`);
+    return parts.join(" ");
+  }
+
   const parts = [
     `New broker ask from ${invocation.requesterId}.`,
     `Task: ${invocation.task}`,
@@ -2016,16 +2101,17 @@ export function stripLocalAgentReplyMetadata(body: string, flightId: string, ask
 }
 
 async function sendLocalAgentPrompt(agentName: string, record: LocalAgentRecord, prompt: string): Promise<void> {
-  if (normalizeLocalAgentHarness(record.harness) === "codex") {
+  const harness = normalizeLocalAgentHarness(record.harness);
+  if (harness === "codex") {
     const promptPipe = join(relayAgentRuntimeDirectory(agentName), "prompt.pipe");
     await writeFile(promptPipe, prompt.trim() + "\0");
     return;
   }
 
-  sendTmuxPrompt(record.tmuxSession, prompt);
+  sendTmuxPrompt(record.tmuxSession, prompt, buildTmuxPromptSubmitKeys(harness));
 }
 
-export function sendTmuxPrompt(sessionName: string, prompt: string): void {
+export function sendTmuxPrompt(sessionName: string, prompt: string, submitKeys = buildTmuxPromptSubmitKeys()): void {
   const bufferName = `openscout-prompt-${randomUUID()}`;
   try {
     execFileSync("tmux", ["load-buffer", "-b", bufferName, "-"], {
@@ -2035,7 +2121,7 @@ export function sendTmuxPrompt(sessionName: string, prompt: string): void {
     execFileSync("tmux", ["paste-buffer", "-d", "-b", bufferName, "-t", sessionName], {
       stdio: "pipe",
     });
-    execFileSync("tmux", ["send-keys", "-t", sessionName, "Enter"], { stdio: "pipe" });
+    execFileSync("tmux", ["send-keys", "-t", sessionName, ...submitKeys], { stdio: "pipe" });
   } catch (error) {
     try {
       execFileSync("tmux", ["delete-buffer", "-b", bufferName], { stdio: "pipe" });
@@ -2044,6 +2130,13 @@ export function sendTmuxPrompt(sessionName: string, prompt: string): void {
     }
     throw error;
   }
+}
+
+export function buildTmuxPromptSubmitKeys(harness: AgentHarness = "claude"): string[] {
+  if (harness === "pi") {
+    return ["Enter"];
+  }
+  return ["C-[", "Enter"];
 }
 
 function shellQuoteArguments(args: string[]): string {
@@ -2069,6 +2162,19 @@ function buildLocalAgentLaunchCommand(
   );
   if (harness === "codex") {
     return `exec bash ${JSON.stringify(workerScript ?? join(relayAgentRuntimeDirectory(agentName), "codex-worker.sh"))}`;
+  }
+
+  if (harness === "pi") {
+    const sessionDir = join(relayAgentRuntimeDirectory(agentName), "pi-sessions");
+    return [
+      "pi",
+      `--append-system-prompt "$(cat ${JSON.stringify(promptFile)})"`,
+      "--session-dir",
+      JSON.stringify(sessionDir),
+      extraArgs,
+    ]
+      .filter(Boolean)
+      .join(" ");
   }
 
   return [
@@ -2207,22 +2313,38 @@ function killAgentSession(sessionName: string): void {
   }
 }
 
-function isHarnessBinaryAvailable(transport: string): boolean {
-  const binaryMap: Record<string, string> = {
-    claude_stream_json: "claude",
-    codex_app_server: "codex",
-  };
-  const binary = binaryMap[transport];
-  if (!binary) return true;
-  try {
-    execFileSync("sh", ["-lc", `command -v ${binary}`], {
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf8",
-    });
-    return true;
-  } catch {
-    return false;
+function areHarnessBinariesAvailable(record: LocalAgentRecord): boolean {
+  const harness = normalizeLocalAgentHarness(record.harness);
+  const binaries = new Set<string>();
+
+  if (record.transport === "codex_app_server" || harness === "codex") {
+    binaries.add("codex");
   }
+
+  if (record.transport === "claude_stream_json" || (record.transport === "tmux" && harness === "claude")) {
+    binaries.add("claude");
+  }
+
+  if (record.transport === "tmux" && harness === "pi") {
+    binaries.add("pi");
+  }
+
+  if (record.transport === "tmux") {
+    binaries.add("tmux");
+  }
+
+  for (const binary of binaries) {
+    try {
+      execFileSync("sh", ["-lc", `command -v ${binary}`], {
+        stdio: ["ignore", "pipe", "ignore"],
+        encoding: "utf8",
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecord): Promise<LocalAgentRecord> {
@@ -2231,7 +2353,7 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
     return normalizedRecord;
   }
 
-  if (!isHarnessBinaryAvailable(normalizedRecord.transport)) {
+  if (!areHarnessBinariesAvailable(normalizedRecord)) {
     console.warn(`[openscout-runtime] skipping warmup for ${agentName}: harness binary for ${normalizedRecord.transport} not found in PATH`);
     return normalizedRecord;
   }
@@ -2786,6 +2908,10 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
         reasoningEffort: input.reasoningEffort,
       },
     );
+    const nextTransport = normalizeLocalAgentTransport(
+      preferredHarness ? undefined : matchingOverride.runtime?.transport,
+      nextHarness,
+    );
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId: requestedDefinitionId,
@@ -2804,6 +2930,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
         ...(matchingOverride.harnessProfiles ?? {}),
         [nextHarness]: {
           ...overrideHarnessProfile(matchingOverride, nextHarness),
+          transport: nextTransport,
           sessionId: nextSessionId,
           launchArgs: nextLaunchArgs,
           ...(requestedPermissionProfile ? { permissionProfile: requestedPermissionProfile } : {}),
@@ -2812,10 +2939,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       runtime: {
         cwd: effectiveCwd ?? matchingOverride.runtime?.cwd ?? matchingProjectRoot,
         harness: nextHarness,
-        transport: normalizeLocalAgentTransport(
-          preferredHarness ? undefined : matchingOverride.runtime?.transport,
-          nextHarness,
-        ),
+        transport: nextTransport,
         sessionId: nextSessionId,
         wakePolicy: "on_demand",
       },
@@ -3394,7 +3518,13 @@ export async function invokeLocalAgentEndpoint(
   const flightId = createLocalAgentFlightId();
   const askedAt = nowSeconds();
   const timeoutSeconds = invocation.timeoutMs ? Math.max(30, Math.floor(invocation.timeoutMs / 1000)) : 300;
-  await sendLocalAgentPrompt(agentRuntimeId, onlineRecord, buildLocalAgentNudge(definitionId, invocation, flightId));
+  await sendLocalAgentPrompt(agentRuntimeId, onlineRecord, buildLocalAgentNudge(agentRuntimeId, invocation, flightId));
+
+  if (invocation.action === "wake") {
+    return {
+      output: "",
+    };
+  }
 
   const deadline = Date.now() + timeoutSeconds * 1000;
   while (Date.now() <= deadline) {
@@ -3413,7 +3543,10 @@ export async function invokeLocalAgentEndpoint(
     await sleep(500);
   }
 
-  throw new Error(`Timed out after ${timeoutSeconds}s waiting for ${agentRuntimeId}.`);
+  throw new RequesterWaitTimeoutError({
+    label: agentRuntimeId,
+    timeoutMs: timeoutSeconds * 1000,
+  });
 }
 
 export function shouldDisableGeneratedCodexEndpoint(endpoint: AgentEndpoint): boolean {

@@ -55,8 +55,8 @@ export type ClientMessage =
 
 import { createRequire } from 'module';
 import { execSync } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join, dirname as pathDirname } from 'path';
+import { accessSync, constants, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { delimiter as pathDelimiter, join, dirname as pathDirname, resolve as pathResolve } from 'path';
 import type { IPty } from 'node-pty';
 
 const require = createRequire(import.meta.url);
@@ -190,9 +190,59 @@ function findBin(name: string, envOverride?: string): string | null {
   }
 }
 
+function expandHomePath(value: string): string {
+  const home = process.env.HOME || '/tmp';
+  if (value === '~') return home;
+  if (value.startsWith('~/')) return join(home, value.slice(2));
+  return value;
+}
+
+function isExecutablePath(candidate: string | null | undefined): candidate is string {
+  if (!candidate) return false;
+  try {
+    accessSync(candidate, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findExecutableInDirectories(name: string, directories: string[]): string | null {
+  const seen = new Set<string>();
+  for (const directory of directories) {
+    if (!directory) continue;
+    const normalizedDirectory = pathResolve(expandHomePath(directory));
+    if (seen.has(normalizedDirectory)) continue;
+    seen.add(normalizedDirectory);
+    const candidate = join(normalizedDirectory, name);
+    if (isExecutablePath(candidate)) return candidate;
+  }
+  return null;
+}
+
+function findExecutableOnPath(name: string): string | null {
+  return findExecutableInDirectories(name, (process.env.PATH || '').split(pathDelimiter));
+}
+
 /** Locate the claude binary, returning null if not found. */
 function findClaudeBin(): string | null {
-  return findBin('claude', 'CLAUDE_BIN');
+  for (const envKey of ['OPENSCOUT_CLAUDE_BIN', 'SCOUT_CLAUDE_BIN', 'CLAUDE_BIN']) {
+    const explicit = process.env[envKey]?.trim();
+    if (!explicit) continue;
+    const expanded = expandHomePath(explicit);
+    if (isExecutablePath(expanded)) return pathResolve(expanded);
+    const foundOnPath = findExecutableOnPath(explicit);
+    if (foundOnPath) return foundOnPath;
+  }
+
+  const home = process.env.HOME || '/tmp';
+  return findExecutableInDirectories('claude', [
+    join(home, '.local', 'bin'),
+    join(home, '.claude', 'local'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    join(home, '.bun', 'bin'),
+  ]) ?? findExecutableOnPath('claude');
 }
 
 /** Locate the pi binary, returning null if not found. */
@@ -307,7 +357,7 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   } else {
     agentBin = findClaudeBin();
     if (!agentBin) {
-      const reason = 'Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code';
+      const reason = 'Claude CLI not found. Install it with: curl -fsSL https://claude.ai/install.sh | bash';
       console.error(`[relay] Session ${id} failed: ${reason}`);
       send(ws, { type: 'session:error', error: reason });
       return null;

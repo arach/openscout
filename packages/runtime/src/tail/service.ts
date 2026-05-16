@@ -18,6 +18,10 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 
 const TAIL_POLL_INTERVAL_MS = readPositiveIntEnv("OPENSCOUT_TAIL_POLL_INTERVAL_MS", 500);
 const HOT_DISCOVERY_INTERVAL_MS = readPositiveIntEnv("OPENSCOUT_TAIL_HOT_DISCOVERY_INTERVAL_MS", 30_000);
+const DISCOVERY_CACHE_MAX_AGE_MS = readPositiveIntEnv(
+  "OPENSCOUT_TAIL_DISCOVERY_CACHE_MAX_AGE_MS",
+  HOT_DISCOVERY_INTERVAL_MS,
+);
 const SHALLOW_DISCOVERY_INTERVAL_MS = readPositiveIntEnv("OPENSCOUT_TAIL_SHALLOW_DISCOVERY_INTERVAL_MS", 10 * 60_000);
 const DEEP_DISCOVERY_INTERVAL_MS = readPositiveIntEnv("OPENSCOUT_TAIL_DEEP_DISCOVERY_INTERVAL_MS", 60 * 60_000);
 const PER_SESSION_BUFFER_LIMIT = 2_000;
@@ -389,7 +393,7 @@ export async function getTailDiscovery(force = false): Promise<DiscoverySnapshot
   if (force) {
     return runDiscovery("deep", { pruneMissing: true });
   }
-  if (lastDiscovery) {
+  if (lastDiscovery && Date.now() - lastDiscovery.generatedAt <= DISCOVERY_CACHE_MAX_AGE_MS) {
     return lastDiscovery;
   }
   return runDiscovery("shallow", { pruneMissing: true });
