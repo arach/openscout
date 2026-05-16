@@ -1,5 +1,5 @@
 import type { Agent, Route } from "../../lib/types.ts";
-import { setOpenAgentReturn } from "../../lib/open-agent-source.ts";
+import { setNavReturn } from "../../lib/nav-return.ts";
 
 /**
  * Where the open-agent call originated. Captured forward-looking for the
@@ -28,7 +28,7 @@ export function openAgent(
   agent: Agent,
   options: OpenAgentOptions = {},
 ): void {
-  if (options.returnTo) setOpenAgentReturn(options.returnTo);
+  if (options.returnTo) setNavReturn("agents", options.returnTo);
   navigate({
     view: "agents",
     agentId: agent.id,

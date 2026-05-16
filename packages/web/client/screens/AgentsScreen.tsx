@@ -10,7 +10,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent } from "../lib/router.ts";
-import { clearOpenAgentReturn, getOpenAgentReturn } from "../lib/open-agent-source.ts";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type {
@@ -41,29 +41,6 @@ function agentLabel(
   return { name: agent.name, qualifier };
 }
 
-function BackToPicker({ navigate }: { navigate: (r: Route) => void }) {
-  const returnTo = useMemo(() => getOpenAgentReturn(), []);
-  const label =
-    returnTo?.view === "mesh"
-      ? "Back to mesh"
-      : returnTo?.view === "ops"
-        ? "Back to ops"
-        : "All agents";
-  const target: Route = returnTo ?? { view: "agents" };
-  return (
-    <button
-      type="button"
-      className="s-profile-back"
-      onClick={() => {
-        clearOpenAgentReturn();
-        navigate(target);
-      }}
-    >
-      <span aria-hidden className="s-profile-back-glyph">←</span>
-      <span>{label}</span>
-    </button>
-  );
-}
 
 function formatLabel(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -648,7 +625,12 @@ function AgentDetailWithRail({
 
   return (
     <div className={`s-profile-center${activeTab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
-      <BackToPicker navigate={navigate} />
+      <BackToPicker
+        slot="agents"
+        fallback={{ view: "agents" }}
+        navigate={navigate}
+        className="s-profile-back-position"
+      />
 
 
       {activeTab === "profile" ? (
