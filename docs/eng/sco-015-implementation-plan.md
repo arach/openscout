@@ -357,13 +357,14 @@ async function brokerRequest(method, path, body) {
 ## Install
 
 ```bash
-pi install git:github.com:openscout/pi-scout
+pi install git:github.com:arach/pi-scout
 ```
 
 Or for local development:
 
 ```bash
-ln -s ~/dev/openscout/extensions/pi-scout ~/.pi/agent/extensions/pi-scout
+git clone git@github.com:arach/pi-scout.git ~/dev/pi-scout
+ln -s ~/dev/pi-scout ~/.pi/agent/extensions/pi-scout
 ```
 
 ## Config File
