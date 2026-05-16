@@ -91,7 +91,7 @@ struct TurnView: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
                 }
-                .animation(.easeOut(duration: 0.2), value: sortedBlocks.map(\.id))
+                .animation(SwiftUI.Animation.easeOut(duration: 0.2), value: sortedBlocks.map(\.id))
             }
         }
         .padding(.horizontal, ScoutSpacing.lg)

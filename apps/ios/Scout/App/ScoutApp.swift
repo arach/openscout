@@ -48,7 +48,7 @@ struct ScoutApp: App {
                 Group {
                     if showSplash {
                         SplashView(onFinished: {
-                            withAnimation(.easeOut(duration: 0.35)) {
+                            withAnimation(SwiftUI.Animation.easeOut(duration: 0.35)) {
                                 showSplash = false
                             }
                         })
@@ -64,7 +64,7 @@ struct ScoutApp: App {
                     }
                 }
                 .preferredColorScheme(resolvedColorScheme)
-                .animation(.easeOut(duration: 0.35), value: showSplash)
+                .animation(SwiftUI.Animation.easeOut(duration: 0.35), value: showSplash)
                 .onChange(of: hasCompletedOnboarding) {
                     if hasCompletedOnboarding, connectionManager.hasTrustedBridge {
                         Task { await connectionManager.reconnect() }

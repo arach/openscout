@@ -279,20 +279,32 @@ struct NodeDetailView: View {
         error = nil
 
         do {
-            let loadedAgents = try await connection.listMobileAgents(limit: 500)
-            let health: FleetNodeDetail.Health = {
-                switch connection.health {
-                case .healthy: return .online
-                case .suspect, .degraded: return .degraded
-                default: return .offline
-                }
-            }()
+            let allAgents = try await connection.listMobileAgents(limit: 500)
+            let fallbackNodeId = connection.pairedBridgeFingerprint ?? "local"
+            let loadedAgents = allAgents.filter {
+                ($0.nodeId?.trimmedNonEmpty ?? fallbackNodeId) == nodeId
+            }
+            let hasAvailableAgent = loadedAgents.contains { $0.state == "available" || $0.state == "working" }
+            let hasOnlyOfflineAgents = !loadedAgents.isEmpty && loadedAgents.allSatisfy { $0.state == "offline" }
+            let health: FleetNodeDetail.Health = hasAvailableAgent
+                ? .online
+                : (hasOnlyOfflineAgents ? .offline : .degraded)
+            let lastHeartbeat = loadedAgents
+                .compactMap(\.lastActiveDate)
+                .max()
+                ?? (nodeId == fallbackNodeId ? connection.pairedBridgeLastSeen : nil)
+            let nodeName = loadedAgents
+                .compactMap { $0.nodeName?.trimmedNonEmpty }
+                .sorted()
+                .first
+                ?? (nodeId == fallbackNodeId ? connection.pairedBridgeName : nil)
+                ?? "Host"
             node = FleetNodeDetail(
-                id: connection.pairedBridgeFingerprint ?? nodeId,
-                name: connection.pairedBridgeName ?? "Mac",
+                id: nodeId,
+                name: nodeName,
                 health: health,
-                lastHeartbeat: connection.pairedBridgeLastSeen,
-                connectedSince: connection.pairedBridgeLastSeen
+                lastHeartbeat: lastHeartbeat,
+                connectedSince: lastHeartbeat
             )
             agents = loadedAgents
         } catch {

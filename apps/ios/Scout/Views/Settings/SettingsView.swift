@@ -16,6 +16,7 @@ struct SettingsView: View {
     @AppStorage("scout.osn.meshId") private var osnMeshId = MeshRendezvousConfiguration.defaultMeshId
     @State private var showingLogs = false
     @State private var showingOSNDiscovery = false
+    @State private var showingPairing = false
     @State private var notificationStatus: PushAuthorizationStatus = .notDetermined
 
     var body: some View {
@@ -66,6 +67,20 @@ struct SettingsView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingPairing) {
+            NavigationStack {
+                PairingView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") {
+                                showingPairing = false
+                            }
+                        }
+                    }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Connection
@@ -98,9 +113,19 @@ struct SettingsView: View {
             }
 
             if connection.hasTrustedBridge {
-                SettingsRow(icon: "checkmark.shield", iconColor: ScoutColors.textMuted, label: "Trusted Bridge") {
+                SettingsRow(icon: "checkmark.shield", iconColor: ScoutColors.textMuted, label: "Paired Primaries") {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(ScoutColors.textSecondary)
+                }
+
+                if !connection.pairedPrimaries.isEmpty {
+                    Divider().padding(.leading, 40)
+
+                    ForEach(connection.pairedPrimaries) { primary in
+                        PrimaryPairRow(primary: primary) {
+                            Task { await connection.activatePrimary(publicKeyHex: primary.publicKeyHex) }
+                        }
+                    }
                 }
 
                 Divider().padding(.leading, 40)
@@ -115,8 +140,16 @@ struct SettingsView: View {
                     }
                 }
 
-                SettingsButton(icon: "trash", label: "Forget Bridge", role: .destructive) {
+                SettingsButton(icon: "plus.circle", label: "Add Primary", role: .regular) {
+                    showingPairing = true
+                }
+
+                SettingsButton(icon: "trash", label: "Forget Active Primary", role: .destructive) {
                     connection.clearTrustedBridge()
+                }
+            } else {
+                SettingsButton(icon: "plus.circle", label: "Add Primary", role: .regular) {
+                    showingPairing = true
                 }
             }
         }
@@ -577,6 +610,50 @@ private struct SettingsButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct PrimaryPairRow: View {
+    let primary: PairedPrimarySummary
+    let connect: () -> Void
+
+    var body: some View {
+        Button(action: connect) {
+            HStack(spacing: ScoutSpacing.md) {
+                Image(systemName: primary.isActive ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(primary.isActive ? ScoutColors.ledGreen : ScoutColors.textMuted)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(primary.name)
+                        .font(ScoutTypography.body(15))
+                        .foregroundStyle(ScoutColors.textPrimary)
+                        .lineLimit(1)
+
+                    Text(primary.publicKeyHex.prefix(12))
+                        .font(ScoutTypography.code(10))
+                        .foregroundStyle(ScoutColors.textMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Text(primary.isActive ? "Active" : "Connect")
+                    .font(ScoutTypography.code(11, weight: .semibold))
+                    .foregroundStyle(primary.isActive ? ScoutColors.ledGreen : ScoutColors.textSecondary)
+
+                if !primary.isActive {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textMuted)
+                }
+            }
+            .padding(.vertical, ScoutSpacing.xs)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(primary.isActive)
     }
 }
 

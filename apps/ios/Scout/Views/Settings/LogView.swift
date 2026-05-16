@@ -106,7 +106,7 @@ struct LogView: View {
             }
             .onChange(of: filteredEntries.count) {
                 if autoScroll, let last = filteredEntries.last {
-                    withAnimation(.easeOut(duration: 0.15)) {
+                    withAnimation(SwiftUI.Animation.easeOut(duration: 0.15)) {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
