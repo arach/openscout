@@ -625,12 +625,12 @@ Related docs:
 
 Scion reference anchors in the external checkout:
 
-- `dev/ext/scion/pkg/agent/state/state.go`
-- `dev/ext/scion/pkg/runtimebroker/pty_handlers.go`
-- `dev/ext/scion/pkg/wsclient/pty.go`
-- `dev/ext/scion/pkg/api/harness_capabilities.go`
-- `dev/ext/scion/docs-site/src/content/docs/advanced-local/templates.md`
-- `dev/ext/scion/pkg/config/embeds/templates/default/home/.tmux.conf`
+- `~/dev/scion/pkg/agent/state/state.go`
+- `~/dev/scion/pkg/runtimebroker/pty_handlers.go`
+- `~/dev/scion/pkg/wsclient/pty.go`
+- `~/dev/scion/pkg/api/harness_capabilities.go`
+- `~/dev/scion/docs-site/src/content/docs/advanced-local/templates.md`
+- `~/dev/scion/pkg/config/embeds/templates/default/home/.tmux.conf`
 
 ## Acceptance Criteria
 

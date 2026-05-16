@@ -297,7 +297,8 @@ it, existing local and HTTP mesh paths continue to work.
 
 ## Sidecar Boundary
 
-The Rust sidecar is named `openscout-iroh-bridge`.
+The Rust sidecar is named `openscout-iroh-bridge` and lives with the broker
+runtime under `packages/runtime/native/iroh-bridge`.
 
 It is intentionally not required for the first user-facing OpenScout Mesh
 release to iOS, but it is required for phase 1 because phase 1 proves

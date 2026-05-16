@@ -596,7 +596,10 @@ work or a reply. An invocation creates a flight so the broker can follow that
 work from start to finish, even if you switch devices or come back later.
 
 For long-running MCP asks, use `replyMode: "notify"` when you want the caller
-to return quickly and receive the reply as a callback notification.
+to return quickly and receive completion as a callback notification. Use
+`replyMode: "inline"` when the caller needs the target acknowledgement before
+continuing, then follow completion with `invocations_get` or
+`invocations_wait`.
 
 Concrete handoff example:
 
@@ -835,7 +838,7 @@ codex     →  broker (post reply)
 broker    →  operator (deliver reply via SSE)
 ```
 
-One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, waits for the reply, and stores the whole exchange as a flight. A flight is the broker's tracked record for an ask-style request, including timeout and retry state.
+One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, records the target acknowledgement, and tracks the later completion as a flight. A flight is the broker's tracked record for an ask-style request, including timeout, retry, acknowledgement, and completion state.
 
 ## Core Moving Parts
 
@@ -1061,8 +1064,11 @@ messages_send({
 Expected client behavior:
 
 - send an explicit target field, not only `@hudson` in the body
-- render the returned `conversationId` and `messageId` when useful
+- render the returned `conversationId`, `messageId`, and optional `flightId`
+  when useful
 - treat one explicit target as a DM
+- let the broker decide whether a targeted DM needs a wake/start/attach turn;
+  callers should not need to choose wake mechanics for normal sends
 - require an explicit channel for group coordination
 - do not treat message delivery as fire-and-forget; keep the receipt available
 
@@ -1091,10 +1097,64 @@ Expected client behavior:
 
 - create or display a durable message for the request
 - surface returned ids such as `conversationId`, `messageId`, and `flightId`
-- show flight state rather than assuming immediate completion
-- use `replyMode: "inline"` only for short bounded waits
-- use `replyMode: "notify"` for longer work that should return later
+- treat the initial `invocations_ask` response as the broker receipt, not as the
+  target agent's acknowledgement
+- expect the target agent to promptly post a broker-visible acknowledgement in
+  the same conversation when it starts working
+- expect target-authored completion as a later message and flight completion
+- use `invocations_wait` / `invocations_get` for longer follow-up polling
+- use `replyMode: "notify"` when completion should return by notification
 - show wake/session failures as lifecycle state, not as silent background limbo
+
+Client API shape:
+
+```mermaid
+sequenceDiagram
+  participant Caller
+  participant ScoutAPI as Scout client API<br/>invocations_ask / invocations_wait
+  participant Broker
+  participant Target
+
+  Caller->>ScoutAPI: invocations_ask(target, body)
+  ScoutAPI->>Broker: create message + invocation + flight
+  Broker-->>ScoutAPI: receipt<br/>flightId + conversationId
+  ScoutAPI-->>Caller: dispatched receipt
+
+  Broker->>Target: deliver ask
+  Target->>Broker: ack message<br/>"Received, working on it now"
+  Broker-->>Caller: target-authored ack in DM
+
+  Target->>Broker: completion<br/>final reply + flight completed
+  Broker-->>Caller: target-authored completion in DM
+
+  Caller->>ScoutAPI: invocations_wait(flightId)
+  ScoutAPI->>Broker: read/wait flight
+  Broker-->>ScoutAPI: completed + output
+  ScoutAPI-->>Caller: final state/output
+```
+
+Product architecture shape:
+
+```mermaid
+sequenceDiagram
+  participant Caller
+  participant Broker
+  participant Target
+
+  Caller->>Broker: ask request<br/>create message + invocation + flight
+  Broker-->>Caller: broker receipt<br/>flightId + conversationId
+
+  Broker->>Target: deliver ask
+  Target->>Broker: "Received, working on it now"
+  Broker-->>Caller: target-authored ack
+
+  Target->>Broker: final answer / result
+  Broker-->>Caller: target-authored completion
+  Broker-->>Caller: flight marked completed
+
+  Caller->>Broker: wait/get flight
+  Broker-->>Caller: completed / failed / still running
+```
 
 ### Broker Reply Mode
 
@@ -1119,10 +1179,14 @@ interface ScoutReplyContext {
 
 Rules:
 
+- first publish a short broker-visible acknowledgement in the same conversation
+  when starting work
 - if `replyPath` is `final_response`, the harness final assistant message is
   the broker-visible reply
-- if `replyPath` is `mcp_reply`, call the provided reply tool exactly once
-- do not use `messages_send` or `invocations_ask` to answer the original ask
+- if `replyPath` is `mcp_reply`, use the provided reply tool for the initial
+  acknowledgement and the final answer
+- do not use `messages_send` or `invocations_ask` for the final answer to the
+  original ask
 - use Scout tools only to ask or delegate while solving the request
 
 ### Durable Work
@@ -1659,22 +1723,23 @@ Codex profile or reject the mismatch with a clear remediation.
 ## Message And Work Semantics
 
 The old "tell means no reply needed" wording is too weak for agent experience.
-Agents usually need an acknowledgement that the broker accepted the interaction
-and a handle they can follow.
+Agents need two separate signals: a broker receipt that proves Scout accepted
+and recorded the interaction, and a target-authored acknowledgement that the
+receiving agent has started working.
 
 Use this model instead:
 
 | Interaction | Use When | Required Result |
 | --- | --- | --- |
 | Message | Status, update, note, or channel post | Broker receipt with ids |
-| Invocation | Question, review, investigation, or owned work | Broker receipt plus flight ids |
+| Invocation | Question, review, investigation, or owned work | Broker receipt plus flight ids, then target acknowledgement and later completion in the same conversation |
 | Work item | Durable multi-step ownership | Work id plus progress states |
 
 The CLI verbs can remain `send` and `ask` for compatibility, but docs and
 skills should teach them as:
 
 - `send`: post a message and return a durable receipt
-- `ask`: create an invocation and return a durable receipt plus lifecycle state
+- `ask`: create an invocation, return a durable receipt plus lifecycle state, and let the target acknowledge quickly before final completion
 
 No route should depend on fire-and-forget behavior. Even a channel post should
 have a receipt.
@@ -1941,7 +2006,7 @@ Agents connected through Scout's MCP server should prefer:
 - future `sessions_*` tools for explicit harness session start, attach, inspect,
   and stop operations
 
-Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` only for short bounded waits.
+Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` when the caller needs the target acknowledgement inline; follow completion with `invocations_get` or `invocations_wait`.
 Use `replyMode: "none"` only when a caller explicitly wants tracking without an
 agent-authored reply.
 
@@ -2443,7 +2508,7 @@ Implemented now:
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions no longer install a project-wide `PreToolUse` permission
-  hook. Legacy Scout hook entries can be removed by rerunning `scout setup`.
+  hook.
 
 Not done yet:
 
@@ -2695,13 +2760,15 @@ MCP tools.
 - Group coordination means explicit channel.
 - Shared broadcast is opt-in.
 - `send` / `messages_send` is a durable message/update with receipt ids.
-- `ask` / `invocations_ask` is an invocation with receipt ids and lifecycle state.
+- `ask` / `invocations_ask` is an invocation with receipt ids, target acknowledgement, and lifecycle state.
 - Cards describe identities and return addresses; sessions are concrete harness lifecycles.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
 - Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
 - Track token/coordination cost as metadata when available; do not import full harness transcripts.
 - If blocked, record who or what owns the next move. For long-running MCP work,
-  prefer `replyMode: "notify"` over holding the caller open.
+  prefer `replyMode: "notify"` over holding the caller open for completion; use
+  `replyMode: "inline"` only when the caller needs an acknowledgement before
+  continuing.
 - If a host-side approval or permission prompt is stuck, open the host UI or use
   the host integration's forwarded unblock request. An MCP server cannot see a
   prompt intercepted by the host before the tool call reaches Scout.

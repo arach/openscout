@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
-const bridgeManifest = resolve(repoRoot, "crates/openscout-iroh-bridge/Cargo.toml");
-const bridgeBin = resolve(repoRoot, "crates/openscout-iroh-bridge/target/debug/openscout-iroh-bridge");
+const bridgeManifest = resolve(repoRoot, "packages/runtime/native/iroh-bridge/Cargo.toml");
+const bridgeBin = resolve(repoRoot, "packages/runtime/native/iroh-bridge/target/debug/openscout-iroh-bridge");
 const runtimeSource = resolve(repoRoot, "packages/runtime/src/broker-daemon.ts");
 const defaultBrokerUrl = process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65501";
 

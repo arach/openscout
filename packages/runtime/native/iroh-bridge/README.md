@@ -16,14 +16,14 @@ remains the canonical writer.
 ## Commands
 
 ```bash
-cargo run --manifest-path crates/openscout-iroh-bridge/Cargo.toml -- \
+cargo run --manifest-path packages/runtime/native/iroh-bridge/Cargo.toml -- \
   identity --identity-path ~/.openscout/mesh/iroh.key
 
-cargo run --manifest-path crates/openscout-iroh-bridge/Cargo.toml -- \
+cargo run --manifest-path packages/runtime/native/iroh-bridge/Cargo.toml -- \
   serve --identity-path ~/.openscout/mesh/iroh.key \
   --broker-url http://127.0.0.1:65501
 
-cargo run --manifest-path crates/openscout-iroh-bridge/Cargo.toml -- \
+cargo run --manifest-path packages/runtime/native/iroh-bridge/Cargo.toml -- \
   forward --identity-path ~/.openscout/mesh/iroh.key \
   --endpoint-addr-json '{"id":"remote-endpoint","addrs":[]}' \
   --route messages < mesh-bundle.json
