@@ -105,28 +105,6 @@
   pointer-events: none;
 }
 
-/* ── Multi-column tree on wide viewports ── */
-/* Project groups break-inside: avoid so each group stays whole.
-   .mesh-tree itself is currently flex-column; for column-layout to work
-   we override to `display: block`. Single column below 1600px. */
-@media (min-width: 1600px) {
-  .mesh-tree-page .mesh-tree {
-    display: block;
-    column-count: 2;
-    column-gap: 32px;
-  }
-  .mesh-tree-page .mesh-tree-group {
-    break-inside: avoid;
-    margin-bottom: 12px;
-  }
-}
-
-@media (min-width: 2200px) {
-  .mesh-tree-page .mesh-tree {
-    column-count: 3;
-  }
-}
-
 .mesh-tree-hint {
   display: flex;
   align-items: center;
@@ -172,7 +150,8 @@
   background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
 
-/* Inline middle column — only carries content on the active row */
+/* Inline middle column — always visible; lets the row carry context without
+   requiring hover/expand. cwd flexes and ellipsises first when space tightens. */
 .mesh-tree-agent-inline {
   min-width: 0;
   display: flex;
@@ -180,17 +159,15 @@
   gap: 0;
   font-family: var(--font-mono);
   font-size: 10.5px;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
   letter-spacing: 0.01em;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  opacity: 0;
-  transition: opacity 140ms ease;
 }
 
 .mesh-tree-agent--active .mesh-tree-agent-inline {
-  opacity: 1;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
 .mesh-tree-agent-inline-part {
@@ -219,6 +196,20 @@
 .mesh-tree-agent-inline-sep {
   margin: 0 8px;
   color: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+/* ── Smart reduction: shed the lowest-priority inline parts as the viewport
+   narrows, so cwd (the most informative field) always has room to breathe. ── */
+@media (max-width: 1499px) {
+  .mesh-tree-agent-inline-part--sess { display: none; }
+}
+
+@media (max-width: 1199px) {
+  .mesh-tree-agent-inline-part--harness { display: none; }
+}
+
+@media (max-width: 999px) {
+  .mesh-tree-agent-inline-part--model { display: none; }
 }
 
 /* ── Floating agent detail card (Pi-evocative) ── */
