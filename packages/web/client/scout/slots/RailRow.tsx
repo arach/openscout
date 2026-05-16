@@ -104,8 +104,11 @@ function RowLeading({
 }) {
   if (caret) {
     return (
-      <span className="rr-row-caret rr-row-caret--leading" aria-hidden>
-        {caret === "open" ? "▾" : "▸"}
+      <span
+        className={`rr-row-caret rr-row-caret--leading rr-row-caret--${caret}`}
+        aria-hidden
+      >
+        <Chevron open={caret === "open"} />
       </span>
     );
   }
@@ -121,6 +124,27 @@ function RowLeading({
         : undefined}
       aria-hidden
     />
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`rr-chevron${open ? " rr-chevron--open" : ""}`}
+      viewBox="0 0 12 12"
+      width="12"
+      height="12"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M4.25 3L7.75 6L4.25 9"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

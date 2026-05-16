@@ -39,6 +39,31 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
   return state;
 }
 
+const CANVAS_STORAGE_KEY = "openscout.mesh.canvas.viewport.v1";
+
+function loadPersistedCanvas(): CanvasState {
+  const fallback: CanvasState = { pan: { x: 0, y: 0 }, scale: 1 };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.sessionStorage.getItem(CANVAS_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.scale === "number" &&
+      parsed.pan &&
+      typeof parsed.pan.x === "number" &&
+      typeof parsed.pan.y === "number"
+    ) {
+      return { pan: { x: parsed.pan.x, y: parsed.pan.y }, scale: parsed.scale };
+    }
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
 function shortHost(s?: string | null): string {
   if (!s) return "";
   return s.replace(/^https?:\/\//, "").split("/")[0].split(":")[0].split(".")[0] || s.slice(0, 8);
@@ -853,7 +878,18 @@ function countSpecRows(
 export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: Agent[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const [canvas, dispatch] = useReducer(canvasReducer, { pan: { x: 0, y: 0 }, scale: 1 });
+  const [canvas, dispatch] = useReducer(canvasReducer, undefined, loadPersistedCanvas);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(
+        CANVAS_STORAGE_KEY,
+        JSON.stringify({ pan: canvas.pan, scale: canvas.scale }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [canvas.pan, canvas.scale]);
   const { density, query, agentStateFilters, hiddenMachineIds, collapsedMachineIds, scrollTargetMachineId } = useMeshViewStore();
   const { navigate } = useScout();
 

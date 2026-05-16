@@ -12,6 +12,9 @@ import { ScoutOpsAgentsLeftPanel } from "./OpsAgentsLeftPanel.tsx";
 import { ScoutOpsLeftPanel } from "./OpsLeftPanel.tsx";
 import { ScoutPlanArchiveLeftPanel } from "./PlanArchiveLeftPanel.tsx";
 import { RailRow } from "./RailRow.tsx";
+import { FleetSearch } from "./FleetSearch.tsx";
+import { FleetFilterPills, type FleetStateToken } from "./FleetFilterPills.tsx";
+import { openAgent } from "./openAgent.ts";
 
 type LeftRailSlot =
   | { mode: "takeover"; render: () => ReactNode }
@@ -140,11 +143,7 @@ function navigateToAgent(
   agent: Agent,
   options: { observe?: boolean } = {},
 ): void {
-  navigate({
-    view: "agents",
-    agentId: agent.id,
-    ...(options.observe ? { conversationId: agent.conversationId, tab: "observe" } : {}),
-  });
+  openAgent(navigate, agent, { ...options, from: "agents-tree" });
 }
 
 export function ScoutLeftPanel() {
@@ -156,18 +155,43 @@ export function ScoutLeftPanel() {
   return <BaseLeftRail prepend={slot?.mode === "prepend" ? slot.render() : undefined} />;
 }
 
+const DEFAULT_STATE_FILTERS: ReadonlySet<FleetStateToken> = new Set([
+  "working",
+  "available",
+  "offline",
+]);
+
 function ScoutAgentsLeftPanel() {
   const { agents, route, navigate } = useScout();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [query, setQuery] = useState("");
+  const [stateFilters, setStateFilters] = useState<ReadonlySet<FleetStateToken>>(
+    DEFAULT_STATE_FILTERS,
+  );
   const asksByAgent = useFleetActiveAsks();
 
   const normalizedQuery = normalizeQuery(query);
   const searchActive = normalizedQuery.length > 0;
 
+  const toggleStateFilter = (token: FleetStateToken) => {
+    setStateFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(token)) next.delete(token);
+      else next.add(token);
+      return next;
+    });
+  };
+
   const filteredAgents = useMemo(
-    () => agents.filter((agent) => agentMatchesQuery(agent, normalizedQuery)),
-    [agents, normalizedQuery],
+    () =>
+      agents.filter((agent) => {
+        const s = normalizeAgentState(agent.state);
+        const token: FleetStateToken =
+          s === "working" || s === "available" ? s : "offline";
+        if (!stateFilters.has(token)) return false;
+        return agentMatchesQuery(agent, normalizedQuery);
+      }),
+    [agents, normalizedQuery, stateFilters],
   );
 
   const groups = useMemo(() => buildGroups(filteredAgents), [filteredAgents]);
@@ -186,13 +210,11 @@ function ScoutAgentsLeftPanel() {
 
   return (
     <div className="s-left-roster">
-      <div className="s-left-roster-search s-search">
-        <input
-          type="text"
-          className="s-search-input"
-          placeholder="Search agents or session IDs…"
+      <div className="s-left-roster-search">
+        <FleetSearch
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={setQuery}
+          placeholder="Search agents or session IDs…"
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               if (query) {
@@ -201,7 +223,6 @@ function ScoutAgentsLeftPanel() {
                 (event.target as HTMLInputElement).blur();
               }
             }
-
             if (event.key === "Enter" && firstMatch) {
               navigateToAgent(navigate, firstMatch, {
                 observe: Boolean(matchedSessionIdentifier(firstMatch, normalizedQuery)),
@@ -209,6 +230,7 @@ function ScoutAgentsLeftPanel() {
             }
           }}
         />
+        <FleetFilterPills active={stateFilters} onToggle={toggleStateFilter} />
       </div>
       <div style={{ flex: 1, overflow: "auto" }}>
 
@@ -231,9 +253,9 @@ function ScoutAgentsLeftPanel() {
             return (
               <RailRow
                 key={group.key}
-                name={only.name || group.label}
+                name={group.label}
                 meta={only.updatedAt ? timeAgo(only.updatedAt) : undefined}
-                sub={agentRowSub(only, ask, onlySessionMatch)}
+                sub={singleAgentSub(only, ask, onlySessionMatch)}
                 tone={normalizeAgentState(only.state)}
                 active={only.id === selectedAgentId}
                 title={agentRowTooltip(only, ask, onlySessionMatch)}
@@ -244,11 +266,13 @@ function ScoutAgentsLeftPanel() {
             );
           }
 
+          const collisions = collidingAgentIds(group.agents);
           return (
             <div key={group.key}>
               <RailRow
                 name={group.label}
                 meta={groupRollup(group.agents)}
+                sub={`${group.agents.length} agents`}
                 tone={group.bestState}
                 caret={isOpen ? "open" : "closed"}
                 active={anySelected && !isOpen}
@@ -258,12 +282,14 @@ function ScoutAgentsLeftPanel() {
                 group.agents.map((agent) => {
                   const ask = asksByAgent.get(agent.id);
                   const sessionMatch = matchedSessionIdentifier(agent, normalizedQuery);
+                  const collides = collisions.has(agent.id);
                   return (
                     <RailRow
                       key={agent.id}
                       depth={1}
-                      name={agentInstanceLabel(agent, ask, sessionMatch)}
+                      name={agent.name}
                       meta={agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
+                      sub={instanceAgentSub(agent, ask, sessionMatch, collides)}
                       tone={normalizeAgentState(agent.state)}
                       active={agent.id === selectedAgentId}
                       title={agentRowTooltip(agent, ask, sessionMatch)}
@@ -284,26 +310,60 @@ function ScoutAgentsLeftPanel() {
   );
 }
 
-function agentRowSub(
+const BRANCH_GLYPH = "⎇";
+
+function sessionTail(agent: Agent): string {
+  const id = agent.conversationId ?? agent.harnessSessionId ?? "";
+  return id.slice(-5);
+}
+
+function branchChip(agent: Agent): string | null {
+  if (!agent.branch) return null;
+  return `${BRANCH_GLYPH} ${agent.branch}`;
+}
+
+function singleAgentSub(
   agent: Agent,
   ask: FleetAsk | undefined,
   sessionMatch: string | null,
 ): string | undefined {
   if (sessionMatch) return `session · ${sessionMatch}`;
   if (ask) return ask.task;
-  if (agent.branch) return agent.branch;
-  if (agent.project) return agent.project;
+  const branch = branchChip(agent);
+  if (branch) return branch;
   return undefined;
 }
 
-function agentInstanceLabel(
+function instanceAgentSub(
   agent: Agent,
   ask: FleetAsk | undefined,
   sessionMatch: string | null,
-): string {
-  const tail = ask?.task ?? agent.branch ?? "";
-  const base = tail ? `${agent.name} · ${tail}` : agent.name;
-  return sessionMatch ? `${base} · ${sessionMatch}` : base;
+  collides: boolean,
+): string | undefined {
+  if (sessionMatch) return `session · ${sessionMatch}`;
+  if (ask) return ask.task;
+  const parts: string[] = [];
+  const branch = branchChip(agent);
+  if (branch) parts.push(branch);
+  if (collides) {
+    const tail = sessionTail(agent);
+    if (tail) parts.push(`#${tail}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+function collidingAgentIds(agents: Agent[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const a of agents) {
+    const key = `${a.name}::${a.branch ?? ""}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const ids = new Set<string>();
+  for (const a of agents) {
+    const key = `${a.name}::${a.branch ?? ""}`;
+    if ((counts.get(key) ?? 0) > 1) ids.add(a.id);
+  }
+  return ids;
 }
 
 function agentRowTooltip(

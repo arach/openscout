@@ -141,22 +141,40 @@
 
 .rr-row-caret {
   flex: 0 0 auto;
-  width: 12px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--dim);
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
+  border-radius: 3px;
+  transition: color 0.12s, background 0.12s;
 }
 
-/* Caret used in the leading slot for group rows (file-tree style) */
+/* Leading-slot caret for collapsible group rows */
 .rr-row-caret--leading {
-  width: 12px;
-  font-size: 11px;
-  color: var(--muted);
+  width: 14px;
+  height: 14px;
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+
+.rr-row-head:hover .rr-row-caret {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .rr-row--unread .rr-row-caret--leading {
   color: var(--accent);
+}
+
+/* Chevron SVG — closed = right, open = down via rotation */
+.rr-chevron {
+  display: block;
+  transition: transform 0.16s ease;
+}
+
+.rr-chevron--open {
+  transform: rotate(90deg);
 }
 
 /* Expanded detail body */

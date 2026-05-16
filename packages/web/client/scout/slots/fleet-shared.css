@@ -1,0 +1,60 @@
+/* ── Shared fleet picker primitives (FleetSearch + FleetFilterPills) ── */
+
+.fleet-search {
+  width: 100%;
+  padding: 5px 9px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: 3px;
+  outline: 0;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.fleet-search::placeholder {
+  color: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+
+.fleet-search:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+
+.fleet-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.fleet-pill {
+  flex: 1 1 0;
+  padding: 4px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.fleet-pill:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.fleet-pill--on {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.fleet-pill--on.fleet-pill--working {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}

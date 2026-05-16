@@ -14,12 +14,14 @@ import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import { RailRow } from "./RailRow.tsx";
 import { MeshCanvasMinimap } from "./MeshCanvasMinimap.tsx";
+import { FleetSearch } from "./FleetSearch.tsx";
+import { FleetFilterPills } from "./FleetFilterPills.tsx";
+import { openAgent } from "./openAgent.ts";
 import type { Agent } from "../../lib/types.ts";
 import "./ctx-panel.css";
 import "./mesh-nav-panel.css";
 
 const COMPACT_LIMIT = 10;
-const STATE_TOKENS: readonly AgentStateToken[] = ["working", "available", "offline"];
 
 function tokenForAgent(a: Agent): AgentStateToken {
   const s = normalizeAgentState(a.state);
@@ -31,7 +33,7 @@ function recencyKey(a: Agent): number {
 }
 
 export function MeshNavLeftPanel() {
-  const { agents } = useScout();
+  const { agents, navigate } = useScout();
   const {
     meshSnapshot,
     selectedId,
@@ -94,6 +96,7 @@ export function MeshNavLeftPanel() {
   const selectAgent = (a: Agent) => {
     setMeshSelection(a.id, "agent");
     if (a.homeNodeId) requestScrollToMachine(a.homeNodeId);
+    openAgent(navigate, a, { from: "mesh-tree", returnTo: { view: "mesh" } });
   };
 
   const renderGroup = (label: string, items: MachineBucket[]) => {
@@ -168,32 +171,12 @@ export function MeshNavLeftPanel() {
   return (
     <div className="ctx-panel mesh-nav">
       <div className="mesh-nav-head">
-        <input
-          type="search"
-          className="mesh-nav-search"
-          placeholder="Find machines or agents…"
+        <FleetSearch
           value={query}
-          onChange={(e) => setMeshQuery(e.target.value)}
-          spellCheck={false}
-          autoCorrect="off"
-          autoCapitalize="off"
+          onChange={setMeshQuery}
+          placeholder="Find machines or agents…"
         />
-        <div className="mesh-nav-pills" role="group" aria-label="State filters">
-          {STATE_TOKENS.map((t) => {
-            const on = agentStateFilters.has(t);
-            return (
-              <button
-                key={t}
-                type="button"
-                className={`mesh-nav-pill mesh-nav-pill--${t}${on ? " mesh-nav-pill--on" : ""}`}
-                onClick={() => toggleAgentStateFilter(t)}
-                aria-pressed={on}
-              >
-                {t}
-              </button>
-            );
-          })}
-        </div>
+        <FleetFilterPills active={agentStateFilters} onToggle={toggleAgentStateFilter} />
       </div>
 
       <div className="mesh-nav-tree">
