@@ -75,25 +75,56 @@
   background: color-mix(in srgb, var(--surface) 92%, transparent);
 }
 
-/* Tree-mode header: integrate filters alongside title + mode toggle */
-.mesh-tree-head {
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.mesh-tree-head .sys-page-title-group {
+/* ── Tree-mode page: HUD on top (in-flow), full-width body below ── */
+.mesh-tree-page {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+  background: var(--bg);
 }
 
-.mesh-hud-filters--inline {
-  flex: 1 1 320px;
-  justify-content: flex-start;
+.mesh-tree-page .mesh-hud {
+  position: sticky;
+  top: 0;
+  flex-wrap: wrap;
+}
+
+.mesh-tree-state {
+  margin: 24px;
 }
 
 .mesh-tree-panel {
-  padding: 4px 0;
+  padding: 12px 24px 24px;
+  width: 100%;
+}
+
+/* Muted/disabled density toggle in tree mode — keeps header layout stable */
+.mesh-density-toggle[aria-hidden="true"] {
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+/* ── Multi-column tree on wide viewports ── */
+/* Project groups break-inside: avoid so each group stays whole.
+   .mesh-tree itself is currently flex-column; for column-layout to work
+   we override to `display: block`. Single column below 1600px. */
+@media (min-width: 1600px) {
+  .mesh-tree-page .mesh-tree {
+    display: block;
+    column-count: 2;
+    column-gap: 32px;
+  }
+  .mesh-tree-page .mesh-tree-group {
+    break-inside: avoid;
+    margin-bottom: 12px;
+  }
+}
+
+@media (min-width: 2200px) {
+  .mesh-tree-page .mesh-tree {
+    column-count: 3;
+  }
 }
 
 .mesh-tree-hint {

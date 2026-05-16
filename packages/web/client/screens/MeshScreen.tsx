@@ -44,7 +44,7 @@ function MeshHud({
   onRefresh: () => void;
 }) {
   return (
-    <div className="mesh-hud">
+    <div className={`mesh-hud mesh-hud--${mode}`}>
       <div className="mesh-hud-left">
         <span className="mesh-hud-title">Mesh</span>
         <div className="mesh-mode-toggle">
@@ -63,36 +63,45 @@ function MeshHud({
             Tree
           </button>
         </div>
-        {mode === "map" && (
-          <div className="mesh-mode-toggle mesh-density-toggle" role="group" aria-label="Density">
-            <button
-              type="button"
-              className={`mesh-mode-btn${density === "compact" ? " mesh-mode-btn--active" : ""}`}
-              onClick={() => setMeshDensity("compact")}
-              title="Compact — dots"
-            >
-              Compact
-            </button>
-            <button
-              type="button"
-              className={`mesh-mode-btn${density === "comfortable" ? " mesh-mode-btn--active" : ""}`}
-              onClick={() => setMeshDensity("comfortable")}
-              title="Comfortable — chips"
-            >
-              Comfortable
-            </button>
-            <button
-              type="button"
-              className={`mesh-mode-btn${density === "spacious" ? " mesh-mode-btn--active" : ""}`}
-              onClick={() => setMeshDensity("spacious")}
-              title="Spacious — cards"
-            >
-              Spacious
-            </button>
-          </div>
-        )}
+        <div
+          className="mesh-mode-toggle mesh-density-toggle"
+          role="group"
+          aria-label="Density"
+          // Density is map-only; in tree mode the toggle stays in the layout
+          // but is visually muted+disabled so the header doesn't reshuffle.
+          aria-hidden={mode !== "map"}
+          data-mode-only="map"
+        >
+          <button
+            type="button"
+            className={`mesh-mode-btn${density === "compact" ? " mesh-mode-btn--active" : ""}`}
+            onClick={() => setMeshDensity("compact")}
+            disabled={mode !== "map"}
+            title="Compact — dots"
+          >
+            Compact
+          </button>
+          <button
+            type="button"
+            className={`mesh-mode-btn${density === "comfortable" ? " mesh-mode-btn--active" : ""}`}
+            onClick={() => setMeshDensity("comfortable")}
+            disabled={mode !== "map"}
+            title="Comfortable — chips"
+          >
+            Comfortable
+          </button>
+          <button
+            type="button"
+            className={`mesh-mode-btn${density === "spacious" ? " mesh-mode-btn--active" : ""}`}
+            onClick={() => setMeshDensity("spacious")}
+            disabled={mode !== "map"}
+            title="Spacious — cards"
+          >
+            Spacious
+          </button>
+        </div>
       </div>
-      {mode === "map" && hasMesh && (
+      {hasMesh && (
         <div className="mesh-hud-filters">
           <input
             type="search"
@@ -230,73 +239,20 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
     );
   }
 
-  // ── TREE MODE: panel layout ──
+  // ── TREE MODE: full-width panel layout under the same HUD ──
   return (
-    <div className="sys-surface-page sys-surface-page-wide mesh-tree-page">
-      <div className="sys-page-head mesh-tree-head">
-        <div className="sys-page-title-group">
-          <h2 className="sys-page-title">Mesh</h2>
-          <div className="mesh-mode-toggle">
-            <button type="button" className="mesh-mode-btn" onClick={() => setMeshViewMode("map")}>Map</button>
-            <button type="button" className="mesh-mode-btn mesh-mode-btn--active">Tree</button>
-          </div>
-        </div>
-        {mesh && (
-          <div className="mesh-hud-filters mesh-hud-filters--inline">
-            <input
-              type="search"
-              className="mesh-hud-search"
-              placeholder="Filter agents…"
-              value={query}
-              onChange={(e) => setMeshQuery(e.target.value)}
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-            />
-            <div className="mesh-mode-toggle" role="group" aria-label="State">
-              <button
-                type="button"
-                className={`mesh-mode-btn${stateFilter === "all" ? " mesh-mode-btn--active" : ""}`}
-                onClick={() => setMeshStateFilter("all")}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={`mesh-mode-btn${stateFilter === "working" ? " mesh-mode-btn--active" : ""}`}
-                onClick={() => setMeshStateFilter("working")}
-              >
-                Working
-              </button>
-              <button
-                type="button"
-                className={`mesh-mode-btn${stateFilter === "available" ? " mesh-mode-btn--active" : ""}`}
-                onClick={() => setMeshStateFilter("available")}
-              >
-                Available
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="sys-page-actions">
-          <span className="mesh-hud-sync">
-            {loading ? "Loading…" : lastLoadedAt ? timeAgo(lastLoadedAt) : "—"}
-          </span>
-          <button type="button" className="s-btn" disabled={loading || refreshing} onClick={() => void load("manual")}>
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
-      </div>
+    <div className="mesh-tree-page">
+      <MeshHud {...hudProps} />
 
       {loading && !mesh && (
-        <div className="sys-panel sys-state-card">
+        <div className="sys-panel sys-state-card mesh-tree-state">
           <h3 className="sys-state-title">Loading mesh status</h3>
           <p className="sys-state-body">Inspecting broker reachability and peer discovery inputs.</p>
         </div>
       )}
 
       {!loading && !mesh && error && (
-        <div className="sys-panel sys-state-card sys-state-card-error">
+        <div className="sys-panel sys-state-card sys-state-card-error mesh-tree-state">
           <h3 className="sys-state-title">Mesh status is unavailable</h3>
           <p className="sys-state-body">{error}</p>
           <div className="sys-inline-actions">
@@ -306,7 +262,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
       )}
 
       {mesh && (
-        <section className="sys-panel mesh-tree-panel">
+        <section className="mesh-tree-panel">
           <div className="mesh-tree-hint" aria-hidden>
             <kbd>↑</kbd><kbd>↓</kbd>
             <span>navigate</span>
