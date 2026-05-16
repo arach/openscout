@@ -67,6 +67,30 @@ function transcriptKey(transcript: DiscoveredTranscript): string {
   return watcherKey(transcript.source, transcript.transcriptPath);
 }
 
+// Watchers are keyed by file path so each rotated transcript gets its own tail
+// reader. The public snapshot, however, should expose one entry per logical
+// session — otherwise a session that rotates files inflates the tile count in
+// downstream UIs like /ops/control. Pick the newest file as the representative.
+function dedupTranscriptsBySession(
+  transcripts: DiscoveredTranscript[],
+): DiscoveredTranscript[] {
+  const winnersBySession = new Map<string, DiscoveredTranscript>();
+  const pathOnly: DiscoveredTranscript[] = [];
+  for (const transcript of transcripts) {
+    const sessionId = transcript.sessionId?.trim();
+    if (!sessionId) {
+      pathOnly.push(transcript);
+      continue;
+    }
+    const key = `${transcript.source}:${sessionId}`;
+    const existing = winnersBySession.get(key);
+    if (!existing || transcript.mtimeMs > existing.mtimeMs) {
+      winnersBySession.set(key, transcript);
+    }
+  }
+  return [...winnersBySession.values(), ...pathOnly];
+}
+
 const ATTRIBUTION_RANK: Record<DiscoveredProcess["harness"], number> = {
   "scout-managed": 3,
   "hudson-managed": 2,
@@ -307,7 +331,7 @@ async function refreshDiscovery(
     }
   }
 
-  const allTranscripts = [...knownTranscripts.values()]
+  const allTranscripts = dedupTranscriptsBySession([...knownTranscripts.values()])
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
   let scoutManaged = 0;
