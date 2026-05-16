@@ -1,15 +1,17 @@
 import { type ReactNode, useMemo, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
-import { stateColor, actorColor } from "../../lib/colors.ts";
 import { timeAgo } from "../../lib/time.ts";
-import type { Agent, Route } from "../../lib/types.ts";
+import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
+import type { Agent, FleetAsk, Route } from "../../lib/types.ts";
 import { BaseLeftRail } from "./BaseLeftRail.tsx";
 import { MeshLeftPanel } from "./MeshLeftPanel.tsx";
 import { ScoutMessagesLeftPanel } from "./MessagesLeftPanel.tsx";
 import { ScoutMissionControlLeftPanel } from "./MissionControlLeftPanel.tsx";
+import { ScoutOpsAgentsLeftPanel } from "./OpsAgentsLeftPanel.tsx";
 import { ScoutOpsLeftPanel } from "./OpsLeftPanel.tsx";
 import { ScoutPlanArchiveLeftPanel } from "./PlanArchiveLeftPanel.tsx";
+import { RailRow } from "./RailRow.tsx";
 
 type LeftRailSlot =
   | { mode: "takeover"; render: () => ReactNode }
@@ -25,6 +27,7 @@ function resolveLeftRailSlot(route: Route): LeftRailSlot | null {
   if (route.view === "ops") {
     if (route.mode === "mission") return { mode: "takeover", render: () => <ScoutMissionControlLeftPanel /> };
     if (route.mode === "plan") return { mode: "takeover", render: () => <ScoutPlanArchiveLeftPanel /> };
+    if (route.mode === "agents") return { mode: "takeover", render: () => <ScoutOpsAgentsLeftPanel /> };
     return { mode: "takeover", render: () => <ScoutOpsLeftPanel /> };
   }
   switch (route.view) {
@@ -157,6 +160,7 @@ function ScoutAgentsLeftPanel() {
   const { agents, route, navigate } = useScout();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [query, setQuery] = useState("");
+  const asksByAgent = useFleetActiveAsks();
 
   const normalizedQuery = normalizeQuery(query);
   const searchActive = normalizedQuery.length > 0;
@@ -222,96 +226,55 @@ function ScoutAgentsLeftPanel() {
           const anySelected = group.agents.some((a) => a.id === selectedAgentId);
           const onlySessionMatch = only ? matchedSessionIdentifier(only, normalizedQuery) : null;
 
+          if (isSingle && only) {
+            const ask = asksByAgent.get(only.id);
+            return (
+              <RailRow
+                key={group.key}
+                name={only.name || group.label}
+                meta={only.updatedAt ? timeAgo(only.updatedAt) : undefined}
+                sub={agentRowSub(only, ask, onlySessionMatch)}
+                tone={normalizeAgentState(only.state)}
+                active={only.id === selectedAgentId}
+                title={agentRowTooltip(only, ask, onlySessionMatch)}
+                onClick={() =>
+                  navigateToAgent(navigate, only, { observe: Boolean(onlySessionMatch) })
+                }
+              />
+            );
+          }
+
           return (
-            <div key={group.key} className="s-left-roster-parent">
-              <button
-                className={`s-left-roster-row${anySelected && (isSingle || !isOpen) ? " s-left-roster-row--active" : ""}`}
-                onClick={() => {
-                  if (isSingle) {
-                    navigateToAgent(navigate, only!, {
-                      observe: Boolean(onlySessionMatch),
-                    });
-                  } else {
-                    toggle(group.key);
-                  }
-                }}
-              >
-                <span className="s-left-roster-avatar-wrap">
-                  <span
-                    className="s-left-roster-avatar"
-                    style={{ background: actorColor(group.label) }}
-                  >
-                    {group.label[0].toUpperCase()}
-                  </span>
-                  <span
-                    className={`s-left-roster-dot s-left-roster-dot--${group.bestState}`}
-                    style={{ background: stateColor(group.bestState === "working" ? "working" : group.bestState === "available" ? "available" : null) }}
-                  />
-                </span>
-
-                <span className="s-left-roster-body">
-                  <span className="s-left-roster-name">
-                    {group.label}
-                  </span>
-                  {isSingle && onlySessionMatch ? (
-                    <span
-                      className="s-left-roster-sub"
-                      title={onlySessionMatch}
-                    >
-                      session · {onlySessionMatch}
-                    </span>
-                  ) : isSingle && (only!.project || only!.branch) && (
-                    <span className="s-left-roster-sub">
-                      {only!.name}
-                      {only!.branch ? ` · ${only!.branch}` : ""}
-                    </span>
-                  )}
-                  {!isSingle && !isOpen && (
-                    <span className="s-left-roster-sub">
-                      {group.agents.length} agents
-                    </span>
-                  )}
-                </span>
-
-                {!isSingle && (
-                  <span className="s-left-roster-ct">
-                    {isOpen ? "▾" : "▸"}
-                  </span>
-                )}
-                {isSingle && only!.updatedAt && (
-                  <span className="s-left-roster-time">{timeAgo(only!.updatedAt)}</span>
-                )}
-              </button>
-
-              {!isSingle && isOpen && (
-                <div className="s-left-roster-instances">
-                  {group.agents.map((agent) => (
-                    <button
+            <div key={group.key}>
+              <RailRow
+                name={group.label}
+                meta={groupRollup(group.agents)}
+                tone={group.bestState}
+                caret={isOpen ? "open" : "closed"}
+                active={anySelected && !isOpen}
+                onClick={() => toggle(group.key)}
+              />
+              {isOpen &&
+                group.agents.map((agent) => {
+                  const ask = asksByAgent.get(agent.id);
+                  const sessionMatch = matchedSessionIdentifier(agent, normalizedQuery);
+                  return (
+                    <RailRow
                       key={agent.id}
-                      className={`s-left-roster-instance${agent.id === selectedAgentId ? " s-left-roster-instance--active" : ""}`}
-                      onClick={() => navigateToAgent(navigate, agent, {
-                        observe: Boolean(matchedSessionIdentifier(agent, normalizedQuery)),
-                      })}
-                      title={matchedSessionIdentifier(agent, normalizedQuery) ?? undefined}
-                    >
-                      <span
-                        className={`s-left-roster-instance-dot s-left-roster-dot--${normalizeAgentState(agent.state)}`}
-                        style={{ background: stateColor(agent.state) }}
-                      />
-                      <span className="s-left-roster-instance-label">
-                        {agent.name}
-                        {agent.branch ? ` · ${agent.branch}` : ""}
-                        {matchedSessionIdentifier(agent, normalizedQuery)
-                          ? ` · ${matchedSessionIdentifier(agent, normalizedQuery)}`
-                          : ""}
-                      </span>
-                      {agent.updatedAt && (
-                        <span className="s-left-roster-time">{timeAgo(agent.updatedAt)}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+                      depth={1}
+                      name={agentInstanceLabel(agent, ask, sessionMatch)}
+                      meta={agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
+                      tone={normalizeAgentState(agent.state)}
+                      active={agent.id === selectedAgentId}
+                      title={agentRowTooltip(agent, ask, sessionMatch)}
+                      onClick={() =>
+                        navigateToAgent(navigate, agent, {
+                          observe: Boolean(sessionMatch),
+                        })
+                      }
+                    />
+                  );
+                })}
             </div>
           );
         })
@@ -319,4 +282,57 @@ function ScoutAgentsLeftPanel() {
       </div>
     </div>
   );
+}
+
+function agentRowSub(
+  agent: Agent,
+  ask: FleetAsk | undefined,
+  sessionMatch: string | null,
+): string | undefined {
+  if (sessionMatch) return `session · ${sessionMatch}`;
+  if (ask) return ask.task;
+  if (agent.branch) return agent.branch;
+  if (agent.project) return agent.project;
+  return undefined;
+}
+
+function agentInstanceLabel(
+  agent: Agent,
+  ask: FleetAsk | undefined,
+  sessionMatch: string | null,
+): string {
+  const tail = ask?.task ?? agent.branch ?? "";
+  const base = tail ? `${agent.name} · ${tail}` : agent.name;
+  return sessionMatch ? `${base} · ${sessionMatch}` : base;
+}
+
+function agentRowTooltip(
+  agent: Agent,
+  ask: FleetAsk | undefined,
+  sessionMatch: string | null,
+): string | undefined {
+  const parts: string[] = [];
+  if (ask) parts.push(`task: ${ask.task}`);
+  if (agent.branch) parts.push(`branch: ${agent.branch}`);
+  if (agent.harness) parts.push(`harness: ${agent.harness}`);
+  if (sessionMatch) parts.push(`session: ${sessionMatch}`);
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
+function groupRollup(agents: Agent[]): string {
+  let working = 0;
+  let available = 0;
+  let offline = 0;
+  for (const agent of agents) {
+    const s = normalizeAgentState(agent.state);
+    if (s === "working") working += 1;
+    else if (s === "available") available += 1;
+    else offline += 1;
+  }
+  const parts: string[] = [];
+  if (working) parts.push(`${working}w`);
+  if (available) parts.push(`${available}a`);
+  if (offline && !working && !available) parts.push(`${offline}o`);
+  if (parts.length === 0) return `${agents.length}`;
+  return parts.join(" · ");
 }

@@ -1,6 +1,5 @@
 .s-ops-agents {
-  display: grid;
-  grid-template-columns: 214px minmax(0, 1fr);
+  display: flex;
   height: 100%;
   min-height: 0;
   background: color-mix(in srgb, var(--bg) 82%, black);
@@ -8,90 +7,7 @@
   font-family: var(--font-sans);
 }
 
-.s-ops-agents-rail {
-  min-height: 0;
-  overflow: auto;
-  border-right: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  background: color-mix(in srgb, var(--surface) 54%, black);
-}
-
-.s-ops-agents-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 14px 18px;
-}
-
-.s-ops-agents-mark {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 5px;
-  background: var(--accent);
-  color: var(--bg);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.s-ops-agents-brand-name {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.s-ops-agents-brand-sub {
-  margin-top: 3px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--dim);
-  letter-spacing: 0.08em;
-}
-
-.s-ops-agents-rail-group {
-  padding: 0 8px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
-  margin-bottom: 14px;
-}
-
-.s-ops-agents-rail-heading {
-  padding: 0 8px 6px;
-  color: var(--dim);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.s-ops-agents-rail-row {
-  all: unset;
-  box-sizing: border-box;
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.s-ops-agents-rail-row:hover,
-.s-ops-agents-rail-row--active {
-  background: color-mix(in srgb, var(--ink) 7%, transparent);
-  color: var(--ink);
-}
-
-.s-ops-agents-rail-row span {
-  color: var(--dim);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
+/* Internal rail removed — see OpsAgentsLeftPanel for the app-shell version. */
 
 .s-ops-agents-main {
   display: grid;
@@ -306,52 +222,57 @@
   align-items: center;
 }
 
+/* Dense agent cell: single mono name line with a leading state dot.
+ * State label is intentionally dropped — the dot color carries it. */
 .s-ops-agents-agent-cell {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   min-width: 0;
 }
 
-.s-ops-agents-agent-cell strong,
-.s-ops-agents-agent-cell small {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.s-ops-agents-agent-cell strong {
-  color: var(--ink);
-  font-size: 12px;
-}
-
-.s-ops-agents-agent-cell small {
-  margin-top: 2px;
-  color: var(--dim);
-  font-size: 10px;
-}
-
-.s-ops-agents-status {
+.s-ops-agents-dot {
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--dim);
 }
 
-.s-ops-agents-status--working {
-  background: var(--accent);
-  box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 70%, transparent);
+.s-ops-agents-agent-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
-.s-ops-agents-status--available {
-  background: var(--green);
-  box-shadow: 0 0 7px color-mix(in srgb, var(--green) 55%, transparent);
+/* Active task cell — the differentiator when two agents share a name. */
+.s-ops-agents-task {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
-.s-ops-agents-status--offline {
-  background: color-mix(in srgb, var(--dim) 70%, transparent);
+.s-ops-agents-task--idle {
+  color: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+/* Dim metadata columns — project, machine — so the eye locks onto name+task. */
+.s-ops-agents-meta-cell {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .s-ops-agents-num,
@@ -384,14 +305,6 @@
 
 
 @media (max-width: 900px) {
-  .s-ops-agents {
-    grid-template-columns: 1fr;
-  }
-
-  .s-ops-agents-rail {
-    display: none;
-  }
-
   .s-ops-agents-toolbar {
     flex-wrap: wrap;
   }

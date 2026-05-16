@@ -4,10 +4,10 @@ import "./base-left-rail.css";
 import { Activity, Compass, GitBranch, ScrollText } from "lucide-react";
 import { isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
-import { actorColor, stateColor } from "../../lib/colors.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
+import { RailRow } from "./RailRow.tsx";
 import type {
   Agent,
   FleetActivity,
@@ -117,45 +117,27 @@ function RecentAgentsSection({
       {agents.length === 0 ? (
         <div className="ctx-panel-empty">No agents yet</div>
       ) : (
-        <div className="ctx-panel-list">
-          {agents.map((agent) => {
-            const state = normalizeAgentState(agent.state);
-            return (
-              <button
-                key={agent.id}
-                type="button"
-                className="ctx-panel-item base-rail-item"
-                onClick={() => onSelect(agent)}
-              >
-                <span className="base-rail-avatar-wrap">
-                  <span
-                    className="ctx-panel-avatar"
-                    style={{ background: actorColor(agent.name || agent.id) }}
-                  >
-                    {(agent.name || agent.id)[0]?.toUpperCase() ?? "?"}
-                  </span>
-                  <span
-                    className={`base-rail-state-dot base-rail-state-dot--${state}`}
-                    style={{ background: stateColor(agent.state) }}
-                  />
-                </span>
-                <span className="ctx-panel-body">
-                  <span className="ctx-panel-name">{agent.name || agent.id}</span>
-                  <span className="ctx-panel-sub">
-                    {agent.project ? agent.project : agent.handle ?? agent.harness ?? "—"}
-                    {agent.branch ? ` · ${agent.branch}` : ""}
-                  </span>
-                </span>
-                {agent.updatedAt ? (
-                  <span className="ctx-panel-time">{timeAgo(agent.updatedAt)}</span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
+        agents.map((agent) => (
+          <RailRow
+            key={agent.id}
+            name={agent.name || agent.id}
+            meta={agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
+            tone={normalizeAgentState(agent.state)}
+            title={agentRowTooltip(agent)}
+            onClick={() => onSelect(agent)}
+          />
+        ))
       )}
     </section>
   );
+}
+
+function agentRowTooltip(agent: Agent): string {
+  const parts: string[] = [];
+  if (agent.project) parts.push(`project: ${agent.project}`);
+  if (agent.branch) parts.push(`branch: ${agent.branch}`);
+  if (agent.harness) parts.push(`harness: ${agent.harness}`);
+  return parts.join("\n");
 }
 
 function RecentActivitySection({
@@ -177,33 +159,20 @@ function RecentActivitySection({
       {items.length === 0 ? (
         <div className="ctx-panel-empty">Quiet so far</div>
       ) : (
-        <div className="ctx-panel-list">
-          {items.map((item) => {
-            const label = item.actorName ?? item.agentName ?? item.agentId ?? "system";
-            const headline = item.title ?? item.summary ?? activityKindLabel(item.kind);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className="ctx-panel-item base-rail-item"
-                onClick={() => onSelect(item)}
-              >
-                <span
-                  className="ctx-panel-avatar"
-                  style={{ background: actorColor(label) }}
-                >
-                  {label[0]?.toUpperCase() ?? "·"}
-                </span>
-                <span className="ctx-panel-body">
-                  <span className="ctx-panel-name">{headline}</span>
-                  <span className="ctx-panel-sub">
-                    {label} · {timeAgo(item.ts)}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        items.map((item) => {
+          const label = item.actorName ?? item.agentName ?? item.agentId ?? "system";
+          const headline = item.title ?? item.summary ?? activityKindLabel(item.kind);
+          return (
+            <RailRow
+              key={item.id}
+              name={headline}
+              meta={item.ts ? timeAgo(item.ts) : undefined}
+              tone="neutral"
+              title={`${label} · ${activityKindLabel(item.kind)}`}
+              onClick={() => onSelect(item)}
+            />
+          );
+        })
       )}
     </section>
   );
@@ -225,32 +194,20 @@ function NeedsAttentionSection({
       {items.length === 0 ? (
         <div className="ctx-panel-empty">All clear</div>
       ) : (
-        <div className="ctx-panel-list">
-          {items.map((item) => {
-            const label = item.agentName ?? item.agentId ?? item.title;
-            return (
-              <button
-                key={item.recordId}
-                type="button"
-                className="ctx-panel-item ctx-panel-item--attention base-rail-item"
-                onClick={() => onSelect(item)}
-              >
-                <span
-                  className="ctx-panel-avatar"
-                  style={{ background: actorColor(label) }}
-                >
-                  {(label[0] ?? "!").toUpperCase()}
-                </span>
-                <span className="ctx-panel-body">
-                  <span className="ctx-panel-name">{item.title}</span>
-                  <span className="ctx-panel-sub">
-                    {item.agentName ?? item.agentId ?? "operator"} · {timeAgo(item.updatedAt)}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        items.map((item) => {
+          const label = item.agentName ?? item.agentId ?? "operator";
+          return (
+            <RailRow
+              key={item.recordId}
+              name={item.title}
+              meta={timeAgo(item.updatedAt)}
+              tone="working"
+              unread
+              title={`${label} · ${item.kind}`}
+              onClick={() => onSelect(item)}
+            />
+          );
+        })
       )}
     </section>
   );

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
-import { actorColor } from "../../lib/colors.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
+import { RailRow } from "./RailRow.tsx";
 import type { FleetAsk, FleetAttentionItem, FleetState } from "../../lib/types.ts";
 
 export function ScoutOpsLeftPanel() {
@@ -59,27 +59,20 @@ export function ScoutOpsLeftPanel() {
         {needs.length === 0 ? (
           <div className="ctx-panel-empty">All clear</div>
         ) : (
-          <div className="ctx-panel-list">
-            {needs.slice(0, 4).map((item) => (
-              <button
+          needs.slice(0, 4).map((item) => {
+            const label = item.agentName ?? item.agentId ?? "operator";
+            return (
+              <RailRow
                 key={item.recordId}
-                type="button"
-                className="ctx-panel-item ctx-panel-item--attention"
+                name={item.title}
+                meta={timeAgo(item.updatedAt)}
+                tone="working"
+                unread
+                title={`${label} · ${item.kind}`}
                 onClick={() => openAttention(item)}
-              >
-                <div
-                  className="ctx-panel-avatar"
-                  style={{ background: actorColor(item.agentName ?? item.agentId ?? item.title) }}
-                >
-                  {(item.agentName ?? item.agentId ?? "?")[0]?.toUpperCase()}
-                </div>
-                <div className="ctx-panel-body">
-                  <span className="ctx-panel-name">{item.title}</span>
-                  <span className="ctx-panel-sub">{item.agentName ?? item.agentId ?? "operator"} · {timeAgo(item.updatedAt)}</span>
-                </div>
-              </button>
-            ))}
-          </div>
+              />
+            );
+          })
         )}
       </section>
 
@@ -91,27 +84,16 @@ export function ScoutOpsLeftPanel() {
         {active.length === 0 ? (
           <div className="ctx-panel-empty">No active asks</div>
         ) : (
-          <div className="ctx-panel-list ctx-panel-list--scroll">
-            {active.slice(0, 10).map((ask) => (
-              <button
-                key={ask.invocationId}
-                type="button"
-                className="ctx-panel-item"
-                onClick={() => openAsk(ask)}
-              >
-                <div
-                  className="ctx-panel-avatar"
-                  style={{ background: actorColor(ask.agentName ?? ask.agentId) }}
-                >
-                  {(ask.agentName ?? ask.agentId)[0]?.toUpperCase()}
-                </div>
-                <div className="ctx-panel-body">
-                  <span className="ctx-panel-name">{ask.task}</span>
-                  <span className="ctx-panel-sub">{ask.agentName ?? ask.agentId} · {ask.statusLabel}</span>
-                </div>
-              </button>
-            ))}
-          </div>
+          active.slice(0, 10).map((ask) => (
+            <RailRow
+              key={ask.invocationId}
+              name={ask.task}
+              meta={timeAgo(ask.updatedAt)}
+              tone={ask.agentState}
+              title={`${ask.agentName ?? ask.agentId} · ${ask.statusLabel}`}
+              onClick={() => openAsk(ask)}
+            />
+          ))
         )}
       </section>
     </div>
