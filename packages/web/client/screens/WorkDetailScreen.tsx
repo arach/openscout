@@ -7,6 +7,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import type { Route, WorkDetail, WorkMaterial, WorkMaterialContent, WorkMaterialsInventory, WorkTimelineItem } from "../lib/types.ts";
 
@@ -685,9 +686,7 @@ export function WorkDetailScreen({
   if (!loaded) {
     return (
       <div>
-        <button type="button" className="s-back" onClick={() => navigate({ view: "inbox" })}>
-          &larr; Back
-        </button>
+        <BackToPicker slot="work" fallback={{ view: "inbox" }} navigate={navigate} />
         <div className="s-empty"><p>Loading…</p></div>
       </div>
     );
@@ -696,9 +695,7 @@ export function WorkDetailScreen({
   if (!detail) {
     return (
       <div className="s-work-not-found">
-        <button type="button" className="s-back" onClick={() => navigate({ view: "inbox" })}>
-          &larr; Back to inbox
-        </button>
+        <BackToPicker slot="work" fallback={{ view: "inbox" }} navigate={navigate} />
         <div className="s-work-not-found-body">
           <div className="s-work-not-found-glyph" aria-hidden="true">&#x25A1;</div>
           <h2 className="s-work-not-found-title">Work item not found</h2>
@@ -744,9 +741,7 @@ export function WorkDetailScreen({
   return (
     <div className="s-work-detail s-work-casefile">
       <div className="s-work-casefile-topbar">
-        <button type="button" className="s-back" onClick={() => navigate({ view: "inbox" })}>
-          &larr; Back
-        </button>
+        <BackToPicker slot="work" fallback={{ view: "inbox" }} navigate={navigate} />
         <span className="s-work-casefile-record">Case {compactId(detail.id)}</span>
       </div>
 
@@ -854,7 +849,7 @@ export function WorkDetailScreen({
                     key={child.id}
                     type="button"
                     className="s-work-related-card"
-                    onClick={() => navigate({ view: "work", workId: child.id })}
+                    onClick={() => openContent(navigate, { view: "work", workId: child.id }, { returnTo: route })}
                   >
                     <div className="s-work-related-card-header">
                       <span className="s-work-related-card-title">{child.title}</span>
@@ -947,7 +942,7 @@ export function WorkDetailScreen({
                 <ActionRow
                   label="Parent"
                   value={detail.parentTitle}
-                  onClick={() => navigate({ view: "work", workId: detail.parentId! })}
+                  onClick={() => openContent(navigate, { view: "work", workId: detail.parentId! }, { returnTo: route })}
                 />
               ) : (
                 <div className="s-work-action-list-empty">No parent work item.</div>

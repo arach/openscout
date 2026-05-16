@@ -102,7 +102,7 @@ export function WorkList({
         const ownerLabel = work.ownerName ?? work.ownerId ?? "Unassigned";
 
         const onClick = work.id
-          ? () => navigate({ view: "work", workId: work.id })
+          ? () => openContent(navigate, { view: "work", workId: work.id }, { returnTo: route })
           : work.conversationId
           ? () => openContent(navigate, { view: "conversation", conversationId: work.conversationId! }, { returnTo: route })
           : undefined;

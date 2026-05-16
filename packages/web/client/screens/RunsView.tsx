@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import type { Agent, Route, RunItem, RunsResponse } from "../lib/types.ts";
 
 const RUN_LIMIT = 100;
@@ -139,6 +141,7 @@ export function RunsView({
   navigate: (r: Route) => void;
   agents: Agent[];
 }) {
+  const { route: currentRoute } = useScout();
   const [runs, setRuns] = useState<RunItem[]>([]);
   const [activeOnly, setActiveOnly] = useState(false);
   const [stateFilter, setStateFilter] = useState("all");
@@ -227,8 +230,8 @@ export function RunsView({
   const reviewCount = runs.filter((run) => run.state === "review" || run.reviewState === "needed" || run.reviewState === "blocked").length;
 
   const openWork = useCallback((workId: string) => {
-    navigate({ view: "work", workId });
-  }, [navigate]);
+    openContent(navigate, { view: "work", workId }, { returnTo: currentRoute });
+  }, [navigate, currentRoute]);
 
   const openFollow = useCallback((run: RunItem) => {
     const flightId = primaryFlightId(run);

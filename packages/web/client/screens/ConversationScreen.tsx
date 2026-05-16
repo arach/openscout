@@ -864,7 +864,7 @@ export function ConversationScreen({
   navigate: (r: Route) => void;
   embedded?: boolean;
 }) {
-  const { agents } = useScout();
+  const { agents, route } = useScout();
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
@@ -1925,7 +1925,11 @@ export function ConversationScreen({
                           cwd: sessionCatalog.resumeCwd,
                           agentId,
                         }).then(() =>
-                          navigate({ view: "terminal", agentId: agentId ?? undefined }),
+                          openContent(
+                            navigate,
+                            { view: "terminal", agentId: agentId ?? undefined },
+                            { returnTo: route },
+                          ),
                         );
                         setTakeoverSent(true);
                       }}

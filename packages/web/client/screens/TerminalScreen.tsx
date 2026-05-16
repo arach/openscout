@@ -8,6 +8,7 @@ import {
   resolveScoutTerminalRelayUrl,
 } from "../lib/runtime-config.ts";
 import type { Route } from "../lib/types.ts";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 
 export function TerminalScreen({
   agentId,
@@ -27,15 +28,15 @@ export function TerminalScreen({
     sessionKey: agentId ? `scout-takeover-${agentId}` : "scout-takeover",
   });
 
-  const back = () => {
-    if (agentId) navigate({ view: "agents", agentId });
-    else navigate({ view: "inbox" });
-  };
-
   return (
     <div className="s-term">
       <div className="s-term-bar">
-        <button className="s-term-back" onClick={back}>← Back</button>
+        <BackToPicker
+          slot="terminal"
+          fallback={agentId ? { view: "agents", agentId } : { view: "inbox" }}
+          navigate={navigate}
+          className="s-term-back"
+        />
         {agent && (
           <div className="s-term-agent">
             <div

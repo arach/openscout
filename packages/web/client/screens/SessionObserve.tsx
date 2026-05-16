@@ -14,6 +14,7 @@ import { api } from "../lib/api.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 
 import "./session-observe.css";
@@ -817,7 +818,7 @@ function SessionHeader({
   sessionId: string | null;
   agentId?: string;
 }) {
-  const { navigate } = useScout();
+  const { navigate, route } = useScout();
   const [sent, setSent] = useState(false);
   const active = catalog.sessions.find((s) => s.id === catalog.activeSessionId);
   const past = catalog.sessions
@@ -835,10 +836,10 @@ function SessionHeader({
       cwd: catalog.resumeCwd,
       agentId,
     }).then(() => {
-      navigate({ view: "terminal", agentId });
+      openContent(navigate, { view: "terminal", agentId }, { returnTo: route });
     });
     setSent(true);
-  }, [catalog.resumeCommand, catalog.resumeCwd, navigate, agentId]);
+  }, [catalog.resumeCommand, catalog.resumeCwd, navigate, route, agentId]);
 
   const openPair = useCallback(() => {
     navigate({

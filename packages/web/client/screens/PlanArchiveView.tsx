@@ -17,6 +17,8 @@ import {
   type PlanOutcome,
 } from "../lib/plan-archive-store.ts";
 import { TextDocumentSurface, createTextDocument } from "../components/TextDocumentSurface.tsx";
+import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import type { Agent, Route, WorkDetail, WorkItem, WorkMaterial, WorkMaterialContent, WorkTimelineItem } from "../lib/types.ts";
 
 type PlanRecord = {
@@ -100,6 +102,7 @@ export function PlanArchiveView({
   navigate: (r: Route) => void;
   agents: Agent[];
 }) {
+  const { route } = useScout();
   const store = usePlanArchiveStore();
 
   const [works, setWorks] = useState<WorkItem[]>([]);
@@ -238,7 +241,7 @@ export function PlanArchiveView({
           onOpenFullPage={() => {
             const id = store.focusedPlanId;
             setPlanFocusedId(null);
-            if (id) navigate({ view: "work", workId: id });
+            if (id) openContent(navigate, { view: "work", workId: id }, { returnTo: route });
           }}
         />
       )}
