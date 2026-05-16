@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -104,6 +104,12 @@ describe("harness catalog", () => {
     );
     expect(buildHarnessResumeCommand(codex!, "codex-session", "/Users/me/dev/my app")).toBe(
       "codex resume -C '/Users/me/dev/my app' codex-session",
+    );
+    expect(buildHarnessResumeCommand(codex!, "codex-session", "~/dev/amplink")).toContain(
+      `${homedir()}/dev/amplink`,
+    );
+    expect(buildHarnessResumeCommand(codex!, "codex-session", "~/dev/amplink")).not.toContain(
+      "'~/dev/amplink'",
     );
   });
 

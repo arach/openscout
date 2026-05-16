@@ -30,6 +30,8 @@ const RAW_MAX_DEPTH = 5;
 const RAW_MAX_STRING_LEN = 1_000;
 const RAW_MAX_ARRAY_ITEMS = 25;
 const RAW_MAX_OBJECT_KEYS = 50;
+const RECENT_TRANSCRIPT_READ_BYTES = 512 * 1024;
+const RECENT_TRANSCRIPT_LINES_PER_FILE = 200;
 
 type Subscriber = (event: TailEvent) => void;
 
@@ -419,4 +421,80 @@ export function subscribeTail(handler: Subscriber): () => void {
 
 export function snapshotRecentEvents(limit = 500): TailEvent[] {
   return aggregateBuffer.slice(-limit);
+}
+
+async function readRecentTranscriptLines(
+  path: string,
+  maxLines = RECENT_TRANSCRIPT_LINES_PER_FILE,
+): Promise<string[]> {
+  let handle: FileHandle | null = null;
+  try {
+    const stats = await stat(path);
+    if (stats.size <= 0) return [];
+    const start = Math.max(0, stats.size - RECENT_TRANSCRIPT_READ_BYTES);
+    const length = stats.size - start;
+    const buffer = Buffer.alloc(length);
+    handle = await open(path, "r");
+    await handle.read(buffer, 0, length, start);
+    const lines = buffer.toString("utf8").split("\n");
+    if (start > 0) {
+      lines.shift();
+    }
+    return lines.filter(Boolean).slice(-maxLines);
+  } catch {
+    return [];
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+export async function readRecentTranscriptEvents(
+  limit = 50,
+  options?: {
+    discovery?: DiscoverySnapshot | null;
+    perTranscriptLineLimit?: number;
+  },
+): Promise<TailEvent[]> {
+  const discovery = options?.discovery ?? await getTailDiscovery();
+  const events: TailEvent[] = [];
+  const seenTranscripts = new Set<string>();
+  const seenEvents = new Set<string>();
+
+  for (const transcript of discovery.transcripts.slice(0, Math.max(12, limit))) {
+    const key = transcriptKey(transcript);
+    if (seenTranscripts.has(key)) continue;
+    seenTranscripts.add(key);
+    const source = sources.find((candidate) => candidate.name === transcript.source);
+    if (!source) continue;
+    const process = processForTranscript(transcript, discovery.processes);
+    const lines = await readRecentTranscriptLines(
+      transcript.transcriptPath,
+      options?.perTranscriptLineLimit,
+    );
+    lines.forEach((line, index) => {
+      const event = source.parseLine(line, {
+        process,
+        transcript,
+        transcriptPath: transcript.transcriptPath,
+        lineOffset: index,
+      });
+      if (event) {
+        const compacted = compactEvent(event);
+        const eventKey = [
+          compacted.source,
+          compacted.sessionId,
+          compacted.kind,
+          compacted.summary,
+        ].join("\u0000");
+        if (!seenEvents.has(eventKey)) {
+          seenEvents.add(eventKey);
+          events.push(compacted);
+        }
+      }
+    });
+  }
+
+  return events
+    .sort((left, right) => right.ts - left.ts)
+    .slice(0, limit);
 }
