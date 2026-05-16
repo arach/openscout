@@ -5,9 +5,9 @@ import { actorColor } from "../../lib/colors.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
-import type { FleetAttentionItem, FleetAsk, FleetState } from "../../lib/types.ts";
+import type { FleetAsk, FleetAttentionItem, FleetState } from "../../lib/types.ts";
 
-export function ScoutFleetLeftPanel() {
+export function ScoutOpsLeftPanel() {
   const { navigate } = useScout();
   const [state, setState] = useState<FleetState | null>(null);
 
@@ -16,7 +16,9 @@ export function ScoutFleetLeftPanel() {
     setState(data);
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useBrokerEvents((event) => {
     if (
@@ -29,32 +31,36 @@ export function ScoutFleetLeftPanel() {
   });
 
   const needs = state?.needsAttention ?? [];
-  const active = (state?.activeAsks ?? []).filter((a) => a.status !== "needs_attention");
-
-  const openAsk = (ask: FleetAsk) => {
-    if (ask.conversationId) {
-      navigate({ view: "conversation", conversationId: ask.conversationId });
-    }
-  };
+  const active = (state?.activeAsks ?? []).filter((ask) => ask.status !== "needs_attention");
 
   const openAttention = (item: FleetAttentionItem) => {
     if (item.conversationId) {
       navigate({ view: "conversation", conversationId: item.conversationId });
+    } else {
+      navigate({ view: "ops", mode: "command" });
+    }
+  };
+
+  const openAsk = (ask: FleetAsk) => {
+    if (ask.conversationId) {
+      navigate({ view: "conversation", conversationId: ask.conversationId });
+    } else {
+      navigate({ view: "ops", mode: "runs" });
     }
   };
 
   return (
-    <div className="ctx-panel">
+    <div className="ctx-panel ctx-panel--ops">
       <section className="ctx-panel-section">
         <div className="ctx-panel-section-label">
-          Signals
+          Needs you
           {needs.length > 0 && <span className="ctx-panel-count">{needs.length}</span>}
         </div>
         {needs.length === 0 ? (
-          <div className="ctx-panel-empty">No network signals</div>
+          <div className="ctx-panel-empty">All clear</div>
         ) : (
           <div className="ctx-panel-list">
-            {needs.map((item) => (
+            {needs.slice(0, 4).map((item) => (
               <button
                 key={item.recordId}
                 type="button"
@@ -69,9 +75,7 @@ export function ScoutFleetLeftPanel() {
                 </div>
                 <div className="ctx-panel-body">
                   <span className="ctx-panel-name">{item.title}</span>
-                  <span className="ctx-panel-sub">
-                    {item.agentName ?? item.agentId ?? "—"} · {timeAgo(item.updatedAt)}
-                  </span>
+                  <span className="ctx-panel-sub">{item.agentName ?? item.agentId ?? "operator"} · {timeAgo(item.updatedAt)}</span>
                 </div>
               </button>
             ))}
@@ -87,8 +91,8 @@ export function ScoutFleetLeftPanel() {
         {active.length === 0 ? (
           <div className="ctx-panel-empty">No active asks</div>
         ) : (
-          <div className="ctx-panel-list">
-            {active.slice(0, 12).map((ask) => (
+          <div className="ctx-panel-list ctx-panel-list--scroll">
+            {active.slice(0, 10).map((ask) => (
               <button
                 key={ask.invocationId}
                 type="button"
@@ -103,9 +107,7 @@ export function ScoutFleetLeftPanel() {
                 </div>
                 <div className="ctx-panel-body">
                   <span className="ctx-panel-name">{ask.task}</span>
-                  <span className="ctx-panel-sub">
-                    {ask.agentName ?? ask.agentId} · {ask.statusLabel}
-                  </span>
+                  <span className="ctx-panel-sub">{ask.agentName ?? ask.agentId} · {ask.statusLabel}</span>
                 </div>
               </button>
             ))}

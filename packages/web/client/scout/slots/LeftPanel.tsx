@@ -1,15 +1,46 @@
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
 import { stateColor, actorColor } from "../../lib/colors.ts";
 import { timeAgo } from "../../lib/time.ts";
-import type { Agent } from "../../lib/types.ts";
-import { ScoutFleetLeftPanel } from "./FleetLeftPanel.tsx";
-import { ScoutEmptyLeftPanel } from "./EmptyLeftPanel.tsx";
+import type { Agent, Route } from "../../lib/types.ts";
+import { BaseLeftRail } from "./BaseLeftRail.tsx";
 import { MeshLeftPanel } from "./MeshLeftPanel.tsx";
 import { ScoutMessagesLeftPanel } from "./MessagesLeftPanel.tsx";
 import { ScoutMissionControlLeftPanel } from "./MissionControlLeftPanel.tsx";
+import { ScoutOpsLeftPanel } from "./OpsLeftPanel.tsx";
 import { ScoutPlanArchiveLeftPanel } from "./PlanArchiveLeftPanel.tsx";
+
+type LeftRailSlot =
+  | { mode: "takeover"; render: () => ReactNode }
+  | { mode: "prepend"; render: () => ReactNode };
+
+/**
+ * Single registry mapping a route to how it customizes the left rail.
+ * Anything not listed here falls through to the BaseLeftRail with no prepend.
+ *   - takeover: page owns the entire rail (BaseLeftRail does not render)
+ *   - prepend:  page block renders ABOVE the BaseLeftRail's four sections
+ */
+function resolveLeftRailSlot(route: Route): LeftRailSlot | null {
+  if (route.view === "ops") {
+    if (route.mode === "mission") return { mode: "takeover", render: () => <ScoutMissionControlLeftPanel /> };
+    if (route.mode === "plan") return { mode: "takeover", render: () => <ScoutPlanArchiveLeftPanel /> };
+    return { mode: "takeover", render: () => <ScoutOpsLeftPanel /> };
+  }
+  switch (route.view) {
+    case "agents":
+    case "agent-info":
+      return { mode: "takeover", render: () => <ScoutAgentsLeftPanel /> };
+    case "messages":
+    case "channels":
+    case "conversation":
+      return { mode: "takeover", render: () => <ScoutMessagesLeftPanel /> };
+    case "mesh":
+      return { mode: "takeover", render: () => <MeshLeftPanel /> };
+    default:
+      return null;
+  }
+}
 
 type ParentGroup = {
   key: string;
@@ -115,28 +146,11 @@ function navigateToAgent(
 
 export function ScoutLeftPanel() {
   const { route } = useScout();
-  if (route.view === "ops" && route.mode === "mission") {
-    return <ScoutMissionControlLeftPanel />;
+  const slot = resolveLeftRailSlot(route);
+  if (slot?.mode === "takeover") {
+    return slot.render();
   }
-  if (route.view === "ops" && route.mode === "plan") {
-    return <ScoutPlanArchiveLeftPanel />;
-  }
-  switch (route.view) {
-    case "agents":
-    case "agent-info":
-      return <ScoutAgentsLeftPanel />;
-    case "messages":
-    case "channels":
-    case "conversation":
-      return <ScoutMessagesLeftPanel />;
-    case "inbox":
-    case "fleet":
-      return <ScoutFleetLeftPanel />;
-    case "mesh":
-      return <MeshLeftPanel />;
-    default:
-      return <ScoutEmptyLeftPanel />;
-  }
+  return <BaseLeftRail prepend={slot?.mode === "prepend" ? slot.render() : undefined} />;
 }
 
 function ScoutAgentsLeftPanel() {

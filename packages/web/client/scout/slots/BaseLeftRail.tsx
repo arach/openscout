@@ -1,0 +1,357 @@
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import "./ctx-panel.css";
+import "./base-left-rail.css";
+import { Activity, Compass, GitBranch, ScrollText } from "lucide-react";
+import { isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
+import { api } from "../../lib/api.ts";
+import { actorColor, stateColor } from "../../lib/colors.ts";
+import { useBrokerEvents } from "../../lib/sse.ts";
+import { timeAgo } from "../../lib/time.ts";
+import { useScout } from "../Provider.tsx";
+import type {
+  Agent,
+  FleetActivity,
+  FleetAttentionItem,
+  FleetState,
+  Route,
+} from "../../lib/types.ts";
+
+const FLEET_REFRESH_EVENTS = new Set([
+  "message.posted",
+  "flight.updated",
+  "collaboration.event.appended",
+  "agent.updated",
+]);
+
+const RECENT_AGENTS_LIMIT = 4;
+const RECENT_ACTIVITY_LIMIT = 4;
+const NEEDS_ATTENTION_LIMIT = 3;
+
+type BaseLeftRailProps = {
+  prepend?: ReactNode;
+};
+
+export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
+  const { agents, navigate } = useScout();
+  const [fleet, setFleet] = useState<FleetState | null>(null);
+
+  const load = useCallback(async () => {
+    const data = await api<FleetState>("/api/fleet").catch(() => null);
+    setFleet(data);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useBrokerEvents((event) => {
+    if (FLEET_REFRESH_EVENTS.has(event.kind)) {
+      void load();
+    }
+  });
+
+  const recentAgents = useMemo(() => sortRecentAgents(agents).slice(0, RECENT_AGENTS_LIMIT), [agents]);
+  const recentActivity = useMemo(
+    () => (fleet?.activity ?? []).slice(0, RECENT_ACTIVITY_LIMIT),
+    [fleet],
+  );
+  const needsAttention = useMemo(
+    () => (fleet?.needsAttention ?? []).slice(0, NEEDS_ATTENTION_LIMIT),
+    [fleet],
+  );
+
+  return (
+    <div className="ctx-panel base-rail">
+      {prepend ? <div className="base-rail-prepend">{prepend}</div> : null}
+
+      <RecentAgentsSection
+        agents={recentAgents}
+        totalCount={agents.length}
+        onlineCount={agents.filter((a) => isAgentOnline(a.state)).length}
+        onSelect={(agent) => navigate({ view: "agents", agentId: agent.id })}
+        onSeeAll={() => navigate({ view: "agents" })}
+      />
+
+      <RecentActivitySection
+        items={recentActivity}
+        onSelect={(item) => navigate(routeForActivity(item))}
+        onSeeAll={() => navigate({ view: "activity" })}
+      />
+
+      <NeedsAttentionSection
+        items={needsAttention}
+        onSelect={(item) =>
+          navigate(
+            item.conversationId
+              ? { view: "conversation", conversationId: item.conversationId }
+              : { view: "ops", mode: "command" },
+          )
+        }
+      />
+
+      <JumpOffsSection navigate={navigate} />
+    </div>
+  );
+}
+
+function RecentAgentsSection({
+  agents,
+  totalCount,
+  onlineCount,
+  onSelect,
+  onSeeAll,
+}: {
+  agents: Agent[];
+  totalCount: number;
+  onlineCount: number;
+  onSelect: (agent: Agent) => void;
+  onSeeAll: () => void;
+}) {
+  return (
+    <section className="ctx-panel-section base-rail-section">
+      <SectionLabel
+        title="Recent agents"
+        meta={totalCount > 0 ? `${onlineCount} on · ${totalCount}` : undefined}
+        onSeeAll={totalCount > 0 ? onSeeAll : undefined}
+      />
+      {agents.length === 0 ? (
+        <div className="ctx-panel-empty">No agents yet</div>
+      ) : (
+        <div className="ctx-panel-list">
+          {agents.map((agent) => {
+            const state = normalizeAgentState(agent.state);
+            return (
+              <button
+                key={agent.id}
+                type="button"
+                className="ctx-panel-item base-rail-item"
+                onClick={() => onSelect(agent)}
+              >
+                <span className="base-rail-avatar-wrap">
+                  <span
+                    className="ctx-panel-avatar"
+                    style={{ background: actorColor(agent.name || agent.id) }}
+                  >
+                    {(agent.name || agent.id)[0]?.toUpperCase() ?? "?"}
+                  </span>
+                  <span
+                    className={`base-rail-state-dot base-rail-state-dot--${state}`}
+                    style={{ background: stateColor(agent.state) }}
+                  />
+                </span>
+                <span className="ctx-panel-body">
+                  <span className="ctx-panel-name">{agent.name || agent.id}</span>
+                  <span className="ctx-panel-sub">
+                    {agent.project ? agent.project : agent.handle ?? agent.harness ?? "—"}
+                    {agent.branch ? ` · ${agent.branch}` : ""}
+                  </span>
+                </span>
+                {agent.updatedAt ? (
+                  <span className="ctx-panel-time">{timeAgo(agent.updatedAt)}</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RecentActivitySection({
+  items,
+  onSelect,
+  onSeeAll,
+}: {
+  items: FleetActivity[];
+  onSelect: (item: FleetActivity) => void;
+  onSeeAll: () => void;
+}) {
+  return (
+    <section className="ctx-panel-section base-rail-section">
+      <SectionLabel
+        title="Recent activity"
+        meta={items.length > 0 ? undefined : undefined}
+        onSeeAll={items.length > 0 ? onSeeAll : undefined}
+      />
+      {items.length === 0 ? (
+        <div className="ctx-panel-empty">Quiet so far</div>
+      ) : (
+        <div className="ctx-panel-list">
+          {items.map((item) => {
+            const label = item.actorName ?? item.agentName ?? item.agentId ?? "system";
+            const headline = item.title ?? item.summary ?? activityKindLabel(item.kind);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="ctx-panel-item base-rail-item"
+                onClick={() => onSelect(item)}
+              >
+                <span
+                  className="ctx-panel-avatar"
+                  style={{ background: actorColor(label) }}
+                >
+                  {label[0]?.toUpperCase() ?? "·"}
+                </span>
+                <span className="ctx-panel-body">
+                  <span className="ctx-panel-name">{headline}</span>
+                  <span className="ctx-panel-sub">
+                    {label} · {timeAgo(item.ts)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NeedsAttentionSection({
+  items,
+  onSelect,
+}: {
+  items: FleetAttentionItem[];
+  onSelect: (item: FleetAttentionItem) => void;
+}) {
+  return (
+    <section className="ctx-panel-section base-rail-section">
+      <SectionLabel
+        title="Needs attention"
+        meta={items.length > 0 ? `${items.length}` : undefined}
+      />
+      {items.length === 0 ? (
+        <div className="ctx-panel-empty">All clear</div>
+      ) : (
+        <div className="ctx-panel-list">
+          {items.map((item) => {
+            const label = item.agentName ?? item.agentId ?? item.title;
+            return (
+              <button
+                key={item.recordId}
+                type="button"
+                className="ctx-panel-item ctx-panel-item--attention base-rail-item"
+                onClick={() => onSelect(item)}
+              >
+                <span
+                  className="ctx-panel-avatar"
+                  style={{ background: actorColor(label) }}
+                >
+                  {(label[0] ?? "!").toUpperCase()}
+                </span>
+                <span className="ctx-panel-body">
+                  <span className="ctx-panel-name">{item.title}</span>
+                  <span className="ctx-panel-sub">
+                    {item.agentName ?? item.agentId ?? "operator"} · {timeAgo(item.updatedAt)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function JumpOffsSection({ navigate }: { navigate: (route: Route) => void }) {
+  return (
+    <section className="ctx-panel-section base-rail-section base-rail-section--jumps">
+      <SectionLabel title="Jump to" />
+      <div className="base-rail-jumps">
+        <JumpButton
+          icon={<ScrollText size={13} strokeWidth={1.6} />}
+          label="Tail"
+          onClick={() => navigate({ view: "ops", mode: "tail" })}
+        />
+        <JumpButton
+          icon={<Compass size={13} strokeWidth={1.6} />}
+          label="Mission"
+          onClick={() => navigate({ view: "ops", mode: "mission" })}
+        />
+        <JumpButton
+          icon={<GitBranch size={13} strokeWidth={1.6} />}
+          label="Broker"
+          onClick={() => navigate({ view: "broker" })}
+        />
+        <JumpButton
+          icon={<Activity size={13} strokeWidth={1.6} />}
+          label="Activity"
+          onClick={() => navigate({ view: "activity" })}
+        />
+      </div>
+    </section>
+  );
+}
+
+function JumpButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className="base-rail-jump" onClick={onClick}>
+      <span className="base-rail-jump-icon">{icon}</span>
+      <span className="base-rail-jump-label">{label}</span>
+    </button>
+  );
+}
+
+function SectionLabel({
+  title,
+  meta,
+  onSeeAll,
+}: {
+  title: string;
+  meta?: string;
+  onSeeAll?: () => void;
+}) {
+  return (
+    <div className="ctx-panel-section-label base-rail-section-label">
+      <span>{title}</span>
+      <span className="base-rail-section-trailing">
+        {meta ? <span className="ctx-panel-count">{meta}</span> : null}
+        {onSeeAll ? (
+          <button type="button" className="base-rail-see-all" onClick={onSeeAll}>
+            all
+          </button>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+function sortRecentAgents(agents: Agent[]): Agent[] {
+  return [...agents].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+}
+
+function activityKindLabel(kind: string): string {
+  switch (kind) {
+    case "message":
+      return "Message";
+    case "invocation":
+      return "Invocation";
+    case "flight":
+      return "Flight update";
+    case "collaboration":
+      return "Collaboration";
+    default:
+      return kind.replace(/_/g, " ");
+  }
+}
+
+function routeForActivity(item: FleetActivity): Route {
+  if (item.conversationId) {
+    return { view: "conversation", conversationId: item.conversationId };
+  }
+  if (item.agentId) {
+    return { view: "agents", agentId: item.agentId };
+  }
+  return { view: "activity" };
+}
