@@ -33,7 +33,7 @@ describe("renderScoutMessagePostResult", () => {
       invokedTargets: ["hudson.main"],
       unresolvedTargets: [],
       routeKind: "dm",
-    })).toBe("Sent.\nConversation: dm.operator.hudson\nDelivery flight: flt-1\nNext: scout flight wait flt-1 --timeout 30");
+    })).toBe("Sent.\nConversation: dm.operator.hudson\nDelivery flight: flt-1\nNext: scout wait flt-1 --timeout 600");
   });
 });
 

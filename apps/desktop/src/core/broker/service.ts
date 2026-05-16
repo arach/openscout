@@ -11,6 +11,7 @@ import {
   extractAgentSelectors,
   formatMinimalAgentIdentity,
   type FlightRecord,
+  type InvocationRequest,
   type NodeDefinition,
   type AgentHarness,
   type AgentSelector,
@@ -67,6 +68,8 @@ import { resolveOperatorName } from "@openscout/runtime/user-config";
 
 import {
   openAiAudioSpeechUrl,
+  scoutBrokerInvocationPath,
+  scoutBrokerInvocationStreamPath,
   scoutBrokerMessagesListPath,
   scoutBrokerPaths,
 } from "./paths.ts";
@@ -78,6 +81,7 @@ export type ScoutBrokerConversationRecord = ConversationDefinition;
 export type ScoutBrokerMessageRecord = MessageRecord;
 export type ScoutBrokerNodeRecord = NodeDefinition;
 export type ScoutBrokerFlightRecord = FlightRecord;
+export type ScoutBrokerInvocationRecord = InvocationRequest;
 export type ScoutBrokerConversationBindingRecord = ConversationBinding;
 export type ScoutBrokerCollaborationRecord = CollaborationRecord;
 export type ScoutBrokerSnapshot = RuntimeRegistrySnapshot;
@@ -238,6 +242,30 @@ export type ScoutFlightRecord = {
   completedAt?: number;
   metadata?: Record<string, unknown>;
 };
+
+export type ScoutInvocationSnapshot = {
+  invocationId: string;
+  invocation: ScoutBrokerInvocationRecord | null;
+  flight: ScoutFlightRecord | null;
+  deliveries: unknown[];
+  dispatches: ScoutDispatchRecord[];
+};
+
+export type ScoutWaitResolution =
+  | {
+      found: true;
+      input: string;
+      kind: "invocation" | "flight" | "message" | "ref";
+      invocationId: string;
+      flightId: string | null;
+      messageId: string | null;
+      bindingRef: string | null;
+    }
+  | {
+      found: false;
+      input: string;
+      candidates: string[];
+    };
 
 export type ScoutAskResult = {
   usedBroker: boolean;
@@ -3085,6 +3113,190 @@ export async function loadScoutFlight(
   return loadBrokerFlight(baseUrl, flightId);
 }
 
+export async function loadScoutInvocationSnapshot(
+  baseUrl: string,
+  invocationId: string,
+): Promise<ScoutInvocationSnapshot | null> {
+  const snapshot = await brokerReadJson<ScoutInvocationSnapshot>(
+    baseUrl,
+    scoutBrokerInvocationPath(invocationId),
+  );
+  if (!snapshot.invocation && !snapshot.flight) {
+    return null;
+  }
+  return snapshot;
+}
+
+export async function resolveScoutWaitReference(
+  baseUrl: string,
+  input: string,
+): Promise<ScoutWaitResolution> {
+  const original = input.trim();
+  const normalized = normalizeScoutWaitRef(original);
+  if (!normalized) {
+    return { found: false, input: original, candidates: [] };
+  }
+
+  const snapshot = await brokerReadJson<ScoutBrokerSnapshot>(
+    baseUrl,
+    scoutBrokerPaths.v1.snapshot,
+  );
+  const invocations = Object.values(snapshot.invocations ?? {});
+  const flights = Object.values(snapshot.flights ?? {}) as ScoutFlightRecord[];
+  const messages = Object.values(snapshot.messages ?? {});
+
+  const exactInvocation = invocations.find((invocation) => invocation.id === normalized);
+  if (exactInvocation) {
+    const flight = flights.find((candidate) => candidate.invocationId === exactInvocation.id);
+    return buildWaitResolution({
+      input: original,
+      kind: "invocation",
+      invocationId: exactInvocation.id,
+      flightId: flight?.id ?? null,
+      messageId: exactInvocation.messageId ?? null,
+      bindingRef: metadataString(flight?.metadata, "bindingRef") ?? flight?.id.slice(-8) ?? null,
+    });
+  }
+
+  const exactFlight = flights.find((flight) => flight.id === normalized);
+  if (exactFlight) {
+    return buildWaitResolution({
+      input: original,
+      kind: "flight",
+      invocationId: exactFlight.invocationId,
+      flightId: exactFlight.id,
+      messageId: invocationMessageId(invocations, exactFlight.invocationId),
+      bindingRef: metadataString(exactFlight.metadata, "bindingRef") ?? exactFlight.id.slice(-8),
+    });
+  }
+
+  const exactMessage = messages.find((message) => message.id === normalized);
+  if (exactMessage) {
+    const invocationId = messageInvocationId(exactMessage)
+      ?? invocations.find((invocation) => invocation.messageId === exactMessage.id)?.id
+      ?? null;
+    if (invocationId) {
+      const flight = flights.find((candidate) => candidate.invocationId === invocationId);
+      return buildWaitResolution({
+        input: original,
+        kind: "message",
+        invocationId,
+        flightId: flight?.id ?? null,
+        messageId: exactMessage.id,
+        bindingRef: metadataString(flight?.metadata, "bindingRef") ?? flight?.id.slice(-8) ?? null,
+      });
+    }
+  }
+
+  const flightMatches = flights.filter((flight) => flightReferenceMatches(flight, normalized));
+  if (flightMatches.length === 1) {
+    const flight = flightMatches[0]!;
+    return buildWaitResolution({
+      input: original,
+      kind: original.trim().startsWith("ref:") ? "ref" : "flight",
+      invocationId: flight.invocationId,
+      flightId: flight.id,
+      messageId: invocationMessageId(invocations, flight.invocationId),
+      bindingRef: metadataString(flight.metadata, "bindingRef") ?? flight.id.slice(-8),
+    });
+  }
+
+  const invocationMatches = invocations.filter((invocation) => invocation.id.endsWith(normalized));
+  if (invocationMatches.length === 1) {
+    const invocation = invocationMatches[0]!;
+    const flight = flights.find((candidate) => candidate.invocationId === invocation.id);
+    return buildWaitResolution({
+      input: original,
+      kind: "invocation",
+      invocationId: invocation.id,
+      flightId: flight?.id ?? null,
+      messageId: invocation.messageId ?? null,
+      bindingRef: metadataString(flight?.metadata, "bindingRef") ?? flight?.id.slice(-8) ?? null,
+    });
+  }
+
+  const messageMatches = messages.filter((message) => message.id.endsWith(normalized));
+  if (messageMatches.length === 1) {
+    const message = messageMatches[0]!;
+    const invocationId = messageInvocationId(message)
+      ?? invocations.find((invocation) => invocation.messageId === message.id)?.id
+      ?? null;
+    if (invocationId) {
+      const flight = flights.find((candidate) => candidate.invocationId === invocationId);
+      return buildWaitResolution({
+        input: original,
+        kind: "message",
+        invocationId,
+        flightId: flight?.id ?? null,
+        messageId: message.id,
+        bindingRef: metadataString(flight?.metadata, "bindingRef") ?? flight?.id.slice(-8) ?? null,
+      });
+    }
+  }
+
+  const candidates = [
+    ...flightMatches.map((flight) => flight.id),
+    ...invocationMatches.map((invocation) => invocation.id),
+    ...messageMatches.map((message) => message.id),
+  ];
+  return { found: false, input: original, candidates };
+}
+
+export async function waitForScoutInvocation(
+  baseUrl: string,
+  invocationId: string,
+  options: {
+    timeoutSeconds?: number;
+    onUpdate?: (snapshot: ScoutInvocationSnapshot, detail: string) => void;
+  } = {},
+): Promise<ScoutInvocationSnapshot> {
+  const deadline =
+    typeof options.timeoutSeconds === "number" && options.timeoutSeconds > 0
+      ? Date.now() + options.timeoutSeconds * 1000
+      : null;
+  let latest = await loadScoutInvocationSnapshot(baseUrl, invocationId);
+  if (!latest) {
+    throw new Error(`Invocation ${invocationId} is not available.`);
+  }
+  if (isTerminalFlightStateValue(latest.flight?.state)) {
+    return latest;
+  }
+
+  let lastDetail = "";
+  while (true) {
+    if (deadline !== null && Date.now() > deadline) {
+      throw new Error(`Timed out waiting for invocation ${invocationId}.`);
+    }
+    try {
+      latest = await readScoutInvocationStream(baseUrl, invocationId, latest, {
+        deadline,
+        onSnapshot(snapshot) {
+          const detail = renderInvocationWaitDetail(snapshot);
+          if (detail && detail !== lastDetail) {
+            options.onUpdate?.(snapshot, detail);
+            lastDetail = detail;
+          }
+        },
+      });
+      if (isTerminalFlightStateValue(latest.flight?.state)) {
+        return latest;
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Timed out waiting for invocation ${invocationId}.`);
+      }
+      if (deadline !== null && Date.now() > deadline) {
+        throw new Error(`Timed out waiting for invocation ${invocationId}.`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      latest = await loadScoutInvocationSnapshot(baseUrl, invocationId) ?? latest;
+      if (isTerminalFlightStateValue(latest.flight?.state)) {
+        return latest;
+      }
+    }
+  }
+}
+
 export async function waitForScoutFlight(
   baseUrl: string,
   flightId: string,
@@ -3133,6 +3345,164 @@ export async function waitForScoutFlight(
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
+}
+
+async function readScoutInvocationStream(
+  baseUrl: string,
+  invocationId: string,
+  initial: ScoutInvocationSnapshot,
+  options: {
+    deadline: number | null;
+    onSnapshot: (snapshot: ScoutInvocationSnapshot) => void;
+  },
+): Promise<ScoutInvocationSnapshot> {
+  const controller = new AbortController();
+  const timeout = options.deadline === null
+    ? null
+    : setTimeout(() => controller.abort(), Math.max(options.deadline - Date.now(), 1));
+  let latest = initial;
+
+  try {
+    const response = await fetch(
+      new URL(scoutBrokerInvocationStreamPath(invocationId), baseUrl),
+      {
+        headers: { accept: "text/event-stream" },
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok || !response.body) {
+      throw new Error(`${scoutBrokerInvocationStreamPath(invocationId)} returned ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return latest;
+      buffer += decoder.decode(value, { stream: true });
+      while (true) {
+        const delimiterIndex = buffer.indexOf("\n\n");
+        if (delimiterIndex === -1) break;
+        const block = buffer.slice(0, delimiterIndex);
+        buffer = buffer.slice(delimiterIndex + 2);
+        latest = applyInvocationStreamBlock(block, latest);
+        options.onSnapshot(latest);
+        if (isTerminalFlightStateValue(latest.flight?.state)) {
+          controller.abort();
+          return latest;
+        }
+      }
+    }
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function applyInvocationStreamBlock(
+  block: string,
+  current: ScoutInvocationSnapshot,
+): ScoutInvocationSnapshot {
+  const trimmed = block.trim();
+  if (!trimmed || trimmed.startsWith(":")) return current;
+  let eventName = "";
+  const dataLines: string[] = [];
+  for (const line of trimmed.split("\n")) {
+    if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
+    if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trim());
+  }
+  if (dataLines.length === 0) return current;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(dataLines.join("\n"));
+  } catch {
+    return current;
+  }
+
+  if (eventName === "snapshot") {
+    const snapshot = payload as Partial<ScoutInvocationSnapshot>;
+    return {
+      invocationId: typeof snapshot.invocationId === "string" ? snapshot.invocationId : current.invocationId,
+      invocation: snapshot.invocation ?? current.invocation,
+      flight: snapshot.flight ?? current.flight,
+      deliveries: Array.isArray(snapshot.deliveries) ? snapshot.deliveries : current.deliveries,
+      dispatches: Array.isArray(snapshot.dispatches)
+        ? snapshot.dispatches as ScoutDispatchRecord[]
+        : current.dispatches,
+    };
+  }
+
+  const event = payload as Partial<ControlEvent>;
+  if (event.kind === "flight.updated") {
+    const flight = (event as Extract<ControlEvent, { kind: "flight.updated" }>).payload?.flight;
+    if (flight?.invocationId === current.invocationId) {
+      return { ...current, flight };
+    }
+  }
+  if (event.kind === "invocation.requested") {
+    const invocation = (event as Extract<ControlEvent, { kind: "invocation.requested" }>).payload?.invocation;
+    if (invocation?.id === current.invocationId) {
+      return { ...current, invocation };
+    }
+  }
+
+  return current;
+}
+
+function renderInvocationWaitDetail(snapshot: ScoutInvocationSnapshot): string {
+  const state = snapshot.flight?.state;
+  const summary = snapshot.flight?.summary;
+  return [state, summary].filter(Boolean).join(" - ");
+}
+
+function normalizeScoutWaitRef(value: string): string {
+  return value
+    .trim()
+    .replace(/^ref:/, "")
+    .replace(/^flight:/, "")
+    .replace(/^invocation:/, "")
+    .replace(/^message:/, "");
+}
+
+function buildWaitResolution(input: {
+  input: string;
+  kind: "invocation" | "flight" | "message" | "ref";
+  invocationId: string;
+  flightId: string | null;
+  messageId: string | null;
+  bindingRef: string | null;
+}): ScoutWaitResolution {
+  return { found: true, ...input };
+}
+
+function invocationMessageId(
+  invocations: ScoutBrokerInvocationRecord[],
+  invocationId: string,
+): string | null {
+  return invocations.find((invocation) => invocation.id === invocationId)?.messageId ?? null;
+}
+
+function messageInvocationId(message: MessageRecord): string | null {
+  const metadata = message.metadata;
+  const dispatch = metadata?.["scoutDispatch"];
+  if (dispatch && typeof dispatch === "object" && !Array.isArray(dispatch)) {
+    const value = (dispatch as Record<string, unknown>)["invocationId"];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  const invocationId = metadata?.["invocationId"];
+  return typeof invocationId === "string" && invocationId.trim() ? invocationId.trim() : null;
+}
+
+function flightReferenceMatches(flight: ScoutFlightRecord, ref: string): boolean {
+  const lowerRef = ref.toLowerCase();
+  const lowerId = flight.id.toLowerCase();
+  const bindingRef = metadataString(flight.metadata, "bindingRef")?.toLowerCase();
+  return lowerId.endsWith(lowerRef) || bindingRef === lowerRef;
+}
+
+function isTerminalFlightStateValue(state: string | null | undefined): boolean {
+  return state === "completed" || state === "failed" || state === "cancelled";
 }
 
 export async function loadScoutMessages(

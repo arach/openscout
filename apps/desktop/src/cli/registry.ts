@@ -18,6 +18,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "send", summary: "Tell one target or post to an explicit channel" },
   { name: "speak", summary: "Send and speak aloud via TTS" },
   { name: "ask", summary: "Hand work to one agent and wait for acknowledgement" },
+  { name: "wait", summary: "Wait for an ask by invocation, flight, message, or ref" },
   { name: "flight", summary: "Follow an existing ask flight" },
   { name: "card", summary: "Create a dedicated reply-ready Scout agent card" },
   { name: "watch", summary: "Stream broker messages" },
