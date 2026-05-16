@@ -1028,7 +1028,7 @@ export type Route =
   | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
-export type OpsMode = "command" | "plan" | "conductor" | "mission" | "agents" | "tail" | "atop" | "runs";
+export type OpsMode = "command" | "plan" | "mission" | "agents" | "tail" | "atop" | "runs";
 export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 
 export type FollowTarget = {

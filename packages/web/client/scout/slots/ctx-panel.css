@@ -46,6 +46,20 @@
   flex-shrink: 0;
 }
 
+.ctx-panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 28%, transparent);
+}
+
+.ctx-panel-toolbar .ctx-panel-search-input {
+  flex: 1;
+  min-width: 0;
+}
+
 .ctx-panel-search-input {
   width: 100%;
   box-sizing: border-box;
@@ -69,20 +83,15 @@
 }
 
 .ctx-panel-sort {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 10px 6px;
+  gap: 1px;
+  padding: 2px;
   flex-shrink: 0;
   font-family: var(--font-mono);
-}
-
-.ctx-panel-sort-label {
-  font-size: 9.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-right: 4px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  border-radius: 5px;
 }
 
 .ctx-panel-sort-option {
@@ -90,21 +99,20 @@
   border: none;
   background: transparent;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 9.5px;
   font-family: var(--font-mono);
   letter-spacing: 0.04em;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
   transition: background 0.1s, color 0.1s;
 }
 
 .ctx-panel-sort-option:hover {
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
   color: var(--ink);
 }
 
 .ctx-panel-sort-option--active {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
   font-weight: 600;
 }
@@ -157,7 +165,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 12px;
+  padding: 6px 0 12px;
 }
 
 .ctx-panel-empty {
@@ -174,17 +182,18 @@
   gap: 12px;
   padding: 14px 14px 14px 12px;
   cursor: pointer;
-  border: none;
   background: transparent;
   width: 100%;
   text-align: left;
   transition: background 0.1s;
+  border: none;
   border-left: 2px solid transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 16%, transparent);
   min-height: 0;
 }
 
-.ctx-panel-item + .ctx-panel-item {
-  margin-top: 6px;
+.ctx-panel-item:last-child {
+  border-bottom: none;
 }
 
 .ctx-panel-item:hover {

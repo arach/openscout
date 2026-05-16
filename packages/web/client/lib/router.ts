@@ -30,10 +30,10 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
       return "command";
     case "control":
     case "mission":
-      return "mission";
+    // Conduct/Conductor view retired 2026-05-15 — fold legacy URLs into Control.
     case "conduct":
     case "conductor":
-      return "conductor";
+      return "mission";
     case "plan":
     case "agents":
     case "tail":
@@ -71,8 +71,6 @@ function opsModePath(mode: OpsMode): string {
       return "command";
     case "mission":
       return "control";
-    case "conductor":
-      return "conduct";
     default:
       return mode;
   }

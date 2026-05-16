@@ -2,7 +2,6 @@ import "./ops-screen.css";
 
 import { useScout } from "../scout/Provider.tsx";
 import { PageStatusBar } from "../components/PageStatusBar.tsx";
-import { ConductorView } from "./ConductorView.tsx";
 import { MissionControlView } from "./MissionControlView.tsx";
 import { OpsAgentsView } from "./OpsAgentsView.tsx";
 import { PlanArchiveView } from "./PlanArchiveView.tsx";
@@ -16,7 +15,6 @@ const TABS: { id: OpsMode; label: string }[] = [
   { id: "command", label: "Command" },
   { id: "mission", label: "Control" },
   { id: "plan", label: "Plan" },
-  { id: "conductor", label: "Conduct" },
   { id: "tail", label: "Tail" },
   { id: "atop", label: "Atop" },
   { id: "agents", label: "Agents" },
@@ -53,7 +51,6 @@ export function OpsScreen({
         {mode === "mission" && <MissionControlView navigate={navigate} agents={agents} />}
         {mode === "agents" && <OpsAgentsView navigate={navigate} agents={agents} />}
         {mode === "plan" && <PlanArchiveView navigate={navigate} agents={agents} />}
-        {mode === "conductor" && <ConductorView navigate={navigate} agents={agents} />}
         {mode === "command" && <CommandView navigate={navigate} agents={agents} />}
         {mode === "tail" && <TailView navigate={navigate} initialFilter={tailQuery} />}
         {mode === "atop" && <AtopView />}

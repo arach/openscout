@@ -163,35 +163,34 @@ export function ScoutMessagesLeftPanel() {
         ))}
       </div>
 
-      <div className="ctx-panel-search">
+      <div className="ctx-panel-toolbar">
         <input
           ref={inputRef}
           type="text"
           className="ctx-panel-search-input"
-          placeholder="Filter…  (press /)"
+          placeholder="Filter…  (/)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onSearchKeyDown}
         />
-      </div>
-
-      <div className="ctx-panel-sort">
-        <span className="ctx-panel-sort-label">Sort</span>
-        {SORTS.map((s) => (
-          <button
-            key={s}
-            type="button"
-            className={[
-              "ctx-panel-sort-option",
-              activeRouteSort === s && "ctx-panel-sort-option--active",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => setSort(s)}
-          >
-            {SORT_LABEL[s]}
-          </button>
-        ))}
+        <div className="ctx-panel-sort" role="group" aria-label="Sort">
+          {SORTS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              title={`Sort by ${SORT_LABEL[s].toLowerCase()}`}
+              className={[
+                "ctx-panel-sort-option",
+                activeRouteSort === s && "ctx-panel-sort-option--active",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={() => setSort(s)}
+            >
+              {SORT_LABEL[s]}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div

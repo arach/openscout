@@ -367,10 +367,10 @@ function normalizeOpsMode(mode: string): OpsMode | undefined {
       return "command";
     case "control":
     case "mission":
-      return "mission";
+    // Conduct/Conductor view retired 2026-05-15 — legacy aliases route to Control.
     case "conduct":
     case "conductor":
-      return "conductor";
+      return "mission";
     case "plan":
     case "agents":
     case "tail":
