@@ -1,8 +1,11 @@
-import { useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Canvas } from "@hudsonkit/canvas";
 import type { Agent, MeshStatus } from "../lib/types.ts";
 import {
   useMeshViewStore,
+  toggleMachineCollapse,
+  setMachinePosition,
+  toggleMachineVisibility,
   type MeshDensity,
 } from "../lib/mesh-view-store.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
@@ -10,6 +13,8 @@ import { stateColor } from "../lib/colors.ts";
 import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useAgentHoverCard } from "../components/useAgentHoverCard.tsx";
+import { bucketAgentsByMachine, type HostFacts, type MachineBucket } from "../lib/mesh-buckets.ts";
+// FloatingMachinesTool removed — the rack now lives in MeshLeftPanel.
 
 type TileBindings = ReturnType<ReturnType<typeof useAgentHoverCard>["bind"]>;
 
@@ -444,34 +449,412 @@ function ClusterRegion({
   );
 }
 
-function HostFrame({
-  hostLabel,
-  totalAgents,
-  workingAgents,
+// bucketAgentsByMachine, HostFacts, MachineBucket are imported from lib/mesh-buckets
+
+type MachineSectionLayout = {
+  machineId: string;
+  machineLabel: string;
+  reachability: MachineBucket["reachability"];
+  online: boolean;
+  agentCount: number;
+  workingCount: number;
+  availableCount: number;
+  offlineCount: number;
+  dominantState: "working" | "available" | "offline";
+  host?: HostFacts;
+  collapsed: boolean;
+  /** True when this section is rendering as a small ghost (hidden via rack, or unreachable). */
+  ghost: boolean;
+  /** True when the manual override placed this section. */
+  pinned: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  headerHeight: number;
+  /** Total chrome height (header + spec strip when collapsed). */
+  chromeHeight: number;
+  layouts: ClusterLayout[];
+};
+
+const MACHINE_HEADER_HEIGHT = 34;
+const MACHINE_SPEC_HEAD_HEIGHT = 22;
+const MACHINE_SPEC_ROW_HEIGHT = 22;
+const MACHINE_SPEC_FOOT_HEIGHT = 6;
+const MACHINE_SECTION_GAP = 28;
+const MACHINE_BODY_PAD_TOP = 10;
+const MACHINE_BODY_PAD_X = 12;
+const MIN_SECTION_WIDTH = 380;
+const GHOST_WIDTH = 240;
+const GHOST_HEIGHT = 38;
+
+function packMachineSections(
+  buckets: MachineBucket[],
+  hiddenIds: ReadonlySet<string>,
+  collapsedIds: ReadonlySet<string>,
+  positions: Readonly<Record<string, { x: number; y: number }>>,
+  m: DensityMetrics,
+  viewportAspect: number,
+): MachineSectionLayout[] {
+  const sections: MachineSectionLayout[] = [];
+
+  // Split into auto-flow (no manual override) and pinned (manual override).
+  const autoBuckets: MachineBucket[] = [];
+  const pinnedBuckets: MachineBucket[] = [];
+  for (const b of buckets) {
+    if (positions[b.machineId]) pinnedBuckets.push(b);
+    else autoBuckets.push(b);
+  }
+
+  // Auto-flow vertical stack (pre-centering).
+  let cursorY = 0;
+  let widest = MIN_SECTION_WIDTH;
+
+  const buildSection = (
+    bucket: MachineBucket,
+    pinned: boolean,
+  ): MachineSectionLayout => {
+    const hidden = hiddenIds.has(bucket.machineId);
+    const ghost = hidden || !bucket.online;
+    const collapsed = collapsedIds.has(bucket.machineId);
+
+    // State breakdown
+    let workingCount = 0;
+    let availableCount = 0;
+    let offlineCount = 0;
+    for (const a of bucket.agents) {
+      const s = normalizeAgentState(a.state);
+      if (s === "working") workingCount += 1;
+      else if (s === "available") availableCount += 1;
+      else offlineCount += 1;
+    }
+    const dominantState: "working" | "available" | "offline" =
+      !bucket.online
+        ? "offline"
+        : workingCount > 0
+          ? "working"
+          : availableCount > 0
+            ? "available"
+            : "offline";
+
+    if (ghost) {
+      return {
+        machineId: bucket.machineId,
+        machineLabel: bucket.machineLabel,
+        reachability: bucket.reachability,
+        online: bucket.online,
+        agentCount: bucket.agents.length,
+        workingCount,
+        availableCount,
+        offlineCount,
+        dominantState,
+        host: bucket.host,
+        collapsed: false,
+        ghost: true,
+        pinned,
+        x: 0,
+        y: 0,
+        width: GHOST_WIDTH,
+        height: GHOST_HEIGHT,
+        headerHeight: GHOST_HEIGHT,
+        chromeHeight: GHOST_HEIGHT,
+        layouts: [],
+      };
+    }
+
+    const clusters = collapsed ? [] : groupAgentsByName(bucket.agents);
+    const innerLayouts = collapsed ? [] : packClusters(clusters, m, viewportAspect);
+
+    // Spec sheet is the MINIMIZED view: visible only when the section is collapsed.
+    // Structure: state strip (3 cells: working / available / offline) above param rows.
+    const specBucket: MachineBucket = bucket;
+    const rowCount = collapsed ? countSpecRows(specBucket, workingCount, availableCount, offlineCount) : 0;
+    const specBlockHeight = collapsed
+      ? MACHINE_STATE_STRIP_HEIGHT + rowCount * MACHINE_SPEC_ROW_HEIGHT + MACHINE_SPEC_FOOT_HEIGHT
+      : 0;
+    const chromeHeight = MACHINE_HEADER_HEIGHT + specBlockHeight;
+
+    let bodyW = 0;
+    let bodyH = 0;
+    if (!collapsed && innerLayouts.length > 0) {
+      const minX = Math.min(...innerLayouts.map((l) => l.x));
+      const maxX = Math.max(...innerLayouts.map((l) => l.x + l.width));
+      const minY = Math.min(...innerLayouts.map((l) => l.y));
+      const maxY = Math.max(...innerLayouts.map((l) => l.y + l.height));
+      bodyW = maxX - minX;
+      bodyH = maxY - minY;
+      const dx = -minX + MACHINE_BODY_PAD_X;
+      const dy = -minY + chromeHeight + MACHINE_BODY_PAD_TOP;
+      for (const l of innerLayouts) {
+        l.x += dx;
+        l.y += dy;
+      }
+    }
+
+    const sectionWidth = Math.max(MIN_SECTION_WIDTH, bodyW + MACHINE_BODY_PAD_X * 2);
+    const sectionHeight = collapsed
+      ? chromeHeight
+      : chromeHeight + MACHINE_BODY_PAD_TOP + bodyH + MACHINE_BODY_PAD_X;
+
+    return {
+      machineId: bucket.machineId,
+      machineLabel: bucket.machineLabel,
+      reachability: bucket.reachability,
+      online: bucket.online,
+      agentCount: bucket.agents.length,
+      workingCount,
+      availableCount,
+      offlineCount,
+      dominantState,
+      host: bucket.host,
+      collapsed,
+      ghost: false,
+      pinned,
+      x: 0,
+      y: 0,
+      width: sectionWidth,
+      height: sectionHeight,
+      headerHeight: MACHINE_HEADER_HEIGHT,
+      chromeHeight,
+      layouts: innerLayouts,
+    };
+  };
+
+  for (const bucket of autoBuckets) {
+    const section = buildSection(bucket, false);
+    section.x = 0;
+    section.y = cursorY;
+    sections.push(section);
+    widest = Math.max(widest, section.width);
+    cursorY += section.height + MACHINE_SECTION_GAP;
+  }
+
+  // Auto-flow centering: all auto sections share the widest width so headers align,
+  // and the whole auto-flow block is centered on the origin.
+  const totalAutoHeight = Math.max(0, cursorY - MACHINE_SECTION_GAP);
+  const autoOffsetX = -widest / 2;
+  const autoOffsetY = -totalAutoHeight / 2;
+  for (const s of sections) {
+    if (!s.ghost) s.width = widest;
+    s.x = autoOffsetX;
+    s.y += autoOffsetY;
+  }
+
+  // Pinned sections: respect user-placed (x, y) verbatim, no centering, no width-normalize.
+  for (const bucket of pinnedBuckets) {
+    const section = buildSection(bucket, true);
+    const pos = positions[bucket.machineId]!;
+    section.x = pos.x;
+    section.y = pos.y;
+    sections.push(section);
+  }
+
+  return sections;
+}
+
+// HostFrame is intentionally removed — each machine renders its own section header.
+
+function MachineSectionView({
+  section,
+  metrics,
+  onAgentOpen,
+  bindFor,
+  activeId,
+  onHeaderPointerDown,
+  onHeaderClick,
+  onGhostActivate,
 }: {
-  hostLabel: string;
-  totalAgents: number;
-  workingAgents: number;
+  section: MachineSectionLayout;
+  metrics: DensityMetrics;
+  onAgentOpen: (agent: Agent) => void;
+  bindFor: (agentId: string) => TileBindings | null;
+  activeId: string | null;
+  onHeaderPointerDown: (event: React.PointerEvent, section: MachineSectionLayout) => void;
+  onHeaderClick: (machineId: string) => void;
+  onGhostActivate: (machineId: string) => void;
 }) {
+  const reachabilityLabel =
+    section.reachability === "this"
+      ? "this node"
+      : section.reachability === "peer"
+        ? "peer"
+        : section.reachability === "tailnet"
+          ? "tailnet"
+          : "";
+
+  const stamp = !section.online
+    ? "unreachable"
+    : section.agentCount === 0
+      ? "idle"
+      : "standby";
+
+  if (section.ghost) {
+    return (
+      <div
+        data-machine-id={section.machineId}
+        className="mesh-machine-ghost"
+        style={{
+          position: "absolute",
+          left: section.x,
+          top: section.y,
+          width: section.width,
+          height: section.height,
+          pointerEvents: "all",
+        }}
+        title={`${section.machineLabel} · ${stamp} — click to show`}
+      >
+        <button
+          type="button"
+          className="mesh-machine-ghost-body"
+          onPointerDown={(e) => onHeaderPointerDown(e, section)}
+          onClick={() => onGhostActivate(section.machineId)}
+        >
+          <span className="mesh-machine-ghost-led" aria-hidden />
+          <span className="mesh-machine-ghost-name">{section.machineLabel}</span>
+          <span className="mesh-machine-ghost-stamp">{stamp}</span>
+          {reachabilityLabel && (
+            <span
+              className={`mesh-machine-chip mesh-machine-chip--${section.reachability} mesh-machine-chip--ghost`}
+            >
+              {reachabilityLabel}
+            </span>
+          )}
+          <span className="mesh-machine-ghost-counts">
+            <span className="mesh-machine-count">{section.agentCount}</span>
+            {section.workingCount > 0 && (
+              <span className="mesh-machine-count mesh-machine-count--working">
+                {section.workingCount}W
+              </span>
+            )}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  const specRows = section.collapsed ? buildSpecRows(section) : [];
+
   return (
-    <div className="mesh-host-frame">
-      <span className="mesh-host-frame-eyebrow">Local host</span>
-      <span className="mesh-host-frame-name">{hostLabel}</span>
-      <span className="mesh-host-frame-stats">
-        <span className="mesh-host-frame-stat">{totalAgents} agent{totalAgents === 1 ? "" : "s"}</span>
-        {workingAgents > 0 && (
-          <span className="mesh-host-frame-stat mesh-host-frame-stat--working">{workingAgents} working</span>
+    <div
+      data-machine-id={section.machineId}
+      className={`mesh-machine-section${section.collapsed ? " mesh-machine-section--collapsed" : ""}${section.pinned ? " mesh-machine-section--pinned" : ""}`}
+      style={{
+        position: "absolute",
+        left: section.x,
+        top: section.y,
+        width: section.width,
+        height: section.height,
+        pointerEvents: "all",
+      }}
+    >
+      <button
+        type="button"
+        className="mesh-machine-header"
+        style={{ height: section.headerHeight }}
+        onPointerDown={(e) => onHeaderPointerDown(e, section)}
+        onClick={() => onHeaderClick(section.machineId)}
+        aria-expanded={!section.collapsed}
+      >
+        <span
+          className={`mesh-machine-led mesh-machine-led--${section.dominantState}`}
+          style={{ color: stateColor(section.dominantState) }}
+          aria-hidden
+        />
+        <span className="mesh-machine-caret" aria-hidden>
+          {section.collapsed ? "▸" : "▾"}
+        </span>
+        <span className="mesh-machine-grip" aria-hidden>
+          ⠿
+        </span>
+        <span className="mesh-machine-name">{section.machineLabel}</span>
+        {reachabilityLabel && (
+          <span
+            className={`mesh-machine-chip mesh-machine-chip--${section.reachability}`}
+          >
+            {reachabilityLabel}
+          </span>
         )}
-      </span>
+      </button>
+      {section.collapsed && (
+        <div className="mesh-machine-spec">
+          <div className="mesh-machine-state-strip" style={{ height: MACHINE_STATE_STRIP_HEIGHT }}>
+            <div className="mesh-machine-state-cell mesh-machine-state-cell--working">
+              <span className="mesh-machine-state-num">{section.workingCount}</span>
+              <span className="mesh-machine-state-label">working</span>
+            </div>
+            <div className="mesh-machine-state-cell">
+              <span className="mesh-machine-state-num">{section.availableCount}</span>
+              <span className="mesh-machine-state-label">available</span>
+            </div>
+            <div className="mesh-machine-state-cell">
+              <span className="mesh-machine-state-num">{section.agentCount}</span>
+              <span className="mesh-machine-state-label">total</span>
+            </div>
+          </div>
+          {specRows.map((row) => (
+            <div
+              key={row.label}
+              className="mesh-machine-spec-row"
+              style={{ height: MACHINE_SPEC_ROW_HEIGHT }}
+            >
+              <span className="mesh-machine-spec-label">{row.label}</span>
+              <span className="mesh-machine-spec-value" title={row.value}>
+                {row.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!section.collapsed &&
+        section.layouts.map((layout) => (
+          <ClusterRegion
+            key={layout.cluster.key}
+            layout={layout}
+            metrics={metrics}
+            onAgentOpen={onAgentOpen}
+            bindFor={bindFor}
+            activeId={activeId}
+          />
+        ))}
     </div>
   );
+}
+
+type SpecRow = {
+  label: string;
+  value: string;
+};
+
+function buildSpecRows(section: MachineSectionLayout): SpecRow[] {
+  const host = section.host;
+  return [
+    { label: "os", value: host?.os ?? "—" },
+    { label: "arch", value: host?.arch ?? "—" },
+    { label: "cpu", value: host?.cpuCores ? `${host.cpuCores}c` : "—" },
+    { label: "ram", value: host?.memoryGb ? `${host.memoryGb} G` : "—" },
+    { label: "disk", value: host?.storageCapacityGb ? `${host.storageCapacityGb} G` : "—" },
+    { label: "network", value: host?.network ?? "—" },
+    { label: "scout", value: host?.scoutVersion ? `v${host.scoutVersion}` : "—" },
+  ];
+}
+
+const MACHINE_SPEC_ROWS = 7; // os, arch, cpu, ram, disk, network, scout
+const MACHINE_STATE_STRIP_HEIGHT = 54;
+
+function countSpecRows(
+  _bucket: MachineBucket,
+  _workingCount: number,
+  _availableCount: number,
+  _offlineCount: number,
+): number {
+  return MACHINE_SPEC_ROWS;
 }
 
 export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: Agent[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [canvas, dispatch] = useReducer(canvasReducer, { pan: { x: 0, y: 0 }, scale: 1 });
-  const { density, query, stateFilter } = useMeshViewStore();
+  const { density, query, agentStateFilters, hiddenMachineIds, collapsedMachineIds, scrollTargetMachineId } = useMeshViewStore();
   const { navigate } = useScout();
 
   useLayoutEffect(() => {
@@ -497,23 +880,156 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
+  const { machinePositions } = useMeshViewStore();
   const metrics = useMemo(() => densityMetrics(density), [density]);
   const filteredAgents = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return agents.filter((a) => {
-      if (stateFilter !== "all" && normalizeAgentState(a.state) !== stateFilter) return false;
+      const state = normalizeAgentState(a.state);
+      const token = state === "working" || state === "available" ? state : "offline";
+      if (!agentStateFilters.has(token)) return false;
       if (!needle) return true;
       const hay = `${a.name ?? ""} ${a.handle ?? ""} ${a.harness ?? ""} ${a.project ?? ""} ${a.branch ?? ""}`.toLowerCase();
       return hay.includes(needle);
     });
-  }, [agents, query, stateFilter]);
-  const clusters = useMemo(() => groupAgentsByName(filteredAgents), [filteredAgents]);
+  }, [agents, query, agentStateFilters]);
+
+  const machineBuckets = useMemo(
+    () => bucketAgentsByMachine(filteredAgents, mesh),
+    [filteredAgents, mesh],
+  );
 
   const viewportAspect = size.w > 0 && size.h > 0 ? size.w / size.h : 1.6;
-  const layouts = useMemo(
-    () => packClusters(clusters, metrics, viewportAspect),
-    [clusters, metrics, viewportAspect],
+  const machineSections = useMemo(
+    () =>
+      packMachineSections(
+        machineBuckets,
+        hiddenMachineIds,
+        collapsedMachineIds,
+        machinePositions,
+        metrics,
+        viewportAspect,
+      ),
+    [machineBuckets, hiddenMachineIds, collapsedMachineIds, machinePositions, metrics, viewportAspect],
   );
+
+  // Drag state — drives the in-flight pointer drag for a machine header.
+  const dragRef = useRef<{
+    machineId: string;
+    startClientX: number;
+    startClientY: number;
+    startSectionX: number;
+    startSectionY: number;
+    pointerId: number;
+    moved: boolean;
+  } | null>(null);
+  const [dragOverride, setDragOverride] = useState<{ machineId: string; x: number; y: number } | null>(null);
+
+  const handleHeaderPointerDown = useCallback(
+    (e: React.PointerEvent, section: MachineSectionLayout) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      const target = e.currentTarget as HTMLElement;
+      target.setPointerCapture(e.pointerId);
+      dragRef.current = {
+        machineId: section.machineId,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startSectionX: section.x,
+        startSectionY: section.y,
+        pointerId: e.pointerId,
+        moved: false,
+      };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const dxScreen = e.clientX - drag.startClientX;
+      const dyScreen = e.clientY - drag.startClientY;
+      if (!drag.moved && Math.hypot(dxScreen, dyScreen) < 4) return;
+      drag.moved = true;
+      // Convert screen delta into world delta via current canvas scale.
+      const dx = dxScreen / canvas.scale;
+      const dy = dyScreen / canvas.scale;
+      setDragOverride({
+        machineId: drag.machineId,
+        x: drag.startSectionX + dx,
+        y: drag.startSectionY + dy,
+      });
+    };
+    const onUp = (e: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      dragRef.current = null;
+      if (drag.moved) {
+        const dx = (e.clientX - drag.startClientX) / canvas.scale;
+        const dy = (e.clientY - drag.startClientY) / canvas.scale;
+        setMachinePosition(drag.machineId, {
+          x: drag.startSectionX + dx,
+          y: drag.startSectionY + dy,
+        });
+      }
+      setDragOverride(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [canvas.scale]);
+
+  // Block header click after a drag so it doesn't fire toggleCollapse on release.
+  const wasDraggedRef = useRef(false);
+  useEffect(() => {
+    if (dragOverride) wasDraggedRef.current = true;
+    else {
+      // Clear shortly after release so a fresh click can fire toggle.
+      const t = setTimeout(() => { wasDraggedRef.current = false; }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [dragOverride]);
+
+  const handleGhostActivate = useCallback((machineId: string) => {
+    if (wasDraggedRef.current) return;
+    toggleMachineVisibility(machineId);
+  }, []);
+
+  const handleHeaderClick = useCallback((machineId: string) => {
+    if (wasDraggedRef.current) return;
+    toggleMachineCollapse(machineId);
+  }, []);
+
+  // Merge drag override into the rendered sections.
+  const renderedSections = useMemo(() => {
+    if (!dragOverride) return machineSections;
+    return machineSections.map((s) =>
+      s.machineId === dragOverride.machineId
+        ? { ...s, x: dragOverride.x, y: dragOverride.y, pinned: true }
+        : s,
+    );
+  }, [machineSections, dragOverride]);
+
+  // When the rail asks us to scroll to a machine, pan the canvas so the section header is in view.
+  useEffect(() => {
+    if (!scrollTargetMachineId) return;
+    const section = renderedSections.find((s) => s.machineId === scrollTargetMachineId);
+    if (!section) return;
+    // Bring the section header roughly to the top-third of the viewport.
+    dispatch({
+      type: "pan",
+      delta: {
+        x: -section.x - canvas.pan.x - section.width / 2,
+        y: -section.y - canvas.pan.y + size.h / 4 - MACHINE_HEADER_HEIGHT,
+      },
+    });
+  }, [scrollTargetMachineId, renderedSections, canvas.pan.x, canvas.pan.y, size.h]);
 
   const handleAgentOpen = useCallback(
     (agent: Agent) => {
@@ -549,13 +1065,6 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
   const cx = size.w / 2;
   const cy = size.h / 2;
 
-  const totalAgents = agents.length;
-  const workingAgents = useMemo(
-    () => agents.filter((a) => normalizeAgentState(a.state) === "working").length,
-    [agents],
-  );
-  const hostLabel = shortHost(mesh.localNode?.hostName) || mesh.localNode?.name || "this host";
-
   return (
     <div ref={containerRef} style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
       {size.w > 0 && (
@@ -580,7 +1089,7 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
           pointerEvents: "none",
         }}
       >
-        {layouts.length === 0 ? (
+        {renderedSections.length === 0 ? (
           <div
             style={{
               position: "absolute",
@@ -591,24 +1100,24 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
               pointerEvents: "none",
             }}
           >
-            <div className="mesh-empty-pill">no local agents</div>
+            <div className="mesh-empty-pill">no machines visible</div>
           </div>
         ) : (
-          layouts.map((layout) => (
-            <div key={layout.cluster.key} style={{ position: "absolute", pointerEvents: "all" }}>
-              <ClusterRegion
-                layout={layout}
-                metrics={metrics}
-                onAgentOpen={handleAgentOpen}
-                bindFor={bindFor}
-                activeId={activeId}
-              />
-            </div>
+          renderedSections.map((section) => (
+            <MachineSectionView
+              key={section.machineId}
+              section={section}
+              metrics={metrics}
+              onAgentOpen={handleAgentOpen}
+              bindFor={bindFor}
+              activeId={activeId}
+              onHeaderPointerDown={handleHeaderPointerDown}
+              onHeaderClick={handleHeaderClick}
+              onGhostActivate={handleGhostActivate}
+            />
           ))
         )}
       </div>
-
-      <HostFrame hostLabel={hostLabel} totalAgents={totalAgents} workingAgents={workingAgents} />
 
       {/* Zoom hint */}
       <div className="mesh-canvas-hint">scroll to zoom · drag to pan</div>

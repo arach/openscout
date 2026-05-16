@@ -1953,3 +1953,380 @@
   color: var(--dim);
   font-family: var(--font-mono);
 }
+
+/* ── Machine sections — server-chassis spec sheets ── */
+
+.mesh-machine-section {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 80%, transparent) 0%,
+      color-mix(in srgb, var(--bg) 88%, transparent) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  border-radius: 4px;
+  box-shadow:
+    0 4px 14px -10px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 0 color-mix(in srgb, var(--ink) 4%, transparent);
+  overflow: hidden;
+  position: relative;
+}
+
+/* Subtle right-edge vent — kept for chassis identity, lighter than before */
+.mesh-machine-section::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 4px;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    color-mix(in srgb, var(--ink) 10%, transparent) 0px,
+    color-mix(in srgb, var(--ink) 10%, transparent) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.3;
+}
+
+.mesh-machine-section--collapsed {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface) 88%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 92%, transparent) 100%
+  );
+}
+
+.mesh-machine-section--pinned {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  box-shadow: 0 4px 14px -10px rgba(0, 0, 0, 0.45);
+}
+
+/* Header = top mounting plate of the chassis */
+
+.mesh-machine-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+  cursor: grab;
+  text-align: left;
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+.mesh-machine-header:active {
+  cursor: grabbing;
+}
+
+.mesh-machine-header:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.mesh-machine-section--collapsed .mesh-machine-header {
+  border-bottom: 0;
+}
+
+/* LED in the leading slot — gray by default, accent green when working */
+.mesh-machine-led {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+
+.mesh-machine-led--working {
+  background: var(--accent);
+  box-shadow: 0 0 6px -1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.mesh-machine-led--available {
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+.mesh-machine-led--offline,
+.mesh-machine-led--dim {
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.mesh-machine-caret {
+  flex: 0 0 auto;
+  width: 11px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+
+.mesh-machine-grip {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--ink) 22%, transparent);
+  cursor: grab;
+  user-select: none;
+  letter-spacing: -1px;
+}
+
+.mesh-machine-section--pinned .mesh-machine-grip {
+  color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.mesh-machine-name {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.mesh-machine-chip {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+
+.mesh-machine-chip--this {
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--accent);
+}
+
+.mesh-machine-chip--peer {
+  border-color: color-mix(in srgb, var(--border) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+
+.mesh-machine-chip--tailnet {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--border) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+
+.mesh-machine-counts {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.mesh-machine-count {
+  color: color-mix(in srgb, var(--ink) 65%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.mesh-machine-count--working {
+  color: var(--accent);
+  font-weight: 700;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* Spec sheet — vertical PARAM | VALUE table inside the chassis body */
+
+.mesh-machine-spec {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  background: transparent;
+}
+
+.mesh-machine-spec-head {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.mesh-machine-spec-head-cell {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink) 38%, transparent);
+}
+
+.mesh-machine-spec-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 10%, transparent);
+}
+
+.mesh-machine-spec-row:last-child {
+  border-bottom: 0;
+}
+
+.mesh-machine-spec-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
+}
+
+.mesh-machine-spec-value {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mesh-machine-spec-value--accent {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── Ghost: same chassis family, mini "STANDBY" unit ── */
+
+.mesh-machine-ghost {
+  display: flex;
+  align-items: center;
+}
+
+.mesh-machine-ghost-body {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 35%, transparent);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  position: relative;
+  overflow: hidden;
+  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.18s;
+}
+
+.mesh-machine-ghost-body:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.mesh-machine-ghost-led {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 25%, transparent);
+  animation: mesh-standby-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes mesh-standby-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.95; }
+}
+
+.mesh-machine-ghost-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mesh-machine-ghost-stamp {
+  flex: 0 0 auto;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: 2px;
+}
+
+.mesh-machine-ghost-counts {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+
+.mesh-machine-chip--ghost {
+  opacity: 0.6;
+  box-shadow: none;
+}
+
+/* ── State strip — 3-cell stat band at top of the minimized spec sheet ── */
+
+.mesh-machine-state-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+  background: transparent;
+}
+
+.mesh-machine-state-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 4px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 18%, transparent);
+}
+
+.mesh-machine-state-cell:last-child {
+  border-right: 0;
+}
+
+.mesh-machine-state-num {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.mesh-machine-state-label {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink) 38%, transparent);
+}
+
+.mesh-machine-state-cell--working .mesh-machine-state-num {
+  color: var(--accent);
+}

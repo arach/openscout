@@ -5,7 +5,7 @@ import { timeAgo } from "../../lib/time.ts";
 import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import type { Agent, FleetAsk, Route } from "../../lib/types.ts";
 import { BaseLeftRail } from "./BaseLeftRail.tsx";
-import { MeshLeftPanel } from "./MeshLeftPanel.tsx";
+import { MeshNavLeftPanel } from "./MeshNavLeftPanel.tsx";
 import { ScoutMessagesLeftPanel } from "./MessagesLeftPanel.tsx";
 import { ScoutMissionControlLeftPanel } from "./MissionControlLeftPanel.tsx";
 import { ScoutOpsAgentsLeftPanel } from "./OpsAgentsLeftPanel.tsx";
@@ -39,7 +39,7 @@ function resolveLeftRailSlot(route: Route): LeftRailSlot | null {
     case "conversation":
       return { mode: "takeover", render: () => <ScoutMessagesLeftPanel /> };
     case "mesh":
-      return { mode: "takeover", render: () => <MeshLeftPanel /> };
+      return { mode: "takeover", render: () => <MeshNavLeftPanel /> };
     default:
       return null;
   }

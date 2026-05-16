@@ -817,6 +817,19 @@ export type MeshStatus = {
       brokerUrl?: string;
       registeredAt?: number;
       lastSeenAt?: number;
+      /**
+       * High-level host facts a node announces to the mesh. All fields optional
+       * so the UI can render placeholders before the broker fills them in.
+       */
+      host?: {
+        scoutVersion?: string;
+        os?: string;
+        arch?: string;
+        cpuCores?: number;
+        memoryGb?: number;
+        storageCapacityGb?: number;
+        network?: string;
+      };
     }
   >;
   tailscale: {
