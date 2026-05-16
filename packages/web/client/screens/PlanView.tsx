@@ -11,6 +11,7 @@ import type {
   FleetAsk,
   FleetAttentionItem,
   FleetState,
+  AgentRun,
   MissionNodeState,
   Route,
   WorkItem,
@@ -66,7 +67,7 @@ type PlanLoadStatus = "loading" | "ready";
 
 type PlanRecord = {
   id: string;
-  source: "work" | "ask";
+  source: "work" | "ask" | "run";
   title: string;
   summary: string | null;
   status: PlanRecordStatus;
@@ -218,6 +219,160 @@ function buildNodeFromAsk(ask: FleetAsk, nowMs: number): PlanNode {
     updatedAt: ask.updatedAt,
     route: routeForAsk(ask),
   };
+}
+
+function textValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function compactText(value: string, max = 180): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function firstLine(value: string): string {
+  return value.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? value.trim();
+}
+
+function runTask(run: AgentRun): string | null {
+  return textValue(run.input?.["task"]);
+}
+
+function runOutputText(run: AgentRun): string | null {
+  return textValue(run.output?.["summary"]) ?? textValue(run.output?.["text"]);
+}
+
+function runNodeState(run: AgentRun): MissionNodeState {
+  switch (run.state) {
+    case "completed":
+      return "done";
+    case "running":
+    case "waking":
+      return "inflight";
+    case "failed":
+    case "cancelled":
+    case "waiting":
+      return "stuck";
+    case "review":
+      return "stuck";
+    case "queued":
+      return "committed";
+    default:
+      return "committed";
+  }
+}
+
+function runStatus(run: AgentRun): PlanRecordStatus {
+  switch (run.state) {
+    case "failed":
+    case "cancelled":
+    case "waiting":
+      return "blocked";
+    case "review":
+      return "needs_review";
+    case "running":
+    case "waking":
+      return "active";
+    case "queued":
+      return "queued";
+    case "completed":
+      return "complete";
+    default:
+      return "queued";
+  }
+}
+
+const PLAN_LIKE_TERMS = [
+  "acceptance",
+  "artifact",
+  "blocker",
+  "checkpoint",
+  "component",
+  "deliverable",
+  "divide-and-conquer",
+  "execution",
+  "implementation",
+  "milestone",
+  "next move",
+  "parallel",
+  "phase",
+  "plan",
+  "proceed",
+  "roadmap",
+  "scope",
+  "ship",
+  "spec",
+  "task",
+  "todo",
+];
+
+function isPlanLikeRun(run: AgentRun, existingWorkIds: Set<string>, existingInvocationIds: Set<string>): boolean {
+  if (run.invocationId && existingInvocationIds.has(run.invocationId)) return false;
+  if (run.workId && existingWorkIds.has(run.workId)) return false;
+  if (run.collaborationRecordId && existingWorkIds.has(run.collaborationRecordId)) return false;
+
+  const task = runTask(run);
+  if (!task) return false;
+
+  const normalized = task.toLowerCase();
+  const hasListShape = /(^|\n)\s*(?:\d+\.|[-*]\s|\[[ x]\])/m.test(task);
+  const keywordHits = PLAN_LIKE_TERMS.filter((term) => normalized.includes(term)).length;
+  const isActive = run.state === "queued" || run.state === "waking" || run.state === "running" || run.state === "waiting" || run.state === "review";
+
+  if (isActive && task.length >= 80) return true;
+  if (hasListShape && keywordHits >= 1) return true;
+  if (task.length >= 360 && keywordHits >= 2) return true;
+  return false;
+}
+
+function routeForRun(run: AgentRun): Route | null {
+  if (run.conversationId) {
+    return { view: "conversation", conversationId: run.conversationId };
+  }
+  return { view: "agents", agentId: run.agentId };
+}
+
+function completionForRun(run: AgentRun, task: string, output: string | null, nowMs: number): CompletionEvaluation {
+  if (run.state === "failed" || run.state === "cancelled" || run.state === "waiting") {
+    return {
+      state: "blocked",
+      label: "Needs operator check",
+      summary: output ?? compactText(task, 220),
+      detail: "The run is blocked, failed, cancelled, or waiting.",
+    };
+  }
+  if (run.state === "queued" || run.state === "waking" || run.state === "running") {
+    return {
+      state: "in_progress",
+      label: run.state === "queued" ? "Queued" : "Still moving",
+      summary: output ?? compactText(task, 220),
+      detail: "This plan-like run has not reported a terminal result yet.",
+    };
+  }
+  if (run.state === "review") {
+    return {
+      state: "needs_review",
+      label: "Needs review",
+      summary: output ?? compactText(task, 220),
+      detail: "The run is complete enough to review but not cleared.",
+    };
+  }
+
+  const updatedAt = run.completedAt ?? run.updatedAt;
+  return nowMs - updatedAt > COMPLETION_REVIEW_WINDOW_MS
+    ? {
+        state: "needs_review",
+        label: "Completed, needs freshness check",
+        summary: output ?? compactText(task, 220),
+        detail: "The completion is older than the review window.",
+      }
+    : {
+        state: "verified",
+        label: "Recently completed",
+        summary: output ?? compactText(task, 220),
+        detail: "The run completed recently.",
+      };
 }
 
 function buildRisks(
@@ -490,6 +645,57 @@ function buildAskPlanRecord(ask: FleetAsk, nowMs: number): PlanRecord {
   };
 }
 
+function buildRunPlanRecord(run: AgentRun, agentsById: Record<string, Agent>, nowMs: number): PlanRecord | null {
+  const task = runTask(run);
+  if (!task) return null;
+
+  const state = runNodeState(run);
+  const output = runOutputText(run);
+  const route = routeForRun(run);
+  const agent = agentsById[run.agentId];
+  const titlePrefix = run.agentName ?? agent?.name ?? run.agentId;
+  const title = `${titlePrefix}: ${compactText(firstLine(task), 110)}`;
+  const summary = output ?? compactText(task, 260);
+  const node: PlanNode = {
+    id: `run-node:${run.id}`,
+    kind: "task",
+    title,
+    summary,
+    state,
+    assigneeId: run.agentId,
+    detail: output,
+    why: task,
+    progress: progressForState(state),
+    stuckMins: state === "stuck" ? minutesSince(run.updatedAt, nowMs) : null,
+    updatedAt: run.updatedAt,
+    route,
+  };
+  const root: PlanNode = {
+    ...node,
+    id: `plan:${run.id}`,
+    kind: "mission",
+    badge: run.state,
+    children: [node],
+  };
+
+  return {
+    id: `run:${run.id}`,
+    source: "run",
+    title,
+    summary,
+    status: runStatus(run),
+    createdAt: run.createdAt ?? run.startedAt ?? run.updatedAt,
+    updatedAt: run.updatedAt,
+    ownerId: run.agentId,
+    ownerName: run.agentName ?? agent?.name ?? run.agentId,
+    harnesses: run.harness ? [run.harness] : agent?.harness ? [agent.harness] : [],
+    root,
+    leafNodes: [node],
+    route,
+    completion: completionForRun(run, task, output, nowMs),
+  };
+}
+
 function formatReviewTimestamp(ts: number): string {
   return new Date(ts).toLocaleString(undefined, {
     dateStyle: "medium",
@@ -564,6 +770,7 @@ export function PlanView({
 }) {
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [runs, setRuns] = useState<AgentRun[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [mode, setMode] = useState<"plan" | "live">("plan");
@@ -575,10 +782,11 @@ export function PlanView({
 
   const load = useCallback(async () => {
     const requestSeq = ++requestSeqRef.current;
-    const [fleetResult, activeWorkResult, recentWorkResult] = await Promise.allSettled([
+    const [fleetResult, activeWorkResult, recentWorkResult, runsResult] = await Promise.allSettled([
       api<FleetState>("/api/fleet"),
       api<WorkItem[]>("/api/work?limit=250"),
       api<WorkItem[]>("/api/work?active=false&limit=250"),
+      api<AgentRun[]>("/api/runs?active=false&limit=500"),
     ]);
 
     if (requestSeq !== requestSeqRef.current) return;
@@ -589,10 +797,14 @@ export function PlanView({
     if (activeWorkResult.status === "fulfilled" || recentWorkResult.status === "fulfilled") {
       setWorkItems(mergeWorkItemResults([activeWorkResult, recentWorkResult]));
     }
+    if (runsResult.status === "fulfilled") {
+      setRuns(runsResult.value);
+    }
     const errors = [
       fleetResult.status === "rejected" ? `fleet: ${fleetResult.reason instanceof Error ? fleetResult.reason.message : String(fleetResult.reason)}` : null,
       activeWorkResult.status === "rejected" ? `active work: ${activeWorkResult.reason instanceof Error ? activeWorkResult.reason.message : String(activeWorkResult.reason)}` : null,
       recentWorkResult.status === "rejected" ? `recent work: ${recentWorkResult.reason instanceof Error ? recentWorkResult.reason.message : String(recentWorkResult.reason)}` : null,
+      runsResult.status === "rejected" ? `runs: ${runsResult.reason instanceof Error ? runsResult.reason.message : String(runsResult.reason)}` : null,
     ].filter((error): error is string => Boolean(error));
     setLoadError(errors.length > 0 ? errors.join(" · ") : null);
     setLoadStatus("ready");
@@ -633,7 +845,12 @@ export function PlanView({
     const askRecords = [...(fleet?.activeAsks ?? []), ...(fleet?.recentCompleted ?? [])]
       .filter((ask) => !ask.collaborationRecordId || !workIds.has(ask.collaborationRecordId))
       .map((ask) => buildAskPlanRecord(ask, nowMs));
-    const records = [...workRecords, ...askRecords].sort(planSort);
+    const askInvocationIds = new Set(askRecords.map((record) => record.id.replace(/^ask:/, "")));
+    const runRecords = runs
+      .filter((run) => isPlanLikeRun(run, workIds, askInvocationIds))
+      .map((run) => buildRunPlanRecord(run, agentsById, nowMs))
+      .filter((record): record is PlanRecord => record !== null);
+    const records = [...workRecords, ...askRecords, ...runRecords].sort(planSort);
     const visibleRecords = records.filter((record) => planMatchesFilter(record, filter, nowMs));
     const harnesses = new Set<string>();
     for (const record of records) {
@@ -654,7 +871,7 @@ export function PlanView({
         blocked: records.filter((record) => record.status === "blocked").length,
       },
     };
-  }, [agentsById, filter, fleet, nowMs, workItems]);
+  }, [agentsById, filter, fleet, nowMs, runs, workItems]);
 
   const selectedPlan = useMemo(() => {
     return planData.records.find((record) => record.id === selectedPlanId)

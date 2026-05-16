@@ -1439,6 +1439,42 @@ describe("broker daemon comms layer", () => {
       }),
     }));
     expect(recorded.flight?.id).toBe(response.flight?.id);
+
+    const plannedDeliveries = await getJson<Array<{ id: string; status: string; targetId: string }>>(
+      harness.baseUrl,
+      `/v1/deliveries?messageId=${encodeURIComponent(response.message?.id ?? "")}&targetId=hudson`,
+    );
+    expect(plannedDeliveries.length).toBeGreaterThan(0);
+    expect(plannedDeliveries.every((delivery) => delivery.status === "pending")).toBe(true);
+
+    const completedAt = Date.now();
+    await postJson(harness.baseUrl, "/v1/flights", {
+      id: response.flight!.id,
+      invocationId: response.flight!.invocationId,
+      requesterId: "operator",
+      targetAgentId: "hudson",
+      state: "completed",
+      summary: "Hudson received the message.",
+      output: "Acknowledged.",
+      startedAt: completedAt - 100,
+      completedAt,
+    });
+
+    const completedDeliveries = await getJson<Array<{ id: string; status: string; metadata?: Record<string, unknown> }>>(
+      harness.baseUrl,
+      `/v1/deliveries?messageId=${encodeURIComponent(response.message?.id ?? "")}&targetId=hudson&status=completed`,
+    );
+    expect(completedDeliveries.map((delivery) => delivery.id).sort()).toEqual(
+      plannedDeliveries.map((delivery) => delivery.id).sort(),
+    );
+    expect(completedDeliveries).toContainEqual(expect.objectContaining({
+      status: "completed",
+      metadata: expect.objectContaining({
+        flightId: response.flight?.id,
+        invocationId: response.flight?.invocationId,
+        flightState: "completed",
+      }),
+    }));
   }, 15_000);
 
   test("links broker delivery work items to invocations and terminal flights", async () => {

@@ -1249,6 +1249,7 @@ async function recordFlightDurably(flight: FlightRecord): Promise<void> {
 
   const invocation = knownInvocations.get(flight.invocationId)
     ?? runtime.snapshot().invocations[flight.invocationId];
+  await reconcileMessageDeliveriesForFlight(flight, invocation);
   if (invocation && isTerminalFlightState(flight.state)) {
     try {
       await promoteInvocationFlightToWork(invocation, flight, flight.output ?? flight.error ?? flight.summary);
@@ -1267,6 +1268,60 @@ async function recordFlightDurably(flight: FlightRecord): Promise<void> {
       `[openscout-runtime] failed to forward flight ${flight.id} to conversation authority:`,
       error instanceof Error ? error.message : String(error),
     );
+  }
+}
+
+const terminalDeliveryStatuses = new Set<DeliveryStatus>(["completed", "failed", "cancelled"]);
+
+function deliveryStatusForFlight(flight: FlightRecord): DeliveryStatus | null {
+  if (flight.state === "running" || flight.state === "waiting") {
+    return "running";
+  }
+  if (flight.state === "completed") {
+    return "completed";
+  }
+  if (flight.state === "failed") {
+    return "failed";
+  }
+  if (flight.state === "cancelled") {
+    return "cancelled";
+  }
+  return null;
+}
+
+async function reconcileMessageDeliveriesForFlight(
+  flight: FlightRecord,
+  invocation: InvocationRequest | undefined,
+): Promise<void> {
+  const status = deliveryStatusForFlight(flight);
+  if (!status || !invocation?.messageId) {
+    return;
+  }
+
+  const updatedAt = flight.completedAt ?? Date.now();
+  const deliveries = journal
+    .listDeliveries({ limit: 5000 })
+    .filter((delivery) => (
+      delivery.messageId === invocation.messageId
+      && delivery.targetId === flight.targetAgentId
+      && delivery.status !== status
+      && !terminalDeliveryStatuses.has(delivery.status)
+    ));
+
+  for (const delivery of deliveries) {
+    await updateDeliveryStatusDurably({
+      deliveryId: delivery.id,
+      status,
+      metadata: {
+        invocationId: flight.invocationId,
+        flightId: flight.id,
+        flightState: flight.state,
+        flightStatusUpdatedAt: updatedAt,
+        ...(flight.error ? { failureDetail: flight.error } : {}),
+      },
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
   }
 }
 
@@ -3583,11 +3638,23 @@ async function maybeForwardFlightToAuthority(flight: FlightRecord): Promise<void
 
 async function postConversationMessage(
   message: MessageRecord,
-): Promise<void> {
+): Promise<{
+  ok: true;
+  message: MessageRecord;
+  deliveries: DeliveryIntent[];
+  forwarded?: true;
+  authorityNodeId?: string;
+  duplicate?: boolean;
+}> {
   const authority = authorityNodeForConversation(message.conversationId);
   if (authority) {
-    await forwardConversationMessageToAuthority(message);
-    return;
+    const forwarded = await forwardConversationMessageToAuthority(message);
+    return {
+      ok: true,
+      message,
+      deliveries: forwarded.deliveries ?? [],
+      ...forwarded,
+    };
   }
 
   const { deliveries, entries } = await recordMessageDurably(message, {
@@ -3595,6 +3662,7 @@ async function postConversationMessage(
   });
   await forwardPeerBrokerDeliveries(message, deliveries);
   await applyProjectedEntries(entries);
+  return { ok: true, message, deliveries };
 }
 
 async function postInvocationStatusMessage(
