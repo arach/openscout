@@ -17,11 +17,30 @@ Expected migration order:
 3. deeper internal renames once behavior is stable in Scout
 
 Project notes:
-- XcodeGen project definition: [project.yml](/Users/arach/dev/openscout/apps/ios/project.yml)
-- source root: [Scout](/Users/arach/dev/openscout/apps/ios/Scout)
+- XcodeGen project definition: [project.yml](./project.yml)
+- source root: [Scout](./Scout)
+
+## Local commands
+
+```bash
+cd apps/ios
+xcodegen generate
+open Scout.xcodeproj
+```
+
+Device scripts live under `scripts/`:
+
+```bash
+apps/ios/scripts/build-device.sh
+apps/ios/scripts/install-last-build.sh
+apps/ios/scripts/push-device.sh
+```
+
+Use an explicit `xcodebuild -derivedDataPath` for any flow that reuses a prior
+device build. Do not guess the latest build by scanning DerivedData.
 
 ## App Store prep
 
-- The iOS marketing version should track the repo root npm version from [package.json](/Users/arach/dev/openscout/package.json).
-- [scripts/release.sh](/Users/arach/dev/openscout/apps/ios/scripts/release.sh) regenerates the Xcode project from [project.yml](/Users/arach/dev/openscout/apps/ios/project.yml), resolves the next build number from App Store Connect with `asc`, uploads the archive, attaches the build to the current App Store draft, and runs `asc validate`.
+- The iOS marketing version should track the repo root npm version from [package.json](../../package.json).
+- [scripts/release.sh](./scripts/release.sh) regenerates the Xcode project from [project.yml](./project.yml), resolves the next build number from App Store Connect with `asc`, uploads the archive, attaches the build to the current App Store draft, and runs `asc validate`.
 - `asc validate` still requires App Store Connect-side completeness, especially pricing/availability, screenshots, and published App Privacy data.

@@ -107,27 +107,51 @@ bun run --cwd landing build
 
 > **Requires [Bun](https://bun.sh).** Scout uses Bun as its JavaScript runtime and package manager. Install it first: `brew install bun` or `curl -fsSL https://bun.sh/install | bash`
 
-OpenScout is a local-first control plane for AI agents. It gives Claude Code, Codex, and future harnesses one shared broker, runtime, and protocol so agents can be discovered, addressed, observed, and composed without each surface inventing its own state model. Scout can launch and attach to sessions, but it does not require agents to be defined by Scout in order to coordinate with them. Once that substrate exists, humans can talk to their agents through the same system instead of managing separate chat threads, and the desktop and iOS surfaces are the natural human entry points into that shared broker/runtime.
+OpenScout is a local-first control plane for AI agents. It gives Claude Code,
+Codex, and future harnesses one shared broker, runtime, and protocol so agents
+can be discovered, addressed, observed, and composed without each surface
+inventing its own state model.
 
-This repository is the active Scout product codebase. The main path through it is:
+This repository is the active OpenScout product codebase. It contains the local
+broker/runtime, shared protocol, public CLI, desktop and mobile surfaces, docs,
+and release tooling.
 
-- `apps/desktop` for the desktop human surface, CLI, UI, and app-layer services
-- `apps/ios` for the mobile human surface over the same broker/runtime
-- `packages/runtime` for the broker/runtime foundation
-- `packages/protocol` for shared contracts and identity grammar
-- `packages/cli` for the public `@openscout/scout` package that installs `scout`
+Current posture: high-trust local developer pilots. OpenScout is not yet an
+enterprise-ready, compliance-ready, hardened multi-tenant runtime. Start with
+[`docs/current-posture.md`](./docs/current-posture.md) before making maturity,
+trust, mesh, or license claims.
 
-Host-specific integrations can live beside this repo when they are independently
-installable packages. See [`docs/integrations.md`](./docs/integrations.md) for
-the current pi, Claude Code, and Codex integration map.
+## Repo Map
+
+| Area | Path | Start here |
+| --- | --- | --- |
+| App surfaces | [`apps`](./apps) | [`apps/README.md`](./apps/README.md) |
+| Desktop app, CLI, and app services | [`apps/desktop`](./apps/desktop) | [`apps/desktop/README.md`](./apps/desktop/README.md) |
+| iOS app | [`apps/ios`](./apps/ios) | [`apps/ios/README.md`](./apps/ios/README.md) |
+| Shared packages | [`packages`](./packages) | [`packages/README.md`](./packages/README.md) |
+| Broker/runtime | [`packages/runtime`](./packages/runtime) | [`packages/runtime/README.md`](./packages/runtime/README.md) |
+| Shared protocol | [`packages/protocol`](./packages/protocol) | [`packages/protocol/README.md`](./packages/protocol/README.md) |
+| Public CLI package | [`packages/cli`](./packages/cli) | [`packages/cli/README.md`](./packages/cli/README.md) |
+| Web UI package | [`packages/web`](./packages/web) | [`packages/web/README.md`](./packages/web/README.md) |
+| Product docs | [`docs`](./docs) | [`docs/README.md`](./docs/README.md) |
+| Landing/docs site | [`landing`](./landing) | [`landing/README.md`](./landing/README.md) |
+
+Host-specific integrations live in standalone repositories when they are
+independently installable packages. See [`docs/integrations.md`](./docs/integrations.md)
+for the current pi, Claude Code, Codex, and Hermes integration map.
 
 ## Start Here
 
-If you are new to the docs, start with [`docs/README.md`](./docs/README.md) for the reading order. The shortest newcomer path is [`docs/quickstart.md`](./docs/quickstart.md), then [`docs/current-posture.md`](./docs/current-posture.md), then [`docs/architecture.md`](./docs/architecture.md), then [`docs/agent-identity.md`](./docs/agent-identity.md).
+If you are new to the docs, start with [`docs/README.md`](./docs/README.md) for
+the reading order. The shortest newcomer path is:
+
+1. [`install.md`](./install.md) for install and bootstrap expectations
+2. [`docs/quickstart.md`](./docs/quickstart.md) for the first healthy local run
+3. [`docs/current-posture.md`](./docs/current-posture.md) for maturity and trust boundaries
+4. [`docs/architecture.md`](./docs/architecture.md) for the broker/runtime/protocol model
+5. [`docs/agent-identity.md`](./docs/agent-identity.md) for address grammar and routing
 
 Scout is aware of adjacent standards such as A2A, but it does not collapse its internal model into them. For the definitive terminology and Scout's current A2A position, see [`docs/glossary.md`](./docs/glossary.md) and [`docs/a2a-alignment.md`](./docs/a2a-alignment.md).
-
-For maturity, trust, install footprint, and license-status expectations, read [`docs/current-posture.md`](./docs/current-posture.md). The current posture is high-trust local developer pilots, not enterprise-ready deployment.
 
 For agent-ready entry points, read [`llms.txt`](./llms.txt), [`llms-full.txt`](./llms-full.txt), and [`install.md`](./install.md).
 
@@ -150,7 +174,7 @@ At the repo level, Scout is organized around one product path:
 - `apps/desktop` and `apps/ios` own the human-facing surfaces
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
 - `packages/cli` is the public npm package; the other packages stay as private internal boundaries
-- host plugins and extensions are documented in [`docs/integrations.md`](./docs/integrations.md);
+- host-specific integrations are documented in [`docs/integrations.md`](./docs/integrations.md);
   separate repos are linked rather than vendored unless the integration needs
   to build with OpenScout internals
 
@@ -255,6 +279,13 @@ registry entries.
 This is the machine-readable install guide for agents and humans. It describes the current local developer pilot path, not an enterprise deployment path.
 
 For maturity, trust, and license expectations, read [docs/current-posture.md](./docs/current-posture.md) before presenting OpenScout to a new evaluator.
+
+Related first-read docs:
+
+- [README.md](./README.md) for the repo overview
+- [docs/README.md](./docs/README.md) for the docs map
+- [docs/quickstart.md](./docs/quickstart.md) for the first healthy local run
+- [docs/integrations.md](./docs/integrations.md) for companion host packages
 
 ## Prerequisites
 
@@ -419,17 +450,25 @@ broker to return quickly and report back later.
 
 # Docs
 
-This folder is the working documentation set for OpenScout. Use it as a map after the top-level README: the first group explains the current product shape, including the human surfaces that sit on the same broker/runtime as the agents, and the later groups are for deeper implementation detail, historical context, or proposals.
+This folder is the working documentation set for OpenScout. Use it as the docs
+map after the top-level [`README.md`](../README.md): the first group explains
+the current local-first product shape, including the human surfaces that sit on
+the same broker/runtime as the agents. Later groups are for implementation
+detail, historical context, or proposals.
 
 ## Start Here
 
-If you want the shortest path to understanding the project:
+If you are scanning from GitHub and want the shortest path:
 
 1. [`../README.md`](../README.md) for what OpenScout is and how to run it locally
 2. [`../install.md`](../install.md) for choosing published CLI vs repo-local setup
 3. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
 4. [`current-posture.md`](./current-posture.md) for maturity, trust, install footprint, and license-status boundaries
 5. [`architecture.md`](./architecture.md) for the system-level control-plane model
+
+Keep the posture straight while reading: OpenScout is for high-trust local
+developer pilots today. It is not an enterprise-ready, compliance-ready, or
+hardened multi-tenant runtime.
 
 After that, choose the role-specific next read:
 
@@ -438,6 +477,7 @@ After that, choose the role-specific next read:
 - Data model and ownership: [`data-ownership.md`](./data-ownership.md), then [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md)
 - Human/operator surfaces: [`ask-scout.md`](./ask-scout.md), then [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md)
 - Standards and terminology: [`glossary.md`](./glossary.md), then [`a2a-alignment.md`](./a2a-alignment.md)
+- Host/package map: [`integrations.md`](./integrations.md), then [`../install.md#companion-host-integrations`](../install.md#companion-host-integrations)
 
 ## Current Orientation Docs
 
@@ -448,7 +488,7 @@ After that, choose the role-specific next read:
 - [`architecture.md`](./architecture.md) explains the broker-first system shape and the main control-plane terms
 - [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
 - [`agent-integration-contract.md`](./agent-integration-contract.md) gives coding agents and adapter authors the minimum contract for plugging into Scout
-- [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients, plugins, and adapters
+- [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients and adapters
 - [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
 - [`ranger.md`](./ranger.md) defines Ranger as the direct in-app control-plane assistant
@@ -487,8 +527,8 @@ After that, choose the role-specific next read:
 - "What data does Scout own?" Read [`data-ownership.md`](./data-ownership.md).
 - "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
 - "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
-- "How should a client or plugin understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
-- "Where do host plugins live?" Read [`integrations.md`](./integrations.md).
+- "How should a client or adapter understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
+- "Where do host integrations live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
 - "What is Ranger?" Read [`ranger.md`](./ranger.md).
 - "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).
@@ -2130,8 +2170,7 @@ Before calling an integration "Scout-native", verify:
 
 OpenScout's core broker, runtime, protocol, CLI, desktop app, and mobile app live
 in this repository. Host-specific integrations can live beside this repo when
-they are independently installable packages for another host's plugin or
-extension system.
+they are independently installable packages for another host's install surface.
 
 This keeps the OpenScout root focused on the product control plane while still
 making the integration surface discoverable.
@@ -2710,12 +2749,15 @@ Purpose: dense context for coding agents working in this repo.
 
 | Need | Doc |
 |---|---|
+| GitHub first scan | `README.md`, `docs/README.md` |
+| install/bootstrap | `install.md` |
 | first run | `docs/quickstart.md` |
 | maturity/trust/license | `docs/current-posture.md` |
 | architecture | `docs/architecture.md` |
 | runtime/session semantics | `docs/runtime-sessions.md` |
 | data boundary | `docs/data-ownership.md` |
 | agent integration | `docs/agent-integration-contract.md` |
+| host integrations | `docs/integrations.md` |
 | external client comms | `docs/scout-comms.md` |
 | identity grammar | `docs/agent-identity.md` |
 | collaboration model | `docs/collaboration-workflows-v1.md` |

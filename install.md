@@ -4,6 +4,13 @@ This is the machine-readable install guide for agents and humans. It describes t
 
 For maturity, trust, and license expectations, read [docs/current-posture.md](./docs/current-posture.md) before presenting OpenScout to a new evaluator.
 
+Related first-read docs:
+
+- [README.md](./README.md) for the repo overview
+- [docs/README.md](./docs/README.md) for the docs map
+- [docs/quickstart.md](./docs/quickstart.md) for the first healthy local run
+- [docs/integrations.md](./docs/integrations.md) for companion host packages
+
 ## Prerequisites
 
 - Bun 1.3 or newer

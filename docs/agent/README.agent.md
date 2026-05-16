@@ -31,12 +31,15 @@ Purpose: dense context for coding agents working in this repo.
 
 | Need | Doc |
 |---|---|
+| GitHub first scan | `README.md`, `docs/README.md` |
+| install/bootstrap | `install.md` |
 | first run | `docs/quickstart.md` |
 | maturity/trust/license | `docs/current-posture.md` |
 | architecture | `docs/architecture.md` |
 | runtime/session semantics | `docs/runtime-sessions.md` |
 | data boundary | `docs/data-ownership.md` |
 | agent integration | `docs/agent-integration-contract.md` |
+| host integrations | `docs/integrations.md` |
 | external client comms | `docs/scout-comms.md` |
 | identity grammar | `docs/agent-identity.md` |
 | collaboration model | `docs/collaboration-workflows-v1.md` |

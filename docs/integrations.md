@@ -2,8 +2,7 @@
 
 OpenScout's core broker, runtime, protocol, CLI, desktop app, and mobile app live
 in this repository. Host-specific integrations can live beside this repo when
-they are independently installable packages for another host's plugin or
-extension system.
+they are independently installable packages for another host's install surface.
 
 This keeps the OpenScout root focused on the product control plane while still
 making the integration surface discoverable.
