@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useScout } from "../Provider.tsx";
+import { openContent } from "./openContent.ts";
 import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -344,13 +345,14 @@ function OpsAttentionButton({
   item: FleetAttentionItem;
   navigate: (route: Route) => void;
 }) {
+  const { route } = useScout();
   return (
     <button
       type="button"
       className="ctx-panel-item ctx-panel-item--attention"
       onClick={() => {
         if (item.conversationId) {
-          navigate({ view: "conversation", conversationId: item.conversationId });
+          openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route });
         } else {
           navigate({ view: "ops", mode: "command" });
         }
@@ -371,13 +373,14 @@ function OpsAskButton({
   ask: FleetAsk;
   navigate: (route: Route) => void;
 }) {
+  const { route } = useScout();
   return (
     <button
       type="button"
       className="ctx-panel-item"
       onClick={() => {
         if (ask.conversationId) {
-          navigate({ view: "conversation", conversationId: ask.conversationId });
+          openContent(navigate, { view: "conversation", conversationId: ask.conversationId }, { returnTo: route });
         } else {
           navigate({ view: "ops", mode: "runs" });
         }

@@ -4,11 +4,12 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
+import { openContent } from "./openContent.ts";
 import { RailRow } from "./RailRow.tsx";
 import type { FleetAsk, FleetAttentionItem, FleetState } from "../../lib/types.ts";
 
 export function ScoutOpsLeftPanel() {
-  const { navigate } = useScout();
+  const { navigate, route } = useScout();
   const [state, setState] = useState<FleetState | null>(null);
 
   const load = useCallback(async () => {
@@ -35,7 +36,7 @@ export function ScoutOpsLeftPanel() {
 
   const openAttention = (item: FleetAttentionItem) => {
     if (item.conversationId) {
-      navigate({ view: "conversation", conversationId: item.conversationId });
+      openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route });
     } else {
       navigate({ view: "ops", mode: "command" });
     }
@@ -43,7 +44,7 @@ export function ScoutOpsLeftPanel() {
 
   const openAsk = (ask: FleetAsk) => {
     if (ask.conversationId) {
-      navigate({ view: "conversation", conversationId: ask.conversationId });
+      openContent(navigate, { view: "conversation", conversationId: ask.conversationId }, { returnTo: route });
     } else {
       navigate({ view: "ops", mode: "runs" });
     }

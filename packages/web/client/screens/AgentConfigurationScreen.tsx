@@ -8,6 +8,8 @@ import type {
   AgentConfigurationState,
   Route,
 } from "../lib/types.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import "./system-surfaces-redesign.css";
 
 function chipTone(value: string): string {
@@ -120,6 +122,7 @@ function SelectedAgentPanel({
   agent: AgentConfigurationAgent | null;
   navigate: (r: Route) => void;
 }) {
+  const { route } = useScout();
   if (!agent) {
     return (
       <div className="sys-panel agent-config-detail-panel">
@@ -155,7 +158,7 @@ function SelectedAgentPanel({
           <button
             type="button"
             className="s-btn"
-            onClick={() => navigate({ view: "conversation", conversationId: agent.conversationId })}
+            onClick={() => openContent(navigate, { view: "conversation", conversationId: agent.conversationId }, { returnTo: route })}
           >
             Open DM
           </button>

@@ -1,6 +1,7 @@
 import { MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useScout } from "../Provider.tsx";
+import { openContent } from "../slots/openContent.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
@@ -68,7 +69,7 @@ export function WorkInspector() {
           {detail.conversationId && (
             <button
               type="button"
-              onClick={() => navigate({ view: "conversation", conversationId: detail.conversationId! })}
+              onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}
               className="inline-flex items-center justify-center gap-1.5 rounded border border-cyan-400/25 bg-cyan-400/10 px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300/90 hover:bg-cyan-400/15"
             >
               <MessageSquare aria-hidden="true" size={12} strokeWidth={1.8} />

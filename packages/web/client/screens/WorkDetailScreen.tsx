@@ -6,6 +6,8 @@ import { renderWithMentions } from "../lib/mentions.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import type { Route, WorkDetail, WorkMaterial, WorkMaterialContent, WorkMaterialsInventory, WorkTimelineItem } from "../lib/types.ts";
 
 type Fact = {
@@ -439,6 +441,7 @@ function WorkBriefViewer({
   navigate: (r: Route) => void;
   onClose: () => void;
 }) {
+  const { route } = useScout();
   if (!open || !summary) {
     return null;
   }
@@ -465,7 +468,7 @@ function WorkBriefViewer({
         ? [{
             label: "Thread",
             icon: <MessageSquare aria-hidden="true" size={13} strokeWidth={1.8} />,
-            onClick: () => navigate({ view: "conversation", conversationId: detail.conversationId! }),
+            onClick: () => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route }),
             title: "Open source thread",
           }]
         : []}
@@ -653,6 +656,7 @@ export function WorkDetailScreen({
   workId: string;
   navigate: (r: Route) => void;
 }) {
+  const { route } = useScout();
   const [detail, setDetail] = useState<WorkDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -777,7 +781,7 @@ export function WorkDetailScreen({
               <WorkActionButton
                 primary
                 icon={<MessageSquare aria-hidden="true" size={14} strokeWidth={1.8} />}
-                onClick={() => navigate({ view: "conversation", conversationId: detail.conversationId! })}
+                onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}
               >
                 Open thread
               </WorkActionButton>
@@ -819,7 +823,7 @@ export function WorkDetailScreen({
                     className="s-work-flight-card"
                     onClick={
                       flight.conversationId
-                        ? () => navigate({ view: "conversation", conversationId: flight.conversationId! })
+                        ? () => openContent(navigate, { view: "conversation", conversationId: flight.conversationId! }, { returnTo: route })
                         : undefined
                     }
                     disabled={!flight.conversationId}
@@ -892,7 +896,7 @@ export function WorkDetailScreen({
                     className={`s-work-timeline-entry${item.conversationId ? " s-work-timeline-entry-clickable" : ""}`}
                     onClick={
                       item.conversationId
-                        ? () => navigate({ view: "conversation", conversationId: item.conversationId! })
+                        ? () => openContent(navigate, { view: "conversation", conversationId: item.conversationId! }, { returnTo: route })
                         : undefined
                     }
                     disabled={!item.conversationId}
@@ -934,7 +938,7 @@ export function WorkDetailScreen({
                 <ActionRow
                   label="Conversation"
                   value="Open thread"
-                  onClick={() => navigate({ view: "conversation", conversationId: detail.conversationId! })}
+                  onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}
                 />
               ) : (
                 <div className="s-work-action-list-empty">No conversation attached.</div>

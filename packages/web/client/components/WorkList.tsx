@@ -1,5 +1,7 @@
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { timeAgo } from "../lib/time.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import type { Route, WorkItem } from "../lib/types.ts";
 
 function pillVariant(work: WorkItem): "updated" | "working" | "completed" | "failed" {
@@ -50,6 +52,7 @@ export function WorkList({
   emptyTitle,
   emptyDetail,
 }: WorkListProps) {
+  const { route } = useScout();
   if (items.length === 0) {
     const placeholderRows = [
       {
@@ -101,7 +104,7 @@ export function WorkList({
         const onClick = work.id
           ? () => navigate({ view: "work", workId: work.id })
           : work.conversationId
-          ? () => navigate({ view: "conversation", conversationId: work.conversationId! })
+          ? () => openContent(navigate, { view: "conversation", conversationId: work.conversationId! }, { returnTo: route })
           : undefined;
 
         return (

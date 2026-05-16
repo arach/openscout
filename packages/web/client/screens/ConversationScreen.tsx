@@ -27,6 +27,8 @@ import {
   type LastViewedMap,
 } from "../lib/sessionRead.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import type {
@@ -621,6 +623,7 @@ function RailItem({
   needsYou: boolean;
   navigate: (r: Route) => void;
 }) {
+  const { route } = useScout();
   const title = deriveDisplayTitle(session);
   const initial = (session.agentName ?? title)[0]?.toUpperCase() ?? "?";
   const isDm = session.kind === "direct";
@@ -637,7 +640,7 @@ function RailItem({
         .filter(Boolean)
         .join(" ")}
       onClick={() =>
-        navigate({ view: "conversation", conversationId: session.id })
+        openContent(navigate, { view: "conversation", conversationId: session.id }, { returnTo: route })
       }
     >
       {isDm ? (
@@ -1647,6 +1650,13 @@ export function ConversationScreen({
   return (
     <div className={`s-thread-layout${embedded ? " s-thread-layout--embedded" : ""}`}>
       <div className="s-thread-center">
+        {!embedded && (
+          <BackToPicker
+            slot="conversation"
+            fallback={{ view: "inbox" }}
+            navigate={navigate}
+          />
+        )}
         {!embedded && <div
           className="s-thread-center-header"
           onClick={() =>

@@ -4,6 +4,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { BrokerDiagnostics, BrokerDialogueItem, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import "./system-surfaces-redesign.css";
 
 type BrokerTab = "attempts" | "dialogue" | "failed_queries" | "failed_deliveries";
@@ -268,6 +269,7 @@ function BrokerAttemptList({
   selectedAttemptId: string | null;
   onInspect: (attempt: BrokerRouteAttempt) => void;
 }) {
+  const { route } = useScout();
   if (attempts.length === 0) {
     return (
       <div className="sys-panel sys-state-card">
@@ -322,7 +324,7 @@ function BrokerAttemptList({
                   className="s-btn s-btn-sm"
                   onClick={(event) => {
                     event.stopPropagation();
-                    navigate({ view: "conversation", conversationId: attempt.conversationId! });
+                    openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route });
                   }}
                 >
                   Open thread
@@ -367,6 +369,7 @@ export function BrokerAttemptInspector({
   navigate: (r: Route) => void;
   onClose: () => void;
 }) {
+  const { route } = useScout();
   const rows = brokerInspectorRows(attempt);
   return (
     <aside className="sys-panel sys-broker-inspector" aria-label="Broker route inspector">
@@ -380,7 +383,7 @@ export function BrokerAttemptInspector({
             <button
               type="button"
               className="s-btn s-btn-sm"
-              onClick={() => navigate({ view: "conversation", conversationId: attempt.conversationId! })}
+              onClick={() => openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route })}
             >
               Open thread
             </button>
@@ -413,6 +416,7 @@ function BrokerDialogueList({
   items: BrokerDialogueItem[];
   navigate: (r: Route) => void;
 }) {
+  const { route } = useScout();
   if (items.length === 0) {
     return (
       <div className="sys-panel sys-state-card">
@@ -442,7 +446,7 @@ function BrokerDialogueList({
             <button
               type="button"
               className="s-btn s-btn-sm"
-              onClick={() => navigate({ view: "conversation", conversationId: item.conversationId })}
+              onClick={() => openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route })}
             >
               Open thread
             </button>

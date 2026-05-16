@@ -11,6 +11,7 @@ import { agentIdFromConversation } from "../lib/router.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import type { Agent, Route, SessionEntry } from "../lib/types.ts";
 
 type ProfileField = {
@@ -69,7 +70,7 @@ export function AgentInfoScreen({
   conversationId: string;
   navigate: (r: Route) => void;
 }) {
-  const { agents } = useScout();
+  const { agents, route } = useScout();
   const [session, setSession] = useState<SessionEntry | null>(null);
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +132,7 @@ export function AgentInfoScreen({
         <button
           type="button"
           className="s-back"
-          onClick={() => navigate({ view: "conversation", conversationId })}
+          onClick={() => openContent(navigate, { view: "conversation", conversationId }, { returnTo: route })}
         >
           &larr; Back
         </button>
@@ -179,7 +180,7 @@ export function AgentInfoScreen({
         <button
           type="button"
           className="s-back"
-          onClick={() => navigate({ view: "conversation", conversationId })}
+          onClick={() => openContent(navigate, { view: "conversation", conversationId }, { returnTo: route })}
         >
           &larr; Conversation
         </button>
@@ -227,7 +228,7 @@ export function AgentInfoScreen({
           <button
             type="button"
             className="s-btn s-btn-primary"
-            onClick={() => navigate({ view: "conversation", conversationId })}
+            onClick={() => openContent(navigate, { view: "conversation", conversationId }, { returnTo: route })}
           >
             Open conversation
           </button>
