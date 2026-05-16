@@ -1,16 +1,24 @@
 # Docs
 
-This folder is the working documentation set for OpenScout. Use it as a map after the top-level README: the first group explains the current product shape, including the human surfaces that sit on the same broker/runtime as the agents, and the later groups are for deeper implementation detail, historical context, or proposals.
+This folder is the working documentation set for OpenScout. Use it as the docs
+map after the top-level [`README.md`](../README.md): the first group explains
+the current local-first product shape, including the human surfaces that sit on
+the same broker/runtime as the agents. Later groups are for implementation
+detail, historical context, or proposals.
 
 ## Start Here
 
-If you want the shortest path to understanding the project:
+If you are scanning from GitHub and want the shortest path:
 
 1. [`../README.md`](../README.md) for what OpenScout is and how to run it locally
 2. [`../install.md`](../install.md) for choosing published CLI vs repo-local setup
 3. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
 4. [`current-posture.md`](./current-posture.md) for maturity, trust, install footprint, and license-status boundaries
 5. [`architecture.md`](./architecture.md) for the system-level control-plane model
+
+Keep the posture straight while reading: OpenScout is for high-trust local
+developer pilots today. It is not an enterprise-ready, compliance-ready, or
+hardened multi-tenant runtime.
 
 After that, choose the role-specific next read:
 
@@ -19,6 +27,7 @@ After that, choose the role-specific next read:
 - Data model and ownership: [`data-ownership.md`](./data-ownership.md), then [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md)
 - Human/operator surfaces: [`ask-scout.md`](./ask-scout.md), then [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md)
 - Standards and terminology: [`glossary.md`](./glossary.md), then [`a2a-alignment.md`](./a2a-alignment.md)
+- Host/package map: [`integrations.md`](./integrations.md), then [`../install.md#companion-host-integrations`](../install.md#companion-host-integrations)
 
 ## Current Orientation Docs
 
@@ -29,7 +38,7 @@ After that, choose the role-specific next read:
 - [`architecture.md`](./architecture.md) explains the broker-first system shape and the main control-plane terms
 - [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
 - [`agent-integration-contract.md`](./agent-integration-contract.md) gives coding agents and adapter authors the minimum contract for plugging into Scout
-- [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients, plugins, and adapters
+- [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients and adapters
 - [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
 - [`ranger.md`](./ranger.md) defines Ranger as the direct in-app control-plane assistant
@@ -68,8 +77,8 @@ After that, choose the role-specific next read:
 - "What data does Scout own?" Read [`data-ownership.md`](./data-ownership.md).
 - "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
 - "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
-- "How should a client or plugin understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
-- "Where do host plugins live?" Read [`integrations.md`](./integrations.md).
+- "How should a client or adapter understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
+- "Where do host integrations live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
 - "What is Ranger?" Read [`ranger.md`](./ranger.md).
 - "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).

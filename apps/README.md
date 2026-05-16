@@ -1,32 +1,38 @@
-# Apps Directory Map
+# Apps
 
-This folder currently mixes product surfaces with different roles:
+This directory contains OpenScout's runnable application surfaces. The broker
+and shared protocol live in `packages/`; apps are the host-specific ways humans
+and services interact with that local control plane.
 
-- `api` — Next.js API app used for OpenScout feedback ingestion and review UI (`/api/feedback`, `/feedback`).
-- `ios` — Scout iOS client app.
-- `macos` — native macOS menu bar shell for broker state, pairing, and launch affordances.
-- `scout` — Scout desktop app + host/runtime integration.
+## Directory Map
 
-## Why this feels uneven
+| Path | Purpose | Start here |
+| --- | --- | --- |
+| [`desktop`](./desktop) | Main desktop app, CLI command handlers, terminal UI, and app-layer services | [`desktop/README.md`](./desktop/README.md) |
+| [`ios`](./ios) | Scout iOS app and mobile human surface | [`ios/README.md`](./ios/README.md) |
+| [`macos`](./macos) | Native macOS menu bar shell and launch affordances | [`macos/README.md`](./macos/README.md) |
+| [`mesh-front-door`](./mesh-front-door) | Cloudflare Worker rendezvous and push relay service | [`mesh-front-door/README.md`](./mesh-front-door/README.md) |
+| [`cloud`](./cloud) | Small hosted API/review surfaces for feedback and intent capture | [`cloud/README.md`](./cloud/README.md) |
+| [`scout`](./scout) | Compatibility entrypoint for the old app path | [`scout/README.md`](./scout/README.md) |
 
-`scout` is a product name, while `api` and `ios` are platform/function names.
-That makes navigation harder because naming categories are mixed.
+OpenScout remains local-first. Hosted app surfaces support setup, feedback,
+rendezvous, or notification flows; they are not the canonical broker and should
+not store broker-owned coordination records.
 
-## Suggested naming direction
+## Common Commands
 
-Use one naming scheme consistently:
+From the repo root:
 
-- Option A (platform-first):
-  - `desktop`
-  - `ios`
-  - `api`
-- Option B (product-first):
-  - `scout-desktop`
-  - `scout-ios`
-  - `scout-api`
+```bash
+bun run dev
+bun run --cwd apps/desktop check
+bun run --cwd apps/mesh-front-door check
+bun run --cwd apps/cloud check
+```
 
-Until rename is complete, treat:
+## Read Next
 
-- `apps/desktop` as desktop
-- `apps/ios` as iOS
-- `apps/cloud` as feedback API surface
+- [`../README.md`](../README.md) for the repo overview
+- [`../packages/README.md`](../packages/README.md) for shared packages
+- [`../docs/architecture.md`](../docs/architecture.md) for the broker/runtime/protocol model
+- [`../docs/current-posture.md`](../docs/current-posture.md) for maturity and trust boundaries

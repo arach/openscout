@@ -101,3 +101,29 @@ https://mesh.oscout.net/v1/auth/github/start?return_to=/v1/auth/native/complete
 
 GitHub still returns to the single HTTPS callback above; the Worker then returns
 the OpenScout session to the app with `openscout://osn-auth`.
+
+## Local Commands
+
+From the repo root:
+
+```bash
+bun run --cwd apps/mesh-front-door check
+bun run --cwd apps/mesh-front-door test
+bun run --cwd apps/mesh-front-door dev
+```
+
+Deploy after applying required D1 migrations:
+
+```bash
+bunx wrangler d1 migrations apply openscout-osn
+bun run --cwd apps/mesh-front-door deploy
+```
+
+## Read Next
+
+- [Current posture](../../docs/current-posture.md) for maturity and trust
+  limits.
+- [Architecture](../../docs/architecture.md) for the local broker and mesh
+  model.
+- [Data ownership](../../docs/data-ownership.md) before adding any persistence
+  that could be mistaken for broker-owned coordination state.
