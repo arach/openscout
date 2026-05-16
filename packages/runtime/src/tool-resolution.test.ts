@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   resolveBunExecutable,
+  resolveClaudeExecutable,
   resolveNodeModulesPackageEntrypoint,
   resolveOpenScoutRepoRoot,
 } from "./tool-resolution.js";
@@ -24,6 +25,76 @@ describe("tool resolution", () => {
 
       expect(resolved?.path).toBe(bunPath);
       expect(resolved?.source).toBe("env");
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("resolves claude from OpenScout-specific environment overrides", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openscout-tool-resolution-claude-env-"));
+    const claudePath = join(directory, "claude");
+
+    try {
+      writeFileSync(claudePath, "#!/bin/sh\nexit 0\n");
+      chmodSync(claudePath, 0o755);
+
+      const resolved = resolveClaudeExecutable({
+        OPENSCOUT_CLAUDE_BIN: claudePath,
+      });
+
+      expect(resolved?.path).toBe(claudePath);
+      expect(resolved?.source).toBe("env");
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("checks common Claude install directories when PATH is sparse", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openscout-tool-resolution-claude-common-"));
+    const home = join(directory, "home");
+    const localBin = join(home, ".claude", "local");
+    const claudePath = join(localBin, "claude");
+
+    try {
+      mkdirSync(localBin, { recursive: true });
+      writeFileSync(claudePath, "#!/bin/sh\nexit 0\n");
+      chmodSync(claudePath, 0o755);
+
+      const resolved = resolveClaudeExecutable({
+        HOME: home,
+        PATH: "",
+      });
+
+      expect(resolved?.path).toBe(claudePath);
+      expect(resolved?.source).toBe("common-path");
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("prefers native Claude install paths over PATH shims", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openscout-tool-resolution-claude-native-"));
+    const home = join(directory, "home");
+    const nativeBin = join(home, ".local", "bin");
+    const pathBin = join(directory, "path-bin");
+    const nativeClaude = join(nativeBin, "claude");
+    const shimClaude = join(pathBin, "claude");
+
+    try {
+      mkdirSync(nativeBin, { recursive: true });
+      mkdirSync(pathBin, { recursive: true });
+      writeFileSync(nativeClaude, "#!/bin/sh\nexit 0\n");
+      writeFileSync(shimClaude, "#!/bin/sh\nexit 0\n");
+      chmodSync(nativeClaude, 0o755);
+      chmodSync(shimClaude, 0o755);
+
+      const resolved = resolveClaudeExecutable({
+        HOME: home,
+        PATH: pathBin,
+      });
+
+      expect(resolved?.path).toBe(nativeClaude);
+      expect(resolved?.source).toBe("common-path");
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }

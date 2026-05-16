@@ -16,6 +16,7 @@ import type {
 } from "@openscout/agent-sessions";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
+import { resolveClaudeExecutable } from "./tool-resolution.js";
 
 type SessionRequestOptions = {
   agentName: string;
@@ -956,9 +957,10 @@ class ClaudeStreamJsonSession {
       args.push("--resume", this.claudeSessionId);
     }
 
+    const claudeExecutable = resolveClaudeExecutable(process.env)?.path ?? "claude";
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn("claude", args, {
+      child = spawn(claudeExecutable, args, {
         cwd: this.options.cwd,
         env: buildManagedAgentEnvironment({
           agentName: this.options.agentName,

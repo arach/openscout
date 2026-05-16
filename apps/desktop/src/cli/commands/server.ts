@@ -700,12 +700,16 @@ async function spawnDetachedServer(entry: string, env: NodeJS.ProcessEnv): Promi
   const logFd = openSync(logPath, "a");
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn(bunExecutable, ["run", entry], {
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
-      env,
-      windowsHide: true,
-    });
+    const child = spawn(
+      bunExecutable,
+      entry.endsWith(".ts") ? ["run", "--hot", entry] : ["run", entry],
+      {
+        detached: true,
+        stdio: ["ignore", logFd, logFd],
+        env,
+        windowsHide: true,
+      },
+    );
     child.once("error", (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
         rejectPromise(

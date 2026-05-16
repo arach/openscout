@@ -884,11 +884,15 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
     advertisedHost: env.OPENSCOUT_WEB_ADVERTISED_HOST,
     trustedHost: context.trustedHost,
   });
-  const child = spawn(bun.path, ["run", entry], {
-    detached: true,
-    env,
-    stdio: ["ignore", logFd, logFd],
-  });
+  const child = spawn(
+    bun.path,
+    entry.endsWith(".ts") ? ["run", "--hot", entry] : ["run", entry],
+    {
+      detached: true,
+      env,
+      stdio: ["ignore", logFd, logFd],
+    },
+  );
   child.once("exit", () => {
     if (webServerProcess === child) {
       webServerProcess = null;
