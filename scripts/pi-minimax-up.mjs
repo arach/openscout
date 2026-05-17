@@ -27,7 +27,11 @@ const DEFAULT_THINKING = "low";
 const DEFAULT_ALIAS = "@pi-minimax";
 const DEFAULT_NAME = "Pi MiniMax";
 const DEFAULT_TIMEOUT_MS = 30_000;
-const PI_SCOUT_EXTENSION_PATH = join(REPO_ROOT, "extensions", "pi-scout");
+const PI_SCOUT_EXTENSION_CANDIDATES = [
+  process.env.OPENSCOUT_PI_SCOUT_EXTENSION_PATH,
+  join(homedir(), ".pi", "agent", "extensions", "pi-scout"),
+  join(homedir(), "dev", "pi-scout"),
+].filter(Boolean);
 const PAIR_SUPERVISOR_ENV_KEYS = [
   "PATH",
   "HOME",
@@ -59,7 +63,7 @@ Options:
   --alias <alias>       Scout alias to attach (default: ${DEFAULT_ALIAS})
   --name <name>         Session display name (default: ${DEFAULT_NAME})
   --restart             Restart the pair supervisor before starting
-  --no-pi-scout         Do not load the local Pi-Scout extension
+  --no-pi-scout         Do not load the Pi Scout extension
   --no-attach           Start the pairing session but skip broker attachment
   --no-broker-start     Do not start the broker service automatically
   --configure-only      Only write ~/.scout/pairing/config.json
@@ -72,7 +76,8 @@ Environment:
   MINIMAX_TOKEN         Accepted fallback when MINIMAX_API_KEY is unset
   macOS Keychain secret Used as fallback when env values are unset
   OPENSCOUT_PI_MINIMAX_MODEL
-  OPENSCOUT_PI_MINIMAX_THINKING`);
+  OPENSCOUT_PI_MINIMAX_THINKING
+  OPENSCOUT_PI_SCOUT_EXTENSION_PATH`);
 }
 
 function parseArgs(argv) {
@@ -217,6 +222,7 @@ function readJsonFile(filePath, fallback) {
 function writePairingConfig(options) {
   const paths = pairingPaths();
   const current = readJsonFile(paths.configPath, {});
+  const piScoutExtensionPath = options.piScout ? resolvePiScoutExtensionPath() : null;
   const next = {
     ...current,
     secure: false,
@@ -232,7 +238,7 @@ function writePairingConfig(options) {
           provider: "minimax",
           model: options.model,
           thinking: options.thinking,
-          ...(options.piScout ? { extensions: [PI_SCOUT_EXTENSION_PATH] } : {}),
+          ...(piScoutExtensionPath ? { extensions: [piScoutExtensionPath] } : {}),
         },
       },
     },
@@ -254,7 +260,19 @@ function writePairingConfig(options) {
 
   mkdirSync(paths.rootDir, { recursive: true });
   writeFileSync(paths.configPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  if (options.piScout && !piScoutExtensionPath) {
+    console.warn("Pi Scout extension not found; install pi-scout or set OPENSCOUT_PI_SCOUT_EXTENSION_PATH.");
+  }
   return paths.configPath;
+}
+
+function resolvePiScoutExtensionPath() {
+  for (const candidate of PI_SCOUT_EXTENSION_CANDIDATES) {
+    if (candidate && existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function readPid() {

@@ -1,6 +1,9 @@
 import { renderSVG } from "uqr";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EmptyState } from "../components/EmptyState.tsx";
+import { StatusPill } from "../components/StatusPill.tsx";
 import { api } from "../lib/api.ts";
+import { pairingTone } from "../lib/status-tone.ts";
 import { timeAgo } from "../lib/time.ts";
 import type { PairingState, Route } from "../lib/types.ts";
 import { AgentConfigurationScreen } from "./AgentConfigurationScreen.tsx";
@@ -15,13 +18,6 @@ function shortFingerprint(input: string | null): string | null {
   if (!input) return null;
   if (input.length <= 18) return input;
   return `${input.slice(0, 10)}...${input.slice(-6)}`;
-}
-
-function pairingTone(pairing: PairingState | null): "success" | "warning" | "danger" {
-  if (!pairing) return "warning";
-  if (pairing.status === "paired" || pairing.status === "connected") return "success";
-  if (pairing.status === "error" || pairing.status === "closed") return "danger";
-  return "warning";
 }
 
 function formatExpiresIn(expiresAt: number | undefined, now: number): string | null {
@@ -251,7 +247,7 @@ function PairingSettingsScreen() {
           </p>
         </div>
         <div className="sys-page-actions">
-          {pairing && <span className={`sys-chip sys-chip-${tone}`}>{pairing.statusLabel}</span>}
+          {pairing && <StatusPill tone={tone}>{pairing.statusLabel}</StatusPill>}
           <div className="sys-sync-note">
             {loading
               ? "Loading..."
@@ -287,24 +283,23 @@ function PairingSettingsScreen() {
       )}
 
       {loading && !pairing && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">Loading settings</h3>
-          <p className="sys-state-body">
-            Checking relay status and trusted peers.
-          </p>
-        </div>
+        <EmptyState
+          title="Loading settings"
+          body="Checking relay status and trusted peers."
+        />
       )}
 
       {showInitialError && (
-        <div className="sys-panel sys-state-card sys-state-card-error">
-          <h3 className="sys-state-title">Pairing unavailable</h3>
-          <p className="sys-state-body">{pairingError}</p>
-          <div className="sys-inline-actions">
+        <EmptyState
+          className="sys-state-card-error"
+          title="Pairing unavailable"
+          body={pairingError}
+          action={
             <button type="button" className="s-btn" onClick={() => void loadPairing("manual")}>
               Try again
             </button>
-          </div>
-        </div>
+          }
+        />
       )}
 
       {/* ── Top row: QR + Identity/Status ── */}
@@ -385,7 +380,7 @@ function PairingSettingsScreen() {
               <div className="sys-settings-kv">
                 <span className="sys-settings-kv-label">Security</span>
                 <span className="sys-settings-kv-value">
-                  <span className="sys-chip sys-chip-success">Noise XX</span>
+                  <StatusPill tone="success">Noise XX</StatusPill>
                 </span>
               </div>
             )}
@@ -464,7 +459,7 @@ function PairingSettingsScreen() {
                       <td>
                         <span className="sys-peers-name">
                           {peer.name ?? shortFingerprint(peer.fingerprint) ?? "Peer"}
-                          {isConnected && <span className="sys-chip sys-chip-success sys-peers-badge">Connected</span>}
+                          {isConnected && <StatusPill tone="success" className="sys-peers-badge">Connected</StatusPill>}
                         </span>
                       </td>
                       <td>

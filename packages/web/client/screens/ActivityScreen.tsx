@@ -5,6 +5,7 @@ import { actorColor } from "../lib/colors.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
+import { EmptyState } from "../components/EmptyState.tsx";
 import type { ActivityItem, Route } from "../lib/types.ts";
 import "./system-surfaces-redesign.css";
 
@@ -220,33 +221,30 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
       )}
 
       {loading && activity.length === 0 && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">Loading activity</h3>
-          <p className="sys-state-body">
-            Pulling the latest records from the broker database.
-          </p>
-        </div>
+        <EmptyState
+          title="Loading activity"
+          body="Pulling the latest records from the broker database."
+        />
       )}
 
       {showInitialError && (
-        <div className="sys-panel sys-state-card sys-state-card-error">
-          <h3 className="sys-state-title">Activity is unavailable</h3>
-          <p className="sys-state-body">{error}</p>
-          <div className="sys-inline-actions">
+        <EmptyState
+          className="sys-state-card-error"
+          title="Activity is unavailable"
+          body={error}
+          action={
             <button type="button" className="s-btn" onClick={() => void load("manual")}>
               Try again
             </button>
-          </div>
-        </div>
+          }
+        />
       )}
 
       {showEmpty && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">No activity yet</h3>
-          <p className="sys-state-body">
-            Events appear here after agents register, send messages, or advance work.
-          </p>
-        </div>
+        <EmptyState
+          title="No activity yet"
+          body="Events appear here after agents register, send messages, or advance work."
+        />
       )}
 
       {activity.length > 0 && (

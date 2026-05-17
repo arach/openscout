@@ -34,7 +34,7 @@
 /native/engine/.derivedData
 /native/dist
 /native/engine/.swiftpm
-/crates/*/target/
+/packages/runtime/native/*/target/
 /target/
 packages/runtime/native/**/target/
 
@@ -99,8 +99,8 @@ apps/ios/build/
 /.*
 **/.*
 !.agents/
-!.agents/plugins/
-!.agents/plugins/marketplace.json
+!.agents/skills/
+!.agents/skills/**
 !landing/public/.well-known/
 !landing/public/.well-known/scout.json
 

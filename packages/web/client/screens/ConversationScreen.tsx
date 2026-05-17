@@ -11,6 +11,7 @@ import {
 } from "../lib/agent-labels.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
+import { isSameCalendarDay, formatThreadDayLabel } from "../lib/thread-days.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
 import { conversationShortLabel, isGroupConversation } from "../lib/conversations.ts";
@@ -213,51 +214,6 @@ function formatAbsoluteTimestamp(value: number | null | undefined): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(normalized);
-}
-
-function isSameCalendarDay(
-  left: number | null | undefined,
-  right: number | null | undefined,
-): boolean {
-  const leftValue = normalizeTimestampMs(left);
-  const rightValue = normalizeTimestampMs(right);
-  if (leftValue === null || rightValue === null) return false;
-
-  const leftDate = new Date(leftValue);
-  const rightDate = new Date(rightValue);
-  return (
-    leftDate.getFullYear() === rightDate.getFullYear() &&
-    leftDate.getMonth() === rightDate.getMonth() &&
-    leftDate.getDate() === rightDate.getDate()
-  );
-}
-
-function formatThreadDayLabel(value: number | null | undefined): string {
-  const normalized = normalizeTimestampMs(value);
-  if (normalized === null) return "";
-
-  const date = new Date(normalized);
-  const now = new Date();
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).getTime();
-  const startOfTarget = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-  ).getTime();
-  const oneDay = 24 * 60 * 60 * 1000;
-
-  if (startOfTarget === startOfToday) return "Today";
-  if (startOfTarget === startOfToday - oneDay) return "Yesterday";
-
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
   }).format(normalized);
 }
 

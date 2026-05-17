@@ -45,6 +45,17 @@ function getIndexNames(db: Database, tables: string[]): string[] {
   return rows.map((row) => row.name);
 }
 
+function getWritableDb(store: SQLiteControlPlaneStore): Database {
+  return (store as unknown as { db: Database }).db;
+}
+
+function countRows(db: Database, table: string, where: string, value: string): number {
+  const row = db.query(`SELECT COUNT(*) AS count FROM ${table} WHERE ${where} = ?1`).get(value) as {
+    count: number;
+  } | null;
+  return row?.count ?? 0;
+}
+
 describe("SQLiteControlPlaneStore", () => {
   test("persists a new conversation before its members and allows messages to be recorded", () => {
     const store = createStore();
@@ -195,6 +206,11 @@ describe("SQLiteControlPlaneStore", () => {
 
     try {
       const indexNames = getIndexNames(db, [
+        "messages",
+        "deliveries",
+        "delivery_attempts",
+        "durable_actions",
+        "collaboration_records",
         "conversations",
         "flights",
         "activity_items",
@@ -203,6 +219,15 @@ describe("SQLiteControlPlaneStore", () => {
         "unblock_request_events",
       ]);
 
+      expect(indexNames).toContain("idx_messages_created_at");
+      expect(indexNames).toContain("idx_messages_actor_created_at");
+      expect(indexNames).toContain("idx_deliveries_created_at");
+      expect(indexNames).toContain("idx_delivery_attempts_created_at");
+      expect(indexNames).toContain("idx_durable_actions_kind_due_at_updated_at");
+      expect(indexNames).toContain("idx_collaboration_records_kind_state_updated_at");
+      expect(indexNames).toContain("idx_collaboration_records_parent_kind_state_updated_at");
+      expect(indexNames).toContain("idx_collaboration_records_owner_kind_state_updated_at");
+      expect(indexNames).toContain("idx_collaboration_records_next_move_owner_kind_state_updated_at");
       expect(indexNames).toContain("idx_conversations_created_at");
       expect(indexNames).toContain("idx_flights_invocation_id");
       expect(indexNames).toContain("idx_activity_items_ts");
@@ -366,6 +391,213 @@ describe("SQLiteControlPlaneStore", () => {
       ]);
     } finally {
       db.close();
+      store.close();
+    }
+  });
+
+  test("parent record upserts preserve children when SQLite foreign keys are enabled", () => {
+    const store = createStore();
+    const db = getWritableDb(store);
+    db.exec("PRAGMA foreign_keys = ON;");
+
+    try {
+      store.upsertNode({
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "Test node",
+        advertiseScope: "local",
+        registeredAt: 1,
+      });
+      store.upsertActor({
+        id: "operator",
+        kind: "person",
+        displayName: "Operator",
+      });
+      store.upsertActor({
+        id: "agent-1",
+        kind: "agent",
+        displayName: "Agent One",
+      });
+      store.upsertAgent({
+        id: "agent-1",
+        kind: "agent",
+        definitionId: "agent-1",
+        displayName: "Agent One",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "conv-1",
+        kind: "direct",
+        title: "Direct",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-1", "operator"],
+      });
+
+      const message = {
+        id: "msg-1",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent" as const,
+        body: "hello",
+        visibility: "private" as const,
+        policy: "durable" as const,
+        createdAt: 100,
+      };
+      store.recordMessage(message);
+      store.recordDeliveries([{
+        id: "delivery-msg-1",
+        messageId: "msg-1",
+        targetId: "agent-1",
+        targetKind: "agent",
+        transport: "local_socket",
+        reason: "direct_message",
+        policy: "best_effort",
+        status: "accepted",
+      }]);
+      store.recordMessage({ ...message, body: "hello again" });
+      expect(countRows(db, "deliveries", "message_id", "msg-1")).toBe(1);
+
+      const invocation = {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult" as const,
+        task: "Handle this",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 110,
+      };
+      store.recordInvocation(invocation);
+      store.recordFlight({
+        id: "flight-1",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "running",
+        startedAt: 120,
+      });
+      store.recordInvocation({ ...invocation, task: "Handle this updated" });
+      expect(countRows(db, "flights", "invocation_id", "inv-1")).toBe(1);
+
+      const collaborationRecord = {
+        id: "work-1",
+        kind: "work_item" as const,
+        title: "Top-level work",
+        createdById: "operator",
+        ownerId: "agent-1",
+        nextMoveOwnerId: "agent-1",
+        state: "working" as const,
+        acceptanceState: "none" as const,
+        requestedById: "operator",
+        createdAt: 130,
+        updatedAt: 130,
+      };
+      store.recordCollaborationRecord(collaborationRecord);
+      store.recordCollaborationEvent({
+        id: "collab-event-1",
+        recordId: "work-1",
+        recordKind: "work_item",
+        kind: "commented",
+        actorId: "operator",
+        at: 140,
+      });
+      store.recordCollaborationRecord({
+        ...collaborationRecord,
+        state: "completed",
+        updatedAt: 150,
+        completedAt: 150,
+      });
+      expect(countRows(db, "collaboration_events", "record_id", "work-1")).toBe(1);
+
+      const unblockRequest = {
+        id: "unblock-1",
+        kind: "permission" as const,
+        state: "open" as const,
+        source: "test",
+        sourceRef: "test:req-1",
+        title: "Approve test",
+        ownerId: "operator",
+        createdById: "operator",
+        createdAt: 160,
+        updatedAt: 160,
+      };
+      store.recordUnblockRequest(unblockRequest);
+      store.recordUnblockRequestEvent({
+        id: "unblock-event-1",
+        requestId: "unblock-1",
+        kind: "created",
+        actorId: "operator",
+        at: 170,
+      });
+      store.recordUnblockRequest({
+        ...unblockRequest,
+        state: "resolved",
+        updatedAt: 180,
+        resolvedAt: 180,
+      });
+      store.recordUnblockRequest({
+        ...unblockRequest,
+        id: "unblock-duplicate-source",
+        state: "resolved",
+        updatedAt: 190,
+        resolvedAt: 190,
+      });
+      expect(countRows(db, "unblock_request_events", "request_id", "unblock-1")).toBe(1);
+      expect(countRows(db, "unblock_requests", "id", "unblock-duplicate-source")).toBe(0);
+
+      store.recordDurableAction({
+        id: "action-1",
+        kind: "message_delivery",
+        subjectId: "delivery-msg-1",
+        authorityCellId: "node-1",
+        state: "pending",
+        idempotencyKey: "delivery-msg-1:create",
+        leaseGeneration: 0,
+        createdAt: 190,
+        updatedAt: 190,
+      });
+      store.recordDurableAttempt({
+        id: "attempt-1",
+        actionId: "action-1",
+        attempt: 1,
+        state: "running",
+        leaseGeneration: 1,
+        startedAt: 200,
+      });
+      store.recordDurableAction({
+        id: "action-1",
+        kind: "message_delivery",
+        subjectId: "delivery-msg-1",
+        authorityCellId: "node-1",
+        state: "running",
+        idempotencyKey: "delivery-msg-1:create",
+        leaseGeneration: 1,
+        createdAt: 190,
+        updatedAt: 210,
+      });
+      store.recordDurableAction({
+        id: "action-duplicate-idempotency",
+        kind: "message_delivery",
+        subjectId: "delivery-msg-1",
+        authorityCellId: "node-1",
+        state: "running",
+        idempotencyKey: "delivery-msg-1:create",
+        leaseGeneration: 1,
+        createdAt: 190,
+        updatedAt: 220,
+      });
+      expect(countRows(db, "durable_attempts", "action_id", "action-1")).toBe(1);
+      expect(countRows(db, "durable_actions", "id", "action-duplicate-idempotency")).toBe(0);
+    } finally {
       store.close();
     }
   });

@@ -107,27 +107,51 @@ bun run --cwd landing build
 
 > **Requires [Bun](https://bun.sh).** Scout uses Bun as its JavaScript runtime and package manager. Install it first: `brew install bun` or `curl -fsSL https://bun.sh/install | bash`
 
-OpenScout is a local-first control plane for AI agents. It gives Claude Code, Codex, and future harnesses one shared broker, runtime, and protocol so agents can be discovered, addressed, observed, and composed without each surface inventing its own state model. Scout can launch and attach to sessions, but it does not require agents to be defined by Scout in order to coordinate with them. Once that substrate exists, humans can talk to their agents through the same system instead of managing separate chat threads, and the desktop and iOS surfaces are the natural human entry points into that shared broker/runtime.
+OpenScout is a local-first control plane for AI agents. It gives Claude Code,
+Codex, and future harnesses one shared broker, runtime, and protocol so agents
+can be discovered, addressed, observed, and composed without each surface
+inventing its own state model.
 
-This repository is the active Scout product codebase. The main path through it is:
+This repository is the active OpenScout product codebase. It contains the local
+broker/runtime, shared protocol, public CLI, desktop and mobile surfaces, docs,
+and release tooling.
 
-- `apps/desktop` for the desktop human surface, CLI, UI, and app-layer services
-- `apps/ios` for the mobile human surface over the same broker/runtime
-- `packages/runtime` for the broker/runtime foundation
-- `packages/protocol` for shared contracts and identity grammar
-- `packages/cli` for the public `@openscout/scout` package that installs `scout`
+Current posture: high-trust local developer pilots. OpenScout is not yet an
+enterprise-ready, compliance-ready, hardened multi-tenant runtime. Start with
+[`docs/current-posture.md`](./docs/current-posture.md) before making maturity,
+trust, mesh, or license claims.
 
-Host-specific integrations can live beside this repo when they are independently
-installable packages. See [`docs/integrations.md`](./docs/integrations.md) for
-the current pi, Claude Code, and Codex integration map.
+## Repo Map
+
+| Area | Path | Start here |
+| --- | --- | --- |
+| App surfaces | [`apps`](./apps) | [`apps/README.md`](./apps/README.md) |
+| Desktop app, CLI, and app services | [`apps/desktop`](./apps/desktop) | [`apps/desktop/README.md`](./apps/desktop/README.md) |
+| iOS app | [`apps/ios`](./apps/ios) | [`apps/ios/README.md`](./apps/ios/README.md) |
+| Shared packages | [`packages`](./packages) | [`packages/README.md`](./packages/README.md) |
+| Broker/runtime | [`packages/runtime`](./packages/runtime) | [`packages/runtime/README.md`](./packages/runtime/README.md) |
+| Shared protocol | [`packages/protocol`](./packages/protocol) | [`packages/protocol/README.md`](./packages/protocol/README.md) |
+| Public CLI package | [`packages/cli`](./packages/cli) | [`packages/cli/README.md`](./packages/cli/README.md) |
+| Web UI package | [`packages/web`](./packages/web) | [`packages/web/README.md`](./packages/web/README.md) |
+| Product docs | [`docs`](./docs) | [`docs/README.md`](./docs/README.md) |
+| Landing/docs site | [`landing`](./landing) | [`landing/README.md`](./landing/README.md) |
+
+Host-specific integrations live in standalone repositories when they are
+independently installable packages. See [`docs/integrations.md`](./docs/integrations.md)
+for the current pi, Claude Code, Codex, and Hermes integration map.
 
 ## Start Here
 
-If you are new to the docs, start with [`docs/README.md`](./docs/README.md) for the reading order. The shortest newcomer path is [`docs/quickstart.md`](./docs/quickstart.md), then [`docs/current-posture.md`](./docs/current-posture.md), then [`docs/architecture.md`](./docs/architecture.md), then [`docs/agent-identity.md`](./docs/agent-identity.md).
+If you are new to the docs, start with [`docs/README.md`](./docs/README.md) for
+the reading order. The shortest newcomer path is:
+
+1. [`install.md`](./install.md) for install and bootstrap expectations
+2. [`docs/quickstart.md`](./docs/quickstart.md) for the first healthy local run
+3. [`docs/current-posture.md`](./docs/current-posture.md) for maturity and trust boundaries
+4. [`docs/architecture.md`](./docs/architecture.md) for the broker/runtime/protocol model
+5. [`docs/agent-identity.md`](./docs/agent-identity.md) for address grammar and routing
 
 Scout is aware of adjacent standards such as A2A, but it does not collapse its internal model into them. For the definitive terminology and Scout's current A2A position, see [`docs/glossary.md`](./docs/glossary.md) and [`docs/a2a-alignment.md`](./docs/a2a-alignment.md).
-
-For maturity, trust, install footprint, and license-status expectations, read [`docs/current-posture.md`](./docs/current-posture.md). The current posture is high-trust local developer pilots, not enterprise-ready deployment.
 
 For agent-ready entry points, read [`llms.txt`](./llms.txt), [`llms-full.txt`](./llms-full.txt), and [`install.md`](./install.md).
 
@@ -150,7 +174,7 @@ At the repo level, Scout is organized around one product path:
 - `apps/desktop` and `apps/ios` own the human-facing surfaces
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
 - `packages/cli` is the public npm package; the other packages stay as private internal boundaries
-- host plugins and extensions are documented in [`docs/integrations.md`](./docs/integrations.md);
+- host-specific integrations are documented in [`docs/integrations.md`](./docs/integrations.md);
   separate repos are linked rather than vendored unless the integration needs
   to build with OpenScout internals
 
@@ -255,6 +279,13 @@ registry entries.
 This is the machine-readable install guide for agents and humans. It describes the current local developer pilot path, not an enterprise deployment path.
 
 For maturity, trust, and license expectations, read [docs/current-posture.md](./docs/current-posture.md) before presenting OpenScout to a new evaluator.
+
+Related first-read docs:
+
+- [README.md](./README.md) for the repo overview
+- [docs/README.md](./docs/README.md) for the docs map
+- [docs/quickstart.md](./docs/quickstart.md) for the first healthy local run
+- [docs/integrations.md](./docs/integrations.md) for companion host packages
 
 ## Prerequisites
 
@@ -419,17 +450,25 @@ broker to return quickly and report back later.
 
 # Docs
 
-This folder is the working documentation set for OpenScout. Use it as a map after the top-level README: the first group explains the current product shape, including the human surfaces that sit on the same broker/runtime as the agents, and the later groups are for deeper implementation detail, historical context, or proposals.
+This folder is the working documentation set for OpenScout. Use it as the docs
+map after the top-level [`README.md`](../README.md): the first group explains
+the current local-first product shape, including the human surfaces that sit on
+the same broker/runtime as the agents. Later groups are for implementation
+detail, historical context, or proposals.
 
 ## Start Here
 
-If you want the shortest path to understanding the project:
+If you are scanning from GitHub and want the shortest path:
 
 1. [`../README.md`](../README.md) for what OpenScout is and how to run it locally
 2. [`../install.md`](../install.md) for choosing published CLI vs repo-local setup
 3. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
 4. [`current-posture.md`](./current-posture.md) for maturity, trust, install footprint, and license-status boundaries
 5. [`architecture.md`](./architecture.md) for the system-level control-plane model
+
+Keep the posture straight while reading: OpenScout is for high-trust local
+developer pilots today. It is not an enterprise-ready, compliance-ready, or
+hardened multi-tenant runtime.
 
 After that, choose the role-specific next read:
 
@@ -438,6 +477,7 @@ After that, choose the role-specific next read:
 - Data model and ownership: [`data-ownership.md`](./data-ownership.md), then [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md)
 - Human/operator surfaces: [`ask-scout.md`](./ask-scout.md), then [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md)
 - Standards and terminology: [`glossary.md`](./glossary.md), then [`a2a-alignment.md`](./a2a-alignment.md)
+- Host/package map: [`integrations.md`](./integrations.md), then [`../install.md#companion-host-integrations`](../install.md#companion-host-integrations)
 
 ## Current Orientation Docs
 
@@ -448,7 +488,7 @@ After that, choose the role-specific next read:
 - [`architecture.md`](./architecture.md) explains the broker-first system shape and the main control-plane terms
 - [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
 - [`agent-integration-contract.md`](./agent-integration-contract.md) gives coding agents and adapter authors the minimum contract for plugging into Scout
-- [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients, plugins, and adapters
+- [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients and adapters
 - [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
 - [`ranger.md`](./ranger.md) defines Ranger as the direct in-app control-plane assistant
@@ -487,8 +527,8 @@ After that, choose the role-specific next read:
 - "What data does Scout own?" Read [`data-ownership.md`](./data-ownership.md).
 - "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
 - "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
-- "How should a client or plugin understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
-- "Where do host plugins live?" Read [`integrations.md`](./integrations.md).
+- "How should a client or adapter understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
+- "Where do host integrations live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
 - "What is Ranger?" Read [`ranger.md`](./ranger.md).
 - "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).
@@ -596,7 +636,10 @@ work or a reply. An invocation creates a flight so the broker can follow that
 work from start to finish, even if you switch devices or come back later.
 
 For long-running MCP asks, use `replyMode: "notify"` when you want the caller
-to return quickly and receive the reply as a callback notification.
+to return quickly and receive completion as a callback notification. Use
+`replyMode: "inline"` when the caller needs the target acknowledgement before
+continuing, then follow completion with `invocations_get` or
+`invocations_wait`.
 
 Concrete handoff example:
 
@@ -835,7 +878,7 @@ codex     →  broker (post reply)
 broker    →  operator (deliver reply via SSE)
 ```
 
-One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, waits for the reply, and stores the whole exchange as a flight. A flight is the broker's tracked record for an ask-style request, including timeout and retry state.
+One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, records the target acknowledgement, and tracks the later completion as a flight. A flight is the broker's tracked record for an ask-style request, including timeout, retry, acknowledgement, and completion state.
 
 ## Core Moving Parts
 
@@ -1061,8 +1104,11 @@ messages_send({
 Expected client behavior:
 
 - send an explicit target field, not only `@hudson` in the body
-- render the returned `conversationId` and `messageId` when useful
+- render the returned `conversationId`, `messageId`, and optional `flightId`
+  when useful
 - treat one explicit target as a DM
+- let the broker decide whether a targeted DM needs a wake/start/attach turn;
+  callers should not need to choose wake mechanics for normal sends
 - require an explicit channel for group coordination
 - do not treat message delivery as fire-and-forget; keep the receipt available
 
@@ -1091,10 +1137,64 @@ Expected client behavior:
 
 - create or display a durable message for the request
 - surface returned ids such as `conversationId`, `messageId`, and `flightId`
-- show flight state rather than assuming immediate completion
-- use `replyMode: "inline"` only for short bounded waits
-- use `replyMode: "notify"` for longer work that should return later
+- treat the initial `invocations_ask` response as the broker receipt, not as the
+  target agent's acknowledgement
+- expect the target agent to promptly post a broker-visible acknowledgement in
+  the same conversation when it starts working
+- expect target-authored completion as a later message and flight completion
+- use `invocations_wait` / `invocations_get` for longer follow-up polling
+- use `replyMode: "notify"` when completion should return by notification
 - show wake/session failures as lifecycle state, not as silent background limbo
+
+Client API shape:
+
+```mermaid
+sequenceDiagram
+  participant Caller
+  participant ScoutAPI as Scout client API<br/>invocations_ask / invocations_wait
+  participant Broker
+  participant Target
+
+  Caller->>ScoutAPI: invocations_ask(target, body)
+  ScoutAPI->>Broker: create message + invocation + flight
+  Broker-->>ScoutAPI: receipt<br/>flightId + conversationId
+  ScoutAPI-->>Caller: dispatched receipt
+
+  Broker->>Target: deliver ask
+  Target->>Broker: ack message<br/>"Received, working on it now"
+  Broker-->>Caller: target-authored ack in DM
+
+  Target->>Broker: completion<br/>final reply + flight completed
+  Broker-->>Caller: target-authored completion in DM
+
+  Caller->>ScoutAPI: invocations_wait(flightId)
+  ScoutAPI->>Broker: read/wait flight
+  Broker-->>ScoutAPI: completed + output
+  ScoutAPI-->>Caller: final state/output
+```
+
+Product architecture shape:
+
+```mermaid
+sequenceDiagram
+  participant Caller
+  participant Broker
+  participant Target
+
+  Caller->>Broker: ask request<br/>create message + invocation + flight
+  Broker-->>Caller: broker receipt<br/>flightId + conversationId
+
+  Broker->>Target: deliver ask
+  Target->>Broker: "Received, working on it now"
+  Broker-->>Caller: target-authored ack
+
+  Target->>Broker: final answer / result
+  Broker-->>Caller: target-authored completion
+  Broker-->>Caller: flight marked completed
+
+  Caller->>Broker: wait/get flight
+  Broker-->>Caller: completed / failed / still running
+```
 
 ### Broker Reply Mode
 
@@ -1119,10 +1219,14 @@ interface ScoutReplyContext {
 
 Rules:
 
+- first publish a short broker-visible acknowledgement in the same conversation
+  when starting work
 - if `replyPath` is `final_response`, the harness final assistant message is
   the broker-visible reply
-- if `replyPath` is `mcp_reply`, call the provided reply tool exactly once
-- do not use `messages_send` or `invocations_ask` to answer the original ask
+- if `replyPath` is `mcp_reply`, use the provided reply tool for the initial
+  acknowledgement and the final answer
+- do not use `messages_send` or `invocations_ask` for the final answer to the
+  original ask
 - use Scout tools only to ask or delegate while solving the request
 
 ### Durable Work
@@ -1659,22 +1763,23 @@ Codex profile or reject the mismatch with a clear remediation.
 ## Message And Work Semantics
 
 The old "tell means no reply needed" wording is too weak for agent experience.
-Agents usually need an acknowledgement that the broker accepted the interaction
-and a handle they can follow.
+Agents need two separate signals: a broker receipt that proves Scout accepted
+and recorded the interaction, and a target-authored acknowledgement that the
+receiving agent has started working.
 
 Use this model instead:
 
 | Interaction | Use When | Required Result |
 | --- | --- | --- |
 | Message | Status, update, note, or channel post | Broker receipt with ids |
-| Invocation | Question, review, investigation, or owned work | Broker receipt plus flight ids |
+| Invocation | Question, review, investigation, or owned work | Broker receipt plus flight ids, then target acknowledgement and later completion in the same conversation |
 | Work item | Durable multi-step ownership | Work id plus progress states |
 
 The CLI verbs can remain `send` and `ask` for compatibility, but docs and
 skills should teach them as:
 
 - `send`: post a message and return a durable receipt
-- `ask`: create an invocation and return a durable receipt plus lifecycle state
+- `ask`: create an invocation, return a durable receipt plus lifecycle state, and let the target acknowledge quickly before final completion
 
 No route should depend on fire-and-forget behavior. Even a channel post should
 have a receipt.
@@ -1941,7 +2046,7 @@ Agents connected through Scout's MCP server should prefer:
 - future `sessions_*` tools for explicit harness session start, attach, inspect,
   and stop operations
 
-Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` only for short bounded waits.
+Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` when the caller needs the target acknowledgement inline; follow completion with `invocations_get` or `invocations_wait`.
 Use `replyMode: "none"` only when a caller explicitly wants tracking without an
 agent-authored reply.
 
@@ -2065,8 +2170,7 @@ Before calling an integration "Scout-native", verify:
 
 OpenScout's core broker, runtime, protocol, CLI, desktop app, and mobile app live
 in this repository. Host-specific integrations can live beside this repo when
-they are independently installable packages for another host's plugin or
-extension system.
+they are independently installable packages for another host's install surface.
 
 This keeps the OpenScout root focused on the product control plane while still
 making the integration surface discoverable.
@@ -2443,7 +2547,7 @@ Implemented now:
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions no longer install a project-wide `PreToolUse` permission
-  hook. Legacy Scout hook entries can be removed by rerunning `scout setup`.
+  hook.
 
 Not done yet:
 
@@ -2645,12 +2749,15 @@ Purpose: dense context for coding agents working in this repo.
 
 | Need | Doc |
 |---|---|
+| GitHub first scan | `README.md`, `docs/README.md` |
+| install/bootstrap | `install.md` |
 | first run | `docs/quickstart.md` |
 | maturity/trust/license | `docs/current-posture.md` |
 | architecture | `docs/architecture.md` |
 | runtime/session semantics | `docs/runtime-sessions.md` |
 | data boundary | `docs/data-ownership.md` |
 | agent integration | `docs/agent-integration-contract.md` |
+| host integrations | `docs/integrations.md` |
 | external client comms | `docs/scout-comms.md` |
 | identity grammar | `docs/agent-identity.md` |
 | collaboration model | `docs/collaboration-workflows-v1.md` |
@@ -2695,13 +2802,15 @@ MCP tools.
 - Group coordination means explicit channel.
 - Shared broadcast is opt-in.
 - `send` / `messages_send` is a durable message/update with receipt ids.
-- `ask` / `invocations_ask` is an invocation with receipt ids and lifecycle state.
+- `ask` / `invocations_ask` is an invocation with receipt ids, target acknowledgement, and lifecycle state.
 - Cards describe identities and return addresses; sessions are concrete harness lifecycles.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
 - Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
 - Track token/coordination cost as metadata when available; do not import full harness transcripts.
 - If blocked, record who or what owns the next move. For long-running MCP work,
-  prefer `replyMode: "notify"` over holding the caller open.
+  prefer `replyMode: "notify"` over holding the caller open for completion; use
+  `replyMode: "inline"` only when the caller needs an acknowledgement before
+  continuing.
 - If a host-side approval or permission prompt is stuck, open the host UI or use
   the host integration's forwarded unblock request. An MCP server cannot see a
   prompt intercepted by the host before the tool call reaches Scout.

@@ -132,6 +132,16 @@
       "types": "./src/vantage-plan.ts",
       "bun": "./src/vantage-plan.ts",
       "default": "./dist/vantage-plan.js"
+    },
+    "./conversations": {
+      "types": "./src/conversations/index.ts",
+      "bun": "./src/conversations/index.ts",
+      "default": "./dist/conversations/index.js"
+    },
+    "./conversations/legacy-ids": {
+      "types": "./src/conversations/legacy-ids.ts",
+      "bun": "./src/conversations/legacy-ids.ts",
+      "default": "./dist/conversations/legacy-ids.js"
     }
   },
   "types": "./src/index.ts",

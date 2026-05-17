@@ -68,6 +68,16 @@ work. They do not yet imply that the broker persists the full collaboration laye
 See [docs/collaboration-workflows-v1.md](../../docs/collaboration-workflows-v1.md) for the
 v1 model.
 
+## Local Commands
+
+From the repo root:
+
+```bash
+npm --prefix packages/protocol run build
+npm --prefix packages/protocol run check
+npm --prefix packages/protocol run test
+```
+
 ## Identity Model
 
 The important distinction is between a helper and an agent:

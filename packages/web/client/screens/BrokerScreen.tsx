@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EmptyState } from "../components/EmptyState.tsx";
+import { StatusPill } from "../components/StatusPill.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
+import { brokerAttemptTone } from "../lib/status-tone.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { BrokerDiagnostics, BrokerDialogueItem, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import { useScout } from "../scout/Provider.tsx";
@@ -24,13 +27,6 @@ function shortId(value: string | null): string {
 
 function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
-}
-
-function attemptTone(kind: BrokerRouteAttempt["kind"], status: string): "success" | "failed" | "working" | "neutral" {
-  if (kind === "success" || status === "sent" || status === "acknowledged" || status === "completed") return "success";
-  if (kind === "failed_query" || kind === "failed_delivery" || status === "failed" || status === "cancelled") return "failed";
-  if (status === "running" || status === "accepted" || status === "deferred" || status === "pending") return "working";
-  return "neutral";
 }
 
 function attemptKindLabel(kind: BrokerRouteAttempt["kind"]): string {
@@ -209,17 +205,17 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
       )}
 
       {loading && !broker && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">Loading broker</h3>
-          <p className="sys-state-body">Reading the broker database snapshot.</p>
-        </div>
+        <EmptyState
+          title="Loading broker"
+          body="Reading the broker database snapshot."
+        />
       )}
 
       {!loading && !broker && !error && (
-        <div className="sys-panel sys-state-card">
-          <h3 className="sys-state-title">No broker data</h3>
-          <p className="sys-state-body">No broker records are available yet.</p>
-        </div>
+        <EmptyState
+          title="No broker data"
+          body="No broker records are available yet."
+        />
       )}
 
       {broker && (
@@ -272,17 +268,17 @@ function BrokerAttemptList({
   const { route } = useScout();
   if (attempts.length === 0) {
     return (
-      <div className="sys-panel sys-state-card">
-        <h3 className="sys-state-title">No records</h3>
-        <p className="sys-state-body">This broker slice is empty for the selected window.</p>
-      </div>
+      <EmptyState
+        title="No records"
+        body="This broker slice is empty for the selected window."
+      />
     );
   }
 
   return (
     <div className="sys-audit-list">
       {attempts.map((attempt) => {
-        const tone = attemptTone(attempt.kind, attempt.status);
+        const tone = brokerAttemptTone(attempt.kind, attempt.status);
         const inspect = () => {
           onInspect(attempt);
           window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
@@ -305,7 +301,7 @@ function BrokerAttemptList({
           >
             <div className="sys-broker-row-main">
               <div className="sys-broker-row-head">
-                <span className={`sys-chip sys-chip-${tone}`}>{attemptKindLabel(attempt.kind)}</span>
+                <StatusPill tone={tone}>{attemptKindLabel(attempt.kind)}</StatusPill>
                 <span className="sys-broker-status">{attempt.status}</span>
                 <span className="sys-broker-time">{timeAgo(attempt.ts)}</span>
               </div>
@@ -419,10 +415,10 @@ function BrokerDialogueList({
   const { route } = useScout();
   if (items.length === 0) {
     return (
-      <div className="sys-panel sys-state-card">
-        <h3 className="sys-state-title">No dialogue</h3>
-        <p className="sys-state-body">No messages were recorded in the selected window.</p>
-      </div>
+      <EmptyState
+        title="No dialogue"
+        body="No messages were recorded in the selected window."
+      />
     );
   }
 
@@ -432,7 +428,7 @@ function BrokerDialogueList({
         <article key={item.id} className="sys-broker-row">
           <div className="sys-broker-row-main">
             <div className="sys-broker-row-head">
-              <span className="sys-chip sys-chip-neutral">{item.class}</span>
+              <StatusPill tone="neutral">{item.class}</StatusPill>
               <span className="sys-broker-status">{item.actorName ?? "unknown"}</span>
               <span className="sys-broker-time">{fullTimestamp(item.ts)}</span>
             </div>

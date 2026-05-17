@@ -101,9 +101,22 @@ The intent remains:
 - `@openscout/runtime` defines how that language is stored and executed locally
 - the control plane is the source of truth for local communication and execution
 
+## Local Commands
+
+From the repo root:
+
+```bash
+npm --prefix packages/runtime run build
+npm --prefix packages/runtime run check
+npm --prefix packages/runtime run test
+```
+
 ## E2E And Live Manual Checks
 
 - `bun run --cwd packages/runtime test:live:codex-app-server`
-  Uses [README-live-codex-app-server-test.md](/Users/arach/dev/openscout/packages/runtime/README-live-codex-app-server-test.md) for a direct Codex JSON-RPC check against an existing app-server listener.
+  Uses [README-live-codex-app-server-test.md](./README-live-codex-app-server-test.md)
+  for a direct Codex JSON-RPC check against an existing app-server listener.
 - `bun run --cwd packages/runtime test:e2e:local-agent-pass`
-  Uses [README-live-local-agent-pass.md](/Users/arach/dev/openscout/packages/runtime/README-live-local-agent-pass.md) for a full Codex <-> Claude broker pass on one machine. Pass `-- --mission "..."` to make the run perform a bounded docs, KB, or release-readiness check.
+  Uses [README-live-local-agent-pass.md](./README-live-local-agent-pass.md) for
+  a full Codex <-> Claude broker pass on one machine. Pass `-- --mission "..."`
+  to make the run perform a bounded docs, KB, or release-readiness check.

@@ -8,6 +8,7 @@ import { api } from "../lib/api.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
+import { formatLabel } from "../lib/text.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
@@ -41,7 +42,6 @@ function agentLabel(
   const qualifier = agent.project ?? agent.branch ?? agent.id.replace(/^.*\./, "");
   return { name: agent.name, qualifier };
 }
-
 
 function formatLabel(value: string | null | undefined): string | null {
   if (!value) return null;

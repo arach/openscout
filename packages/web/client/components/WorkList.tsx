@@ -1,15 +1,10 @@
 import { renderWithMentions } from "../lib/mentions.tsx";
+import { workTone } from "../lib/status-tone.ts";
 import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import type { Route, WorkItem } from "../lib/types.ts";
-
-function pillVariant(work: WorkItem): "updated" | "working" | "completed" | "failed" {
-  if (work.attention === "interrupt") return "failed";
-  if (work.state === "done") return "completed";
-  if (work.attention === "badge" || work.state === "waiting" || work.state === "review") return "updated";
-  return "working";
-}
+import { StatusPill } from "./StatusPill.tsx";
 
 function stateLabel(state: string): string {
   switch (state) {
@@ -118,7 +113,7 @@ export function WorkList({
                 <span className="s-work-row-title">{work.title}</span>
                 {work.priority && <span className="s-badge">{work.priority}</span>}
               </div>
-              <span className={`s-pill s-pill-${pillVariant(work)}`}>{work.currentPhase}</span>
+              <StatusPill tone={workTone(work)} variant="pill">{work.currentPhase}</StatusPill>
             </div>
             <div className="s-work-row-meta">
               <span>{ownerLabel}</span>
