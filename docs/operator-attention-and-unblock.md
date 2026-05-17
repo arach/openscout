@@ -38,7 +38,7 @@ Broker and collaboration attention should cover:
 Host-level unblock attention still needs explicit ingress:
 
 - Codex approval prompts raised by the Codex host.
-- Claude permission hook requests.
+- Claude permission prompts raised by the Claude host or companion integration.
 - MCP client pre-tool permission prompts.
 - Local system permissions needed by Scout itself, such as notifications or APNs setup.
 
@@ -58,8 +58,8 @@ Implemented now:
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
 - Web operator attention reads active broker unblock requests.
-- Managed Claude sessions no longer install a project-wide `PreToolUse` permission
-  hook.
+- Managed Claude sessions rely on host or companion permission capture; Scout
+  does not install Claude project hooks.
 
 Not done yet:
 

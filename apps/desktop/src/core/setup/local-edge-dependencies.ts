@@ -262,7 +262,7 @@ export function ensureScoutLocalEdgeDependencies(
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
   const runCommand = options.runCommand ?? defaultRunCommand;
-  const trustLocalHttps = options.trustLocalHttps ?? true;
+  const trustLocalHttps = options.trustLocalHttps ?? false;
   const current = inspectScoutLocalEdgeDependencies({
     env,
     platform,

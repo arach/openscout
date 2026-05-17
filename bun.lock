@@ -85,6 +85,9 @@
       "bin": {
         "scout": "./bin/scout.mjs",
       },
+      "dependencies": {
+        "picomatch": "^4.0.4",
+      },
       "devDependencies": {
         "@openscout/runtime": "workspace:*",
       },
