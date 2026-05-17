@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
-import { useListArrowNav, makeSearchHandoff, useSlashToFocus } from "../../lib/keyboard-nav.ts";
+import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
 import {
   conversationDisplayTitle,
@@ -238,8 +238,11 @@ export function ScoutMessagesLeftPanel() {
       >
         {groups.length === 0 ? (
           <div className="ctx-panel-empty">{query ? "No match" : "Nothing yet"}</div>
-        ) : (
-          groups.map((group) => {
+        ) : (() => {
+          const flatConversations = groups.flatMap((g) => g.conversations);
+          const firstConversationId = flatConversations[0]?.id;
+          const hasAnyActive = activeId != null && flatConversations.some((c) => c.id === activeId);
+          return groups.map((group) => {
             const isSingle = group.conversations.length === 1;
             const isOpen = Boolean(query) || expandedGroups.has(group.key);
             const anyActive = group.conversations.some((c) => c.id === activeId);
@@ -257,9 +260,11 @@ export function ScoutMessagesLeftPanel() {
                   name={title}
                   meta={s.lastMessageAt ? timeAgo(s.lastMessageAt) : undefined}
                   tone={channel ? "channel" : agent ? normalizeAgentState(agent.state) : "dm"}
-                  leadingIcon={channel ? "#" : undefined}
+                  avatarName={title}
+                  avatarKind={channel ? "channel" : "user"}
                   active={active}
                   unread={unread}
+                  tabIndex={rovingTabIndex(active, hasAnyActive, s.id === firstConversationId)}
                   onClick={() => onSelect(s)}
                 />
               );
@@ -289,17 +294,19 @@ export function ScoutMessagesLeftPanel() {
                         name={conversationChildLabel(s, agent, ask)}
                         meta={s.lastMessageAt ? timeAgo(s.lastMessageAt) : undefined}
                         tone={agent ? normalizeAgentState(agent.state) : "dm"}
+                        avatarName={agent?.name ?? conversationChildLabel(s, agent, ask)}
                         active={active}
                         unread={unread}
                         title={conversationChildTooltip(s, agent, ask)}
+                        tabIndex={rovingTabIndex(active, hasAnyActive, s.id === firstConversationId)}
                         onClick={() => onSelect(s)}
                       />
                     );
                   })}
               </div>
             );
-          })
-        )}
+          });
+        })()}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import "./rail-row.css";
 import { stateColor } from "../../lib/colors.ts";
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
+import { Avatar, PresenceDot, type AvatarKind } from "../../components/Avatar.tsx";
 
 type Tone = AgentDisplayState | "channel" | "dm" | "neutral";
 
@@ -13,6 +14,10 @@ type RailRowProps = {
   sub?: string;
   /** Dot tone — agent state, neutral, or a channel/dm hint. */
   tone?: Tone;
+  /** Avatar name. When set, renders an Avatar in the leading slot. */
+  avatarName?: string;
+  /** Avatar kind — "channel" renders "#" instead of an initial. */
+  avatarKind?: AvatarKind;
   /** Slot for a left-edge icon (e.g., "#" for channels). Replaces the dot. */
   leadingIcon?: ReactNode;
   /** Caret to show this is expandable; "▾" if open, "▸" if closed. */
@@ -42,6 +47,8 @@ export function RailRow({
   meta,
   sub,
   tone = "neutral",
+  avatarName,
+  avatarKind = "user",
   leadingIcon,
   caret,
   active,
@@ -81,7 +88,13 @@ export function RailRow({
         tabIndex={tabIndex}
         aria-expanded={detail !== undefined ? Boolean(expanded) : undefined}
       >
-        <RowLeading icon={leadingIcon} tone={tone} caret={caret} />
+        <RowLeading
+          icon={leadingIcon}
+          tone={tone}
+          caret={caret}
+          avatarName={avatarName}
+          avatarKind={avatarKind}
+        />
         <span className="rr-row-body">
           <span className="rr-row-name">{name}</span>
           {sub && <span className="rr-row-sub">{sub}</span>}
@@ -97,10 +110,14 @@ function RowLeading({
   icon,
   tone,
   caret,
+  avatarName,
+  avatarKind,
 }: {
   icon: ReactNode | undefined;
   tone: Tone;
   caret: "open" | "closed" | undefined;
+  avatarName: string | undefined;
+  avatarKind: AvatarKind;
 }) {
   if (caret) {
     return (
@@ -109,6 +126,30 @@ function RowLeading({
         aria-hidden
       >
         <Chevron open={caret === "open"} />
+      </span>
+    );
+  }
+  if (avatarName) {
+    if (avatarKind === "channel") {
+      return (
+        <Avatar
+          kind="channel"
+          name={avatarName}
+          channelClassName="rr-row-hash"
+        />
+      );
+    }
+    const normalized = normalizeAgentTone(tone);
+    const showPresence = normalized === "working" || normalized === "available";
+    return (
+      <span className="rr-row-avatar-wrap" aria-hidden>
+        <Avatar className="rr-row-avatar" name={avatarName} />
+        {showPresence && (
+          <PresenceDot
+            state={normalized}
+            className={`rr-row-presence rr-row-presence--${normalized}`}
+          />
+        )}
       </span>
     );
   }

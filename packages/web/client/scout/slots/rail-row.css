@@ -76,6 +76,59 @@
   background: color-mix(in srgb, var(--ink) 28%, transparent);
 }
 
+/* ── Avatar slot: initial-on-color chip with optional overlaid presence dot.
+   Sized to match the row's vertical rhythm. Channel kind renders a "#"
+   glyph via .rr-row-hash. ── */
+.rr-row-avatar-wrap {
+  flex: 0 0 auto;
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+}
+
+.rr-row-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--bg) 92%, transparent);
+  letter-spacing: 0;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.rr-row-presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--surface);
+}
+
+.rr-row-hash {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
 .rr-row-icon {
   flex: 0 0 auto;
   display: inline-flex;

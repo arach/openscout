@@ -267,6 +267,7 @@ function ScoutAgentsLeftPanel() {
                 meta={only.updatedAt ? timeAgo(only.updatedAt) : undefined}
                 sub={singleAgentSub(only, ask, onlySessionMatch)}
                 tone={normalizeAgentState(only.state)}
+                avatarName={only.name}
                 active={only.id === selectedAgentId}
                 title={agentRowTooltip(only, ask, onlySessionMatch)}
                 onClick={() =>
@@ -301,6 +302,7 @@ function ScoutAgentsLeftPanel() {
                       meta={agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
                       sub={instanceAgentSub(agent, ask, sessionMatch, collides)}
                       tone={normalizeAgentState(agent.state)}
+                      avatarName={agent.name}
                       active={agent.id === selectedAgentId}
                       title={agentRowTooltip(agent, ask, sessionMatch)}
                       onClick={() =>
