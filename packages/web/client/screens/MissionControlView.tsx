@@ -273,6 +273,12 @@ function tailEventKindToObserveKind(kind: TailEvent["kind"]): ObserveEvent["kind
   }
 }
 
+// Only show the "transcript discovered" placeholder while the file is still
+// genuinely fresh. Otherwise it reads as motion that isn't there — the same
+// idle transcript keeps re-firing on every discovery poll, inflating the
+// "something just happened" sentiment on /ops/control.
+const NATIVE_DISCOVERED_FRESH_MS = 5 * 60_000;
+
 function nativeObserveData(
   transcript: TailDiscoveredTranscript,
   events: TailEvent[],
@@ -289,16 +295,20 @@ function nativeObserveData(
     live: current && index === tail.length - 1,
   }));
 
+  const placeholderEvents: ObserveEvent[] = observeEvents.length > 0
+    ? observeEvents
+    : (Date.now() - transcript.mtimeMs <= NATIVE_DISCOVERED_FRESH_MS
+        ? [{
+            id: `${nativeSessionId(transcript)}:discovered`,
+            t: 0,
+            kind: "system",
+            text: `Native ${transcript.source} transcript discovered.`,
+            detail: transcript.cwd ?? transcript.transcriptPath,
+          }]
+        : []);
+
   return {
-    events: observeEvents.length > 0
-      ? observeEvents
-      : [{
-          id: `${nativeSessionId(transcript)}:discovered`,
-          t: 0,
-          kind: "system",
-          text: `Native ${transcript.source} transcript discovered.`,
-          detail: transcript.cwd ?? transcript.transcriptPath,
-        }],
+    events: placeholderEvents,
     files: [],
     live: current,
     metadata: {
@@ -428,7 +438,9 @@ export function MissionControlView({
       }
     };
     void load();
-    const timer = setInterval(() => void load(), 10_000);
+    // Server-side discovery cache is 30s and tail events arrive live via
+    // `useTailEvents` — a 10s poll just triplicates the same snapshot.
+    const timer = setInterval(() => void load(), 30_000);
     return () => {
       cancelled = true;
       clearInterval(timer);

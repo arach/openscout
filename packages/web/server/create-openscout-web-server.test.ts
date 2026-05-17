@@ -72,6 +72,7 @@ mock.module("./db-queries.ts", () => ({
     db.exec("PRAGMA busy_timeout = 250");
     db.exec("PRAGMA query_only = ON");
   },
+  queryAgentById: () => null,
   queryAgents: () => [],
   queryActivity: () => [],
   queryBrokerDiagnostics: () => ({
@@ -1261,6 +1262,66 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"terminalRelayPath":"/ws/terminal"');
     expect(body).toContain('"terminalRelayHealthPath":"/ws/terminal/health"');
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
+    expect(body).toContain('"vantageOpenPath":"/api/vantage/open"');
+  });
+
+  test("creates Vantage handoffs through the configured native hook", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      createVantageHandoff: async (input) => {
+        calls.push(input);
+        return {
+          ok: true,
+          schema: "openscout.vantage.handoff.v1",
+          handoffId: "handoff-test",
+          handoffPath: "/tmp/openscout/vantage/handoff-test.json",
+          openUrl: "openscout-vantage://handoff?id=handoff-test",
+          launch: { attempted: true, ok: true, error: null },
+          plan: {
+            schema: "scout.vantage.plan.v1",
+            createdAt: "2026-05-17T00:00:00.000Z",
+            currentDirectory: "/tmp/openscout",
+            broker: { reachable: false, baseUrl: null, nodeId: null },
+            manifest: {
+              kind: "hudson.vantage.setup",
+              schemaVersion: 1,
+              source: "openscout",
+              generatedAt: "2026-05-17T00:00:00.000Z",
+              currentDirectory: "/tmp/openscout",
+              broker: null,
+              focus: { agentId: "agent-1" },
+              selection: [],
+              focusedNodeId: null,
+              nodes: [],
+            },
+            diagnostics: [],
+          },
+        };
+      },
+    });
+
+    const response = await server.app.request("http://localhost/api/vantage/open", {
+      method: "POST",
+      body: JSON.stringify({ agentId: "agent-1", launch: false }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      handoffId: "handoff-test",
+      openUrl: "openscout-vantage://handoff?id=handoff-test",
+    });
+    expect(calls).toEqual([
+      {
+        currentDirectory: "/tmp/openscout",
+        agentId: "agent-1",
+        launch: false,
+      },
+    ]);
   });
 
   test("reveals local paths through the configured reveal hook", async () => {
@@ -1827,6 +1888,68 @@ describe("createOpenScoutWebServer", () => {
     expect(JSON.stringify(fetchCalls[0].body)).toContain("currentRoute");
     expect(JSON.stringify(fetchCalls[0].body)).toContain("180 seconds");
     expect(askScoutQuestionCalls).toHaveLength(0);
+  });
+
+  test("caches the fleet home brief until its thirty-minute TTL expires", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    const fetchCalls: Array<Record<string, unknown>> = [];
+    globalThis.fetch = (async (_input, init) => {
+      fetchCalls.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      return new Response(JSON.stringify({
+        id: "resp_fleet_home_brief",
+        output_text: JSON.stringify({
+          title: "Fleet brief",
+          summary: "The local fleet is steady.",
+          steps: [
+            {
+              id: "fleet",
+              label: "Fleet",
+              route: { view: "fleet" },
+              narration: "Fleet is steady: no blocked asks, and organic sessions are visible in the recent tail.",
+            },
+          ],
+          recommendation: "Open the tail if you want the freshest organic session detail.",
+          actions: [],
+        }),
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const first = await server.app.request("http://localhost/api/fleet/brief");
+    const second = await server.app.request("http://localhost/api/fleet/brief");
+    const refreshed = await server.app.request("http://localhost/api/fleet/brief?refresh=1");
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(refreshed.status).toBe(200);
+    const firstJson = await first.json() as { statement: string; ttlMs: number; sourceBriefId: string; observations: unknown[] };
+    const secondJson = await second.json() as { statement: string; ttlMs: number; sourceBriefId: string };
+    const refreshedJson = await refreshed.json() as { statement: string; ttlMs: number; sourceBriefId: string };
+    expect(firstJson.statement).toBe("Fleet is steady: no blocked asks, and organic sessions are visible in the recent tail.");
+    expect(firstJson.observations).toHaveLength(1);
+    expect(firstJson.ttlMs).toBe(30 * 60_000);
+    expect(secondJson.sourceBriefId).toBe(firstJson.sourceBriefId);
+    expect(refreshedJson.ttlMs).toBe(30 * 60_000);
+    expect(fetchCalls).toHaveLength(2);
+    expect(JSON.stringify(fetchCalls[0])).toContain("1800 seconds");
+    expect(JSON.stringify(fetchCalls[0])).toContain("Fleet-home hero mode");
+    expect(JSON.stringify(fetchCalls[0])).toContain("Do NOT use the Fleet narration to repeat those counters");
+    expect(JSON.stringify(fetchCalls[0])).toContain("what deserves the operator's next 30 seconds");
+    expect(JSON.stringify(fetchCalls[0])).toContain("subtle signal could fall through the cracks");
+    expect(JSON.stringify(fetchCalls[0])).toContain("stale or hidden obligations");
+    expect(JSON.stringify(fetchCalls[0])).toContain("include observations");
+    expect(JSON.stringify(fetchCalls[0])).toContain("References are clickable targets");
+    expect(JSON.stringify(fetchCalls[0])).toContain("briefingEvidence.agentLogMessages");
+    expect(JSON.stringify(fetchCalls[0])).toContain("Bad pattern: inventory counter sentence.");
+    expect(JSON.stringify(fetchCalls[0])).toContain("Never copy the examples or schema placeholders.");
   });
 
   test("stores and dismisses Ranger reminders without an OpenAI key", async () => {

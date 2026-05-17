@@ -218,7 +218,7 @@ struct InboxView: View {
                     .buttonStyle(.borderedProminent)
 
                     Button(role: .destructive) {
-                        withAnimation(.easeOut(duration: 0.18)) {
+                        withAnimation(SwiftUI.Animation.easeOut(duration: 0.18)) {
                             inbox.dismissItem(id: item.id)
                         }
                     } label: {
@@ -350,7 +350,7 @@ struct InboxView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
             if highlightedItemId == itemId {
-                withAnimation(.easeOut(duration: 0.25)) {
+                withAnimation(SwiftUI.Animation.easeOut(duration: 0.25)) {
                     highlightedItemId = nil
                 }
             }

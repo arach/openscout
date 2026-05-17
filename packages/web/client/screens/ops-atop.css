@@ -421,33 +421,26 @@
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
 }
 
-/* ── Detail drawer (right slide-in) ── */
-
-.s-atop-drawer-bg {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 100;
-}
+/* ── Detail panel (docks inline below the table; no longer a modal/overlay
+   that covers the persistent Inspector pane) ── */
 
 .s-atop-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(520px, 86vw);
+  position: relative;
+  margin-top: 14px;
+  width: 100%;
+  max-height: 52vh;
+  overflow: auto;
   background: var(--surface);
-  border-left: 1px solid var(--border);
-  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.35);
-  z-index: 101;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   display: grid;
   grid-template-rows: auto 1fr;
-  animation: s-atop-drawer-in 0.18s ease-out;
+  animation: s-atop-drawer-in 0.16s ease-out;
 }
 
 @keyframes s-atop-drawer-in {
   from {
-    transform: translateX(16px);
+    transform: translateY(4px);
     opacity: 0;
   }
   to {

@@ -35,7 +35,6 @@ import {
 } from "react";
 
 import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
-import { useFocusTrap } from "../lib/keyboard-nav.ts";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
@@ -838,7 +837,7 @@ export function AtopView() {
       />
 
       {selectedRow && (
-        <DetailDrawer
+        <DetailPanel
           row={selectedRow}
           process={selectedProcess}
           events={selectedEvents}
@@ -1195,7 +1194,7 @@ function KeyHints({
   );
 }
 
-function DetailDrawer({
+function DetailPanel({
   row,
   process,
   events,
@@ -1222,20 +1221,12 @@ function DetailDrawer({
   }, [events]);
 
   const peekEvents = events.slice(-PEEK_LINE_LIMIT).reverse();
-  const { ref: drawerRef, onKeyDown: onTrapKeyDown } = useFocusTrap<HTMLElement>();
 
   return (
-    <>
-      <div className="s-atop-drawer-bg" onClick={onClose} aria-hidden="true" />
-      <aside
-        ref={drawerRef}
-        className="s-atop-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Agent ${row.key}`}
-        onKeyDown={onTrapKeyDown}
-        tabIndex={-1}
-      >
+    <aside
+      className="s-atop-drawer"
+      aria-label={`Agent ${row.key}`}
+    >
         <header className="s-atop-drawer-head">
           <div className="s-atop-drawer-head-meta">
             <span className={`s-atop-status s-atop-status--${row.status}`}>
@@ -1355,8 +1346,7 @@ function DetailDrawer({
             )}
           </section>
         </div>
-      </aside>
-    </>
+    </aside>
   );
 }
 

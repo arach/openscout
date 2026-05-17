@@ -90,7 +90,7 @@ struct ChannelView: View {
                 }
             }
             .onChange(of: messages.count) { _, _ in
-                withAnimation(.easeOut(duration: 0.18)) {
+                withAnimation(SwiftUI.Animation.easeOut(duration: 0.18)) {
                     proxy.scrollTo("channel-bottom", anchor: .bottom)
                 }
             }

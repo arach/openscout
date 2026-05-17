@@ -36,6 +36,7 @@
 /native/engine/.swiftpm
 /packages/runtime/native/*/target/
 /target/
+packages/runtime/native/**/target/
 
 # relay data (local state, not source)
 .openscout/

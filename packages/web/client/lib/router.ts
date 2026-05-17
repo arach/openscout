@@ -24,21 +24,18 @@ function parseAgentTab(value: string | null): AgentTab | undefined {
 
 function parseOpsMode(value: string | undefined): OpsMode | undefined {
   switch (value) {
-    case "command":
-      return "command";
-    case "warroom":
-      return "command";
     case "control":
     case "mission":
-      return "mission";
+    // Command/Conductor views retired — fold legacy URLs into Control.
+    case "command":
+    case "warroom":
     case "conduct":
     case "conductor":
-      return "conductor";
+      return "mission";
     case "plan":
     case "agents":
     case "tail":
     case "atop":
-    case "runs":
       return value;
     default:
       return undefined;
@@ -67,12 +64,8 @@ function parseFollowPreferredView(value: string | null): FollowPreferredView | u
 
 function opsModePath(mode: OpsMode): string {
   switch (mode) {
-    case "command":
-      return "command";
     case "mission":
       return "control";
-    case "conductor":
-      return "conduct";
     default:
       return mode;
   }
@@ -205,12 +198,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
     if (!isOpsEnabledForUrl(url)) {
       return { view: "inbox" };
     }
-    const mode = parseOpsMode(parts[1]);
-    if (mode) {
-      const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
-      return { view: "ops", mode, ...(tailQuery ? { tailQuery } : {}) };
-    }
-    return { view: "ops" };
+    const mode = parseOpsMode(parts[1]) ?? "mission";
+    const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
+    return { view: "ops", mode, ...(tailQuery ? { tailQuery } : {}) };
   }
   return { view: "inbox" };
 }

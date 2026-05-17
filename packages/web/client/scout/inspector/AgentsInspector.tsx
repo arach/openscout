@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useScout } from "../Provider.tsx";
+import { openAgent } from "../slots/openAgent.ts";
 import {
   agentStateLabel,
   isAgentOnline,
@@ -110,6 +111,7 @@ export function AgentsInspector() {
       agent={agent}
       agents={agents}
       navigate={navigate}
+      route={route}
       observeMode={route.tab === "observe"}
     />
   );
@@ -119,11 +121,13 @@ function AgentContextPanel({
   agent,
   agents,
   navigate,
+  route,
   observeMode,
 }: {
   agent: Agent;
   agents: Agent[];
   navigate: (r: Route) => void;
+  route: Route;
   observeMode: boolean;
 }) {
   const online = isAgentOnline(agent.state);
@@ -198,7 +202,9 @@ function AgentContextPanel({
         <InspectorMesh
           focusAgent={agent}
           agents={agents}
-          navigate={navigate}
+          onOpenAgent={(target) =>
+            openAgent(navigate, target, { from: "inspector", returnTo: route })
+          }
         />
       </Section>
 
@@ -420,11 +426,11 @@ function TraceMetric({ label, value }: { label: string; value: string }) {
 function InspectorMesh({
   focusAgent,
   agents,
-  navigate,
+  onOpenAgent,
 }: {
   focusAgent: Agent;
   agents: Agent[];
-  navigate: (r: Route) => void;
+  onOpenAgent: (agent: Agent) => void;
 }) {
   const W = 240;
   const H = 180;
@@ -504,9 +510,7 @@ function InspectorMesh({
           <g
             key={n.agent.id}
             style={{ cursor: "pointer" }}
-            onClick={() =>
-              navigate({ view: "agents", agentId: n.agent.id })
-            }
+            onClick={() => onOpenAgent(n.agent)}
           >
             {isActive && (
               <circle

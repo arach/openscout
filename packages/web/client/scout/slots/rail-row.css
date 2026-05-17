@@ -1,0 +1,285 @@
+/* ── RailRow: shared dense row for left-rail panels (Agents, Messages) ── */
+
+.rr-row {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.rr-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 0;
+  min-height: 0;
+  transition: background 120ms;
+}
+
+.rr-row-head:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.rr-row-head:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.rr-row--child .rr-row-head {
+  padding-left: 26px;
+}
+
+.rr-row--active .rr-row-head {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.rr-row--selected .rr-row-head {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.rr-row--expanded .rr-row-head {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Leading dot or icon */
+
+.rr-row-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dim) 55%, transparent);
+}
+
+.rr-row-dot--working {
+  /* background set inline via stateColor for theming consistency */
+}
+
+.rr-row-dot--available {
+  /* background set inline via stateColor */
+}
+
+.rr-row-dot--offline {
+  background: color-mix(in srgb, var(--dim) 45%, transparent);
+}
+
+.rr-row-dot--channel,
+.rr-row-dot--dm {
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+
+/* ── Avatar slot: initial-on-color chip with optional overlaid presence dot.
+   Sized to match the row's vertical rhythm. Channel kind renders a "#"
+   glyph via .rr-row-hash. ── */
+.rr-row-avatar-wrap {
+  flex: 0 0 auto;
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+}
+
+.rr-row-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--bg) 92%, transparent);
+  letter-spacing: 0;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.rr-row-presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--surface);
+}
+
+.rr-row-hash {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.rr-row-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--dim);
+}
+
+/* Body */
+
+.rr-row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rr-row-name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rr-row--unread .rr-row-name {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.rr-row--unread .rr-row-meta {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rr-row-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Trailing */
+
+.rr-row-meta {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+}
+
+.rr-row-caret {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
+  border-radius: 3px;
+  transition: color 0.12s, background 0.12s;
+}
+
+/* Leading-slot caret for collapsible group rows */
+.rr-row-caret--leading {
+  width: 14px;
+  height: 14px;
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+
+.rr-row-head:hover .rr-row-caret {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.rr-row--unread .rr-row-caret--leading {
+  color: var(--accent);
+}
+
+/* Chevron SVG — closed = right, open = down via rotation */
+.rr-chevron {
+  display: block;
+  transition: transform 0.16s ease;
+}
+
+.rr-chevron--open {
+  transform: rotate(90deg);
+}
+
+/* Expanded detail body */
+
+.rr-row-detail {
+  padding: 4px 12px 8px 26px;
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.rr-row-detail-preview {
+  color: var(--ink);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* Group spec list, modeled after mission-left's ml-spec */
+
+.rr-spec-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rr-spec {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  margin: 0;
+}
+
+.rr-spec-label {
+  margin: 0;
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.rr-spec-value {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

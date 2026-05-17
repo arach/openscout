@@ -11,6 +11,8 @@ import {
 import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
+import { openContent } from "../scout/slots/openContent.ts";
+import { useScout } from "../scout/Provider.tsx";
 import type {
   Route,
   TailDiscoveredProcess,
@@ -261,6 +263,7 @@ function buildRows(
 }
 
 export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
+  const { route } = useScout();
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [events, setEvents] = useState<TailEvent[]>([]);
   const [query, setQuery] = useState("");
@@ -342,8 +345,8 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
 
   const openSelected = useCallback((row: RawSessionRow | undefined) => {
     if (!row) return;
-    navigate({ view: "sessions", sessionId: row.refId });
-  }, [navigate]);
+    openContent(navigate, { view: "sessions", sessionId: row.refId }, { returnTo: route });
+  }, [navigate, route]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

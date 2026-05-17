@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import type { ConversationEntry, Route } from "../lib/types.ts";
 import "./conversations-screen.css";
 
@@ -50,6 +52,7 @@ export function ConversationsScreen({
 }: {
   navigate: (route: Route) => void;
 }) {
+  const { route } = useScout();
   const [conversations, setConversations] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -165,7 +168,7 @@ export function ConversationsScreen({
                   key={conversation.id}
                   type="button"
                   className="s-conversations__row"
-                  onClick={() => navigate({ view: "conversation", conversationId: conversation.id })}
+                  onClick={() => openContent(navigate, { view: "conversation", conversationId: conversation.id }, { returnTo: route })}
                 >
                   <div className="s-conversations__row-main">
                     <div className="s-conversations__row-titleline">

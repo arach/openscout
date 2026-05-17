@@ -228,7 +228,7 @@ struct OSNDiscoveryView: View {
         defer { connectingNodeId = nil }
 
         do {
-            try await connection.connect(qrPayload: payload)
+            try await connection.connect(qrPayload: payload, primaryName: node.nodeName)
         } catch {
             errorMessage = error.localizedDescription
         }

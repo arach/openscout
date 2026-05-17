@@ -17,10 +17,13 @@ import {
   type PlanOutcome,
 } from "../lib/plan-archive-store.ts";
 import { TextDocumentSurface, createTextDocument } from "../components/TextDocumentSurface.tsx";
-import type { Agent, Route, WorkDetail, WorkItem, WorkMaterial, WorkMaterialContent, WorkTimelineItem } from "../lib/types.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
+import type { Agent, AgentRun, Route, WorkDetail, WorkItem, WorkMaterial, WorkMaterialContent, WorkTimelineItem } from "../lib/types.ts";
 
 type PlanRecord = {
   id: string;
+  source: "work" | "run";
   title: string;
   summary: string | null;
   author: PlanAuthor;
@@ -29,6 +32,8 @@ type PlanRecord = {
   project: string;
   state: string;
   outcome: PlanOutcome;
+  route: Route;
+  taskText: string | null;
   createdAt: number;
   updatedAt: number;
   lastMeaningfulAt: number;
@@ -69,6 +74,7 @@ function buildPlanRecord(work: WorkItem): PlanRecord {
   const { author, label } = classifyAuthor(work);
   return {
     id: work.id,
+    source: "work",
     title: work.title,
     summary: work.summary ?? work.lastMeaningfulSummary ?? null,
     author,
@@ -77,12 +83,152 @@ function buildPlanRecord(work: WorkItem): PlanRecord {
     project: projectFromWork(work),
     state: work.state,
     outcome: classifyOutcome(work.state),
+    route: { view: "work", workId: work.id },
+    taskText: null,
     createdAt: work.createdAt,
     updatedAt: work.updatedAt,
     lastMeaningfulAt: work.lastMeaningfulAt,
     parentId: work.parentId,
     parentTitle: work.parentTitle,
   };
+}
+
+function textValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function compactText(value: string, max = 260): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function firstLine(value: string): string {
+  return value.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? value.trim();
+}
+
+function runTask(run: AgentRun): string | null {
+  return textValue(run.input?.["task"]);
+}
+
+function runOutputSummary(run: AgentRun): string | null {
+  return textValue(run.output?.["summary"]) ?? textValue(run.output?.["text"]);
+}
+
+function metadataObject(value: unknown, key: string): Record<string, unknown> | null {
+  const child = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : null;
+  return child && typeof child === "object" && !Array.isArray(child)
+    ? child as Record<string, unknown>
+    : null;
+}
+
+function projectFromRun(run: AgentRun): string {
+  const invocationMeta = metadataObject(run.metadata, "invocationMetadata") ?? run.metadata ?? null;
+  const returnAddress = metadataObject(invocationMeta, "returnAddress");
+  const root = textValue(returnAddress?.["projectRoot"]);
+  if (root) {
+    const parts = root.split("/").filter(Boolean);
+    return parts[parts.length - 1] ?? root;
+  }
+  const conversation = run.conversationId ?? "";
+  const match = conversation.match(/dm\.[^.]+\.([a-z0-9_-]+)/i);
+  return match?.[1] ?? "—";
+}
+
+function runOutcome(run: AgentRun): PlanOutcome {
+  switch (run.state) {
+    case "queued":
+    case "waking":
+    case "running":
+    case "waiting":
+      return "running";
+    case "review":
+      return "review";
+    case "completed":
+      return "completed";
+    default:
+      return "abandoned";
+  }
+}
+
+const PLAN_LIKE_TERMS = [
+  "acceptance",
+  "artifact",
+  "blocker",
+  "checkpoint",
+  "component",
+  "deliverable",
+  "divide-and-conquer",
+  "execution",
+  "implementation",
+  "milestone",
+  "next move",
+  "parallel",
+  "phase",
+  "plan",
+  "proceed",
+  "roadmap",
+  "scope",
+  "ship",
+  "spec",
+  "task",
+  "todo",
+];
+
+function isPlanLikeRun(run: AgentRun, workIds: Set<string>): boolean {
+  if (run.workId && workIds.has(run.workId)) return false;
+  if (run.collaborationRecordId && workIds.has(run.collaborationRecordId)) return false;
+
+  const task = runTask(run);
+  if (!task) return false;
+
+  const normalized = task.toLowerCase();
+  const hasListShape = /(^|\n)\s*(?:\d+\.|[-*]\s|\[[ x]\])/m.test(task);
+  const keywordHits = PLAN_LIKE_TERMS.filter((term) => normalized.includes(term)).length;
+  const isActive = run.state === "queued" || run.state === "waking" || run.state === "running" || run.state === "waiting" || run.state === "review";
+
+  if (isActive && task.length >= 80) return true;
+  if (hasListShape && keywordHits >= 1) return true;
+  if (task.length >= 360 && keywordHits >= 2) return true;
+  return false;
+}
+
+function buildRunPlanRecord(run: AgentRun, agentsById: Record<string, Agent>): PlanRecord | null {
+  const task = runTask(run);
+  if (!task) return null;
+
+  const agent = agentsById[run.agentId];
+  const agentName = run.agentName ?? agent?.name ?? run.agentId;
+  const title = `${agentName}: ${compactText(firstLine(task), 120)}`;
+  const summary = runOutputSummary(run) ?? compactText(task);
+  return {
+    id: run.id,
+    source: "run",
+    title,
+    summary,
+    author: "agent",
+    authorLabel: agentName,
+    ownerId: run.agentId,
+    project: projectFromRun(run),
+    state: run.state,
+    outcome: runOutcome(run),
+    route: run.conversationId ? { view: "conversation", conversationId: run.conversationId } : { view: "agents", agentId: run.agentId },
+    taskText: task,
+    createdAt: run.createdAt ?? run.startedAt ?? run.updatedAt,
+    updatedAt: run.updatedAt,
+    lastMeaningfulAt: run.updatedAt,
+    parentId: null,
+    parentTitle: null,
+  };
+}
+
+function statusRouteForRecord(record: PlanRecord): string {
+  if (record.route.view === "work") return `/work/${record.route.workId}`;
+  if (record.route.view === "conversation") return `/messages/${record.route.conversationId}`;
+  if (record.route.view === "agents" && record.route.agentId) return `/agents/${record.route.agentId}`;
+  return "/ops/plan";
 }
 
 function mergeWorks(active: WorkItem[], recent: WorkItem[]): WorkItem[] {
@@ -95,14 +241,16 @@ function mergeWorks(active: WorkItem[], recent: WorkItem[]): WorkItem[] {
 
 export function PlanArchiveView({
   navigate,
-  agents: _agents,
+  agents,
 }: {
   navigate: (r: Route) => void;
   agents: Agent[];
 }) {
+  const { route } = useScout();
   const store = usePlanArchiveStore();
 
   const [works, setWorks] = useState<WorkItem[]>([]);
+  const [runs, setRuns] = useState<AgentRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,12 +259,14 @@ export function PlanArchiveView({
   const load = useCallback(async () => {
     const seq = ++requestRef.current;
     try {
-      const [active, recent] = await Promise.all([
+      const [active, recent, runItems] = await Promise.all([
         api<WorkItem[]>("/api/work?limit=250"),
         api<WorkItem[]>("/api/work?active=false&limit=250"),
+        api<AgentRun[]>("/api/runs?active=false&limit=500"),
       ]);
       if (seq !== requestRef.current) return;
       setWorks(mergeWorks(active, recent));
+      setRuns(runItems);
       setError(null);
       setLastLoadedAt(Date.now());
     } catch (e) {
@@ -130,7 +280,20 @@ export function PlanArchiveView({
   useEffect(() => { void load(); }, [load]);
   useBrokerEvents(() => { void load(); });
 
-  const records = useMemo(() => works.map(buildPlanRecord), [works]);
+  const agentsById = useMemo(
+    () => Object.fromEntries(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  );
+
+  const records = useMemo(() => {
+    const workRecords = works.map(buildPlanRecord);
+    const workIds = new Set(works.map((work) => work.id));
+    const runRecords = runs
+      .filter((run) => isPlanLikeRun(run, workIds))
+      .map((run) => buildRunPlanRecord(run, agentsById))
+      .filter((record): record is PlanRecord => record !== null);
+    return [...workRecords, ...runRecords];
+  }, [agentsById, runs, works]);
 
   useEffect(() => {
     const byAuthor: Record<PlanAuthor | "all", number> = {
@@ -237,8 +400,9 @@ export function PlanArchiveView({
           onClose={() => setPlanFocusedId(null)}
           onOpenFullPage={() => {
             const id = store.focusedPlanId;
+            const focused = records.find((r) => r.id === id) ?? null;
             setPlanFocusedId(null);
-            if (id) navigate({ view: "work", workId: id });
+            if (focused) openContent(navigate, focused.route, { returnTo: route });
           }}
         />
       )}
@@ -257,7 +421,7 @@ function PlanRow({ record, onOpen }: { record: PlanRecord; onOpen: () => void })
       onClick={onOpen}
       {...statusOnHover({
         label: `Open ${record.title}`,
-        route: `/work/${record.id}`,
+        route: statusRouteForRecord(record),
       })}
     >
       <span className="s-plan-cell s-plan-cell--time" role="cell">{created}</span>
@@ -304,6 +468,12 @@ function PlanFocusOverlay({
 
   useEffect(() => {
     let cancelled = false;
+    if (record?.source !== "work") {
+      setDetail(null);
+      setLoading(false);
+      setError(null);
+      return () => { cancelled = true; };
+    }
     setLoading(true);
     setError(null);
     void api<WorkDetail>(`/api/work/${encodeURIComponent(planId)}`)
@@ -311,7 +481,7 @@ function PlanFocusOverlay({
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [planId]);
+  }, [planId, record?.source]);
 
   const onKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     onTrapKeyDown(e);
@@ -422,11 +592,11 @@ function PlanFocusOverlay({
               className="s-mission-overlay-jump"
               onClick={onOpenFullPage}
               {...statusOnHover({
-                label: `Open work page · ${title}`,
-                route: `/work/${planId}`,
+                label: record?.source === "run" ? `Open conversation · ${title}` : `Open work page · ${title}`,
+                route: record ? statusRouteForRecord(record) : `/work/${planId}`,
               })}
             >
-              Open work page ↗
+              {record?.source === "run" ? "Open conversation ↗" : "Open work page ↗"}
             </button>
           </div>
         </div>
@@ -463,6 +633,9 @@ function PlanProfileTab({ record, detail }: { record: PlanRecord | null; detail:
   return (
     <div className="s-focus-tab">
       {summary && <p className="s-plan-overlay-summary">{summary}</p>}
+      {record?.taskText && record.taskText !== summary && (
+        <p className="s-plan-overlay-summary">{compactText(record.taskText, 900)}</p>
+      )}
       <dl className="s-focus-spec">
         {rows.map(([k, v]) => (
           <div key={k} className="s-focus-spec-row">

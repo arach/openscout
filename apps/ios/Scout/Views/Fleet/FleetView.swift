@@ -378,21 +378,44 @@ struct FleetView: View {
 
         do {
             let agents = try await connection.listMobileAgents(limit: 500)
-            let activeSessions = agents.filter { $0.sessionId != nil }.count
-
-            let bridgeNode = FleetNode(
-                id: connection.pairedBridgeFingerprint ?? "local",
-                name: connection.pairedBridgeName ?? "Mac",
-                isOnline: connection.state == .connected,
-                agentCount: agents.count,
-                activeSessionCount: activeSessions,
-                lastHeartbeat: connection.pairedBridgeLastSeen
-            )
-            nodes = [bridgeNode]
+            nodes = makeFleetNodes(from: agents)
         } catch {
             self.error = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func makeFleetNodes(from agents: [MobileAgentSummary]) -> [FleetNode] {
+        let fallbackNodeId = connection.pairedBridgeFingerprint ?? "local"
+        let fallbackNodeName = connection.pairedBridgeName ?? "Mac"
+        let grouped = Dictionary(grouping: agents) { agent in
+            agent.nodeId?.trimmedNonEmpty ?? fallbackNodeId
+        }
+
+        return grouped.map { nodeId, nodeAgents in
+            let nodeName = nodeAgents
+                .compactMap { $0.nodeName?.trimmedNonEmpty }
+                .sorted()
+                .first ?? (nodeId == fallbackNodeId ? fallbackNodeName : "Host")
+            let lastHeartbeat = nodeAgents
+                .compactMap(\.lastActiveDate)
+                .max() ?? (nodeId == fallbackNodeId ? connection.pairedBridgeLastSeen : nil)
+            let isOnline = nodeAgents.contains { $0.state != "offline" }
+                || (nodeId == fallbackNodeId && connection.state == .connected)
+
+            return FleetNode(
+                id: nodeId,
+                name: nodeName,
+                isOnline: isOnline,
+                agentCount: nodeAgents.count,
+                activeSessionCount: nodeAgents.filter { $0.sessionId != nil }.count,
+                lastHeartbeat: lastHeartbeat
+            )
+        }
+        .sorted { left, right in
+            if left.isOnline != right.isOnline { return left.isOnline && !right.isOnline }
+            return (left.lastHeartbeat ?? .distantPast) > (right.lastHeartbeat ?? .distantPast)
+        }
     }
 }
 
@@ -602,6 +625,7 @@ struct HostAgentsView: View {
         isLoading = agents.isEmpty
         do {
             agents = try await connection.listMobileAgents(limit: 500)
+                .filter { ($0.nodeId?.trimmedNonEmpty ?? host.id) == host.id }
         } catch {
             self.error = error.localizedDescription
         }

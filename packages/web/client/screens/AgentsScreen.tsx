@@ -11,6 +11,8 @@ import { timeAgo } from "../lib/time.ts";
 import { formatLabel } from "../lib/text.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent } from "../lib/router.ts";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type {
@@ -39,6 +41,13 @@ function agentLabel(
   if (siblings.length <= 1) return { name: agent.name, qualifier: null };
   const qualifier = agent.project ?? agent.branch ?? agent.id.replace(/^.*\./, "");
   return { name: agent.name, qualifier };
+}
+
+function formatLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const cleaned = value.replace(/_/g, " ");
+  if (cleaned.toLowerCase() === "relay agent") return "agent";
+  return cleaned;
 }
 
 function directSessionMaps(sessions: SessionEntry[]): {
@@ -79,7 +88,7 @@ function resolveSelectedAgent(agents: Agent[], selectedAgentId?: string): Agent 
 
 
 function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume; agentId: string }) {
-  const { navigate } = useScout();
+  const { navigate, route } = useScout();
   const [sent, setSent] = useState(false);
   const shortId = catalog.activeSessionId?.slice(0, 8) ?? null;
   const active = catalog.sessions.find((s) => s.id === catalog.activeSessionId);
@@ -91,7 +100,7 @@ function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume;
       cwd: catalog.resumeCwd,
       agentId,
     }).then(() =>
-      navigate({ view: "terminal", agentId }),
+      openContent(navigate, { view: "terminal", agentId }, { returnTo: route }),
     );
     setSent(true);
   };
@@ -617,13 +626,13 @@ function AgentDetailWithRail({
 
   return (
     <div className={`s-profile-center${activeTab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
-      <button
-        type="button"
-        className="s-back s-profile-mobile-back"
-        onClick={() => navigate({ view: "agents" })}
-      >
-        &larr; All agents
-      </button>
+      <BackToPicker
+        slot="agents"
+        fallback={{ view: "agents" }}
+        navigate={navigate}
+        className="s-profile-back-position"
+      />
+
 
       {activeTab === "profile" ? (
         <section

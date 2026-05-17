@@ -1,11 +1,14 @@
 import { useScout } from "../Provider.tsx";
+import { openAgent } from "../slots/openAgent.ts";
 import { agentStateLabel, isAgentOnline } from "../../lib/agent-state.ts";
 import { actorColor } from "../../lib/colors.ts";
 import { timeAgo } from "../../lib/time.ts";
-import type { Agent, Route } from "../../lib/types.ts";
+import type { Agent } from "../../lib/types.ts";
 
 export function HomeAgentsInspector() {
-  const { agents, navigate } = useScout();
+  const { agents, navigate, route } = useScout();
+  const openFromHome = (agent: Agent) =>
+    openAgent(navigate, agent, { from: "home", returnTo: route });
 
   if (agents.length === 0) {
     return (
@@ -24,14 +27,14 @@ export function HomeAgentsInspector() {
       {online.length > 0 && (
         <Section label="Online" count={online.length}>
           {online.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} navigate={navigate} />
+            <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} />
           ))}
         </Section>
       )}
       {offline.length > 0 && (
         <Section label="Standby" count={offline.length}>
           {offline.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} navigate={navigate} dim />
+            <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} dim />
           ))}
         </Section>
       )}
@@ -65,17 +68,17 @@ function Section({
 
 function AgentRow({
   agent,
-  navigate,
+  onOpen,
   dim,
 }: {
   agent: Agent;
-  navigate: (r: Route) => void;
+  onOpen: (agent: Agent) => void;
   dim?: boolean;
 }) {
   const online = isAgentOnline(agent.state);
   return (
     <button
-      onClick={() => navigate({ view: "agents", agentId: agent.id })}
+      onClick={() => onOpen(agent)}
       className={`group flex items-center gap-2.5 px-2 py-1.5 rounded-sm text-left transition-colors ${
         dim
           ? "opacity-60 hover:opacity-100 hover:bg-[var(--scout-chrome-hover)]"

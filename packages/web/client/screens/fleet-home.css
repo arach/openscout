@@ -7,9 +7,9 @@
 }
 
 .s-fleet-home-inner {
-  max-width: 1280px;
+  max-width: 1480px;
   margin: 0 auto;
-  padding: 40px 56px 64px;
+  padding: 40px 40px 64px;
 }
 
 /* ── Eyebrow label ─────────────────────────────────────────────────── */
@@ -640,157 +640,6 @@
   100% { transform: translateX(250%); }
 }
 
-/* ── Clear-state fleet overview ───────────────────────────────────── */
-
-.s-fleet-clear {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: minmax(220px, 0.7fr) minmax(260px, 0.8fr) minmax(360px, 1.5fr);
-  gap: 22px;
-  align-items: stretch;
-  padding: 18px 0;
-}
-
-@media (max-width: 980px) {
-  .s-fleet-clear {
-    grid-template-columns: 1fr;
-  }
-}
-
-.s-fleet-clear-head {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.s-fleet-clear-title {
-  margin-top: 8px;
-  font-family: var(--font-serif);
-  font-size: 24px;
-  line-height: 1.15;
-  color: var(--ink);
-}
-
-.s-fleet-clear-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.s-fleet-metric {
-  min-width: 0;
-  padding: 14px;
-  border-right: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto 1fr;
-  gap: 8px 7px;
-  align-items: center;
-}
-
-.s-fleet-metric:last-child {
-  border-right: 0;
-}
-
-.s-fleet-metric-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.s-fleet-metric-value {
-  grid-column: 1 / -1;
-  font-family: var(--font-serif);
-  font-size: 30px;
-  line-height: 1;
-  color: var(--ink);
-}
-
-.s-fleet-roster {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.s-fleet-roster-row {
-  width: 100%;
-  min-height: 36px;
-  padding: 8px 10px;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  color: inherit;
-  display: grid;
-  grid-template-columns: 8px minmax(110px, 0.9fr) minmax(130px, 1fr) 78px 82px;
-  gap: 8px;
-  align-items: center;
-  text-align: left;
-  cursor: pointer;
-}
-
-.s-fleet-roster-row:last-child {
-  border-bottom: 0;
-}
-
-.s-fleet-roster-row:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-
-.s-fleet-roster-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.s-fleet-roster-name {
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.s-fleet-roster-meta,
-.s-fleet-roster-state,
-.s-fleet-roster-time,
-.s-fleet-clear-empty {
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.s-fleet-roster-state {
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.s-fleet-roster-time {
-  text-align: right;
-}
-
-.s-fleet-clear-empty {
-  display: flex;
-  align-items: center;
-  min-height: 64px;
-  padding: 14px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-}
-
 /* ── Now cards (active agents) ─────────────────────────────────────── */
 
 .s-now-grid {
@@ -874,6 +723,24 @@
 
 .s-now-card:hover {
   border-color: var(--dim);
+}
+
+/* Observed (unmanaged native actor) variant — quieter than a managed agent. */
+.s-now-card--observed {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
+}
+
+.s-now-card--observed .s-now-card-name {
+  color: var(--ink);
+}
+
+.s-now-card--observed .s-now-card-meta {
+  color: var(--muted);
+}
+
+.s-now-card-live--observed {
+  color: var(--amber);
 }
 
 .s-now-card-head {

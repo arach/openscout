@@ -54,6 +54,8 @@ export type ScoutMobileAgentSummary = {
   title: string;
   selector: string | null;
   defaultSelector: string | null;
+  nodeId: string | null;
+  nodeName: string | null;
   workspaceRoot: string | null;
   harness: string | null;
   transport: string | null;
@@ -294,6 +296,11 @@ function buildMobileAgentSummary(
     title: agent.displayName,
     selector: agent.selector ?? null,
     defaultSelector: agent.defaultSelector ?? null,
+    nodeId: endpoint?.nodeId ?? agent.authorityNodeId ?? agent.homeNodeId ?? null,
+    nodeName: (endpoint?.nodeId ? snapshot.nodes[endpoint.nodeId]?.name : null)
+      ?? snapshot.nodes[agent.authorityNodeId]?.name
+      ?? snapshot.nodes[agent.homeNodeId]?.name
+      ?? null,
     workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
     harness: endpoint?.harness ?? null,
     transport: endpoint?.transport ?? null,
@@ -792,6 +799,13 @@ export async function createScoutSession(
     title: agentTitle,
     selector: brokerAgent?.selector ?? null,
     defaultSelector: brokerAgent?.defaultSelector ?? null,
+    nodeId: brokerEndpoint?.nodeId ?? brokerAgent?.authorityNodeId ?? brokerAgent?.homeNodeId ?? null,
+    nodeName: snapshot
+      ? (brokerEndpoint?.nodeId ? snapshot.nodes[brokerEndpoint.nodeId]?.name : null)
+        ?? (brokerAgent?.authorityNodeId ? snapshot.nodes[brokerAgent.authorityNodeId]?.name : null)
+        ?? (brokerAgent?.homeNodeId ? snapshot.nodes[brokerAgent.homeNodeId]?.name : null)
+        ?? null
+      : null,
     workspaceRoot: brokerEndpoint?.projectRoot ?? brokerEndpoint?.cwd ?? workspace.root,
     harness: brokerEndpoint?.harness ?? localAgent.harness,
     transport: localAgent.transport,

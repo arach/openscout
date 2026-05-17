@@ -919,7 +919,9 @@
 }
 
 
-/* ── Mobile back button ── */
+.s-profile-back-position {
+  margin-bottom: 12px;
+}
 
 .s-profile-mobile-back {
   display: none;

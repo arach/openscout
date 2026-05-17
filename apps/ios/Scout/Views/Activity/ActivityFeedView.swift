@@ -129,8 +129,8 @@ struct ActivityFeedView: View {
                             }
 
                             Button(role: .destructive) {
-                                withAnimation(.easeOut(duration: 0.18)) {
-                                    dismissedIds.insert(item.id)
+                                withAnimation(SwiftUI.Animation.easeOut(duration: 0.18)) {
+                                    _ = dismissedIds.insert(item.id)
                                 }
                             } label: {
                                 Label("Dismiss", systemImage: "xmark.circle")

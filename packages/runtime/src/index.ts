@@ -29,4 +29,5 @@ export * from "./observed-status-projection.js";
 export * from "./issue-runner.js";
 export * from "./issue-runner-service.js";
 export * from "./session-attention.js";
+export * from "./vantage-plan.js";
 export * from "./conversations/index.js";

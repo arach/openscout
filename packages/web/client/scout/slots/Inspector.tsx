@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useScout } from "../Provider.tsx";
+import { openAgent } from "./openAgent.ts";
+import { openContent } from "./openContent.ts";
 import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -99,7 +101,7 @@ export function ScoutInspector() {
       content = <MeshInspectorPanel />;
       break;
     case "ops":
-      content = <OpsInspectorPanel mode={route.mode ?? "command"} agents={agents} navigate={navigate} />;
+      content = <OpsInspectorPanel mode={route.mode ?? "mission"} agents={agents} navigate={navigate} returnRoute={route} />;
       break;
     case "broker":
       content = selectedBrokerAttempt
@@ -141,14 +143,11 @@ function BrokerInspectorEmpty() {
 }
 
 const OPS_MODE_LABELS: Record<OpsMode, string> = {
-  command: "Command",
   mission: "Control",
   plan: "Plan",
-  conductor: "Conduct",
   tail: "Tail",
   atop: "Atop",
   agents: "Agents",
-  runs: "Runs",
 };
 
 type OpsDetailSnapshot = {
@@ -163,10 +162,12 @@ function OpsInspectorPanel({
   mode,
   agents,
   navigate,
+  returnRoute,
 }: {
   mode: OpsMode;
   agents: Agent[];
   navigate: (route: Route) => void;
+  returnRoute: Route;
 }) {
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [detail, setDetail] = useState<OpsDetailSnapshot | null>(() => {
@@ -287,7 +288,7 @@ function OpsInspectorPanel({
               key={agent.id}
               type="button"
               className="ctx-panel-pulse-row"
-              onClick={() => navigate({ view: "agents", agentId: agent.id })}
+              onClick={() => openAgent(navigate, agent, { from: "inspector", returnTo: returnRoute })}
             >
               <span className={`ctx-panel-pulse-dot ctx-panel-pulse-dot--${normalizeAgentState(agent.state)}`} />
               <span>{agent.name}</span>
@@ -344,15 +345,16 @@ function OpsAttentionButton({
   item: FleetAttentionItem;
   navigate: (route: Route) => void;
 }) {
+  const { route } = useScout();
   return (
     <button
       type="button"
       className="ctx-panel-item ctx-panel-item--attention"
       onClick={() => {
         if (item.conversationId) {
-          navigate({ view: "conversation", conversationId: item.conversationId });
+          openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route });
         } else {
-          navigate({ view: "ops", mode: "command" });
+          navigate({ view: "ops", mode: "mission" });
         }
       }}
     >
@@ -371,15 +373,16 @@ function OpsAskButton({
   ask: FleetAsk;
   navigate: (route: Route) => void;
 }) {
+  const { route } = useScout();
   return (
     <button
       type="button"
       className="ctx-panel-item"
       onClick={() => {
         if (ask.conversationId) {
-          navigate({ view: "conversation", conversationId: ask.conversationId });
+          openContent(navigate, { view: "conversation", conversationId: ask.conversationId }, { returnTo: route });
         } else {
-          navigate({ view: "ops", mode: "runs" });
+          navigate({ view: "ops", mode: "mission" });
         }
       }}
     >

@@ -491,7 +491,7 @@ struct TimelineView: View {
         if isHydrating {
             proxy.scrollTo("bottom", anchor: .bottom)
         } else {
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(SwiftUI.Animation.easeOut(duration: 0.25)) {
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
         }

@@ -7,6 +7,7 @@
 
 export {
   getTailDiscovery,
+  readRecentTranscriptEvents,
   snapshotRecentEvents,
   subscribeTail,
 } from "./service.js";

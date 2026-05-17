@@ -361,16 +361,14 @@ function normalizeRoute(raw: unknown): Route | null {
 
 function normalizeOpsMode(mode: string): OpsMode | undefined {
   switch (mode) {
-    case "command":
-      return "command";
-    case "warroom":
-      return "command";
     case "control":
     case "mission":
-      return "mission";
+    // Command/Conductor views retired — legacy aliases route to Control.
+    case "command":
+    case "warroom":
     case "conduct":
     case "conductor":
-      return "conductor";
+      return "mission";
     case "plan":
     case "agents":
     case "tail":

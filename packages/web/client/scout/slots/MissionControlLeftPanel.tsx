@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from "react";
 import "./ctx-panel.css";
 import "./mission-left.css";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
-import { stateColor } from "../../lib/colors.ts";
 import {
   MISSION_RECENT_WINDOWS,
   clearMissionSelection,
@@ -24,6 +23,7 @@ import {
 } from "../../lib/keyboard-nav.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { statusOnHover } from "../../lib/page-status.ts";
+import { RailRow } from "./RailRow.tsx";
 
 export function ScoutMissionControlLeftPanel() {
   const { navigate } = useScout();
@@ -202,57 +202,46 @@ function AgentRow({
     label: `Focus ${agent.handle ?? agent.name}`,
     route: `/ops/control · ${agent.id}`,
   });
+  const detail = (
+    <>
+      <dl className="rr-spec-list">
+        <SpecLine label="MODEL" value={[agent.harness, agent.model].filter(Boolean).join("/") || "—"} />
+        <SpecLine label="AT" value={[agent.project, agent.branch].filter(Boolean).join("/") || "—"} />
+        <SpecLine label="STATE" value={state} />
+        <SpecLine label="SOURCE" value={agent.source} />
+      </dl>
+      <div className="ml-detail-actions">
+        <button type="button" className="ml-detail-btn" onClick={onFocusOnCanvas}>
+          Focus on canvas
+        </button>
+        <button type="button" className="ml-detail-btn ml-detail-btn--primary" onClick={onOpen}>
+          Open ↗
+        </button>
+      </div>
+    </>
+  );
   return (
-    <div
-      className={`ml-row${isExpanded ? " ml-row--expanded" : ""}${isSelected ? " ml-row--selected" : ""}`}
-    >
-      <button
-        type="button"
-        tabIndex={tabIndex}
-        className="ml-row-head"
-        onClick={(e) => onToggle(e)}
-        onPointerEnter={hoverHandlers.onPointerEnter}
-        onPointerLeave={hoverHandlers.onPointerLeave}
-        aria-expanded={isExpanded}
-      >
-        <span
-          className="ml-row-dot"
-          style={{ background: stateColor(state) }}
-          aria-hidden
-        />
-        <span className="ml-row-name">{agent.handle ?? agent.name}</span>
-        {agent.updatedAt && (
-          <span className="ml-row-time">{timeAgo(agent.updatedAt)}</span>
-        )}
-        <span className="ml-row-caret" aria-hidden>{isExpanded ? "−" : "+"}</span>
-      </button>
-      {isExpanded && (
-        <div className="ml-row-detail">
-          <dl className="ml-detail-list">
-            <SpecLine label="MODEL" value={[agent.harness, agent.model].filter(Boolean).join("/") || "—"} />
-            <SpecLine label="AT" value={[agent.project, agent.branch].filter(Boolean).join("/") || "—"} />
-            <SpecLine label="STATE" value={state} />
-            <SpecLine label="SOURCE" value={agent.source} />
-          </dl>
-          <div className="ml-detail-actions">
-            <button type="button" className="ml-detail-btn" onClick={onFocusOnCanvas}>
-              Focus on canvas
-            </button>
-            <button type="button" className="ml-detail-btn ml-detail-btn--primary" onClick={onOpen}>
-              Open ↗
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+    <RailRow
+      name={agent.handle ?? agent.name}
+      meta={agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
+      tone={state}
+      caret={isExpanded ? "open" : "closed"}
+      selected={isSelected}
+      expanded={isExpanded}
+      detail={detail}
+      tabIndex={tabIndex}
+      onClick={(e) => onToggle(e)}
+      onPointerEnter={hoverHandlers.onPointerEnter as (e: React.PointerEvent) => void}
+      onPointerLeave={hoverHandlers.onPointerLeave as (e: React.PointerEvent) => void}
+    />
   );
 }
 
 function SpecLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="ml-spec">
-      <dt className="ml-spec-label">{label}</dt>
-      <dd className="ml-spec-value" title={value}>{value}</dd>
+    <div className="rr-spec">
+      <dt className="rr-spec-label">{label}</dt>
+      <dd className="rr-spec-value" title={value}>{value}</dd>
     </div>
   );
 }

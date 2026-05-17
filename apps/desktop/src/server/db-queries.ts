@@ -1464,6 +1464,8 @@ export type MobileAgentSummary = {
   title: string;
   selector: string | null;
   defaultSelector: string | null;
+  nodeId: string | null;
+  nodeName: string | null;
   workspaceRoot: string | null;
   harness: string | null;
   transport: string | null;
@@ -1494,10 +1496,13 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
        ep.state,
        ep.project_root,
        ep.session_id,
-       ep.updated_at
+       ep.updated_at,
+       COALESCE(ep.node_id, a.authority_node_id, a.home_node_id) AS node_id,
+       n.name AS node_name
      FROM agents a
      JOIN actors ac ON ac.id = a.id
      ${LATEST_AGENT_ENDPOINT_JOIN}
+     LEFT JOIN nodes n ON n.id = COALESCE(ep.node_id, a.authority_node_id, a.home_node_id)
      ORDER BY COALESCE(ep.updated_at, 0) DESC, ac.display_name ASC
      LIMIT ?`,
   ).all(limit) as Array<{
@@ -1511,6 +1516,8 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
     project_root: string | null;
     session_id: string | null;
     updated_at: number | null;
+    node_id: string | null;
+    node_name: string | null;
   }>;
 
   return rows.map((r) => {
@@ -1526,6 +1533,8 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
       title: r.display_name,
       selector: (meta.selector as string) ?? null,
       defaultSelector: r.default_selector,
+      nodeId: compact(r.node_id),
+      nodeName: compact(r.node_name),
       workspaceRoot: compact(r.project_root),
       harness: r.harness,
       transport: r.transport,
@@ -1754,10 +1763,13 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
        ep.project_root,
        ep.cwd,
        ep.session_id,
-       ep.updated_at
+       ep.updated_at,
+       COALESCE(ep.node_id, a.authority_node_id, a.home_node_id) AS node_id,
+       n.name AS node_name
      FROM agents a
      JOIN actors ac ON ac.id = a.id
      ${LATEST_AGENT_ENDPOINT_JOIN}
+     LEFT JOIN nodes n ON n.id = COALESCE(ep.node_id, a.authority_node_id, a.home_node_id)
      WHERE a.id = ?`,
   ).get(agentId) as {
     id: string;
@@ -1773,6 +1785,8 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     cwd: string | null;
     session_id: string | null;
     updated_at: number | null;
+    node_id: string | null;
+    node_name: string | null;
   } | null;
 
   if (!row) return null;
@@ -1843,6 +1857,8 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     title: row.display_name,
     selector: (meta.selector as string) ?? null,
     defaultSelector: row.default_selector,
+    nodeId: compact(row.node_id),
+    nodeName: compact(row.node_name),
     workspaceRoot: compact(row.project_root),
     harness: row.harness,
     transport: row.transport,

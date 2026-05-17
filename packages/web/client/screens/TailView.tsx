@@ -12,6 +12,8 @@ import {
 import { SlidePanel } from "../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
+import { openContent } from "../scout/slots/openContent.ts";
+import { useScout } from "../scout/Provider.tsx";
 import type {
   Route,
   TailDiscoverySnapshot,
@@ -109,6 +111,7 @@ export function TailView({
   navigate?: (r: Route) => void;
   initialFilter?: string;
 } = {}) {
+  const { route } = useScout();
   const [events, setEvents] = useState<TailEvent[]>([]);
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [filter, setFilter] = useState(initialFilter ?? "");
@@ -224,9 +227,9 @@ export function TailView({
   const navigateToSession = useCallback(
     (sessionId: string) => {
       if (!sessionId || !navigate) return;
-      navigate({ view: "sessions", sessionId });
+      openContent(navigate, { view: "sessions", sessionId }, { returnTo: route });
     },
-    [navigate],
+    [navigate, route],
   );
 
   const jumpToLive = useCallback(() => {

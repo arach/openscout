@@ -323,6 +323,15 @@ struct BridgeConnectionInfo: Codable, Sendable {
     }
 }
 
+struct PairedPrimarySummary: Identifiable, Sendable, Equatable {
+    let id: String
+    let name: String
+    let publicKeyHex: String
+    let isActive: Bool
+    let lastSeen: Date?
+    let relayURLs: [String]
+}
+
 // MARK: - Transport classification
 
 enum TransportKind: String {
@@ -446,6 +455,36 @@ final class ConnectionManager: @unchecked Sendable {
 
     var pairedBridgeFingerprint: String? {
         currentTrustedBridge?.publicKeyHex
+    }
+
+    var activePrimaryPublicKeyHex: String? {
+        connectionInfo?.publicKeyHex.lowercased()
+    }
+
+    var pairedPrimaries: [PairedPrimarySummary] {
+        let infos = Self.loadConnectionInfos()
+        let trusted = ((try? ScoutIdentity.getTrustedBridges()) ?? [])
+            .reduce(into: [String: TrustedBridge]()) { result, bridge in
+                result[bridge.publicKeyHex.lowercased()] = bridge
+            }
+        let activeKey = activePrimaryPublicKeyHex
+
+        return infos.map { info in
+            let key = info.publicKeyHex.lowercased()
+            let bridge = trusted[key]
+            return PairedPrimarySummary(
+                id: key,
+                name: bridge?.name?.trimmedNonEmpty ?? "Primary",
+                publicKeyHex: key,
+                isActive: key == activeKey,
+                lastSeen: bridge?.lastSeen,
+                relayURLs: info.relayURLs
+            )
+        }
+        .sorted { left, right in
+            if left.isActive != right.isActive { return left.isActive && !right.isActive }
+            return (left.lastSeen ?? .distantPast) > (right.lastSeen ?? .distantPast)
+        }
     }
 
     var relayRoomId: String? {
@@ -767,7 +806,7 @@ final class ConnectionManager: @unchecked Sendable {
         self.sessionStore = sessionStore
         self.inboxStore = inboxStore
         self.urlSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
-        self.connectionInfo = Self.loadConnectionInfo()
+        self.connectionInfo = Self.loadActiveConnectionInfo()
         self.cachedRemotePushToken = Self.loadRemotePushToken()
         self.health = self.connectionInfo == nil ? .offline : .suspect
     }
@@ -896,7 +935,7 @@ final class ConnectionManager: @unchecked Sendable {
     // MARK: - Connection lifecycle
 
     /// Connect to a bridge via QR pairing payload (XX handshake).
-    func connect(qrPayload: QRPayload) async throws {
+    func connect(qrPayload: QRPayload, primaryName: String? = nil) async throws {
         manualDisconnectRequested = false
         // Validate using the QRPayload's built-in validation.
         if let error = qrPayload.validate() {
@@ -930,7 +969,7 @@ final class ConnectionManager: @unchecked Sendable {
             )
 
             // On successful XX handshake, save the bridge as trusted in Keychain.
-            try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey)
+            try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: primaryName)
 
             let publicKeyHex = hexString(attempt.remoteKey)
 
@@ -1484,29 +1523,69 @@ final class ConnectionManager: @unchecked Sendable {
 
     /// Whether there is a saved trusted bridge (for UI routing decisions).
     var hasTrustedBridge: Bool {
-        connectionInfo != nil || currentTrustedBridge != nil
+        connectionInfo != nil || !Self.loadConnectionInfos().isEmpty || currentTrustedBridge != nil
+    }
+
+    func activatePrimary(publicKeyHex: String) async {
+        let normalizedKey = publicKeyHex.lowercased()
+        guard let info = Self.loadConnectionInfos().first(where: { $0.publicKeyHex.lowercased() == normalizedKey }) else {
+            return
+        }
+
+        disconnect()
+        manualDisconnectRequested = false
+        connectionInfo = info
+        Self.saveActivePrimaryPublicKeyHex(normalizedKey)
+        Self.saveLegacyConnectionInfo(info)
+        lastSyncedPushRegistrationSignature = nil
+        await MainActor.run {
+            sessionStore.clearAll()
+            inboxStore.clear()
+            sessionStore.bindToBridge(publicKeyHex: info.publicKeyHex)
+        }
+        await reconnect()
     }
 
     /// Clear the trusted bridge record (triggers QR scanner).
     func clearTrustedBridge() {
-        disconnect()
+        clearPrimary(publicKeyHex: connectionInfo?.publicKeyHex)
+    }
 
-        if let info = connectionInfo {
+    func clearPrimary(publicKeyHex: String?) {
+        let key = publicKeyHex?.lowercased()
+        let removingActivePrimary = key == connectionInfo?.publicKeyHex.lowercased()
+        if removingActivePrimary {
+            disconnect()
+        }
+
+        if let info = Self.loadConnectionInfos().first(where: { $0.publicKeyHex.lowercased() == key }) {
             let keyData = info.bridgePublicKeyData
             if keyData.count == 32 {
                 try? ScoutIdentity.removeTrustedBridge(publicKey: keyData)
             }
         }
-        connectionInfo = nil
-        UserDefaults.standard.removeObject(forKey: "scout.connectionInfo")
-        Task { @MainActor in
-            sessionStore.clearAll()
-            inboxStore.clear()
-            sessionStore.connectionState = .disconnected
+        if let key {
+            Self.removeConnectionInfo(publicKeyHex: key)
         }
-        lastSyncedPushRegistrationSignature = nil
-        setState(.disconnected)
-        Self.logger.notice("Cleared trusted bridge record")
+
+        if removingActivePrimary {
+            connectionInfo = Self.loadConnectionInfos().first
+            if let connectionInfo {
+                Self.saveActivePrimaryPublicKeyHex(connectionInfo.publicKeyHex)
+                Self.saveLegacyConnectionInfo(connectionInfo)
+            } else {
+                UserDefaults.standard.removeObject(forKey: "scout.activeConnectionPublicKeyHex")
+                UserDefaults.standard.removeObject(forKey: "scout.connectionInfo")
+            }
+            Task { @MainActor in
+                sessionStore.clearAll()
+                inboxStore.clear()
+                sessionStore.connectionState = .disconnected
+            }
+            lastSyncedPushRegistrationSignature = nil
+            setState(.disconnected)
+        }
+        Self.logger.notice("Cleared trusted primary record")
     }
 
     // MARK: - RPC client methods
@@ -2242,11 +2321,41 @@ final class ConnectionManager: @unchecked Sendable {
 
     // MARK: - Private: Connection info persistence
 
-    private static func loadConnectionInfo() -> BridgeConnectionInfo? {
+    private static func loadActiveConnectionInfo() -> BridgeConnectionInfo? {
+        let infos = loadConnectionInfos()
+        if let activeKey = UserDefaults.standard.string(forKey: "scout.activeConnectionPublicKeyHex")?.lowercased(),
+           let info = infos.first(where: { $0.publicKeyHex.lowercased() == activeKey }) {
+            return info
+        }
+        if let info = infos.first {
+            saveActivePrimaryPublicKeyHex(info.publicKeyHex)
+            saveLegacyConnectionInfo(info)
+            return info
+        }
+        guard let legacy = loadLegacyConnectionInfo() else {
+            return nil
+        }
+        saveConnectionInfos([legacy])
+        saveActivePrimaryPublicKeyHex(legacy.publicKeyHex)
+        return legacy
+    }
+
+    private static func loadLegacyConnectionInfo() -> BridgeConnectionInfo? {
         guard let data = UserDefaults.standard.data(forKey: "scout.connectionInfo") else {
             return nil
         }
         return try? JSONDecoder().decode(BridgeConnectionInfo.self, from: data)
+    }
+
+    private static func loadConnectionInfos() -> [BridgeConnectionInfo] {
+        guard let data = UserDefaults.standard.data(forKey: "scout.connectionInfos"),
+              let infos = try? JSONDecoder().decode([BridgeConnectionInfo].self, from: data) else {
+            return loadLegacyConnectionInfo().map { [$0] } ?? []
+        }
+        var seen = Set<String>()
+        return infos.filter { info in
+            seen.insert(info.publicKeyHex.lowercased()).inserted
+        }
     }
 
     private static func loadRemotePushToken() -> String? {
@@ -2254,6 +2363,38 @@ final class ConnectionManager: @unchecked Sendable {
     }
 
     private func saveConnectionInfo(_ info: BridgeConnectionInfo) {
+        var infos = Self.loadConnectionInfos()
+        let key = info.publicKeyHex.lowercased()
+        if let index = infos.firstIndex(where: { $0.publicKeyHex.lowercased() == key }) {
+            infos[index] = info
+        } else {
+            infos.append(info)
+        }
+        Self.saveConnectionInfos(infos)
+        Self.saveActivePrimaryPublicKeyHex(key)
+        Self.saveLegacyConnectionInfo(info)
+    }
+
+    private static func saveConnectionInfos(_ infos: [BridgeConnectionInfo]) {
+        var seen = Set<String>()
+        let deduped = infos.filter { info in
+            seen.insert(info.publicKeyHex.lowercased()).inserted
+        }
+        if let data = try? JSONEncoder().encode(deduped) {
+            UserDefaults.standard.set(data, forKey: "scout.connectionInfos")
+        }
+    }
+
+    private static func removeConnectionInfo(publicKeyHex: String) {
+        let key = publicKeyHex.lowercased()
+        saveConnectionInfos(loadConnectionInfos().filter { $0.publicKeyHex.lowercased() != key })
+    }
+
+    private static func saveActivePrimaryPublicKeyHex(_ publicKeyHex: String) {
+        UserDefaults.standard.set(publicKeyHex.lowercased(), forKey: "scout.activeConnectionPublicKeyHex")
+    }
+
+    private static func saveLegacyConnectionInfo(_ info: BridgeConnectionInfo) {
         if let data = try? JSONEncoder().encode(info) {
             UserDefaults.standard.set(data, forKey: "scout.connectionInfo")
         }

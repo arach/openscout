@@ -1,6 +1,8 @@
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { workTone } from "../lib/status-tone.ts";
 import { timeAgo } from "../lib/time.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import type { Route, WorkItem } from "../lib/types.ts";
 import { StatusPill } from "./StatusPill.tsx";
 
@@ -45,6 +47,7 @@ export function WorkList({
   emptyTitle,
   emptyDetail,
 }: WorkListProps) {
+  const { route } = useScout();
   if (items.length === 0) {
     const placeholderRows = [
       {
@@ -94,9 +97,9 @@ export function WorkList({
         const ownerLabel = work.ownerName ?? work.ownerId ?? "Unassigned";
 
         const onClick = work.id
-          ? () => navigate({ view: "work", workId: work.id })
+          ? () => openContent(navigate, { view: "work", workId: work.id }, { returnTo: route })
           : work.conversationId
-          ? () => navigate({ view: "conversation", conversationId: work.conversationId! })
+          ? () => openContent(navigate, { view: "conversation", conversationId: work.conversationId! }, { returnTo: route })
           : undefined;
 
         return (

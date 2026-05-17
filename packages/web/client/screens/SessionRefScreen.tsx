@@ -8,6 +8,7 @@ import type {
   Route,
   SessionEntry,
 } from "../lib/types.ts";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import { SessionObserve } from "./SessionObserve.tsx";
 import "./inbox-thread-redesign.css";
@@ -175,13 +176,11 @@ export function SessionRefScreen({
             <p className="s-session-ref-error-detail">{error}</p>
           )}
           <div className="s-session-ref-nav-hint">
-            <button
-              type="button"
-              className="s-back"
-              onClick={() => navigate({ view: "sessions" })}
-            >
-              &larr; Back to sessions
-            </button>
+            <BackToPicker
+              slot="sessions"
+              fallback={{ view: "sessions" }}
+              navigate={navigate}
+            />
           </div>
         </div>
       </section>

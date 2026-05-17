@@ -84,40 +84,40 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     el.style.visibility = "visible";
   }, [menu]);
 
-  if (!menu) return <>{children}</>;
-
   return (
     <>
       {children}
-      <div
-        ref={menuRef}
-        className="s-context-menu"
-        style={{ left: menu.position.x, top: menu.position.y, visibility: "hidden" }}
-        role="menu"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {menu.items.map((item, i) =>
-          item.kind === "separator" ? (
-            <div key={i} className="s-context-menu-sep" role="separator" />
-          ) : (
-            <button
-              key={i}
-              type="button"
-              className="s-context-menu-item"
-              role="menuitem"
-              onClick={() => {
-                item.onSelect();
-                close();
-              }}
-            >
-              <span className="s-context-menu-label">{item.label}</span>
-              {item.shortcut && (
-                <span className="s-context-menu-shortcut">{item.shortcut}</span>
-              )}
-            </button>
-          ),
-        )}
-      </div>
+      {menu && (
+        <div
+          ref={menuRef}
+          className="s-context-menu"
+          style={{ left: menu.position.x, top: menu.position.y, visibility: "hidden" }}
+          role="menu"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {menu.items.map((item, i) =>
+            item.kind === "separator" ? (
+              <div key={i} className="s-context-menu-sep" role="separator" />
+            ) : (
+              <button
+                key={i}
+                type="button"
+                className="s-context-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  item.onSelect();
+                  close();
+                }}
+              >
+                <span className="s-context-menu-label">{item.label}</span>
+                {item.shortcut && (
+                  <span className="s-context-menu-shortcut">{item.shortcut}</span>
+                )}
+              </button>
+            ),
+          )}
+        </div>
+      )}
     </>
   );
 }

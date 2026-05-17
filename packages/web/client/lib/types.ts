@@ -817,6 +817,19 @@ export type MeshStatus = {
       brokerUrl?: string;
       registeredAt?: number;
       lastSeenAt?: number;
+      /**
+       * High-level host facts a node announces to the mesh. All fields optional
+       * so the UI can render placeholders before the broker fills them in.
+       */
+      host?: {
+        scoutVersion?: string;
+        os?: string;
+        arch?: string;
+        cpuCores?: number;
+        memoryGb?: number;
+        storageCapacityGb?: number;
+        network?: string;
+      };
     }
   >;
   tailscale: {
@@ -1028,7 +1041,7 @@ export type Route =
   | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
-export type OpsMode = "command" | "plan" | "conductor" | "mission" | "agents" | "tail" | "atop" | "runs";
+export type OpsMode = "plan" | "mission" | "agents" | "tail" | "atop";
 export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 
 export type FollowTarget = {
@@ -1111,6 +1124,21 @@ export type TailDiscoverySnapshot = {
     unattributed: number;
     transcripts?: number;
   };
+};
+
+/* ── Broadcast (fleet ticker) types ── */
+
+export type BroadcastTier = "info" | "warn" | "error";
+
+export type Broadcast = {
+  id: string;
+  tier: BroadcastTier;
+  text: string;
+  agent?: string;
+  project?: string;
+  ts: number;
+  ruleId: string;
+  key: string;
 };
 
 /* ── Ops types (Plan view) ── */

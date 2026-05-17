@@ -28,6 +28,8 @@ import {
   type LastViewedMap,
 } from "../lib/sessionRead.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import type {
@@ -577,6 +579,7 @@ function RailItem({
   needsYou: boolean;
   navigate: (r: Route) => void;
 }) {
+  const { route } = useScout();
   const title = deriveDisplayTitle(session);
   const initial = (session.agentName ?? title)[0]?.toUpperCase() ?? "?";
   const isDm = session.kind === "direct";
@@ -593,7 +596,7 @@ function RailItem({
         .filter(Boolean)
         .join(" ")}
       onClick={() =>
-        navigate({ view: "conversation", conversationId: session.id })
+        openContent(navigate, { view: "conversation", conversationId: session.id }, { returnTo: route })
       }
     >
       {isDm ? (
@@ -817,7 +820,7 @@ export function ConversationScreen({
   navigate: (r: Route) => void;
   embedded?: boolean;
 }) {
-  const { agents } = useScout();
+  const { agents, route } = useScout();
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
@@ -1603,10 +1606,23 @@ export function ConversationScreen({
   return (
     <div className={`s-thread-layout${embedded ? " s-thread-layout--embedded" : ""}`}>
       <div className="s-thread-center">
+        {!embedded && (
+          <BackToPicker
+            slot="conversation"
+            fallback={{ view: "inbox" }}
+            navigate={navigate}
+          />
+        )}
         {!embedded && <div
           className="s-thread-center-header"
           onClick={() =>
-            isDm ? navigate({ view: "agent-info", conversationId }) : undefined
+            isDm
+              ? openContent(
+                  navigate,
+                  { view: "agent-info", conversationId },
+                  { returnTo: route },
+                )
+              : undefined
           }
           style={isDm ? { cursor: "pointer" } : undefined}
           onContextMenu={(e) => {
@@ -1871,7 +1887,11 @@ export function ConversationScreen({
                           cwd: sessionCatalog.resumeCwd,
                           agentId,
                         }).then(() =>
-                          navigate({ view: "terminal", agentId: agentId ?? undefined }),
+                          openContent(
+                            navigate,
+                            { view: "terminal", agentId: agentId ?? undefined },
+                            { returnTo: route },
+                          ),
                         );
                         setTakeoverSent(true);
                       }}
@@ -1988,26 +2008,71 @@ export function ConversationScreen({
                     onContextMenu={(e) => onMessageContextMenu(e, message)}
                   >
                     <div className="s-thread-msg-card s-thread-msg-card--avatar-row">
-                      <div
-                        className="s-ops-avatar s-thread-msg-avatar"
-                        style={{
+                      {(() => {
+                        const profileNav = !isYou && messageAgent
+                          ? () =>
+                              openContent(
+                                navigate,
+                                {
+                                  view: "agent-info",
+                                  conversationId: conversationForAgent(messageAgent.id),
+                                },
+                                { returnTo: route },
+                              )
+                          : null;
+                        const avatarLabel = (isYou
+                          ? operatorName[0]
+                          : message.actorName?.[0] ?? "?"
+                        ).toUpperCase();
+                        const avatarStyle = {
                           "--size": "28px",
                           background: actorColor(
                             isYou ? operatorName : (message.actorName ?? "?"),
                           ),
-                        } as React.CSSProperties}
-                      >
-                        {(isYou
-                          ? operatorName[0]
-                          : message.actorName?.[0] ?? "?"
-                        ).toUpperCase()}
-                      </div>
+                        } as React.CSSProperties;
+                        return profileNav ? (
+                          <button
+                            type="button"
+                            className="s-ops-avatar s-thread-msg-avatar s-thread-msg-avatar--nav"
+                            style={avatarStyle}
+                            onClick={profileNav}
+                            aria-label={`View profile for ${message.actorName ?? "agent"}`}
+                            title={`View profile for ${message.actorName ?? "agent"}`}
+                          >
+                            {avatarLabel}
+                          </button>
+                        ) : (
+                          <div className="s-ops-avatar s-thread-msg-avatar" style={avatarStyle}>
+                            {avatarLabel}
+                          </div>
+                        );
+                      })()}
                       <div className="s-thread-msg-card-content">
                         <div className="s-thread-msg-header">
                           <div className="s-thread-msg-meta">
-                            <span className="s-thread-msg-actor">
-                              {isYou ? operatorName : message.actorName}
-                            </span>
+                            {!isYou && messageAgent ? (
+                              <button
+                                type="button"
+                                className="s-thread-msg-actor s-thread-msg-actor--nav"
+                                onClick={() =>
+                                  openContent(
+                                    navigate,
+                                    {
+                                      view: "agent-info",
+                                      conversationId: conversationForAgent(messageAgent.id),
+                                    },
+                                    { returnTo: route },
+                                  )
+                                }
+                                title={`View profile for ${message.actorName}`}
+                              >
+                                {message.actorName}
+                              </button>
+                            ) : (
+                              <span className="s-thread-msg-actor">
+                                {isYou ? operatorName : message.actorName}
+                              </span>
+                            )}
                             {actorHandle && (
                               <span className="s-thread-msg-handle">
                                 @{actorHandle}

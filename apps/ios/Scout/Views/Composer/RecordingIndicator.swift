@@ -155,7 +155,7 @@ struct LiveWaveformBars: View {
                         width: barWidth,
                         height: minHeight + CGFloat(level) * (maxHeight - minHeight)
                     )
-                    .animation(.easeOut(duration: 0.08), value: level)
+                    .animation(SwiftUI.Animation.easeOut(duration: 0.08), value: level)
             }
         }
     }

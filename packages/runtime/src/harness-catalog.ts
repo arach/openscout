@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { resolveCodexExecutableInventory, type CodexExecutableCandidate } from "@openscout/agent-sessions/codex-executable";
@@ -328,8 +329,9 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
 ];
 
 function expandHomePath(value: string): string {
-  if (value === "~") return process.env.HOME || value;
-  if (value.startsWith("~/")) return join(process.env.HOME || "~", value.slice(2));
+  const home = process.env.HOME?.trim() || homedir();
+  if (value === "~") return home;
+  if (value.startsWith("~/")) return join(home, value.slice(2));
   return value;
 }
 
@@ -467,7 +469,7 @@ export function buildHarnessResumeCommand(
   if (!entry.resume) return null;
   const parts = [entry.resume.command, entry.resume.sessionFlag];
   if (cwd && entry.resume.cwdFlag) {
-    parts.push(entry.resume.cwdFlag, cwd);
+    parts.push(entry.resume.cwdFlag, expandHomePath(cwd));
   }
   parts.push(sessionId);
   return parts.map(shellQuoteArg).join(" ");

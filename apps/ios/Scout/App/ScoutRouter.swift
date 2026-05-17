@@ -22,6 +22,7 @@ enum Surface: Hashable {
     case comms
     case channel(id: String)
     case dm(peerId: String)
+    case terminal
 }
 
 @MainActor

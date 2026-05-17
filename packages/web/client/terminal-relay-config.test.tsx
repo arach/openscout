@@ -1,6 +1,16 @@
 import { describe, expect, mock, test } from "bun:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+
+const React = await import("../node_modules/react/index.js");
+const ReactJsxRuntime = await import("../node_modules/react/jsx-runtime.js");
+const ReactJsxDevRuntime = await import("../node_modules/react/jsx-dev-runtime.js");
+const ReactDomServer = await import("../node_modules/react-dom/server.node.js");
+const { createElement } = React;
+const { renderToStaticMarkup } = ReactDomServer;
+
+mock.module("react", () => React);
+mock.module("react/jsx-runtime", () => ReactJsxRuntime);
+mock.module("react/jsx-dev-runtime", () => ReactJsxDevRuntime);
+mock.module("react-dom/server", () => ReactDomServer);
 
 const useTerminalRelayMock = mock(() => ({
   status: "disconnected" as const,

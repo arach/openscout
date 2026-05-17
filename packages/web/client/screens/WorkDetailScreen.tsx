@@ -8,6 +8,9 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { workChildTone, workTone } from "../lib/status-tone.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
+import { openContent } from "../scout/slots/openContent.ts";
 import type { Route, WorkDetail, WorkMaterial, WorkMaterialContent, WorkMaterialsInventory, WorkTimelineItem } from "../lib/types.ts";
 
 type Fact = {
@@ -434,6 +437,7 @@ function WorkBriefViewer({
   navigate: (r: Route) => void;
   onClose: () => void;
 }) {
+  const { route } = useScout();
   if (!open || !summary) {
     return null;
   }
@@ -460,7 +464,7 @@ function WorkBriefViewer({
         ? [{
             label: "Thread",
             icon: <MessageSquare aria-hidden="true" size={13} strokeWidth={1.8} />,
-            onClick: () => navigate({ view: "conversation", conversationId: detail.conversationId! }),
+            onClick: () => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route }),
             title: "Open source thread",
           }]
         : []}
@@ -648,6 +652,7 @@ export function WorkDetailScreen({
   workId: string;
   navigate: (r: Route) => void;
 }) {
+  const { route } = useScout();
   const [detail, setDetail] = useState<WorkDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -676,9 +681,7 @@ export function WorkDetailScreen({
   if (!loaded) {
     return (
       <div>
-        <button type="button" className="s-back" onClick={() => navigate({ view: "inbox" })}>
-          &larr; Back
-        </button>
+        <BackToPicker slot="work" fallback={{ view: "inbox" }} navigate={navigate} />
         <div className="s-empty"><p>Loading…</p></div>
       </div>
     );
@@ -687,9 +690,7 @@ export function WorkDetailScreen({
   if (!detail) {
     return (
       <div className="s-work-not-found">
-        <button type="button" className="s-back" onClick={() => navigate({ view: "inbox" })}>
-          &larr; Back to inbox
-        </button>
+        <BackToPicker slot="work" fallback={{ view: "inbox" }} navigate={navigate} />
         <div className="s-work-not-found-body">
           <div className="s-work-not-found-glyph" aria-hidden="true">&#x25A1;</div>
           <h2 className="s-work-not-found-title">Work item not found</h2>
@@ -735,9 +736,7 @@ export function WorkDetailScreen({
   return (
     <div className="s-work-detail s-work-casefile">
       <div className="s-work-casefile-topbar">
-        <button type="button" className="s-back" onClick={() => navigate({ view: "inbox" })}>
-          &larr; Back
-        </button>
+        <BackToPicker slot="work" fallback={{ view: "inbox" }} navigate={navigate} />
         <span className="s-work-casefile-record">Case {compactId(detail.id)}</span>
       </div>
 
@@ -772,7 +771,7 @@ export function WorkDetailScreen({
               <WorkActionButton
                 primary
                 icon={<MessageSquare aria-hidden="true" size={14} strokeWidth={1.8} />}
-                onClick={() => navigate({ view: "conversation", conversationId: detail.conversationId! })}
+                onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}
               >
                 Open thread
               </WorkActionButton>
@@ -814,7 +813,7 @@ export function WorkDetailScreen({
                     className="s-work-flight-card"
                     onClick={
                       flight.conversationId
-                        ? () => navigate({ view: "conversation", conversationId: flight.conversationId! })
+                        ? () => openContent(navigate, { view: "conversation", conversationId: flight.conversationId! }, { returnTo: route })
                         : undefined
                     }
                     disabled={!flight.conversationId}
@@ -845,7 +844,7 @@ export function WorkDetailScreen({
                     key={child.id}
                     type="button"
                     className="s-work-related-card"
-                    onClick={() => navigate({ view: "work", workId: child.id })}
+                    onClick={() => openContent(navigate, { view: "work", workId: child.id }, { returnTo: route })}
                   >
                     <div className="s-work-related-card-header">
                       <span className="s-work-related-card-title">{child.title}</span>
@@ -887,7 +886,7 @@ export function WorkDetailScreen({
                     className={`s-work-timeline-entry${item.conversationId ? " s-work-timeline-entry-clickable" : ""}`}
                     onClick={
                       item.conversationId
-                        ? () => navigate({ view: "conversation", conversationId: item.conversationId! })
+                        ? () => openContent(navigate, { view: "conversation", conversationId: item.conversationId! }, { returnTo: route })
                         : undefined
                     }
                     disabled={!item.conversationId}
@@ -929,7 +928,7 @@ export function WorkDetailScreen({
                 <ActionRow
                   label="Conversation"
                   value="Open thread"
-                  onClick={() => navigate({ view: "conversation", conversationId: detail.conversationId! })}
+                  onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}
                 />
               ) : (
                 <div className="s-work-action-list-empty">No conversation attached.</div>
@@ -938,7 +937,7 @@ export function WorkDetailScreen({
                 <ActionRow
                   label="Parent"
                   value={detail.parentTitle}
-                  onClick={() => navigate({ view: "work", workId: detail.parentId! })}
+                  onClick={() => openContent(navigate, { view: "work", workId: detail.parentId! }, { returnTo: route })}
                 />
               ) : (
                 <div className="s-work-action-list-empty">No parent work item.</div>

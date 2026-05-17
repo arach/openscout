@@ -1,13 +1,16 @@
 import "./terminal-screen.css";
 
 import { useTerminalRelay, TerminalRelay } from "@hudsonkit";
+import { useState } from "react";
 import { useScout } from "../scout/Provider.tsx";
 import { actorColor } from "../lib/colors.ts";
 import {
   resolveScoutTerminalRelayHealthUrl,
   resolveScoutTerminalRelayUrl,
 } from "../lib/runtime-config.ts";
+import { createVantageHandoff } from "../lib/vantage.ts";
 import type { Route } from "../lib/types.ts";
+import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 
 export function TerminalScreen({
   agentId,
@@ -19,6 +22,12 @@ export function TerminalScreen({
   const { agents } = useScout();
   const agent = agentId ? agents.find((a) => a.id === agentId) : null;
   const color = agent ? actorColor(agent.name) : "var(--accent)";
+  const [handoffState, setHandoffState] = useState<
+    | { state: "idle" }
+    | { state: "opening" }
+    | { state: "opened"; detail: string }
+    | { state: "failed"; error: string }
+  >({ state: "idle" });
 
   const relay = useTerminalRelay({
     url: resolveScoutTerminalRelayUrl(),
@@ -27,15 +36,36 @@ export function TerminalScreen({
     sessionKey: agentId ? `scout-takeover-${agentId}` : "scout-takeover",
   });
 
-  const back = () => {
-    if (agentId) navigate({ view: "agents", agentId });
-    else navigate({ view: "inbox" });
+  const openInVantage = () => {
+    setHandoffState({ state: "opening" });
+    void createVantageHandoff({ agentId: agentId ?? null, launch: true })
+      .then((handoff) => {
+        const nodeCount = handoff.plan.manifest.nodes.length;
+        const launchDetail = handoff.launch.ok
+          ? "Vantage launch requested"
+          : handoff.launch.error ?? "Vantage handoff written";
+        setHandoffState({
+          state: "opened",
+          detail: `${nodeCount} node${nodeCount === 1 ? "" : "s"} - ${launchDetail}`,
+        });
+      })
+      .catch((error) => {
+        setHandoffState({
+          state: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
   };
 
   return (
     <div className="s-term">
       <div className="s-term-bar">
-        <button className="s-term-back" onClick={back}>← Back</button>
+        <BackToPicker
+          slot="terminal"
+          fallback={agentId ? { view: "agents", agentId } : { view: "inbox" }}
+          navigate={navigate}
+          className="s-term-back"
+        />
         {agent && (
           <div className="s-term-agent">
             <div
@@ -51,6 +81,21 @@ export function TerminalScreen({
           </div>
         )}
         <span className="s-term-label">TAKEOVER</span>
+        <button
+          type="button"
+          className="s-term-vantage"
+          onClick={openInVantage}
+          disabled={handoffState.state === "opening"}
+          title="Open this terminal context in the native Vantage canvas"
+        >
+          {handoffState.state === "opening" ? "Opening..." : "Open in Vantage"}
+        </button>
+        {handoffState.state === "opened" && (
+          <span className="s-term-handoff s-term-handoff--ok">{handoffState.detail}</span>
+        )}
+        {handoffState.state === "failed" && (
+          <span className="s-term-handoff s-term-handoff--error">{handoffState.error}</span>
+        )}
         <div className="s-term-status">
           <span
             className={`s-term-dot${relay.status === "connected" ? " s-term-dot--live" : relay.status === "connecting" ? " s-term-dot--connecting" : ""}`}

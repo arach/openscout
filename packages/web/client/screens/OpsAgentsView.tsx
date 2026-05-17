@@ -2,7 +2,8 @@ import "./ops-agents.css";
 
 import { Search, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { normalizeAgentState } from "../lib/agent-state.ts";
+import { stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -38,6 +39,8 @@ type AgentOpsRow = {
   cost: AdapterCostEstimate;
   errors: number;
   lastActiveAt: number | null;
+  /** Top in-flight task title for this agent, if any. Differentiates two agents that share a name. */
+  activeTask: string | null;
 };
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -46,6 +49,7 @@ const LATENCY_WINDOW_MS = 90 * 60_000;
 
 type AgentOpsColumnKey =
   | "agent"
+  | "task"
   | "team"
   | "machine"
   | "active"
@@ -74,30 +78,52 @@ const AGENT_COLUMNS: DataTableColumn<AgentOpsRow, AgentOpsColumnKey>[] = [
     minWidth: 160,
     render: (row) => (
       <div className="s-ops-agents-agent-cell">
-        <span className={`s-ops-agents-status s-ops-agents-status--${row.state}`} />
-        <span>
-          <strong>{row.agent.name}</strong>
-          <small>{agentStateLabel(row.agent.state)}</small>
+        <span
+          className="s-ops-agents-dot"
+          style={{ background: stateColor(row.state) }}
+          aria-hidden
+        />
+        <span className="s-ops-agents-agent-name" title={row.agent.name}>
+          {row.agent.handle ?? row.agent.name}
         </span>
       </div>
     ),
   },
   {
+    key: "task",
+    label: "Active task",
+    kind: "custom",
+    sortable: true,
+    sortValue: (row) => (row.activeTask ?? "").toLowerCase() || null,
+    defaultWidth: 240,
+    minWidth: 140,
+    render: (row) =>
+      row.activeTask ? (
+        <span className="s-ops-agents-task" title={row.activeTask}>
+          {row.activeTask}
+        </span>
+      ) : (
+        <span className="s-ops-agents-task s-ops-agents-task--idle">—</span>
+      ),
+  },
+  {
     key: "team",
-    label: "Team",
+    label: "Project",
     kind: "text",
-    defaultWidth: 160,
-    minWidth: 100,
-    render: (row) => row.team,
+    defaultWidth: 140,
+    minWidth: 90,
+    cls: "s-ops-agents-meta",
+    render: (row) => <span className="s-ops-agents-meta-cell">{row.team}</span>,
     sortValue: (row) => row.team.toLowerCase(),
   },
   {
     key: "machine",
     label: "Machine",
     kind: "text",
-    defaultWidth: 132,
-    minWidth: 100,
-    render: (row) => row.machine,
+    defaultWidth: 120,
+    minWidth: 88,
+    cls: "s-ops-agents-meta",
+    render: (row) => <span className="s-ops-agents-meta-cell">{row.machine}</span>,
     sortValue: (row) => row.machine.toLowerCase(),
   },
   {
@@ -311,6 +337,26 @@ function teamLabel(agent: Agent): string {
   return agent.project ?? agent.role ?? agent.agentClass ?? "Unassigned";
 }
 
+function pickActiveTask(asks: FleetAsk[]): string | null {
+  if (asks.length === 0) return null;
+  // Prefer in-flight work; fall back to anything queued/needs attention so the cell still differentiates siblings.
+  const STATUS_RANK: Record<FleetAsk["status"], number> = {
+    working: 0,
+    needs_attention: 1,
+    queued: 2,
+    failed: 3,
+    completed: 4,
+  };
+  const sorted = [...asks].sort((a, b) => {
+    const rd = STATUS_RANK[a.status] - STATUS_RANK[b.status];
+    if (rd !== 0) return rd;
+    return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+  });
+  const top = sorted[0];
+  const raw = (top.task ?? top.summary ?? "").trim();
+  return raw || null;
+}
+
 function rowForAgent(
   agent: Agent,
   sessions: SessionEntry[],
@@ -335,6 +381,7 @@ function rowForAgent(
     provider,
     usage: payload?.data.metadata?.usage,
   });
+  const agentAsks = activeAsks.filter((ask) => ask.agentId === agent.id);
   return {
     agent,
     team: teamLabel(agent),
@@ -342,13 +389,14 @@ function rowForAgent(
     model,
     provider,
     state: normalizeAgentState(agent.state),
-    activeFlights: activeAsks.filter((ask) => ask.agentId === agent.id).length,
+    activeFlights: agentAsks.length,
+    activeTask: pickActiveTask(agentAsks),
     sessions24h: recentSessions.length,
     throughput: makeThroughput(agentActivity, now),
     avgLatencyMs: averageLatencyMs(payload, now),
     usage: cost.usage,
     cost,
-    errors: activeAsks.filter((ask) => ask.agentId === agent.id && (ask.status === "failed" || ask.status === "needs_attention")).length,
+    errors: agentAsks.filter((ask) => ask.status === "failed" || ask.status === "needs_attention").length,
     lastActiveAt: Math.max(
       0,
       ...agentSessions.map((session) => session.lastMessageAt ?? 0),
@@ -415,7 +463,7 @@ export function OpsAgentsView({
     const q = query.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((row) =>
-      `${row.agent.name} ${row.team} ${row.machine} ${row.agent.handle ?? ""} ${row.agent.harness ?? ""}`
+      `${row.agent.name} ${row.team} ${row.machine} ${row.agent.handle ?? ""} ${row.agent.harness ?? ""} ${row.activeTask ?? ""}`
         .toLowerCase()
         .includes(q),
     );
@@ -457,55 +505,9 @@ export function OpsAgentsView({
     const values = rows.map((row) => row.avgLatencyMs).filter((value): value is number => value != null);
     return values.length === 0 ? null : Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
   })();
-  const errored = rows.reduce((sum, row) => sum + row.errors, 0);
-
-  const teams = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const row of rows) counts.set(row.team, (counts.get(row.team) ?? 0) + 1);
-    return [...counts.entries()].sort((left, right) => right[1] - left[1]).slice(0, 6);
-  }, [rows]);
-
-  const machines = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const row of rows) counts.set(row.machine, (counts.get(row.machine) ?? 0) + 1);
-    return [...counts.entries()].sort((left, right) => right[1] - left[1]).slice(0, 7);
-  }, [rows]);
 
   return (
     <div className="s-ops-agents">
-      <aside className="s-ops-agents-rail">
-        <div className="s-ops-agents-brand">
-          <div className="s-ops-agents-mark">sc</div>
-          <div>
-            <div className="s-ops-agents-brand-name">agentctl</div>
-            <div className="s-ops-agents-brand-sub">ops console</div>
-          </div>
-        </div>
-        <div className="s-ops-agents-rail-group">
-          <div className="s-ops-agents-rail-heading">Fleet</div>
-          <button className="s-ops-agents-rail-row" type="button">Overview <span>{agents.length}</span></button>
-          <button className="s-ops-agents-rail-row s-ops-agents-rail-row--active" type="button">Agents <span>{online}</span></button>
-          <button className="s-ops-agents-rail-row" type="button">Sessions <span>{sessions.length}</span></button>
-          <button className="s-ops-agents-rail-row" type="button">Alerts <span>{errored}</span></button>
-        </div>
-        <div className="s-ops-agents-rail-group">
-          <div className="s-ops-agents-rail-heading">Teams</div>
-          {teams.map(([team, count]) => (
-            <button className="s-ops-agents-rail-row" type="button" key={team}>
-              {team}<span>{count}</span>
-            </button>
-          ))}
-        </div>
-        <div className="s-ops-agents-rail-group">
-          <div className="s-ops-agents-rail-heading">Machines</div>
-          {machines.map(([machine, count]) => (
-            <button className="s-ops-agents-rail-row" type="button" key={machine}>
-              {machine}<span>{count}</span>
-            </button>
-          ))}
-        </div>
-      </aside>
-
       <main className="s-ops-agents-main">
         <div className="s-ops-agents-toolbar">
           <div className="s-ops-agents-breadcrumb">Fleet <span>/</span> Agents</div>
@@ -515,7 +517,7 @@ export function OpsAgentsView({
           </div>
           <div className="s-ops-agents-search">
             <Search size={13} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search agents, teams, machines..." />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search agents, tasks, projects, machines…" />
           </div>
           <button className="s-ops-agents-icon-btn" type="button" title="Filters">
             <SlidersHorizontal size={14} />
@@ -553,6 +555,7 @@ export function OpsAgentsView({
               sort={sort}
               onSortChange={setSort}
               secondarySort={secondarySort}
+              density="compact"
               rowBindings={(id) => {
                 const bindings = hover.bind<HTMLTableRowElement>(id);
                 return {

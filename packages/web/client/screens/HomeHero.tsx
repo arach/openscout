@@ -1,34 +1,12 @@
+import { Crosshair } from "lucide-react";
 import type { Route } from "../lib/types.ts";
 import "./home-hero.css";
 
 type HeartrateBucketView = { ts: number; count: number; value: number };
 
-export type HomeHeroProps = {
-  now: Date;
-  greeting: string;
-  operatorName: string;
-  syncLabel: string;
-  error: string | null;
-  loading: boolean;
-  refreshing: boolean;
-  onRefresh: () => void;
-  activeCount: number;
-  waitingCount: number;
-  offlineCount: number;
-  totalAgents: number;
-  totalOperatorQueue: number;
-  narrativeParts: string[];
-  navigate: (route: Route) => void;
-  opsEnabled: boolean;
-  onReviewQueue: () => void;
-  heartrate: HeartrateBucketView[];
-  heartrateWindow: string;
-  heartrateBucketLabel: string;
-};
-
 type GaugeTone = "ok" | "warn" | "err" | "dim";
 
-type ServiceGauge =
+export type ServiceGauge =
   | {
       id: string;
       label: string;
@@ -46,6 +24,57 @@ type ServiceGauge =
       statusLabel: string;
       tone: GaugeTone;
     };
+
+export type HomeHeroSignal = {
+  id: string;
+  label: string;
+  value: string;
+  tone?: GaugeTone;
+  route?: Route;
+};
+
+export type HomeHeroBriefReference = {
+  id: string;
+  kind: string;
+  label: string;
+  route?: Route;
+  detail?: string;
+};
+
+export type HomeHeroBriefObservation = {
+  id: string;
+  text: string;
+  tone?: string;
+  references: HomeHeroBriefReference[];
+};
+
+export type HomeHeroProps = {
+  now: Date;
+  greeting: string;
+  operatorName: string;
+  syncLabel: string;
+  error: string | null;
+  loading: boolean;
+  refreshing: boolean;
+  briefRefreshing: boolean;
+  onRefresh: () => void;
+  onRegenerateBrief: () => void;
+  onSpeakBrief?: () => void;
+  briefSpeaking?: boolean;
+  briefIsNew?: boolean;
+  totalOperatorQueue: number;
+  narrativeParts: string[];
+  briefStatement: string | null;
+  briefObservations: HomeHeroBriefObservation[];
+  navigate: (route: Route) => void;
+  opsEnabled: boolean;
+  onReviewQueue: () => void;
+  heartrate: HeartrateBucketView[];
+  heartrateWindow: string;
+  heartrateBucketLabel: string;
+  serviceGauges: ServiceGauge[];
+  systemSignals: HomeHeroSignal[];
+};
 
 function gaugeTone(fill: number): GaugeTone {
   if (fill >= 0.9) return "err";
@@ -87,46 +116,7 @@ function formatResetRelative(resetAt: number, now: Date): string {
 function buildTooltip(g: Extract<ServiceGauge, { kind: "quota" }>, now: Date): string {
   const chip = formatResetChip(g.resetAt, now);
   const rel = formatResetRelative(g.resetAt, now);
-  return `${g.usedLabel} / ${g.capLabel} ${g.unitLabel} · weekly · resets ${chip.label} (in ${rel})`;
-}
-
-// TODO(wire): pull from a /api/service-budgets endpoint. Each cell is the WEEKLY
-// allocation for a service — the headline reading. Click → ops budgets view
-// (multi-window detail, per-feature breakdown, rebalance suggestions).
-function mockServiceGauges(now: Date): ServiceGauge[] {
-  const t = now.getTime();
-  return [
-    {
-      id: "codex",
-      label: "codex",
-      kind: "quota",
-      fill: 0.55,
-      usedLabel: "5.5M",
-      capLabel: "10M",
-      unitLabel: "tokens",
-      resetAt: t + (3 * 86400 + 6 * 3600) * 1000,
-    },
-    {
-      id: "claude",
-      label: "claude",
-      kind: "quota",
-      fill: 0.71,
-      usedLabel: "7.1M",
-      capLabel: "10M",
-      unitLabel: "tokens",
-      resetAt: t + 4 * 3600 * 1000,
-    },
-    {
-      id: "github",
-      label: "github",
-      kind: "quota",
-      fill: 0.38,
-      usedLabel: "190k",
-      capLabel: "500k",
-      unitLabel: "requests",
-      resetAt: t + (6 * 86400 + 8 * 3600) * 1000,
-    },
-  ];
+  return `${g.usedLabel} / ${g.capLabel} ${g.unitLabel} · resets ${chip.label} (in ${rel})`;
 }
 
 function buildSmoothPath(points: { x: number; y: number }[]): string {
@@ -218,6 +208,28 @@ function formatClock(d: Date): string {
   return `${hh}:${mm}:${ss}`;
 }
 
+function splitBriefStatements(value: string): string[] {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return [];
+
+  const sentenceParts = compact.match(/[^.!?]+[.!?]?/g)
+    ?.map((part) => part.trim())
+    .filter(Boolean) ?? [];
+  const parts = sentenceParts.length > 1
+    ? sentenceParts
+    : compact.split(/\s+[;:]\s+|\s+—\s+/).map((part) => part.trim()).filter(Boolean);
+
+  return parts.slice(0, 4).map((part) => /[.!?]$/.test(part) ? part : `${part}.`);
+}
+
+function fallbackBriefObservations(value: string): HomeHeroBriefObservation[] {
+  return splitBriefStatements(value).map((text, index) => ({
+    id: `fallback-${index + 1}`,
+    text,
+    references: [],
+  }));
+}
+
 function Gauge({
   gauge,
   now,
@@ -267,6 +279,88 @@ function Gauge({
   );
 }
 
+function SystemSignalStack({
+  signals,
+  navigate,
+}: {
+  signals: HomeHeroSignal[];
+  navigate: (route: Route) => void;
+}) {
+  if (signals.length === 0) return null;
+  return (
+    <div className="hd-signal-stack" aria-label="system signals">
+      {signals.map((signal) => {
+        const content = (
+          <>
+            <span className={`hd-signal-led hd-signal-led--${signal.tone ?? "dim"}`} aria-hidden="true" />
+            <span className="hd-signal-copy">
+              <span className="hd-signal-label">{signal.label}</span>
+              <span className="hd-signal-value">{signal.value}</span>
+            </span>
+          </>
+        );
+        if (signal.route) {
+          return (
+            <button
+              key={signal.id}
+              type="button"
+              className="hd-signal-row hd-signal-row--button"
+              onClick={() => navigate(signal.route as Route)}
+            >
+              {content}
+            </button>
+          );
+        }
+        return (
+          <div key={signal.id} className="hd-signal-row">
+            {content}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BriefReferenceChips({
+  references,
+  navigate,
+}: {
+  references: HomeHeroBriefReference[];
+  navigate: (route: Route) => void;
+}) {
+  if (references.length === 0) return null;
+  return (
+    <span className="hd-brief-refs" aria-label="brief references">
+      {references.slice(0, 4).map((ref) => {
+        const content = (
+          <>
+            <span className="hd-brief-ref-kind">{ref.kind}</span>
+            <span className="hd-brief-ref-label">{ref.label}</span>
+          </>
+        );
+        if (ref.route) {
+          return (
+            <button
+              key={ref.id}
+              type="button"
+              className="hd-brief-ref hd-brief-ref--button"
+              title={ref.detail}
+              onClick={() => navigate(ref.route as Route)}
+            >
+              {content}
+            </button>
+          );
+        }
+        return (
+          <span key={ref.id} className="hd-brief-ref" title={ref.detail}>
+            {content}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 export default function HomeHero(props: HomeHeroProps) {
   const {
     now,
@@ -275,28 +369,40 @@ export default function HomeHero(props: HomeHeroProps) {
     error,
     loading,
     refreshing,
+    briefRefreshing,
     onRefresh,
-    activeCount,
-    waitingCount,
-    offlineCount,
+    onRegenerateBrief,
+    onSpeakBrief,
+    briefSpeaking = false,
+    briefIsNew = false,
     totalOperatorQueue,
     narrativeParts,
+    briefStatement,
+    briefObservations,
     navigate,
     opsEnabled,
     onReviewQueue,
     heartrate,
     heartrateWindow,
     heartrateBucketLabel,
+    serviceGauges,
+    systemSignals,
   } = props;
 
+  const spokenBrief = briefStatement?.trim() || "";
   const ledePart =
     narrativeParts.find((p) => p.includes("need")) ?? narrativeParts[0] ?? "";
-  const otherParts = narrativeParts.filter((p) => p !== ledePart);
-  const leadsNeedsYou = ledePart.includes("need");
+  const displayLede = spokenBrief || (ledePart ? `${ledePart}.` : "");
+  const observations = briefObservations.length > 0
+    ? briefObservations
+    : fallbackBriefObservations(displayLede);
+  const otherParts = spokenBrief
+    ? narrativeParts
+    : narrativeParts.filter((p) => p !== ledePart);
+  const leadsNeedsYou = !spokenBrief && ledePart.includes("need");
   const subline = otherParts.join(" · ");
   const syncTone = error ? "err" : "ok";
-  const gauges = mockServiceGauges(now);
-
+  const gauges = serviceGauges;
   return (
     <section className="hd">
       <div className="hd-topbar">
@@ -306,16 +412,18 @@ export default function HomeHero(props: HomeHeroProps) {
           <span className="hd-sep">·</span>
           <span className="hd-mark-role">home</span>
         </div>
-        <div className="hd-topbar-c" aria-label="weekly token budgets">
-          <span className="hd-gauge-window">WEEKLY</span>
-          <span className="hd-gauge-divider" aria-hidden="true" />
-          {gauges.map((g, i) => (
-            <span key={g.id} className="hd-gauge-wrap">
-              {i > 0 && <span className="hd-gauge-divider" aria-hidden="true" />}
-              <Gauge gauge={g} now={now} onClick={() => navigate({ view: "ops" })} />
-            </span>
-          ))}
-        </div>
+        {gauges.length > 0 && (
+          <div className="hd-topbar-c" aria-label="service usage">
+            <span className="hd-gauge-window">USAGE</span>
+            <span className="hd-gauge-divider" aria-hidden="true" />
+            {gauges.map((g, i) => (
+              <span key={g.id} className="hd-gauge-wrap">
+                {i > 0 && <span className="hd-gauge-divider" aria-hidden="true" />}
+                <Gauge gauge={g} now={now} onClick={() => navigate({ view: "ops" })} />
+              </span>
+            ))}
+          </div>
+        )}
         <div className="hd-topbar-r">
           <span className="hd-meta">operator: {operatorName.toLowerCase()}</span>
           <span className="hd-sep">·</span>
@@ -333,10 +441,23 @@ export default function HomeHero(props: HomeHeroProps) {
             <span>{formatDateChip(now)}</span>
           </div>
 
-          {ledePart && (
-            <h1 className={`hd-lede${leadsNeedsYou ? " hd-lede--warn" : ""}`}>
-              {ledePart}.
-            </h1>
+          {observations.length > 0 && (
+            <div className="hd-brief-sheet">
+              <div className="hd-brief-copy">
+                {observations.map((observation, index) => (
+                  <p
+                    key={observation.id || `${observation.text}-${index}`}
+                    className={`hd-brief-line${leadsNeedsYou && index === 0 ? " hd-brief-line--warn" : ""}`}
+                  >
+                    <Crosshair className="hd-brief-icon" size={14} strokeWidth={1.7} aria-hidden="true" />
+                    <span className="hd-brief-line-body">
+                      <span>{observation.text}</span>
+                      <BriefReferenceChips references={observation.references} navigate={navigate} />
+                    </span>
+                  </p>
+                ))}
+              </div>
+            </div>
           )}
 
           {subline.length > 0 && (
@@ -366,12 +487,23 @@ export default function HomeHero(props: HomeHeroProps) {
                 [open ops]
               </button>
             )}
+            {onSpeakBrief && (
+              <button
+                type="button"
+                className={`hd-btn${briefIsNew && !briefSpeaking ? " hd-btn--primary" : ""}`}
+                onClick={onSpeakBrief}
+                title={briefSpeaking ? "Stop reading the brief" : briefIsNew ? "Read the new brief aloud" : "Replay the brief"}
+              >
+                [{briefSpeaking ? "■ stop" : briefIsNew ? "▸ speak brief" : "▸ replay"}]
+              </button>
+            )}
             <button
               type="button"
               className="hd-btn"
-              onClick={() => navigate({ view: "sessions" })}
+              disabled={briefRefreshing}
+              onClick={onRegenerateBrief}
             >
-              [jump to thread]
+              [{briefRefreshing ? "briefing" : "new brief"}]
             </button>
             <button
               type="button"
@@ -397,29 +529,7 @@ export default function HomeHero(props: HomeHeroProps) {
             ) : null}
           </div>
           <HeartrateGraph buckets={heartrate} />
-          <div className="hd-stats">
-            <div className="hd-stat">
-              <span className="hd-stat-row">
-                <span className="hd-stat-dot hd-stat-dot--ok" aria-hidden="true" />
-                <span className="hd-stat-label">active</span>
-              </span>
-              <span className="hd-stat-val">{String(activeCount).padStart(2, "0")}</span>
-            </div>
-            <div className="hd-stat">
-              <span className="hd-stat-row">
-                <span className="hd-stat-dot hd-stat-dot--warn" aria-hidden="true" />
-                <span className="hd-stat-label">waiting</span>
-              </span>
-              <span className="hd-stat-val">{String(waitingCount).padStart(2, "0")}</span>
-            </div>
-            <div className="hd-stat">
-              <span className="hd-stat-row">
-                <span className="hd-stat-dot hd-stat-dot--off" aria-hidden="true" />
-                <span className="hd-stat-label">offline</span>
-              </span>
-              <span className="hd-stat-val">{String(offlineCount).padStart(2, "0")}</span>
-            </div>
-          </div>
+          <SystemSignalStack signals={systemSignals} navigate={navigate} />
         </div>
       </div>
     </section>

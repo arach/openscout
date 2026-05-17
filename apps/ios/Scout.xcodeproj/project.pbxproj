@@ -72,6 +72,11 @@
 		A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */; };
 		A8FBB96BCACD70C0303EC45D /* RPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D678FD46C36DEE704DF0493 /* RPC.swift */; };
 		B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */; };
+		B70000000000000000000001 /* TerminalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000011 /* TerminalModels.swift */; };
+		B70000000000000000000002 /* TerminalKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000012 /* TerminalKeychain.swift */; };
+		B70000000000000000000003 /* TerminalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000013 /* TerminalStore.swift */; };
+		B70000000000000000000004 /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000014 /* TerminalAdapter.swift */; };
+		B70000000000000000000005 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000015 /* TerminalView.swift */; };
 		C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */; };
 		C5AAC1B07CC4593997CC7A1E /* ActionBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */; };
 		C6FACCAD49E7E43628B33F79 /* ScoutSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 390280403D808E04858F3EA7 /* ScoutSearchField.swift */; };
@@ -175,6 +180,11 @@
 		A156270D797264F0441EF34B /* TurnHashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnHashTests.swift; sourceTree = "<group>"; };
 		A16F0DA040107782446B4DEA /* TailFeedRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailFeedRow.swift; sourceTree = "<group>"; };
 		B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
+		B70000000000000000000011 /* TerminalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalModels.swift; sourceTree = "<group>"; };
+		B70000000000000000000012 /* TerminalKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeychain.swift; sourceTree = "<group>"; };
+		B70000000000000000000013 /* TerminalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStore.swift; sourceTree = "<group>"; };
+		B70000000000000000000014 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
+		B70000000000000000000015 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		B99060478E7E956242D977B5 /* InboxStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxStore.swift; sourceTree = "<group>"; };
 		C06649F0636F0648AB140561 /* Primitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Primitives.swift; sourceTree = "<group>"; };
 		C6BE3D3048D6DA6252B7CAA8 /* MeshRendezvousClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshRendezvousClient.swift; sourceTree = "<group>"; };
@@ -344,10 +354,23 @@
 				417B947BB7902B25DD001027 /* Resources */,
 				7CD8AAB56579D6BA2161B0B2 /* Security */,
 				20420D1AD5DE18B3D0ED20EC /* Services */,
+				B70000000000000000000020 /* Terminal */,
 				84CAD3644ECA6E0D8C04C52A /* Views */,
 				40E0C6191E5F1A8091F3DE70 /* Voice */,
 			);
 			path = Scout;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000020 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000014 /* TerminalAdapter.swift */,
+				B70000000000000000000012 /* TerminalKeychain.swift */,
+				B70000000000000000000011 /* TerminalModels.swift */,
+				B70000000000000000000013 /* TerminalStore.swift */,
+				B70000000000000000000015 /* TerminalView.swift */,
+			);
+			path = Terminal;
 			sourceTree = "<group>";
 		};
 		7CD8AAB56579D6BA2161B0B2 /* Security */ = {
@@ -705,6 +728,11 @@
 				991AF8193D1AD31F82BF3EE8 /* TailEvent.swift in Sources */,
 				0AF97A3564D02AC6C9FAF352 /* TailFeedRow.swift in Sources */,
 				0D1C62514CC0961737A7DF5A /* TailFeedView.swift in Sources */,
+				B70000000000000000000004 /* TerminalAdapter.swift in Sources */,
+				B70000000000000000000002 /* TerminalKeychain.swift in Sources */,
+				B70000000000000000000001 /* TerminalModels.swift in Sources */,
+				B70000000000000000000003 /* TerminalStore.swift in Sources */,
+				B70000000000000000000005 /* TerminalView.swift in Sources */,
 				5C568548FBEF22CDE57196DE /* TextBlockView.swift in Sources */,
 				2BE63822046698F6281DED9E /* Theme.swift in Sources */,
 				82F0EA626092AD1FD2889BAB /* TimelineView.swift in Sources */,
@@ -759,7 +787,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.64;
+				MARKETING_VERSION = 0.2.65;
 				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.scout;
 				PRODUCT_MODULE_NAME = ScoutApp;
 				PRODUCT_NAME = Scout;
@@ -929,7 +957,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.64;
+				MARKETING_VERSION = 0.2.65;
 				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.scout;
 				PRODUCT_MODULE_NAME = ScoutApp;
 				PRODUCT_NAME = Scout;

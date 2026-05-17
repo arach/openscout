@@ -74,6 +74,7 @@ import {
 } from "./core/observe/service.ts";
 import {
   getTailDiscovery,
+  readRecentTranscriptEvents,
   snapshotRecentEvents,
 } from "@openscout/runtime/tail";
 import {
@@ -81,6 +82,10 @@ import {
   sessionApprovalAttentionId,
   type SessionAttentionItem,
 } from "@openscout/runtime";
+import {
+  snapshotRecentBroadcasts,
+  subscribeBroadcast,
+} from "./core/broadcast/service.ts";
 import {
   announceMeshVisibility,
   controlTailscale,
@@ -94,6 +99,9 @@ import {
 import {
   createRangerAssistantService,
   RangerAssistantError,
+  type RangerBrief,
+  type RangerBriefObservation,
+  type RangerBriefReference,
 } from "./ranger-assistant.ts";
 import {
   createRangerReminderStore,
@@ -102,6 +110,7 @@ import {
 import {
   createRangerCredentialStore,
 } from "./ranger-credentials.ts";
+import { loadServiceBudgets } from "./service-budgets.ts";
 import { buildWorkMaterialsInventory, readWorkMaterialContent } from "./work-materials.ts";
 import {
   defaultHeuristicsResponse,
@@ -117,6 +126,11 @@ import {
   resolveTrustedPath,
 } from "./file-preview.ts";
 import { ensureOpenScoutVoxOrigins, resolveVoxSpeechDefaults, synthesizeVoxSpeech, type VoxSpeechTimingRequest } from "./vox.ts";
+import {
+  createOpenScoutVantageHandoff,
+  type OpenScoutVantageHandoff,
+  type OpenScoutVantageHandoffInput,
+} from "./vantage-handoff.ts";
 import {
   loadUserConfig,
   saveUserConfig,
@@ -178,9 +192,215 @@ export type CreateOpenScoutWebServerOptions = {
   trustedHosts?: string[];
   trustedOrigins?: string[];
   runTerminalCommand?: (request: TerminalRunRequest) => Promise<void>;
+  createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
 };
+
+type FleetHomeBrief = {
+  id: string;
+  statement: string;
+  summary: string;
+  observations: FleetHomeBriefObservation[];
+  preparedAt: number;
+  expiresAt: number;
+  ttlMs: number;
+  sourceBriefId: string;
+};
+
+type FleetHomeBriefReference = {
+  id: string;
+  kind: string;
+  label: string;
+  route?: Record<string, unknown>;
+  detail?: string;
+};
+
+type FleetHomeBriefObservation = {
+  id: string;
+  text: string;
+  tone?: string;
+  references: FleetHomeBriefReference[];
+};
+
+const FLEET_HOME_BRIEF_TTL_MS = 30 * 60_000;
+
+function buildFleetHomeBrief(brief: RangerBrief): FleetHomeBrief {
+  const fleetStep = brief.steps.find((step) => step.route?.view === "fleet");
+  const statement = (fleetStep?.narration ?? brief.steps[0]?.narration ?? brief.summary).trim();
+  const observations = buildFleetHomeBriefObservations(statement || brief.summary, fleetStep?.observations ?? []);
+  return {
+    id: `fleet-home:${brief.id}`,
+    statement: statement || brief.summary,
+    summary: brief.summary,
+    observations,
+    preparedAt: brief.preparedAt,
+    expiresAt: brief.expiresAt,
+    ttlMs: brief.ttlMs,
+    sourceBriefId: brief.id,
+  };
+}
+
+function buildFleetHomeBriefObservations(
+  statement: string,
+  modelObservations: RangerBriefObservation[],
+): FleetHomeBriefObservation[] {
+  const modelItems = modelObservations
+    .map((item, index) => ({
+      id: `obs-${index + 1}`,
+      text: item.text.trim(),
+      ...(item.tone ? { tone: item.tone } : {}),
+      references: dedupeFleetBriefReferences(item.references.map(normalizeFleetBriefReference).filter(Boolean)),
+    }))
+    .filter((item) => item.text);
+
+  const baseItems = modelItems.length > 0
+    ? modelItems
+    : splitFleetBriefSentences(statement).map((text, index) => ({
+      id: `obs-${index + 1}`,
+      text,
+      references: [] as FleetHomeBriefReference[],
+    }));
+
+  return baseItems.map((item, index) => ({
+    ...item,
+    id: item.id || `obs-${index + 1}`,
+    references: dedupeFleetBriefReferences([
+      ...item.references,
+      ...inferFleetBriefReferences(item.text),
+    ]).slice(0, 4),
+  }));
+}
+
+function splitFleetBriefSentences(value: string): string[] {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return [];
+  const parts = compact.match(/[^.!?]+[.!?]?/g)
+    ?.map((part) => part.trim())
+    .filter(Boolean) ?? [compact];
+  return parts.slice(0, 4).map((part) => /[.!?]$/.test(part) ? part : `${part}.`);
+}
+
+function normalizeFleetBriefReference(ref: RangerBriefReference): FleetHomeBriefReference | null {
+  const label = ref.label.trim();
+  if (!label) return null;
+  const id = `${ref.kind}:${label}:${JSON.stringify(ref.route ?? {})}`;
+  return {
+    id,
+    kind: ref.kind,
+    label,
+    ...(ref.route ? { route: ref.route } : {}),
+    ...(ref.detail ? { detail: ref.detail } : {}),
+  };
+}
+
+function inferFleetBriefReferences(text: string): FleetHomeBriefReference[] {
+  const refs: FleetHomeBriefReference[] = [];
+  const lower = text.toLowerCase();
+  const agents = queryAgents(200).filter((agent) => !isRangerLikeAgentRecord(agent));
+  for (const agent of agents) {
+    const names = [agent.name, agent.handle ? `@${agent.handle}` : "", agent.handle ?? ""]
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (names.some((name) => lower.includes(name.toLowerCase()))) {
+      refs.push({
+        id: `agent:${agent.id}`,
+        kind: "agent",
+        label: agent.name,
+        route: { view: "agents", agentId: agent.id, tab: "observe" },
+        ...(agent.handle ? { detail: `@${agent.handle}` } : {}),
+      });
+    }
+  }
+
+  const fleet = queryFleet({ limit: 12, activityLimit: 40 });
+  const attentionTerms = /\b(attention|badge|pending|review|reviews|blocked|blocking|stalled|waiting|open work|work items?|next moves?|operator)\b/i;
+  if (attentionTerms.test(text)) {
+    for (const item of fleet.needsAttention.slice(0, 3)) {
+      refs.push({
+        id: `${item.kind}:${item.recordId}`,
+        kind: item.kind === "work_item" ? "work" : "question",
+        label: item.title,
+        route: item.kind === "work_item"
+          ? { view: "work", workId: item.recordId }
+          : item.conversationId
+            ? { view: "conversation", conversationId: item.conversationId }
+            : { view: "activity" },
+        detail: item.agentName ?? item.state,
+      });
+    }
+    for (const ask of fleet.recentCompleted.filter((item) => item.status === "failed" || item.attention !== "silent").slice(0, 2)) {
+      refs.push({
+        id: `ask:${ask.invocationId}`,
+        kind: ask.status === "failed" ? "failure" : "ask",
+        label: ask.agentName ?? ask.task,
+        route: ask.conversationId
+          ? { view: "conversation", conversationId: ask.conversationId }
+          : { view: "agents", agentId: ask.agentId, tab: "observe" },
+        detail: ask.statusLabel,
+      });
+    }
+  }
+
+  const sessionTerms = /\b(session|transcript|assets?|artifact|render|copy|font|files?)\b/i;
+  if (sessionTerms.test(text)) {
+    const sessions = querySessions(80);
+    for (const session of sessions.slice(0, 2)) {
+      const label = session.title || session.agentName || session.id;
+      if (
+        lower.includes(label.toLowerCase())
+        || (session.agentName && lower.includes(session.agentName.toLowerCase()))
+        || (session.preview && hasSharedWord(lower, session.preview.toLowerCase()))
+      ) {
+        refs.push({
+          id: `session:${session.id}`,
+          kind: "session",
+          label,
+          route: { view: "sessions", sessionId: session.id },
+          ...(session.agentName ? { detail: session.agentName } : {}),
+        });
+      }
+    }
+  }
+
+  const conversationTerms = /\b(conversation|thread|message|handoff|approval|approved|ship|shipped|completed)\b/i;
+  if (conversationTerms.test(text)) {
+    for (const activity of queryActivity(80).slice(0, 4)) {
+      const haystack = `${activity.actorName ?? ""} ${activity.agentName ?? ""} ${activity.title ?? ""} ${activity.summary ?? ""}`.toLowerCase();
+      if (!activity.conversationId || !hasSharedWord(lower, haystack)) continue;
+      refs.push({
+        id: `conversation:${activity.conversationId}`,
+        kind: "conversation",
+        label: activity.title ?? activity.actorName ?? "Open thread",
+        route: { view: "conversation", conversationId: activity.conversationId },
+        detail: activity.actorName ?? undefined,
+      });
+      break;
+    }
+  }
+
+  return refs;
+}
+
+function hasSharedWord(left: string, right: string): boolean {
+  const stop = new Set(["the", "and", "for", "with", "that", "this", "from", "into", "work", "item", "items"]);
+  const words = left
+    .split(/[^a-z0-9]+/i)
+    .filter((word) => word.length >= 5 && !stop.has(word));
+  return words.some((word) => right.includes(word));
+}
+
+function dedupeFleetBriefReferences(refs: FleetHomeBriefReference[]): FleetHomeBriefReference[] {
+  const seen = new Set<string>();
+  const result: FleetHomeBriefReference[] = [];
+  for (const ref of refs) {
+    const key = ref.id || `${ref.kind}:${ref.label}:${JSON.stringify(ref.route ?? {})}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(ref);
+  }
+  return result;
+}
 
 export type OpenScoutWebServer = {
   app: Hono;
@@ -1425,6 +1645,19 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
   ]);
   const broker = queryBrokerDiagnostics({ limit: 80, windowMs: 6 * 60 * 60_000 });
   const fleet = queryFleet({ limit: 16, activityLimit: 40 });
+  const transcriptEvents = await valueOrNull(
+    readRecentTranscriptEvents(50, {
+      ...(tailDiscovery ? { discovery: tailDiscovery } : {}),
+    }),
+  );
+  const agentLogEvents = transcriptEvents && transcriptEvents.length > 0
+    ? transcriptEvents
+    : snapshotRecentEvents(50).slice().reverse();
+  const agentLogMessages = agentLogEvents
+    .filter((event) => event.kind !== "system")
+    .filter((event) => !event.summary.toLowerCase().startsWith("permission-mode"))
+    .map(compactRangerTailEvent);
+  const scoutChatter = queryRecentMessages(50).map(compactRangerMessage);
 
   return {
     build: loadOpenScoutBuildInfo(currentDirectory),
@@ -1473,8 +1706,12 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
     activeRuns: queryRuns({ active: true, limit: 24 }),
     activeFlights: queryFlights({ activeOnly: true }).slice(0, 24),
     sessions: querySessions(24),
-    recentMessages: queryRecentMessages(16).map(compactRangerMessage),
+    recentMessages: scoutChatter.slice(0, 16),
     recentActivity: queryActivity(16).map(compactRangerActivity),
+    briefingEvidence: {
+      agentLogMessages,
+      scoutChatter,
+    },
     heartrate: queryHeartrate(),
     mesh: mesh
       ? {
@@ -1624,6 +1861,20 @@ function compactRangerMessage(message: ReturnType<typeof queryRecentMessages>[nu
     body: compactRangerText(message.body, 320),
     createdAt: message.createdAt,
     class: message.class,
+  };
+}
+
+function compactRangerTailEvent(event: ReturnType<typeof snapshotRecentEvents>[number]) {
+  return {
+    id: event.id,
+    ts: event.ts,
+    source: event.source,
+    sessionId: event.sessionId,
+    project: event.project,
+    cwd: event.cwd,
+    harness: event.harness,
+    kind: event.kind,
+    summary: compactRangerText(event.summary, 360),
   };
 }
 
@@ -1909,6 +2160,31 @@ export async function createOpenScoutWebServer(
       return config?.openaiApiKey ?? rangerCredentials.getOpenAIKey();
     },
   });
+  let fleetHomeBrief: FleetHomeBrief | null = null;
+  let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
+  const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
+    const now = Date.now();
+    if (!force && fleetHomeBrief && fleetHomeBrief.expiresAt > now) {
+      return fleetHomeBrief;
+    }
+    if (!force && fleetHomeBriefInFlight) {
+      return fleetHomeBriefInFlight;
+    }
+    fleetHomeBriefInFlight = rangerAssistant.createBrief({
+      route: { view: "fleet" },
+      ttlMs: FLEET_HOME_BRIEF_TTL_MS,
+      mode: "fleet-home",
+    })
+      .then(buildFleetHomeBrief)
+      .then((brief) => {
+        fleetHomeBrief = brief;
+        return brief;
+      })
+      .finally(() => {
+        fleetHomeBriefInFlight = null;
+      });
+    return fleetHomeBriefInFlight;
+  };
 
   installScoutApiMiddleware(app, "openscout-web api", {
     trustedHosts: options.trustedHosts,
@@ -2487,6 +2763,17 @@ export async function createOpenScoutWebServer(
     ),
   );
   app.get("/api/heartrate", (c) => c.json(queryHeartrate()));
+  app.get("/api/service-budgets", async (c) => c.json(await loadServiceBudgets()));
+  app.get("/api/fleet/brief", async (c) => {
+    try {
+      const refresh = c.req.query("refresh");
+      return c.json(await loadFleetHomeBrief(refresh === "1" || refresh === "true"));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Fleet brief failed";
+      const status = error instanceof RangerAssistantError ? error.status : 500;
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+    }
+  });
   app.get("/api/fleet", (c) =>
     c.json(
       queryFleet({
@@ -3027,6 +3314,24 @@ export async function createOpenScoutWebServer(
     return c.json({ ok: true });
   });
 
+  app.post(routes.vantageOpenPath, async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      agentId?: unknown;
+      launch?: unknown;
+    };
+    try {
+      const handoff = await (options.createVantageHandoff ?? createOpenScoutVantageHandoff)({
+        currentDirectory,
+        agentId: typeof body.agentId === "string" ? body.agentId.trim() || null : null,
+        launch: body.launch !== false,
+      });
+      return c.json(handoff);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to create Vantage handoff";
+      return c.json({ error: message }, 500);
+    }
+  });
+
   app.post("/api/agents/:agentId/interrupt", async (c) => {
     const agentId = c.req.param("agentId");
     const { interruptLocalAgent } =
@@ -3292,6 +3597,69 @@ export async function createOpenScoutWebServer(
 
   // /api/tail/stream removed — clients now subscribe to broker tail.events
   // directly via tRPC over WebSocket. See packages/web/client/lib/tail-events.ts.
+
+  app.get("/api/broadcast/recent", (c) => {
+    const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 50) ?? 50;
+    return c.json({ broadcasts: snapshotRecentBroadcasts(limitParam) });
+  });
+
+  app.get("/api/broadcast/stream", (c) => {
+    const encoder = new TextEncoder();
+    const signal = c.req.raw.signal;
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let closed = false;
+        const safeEnqueue = (chunk: Uint8Array) => {
+          if (closed) return;
+          try {
+            controller.enqueue(chunk);
+          } catch {
+            closed = true;
+          }
+        };
+
+        const recent = snapshotRecentBroadcasts(50);
+        for (const broadcast of recent) {
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify(broadcast)}\n\n`));
+        }
+        safeEnqueue(
+          encoder.encode(`event: ready\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`),
+        );
+
+        const unsubscribe = subscribeBroadcast((broadcast) => {
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify(broadcast)}\n\n`));
+        });
+
+        const heartbeat = setInterval(() => {
+          safeEnqueue(encoder.encode(`: keep-alive ${Date.now()}\n\n`));
+        }, 15_000);
+
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(heartbeat);
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        };
+
+        signal.addEventListener("abort", close, { once: true });
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        "x-accel-buffering": "no",
+      },
+    });
+  });
 
   await registerScoutWebAssets(app, {
     assetMode: options.assetMode,

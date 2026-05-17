@@ -218,8 +218,8 @@ export function AgentTree({
                             {isOrganic && (
                               <span className="mesh-tree-agent-organic" aria-label="organic session">○</span>
                             )}
-                            <span className="mesh-tree-agent-inline" aria-hidden={!rowState.isActive}>
-                              {rowState.isActive && inlineParts.map((part, i) => (
+                            <span className="mesh-tree-agent-inline">
+                              {inlineParts.map((part, i) => (
                                 <span key={part.kind} className={`mesh-tree-agent-inline-part mesh-tree-agent-inline-part--${part.kind}`}>
                                   {i > 0 && <span className="mesh-tree-agent-inline-sep">·</span>}
                                   {part.text}

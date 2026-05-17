@@ -340,6 +340,8 @@ struct MobileAgentSummary: Codable, Sendable {
     let title: String
     let selector: String?
     let defaultSelector: String?
+    let nodeId: String?
+    let nodeName: String?
     let workspaceRoot: String?
     let harness: String?
     let transport: String?
@@ -412,6 +414,8 @@ struct MobileAgentDetail: Codable, Sendable {
     let title: String
     let selector: String?
     let defaultSelector: String?
+    let nodeId: String?
+    let nodeName: String?
     let workspaceRoot: String?
     let harness: String?
     let transport: String?

@@ -344,7 +344,7 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
 
 export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
   const launchPath = resolveLaunchAgentPATH();
-  const coreAgentsValue = config.coreAgents.join(",");
+  const coreAgentsValue = (config.coreAgents ?? []).join(",");
   const envEntries: Record<string, string> = {
     OPENSCOUT_BROKER_HOST: config.brokerHost,
     OPENSCOUT_BROKER_PORT: String(config.brokerPort),
