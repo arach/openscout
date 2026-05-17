@@ -134,6 +134,32 @@ function writeClaudeHistory(path: string, assistantText: string): void {
   writeFileSync(path, `${content}\n`, "utf8");
 }
 
+function writeActiveClaudeHistory(path: string, assistantText: string): void {
+  const content = [
+    JSON.stringify({
+      type: "system",
+      subtype: "init",
+      timestamp: "2026-04-22T12:00:00.000Z",
+      session_id: "claude-upstream-session",
+      cwd: "/Users/arach/dev/openscout",
+      model: "claude-sonnet-test",
+    }),
+    JSON.stringify({
+      type: "user",
+      timestamp: "2026-04-22T12:00:01.000Z",
+      message: { role: "user", content: "inspect" },
+    }),
+    JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-04-22T12:00:02.000Z",
+      message: {
+        content: [{ type: "text", text: assistantText }],
+      },
+    }),
+  ].join("\n");
+  writeFileSync(path, `${content}\n`, "utf8");
+}
+
 beforeEach(() => {
   queryAgentsResult = [];
   brokerContextResult = null;
@@ -215,6 +241,48 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.sessionId).toBe("live-session-1");
     expect(payload?.data.events.some((event) => event.text.includes("hello from history"))).toBe(true);
     expect(payload?.data.events.some((event) => event.text.includes("from live snapshot"))).toBe(false);
+  });
+
+  test("marks an active history-backed source as live when the hinted snapshot is idle", async () => {
+    const tempRoot = makeTempDir("openscout-observe-active-history-");
+    const historyPath = join(tempRoot, "active-history.jsonl");
+    writeActiveClaudeHistory(historyPath, "still running from history");
+
+    queryAgentsResult = [makeAgent()];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            state: "idle",
+            sessionId: "idle-live-snapshot",
+            transport: "claude_stream_json",
+          },
+        },
+      },
+    };
+    localSnapshotResult = {
+      session: {
+        id: "idle-live-snapshot",
+        name: "Idle Claude Session",
+        adapterType: "claude-code",
+        status: "idle",
+        cwd: "/Users/arach/dev/openscout",
+        providerMeta: {
+          resumeSessionPath: historyPath,
+        },
+      },
+      turns: [],
+    };
+
+    const payload = await loadAgentObservePayload("agent-1");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.source).toBe("history");
+    expect(payload?.historyPath).toBe(historyPath);
+    expect(payload?.data.live).toBe(true);
+    expect(payload?.data.events.some((event) => event.text.includes("still running from history"))).toBe(true);
   });
 
   test("falls back to the live snapshot when the hinted history file is not replayable", async () => {
