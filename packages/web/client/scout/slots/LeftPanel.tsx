@@ -5,6 +5,7 @@ import { timeAgo } from "../../lib/time.ts";
 import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import type { Agent, FleetAsk, Route } from "../../lib/types.ts";
 import { BaseLeftRail } from "./BaseLeftRail.tsx";
+import { GlobalJumpDock } from "./GlobalJumpDock.tsx";
 import { MeshNavLeftPanel } from "./MeshNavLeftPanel.tsx";
 import { ScoutMessagesLeftPanel } from "./MessagesLeftPanel.tsx";
 import { ScoutMissionControlLeftPanel } from "./MissionControlLeftPanel.tsx";
@@ -153,10 +154,15 @@ function navigateToAgent(
 export function ScoutLeftPanel() {
   const { route } = useScout();
   const slot = resolveLeftRailSlot(route);
-  if (slot?.mode === "takeover") {
-    return slot.render();
-  }
-  return <BaseLeftRail prepend={slot?.mode === "prepend" ? slot.render() : undefined} />;
+  const rail = slot?.mode === "takeover"
+    ? slot.render()
+    : <BaseLeftRail prepend={slot?.mode === "prepend" ? slot.render() : undefined} />;
+  return (
+    <div className="scout-left-shell">
+      <div className="scout-left-shell-rail">{rail}</div>
+      <GlobalJumpDock />
+    </div>
+  );
 }
 
 const DEFAULT_STATE_FILTERS: ReadonlySet<FleetStateToken> = new Set([

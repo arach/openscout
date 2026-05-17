@@ -487,13 +487,6 @@ export default function HomeHero(props: HomeHeroProps) {
                 [open ops]
               </button>
             )}
-            <button
-              type="button"
-              className="hd-btn"
-              onClick={() => navigate({ view: "sessions" })}
-            >
-              [jump to thread]
-            </button>
             {onSpeakBrief && (
               <button
                 type="button"

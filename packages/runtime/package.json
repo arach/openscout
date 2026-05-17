@@ -127,6 +127,11 @@
       "types": "./src/harness-topology/index.ts",
       "bun": "./src/harness-topology/index.ts",
       "default": "./dist/harness-topology/index.js"
+    },
+    "./vantage-plan": {
+      "types": "./src/vantage-plan.ts",
+      "bun": "./src/vantage-plan.ts",
+      "default": "./dist/vantage-plan.js"
     }
   },
   "types": "./src/index.ts",

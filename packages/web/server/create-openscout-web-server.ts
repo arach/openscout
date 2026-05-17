@@ -123,6 +123,11 @@ import {
 } from "./file-preview.ts";
 import { ensureOpenScoutVoxOrigins, resolveVoxSpeechDefaults, synthesizeVoxSpeech, type VoxSpeechTimingRequest } from "./vox.ts";
 import {
+  createOpenScoutVantageHandoff,
+  type OpenScoutVantageHandoff,
+  type OpenScoutVantageHandoffInput,
+} from "./vantage-handoff.ts";
+import {
   loadUserConfig,
   saveUserConfig,
   resolveOperatorName,
@@ -183,6 +188,7 @@ export type CreateOpenScoutWebServerOptions = {
   trustedHosts?: string[];
   trustedOrigins?: string[];
   runTerminalCommand?: (request: TerminalRunRequest) => Promise<void>;
+  createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
 };
@@ -3302,6 +3308,24 @@ export async function createOpenScoutWebServer(
       return c.json({ error: message }, 503);
     }
     return c.json({ ok: true });
+  });
+
+  app.post(routes.vantageOpenPath, async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      agentId?: unknown;
+      launch?: unknown;
+    };
+    try {
+      const handoff = await (options.createVantageHandoff ?? createOpenScoutVantageHandoff)({
+        currentDirectory,
+        agentId: typeof body.agentId === "string" ? body.agentId.trim() || null : null,
+        launch: body.launch !== false,
+      });
+      return c.json(handoff);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to create Vantage handoff";
+      return c.json({ error: message }, 500);
+    }
   });
 
   app.post("/api/agents/:agentId/interrupt", async (c) => {

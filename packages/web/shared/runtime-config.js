@@ -2,6 +2,7 @@ export const DEFAULT_API_BASE_PATH = "/api";
 export const DEFAULT_BOOTSTRAP_SCRIPT_PATH = `${DEFAULT_API_BASE_PATH}/bootstrap.js`;
 export const DEFAULT_HEALTH_PATH = `${DEFAULT_API_BASE_PATH}/health`;
 export const DEFAULT_TERMINAL_RUN_PATH = `${DEFAULT_API_BASE_PATH}/terminal/run`;
+export const DEFAULT_VANTAGE_OPEN_PATH = `${DEFAULT_API_BASE_PATH}/vantage/open`;
 export const DEFAULT_UPLOAD_PATH = `${DEFAULT_API_BASE_PATH}/upload`;
 export const DEFAULT_RELAY_UPLOAD_PATH = `${DEFAULT_API_BASE_PATH}/relay/upload`;
 export const DEFAULT_TERMINAL_RELAY_PATH = "/ws/terminal";
@@ -41,6 +42,7 @@ export function resolveOpenScoutWebRoutes(env = process.env) {
     bootstrapScriptPath: DEFAULT_BOOTSTRAP_SCRIPT_PATH,
     healthPath: DEFAULT_HEALTH_PATH,
     terminalRunPath: DEFAULT_TERMINAL_RUN_PATH,
+    vantageOpenPath: DEFAULT_VANTAGE_OPEN_PATH,
     uploadPath: DEFAULT_UPLOAD_PATH,
     relayUploadPath: DEFAULT_RELAY_UPLOAD_PATH,
     terminalRelayPath,

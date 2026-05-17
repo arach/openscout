@@ -219,6 +219,8 @@ struct ScoutNavigationShell: View {
             ChannelView(channelId: id)
         case .dm(let id):
             DMView(peerId: id)
+        case .terminal:
+            ScoutTerminalView()
         }
     }
 }

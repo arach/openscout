@@ -372,6 +372,12 @@ struct ScoutBottomBar: View {
             }
             .disabled(!isConnected)
 
+            Button {
+                router.push(.terminal)
+            } label: {
+                Label("Terminal", systemImage: "terminal.fill")
+            }
+
             Divider()
 
             Button {

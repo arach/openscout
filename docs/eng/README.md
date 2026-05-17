@@ -50,6 +50,7 @@ implementation specs.
 - [sco-027-durable-action-ledger.md](./sco-027-durable-action-ledger.md)
 - [sco-028-work-materials-inventory.md](./sco-028-work-materials-inventory.md)
 - [sco-030-claude-code-tmux-personal-dev-transport.md](./sco-030-claude-code-tmux-personal-dev-transport.md)
+- [sco-031-native-terminal-surfaces.md](./sco-031-native-terminal-surfaces.md)
 
 ## Operations
 

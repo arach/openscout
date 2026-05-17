@@ -160,6 +160,8 @@ struct AddressBarPill: View {
             return "Channel"
         case .dm:
             return "DM"
+        case .terminal:
+            return "Terminal"
         }
     }
 

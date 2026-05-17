@@ -64,6 +64,48 @@
   text-transform: uppercase;
 }
 
+.s-term-vantage {
+  border: 1px solid rgba(94, 234, 212, 0.22);
+  border-radius: 4px;
+  background: rgba(94, 234, 212, 0.08);
+  color: rgba(219, 255, 248, 0.82);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  min-width: 112px;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.s-term-vantage:hover:not(:disabled) {
+  background: rgba(94, 234, 212, 0.14);
+  color: rgba(240, 255, 252, 0.95);
+}
+
+.s-term-vantage:disabled {
+  cursor: progress;
+  opacity: 0.58;
+}
+
+.s-term-handoff {
+  max-width: min(360px, 32vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+.s-term-handoff--ok {
+  color: rgba(94, 234, 212, 0.62);
+}
+
+.s-term-handoff--error {
+  color: rgba(248, 113, 113, 0.78);
+}
+
 .s-term-status {
   margin-left: auto;
   display: flex;

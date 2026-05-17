@@ -13,7 +13,6 @@ import { bucketAgentsByMachine, type MachineBucket } from "../../lib/mesh-bucket
 import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import { RailRow } from "./RailRow.tsx";
-import { MeshCanvasMinimap } from "./MeshCanvasMinimap.tsx";
 import { FleetSearch } from "./FleetSearch.tsx";
 import { FleetFilterPills } from "./FleetFilterPills.tsx";
 import { openAgent } from "./openAgent.ts";
@@ -185,9 +184,6 @@ export function MeshNavLeftPanel() {
         {renderGroup("tailnet", groups.get("tailnet") ?? [])}
       </div>
 
-      <div className="mesh-nav-minimap">
-        <MeshCanvasMinimap />
-      </div>
     </div>
   );
 }
