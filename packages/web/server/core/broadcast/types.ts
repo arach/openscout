@@ -1,4 +1,4 @@
-import type { DiscoverySnapshot, TailEvent } from "../tail/types.ts";
+import type { DiscoverySnapshot, TailEvent } from "@openscout/runtime/tail";
 
 export type BroadcastTier = "info" | "warn" | "error";
 

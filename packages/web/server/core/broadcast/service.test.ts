@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 
-import type { DiscoverySnapshot, TailEvent } from "../tail/types.ts";
+import type { DiscoverySnapshot, TailEvent } from "@openscout/runtime/tail";
 import {
   __pushTailEventForTests,
   __resetBroadcastForTests,

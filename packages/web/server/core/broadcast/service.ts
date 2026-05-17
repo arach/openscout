@@ -2,8 +2,8 @@ import {
   getTailDiscovery,
   snapshotRecentEvents,
   subscribeTail,
-} from "../tail/service.ts";
-import type { DiscoverySnapshot, TailEvent } from "../tail/types.ts";
+} from "@openscout/runtime/tail";
+import type { DiscoverySnapshot, TailEvent } from "@openscout/runtime/tail";
 import { allRules } from "./rules.ts";
 import type {
   Broadcast,

@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 
-import type { DiscoveredProcess, TailEvent } from "../tail/types.ts";
+import type { DiscoveredProcess, TailEvent } from "@openscout/runtime/tail";
 import type { Broadcast, BroadcastContext, BroadcastRule } from "./types.ts";
 
 const IDLE_THRESHOLD_MS = 5 * 60_000;
