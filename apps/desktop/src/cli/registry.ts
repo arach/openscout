@@ -20,6 +20,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "ask", summary: "Hand work to one agent and wait for acknowledgement" },
   { name: "wait", summary: "Wait for an ask by invocation, flight, message, or ref" },
   { name: "flight", summary: "Follow an existing ask flight" },
+  { name: "label", summary: "Watch, feed, or brief related work by label" },
   { name: "card", summary: "Create a dedicated reply-ready Scout agent card" },
   { name: "watch", summary: "Stream broker messages" },
   { name: "who", summary: "List agents and last activity" },

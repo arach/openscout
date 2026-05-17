@@ -161,6 +161,23 @@ scout ask --as premotion.master.mini --to hudson "Build the editable CodeViewer 
 Use `channel.shared` only when the work is genuinely for a group, not for a
 single owner.
 
+### Label-scoped catch-up
+
+Use labels to tie related asks together without creating a new workflow object:
+
+```bash
+scout ask --to hudson --label release:0.2.66 "Review the package bump."
+scout ask --to lattices --label release:0.2.66 "Check the install path."
+scout label feed release:0.2.66 --since 10m
+scout label watch release:0.2.66 --interval 2
+scout label brief release:0.2.66
+```
+
+Labels are plain metadata. They can mean a goal, release, milestone, incident,
+or any local convention. `scout label watch` streams a normalized firehose of
+matching Scout-owned activity; `scout label brief` gives a compact digest. Scout
+does not assign a lifecycle to the label.
+
 ### Addressing specific agents
 
 Agent identity has six dimensions: `definitionId`, workspace qualifier, `profile`, `harness`, `model`, `node`. Canonical form:

@@ -323,6 +323,7 @@ interface InvocationRow {
   ensure_awake: number;
   stream: number;
   timeout_ms: number | null;
+  labels_json: string | null;
   metadata_json: string | null;
   created_at: number;
 }
@@ -336,6 +337,7 @@ interface FlightRow {
   summary: string | null;
   output: string | null;
   error: string | null;
+  labels_json: string | null;
   metadata_json: string | null;
   started_at: number | null;
   completed_at: number | null;
@@ -731,6 +733,12 @@ export class SQLiteControlPlaneStore {
         "ALTER TABLE invocations ADD COLUMN collaboration_record_id TEXT REFERENCES collaboration_records(id) ON DELETE SET NULL",
       );
     }
+    if (!this.hasColumn("invocations", "labels_json")) {
+      this.db.exec("ALTER TABLE invocations ADD COLUMN labels_json TEXT");
+    }
+    if (!this.hasColumn("flights", "labels_json")) {
+      this.db.exec("ALTER TABLE flights ADD COLUMN labels_json TEXT");
+    }
 
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_invocations_collaboration_record_id_created_at ON invocations(collaboration_record_id, created_at)",
@@ -983,6 +991,7 @@ export class SQLiteControlPlaneStore {
         ensureAwake: row.ensure_awake === 1,
         stream: row.stream === 1,
         timeoutMs: row.timeout_ms ?? undefined,
+        labels: parseJson<string[] | undefined>(row.labels_json, undefined),
         metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
         createdAt: row.created_at,
       };
@@ -999,6 +1008,7 @@ export class SQLiteControlPlaneStore {
         summary: row.summary ?? undefined,
         output: row.output ?? undefined,
         error: row.error ?? undefined,
+        labels: parseJson<string[] | undefined>(row.labels_json, undefined),
         metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
         startedAt: row.started_at ?? undefined,
         completedAt: row.completed_at ?? undefined,
@@ -1460,8 +1470,8 @@ export class SQLiteControlPlaneStore {
       `INSERT INTO invocations (
         id, requester_id, requester_node_id, target_agent_id, target_node_id, action, task,
         collaboration_record_id, conversation_id, message_id, context_json, execution_json,
-        ensure_awake, stream, timeout_ms, metadata_json, created_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+        ensure_awake, stream, timeout_ms, labels_json, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
       ON CONFLICT(id) DO UPDATE SET
         requester_id = excluded.requester_id,
         requester_node_id = excluded.requester_node_id,
@@ -1477,6 +1487,7 @@ export class SQLiteControlPlaneStore {
         ensure_awake = excluded.ensure_awake,
         stream = excluded.stream,
         timeout_ms = excluded.timeout_ms,
+        labels_json = excluded.labels_json,
         metadata_json = excluded.metadata_json,
         created_at = excluded.created_at`,
     ).run(
@@ -1495,6 +1506,7 @@ export class SQLiteControlPlaneStore {
       invocation.ensureAwake ? 1 : 0,
       invocation.stream ? 1 : 0,
       invocation.timeoutMs ?? null,
+      stringify(invocation.labels),
       stringify(invocation.metadata),
       invocation.createdAt,
     );
@@ -1505,8 +1517,8 @@ export class SQLiteControlPlaneStore {
     this.db.query(
       `INSERT OR REPLACE INTO flights (
         id, invocation_id, requester_id, target_agent_id, state, summary, output, error,
-        metadata_json, started_at, completed_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+        labels_json, metadata_json, started_at, completed_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
     ).run(
       flight.id,
       flight.invocationId,
@@ -1516,6 +1528,7 @@ export class SQLiteControlPlaneStore {
       flight.summary ?? null,
       flight.output ?? null,
       flight.error ?? null,
+      stringify(flight.labels),
       stringify(flight.metadata),
       flight.startedAt ?? null,
       flight.completedAt ?? null,
@@ -3190,6 +3203,7 @@ export class SQLiteControlPlaneStore {
         summary: row.summary ?? undefined,
         output: row.output ?? undefined,
         error: row.error ?? undefined,
+        labels: parseJson<string[] | undefined>(row.labels_json, undefined),
         metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
         startedAt: row.started_at ?? undefined,
         completedAt: row.completed_at ?? undefined,

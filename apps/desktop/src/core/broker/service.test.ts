@@ -16,6 +16,8 @@ import { createRuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 
 import {
   askScoutQuestion,
+  buildScoutLabelBrief,
+  buildScoutLabelFeed,
   loadScoutBrokerContext,
   parseScoutHarness,
   parseScoutLocalHarness,
@@ -90,6 +92,212 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
   }
   testDirectories.clear();
+});
+
+describe("buildScoutLabelBrief", () => {
+  test("aggregates flights and work items by label", () => {
+    const snapshot = createRuntimeRegistrySnapshot({
+      invocations: {
+        "inv-1": {
+          id: "inv-1",
+          requesterId: "operator",
+          requesterNodeId: "node-1",
+          targetAgentId: "hudson.main",
+          action: "consult",
+          task: "review the bump",
+          collaborationRecordId: "work-1",
+          conversationId: "dm.operator.hudson",
+          messageId: "msg-1",
+          ensureAwake: true,
+          stream: false,
+          labels: ["release:0.2.66"],
+          createdAt: 1_000,
+        },
+      },
+      flights: {
+        "flt-1": {
+          id: "flt-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: "hudson.main",
+          state: "running",
+          summary: "Running tests.",
+          labels: ["release:0.2.66"],
+          startedAt: 1_500,
+        },
+      },
+      collaborationRecords: {
+        "work-1": {
+          id: "work-1",
+          kind: "work_item",
+          title: "Ship bump",
+          state: "working",
+          acceptanceState: "pending",
+          createdById: "operator",
+          ownerId: "hudson.main",
+          nextMoveOwnerId: "hudson.main",
+          conversationId: "dm.operator.hudson",
+          labels: ["release:0.2.66"],
+          createdAt: 900,
+          updatedAt: 1_600,
+        },
+      },
+    });
+
+    const brief = buildScoutLabelBrief(snapshot, "release:0.2.66", 2_000);
+
+    expect(brief.counts).toEqual({
+      flights: 1,
+      activeFlights: 1,
+      workItems: 1,
+    });
+    expect(brief.activeFlights[0]?.id).toBe("flt-1");
+    expect(brief.activeFlights[0]?.workId).toBe("work-1");
+    expect(brief.workItems[0]?.id).toBe("work-1");
+    expect(brief.participants).toEqual(["hudson.main", "operator"]);
+    expect(brief.lastActivityAt).toBe(1_600);
+  });
+});
+
+describe("buildScoutLabelFeed", () => {
+  test("normalizes messages, invocations, flights, and work events by label", () => {
+    const snapshot = createRuntimeRegistrySnapshot({
+      messages: {
+        "msg-1": {
+          id: "msg-1",
+          conversationId: "dm.operator.hudson",
+          actorId: "operator",
+          originNodeId: "node-1",
+          class: "agent",
+          body: "Please review the release.",
+          visibility: "private",
+          policy: "durable",
+          createdAt: 1_000,
+          metadata: {
+            labels: ["release:0.2.66"],
+            workId: "work-1",
+          },
+        },
+      },
+      invocations: {
+        "inv-1": {
+          id: "inv-1",
+          requesterId: "operator",
+          requesterNodeId: "node-1",
+          targetAgentId: "hudson.main",
+          action: "consult",
+          task: "review the bump",
+          collaborationRecordId: "work-1",
+          conversationId: "dm.operator.hudson",
+          messageId: "msg-1",
+          ensureAwake: true,
+          stream: false,
+          labels: ["release:0.2.66"],
+          createdAt: 1_100,
+        },
+      },
+      flights: {
+        "flt-1": {
+          id: "flt-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: "hudson.main",
+          state: "running",
+          summary: "Running tests.",
+          startedAt: 1_200,
+          labels: ["release:0.2.66"],
+        },
+      },
+      collaborationRecords: {
+        "work-1": {
+          id: "work-1",
+          kind: "work_item",
+          title: "Ship bump",
+          state: "working",
+          acceptanceState: "pending",
+          createdById: "operator",
+          ownerId: "hudson.main",
+          nextMoveOwnerId: "hudson.main",
+          conversationId: "dm.operator.hudson",
+          labels: ["release:0.2.66"],
+          createdAt: 900,
+          updatedAt: 1_400,
+        },
+      },
+    });
+
+    const feed = buildScoutLabelFeed(snapshot, "release:0.2.66", {
+      collaborationEvents: [
+        {
+          id: "evt-1",
+          recordId: "work-1",
+          recordKind: "work_item",
+          kind: "progressed",
+          actorId: "hudson.main",
+          at: 1_300,
+          summary: "Tests are still running.",
+        },
+      ],
+    }, 2_000);
+
+    expect(feed.events.map((event) => event.kind)).toEqual([
+      "message",
+      "invocation_created",
+      "flight_started",
+      "flight_state",
+      "work_event",
+    ]);
+    expect(feed.events.at(-1)?.summary).toBe("Tests are still running.");
+    expect(feed.counts).toEqual({
+      events: 5,
+      messages: 1,
+      invocations: 1,
+      flights: 2,
+      workEvents: 1,
+    });
+  });
+
+  test("returns the latest limited events in chronological order", () => {
+    const snapshot = createRuntimeRegistrySnapshot({
+      messages: {
+        "msg-1": {
+          id: "msg-1",
+          conversationId: "dm.operator.hudson",
+          actorId: "operator",
+          originNodeId: "node-1",
+          class: "agent",
+          body: "Old",
+          visibility: "private",
+          policy: "durable",
+          createdAt: 1_000,
+          metadata: {
+            labels: ["goal:ios"],
+          },
+        },
+        "msg-2": {
+          id: "msg-2",
+          conversationId: "dm.operator.hudson",
+          actorId: "hudson.main",
+          originNodeId: "node-1",
+          class: "agent",
+          body: "New",
+          visibility: "private",
+          policy: "durable",
+          createdAt: 2_000,
+          metadata: {
+            labels: ["goal:ios"],
+          },
+        },
+      },
+    });
+
+    const feed = buildScoutLabelFeed(snapshot, "goal:ios", {
+      since: 500,
+      limit: 1,
+    }, 3_000);
+
+    expect(feed.events.map((event) => event.id)).toEqual(["message:msg-2"]);
+  });
 });
 
 describe("parseScoutHarness", () => {
@@ -280,8 +488,9 @@ describe("askScoutQuestion", () => {
         body: string;
         target?: { kind?: string; label?: string };
         caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
-        messageMetadata?: { source?: string };
-        invocationMetadata?: { source?: string };
+        labels?: string[];
+        messageMetadata?: { source?: string; labels?: string[] };
+        invocationMetadata?: { source?: string; labels?: string[] };
       } | null,
     };
     globalThis.fetch = (async (input, init) => {
@@ -326,8 +535,9 @@ describe("askScoutQuestion", () => {
           caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
           body: string;
           target?: { kind?: string; label?: string };
-          messageMetadata?: { source?: string };
-          invocationMetadata?: { source?: string };
+          labels?: string[];
+          messageMetadata?: { source?: string; labels?: string[] };
+          invocationMetadata?: { source?: string; labels?: string[] };
         };
         const requesterId = body.caller?.actorId ?? "operator";
         captured.delivery = body;
@@ -380,6 +590,7 @@ describe("askScoutQuestion", () => {
       senderId: "operator",
       targetLabel: "talkie",
       body: "build it for me",
+      labels: ["goal:build", "release:0.2.66"],
       currentDirectory: workspaceRoot,
     });
 
@@ -402,6 +613,9 @@ describe("askScoutQuestion", () => {
     });
     expect(captured.delivery?.messageMetadata?.source).toBe("scout-cli");
     expect(captured.delivery?.invocationMetadata?.source).toBe("scout-cli");
+    expect(captured.delivery?.labels).toEqual(["goal:build", "release:0.2.66"]);
+    expect(captured.delivery?.messageMetadata?.labels).toEqual(["goal:build", "release:0.2.66"]);
+    expect(captured.delivery?.invocationMetadata?.labels).toEqual(["goal:build", "release:0.2.66"]);
     expect(requests.some((request) => request.path === "/v1/deliver")).toBe(
       true,
     );

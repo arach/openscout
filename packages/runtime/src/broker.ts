@@ -714,6 +714,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
       error,
       startedAt,
       completedAt,
+      labels: invocation.labels,
       metadata: invocation.metadata,
     };
 
