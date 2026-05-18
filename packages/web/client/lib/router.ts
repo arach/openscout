@@ -33,6 +33,11 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
     case "conductor":
       return "mission";
     case "plan":
+      return "plan";
+    case "issues":
+    case "errors":
+    case "warnings":
+      return "issues";
     case "agents":
     case "tail":
     case "atop":

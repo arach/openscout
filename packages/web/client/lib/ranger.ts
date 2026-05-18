@@ -16,6 +16,9 @@ const OPS_MODES = new Set([
   "command",
   "mission",
   "control",
+  "issues",
+  "errors",
+  "warnings",
   "agents",
   "tail",
   "atop",
@@ -370,6 +373,11 @@ function normalizeOpsMode(mode: string): OpsMode | undefined {
     case "conductor":
       return "mission";
     case "plan":
+      return "plan";
+    case "issues":
+    case "errors":
+    case "warnings":
+      return "issues";
     case "agents":
     case "tail":
     case "atop":
