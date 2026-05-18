@@ -50,6 +50,8 @@ const ATTRIBUTION_CLASS: Record<TailAttribution, string> = {
 };
 
 type TailViewVariant = "tail" | "issues";
+type TailViewChrome = "full" | "embedded";
+type TailFilterScope = "all" | "context";
 type IssueSeverity = "warn" | "error";
 type IssueFilter = "warn-plus" | "errors-only" | "all";
 type ClassifiedTailEvent = {
@@ -197,7 +199,12 @@ function issueFilterLabel(filter: IssueFilter): string {
   }
 }
 
-function matchesFilter(event: TailEvent, query: string, severity: IssueSeverity | null = null): boolean {
+function matchesFilter(
+  event: TailEvent,
+  query: string,
+  severity: IssueSeverity | null = null,
+  scope: TailFilterScope = "all",
+): boolean {
   if (!query) return true;
   const attribution = ATTRIBUTION_LABEL[event.harness];
   const issueWords = severity === "error"
@@ -205,7 +212,27 @@ function matchesFilter(event: TailEvent, query: string, severity: IssueSeverity 
     : severity === "warn"
       ? "warn warning issue"
       : "";
-  const haystack = `${event.summary} ${event.project} ${event.sessionId} ${event.source} ${event.harness} ${attribution} ${issueWords}`.toLowerCase();
+  const searchableParts = scope === "context"
+    ? [
+        event.project,
+        event.cwd,
+        event.sessionId,
+        event.source,
+        event.harness,
+        attribution,
+        issueWords,
+      ]
+    : [
+        event.summary,
+        event.project,
+        event.cwd,
+        event.sessionId,
+        event.source,
+        event.harness,
+        attribution,
+        issueWords,
+      ];
+  const haystack = searchableParts.join(" ").toLowerCase();
   // Pipe-separated terms are OR-matched ("hudson|claude" matches either)
   const terms = query.toLowerCase().split("|").map((t) => t.trim()).filter(Boolean);
   if (terms.length === 0) return true;
@@ -216,17 +243,24 @@ export function TailView({
   navigate,
   initialFilter,
   variant = "tail",
+  chrome = "full",
+  filterLabel,
+  filterScope = "all",
 }: {
   navigate?: (r: Route) => void;
   initialFilter?: string;
   variant?: TailViewVariant;
+  chrome?: TailViewChrome;
+  filterLabel?: string;
+  filterScope?: TailFilterScope;
 } = {}) {
   const { route } = useScout();
   const issueMode = variant === "issues";
+  const embedded = chrome === "embedded";
   const [events, setEvents] = useState<TailEvent[]>([]);
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [filter, setFilter] = useState(initialFilter ?? "");
-  const [filterOpen, setFilterOpen] = useState(Boolean(initialFilter));
+  const [filterOpen, setFilterOpen] = useState(Boolean(initialFilter) && !embedded);
   const [issueFilter, setIssueFilter] = useState<IssueFilter>("warn-plus");
   const [paused, setPaused] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -252,15 +286,19 @@ export function TailView({
 
   useEffect(() => {
     setFilter(initialFilter ?? "");
-    setFilterOpen(Boolean(initialFilter));
-  }, [initialFilter]);
+    setFilterOpen(Boolean(initialFilter) && !embedded);
+  }, [embedded, initialFilter]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
+        const params = new URLSearchParams({ limit: String(DEFAULT_RECENT_LIMIT) });
+        if (embedded) {
+          params.set("transcripts", "true");
+        }
         const result = await api<{ events: TailEvent[] }>(
-          `/api/tail/recent?limit=${DEFAULT_RECENT_LIMIT}`,
+          `/api/tail/recent?${params.toString()}`,
         );
         if (!cancelled) setEvents(result.events ?? []);
       } catch {
@@ -270,7 +308,7 @@ export function TailView({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [embedded]);
 
   const loadDiscovery = useCallback(async () => {
     try {
@@ -317,9 +355,9 @@ export function TailView({
   const filtered = useMemo(() => {
     return classifiedEvents.filter(({ event, severity }) => {
       if (issueMode && !issueFilterAllows(severity, issueFilter)) return false;
-      return matchesFilter(event, filter, severity);
+      return matchesFilter(event, filter, severity, filterScope);
     });
-  }, [classifiedEvents, filter, issueFilter, issueMode]);
+  }, [classifiedEvents, filter, filterScope, issueFilter, issueMode]);
 
   // Auto-scroll-to-bottom unless paused.
   useLayoutEffect(() => {
@@ -371,6 +409,7 @@ export function TailView({
 
   // Keyboard shortcuts: /, Esc, G
   useEffect(() => {
+    if (embedded) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const inEditable = target instanceof HTMLInputElement
@@ -400,14 +439,14 @@ export function TailView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [filterOpen, jumpToLive]);
+  }, [embedded, filterOpen, jumpToLive]);
 
   const totals = discovery?.totals;
   const transcriptCount = totals?.transcripts ?? discovery?.transcripts?.length ?? 0;
   const harnessCounts = useMemo(() => summarizeSources(discovery, events), [discovery, events]);
 
   return (
-    <div className="s-tail">
+    <div className={`s-tail s-tail--${chrome}`}>
       <div className={`s-tail-status${issueMode ? " s-tail-status--issues" : ""}`}>
         <span className="s-tail-status-cluster s-tail-status-cluster--metrics">
           <span className="s-tail-status-cell">
@@ -473,6 +512,11 @@ export function TailView({
             )}
           </span>
         </span>
+        {filter && embedded && (
+          <span className="s-tail-status-filter" title={filter}>
+            {filterLabel ?? "filtered"}
+          </span>
+        )}
         {paused && <span className="s-tail-status-paused">paused</span>}
       </div>
 
@@ -506,7 +550,11 @@ export function TailView({
             </span>
             <span className="s-tail-empty-body">
               {filter ? (
-                <>no events match filter <strong>{filter}</strong></>
+                embedded ? (
+                  <>no events match <strong>{filterLabel ?? "this work filter"}</strong></>
+                ) : (
+                  <>no events match filter <strong>{filter}</strong></>
+                )
               ) : issueMode ? (
                 <>no {issueFilterLabel(issueFilter)} in the buffered session tail</>
               ) : transcriptCount ? (
@@ -554,14 +602,21 @@ export function TailView({
         )}
       </div>
 
-      <div className="s-tail-keys">
-        <span><kbd>j</kbd>/<kbd>k</kbd> scroll</span>
-        <span><kbd>/</kbd> filter</span>
-        <span><kbd>G</kbd> jump live</span>
-        <span><kbd>esc</kbd> close filter</span>
-        <span className="s-tail-keys-spacer" />
-        <span>{filtered.length} / {events.length} lines buffered</span>
-      </div>
+      {embedded ? (
+        <div className="s-tail-keys s-tail-keys--embedded">
+          <span>{filtered.length} / {events.length} lines buffered</span>
+          {paused && pendingCount > 0 && <span>{pendingCount} new</span>}
+        </div>
+      ) : (
+        <div className="s-tail-keys">
+          <span><kbd>j</kbd>/<kbd>k</kbd> scroll</span>
+          <span><kbd>/</kbd> filter</span>
+          <span><kbd>G</kbd> jump live</span>
+          <span><kbd>esc</kbd> close filter</span>
+          <span className="s-tail-keys-spacer" />
+          <span>{filtered.length} / {events.length} lines buffered</span>
+        </div>
+      )}
 
       {selected && (
         <TailDetailSheet
@@ -610,7 +665,7 @@ function TailRow({
       <span className="s-tail-cell-time">{formatTime(event.ts)}</span>
       <span className="s-tail-gutter">│</span>
       <span className="s-tail-chip s-tail-chip--harness">{harnessLabel}</span>
-      <span className={`s-tail-chip ${attributionClass}`} title={`origin: ${attributionLabel}`}>
+      <span className={`s-tail-chip s-tail-chip--origin ${attributionClass}`} title={`origin: ${attributionLabel}`}>
         {attributionLabel}
       </span>
       <span className="s-tail-cell-context">
@@ -774,7 +829,7 @@ function TailDetailSheet({
             </span>
           )}
           <span className="s-tail-chip s-tail-chip--harness">{harnessLabel}</span>
-          <span className={`s-tail-chip ${attributionClass}`} title={`origin: ${attributionLabel}`}>
+          <span className={`s-tail-chip s-tail-chip--origin ${attributionClass}`} title={`origin: ${attributionLabel}`}>
             {attributionLabel}
           </span>
           <span className="s-slide-spacer" />

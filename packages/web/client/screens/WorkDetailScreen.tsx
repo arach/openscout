@@ -1,4 +1,4 @@
-import { BookOpen, Code2, FileText, MessageSquare } from "lucide-react";
+import { Activity, BookOpen, Code2, ExternalLink, FileText, MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DocumentFocusViewer, type DocumentFocusKind } from "../components/DocumentFocusViewer.tsx";
 import { StatusPill } from "../components/StatusPill.tsx";
@@ -7,16 +7,12 @@ import { renderWithMentions } from "../lib/mentions.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { workChildTone, workTone } from "../lib/status-tone.ts";
-import { fullTimestamp, timeAgo } from "../lib/time.ts";
+import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
-import type { Route, WorkDetail, WorkMaterial, WorkMaterialContent, WorkMaterialsInventory, WorkTimelineItem } from "../lib/types.ts";
-
-type Fact = {
-  label: string;
-  value: ReactNode;
-};
+import { TailView } from "./TailView.tsx";
+import type { Route, WorkDetail, WorkMaterial, WorkMaterialContent, WorkMaterialsInventory } from "../lib/types.ts";
 
 type ActionCue = {
   eyebrow: string;
@@ -129,81 +125,6 @@ function buildActionCue({
   };
 }
 
-function timelineKindLabel(item: WorkTimelineItem): string {
-  switch (item.kind) {
-    case "flight_started":
-      return "flight started";
-    case "flight_completed":
-      return item.detailKind ? `flight ${item.detailKind}` : "flight ended";
-    case "message":
-      return "message";
-    case "collaboration_event":
-    default:
-      return item.title ?? item.detailKind ?? "event";
-  }
-}
-
-function timelineTone(item: WorkTimelineItem): "message" | "flight" | "done" | "alert" | "system" {
-  if (item.kind === "message") {
-    return "message";
-  }
-  if (item.kind === "flight_started") {
-    return "flight";
-  }
-  if (item.kind === "flight_completed") {
-    return item.detailKind?.includes("fail") ? "alert" : "done";
-  }
-  if (item.detailKind?.includes("interrupt") || item.detailKind?.includes("block")) {
-    return "alert";
-  }
-  return "system";
-}
-
-function FactCard({
-  title,
-  items,
-}: {
-  title: string;
-  items: Fact[];
-}) {
-  if (items.length === 0) {
-    return null;
-  }
-
-  return (
-    <section className="s-work-fact-card">
-      <div className="s-work-fact-card-header">
-        <div className="s-work-fact-card-title">{title}</div>
-      </div>
-      <div className="s-work-fact-card-body">
-        {items.map((item) => (
-          <div key={item.label} className="s-work-fact-row">
-            <span className="s-work-fact-label">{item.label}</span>
-            <span className="s-work-fact-value">{item.value}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ActionRow({
-  label,
-  value,
-  onClick,
-}: {
-  label: string;
-  value: string;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className="s-work-action-row" onClick={onClick}>
-      <span className="s-work-action-row-label">{label}</span>
-      <span className="s-work-action-row-value">{value}</span>
-    </button>
-  );
-}
-
 function WorkActionButton({
   children,
   icon,
@@ -251,6 +172,7 @@ function WorkMaterials({
     || material.kind === "other"
   );
   const hasPlanMaterials = planMaterials.length > 0;
+  const hasDocMaterials = docMaterials.length > 0;
   const briefSummary = initialWorkBriefSummary(detail);
   const primarySummary = planMaterials[0]
     ? materialSummary(planMaterials[0])
@@ -360,45 +282,47 @@ function WorkMaterials({
           )}
         </article>
 
-        <article className="s-work-material-card">
-          <div className="s-work-material-head">
-            <span className="s-work-material-icon" aria-hidden="true">
-              <BookOpen size={15} strokeWidth={1.8} />
-            </span>
-            <div>
-              <div className="s-work-material-kicker">Docs</div>
-              <div className="s-work-material-title">
-                {docMaterials.length > 0 ? `${docMaterials.length} documents` : "No docs yet"}
+        <div className={`s-work-material-evidence-stack${hasDocMaterials ? "" : " s-work-material-evidence-stack-single"}`}>
+          {hasDocMaterials && (
+            <article className="s-work-material-card s-work-material-card-docs">
+              <div className="s-work-material-head">
+                <span className="s-work-material-icon" aria-hidden="true">
+                  <BookOpen size={15} strokeWidth={1.8} />
+                </span>
+                <div>
+                  <div className="s-work-material-kicker">Docs</div>
+                  <div className="s-work-material-title">{docMaterials.length} documents</div>
+                </div>
               </div>
-            </div>
-          </div>
-          <WorkMaterialList
-            materials={docMaterials.slice(0, 4)}
-            empty="Docs from git or trace evidence will appear here."
-            selectedId={selectedMaterialId}
-            onOpen={openMaterial}
-          />
-        </article>
+              <WorkMaterialList
+                materials={docMaterials.slice(0, 3)}
+                empty="Docs from git or trace evidence will appear here."
+                selectedId={selectedMaterialId}
+                onOpen={openMaterial}
+              />
+            </article>
+          )}
 
-        <article className="s-work-material-card">
-          <div className="s-work-material-head">
-            <span className="s-work-material-icon" aria-hidden="true">
-              <Code2 size={15} strokeWidth={1.8} />
-            </span>
-            <div>
-              <div className="s-work-material-kicker">Code</div>
-              <div className="s-work-material-title">
-                {codeMaterials.length > 0 ? `${codeMaterials.length} related files` : "No code yet"}
+          <article className="s-work-material-card s-work-material-card-code">
+            <div className="s-work-material-head">
+              <span className="s-work-material-icon" aria-hidden="true">
+                <Code2 size={15} strokeWidth={1.8} />
+              </span>
+              <div>
+                <div className="s-work-material-kicker">Code</div>
+                <div className="s-work-material-title">
+                  {codeMaterials.length > 0 ? `${codeMaterials.length} related files` : "No code yet"}
+                </div>
               </div>
             </div>
-          </div>
-          <WorkMaterialList
-            materials={codeMaterials.slice(0, 5)}
-            empty="Changed code from git or session traces will appear here."
-            selectedId={selectedMaterialId}
-            onOpen={openMaterial}
-          />
-        </article>
+            <WorkMaterialList
+              materials={codeMaterials.slice(0, 5)}
+              empty="Changed code from git or session traces will appear here."
+              selectedId={selectedMaterialId}
+              onOpen={openMaterial}
+            />
+          </article>
+        </div>
       </div>
       <WorkBriefViewer
         detail={detail}
@@ -645,6 +569,128 @@ function compactId(id: string): string {
   return parts[parts.length - 1] || id;
 }
 
+type WorkTailContext = {
+  query: string;
+  label: string;
+};
+
+function addTailTerm(terms: Set<string>, value: string | null | undefined): void {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.length < 3) return;
+  terms.add(trimmed);
+}
+
+function addWorkPathTailTerms(terms: Set<string>, value: string | null | undefined): void {
+  addTailTerm(terms, value);
+  const normalized = value?.trim().replace(/\/+$/, "");
+  const lastSegment = normalized?.split("/").filter(Boolean).at(-1);
+  if (lastSegment && lastSegment.length >= 3) {
+    terms.add(lastSegment);
+  }
+}
+
+function prettyWorkPath(value: string): string {
+  return value.replace(/^\/Users\/[^/]+/, "~");
+}
+
+function buildWorkTailContext(detail: WorkDetail): WorkTailContext {
+  const terms = new Set<string>();
+  const labelParts: string[] = [];
+  const ownerLabel = detail.ownerName ?? detail.ownerId ?? detail.nextMoveOwnerName ?? detail.nextMoveOwnerId;
+
+  addTailTerm(terms, detail.id);
+  addTailTerm(terms, detail.conversationId);
+  addTailTerm(terms, detail.ownerId);
+  addTailTerm(terms, detail.nextMoveOwnerId);
+  addTailTerm(terms, detail.ownerName);
+  addTailTerm(terms, detail.nextMoveOwnerName);
+
+  for (const flight of detail.activeFlights) {
+    addTailTerm(terms, flight.id);
+    addTailTerm(terms, flight.invocationId);
+    addTailTerm(terms, flight.agentId);
+    addTailTerm(terms, flight.agentName);
+    addTailTerm(terms, flight.conversationId);
+    addTailTerm(terms, flight.collaborationRecordId);
+  }
+
+  for (const agent of detail.inventory?.agents ?? []) {
+    addTailTerm(terms, agent.id);
+    addTailTerm(terms, agent.name);
+    addTailTerm(terms, agent.sessionId);
+    addWorkPathTailTerms(terms, agent.cwd);
+    addWorkPathTailTerms(terms, agent.projectRoot);
+  }
+
+  const primarySession = detail.inventory?.sessions.find((session) => session.cwd)
+    ?? detail.inventory?.sessions[0]
+    ?? null;
+  for (const session of detail.inventory?.sessions ?? []) {
+    addTailTerm(terms, session.id);
+    addTailTerm(terms, session.conversationId);
+    addTailTerm(terms, session.agentId);
+    addTailTerm(terms, session.agentName);
+    addWorkPathTailTerms(terms, session.cwd);
+  }
+
+  if (ownerLabel) {
+    labelParts.push(ownerLabel);
+  }
+  if (primarySession?.cwd) {
+    labelParts.push(prettyWorkPath(primarySession.cwd));
+  }
+
+  return {
+    query: [...terms].slice(0, 20).join("|"),
+    label: labelParts.length > 0 ? labelParts.join(" · ") : `Case ${compactId(detail.id)}`,
+  };
+}
+
+function WorkTailPanel({
+  detail,
+  navigate,
+}: {
+  detail: WorkDetail;
+  navigate: (r: Route) => void;
+}) {
+  const { route } = useScout();
+  const tailContext = buildWorkTailContext(detail);
+
+  return (
+    <section className="s-work-casefile-section s-work-tail-section">
+      <div className="s-agent-section-heading s-work-tail-heading">
+        <div>
+          <h2 className="s-agent-section-title s-work-tail-title">
+            <Activity aria-hidden="true" size={15} strokeWidth={1.8} />
+            Live tail
+          </h2>
+          <p className="s-work-section-note">Filtered to {tailContext.label}</p>
+        </div>
+        <WorkActionButton
+          icon={<ExternalLink aria-hidden="true" size={13} strokeWidth={1.8} />}
+          onClick={() =>
+            openContent(
+              navigate,
+              { view: "ops", mode: "tail", tailQuery: tailContext.query || undefined },
+              { returnTo: route },
+            )}
+        >
+          Open Tail
+        </WorkActionButton>
+      </div>
+      <div className="s-work-tail-frame">
+        <TailView
+          navigate={navigate}
+          initialFilter={tailContext.query}
+          filterLabel={tailContext.label}
+          filterScope="context"
+          chrome="embedded"
+        />
+      </div>
+    </section>
+  );
+}
+
 export function WorkDetailScreen({
   workId,
   navigate,
@@ -708,30 +754,13 @@ export function WorkDetailScreen({
   const signal = signalLabel(detail.attention);
   const ownerLabel = detail.ownerName ?? detail.ownerId ?? "Unassigned";
   const nextMoveLabel = detail.nextMoveOwnerName ?? detail.nextMoveOwnerId ?? "—";
-  const statusFacts: Fact[] = [
-    { label: "State", value: stateLabel(detail.state) },
-    { label: "Acceptance", value: detail.acceptanceState.replace(/_/g, " ") },
-    { label: "Phase", value: detail.currentPhase },
-    ...(signal ? [{ label: "Signal", value: signal }] : []),
-  ];
-  const assignmentFacts: Fact[] = [
-    { label: "Owner", value: ownerLabel },
-    { label: "Next move", value: nextMoveLabel },
-    ...(detail.priority ? [{ label: "Priority", value: detail.priority }] : []),
-    { label: "Conversation", value: detail.conversationId ? "Attached" : "None" },
-  ];
-  const recordFacts: Fact[] = [
-    { label: "Case ID", value: detail.id },
-    { label: "Created", value: fullTimestamp(detail.createdAt) },
-    { label: "Updated", value: fullTimestamp(detail.updatedAt) },
-    { label: "Last activity", value: fullTimestamp(detail.lastMeaningfulAt) },
-  ];
   const actionCue = buildActionCue({
     detail,
     signal,
     ownerLabel,
     nextMoveLabel,
   });
+  const hasLowerContent = detail.activeFlights.length > 0 || detail.childWork.length > 0;
 
   return (
     <div className="s-work-detail s-work-casefile">
@@ -780,171 +809,84 @@ export function WorkDetailScreen({
         </aside>
       </section>
 
-      <div className="s-work-casefile-layout">
-        <div className="s-work-casefile-main">
+      <div className="s-work-casefile-layout s-work-casefile-layout-main">
+        <div className="s-work-casefile-main s-work-casefile-main-materials">
           <WorkMaterials detail={detail} navigate={navigate} />
-
-          <section className="s-work-casefile-section">
-            <div className="s-agent-section-heading">
-              <h2 className="s-agent-section-title">Case facts</h2>
-            </div>
-            <div className="s-work-fact-grid">
-              <FactCard
-                title="Status"
-                items={statusFacts}
-              />
-              <FactCard
-                title="Assignment"
-                items={assignmentFacts}
-              />
-            </div>
-          </section>
-
-          {detail.activeFlights.length > 0 && (
-            <section className="s-work-casefile-section">
-              <div className="s-agent-section-heading">
-                <h2 className="s-agent-section-title">Flights</h2>
-              </div>
-              <div className="s-work-flight-list">
-                {detail.activeFlights.map((flight) => (
-                  <button
-                    key={flight.id}
-                    type="button"
-                    className="s-work-flight-card"
-                    onClick={
-                      flight.conversationId
-                        ? () => openContent(navigate, { view: "conversation", conversationId: flight.conversationId! }, { returnTo: route })
-                        : undefined
-                    }
-                    disabled={!flight.conversationId}
-                  >
-                    <div className="s-work-flight-card-header">
-                      <span className="s-work-flight-card-title">{flight.agentName ?? flight.agentId}</span>
-                      <StatusPill tone="working" variant="pill">{flight.state}</StatusPill>
-                    </div>
-                    <div className="s-work-flight-card-meta">
-                      <span>{flight.startedAt ? `Started ${timeAgo(flight.startedAt)}` : "Start time unavailable"}</span>
-                      {flight.completedAt && <span>Completed {timeAgo(flight.completedAt)}</span>}
-                    </div>
-                    {flight.summary && <div className="s-work-flight-card-copy">{flight.summary}</div>}
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {detail.childWork.length > 0 && (
-            <section className="s-work-casefile-section">
-              <div className="s-agent-section-heading">
-                <h2 className="s-agent-section-title">Child work</h2>
-              </div>
-              <div className="s-work-related-list">
-                {detail.childWork.map((child) => (
-                  <button
-                    key={child.id}
-                    type="button"
-                    className="s-work-related-card"
-                    onClick={() => openContent(navigate, { view: "work", workId: child.id }, { returnTo: route })}
-                  >
-                    <div className="s-work-related-card-header">
-                      <span className="s-work-related-card-title">{child.title}</span>
-                      <StatusPill tone={workChildTone(child)} variant="pill">
-                        {child.currentPhase}
-                      </StatusPill>
-                    </div>
-                    <div className="s-work-related-card-meta">
-                      <span>{child.ownerName ?? child.ownerId ?? "Unassigned"}</span>
-                      <span>{stateLabel(child.state)}</span>
-                      <span>{timeAgo(child.lastMeaningfulAt)}</span>
-                    </div>
-                    {child.lastMeaningfulSummary && (
-                      <div className="s-work-related-card-copy">
-                        {renderWithMentions(child.lastMeaningfulSummary)}
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section className="s-work-casefile-section">
-            <div className="s-agent-section-heading">
-              <h2 className="s-agent-section-title">Timeline</h2>
-            </div>
-            {detail.timeline.length === 0 ? (
-              <div className="s-empty">
-                <p>No activity yet.</p>
-                <p>Timeline events will appear once the case receives messages or coordination updates.</p>
-              </div>
-            ) : (
-              <div className="s-work-timeline">
-                {detail.timeline.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`s-work-timeline-entry${item.conversationId ? " s-work-timeline-entry-clickable" : ""}`}
-                    onClick={
-                      item.conversationId
-                        ? () => openContent(navigate, { view: "conversation", conversationId: item.conversationId! }, { returnTo: route })
-                        : undefined
-                    }
-                    disabled={!item.conversationId}
-                  >
-                    <span className={`s-work-timeline-marker s-work-timeline-marker-${timelineTone(item)}`} />
-                    <div className="s-work-timeline-content">
-                      <div className="s-work-timeline-header">
-                        <span className="s-work-timeline-time">{timeAgo(item.at)}</span>
-                        <span className={`s-work-timeline-kind s-work-timeline-kind-${timelineTone(item)}`}>
-                          {timelineKindLabel(item)}
-                        </span>
-                      </div>
-                      <div className="s-work-timeline-actor">{item.actorName ?? "system"}</div>
-                      {item.title && <div className="s-work-timeline-title">{item.title}</div>}
-                      {item.summary && (
-                        <div className="s-work-timeline-summary">{renderWithMentions(item.summary)}</div>
-                      )}
-                      <div className="s-work-timeline-stamp">{fullTimestamp(item.at)}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
         </div>
 
-        <aside className="s-work-casefile-side">
-          <FactCard
-            title="Record"
-            items={recordFacts}
-          />
+        <WorkTailPanel detail={detail} navigate={navigate} />
 
-          <section className="s-work-fact-card">
-            <div className="s-work-fact-card-header">
-              <div className="s-work-fact-card-title">Links</div>
-            </div>
-            <div className="s-work-action-list">
-              {detail.conversationId ? (
-                <ActionRow
-                  label="Conversation"
-                  value="Open thread"
-                  onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}
-                />
-              ) : (
-                <div className="s-work-action-list-empty">No conversation attached.</div>
-              )}
-              {detail.parentId && detail.parentTitle ? (
-                <ActionRow
-                  label="Parent"
-                  value={detail.parentTitle}
-                  onClick={() => openContent(navigate, { view: "work", workId: detail.parentId! }, { returnTo: route })}
-                />
-              ) : (
-                <div className="s-work-action-list-empty">No parent work item.</div>
-              )}
-            </div>
-          </section>
-        </aside>
+        {hasLowerContent && (
+          <div className="s-work-casefile-main s-work-casefile-main-lower">
+            {detail.activeFlights.length > 0 && (
+              <section className="s-work-casefile-section">
+                <div className="s-agent-section-heading">
+                  <h2 className="s-agent-section-title">Flights</h2>
+                </div>
+                <div className="s-work-flight-list">
+                  {detail.activeFlights.map((flight) => (
+                    <button
+                      key={flight.id}
+                      type="button"
+                      className="s-work-flight-card"
+                      onClick={
+                        flight.conversationId
+                          ? () => openContent(navigate, { view: "conversation", conversationId: flight.conversationId! }, { returnTo: route })
+                          : undefined
+                      }
+                      disabled={!flight.conversationId}
+                    >
+                      <div className="s-work-flight-card-header">
+                        <span className="s-work-flight-card-title">{flight.agentName ?? flight.agentId}</span>
+                        <StatusPill tone="working" variant="pill">{flight.state}</StatusPill>
+                      </div>
+                      <div className="s-work-flight-card-meta">
+                        <span>{flight.startedAt ? `Started ${timeAgo(flight.startedAt)}` : "Start time unavailable"}</span>
+                        {flight.completedAt && <span>Completed {timeAgo(flight.completedAt)}</span>}
+                      </div>
+                      {flight.summary && <div className="s-work-flight-card-copy">{flight.summary}</div>}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {detail.childWork.length > 0 && (
+              <section className="s-work-casefile-section">
+                <div className="s-agent-section-heading">
+                  <h2 className="s-agent-section-title">Child work</h2>
+                </div>
+                <div className="s-work-related-list">
+                  {detail.childWork.map((child) => (
+                    <button
+                      key={child.id}
+                      type="button"
+                      className="s-work-related-card"
+                      onClick={() => openContent(navigate, { view: "work", workId: child.id }, { returnTo: route })}
+                    >
+                      <div className="s-work-related-card-header">
+                        <span className="s-work-related-card-title">{child.title}</span>
+                        <StatusPill tone={workChildTone(child)} variant="pill">
+                          {child.currentPhase}
+                        </StatusPill>
+                      </div>
+                      <div className="s-work-related-card-meta">
+                        <span>{child.ownerName ?? child.ownerId ?? "Unassigned"}</span>
+                        <span>{stateLabel(child.state)}</span>
+                        <span>{timeAgo(child.lastMeaningfulAt)}</span>
+                      </div>
+                      {child.lastMeaningfulSummary && (
+                        <div className="s-work-related-card-copy">
+                          {renderWithMentions(child.lastMeaningfulSummary)}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

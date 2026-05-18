@@ -52,6 +52,9 @@ function renderTargetLabel(label: string): string {
   if (!trimmed) {
     return "";
   }
+  if (trimmed.startsWith("ref:")) {
+    return trimmed;
+  }
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
 }
 
