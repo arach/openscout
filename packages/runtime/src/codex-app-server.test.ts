@@ -6,6 +6,7 @@ import { delimiter, join } from "node:path";
 import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "@openscout/agent-sessions";
 import {
   buildCodexAppServerSessionSnapshot,
+  buildCodexRolloutSessionSnapshot,
   ensureCodexAppServerAgentOnline,
   getCodexAppServerAgentSnapshot,
   invokeCodexAppServerAgent,
@@ -856,6 +857,128 @@ describe("buildCodexAppServerSessionSnapshot", () => {
       expect(snapshot.turns[0].blocks[1].block.action.toolName).toBe("exec_command");
       expect(snapshot.turns[0].blocks[1].block.action.output).toBe("hi\n");
     }
+  });
+
+  test("retires a quiet unfinished rollout turn when no blocks are still streaming", () => {
+    const rolloutPath = "/tmp/quiet-thread.jsonl";
+    const raw = [
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:38.000Z",
+        type: "session_meta",
+        payload: {
+          id: "thread-quiet",
+          cwd: "/repo",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:38.100Z",
+        type: "event_msg",
+        payload: {
+          type: "task_started",
+          turn_id: "turn-quiet",
+          started_at: "2026-04-17T01:54:38.100Z",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:40.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "echo done" }),
+          call_id: "call-quiet",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:41.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-quiet",
+          output: "done\n",
+        },
+      }),
+    ].join("\n");
+
+    const snapshot = buildCodexRolloutSessionSnapshot(
+      raw,
+      {
+        agentName: "codex-quiet",
+        sessionId: "attached-codex-quiet",
+        cwd: "/repo",
+      },
+      "thread-quiet",
+      rolloutPath,
+      {
+        nowMs: Date.parse("2026-04-17T02:05:00.000Z"),
+        staleActiveTurnMs: 10 * 60 * 1000,
+      },
+    );
+
+    expect(snapshot).not.toBeNull();
+    expect(snapshot?.session.status).toBe("idle");
+    expect(snapshot?.currentTurnId).toBeUndefined();
+    expect(snapshot?.turns[0]?.status).toBe("interrupted");
+    expect(snapshot?.turns[0]?.endedAt).toBe(Date.parse("2026-04-17T01:54:41.000Z"));
+    expect(snapshot?.session.providerMeta?.threadPath).toBe(rolloutPath);
+    expect(snapshot?.session.providerMeta?.observeRuntime).toEqual(expect.objectContaining({
+      staleActiveTurn: true,
+      staleActiveTurnReason: "No Codex rollout activity after an unfinished turn.",
+    }));
+  });
+
+  test("keeps a quiet rollout active when a tool block is still streaming", () => {
+    const raw = [
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:38.000Z",
+        type: "session_meta",
+        payload: {
+          id: "thread-active-tool",
+          cwd: "/repo",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:38.100Z",
+        type: "event_msg",
+        payload: {
+          type: "task_started",
+          turn_id: "turn-active-tool",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:40.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "sleep 900" }),
+          call_id: "call-active-tool",
+        },
+      }),
+    ].join("\n");
+
+    const snapshot = buildCodexRolloutSessionSnapshot(
+      raw,
+      {
+        agentName: "codex-active-tool",
+        sessionId: "attached-codex-active-tool",
+        cwd: "/repo",
+      },
+      "thread-active-tool",
+      "/tmp/active-tool-thread.jsonl",
+      {
+        nowMs: Date.parse("2026-04-17T02:05:00.000Z"),
+        staleActiveTurnMs: 10 * 60 * 1000,
+      },
+    );
+
+    expect(snapshot).not.toBeNull();
+    expect(snapshot?.session.status).toBe("active");
+    expect(snapshot?.currentTurnId).toBe("turn-active-tool");
+    expect(snapshot?.turns[0]?.status).toBe("streaming");
+    expect(snapshot?.session.providerMeta?.observeRuntime).not.toEqual(expect.objectContaining({
+      staleActiveTurn: true,
+    }));
   });
 });
 

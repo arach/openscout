@@ -5,16 +5,15 @@
  * broker helpers already available in the web server package.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 import type { NodeDefinition } from "@openscout/protocol";
 import {
   buildDefaultBrokerUrl,
-  DEFAULT_BROKER_HOST,
   DEFAULT_BROKER_HOST_MESH,
   resolveBrokerServiceConfig,
-  restartBrokerService,
+  type BrokerServiceConfig,
 } from "@openscout/runtime/broker-process-manager";
 import {
   readTailscaleStatusSummary,
@@ -346,6 +345,39 @@ function preferredAnnounceHost(self: TailscaleSelfCandidate | null, currentBroke
   return null;
 }
 
+function scheduleBrokerServiceRestart(config: BrokerServiceConfig): void {
+  const delayMs = Number.parseInt(process.env.OPENSCOUT_MESH_ANNOUNCE_RESTART_DELAY_MS ?? "1200", 10);
+  const restartScript = `
+const delayMs = Number.parseInt(process.env.OPENSCOUT_MESH_ANNOUNCE_RESTART_DELAY_MS ?? "1200", 10);
+await new Promise((resolve) => setTimeout(resolve, Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : 1200));
+const { restartBrokerService } = await import("./src/broker-process-manager.ts");
+await restartBrokerService();
+`;
+
+  const child = spawn(config.bunExecutable, ["--eval", restartScript], {
+    cwd: config.runtimePackageDir,
+    detached: true,
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      OPENSCOUT_BROKER_HOST: config.brokerHost,
+      OPENSCOUT_BROKER_PORT: String(config.brokerPort),
+      OPENSCOUT_BROKER_URL: config.brokerUrl,
+      OPENSCOUT_BROKER_SOCKET_PATH: config.brokerSocketPath,
+      OPENSCOUT_CONTROL_HOME: config.controlHome,
+      OPENSCOUT_BROKER_SERVICE_MODE: config.mode,
+      OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
+      OPENSCOUT_SERVICE_LABEL: config.label,
+      OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
+      OPENSCOUT_MESH_ANNOUNCE_RESTART_DELAY_MS: String(
+        Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : 1200,
+      ),
+    },
+  });
+  child.once("error", () => undefined);
+  child.unref();
+}
+
 export async function announceMeshVisibility(): Promise<MeshStatusReport> {
   const current = resolveBrokerServiceConfig();
   const self = await readTailscaleSelf();
@@ -364,20 +396,7 @@ export async function announceMeshVisibility(): Promise<MeshStatusReport> {
     brokerUrl: buildDefaultBrokerUrl(announceHost, current.brokerPort),
   };
 
-  await restartBrokerService(nextConfig);
-
-  try {
-    await fetch(new URL("/v1/mesh/discover", buildDefaultBrokerUrl(DEFAULT_BROKER_HOST, current.brokerPort)), {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json",
-      },
-      body: "{}",
-    });
-  } catch {
-    // Best-effort: the broker may still be warming up.
-  }
+  scheduleBrokerServiceRestart(nextConfig);
 
   return loadMeshStatus();
 }

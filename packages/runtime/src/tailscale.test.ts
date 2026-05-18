@@ -33,6 +33,14 @@ function writeFixture(body: unknown): string {
   return filePath;
 }
 
+function writeRawFixture(body: string): string {
+  const directory = mkdtempSync(join(tmpdir(), "openscout-tailscale-"));
+  tempDirectories.add(directory);
+  const filePath = join(directory, "status.json");
+  writeFileSync(filePath, body, "utf8");
+  return filePath;
+}
+
 describe("tailscale status readers", () => {
   test("reads peer candidates and self identity from a status fixture", async () => {
     process.env.OPENSCOUT_TAILSCALE_STATUS_JSON = writeFixture({
@@ -101,5 +109,13 @@ describe("tailscale status readers", () => {
       peers,
       self,
     });
+  });
+
+  test("treats malformed status fixtures as unavailable", async () => {
+    process.env.OPENSCOUT_TAILSCALE_STATUS_JSON = writeRawFixture("not valid json");
+
+    await expect(readTailscaleStatusSummary()).resolves.toBeNull();
+    await expect(readTailscalePeers()).resolves.toEqual([]);
+    await expect(readTailscaleSelf()).resolves.toBeNull();
   });
 });
