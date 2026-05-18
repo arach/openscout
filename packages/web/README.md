@@ -17,7 +17,7 @@ bun --cwd packages/web dev:server
 
 Then open the URL printed in the terminal (default port `3200`).
 
-The Bun/Hono application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. The Scout local edge flow is name resolution first, then Caddy, then the application host handler: `scout server edge` publishes/resolves `scout.local` and `<node>.scout.local`, runs Caddy against the active web port, and serves both HTTP on port `80` and HTTPS on port `443`. HTTPS uses one Caddy local CA plus wildcard Scout certs, so browsers only need to trust one local root instead of one certificate per node.
+The Bun/Hono application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. The Scout local edge flow is name resolution first, then Caddy, then the application host handler: `scout server edge` publishes/resolves `scout.local` and `<node>.scout.local`, runs Caddy against the active web port, and serves HTTP on port `80` for zero-cert local browsing. HTTPS is available only when explicitly requested with `--edge-scheme https` or `--edge-scheme both` plus `scout server trust`.
 
 ## Public Package
 
@@ -85,7 +85,7 @@ The public route table stays small and explicit:
 
 In the installed package, Bun serves the bundled static client directly. In source/dev mode, Bun remains the public server but forwards client asset requests and `/ws/hmr` to Vite.
 
-For a local edge proxy, keep Bun as the application server and reverse-proxy to it. The default generated config includes HTTP for zero-cert local browsing, HTTPS with Caddy's local CA, and same-origin control paths for broker-owned startup:
+For a local edge proxy, keep Bun as the application server and reverse-proxy to it. The default generated config includes HTTP for zero-cert local browsing and same-origin control paths for broker-owned startup:
 
 ```caddyfile
 http://scout.local {
@@ -115,20 +115,6 @@ http://*.scout.local {
 
   handle_errors {
     respond "Start Scout fallback page" 200
-  }
-}
-
-scout.local {
-  tls internal
-  handle {
-    reverse_proxy 127.0.0.1:PORT_NUMBER
-  }
-}
-
-*.scout.local {
-  tls internal
-  handle {
-    reverse_proxy 127.0.0.1:PORT_NUMBER
   }
 }
 ```

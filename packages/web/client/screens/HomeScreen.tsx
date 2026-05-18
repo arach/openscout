@@ -865,28 +865,20 @@ function OperatorAttentionCard({
   const dismiss = item.actions.find((action) => action.kind === "dismiss");
 
   const decide = async (decision: "approve" | "deny") => {
-    if (!item.approval && !item.permissionRequest) return;
+    if (!item.approval) return;
     setBusy(decision);
     setError(null);
     try {
-      const next = item.permissionRequest
-        ? await api<OperatorAttentionState>("/api/operator-attention/permissions/decide", {
-            method: "POST",
-            body: JSON.stringify({
-              id: item.permissionRequest.id,
-              decision: decision === "approve" ? "allow" : "deny",
-            }),
-          })
-        : await api<OperatorAttentionState>("/api/operator-attention/approvals/decide", {
-            method: "POST",
-            body: JSON.stringify({
-              sessionId: item.approval?.sessionId,
-              turnId: item.approval?.turnId,
-              blockId: item.approval?.blockId,
-              version: item.approval?.version,
-              decision,
-            }),
-          });
+      const next = await api<OperatorAttentionState>("/api/operator-attention/approvals/decide", {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId: item.approval.sessionId,
+          turnId: item.approval.turnId,
+          blockId: item.approval.blockId,
+          version: item.approval.version,
+          decision,
+        }),
+      });
       onResolved(next);
     } catch (decisionError) {
       setError(decisionError instanceof Error ? decisionError.message : String(decisionError));

@@ -12,6 +12,9 @@
     "dist",
     "README.md"
   ],
+  "dependencies": {
+    "picomatch": "^4.0.4"
+  },
   "scripts": {
     "build": "npm --prefix ../protocol run build && npm --prefix ../runtime run build && node ./scripts/build.mjs",
     "dev": "bun ../../apps/desktop/bin/scout.ts",

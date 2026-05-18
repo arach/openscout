@@ -249,9 +249,9 @@ describe("SQLiteControlPlaneStore", () => {
         id: "unblock-1",
         kind: "permission",
         state: "open",
-        source: "claude-permission-hook",
-        sourceRef: "claude-permission:req-1",
-        title: "Allow Claude tool: Bash",
+        source: "test-permission-source",
+        sourceRef: "permission:req-1",
+        title: "Allow tool: Bash",
         ownerId: "operator",
         createdById: "system",
         severity: "warning",
@@ -270,7 +270,7 @@ describe("SQLiteControlPlaneStore", () => {
         at: 100,
       });
 
-      expect(store.loadSnapshot().unblockRequests["unblock-1"]?.sourceRef).toBe("claude-permission:req-1");
+      expect(store.loadSnapshot().unblockRequests["unblock-1"]?.sourceRef).toBe("permission:req-1");
       expect(store.listUnblockRequests({ ownerId: "operator", active: true })).toHaveLength(1);
       expect(store.listUnblockRequestEvents({ requestId: "unblock-1" })).toHaveLength(1);
 

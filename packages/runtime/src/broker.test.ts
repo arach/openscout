@@ -145,9 +145,9 @@ describe("InMemoryControlRuntime", () => {
       id: "unblock-1",
       kind: "permission",
       state: "open",
-      source: "claude-permission-hook",
-      sourceRef: "claude-permission:req-1",
-      title: "Allow Claude tool: Bash",
+      source: "test-permission-source",
+      sourceRef: "permission:req-1",
+      title: "Allow tool: Bash",
       ownerId: "operator",
       createdById: "system",
       actions: [

@@ -46,7 +46,7 @@ export function resolveOpenScoutLocalEdgeConfig(input: {
   const portalHost = resolveScoutWebNamedHostname(input.portalHost ?? DEFAULT_SCOUT_WEB_PORTAL_HOST);
   const nodeHost = resolveScoutWebNamedHostname(input.nodeHost ?? resolveConfiguredScoutWebHostname());
   const wildcardHost = `*.${portalHost}`;
-  const scheme = input.scheme ?? "both";
+  const scheme = input.scheme ?? "http";
   const upstream = `127.0.0.1:${input.webPort ?? resolveWebPort()}`;
   const brokerUpstream = `127.0.0.1:${input.brokerPort ?? resolveBrokerPort()}`;
   return {

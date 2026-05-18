@@ -23,10 +23,6 @@ import {
   runRuntimeBrokerService,
 } from "../../app/host/runtime-service-client.ts";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
-import {
-  inspectClaudePermissionHook,
-  type ClaudePermissionHookStatus,
-} from "@openscout/runtime/claude-permission-hook";
 import { withScoutCoreCommandLock } from "./command-lock.ts";
 import {
   ensureScoutLocalEdgeDependencies,
@@ -69,7 +65,6 @@ export type ScoutDoctorReport = {
   supportPaths: ReturnType<typeof resolveOpenScoutSupportPaths>;
   broker: BrokerServiceStatus;
   localEdge: ScoutLocalEdgeDoctorReport;
-  claudePermissionHook: ClaudePermissionHookStatus;
   setup: Awaited<ReturnType<typeof loadResolvedRelayAgents>>;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
 };
@@ -80,7 +75,6 @@ export type ScoutSetupReport = {
   broker: BrokerServiceStatus;
   brokerWarning: string | null;
   localEdge: ScoutLocalEdgeDependencyReport;
-  claudePermissionHook: ClaudePermissionHookStatus;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
   scoutSkill: ScoutSkillInstallReport;
 };
@@ -100,7 +94,7 @@ export async function loadScoutDoctorReport(input: {
   onProjectInventoryEntry?: (entry: ProjectInventoryEntry) => void | Promise<void>;
 }): Promise<ScoutDoctorReport> {
   return withScoutCoreCommandLock("doctor", async () => {
-    const [broker, localEdge, setup, catalog, claudePermissionHook] = await Promise.all([
+    const [broker, localEdge, setup, catalog] = await Promise.all([
       getRuntimeBrokerServiceStatus(),
       loadScoutLocalEdgeDoctorReport(input.env ?? process.env),
       loadResolvedRelayAgents({
@@ -108,7 +102,6 @@ export async function loadScoutDoctorReport(input: {
         onProjectInventoryEntry: input.onProjectInventoryEntry,
       }),
       loadHarnessCatalogSnapshot(),
-      Promise.resolve(inspectClaudePermissionHook(input.currentDirectory)),
     ]);
 
     return {
@@ -117,7 +110,6 @@ export async function loadScoutDoctorReport(input: {
       supportPaths: resolveOpenScoutSupportPaths(),
       broker,
       localEdge,
-      claudePermissionHook,
       setup,
       catalog,
     };
@@ -150,7 +142,7 @@ async function loadScoutLocalEdgeDoctorReport(env: NodeJS.ProcessEnv): Promise<S
     hints.push(dependency.detail);
   }
   if (https.listening && !httpsTrustReady) {
-    hints.push(dependency.trust.detail);
+    hints.push(`${dependency.trust.detail} Run \`scout server trust\` if you intended to use HTTPS.`);
   }
   if (!portalDns.resolved || !nodeDns.resolved || (!http.listening && !https.listening)) {
     hints.push("Start the local edge with `scout server edge`.");
@@ -259,8 +251,7 @@ export async function runScoutSetup(input: {
     const setup = await initializeOpenScoutSetup({ currentDirectory: input.currentDirectory });
     const catalog = await loadHarnessCatalogSnapshot();
     const scoutSkill = await installScoutSkillToHarnesses();
-    const claudePermissionHook = inspectClaudePermissionHook(input.currentDirectory);
-    const localEdge = ensureScoutLocalEdgeDependencies();
+    const localEdge = ensureScoutLocalEdgeDependencies({ trustLocalHttps: false });
     let broker = await getRuntimeBrokerServiceStatus();
     let brokerWarning: string | null = null;
     try {
@@ -290,7 +281,6 @@ export async function runScoutSetup(input: {
       broker,
       brokerWarning,
       localEdge,
-      claudePermissionHook,
       catalog,
       scoutSkill,
     };
