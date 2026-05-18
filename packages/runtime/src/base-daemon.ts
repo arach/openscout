@@ -35,6 +35,7 @@ let mdnsProcesses: ChildProcess[] = [];
 let brokerRestartDelayMs = RESTART_MIN_DELAY_MS;
 let edgeRestartDelayMs = RESTART_MIN_DELAY_MS;
 let supervisedWebPid: number | null = null;
+let supervisorKeepAlive: ReturnType<typeof setInterval> | null = null;
 
 const config = resolveBrokerServiceConfig();
 
@@ -383,6 +384,10 @@ async function shutdown(exitCode = 0): Promise<void> {
     return;
   }
   shuttingDown = true;
+  if (supervisorKeepAlive) {
+    clearInterval(supervisorKeepAlive);
+    supervisorKeepAlive = null;
+  }
   stopSupervisedWeb();
   stopMenuBarApp();
   stopEdgeProcesses();
@@ -395,6 +400,17 @@ async function shutdown(exitCode = 0): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+
+function keepSupervisorAlive(): void {
+  if (supervisorKeepAlive) {
+    return;
+  }
+
+  // Bun does not consistently keep this supervisor alive just because it has
+  // spawned child processes. Keep a tiny referenced timer so launchd does not
+  // see a clean base-daemon exit and tear down broker/web with it.
+  supervisorKeepAlive = setInterval(() => undefined, 60_000);
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -411,6 +427,7 @@ log("starting Scout base service", {
   brokerUrl: config.brokerUrl,
   bootout: `launchctl bootout ${config.serviceTarget}`,
 });
+keepSupervisorAlive();
 spawnBroker();
 startLocalEdge();
 startMenuBarApp();

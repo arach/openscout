@@ -1,8 +1,24 @@
-const inFlightGets = new Map<string, Promise<string>>();
+type ApiTextResponse = {
+  text: string;
+  contentType: string | null;
+};
 
-function parseApiResponse<T>(text: string): T {
+const inFlightGets = new Map<string, Promise<ApiTextResponse>>();
+
+function formatResponsePreview(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return "empty body";
+  return normalized.length > 180 ? `${normalized.slice(0, 180)}...` : normalized;
+}
+
+function parseApiResponse<T>(path: string, text: string, contentType: string | null): T {
   if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const label = contentType?.trim() || "non-JSON";
+    throw new Error(`Expected JSON from ${path} but received ${label}: ${formatResponsePreview(text)}`);
+  }
 }
 
 function normalizeHeaders(headers?: HeadersInit): string {
@@ -15,7 +31,7 @@ function requestKey(path: string, init?: RequestInit): string {
   return `${method}:${path}:${normalizeHeaders(init?.headers)}`;
 }
 
-async function fetchApiText(path: string, init?: RequestInit): Promise<string> {
+async function fetchApiText(path: string, init?: RequestInit): Promise<ApiTextResponse> {
   const res = await fetch(path, {
     ...init,
     headers: {
@@ -34,7 +50,10 @@ async function fetchApiText(path: string, init?: RequestInit): Promise<string> {
     }
     throw new Error(message);
   }
-  return await res.text();
+  return {
+    text: await res.text(),
+    contentType: res.headers.get("content-type"),
+  };
 }
 
 export function clearApiGetCache(): void {
@@ -47,20 +66,23 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const dedupeGet = method === "GET" && !init?.body;
 
   if (!dedupeGet) {
-    return parseApiResponse<T>(await fetchApiText(path, init));
+    const response = await fetchApiText(path, init);
+    return parseApiResponse<T>(path, response.text, response.contentType);
   }
 
   const key = requestKey(path, init);
   const existing = inFlightGets.get(key);
   if (existing) {
-    return parseApiResponse<T>(await existing);
+    const response = await existing;
+    return parseApiResponse<T>(path, response.text, response.contentType);
   }
 
   const request = fetchApiText(path, init);
   inFlightGets.set(key, request);
 
   try {
-    return parseApiResponse<T>(await request);
+    const response = await request;
+    return parseApiResponse<T>(path, response.text, response.contentType);
   } finally {
     inFlightGets.delete(key);
   }

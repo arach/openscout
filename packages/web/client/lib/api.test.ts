@@ -61,4 +61,16 @@ describe("api GET dedupe", () => {
     await expect(api("/api/mesh/announce", { method: "POST", body: "{}" })).resolves.toEqual({ ok: true, calls: 2 });
     expect(calls).toBe(2);
   });
+
+  test("reports the endpoint when a successful response is not JSON", async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response("<!doctype html><title>Missing API proxy</title>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      })) as unknown as typeof fetch;
+
+    await expect(api("/api/mesh/announce", { method: "POST", body: "{}" })).rejects.toThrow(
+      "Expected JSON from /api/mesh/announce but received text/html; charset=utf-8",
+    );
+  });
 });
