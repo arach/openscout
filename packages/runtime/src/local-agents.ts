@@ -413,7 +413,7 @@ function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTempla
     "Relay protocol:",
     `  - Read direct/addressed messages with: ${context.relayCommand} inbox --as ${context.agentId} --latest 20 --json`,
     `  - Read shared/channel context with: ${context.relayCommand} channel <name> --latest 20 --json`,
-    `  - Tell one agent with: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
+    `  - Tell one agent with: ${context.relayCommand} send --to <agent> --as ${context.agentId} "your message"`,
     `  - Ask one agent and stay attached with: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "",
     "Rules:",
@@ -442,7 +442,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - Do not shell out to send the final answer through relay yourself",
     `  - If you need recent direct/addressed messages, inspect them with: ${context.relayCommand} inbox --as ${context.agentId} --latest 20 --json`,
     `  - If you need recent channel context, inspect it with: ${context.relayCommand} channel <name> --latest 20 --json`,
-    `  - If you need to tell one agent something, use: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
+    `  - If you need to tell one agent something, use: ${context.relayCommand} send --to <agent> --as ${context.agentId} "your message"`,
     `  - If you need another agent to do work, use: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "  - Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue",
     "  - Keep one-to-one handoffs in a DM: do not pin a channel when the request is for exactly one agent",
@@ -1968,17 +1968,21 @@ export function buildScoutReplyContext(agentName: string, invocation: Invocation
 }
 
 function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string[] {
+  const replyInstruction = context?.replyPath === "mcp_reply"
+    ? [
+        "> First, immediately publish a short broker-visible acknowledgement in the same conversation.",
+        "> Use the provided Scout reply tool for progress acknowledgement and the final answer; do not create a new send/ask.",
+        "> Call `messages_reply` or `scout_reply` for the initial acknowledgement, then again for the final reply intended for the requester.",
+      ]
+    : [
+        "> Do not publish a separate acknowledgement or progress update through Scout for this request.",
+        "> Your final assistant message will be delivered back through the Scout broker.",
+        "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.",
+      ];
   const header = [
     "<!-- SCOUT BROKER REPLY MODE -->",
     "> **Reply mode:** You are answering a Scout ask.",
-    "> First, immediately publish a short broker-visible acknowledgement in the same conversation, e.g. that you received the ask and are working on it now.",
-    "> Use `messages_reply` / `scout_reply` for that acknowledgement when available; if only the Scout CLI is available, use the same DM/conversation route rather than a new ask.",
-    context?.replyPath === "mcp_reply"
-      ? "> Use the provided Scout reply tool for progress acknowledgement and the final answer; do not create a new send/ask."
-      : "> Your final assistant message will be delivered back through the Scout broker.",
-    context?.replyPath === "mcp_reply"
-      ? "> Call `messages_reply` or `scout_reply` for the initial acknowledgement, then again for the final reply intended for the requester."
-      : "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` for the final answer; those are only for acknowledgement, progress, or delegation.",
+    ...replyInstruction,
     "> Only use Scout tools if you need to ask or delegate to another agent.",
     "",
     "<!-- SCOUT ARTIFACT GUIDANCE -->",
@@ -2089,7 +2093,11 @@ export function buildLocalAgentNudge(agentName: string, invocation: InvocationRe
   }
 
   parts.push(`Read recent context if needed: ${relayCommand} latest --agent ${agentName} --limit 20.`);
-  parts.push(`Reply with: ${relayCommand} send --as ${agentName} "[ask:${flightId}] @${invocation.requesterId} <your response>"`);
+  if (invocation.messageId) {
+    parts.push(`Reply in the existing thread, not by addressing @${invocation.requesterId}. Prefer the Scout reply tool when available; if using the CLI, use: ${relayCommand} send --as ${agentName} --ref ${invocation.messageId} "[ask:${flightId}] <your response>"`);
+  } else {
+    parts.push(`Reply in the existing broker-visible thread. Prefer the Scout reply tool when available; do not guess an @operator route.`);
+  }
   return parts.join(" ");
 }
 

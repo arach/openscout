@@ -3218,9 +3218,26 @@ export async function createOpenScoutWebServer(
     return c.json(snapshot);
   });
 
-  app.get("/api/tail/recent", (c) => {
+  app.get("/api/tail/recent", async (c) => {
     const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;
-    return c.json({ events: snapshotRecentEvents(limitParam) });
+    const bufferedEvents = snapshotRecentEvents(limitParam);
+    if (c.req.query("transcripts") !== "true") {
+      return c.json({ events: bufferedEvents });
+    }
+    const transcriptEvents = await readRecentTranscriptEvents(limitParam, {
+      perTranscriptLineLimit: Math.min(200, Math.max(50, limitParam)),
+    });
+    const eventsById = new Map<string, (typeof bufferedEvents)[number]>();
+    for (const event of transcriptEvents) {
+      eventsById.set(event.id, event);
+    }
+    for (const event of bufferedEvents) {
+      eventsById.set(event.id, event);
+    }
+    const events = [...eventsById.values()]
+      .sort((left, right) => right.ts - left.ts)
+      .slice(0, limitParam);
+    return c.json({ events });
   });
 
   // /api/tail/stream removed — clients now subscribe to broker tail.events

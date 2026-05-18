@@ -1365,6 +1365,109 @@ describe("broker daemon comms layer", () => {
     expect(followup.receipt?.bindingRef).toBe(followup.bindingRef);
   }, 15_000);
 
+  test("routes operator and message refs as replies instead of failed deliveries", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "designer",
+      kind: "agent",
+      definitionId: "designer",
+      displayName: "Designer",
+      handle: "designer",
+      labels: ["test"],
+      selector: "@designer",
+      defaultSelector: "@designer",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const request = await postJson<{
+      kind: string;
+      accepted: boolean;
+      conversation?: { id: string; kind: string };
+      message?: { id: string; conversationId: string; actorId: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-operator-request",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@designer",
+      },
+      body: "please review the rail",
+      intent: "tell",
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(request.kind).toBe("delivery");
+    expect(request.accepted).toBe(true);
+    expect(request.message?.actorId).toBe("operator");
+
+    const refReply = await postJson<{
+      kind: string;
+      accepted: boolean;
+      conversation?: { id: string; kind: string };
+      message?: { id: string; conversationId: string; actorId: string; replyToMessageId?: string };
+      receipt?: { targetLabel?: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-ref-reply",
+      caller: {
+        actorId: "designer",
+        nodeId: harness.nodeId,
+      },
+      targetLabel: `ref:${request.message!.id}`,
+      body: "review complete",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    expect(refReply.kind).toBe("delivery");
+    expect(refReply.accepted).toBe(true);
+    expect(refReply.conversation?.id).toBe(request.conversation?.id);
+    expect(refReply.message?.replyToMessageId).toBe(request.message?.id);
+    expect(refReply.message?.actorId).toBe("designer");
+    expect(refReply.receipt?.targetLabel).toBe(`ref:${request.message!.id}`);
+
+    const operatorReply = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      conversation?: { id: string; kind: string };
+      message?: { actorId: string; audience?: { notify?: string[]; reason?: string } };
+      receipt?: { targetAgentId?: string; targetLabel?: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-operator-direct",
+      caller: {
+        actorId: "designer",
+        nodeId: harness.nodeId,
+      },
+      targetLabel: "@operator",
+      body: "thread reply fallback",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    expect(operatorReply.kind).toBe("delivery");
+    expect(operatorReply.accepted).toBe(true);
+    expect(operatorReply.targetAgentId).toBe("operator");
+    expect(operatorReply.receipt?.targetAgentId).toBe("operator");
+    expect(operatorReply.receipt?.targetLabel).toBe("@operator");
+    expect(operatorReply.message?.audience?.notify).toEqual(["operator"]);
+
+    const snapshot = await getJson<{
+      messages: Record<string, { body: string; metadata?: Record<string, unknown> }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(Object.values(snapshot.messages).some((message) => message.body.includes("Scout could not route"))).toBe(false);
+  }, 15_000);
+
   test("dispatches a direct tell without requiring the sender to request wake", async () => {
     const harness = await startBroker();
 
