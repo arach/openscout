@@ -102,6 +102,10 @@ function shortSession(sessionId: string): string {
   return head.slice(0, 8);
 }
 
+function tailRowKey(event: TailEvent, index: number): string {
+  return `${event.id}:${event.ts}:${index}`;
+}
+
 const ERROR_TEXT_RE = /\b(error|failed|failure|exception|panic|timeout|timed out|refused|crash|fatal|non[- ]?zero|exit(?:ed)? with code [1-9])\b/i;
 const WARN_TEXT_RE = /\b(warn(?:ing)?|deprecated|retry|rate limit|rate-limited|blocked|skipped|interrupted|aborted|stale|conflict|permission denied|denied)\b/i;
 
@@ -404,23 +408,22 @@ export function TailView({
 
   return (
     <div className="s-tail">
-      <div className="s-tail-status">
-        <span className="s-tail-status-cell">
-          <span className="s-tail-rate-pulse" />
-          <strong>{transcriptCount}</strong> log{transcriptCount === 1 ? "" : "s"}
-        </span>
-        <span className="s-tail-status-cell">
-          <strong>{totals?.total ?? 0}</strong> proc{(totals?.total ?? 0) === 1 ? "" : "s"}
-        </span>
-        <span className="s-tail-status-cell">
-          <strong>{rate.toFixed(1)}</strong> lines/s
+      <div className={`s-tail-status${issueMode ? " s-tail-status--issues" : ""}`}>
+        <span className="s-tail-status-cluster s-tail-status-cluster--metrics">
+          <span className="s-tail-status-cell">
+            <span className="s-tail-rate-pulse" />
+            <strong>{transcriptCount}</strong> log{transcriptCount === 1 ? "" : "s"}
+          </span>
+          <span className="s-tail-status-cell">
+            <strong>{totals?.total ?? 0}</strong> proc{(totals?.total ?? 0) === 1 ? "" : "s"}
+          </span>
+          <span className="s-tail-status-cell">
+            <strong>{rate.toFixed(1)}</strong> lines/s
+          </span>
         </span>
         {issueMode && (
-          <>
-            <span className="s-tail-status-cell">
-              <strong>{issueCounts.error}</strong> err
-              <strong>{issueCounts.warn}</strong> warn
-            </span>
+          <span className="s-tail-status-cluster s-tail-status-cluster--issues">
+            <span className="s-tail-status-label">issues</span>
             <span className="s-tail-issue-filter" role="group" aria-label="Issue severity filter">
               <button
                 type="button"
@@ -453,10 +456,11 @@ export function TailView({
                 All <strong>{events.length}</strong>
               </button>
             </span>
-          </>
+          </span>
         )}
-        <span className="s-tail-status-cell s-tail-status-cell--harnesses">
-          <span>harness</span>
+        <span className="s-tail-status-spacer" />
+        <span className="s-tail-status-cluster s-tail-status-cluster--harnesses">
+          <span className="s-tail-status-label">harness</span>
           <span className="s-tail-status-inline">
             {harnessCounts.length > 0 ? (
               harnessCounts.slice(0, 4).map((entry) => (
@@ -469,7 +473,6 @@ export function TailView({
             )}
           </span>
         </span>
-        <span className="s-tail-status-spacer" />
         {paused && <span className="s-tail-status-paused">paused</span>}
       </div>
 
@@ -520,12 +523,12 @@ export function TailView({
             )}
           </div>
         ) : (
-          filtered.map(({ event, severity }) => (
+          filtered.map(({ event, severity }, index) => (
             <TailRow
-              key={event.id}
+              key={tailRowKey(event, index)}
               event={event}
               issueSeverity={severity}
-              selected={selected?.id === event.id}
+              selected={selected === event}
               onSelect={setSelected}
               onProjectClick={focusFilter}
               onSessionClick={navigateToSession}

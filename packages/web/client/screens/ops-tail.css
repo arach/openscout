@@ -14,8 +14,10 @@
 .s-tail-status {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 6px 14px;
+  gap: 10px;
+  row-gap: 6px;
+  flex-wrap: wrap;
+  padding: 7px 14px;
   flex: none;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 60%, transparent);
@@ -24,11 +26,44 @@
   letter-spacing: 0.04em;
 }
 
+.s-tail-status-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.s-tail-status-cluster--metrics {
+  flex: 0 0 auto;
+}
+
+.s-tail-status-cluster--issues {
+  gap: 8px;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.s-tail-status-cluster--harnesses {
+  flex: 0 1 auto;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.s-tail-status-label {
+  color: var(--dim);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .s-tail-status-cell {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
+  flex: none;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .s-tail-status-cell strong {
@@ -50,6 +85,32 @@
   align-items: baseline;
   gap: 8px;
   min-width: 0;
+  max-width: min(32vw, 320px);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.s-tail-status-cluster--harnesses .s-tail-status-inline {
+  justify-content: flex-end;
+}
+
+@media (max-width: 980px) {
+  .s-tail-status-cluster--issues {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .s-tail-status-cluster--harnesses {
+    margin-left: 0;
+  }
+
+  .s-tail-status-spacer {
+    display: none;
+  }
+
+  .s-tail-status-inline {
+    max-width: 100%;
+  }
 }
 
 .s-tail-status-paused {
