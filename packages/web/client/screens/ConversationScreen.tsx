@@ -32,6 +32,7 @@ import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
+import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import type {
   Agent,
   Flight,
@@ -1898,6 +1899,20 @@ export function ConversationScreen({
                     >
                       {takeoverSent ? "Going…" : `Takeover — ${sessionCatalog.resumeCommand}`}
                     </button>
+                  </span>
+                </div>
+              )}
+              {sessionCatalog?.activeSessionId && (
+                <div className="s-thread-meta-row">
+                  <span className="s-thread-meta-row-label">Vantage</span>
+                  <span className="s-thread-meta-row-value s-thread-meta-actions">
+                    <VantageHandoffButton
+                      agentId={agentId}
+                      className="s-thread-meta-vantage-btn"
+                      statusClassName="s-thread-meta-vantage-status"
+                      label="Open in Vantage"
+                      openingLabel="Opening…"
+                    />
                   </span>
                 </div>
               )}

@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 6;
+export const CONTROL_PLANE_SCHEMA_VERSION = 7;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -396,6 +396,25 @@ CREATE TABLE IF NOT EXISTS mobile_push_registrations (
   updated_at INTEGER NOT NULL
 );
 
+-- Briefing Room: persistent archive of Ranger-generated briefs.
+-- Each row carries three layers — snapshot (Layer 1), observations (Layer 2),
+-- brief + call (Layer 3) — so an operator can audit not just what Ranger said
+-- but what it read and how it asked. Rolling 100-cap is enforced in code.
+CREATE TABLE IF NOT EXISTS briefings (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  recommendation TEXT,
+  prepared_at INTEGER NOT NULL,
+  ttl_ms INTEGER NOT NULL,
+  brief_json TEXT NOT NULL,
+  observations_json TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  call_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE INDEX IF NOT EXISTS idx_nodes_mesh_id
   ON nodes (mesh_id);
 CREATE INDEX IF NOT EXISTS idx_agent_endpoints_agent_updated_at
@@ -492,4 +511,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mobile_push_registrations_push_token
   ON mobile_push_registrations (push_token);
 CREATE INDEX IF NOT EXISTS idx_mobile_push_registrations_device_updated_at
   ON mobile_push_registrations (device_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_briefings_created_at
+  ON briefings (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_briefings_kind_created_at
+  ON briefings (kind, created_at DESC);
 `;

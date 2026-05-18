@@ -78,6 +78,8 @@ describe("buildScoutVantagePlan", () => {
     expect(plan.createdAt).toBe("2026-05-17T12:00:00.000Z");
     expect(plan.manifest.kind).toBe(HUDSON_VANTAGE_SETUP_KIND);
     expect(plan.manifest.schemaVersion).toBe(HUDSON_VANTAGE_SCHEMA_VERSION);
+    expect(plan.manifest.selectedAgentIds).toEqual([]);
+    expect(plan.manifest.selectedNativeSessionIds).toEqual([]);
     expect(plan.manifest.broker).toEqual({
       baseUrl: "http://127.0.0.1:53173",
       nodeId: "node.local",
@@ -273,7 +275,112 @@ describe("buildScoutVantagePlan", () => {
 
     expect(plan.manifest.focus).toEqual({ agentId: "hudson.main" });
     expect(plan.manifest.focusedNodeId).toBe(plan.manifest.nodes[0]?.id);
+    expect(plan.manifest.focused).toBe(plan.manifest.nodes[0]?.id);
     expect(plan.manifest.selection).toEqual([plan.manifest.nodes[0]?.id]);
+  });
+
+  test("scopes nodes and selection to selected agents", () => {
+    const plan = build({
+      focusAgentId: "beta.main",
+      selectedAgentIds: ["beta.main", "missing.main", "beta.main"],
+      brokerSnapshot: {
+        nodes: {},
+        actors: {},
+        agents: {},
+        endpoints: {
+          "endpoint.alpha": endpoint({
+            id: "endpoint.alpha",
+            agentId: "alpha.main",
+            sessionId: "relay-alpha",
+            metadata: { agentName: "Alpha" },
+          }),
+          "endpoint.beta": endpoint({
+            id: "endpoint.beta",
+            agentId: "beta.main",
+            sessionId: "relay-beta",
+            metadata: { agentName: "Beta" },
+          }),
+        },
+        conversations: {},
+        bindings: {},
+        messages: {},
+        readCursors: {},
+        invocations: {},
+        flights: {},
+        collaborationRecords: {},
+        unblockRequests: {},
+      },
+      tmuxSessions: [
+        { name: "relay-alpha", createdAt: 1 },
+        { name: "relay-beta", createdAt: 2 },
+        { name: "scratch", createdAt: 3 },
+      ],
+    });
+
+    expect(plan.manifest.selectedAgentIds).toEqual(["beta.main", "missing.main"]);
+    expect(plan.manifest.nodes.map((candidate) => candidate.endpoint?.agentId)).toEqual(["beta.main"]);
+    expect(plan.manifest.nodes.map((candidate) => candidate.target)).toEqual(["relay-beta"]);
+    expect(plan.manifest.focusedNodeId).toBe(plan.manifest.nodes[0]?.id);
+    expect(plan.manifest.focused).toBe(plan.manifest.nodes[0]?.id);
+    expect(plan.manifest.selection).toEqual([plan.manifest.nodes[0]?.id]);
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "broker_context_missing",
+      "selected_agent_missing",
+    ]);
+  });
+
+  test("builds selected native transcript sessions as tmux tail nodes", () => {
+    const nativeSession = {
+      id: "native:codex:session-123:abc",
+      source: "codex",
+      sessionId: "session-123",
+      transcriptPath: "/work/project/.codex/session.jsonl",
+      project: "openscout",
+      harness: "unattributed",
+      cwd: "/work/project",
+      mtimeMs: 1_700_000_300,
+      tmuxSessionName: "scout-vantage-codex-abc",
+    };
+    const plan = build({
+      selectedNativeSessionIds: [nativeSession.id],
+      nativeSessions: [nativeSession],
+      tmuxSessions: [
+        { name: "scout-vantage-codex-abc", createdAt: 1_700_000_400 },
+        { name: "scratch", createdAt: 1_700_000_500 },
+      ],
+    });
+
+    expect(plan.manifest.focus).toEqual({ nativeSessionId: nativeSession.id });
+    expect(plan.manifest.selectedNativeSessionIds).toEqual([nativeSession.id]);
+    expect(plan.manifest.nodes.map((candidate) => candidate.source)).toEqual(["tail-transcript"]);
+    expect(plan.manifest.nodes[0]).toMatchObject({
+      id: "vantage.native.native-codex-session-123-abc.4nh3dy",
+      runtimeKind: "tmux",
+      source: "tail-transcript",
+      title: "Codex session-",
+      subtitle: "codex tail · openscout",
+      target: "scout-vantage-codex-abc",
+      tmux: {
+        sessionName: "scout-vantage-codex-abc",
+        createdAt: 1_700_000_400,
+        command: ["tmux", "attach-session", "-t", "scout-vantage-codex-abc"],
+      },
+      nativeSession: {
+        id: nativeSession.id,
+        source: "codex",
+        sessionId: "session-123",
+        transcriptPath: "/work/project/.codex/session.jsonl",
+      },
+      cwd: "/work/project",
+      projectRoot: "/work/project",
+    });
+    expect(plan.manifest.focusedNodeId).toBe(plan.manifest.nodes[0]?.id);
+    expect(plan.manifest.focused).toBe(plan.manifest.nodes[0]?.id);
+    expect(plan.manifest.selection).toEqual([plan.manifest.nodes[0]?.id]);
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "broker_context_missing",
+      "broker_snapshot_missing",
+    ]);
   });
 
   test("diagnoses missing broker and tmux input when no nodes can be built", () => {

@@ -1,5 +1,11 @@
-import { Crosshair } from "lucide-react";
+import { Bot, Crosshair } from "lucide-react";
 import type { Route } from "../lib/types.ts";
+import {
+  BriefSequenceView,
+  useBriefSequenceRuntime,
+} from "../components/brief-sequence/index.tsx";
+import { briefGenerationSequence } from "./studio/brief-sequence.ts";
+import "./studio/briefing-studio.css";
 import "./home-hero.css";
 
 type HeartrateBucketView = { ts: number; count: number; value: number };
@@ -403,6 +409,11 @@ export default function HomeHero(props: HomeHeroProps) {
   const subline = otherParts.join(" · ");
   const syncTone = error ? "err" : "ok";
   const gauges = serviceGauges;
+  const briefSheetVisible = briefRefreshing || observations.length > 0;
+  const { runtime: sequenceRuntime } = useBriefSequenceRuntime(briefGenerationSequence, {
+    active: briefRefreshing,
+    speed: 3,
+  });
   return (
     <section className="hd">
       <div className="hd-topbar">
@@ -434,16 +445,36 @@ export default function HomeHero(props: HomeHeroProps) {
       </div>
 
       <div className="hd-grid">
-        <div className="hd-panel hd-panel--lede">
+        <div
+          className="hd-panel hd-panel--lede"
+          data-brief-refreshing={briefRefreshing || undefined}
+        >
           <div className="hd-panel-title">
+            <Bot className="hd-brief-ranger-glyph" size={12} aria-hidden="true" />
             <span>BRIEFING</span>
             <span className="hd-sep">·</span>
             <span>{formatDateChip(now)}</span>
+            <button
+              type="button"
+              className="hd-brief-archive-link"
+              onClick={() => navigate({ view: "briefings" })}
+            >
+              view archive
+            </button>
           </div>
 
-          {observations.length > 0 && (
-            <div className="hd-brief-sheet">
-              <div className="hd-brief-copy">
+          {briefSheetVisible && (
+            <div
+              className="hd-brief-sheet"
+              data-brief-refreshing={briefRefreshing || undefined}
+              aria-busy={briefRefreshing || undefined}
+            >
+              {briefRefreshing ? (
+                <div className="hd-brief-seq" aria-busy="true">
+                  <BriefSequenceView runtime={sequenceRuntime} />
+                </div>
+              ) : (
+                <div className="hd-brief-copy">
                 {observations.map((observation, index) => (
                   <p
                     key={observation.id || `${observation.text}-${index}`}
@@ -456,7 +487,8 @@ export default function HomeHero(props: HomeHeroProps) {
                     </span>
                   </p>
                 ))}
-              </div>
+                </div>
+              )}
             </div>
           )}
 

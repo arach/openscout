@@ -12,8 +12,9 @@ import {
 } from "./lib/canvas-minimap.tsx";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
+import { RangerBroadcastChip } from "./components/RangerBroadcastChip.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
-import { BroadcastTicker } from "./screens/BroadcastTicker.tsx";
+import { BriefingStudio } from "./screens/studio/BriefingStudio.tsx";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -33,7 +34,20 @@ function computeSidePanelMaxWidth(viewportWidth: number) {
   );
 }
 
+function resolveStudio(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return new URL(window.location.href).searchParams.get("studio");
+  } catch {
+    return null;
+  }
+}
+
 export function OpenScoutAppShell({ app, assistant = true }: OpenScoutAppShellProps) {
+  const [studio] = useState<string | null>(() => resolveStudio());
+  if (studio === "briefing") {
+    return <BriefingStudio />;
+  }
   return (
     <app.Provider>
       <CanvasMinimapProvider>
@@ -48,19 +62,25 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
     ? "text-amber-400"
     : statusBar.mesh.color === "red"
       ? "text-red-400"
-      : "text-neutral-100";
+      : "text-foreground";
 
   return (
-    <div className="flex items-center gap-3 font-mono text-[12px]">
+    <div className="flex items-center gap-3 font-mono leading-none">
       <div className="flex items-center gap-1.5">
-        <span className="text-neutral-500">{statusBar.activeAgents.label}:</span>
-        <span className="text-neutral-100">{statusBar.activeAgents.count}</span>
+        <span className="text-[9px] font-normal uppercase tracking-[0.16em] text-muted-foreground">
+          {statusBar.activeAgents.label}
+        </span>
+        <span className="text-[10px] tabular-nums text-foreground">{statusBar.activeAgents.count}</span>
       </div>
-      <div className="h-3 w-px bg-neutral-700" />
+      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
       <div className="flex items-center gap-1.5">
-        <span className="text-neutral-500">{statusBar.mesh.label}:</span>
-        <span className={meshValueClass}>{statusBar.mesh.value}</span>
+        <span className="text-[9px] font-normal uppercase tracking-[0.16em] text-muted-foreground">
+          {statusBar.mesh.label}
+        </span>
+        <span className={`text-[10px] ${meshValueClass}`}>{statusBar.mesh.value}</span>
       </div>
+      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
+      <RangerBroadcastChip />
     </div>
   );
 }
@@ -68,7 +88,7 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
 function OpenScoutStatusBarRight({ statusBar }: { statusBar: ScoutStatusBarState }) {
   return (
     <div
-      className="max-w-[38vw] truncate font-mono text-[11px] text-neutral-500"
+      className="max-w-[38vw] truncate font-mono text-[10px] leading-none text-muted-foreground"
       title={statusBar.build.title}
     >
       {statusBar.build.label}
@@ -370,7 +390,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
     top: navTotalHeight,
-    bottom: 50,
+    bottom: 28,
     left: leftCollapsed ? 0 : leftWidth,
     right: rightInset,
     overflow: "auto",
@@ -447,8 +467,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   {rightContent}
                 </div>
               </SidePanel>
-
-              <BroadcastTicker />
 
               <StatusBar
                 status={statusBar.status}

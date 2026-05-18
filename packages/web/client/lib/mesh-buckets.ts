@@ -27,6 +27,18 @@ function tailnetPeerLabel(peer: { hostName?: string | null; name?: string | null
   return shortHost(peer.hostName) || peer.name || "tailnet peer";
 }
 
+/** Stable host key for dedup across registered node + tailscale peer rows.
+ *  Tailscale's display name ("Art's Mac mini") and the node's hostname
+ *  ("Arts-Mac-mini.local") differ; both reduce via shortHost on the dnsName
+ *  ("arts-mac-mini.tail1e8e67.ts.net") to the same short form. */
+function tailnetPeerHostKey(peer: { dnsName?: string | null; hostName?: string | null; name?: string | null }): string {
+  return shortHost(peer.dnsName) || shortHost(peer.hostName) || (peer.name ?? "").toLowerCase();
+}
+
+function nodeHostKey(node: { hostName?: string; name?: string }): string {
+  return shortHost(node.hostName) || (node.name ? shortHost(node.name) : "");
+}
+
 export function bucketAgentsByMachine(agents: Agent[], mesh: MeshStatus): MachineBucket[] {
   const buckets = new Map<string, MachineBucket>();
   const localId = mesh.localNode?.id ?? "local";
@@ -63,11 +75,17 @@ export function bucketAgentsByMachine(agents: Agent[], mesh: MeshStatus): Machin
   const knownHosts = new Set<string>();
   for (const b of buckets.values()) {
     knownHosts.add(b.machineLabel.toLowerCase());
+    const node = mesh.nodes?.[b.machineId];
+    if (node) {
+      const hostKey = nodeHostKey(node);
+      if (hostKey) knownHosts.add(hostKey.toLowerCase());
+    }
   }
   for (const peer of mesh.tailscale?.peers ?? []) {
     const label = tailnetPeerLabel(peer);
-    const labelKey = label.toLowerCase();
-    if (knownHosts.has(labelKey)) continue;
+    const hostKey = tailnetPeerHostKey(peer).toLowerCase();
+    if (hostKey && knownHosts.has(hostKey)) continue;
+    if (knownHosts.has(label.toLowerCase())) continue;
     const peerId = `tailnet:${peer.id}`;
     if (buckets.has(peerId)) continue;
     buckets.set(peerId, {
@@ -77,7 +95,8 @@ export function bucketAgentsByMachine(agents: Agent[], mesh: MeshStatus): Machin
       online: Boolean(peer.online && mesh.tailscale?.running),
       agents: [],
     });
-    knownHosts.add(labelKey);
+    if (hostKey) knownHosts.add(hostKey);
+    knownHosts.add(label.toLowerCase());
   }
 
   const groupRank = (b: MachineBucket): number =>

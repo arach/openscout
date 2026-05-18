@@ -36,7 +36,29 @@ export const deliveryAttemptsTable = sqliteTable("delivery_attempts", {
   createdAt: integer("created_at").notNull(),
 });
 
+// Briefing Room — three-layer archive of Ranger-generated briefs. Raw schema
+// in `schema.ts`; this Drizzle mirror gives type-safe access for the web
+// server. See packages/web/server/db/briefings.ts for queries.
+export const briefingsTable = sqliteTable("briefings", {
+  id: text("id").primaryKey(),
+  kind: text("kind").$type<"fleet-home" | "tour">().notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  recommendation: text("recommendation"),
+  preparedAt: integer("prepared_at").notNull(),
+  ttlMs: integer("ttl_ms").notNull(),
+  briefJson: text("brief_json").notNull(),
+  observationsJson: text("observations_json").notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  callJson: text("call_json").notNull(),
+  createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
+}, (table) => [
+  index("idx_briefings_created_at").on(table.createdAt),
+  index("idx_briefings_kind_created_at").on(table.kind, table.createdAt),
+]);
+
 export const controlPlaneDrizzleSchema = {
   deliveries: deliveriesTable,
   deliveryAttempts: deliveryAttemptsTable,
+  briefings: briefingsTable,
 } as const;

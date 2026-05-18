@@ -3,6 +3,9 @@ packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
     exactVersion: 0.13.6
+  Termini:
+    url: https://github.com/arach/Termini.git
+    revision: 5f337c1faf802412d83cdeabf753aead6d614780
 options:
   bundleIdPrefix: com.openscout
   deploymentTarget:
@@ -31,6 +34,10 @@ targets:
       - Scout
     dependencies:
       - package: FluidAudio
+      - package: Termini
+        product: Termini
+      - package: Termini
+        product: TerminiSSH
     info:
       path: Scout/Info.plist
       properties:

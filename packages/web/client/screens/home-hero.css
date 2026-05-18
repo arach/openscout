@@ -263,7 +263,7 @@
 }
 
 .hd-panel-title {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
@@ -273,6 +273,50 @@
   color: var(--dim);
   padding-bottom: 9px;
   border-bottom: var(--hd-hair);
+}
+
+.hd-brief-seq {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.hd-brief-seq .bstudio-seq {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hd-brief-archive-link {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: lowercase;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.7;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.hd-brief-archive-link:hover {
+  opacity: 1;
+  color: var(--ink, inherit);
+}
+
+/* Quiet design nod to Ranger: briefs are a Ranger-originated artifact, so the
+ * panel header carries the same bot glyph used by the Ranger chip + panel,
+ * dimmed to the same key as the panel title text. */
+.hd-brief-ranger-glyph {
+  color: color-mix(in srgb, var(--accent) 50%, var(--dim));
+  opacity: 0.75;
+  flex-shrink: 0;
+  margin-right: 2px;
+  transform: translateY(-0.5px);
 }
 
 .hd-brief-sheet {
@@ -529,3 +573,4 @@
   color: var(--dim);
   transition: color 120ms ease;
 }
+

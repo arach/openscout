@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Archive, Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Plus, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Square, Volume2, VolumeX } from "lucide-react";
+import { Archive, Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Plus, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
+import {
+  dismissPromotedBroadcast,
+  onToggleRanger,
+  selectActiveBroadcast,
+  useRangerBroadcastStore,
+} from "../../lib/ranger-broadcast-store.ts";
 import { extractRangerUiActions, normalizeRangerUiAction, stripRangerUiFences } from "../../lib/ranger.ts";
 import { RangerMarkdown } from "../../lib/ranger-markdown.tsx";
 import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
@@ -1109,6 +1115,14 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     return () => window.removeEventListener("scout:ranger-panel-open", openHandler);
   }, [setCollapsed]);
 
+  useEffect(
+    () => onToggleRanger(() => setCollapsed(!collapsed)),
+    [collapsed, setCollapsed],
+  );
+
+  const broadcastSnap = useRangerBroadcastStore();
+  const promotedBroadcast = selectActiveBroadcast(broadcastSnap);
+
   useEffect(() => {
     const submitHandler = (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail;
@@ -1274,6 +1288,48 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           />
         </div>
       </div>
+
+      {promotedBroadcast && (
+        <div className={`rounded border px-2.5 py-1.5 font-mono text-[10px] leading-relaxed ${
+          promotedBroadcast.tier === "error"
+            ? "border-rose-300/30 bg-rose-300/[0.07] text-rose-50"
+            : promotedBroadcast.tier === "warn"
+              ? "border-amber-300/30 bg-amber-300/[0.07] text-amber-50"
+              : "border-lime-300/20 bg-lime-300/[0.05] text-[var(--scout-chrome-ink)]"
+        }`}>
+          <div className="flex items-center gap-2">
+            <Sparkles size={11} className={`shrink-0 ${
+              promotedBroadcast.tier === "error"
+                ? "text-rose-200"
+                : promotedBroadcast.tier === "warn"
+                  ? "text-amber-200"
+                  : "text-lime-200"
+            }`} />
+            <span className="min-w-0 flex-1 truncate text-[var(--scout-chrome-ink)]">
+              {promotedBroadcast.text}
+            </span>
+            <button
+              type="button"
+              title="Ask Ranger about this"
+              aria-label="Ask Ranger about this"
+              onClick={() => void askRanger(`Tell me about this broadcast: ${promotedBroadcast.text}`)}
+              disabled={sending || briefing}
+              className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:opacity-40"
+            >
+              <Radio size={11} />
+            </button>
+            <button
+              type="button"
+              title="Dismiss"
+              aria-label="Dismiss broadcast"
+              onClick={() => dismissPromotedBroadcast()}
+              className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {(dueReminders.length > 0 || nextReminder) && (
         <div className={`rounded border px-2.5 py-2 font-mono text-[10px] leading-relaxed ${

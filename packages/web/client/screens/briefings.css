@@ -1,0 +1,327 @@
+.briefings-placeholder {
+  padding: 24px 0;
+  color: var(--hud-text-muted, #888);
+  font-size: 13px;
+}
+
+.briefings-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.briefing-row {
+  width: 100%;
+  text-align: left;
+  background: var(--hud-surface, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--hud-border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.briefing-row:hover {
+  background: var(--hud-surface-hover, rgba(255, 255, 255, 0.04));
+  border-color: var(--hud-border-strong, rgba(255, 255, 255, 0.16));
+}
+
+.briefing-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.briefing-kind {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--hud-text, inherit);
+}
+
+.briefing-kind-fleet-home {
+  background: rgba(72, 144, 226, 0.16);
+  color: #6fb0f0;
+}
+
+.briefing-kind-tour {
+  background: rgba(196, 144, 86, 0.16);
+  color: #d7a978;
+}
+
+.briefing-row-title {
+  font-weight: 500;
+  flex: 1 1 auto;
+  font-size: 14px;
+}
+
+.briefing-row-time {
+  font-size: 11px;
+  color: var(--hud-text-muted, #888);
+  flex: 0 0 auto;
+}
+
+.briefing-row-summary {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--hud-text, inherit);
+}
+
+.briefing-row-meta {
+  font-size: 11px;
+  color: var(--hud-text-muted, #888);
+  display: flex;
+  gap: 4px;
+}
+
+/* Detail screen */
+.briefing-detail {
+  max-width: 920px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.briefing-detail-back {
+  background: transparent;
+  border: none;
+  color: var(--hud-text-muted, #888);
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.briefing-detail-back:hover {
+  color: var(--hud-text, inherit);
+}
+
+.briefing-detail-header h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.briefing-detail-header-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--hud-text-muted, #888);
+  margin-top: 6px;
+}
+
+.briefing-detail-summary {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 12px 0 0;
+}
+
+.briefing-detail-recommendation {
+  font-size: 13px;
+  line-height: 1.5;
+  background: rgba(196, 144, 86, 0.08);
+  border-left: 2px solid #d7a978;
+  padding: 10px 12px;
+  border-radius: 0 6px 6px 0;
+  margin-top: 12px;
+}
+
+.briefing-layer {
+  border: 1px solid var(--hud-border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.briefing-layer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--hud-border, rgba(255, 255, 255, 0.08));
+  padding-bottom: 8px;
+}
+
+.briefing-layer-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hud-text-muted, #888);
+}
+
+.briefing-layer-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.briefing-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.briefing-step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.briefing-step-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--hud-text-muted, #888);
+}
+
+.briefing-step-narration {
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.briefing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.briefing-observations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.briefing-observation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border-left: 2px solid transparent;
+}
+
+.briefing-observation-warn {
+  border-left-color: #d7a978;
+}
+
+.briefing-observation-err {
+  border-left-color: #e07878;
+}
+
+.briefing-observation-text {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.briefing-observation-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.briefing-ref-chip {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.briefing-ref-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.briefing-ref-chip-static {
+  cursor: default;
+}
+
+.briefing-ref-chip-static:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.briefing-snapshot-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--hud-text-muted, #888);
+}
+
+.briefing-snapshot-count strong {
+  color: var(--hud-text, inherit);
+  font-weight: 500;
+}
+
+.briefing-snapshot-section {
+  border-top: 1px solid var(--hud-border, rgba(255, 255, 255, 0.08));
+  padding-top: 10px;
+}
+
+.briefing-snapshot-section-head {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.briefing-snapshot-section-head::marker {
+  color: var(--hud-text-muted, #888);
+}
+
+.briefing-snapshot-raw {
+  font-family: var(--hud-mono, ui-monospace, SFMono-Regular, "SF Mono", monospace);
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 10px;
+  border-radius: 6px;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.briefing-call-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 12px;
+  font-size: 12px;
+}
+
+.briefing-call-grid dt {
+  color: var(--hud-text-muted, #888);
+}
+
+.briefing-call-grid dd {
+  margin: 0;
+  font-family: var(--hud-mono, ui-monospace, monospace);
+  word-break: break-word;
+}
+
+.briefing-call-prompt {
+  font-family: var(--hud-mono, ui-monospace, monospace);
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 10px;
+  border-radius: 6px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  margin-top: 8px;
+}

@@ -97,6 +97,18 @@ export type RangerAssistantContextSnapshot = {
   state: Record<string, unknown>;
 };
 
+export type RangerBriefCall = {
+  model: string;
+  systemPrompt: string;
+  operatorRequest: string;
+  responseId: string | null;
+};
+
+export type RangerBriefCapture = {
+  snapshot: RangerAssistantContextSnapshot;
+  call: RangerBriefCall;
+};
+
 export type RangerAssistantService = {
   getConfig: () => RangerAssistantConfig;
   updateConfig: (input: { model?: string | null; systemPrompt?: string | null }) => RangerAssistantConfig;
@@ -105,7 +117,12 @@ export type RangerAssistantService = {
   switchSession: (id: string) => RangerAssistantSessionState;
   archiveSession: (id: string) => RangerAssistantSessionState;
   respond: (input: { body: string; route?: unknown }) => Promise<RangerAssistantReply>;
-  createBrief: (input: { route?: unknown; ttlMs?: number | null; mode?: RangerBriefMode }) => Promise<RangerBrief>;
+  createBrief: (input: {
+    route?: unknown;
+    ttlMs?: number | null;
+    mode?: RangerBriefMode;
+    onCaptured?: (capture: RangerBriefCapture) => void;
+  }) => Promise<RangerBrief>;
 };
 
 export type RangerBriefMode = "tour" | "fleet-home";
@@ -358,7 +375,7 @@ export function createRangerAssistantService(input: {
         responseId: response.id,
       };
     },
-    createBrief: async ({ route, ttlMs, mode = "tour" }) => {
+    createBrief: async ({ route, ttlMs, mode = "tour", onCaptured }) => {
       const apiKey = await resolveApiKey();
       if (!apiKey) {
         throw new RangerAssistantError("An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
@@ -367,17 +384,35 @@ export function createRangerAssistantService(input: {
       const now = Date.now();
       const resolvedTtlMs = clampNumber(ttlMs ?? DEFAULT_BRIEF_TTL_MS, MIN_BRIEF_TTL_MS, MAX_BRIEF_TTL_MS);
       const context = await contextSnapshot(route);
+      const resolvedSystemPrompt = briefSystemPrompt(systemPrompt, mode);
+      const operatorRequest = briefOperatorRequest(resolvedTtlMs, mode);
       const response = await callOpenAIResponse({
         apiKey,
         baseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
           ?? DEFAULT_OPENAI_BASE_URL,
         fetchImpl,
         model,
-        systemPrompt: briefSystemPrompt(systemPrompt, mode),
+        systemPrompt: resolvedSystemPrompt,
         previousResponseId: null,
-        body: briefOperatorRequest(resolvedTtlMs, mode),
+        body: operatorRequest,
         context,
       });
+
+      if (onCaptured) {
+        try {
+          onCaptured({
+            snapshot: context,
+            call: {
+              model,
+              systemPrompt: resolvedSystemPrompt,
+              operatorRequest,
+              responseId: response.id,
+            },
+          });
+        } catch {
+          // capture is fire-and-forget; never let it break the brief response
+        }
+      }
 
       return parseBriefResponse(response.text, {
         preparedAt: now,

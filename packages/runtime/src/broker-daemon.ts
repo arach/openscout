@@ -250,7 +250,7 @@ const configuredCoreAgentIds = (process.env.OPENSCOUT_CORE_AGENTS ?? "")
   .split(",")
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
-const discoveryIntervalMs = Number.parseInt(process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? "0", 10);
+const discoveryIntervalMs = Number.parseInt(process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? "60000", 10);
 const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 const localAgentSyncIntervalMs = Number.parseInt(process.env.OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS ?? "5000", 10);
 let registeredLocalAgentsRegistrySignature: string | null = null;
@@ -6858,11 +6858,9 @@ setTimeout(() => {
   });
 }, 0).unref();
 
-if (seedUrls.length > 0) {
-  discoverPeers().catch((error) => {
-    console.error("[openscout-runtime] initial mesh discovery failed:", error);
-  });
-}
+discoverPeers().catch((error) => {
+  console.error("[openscout-runtime] initial mesh discovery failed:", error);
+});
 
 if (Number.isFinite(discoveryIntervalMs) && discoveryIntervalMs > 0) {
   setInterval(() => {

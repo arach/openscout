@@ -1024,6 +1024,7 @@ export type Route =
   | { view: "channels"; channelId?: string }
   | { view: "mesh" }
   | { view: "broker" }
+  | { view: "briefings"; briefingId?: string }
   | { view: "activity" }
   | { view: "work"; workId: string }
   | { view: "settings"; section?: "agents"; agentId?: string }

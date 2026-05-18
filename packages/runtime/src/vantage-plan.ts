@@ -12,6 +12,18 @@ export type TmuxSession = {
   createdAt: number | null;
 };
 
+export type ScoutVantageNativeSession = {
+  id: string;
+  source: string;
+  sessionId: string | null;
+  transcriptPath: string;
+  project: string;
+  harness: string | null;
+  cwd: string | null;
+  mtimeMs: number | null;
+  tmuxSessionName: string;
+};
+
 export type ScoutVantageBrokerContext = {
   baseUrl: string;
   node: NodeDefinition;
@@ -24,7 +36,11 @@ export type ScoutVantagePlanInput = {
   brokerSnapshot?: RuntimeRegistrySnapshot | null;
   brokerNode?: NodeDefinition | null;
   tmuxSessions?: readonly TmuxSession[];
+  nativeSessions?: readonly ScoutVantageNativeSession[];
   focusAgentId?: string | null;
+  focusNativeSessionId?: string | null;
+  selectedAgentIds?: readonly string[];
+  selectedNativeSessionIds?: readonly string[];
   now?: Date;
 };
 
@@ -47,13 +63,17 @@ export type HudsonVantageSetupManifest = {
   currentDirectory: string;
   broker: ScoutVantageBrokerSummary | null;
   focus: ScoutVantageFocus | null;
+  selectedAgentIds: string[];
+  selectedNativeSessionIds: string[];
   selection: string[];
+  focused: string | null;
   focusedNodeId: string | null;
   nodes: ScoutVantageNode[];
 };
 
 export type ScoutVantageFocus = {
   agentId?: string;
+  nativeSessionId?: string;
 };
 
 export type ScoutVantageBrokerSummary = {
@@ -78,8 +98,9 @@ export type ScoutVantageNode = ScoutVantageTmuxNode;
 export type ScoutVantageTmuxNode = {
   id: string;
   runtimeKind: "tmux";
-  source: "broker-endpoint" | "tmux-session";
+  source: "broker-endpoint" | "tmux-session" | "tail-transcript";
   title: string;
+  subtitle?: string;
   target: string;
   layout: ScoutVantageNodeLayout;
   tmux: {
@@ -100,6 +121,15 @@ export type ScoutVantageTmuxNode = {
     transport: AgentEndpoint["transport"];
     state: AgentEndpoint["state"];
   };
+  nativeSession?: {
+    id: string;
+    source: string;
+    sessionId: string | null;
+    transcriptPath: string;
+    project: string;
+    harness: string | null;
+    mtimeMs: number | null;
+  };
   cwd: string | null;
   projectRoot: string | null;
 };
@@ -119,6 +149,10 @@ export type ScoutVantagePlanDiagnostic = {
     | "endpoint_tmux_target_duplicate"
     | "endpoint_tmux_session_missing"
     | "focus_agent_missing"
+    | "focus_native_session_missing"
+    | "selected_agent_missing"
+    | "selected_native_session_missing"
+    | "native_tail_tmux_session_missing"
     | "tmux_sessions_missing"
     | "vantage_nodes_missing";
   severity: "info" | "warning";
@@ -149,7 +183,16 @@ export function buildScoutVantagePlan(input: ScoutVantagePlanInput): ScoutVantag
   const brokerNode = input.broker?.node ?? input.brokerNode ?? null;
   const tmuxSessions = [...(input.tmuxSessions ?? [])].sort(compareTmuxSessions);
   const tmuxSessionByName = new Map(tmuxSessions.map((session) => [session.name, session]));
+  const nativeSessions = [...(input.nativeSessions ?? [])].sort(compareNativeSessions);
   const focusAgentId = input.focusAgentId?.trim() || null;
+  const selectedAgentIds = uniqueIds(input.selectedAgentIds ?? []);
+  const selectedNativeSessionIds = uniqueIds(input.selectedNativeSessionIds ?? []);
+  const focusNativeSessionId = input.focusNativeSessionId?.trim()
+    || (!focusAgentId ? selectedNativeSessionIds[0] : null)
+    || null;
+  const selectedAgentIdSet = new Set(selectedAgentIds);
+  const selectedNativeSessionIdSet = new Set(selectedNativeSessionIds);
+  const hasExplicitSelection = selectedAgentIds.length > 0 || selectedNativeSessionIds.length > 0;
   const diagnostics: ScoutVantagePlanDiagnostic[] = [];
   const nodes: ScoutVantageNode[] = [];
   const representedTmuxTargets = new Set<string>();
@@ -180,6 +223,10 @@ export function buildScoutVantagePlan(input: ScoutVantagePlanInput): ScoutVantag
   }
 
   for (const endpoint of sortedEndpoints(brokerSnapshot)) {
+    if (hasExplicitSelection && !selectedAgentIdSet.has(endpoint.agentId)) {
+      continue;
+    }
+
     const target = endpointTmuxTarget(endpoint);
     if (!target) {
       continue;
@@ -227,11 +274,56 @@ export function buildScoutVantagePlan(input: ScoutVantagePlanInput): ScoutVantag
     nodes.push(buildEndpointTmuxNode(endpoint, target, tmuxSession));
   }
 
-  for (const tmuxSession of tmuxSessions) {
-    if (representedTmuxSessions.has(tmuxSession.name)) {
+  for (const nativeSession of nativeSessions) {
+    if (selectedNativeSessionIds.length > 0 && !selectedNativeSessionIdSet.has(nativeSession.id)) {
       continue;
     }
-    nodes.push(buildStandaloneTmuxNode(tmuxSession));
+
+    const tmuxSession = tmuxSessionByName.get(nativeSession.tmuxSessionName);
+    if (!tmuxSession) {
+      diagnostics.push({
+        code: "native_tail_tmux_session_missing",
+        severity: "warning",
+        message: `Native session ${nativeSession.id} points at tmux session ${nativeSession.tmuxSessionName}, but that session was not provided.`,
+        sessionName: nativeSession.tmuxSessionName,
+      });
+      continue;
+    }
+
+    representedTmuxSessions.add(nativeSession.tmuxSessionName);
+    nodes.push(buildNativeTailTmuxNode(nativeSession, tmuxSession));
+  }
+
+  if (!hasExplicitSelection) {
+    for (const tmuxSession of tmuxSessions) {
+      if (representedTmuxSessions.has(tmuxSession.name)) {
+        continue;
+      }
+      nodes.push(buildStandaloneTmuxNode(tmuxSession));
+    }
+  }
+
+  for (const agentId of selectedAgentIds) {
+    const hasNode = nodes.some((node) => node.endpoint?.agentId === agentId);
+    if (!hasNode) {
+      diagnostics.push({
+        code: "selected_agent_missing",
+        severity: "info",
+        message: `No Vantage node matched selected agent ${agentId}.`,
+        agentId,
+      });
+    }
+  }
+
+  for (const nativeSessionId of selectedNativeSessionIds) {
+    const hasNode = nodes.some((node) => node.nativeSession?.id === nativeSessionId);
+    if (!hasNode) {
+      diagnostics.push({
+        code: "selected_native_session_missing",
+        severity: "info",
+        message: `No Vantage node matched selected native session ${nativeSessionId}.`,
+      });
+    }
   }
 
   nodes.sort(compareNodes);
@@ -241,6 +333,8 @@ export function buildScoutVantagePlan(input: ScoutVantagePlanInput): ScoutVantag
 
   const focusedNodeId = focusAgentId
     ? nodes.find((node) => node.endpoint?.agentId === focusAgentId)?.id ?? null
+    : focusNativeSessionId
+      ? nodes.find((node) => node.nativeSession?.id === focusNativeSessionId)?.id ?? null
     : null;
   if (focusAgentId && !focusedNodeId) {
     diagnostics.push({
@@ -248,6 +342,13 @@ export function buildScoutVantagePlan(input: ScoutVantagePlanInput): ScoutVantag
       severity: "info",
       message: `No Vantage node matched focus agent ${focusAgentId}.`,
       agentId: focusAgentId,
+    });
+  }
+  if (!focusAgentId && focusNativeSessionId && !focusedNodeId) {
+    diagnostics.push({
+      code: "focus_native_session_missing",
+      severity: "info",
+      message: `No Vantage node matched focus native session ${focusNativeSessionId}.`,
     });
   }
 
@@ -258,6 +359,15 @@ export function buildScoutVantagePlan(input: ScoutVantagePlanInput): ScoutVantag
       message: "No Vantage nodes could be built from the provided broker and tmux data.",
     });
   }
+
+  const selectedNodeIds = hasExplicitSelection
+    ? nodes
+      .filter((node) =>
+        (node.endpoint?.agentId ? selectedAgentIdSet.has(node.endpoint.agentId) : false)
+        || (node.nativeSession?.id ? selectedNativeSessionIdSet.has(node.nativeSession.id) : false)
+      )
+      .map((node) => node.id)
+    : [];
 
   return {
     schema: SCOUT_VANTAGE_PLAN_SCHEMA,
@@ -275,13 +385,32 @@ export function buildScoutVantagePlan(input: ScoutVantagePlanInput): ScoutVantag
       generatedAt,
       currentDirectory: input.currentDirectory,
       broker: buildBrokerSummary(input.broker?.baseUrl ?? null, brokerNode, brokerSnapshot),
-      focus: focusAgentId ? { agentId: focusAgentId } : null,
-      selection: focusedNodeId ? [focusedNodeId] : [],
+      focus: focusAgentId
+        ? { agentId: focusAgentId }
+        : focusNativeSessionId ? { nativeSessionId: focusNativeSessionId } : null,
+      selectedAgentIds,
+      selectedNativeSessionIds,
+      selection: hasExplicitSelection ? selectedNodeIds : focusedNodeId ? [focusedNodeId] : [],
+      focused: focusedNodeId,
       focusedNodeId,
       nodes,
     },
     diagnostics,
   };
+}
+
+function uniqueIds(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const value of values) {
+    const id = value.trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
 }
 
 function buildBrokerSummary(
@@ -402,6 +531,41 @@ function buildEndpointTmuxNode(
   };
 }
 
+function buildNativeTailTmuxNode(
+  nativeSession: ScoutVantageNativeSession,
+  tmuxSession: TmuxSession,
+): ScoutVantageTmuxNode {
+  return {
+    id: stableNodeId("native", nativeSession.id),
+    runtimeKind: "tmux",
+    source: "tail-transcript",
+    title: nativeSessionTitle(nativeSession),
+    subtitle: `${nativeSession.source} tail · ${nativeSession.project}`,
+    target: nativeSession.tmuxSessionName,
+    layout: layoutForIndex(0),
+    tmux: {
+      sessionName: nativeSession.tmuxSessionName,
+      createdAt: tmuxSession.createdAt,
+      command: buildTmuxAttachCommand(nativeSession.tmuxSessionName),
+      terminalRelay: {
+        backend: "tmux",
+        tmuxSession: nativeSession.tmuxSessionName,
+      },
+    },
+    nativeSession: {
+      id: nativeSession.id,
+      source: nativeSession.source,
+      sessionId: nativeSession.sessionId,
+      transcriptPath: nativeSession.transcriptPath,
+      project: nativeSession.project,
+      harness: nativeSession.harness,
+      mtimeMs: nativeSession.mtimeMs,
+    },
+    cwd: nativeSession.cwd,
+    projectRoot: nativeSession.cwd,
+  };
+}
+
 function buildStandaloneTmuxNode(tmuxSession: TmuxSession): ScoutVantageTmuxNode {
   return {
     id: stableNodeId("tmux", tmuxSession.name),
@@ -452,11 +616,15 @@ function compareTmuxSessions(left: TmuxSession, right: TmuxSession): number {
   return left.name.localeCompare(right.name);
 }
 
+function compareNativeSessions(left: ScoutVantageNativeSession, right: ScoutVantageNativeSession): number {
+  return left.id.localeCompare(right.id);
+}
+
 function tmuxTargetKey(target: Pick<EndpointTmuxTarget, "sessionName" | "paneTarget">): string {
   return `${target.sessionName}\t${target.paneTarget ?? ""}`;
 }
 
-function stableNodeId(kind: "endpoint" | "tmux", value: string): string {
+function stableNodeId(kind: "endpoint" | "tmux" | "native", value: string): string {
   return `vantage.${kind}.${slugify(value)}.${fnv1a(value)}`;
 }
 
@@ -481,6 +649,15 @@ function fnv1a(value: string): string {
 function metadataString(endpoint: AgentEndpoint, key: string): string | null {
   const value = endpoint.metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function nativeSessionTitle(nativeSession: ScoutVantageNativeSession): string {
+  const session = nativeSession.sessionId ? ` ${nativeSession.sessionId.slice(0, 8)}` : "";
+  return `${titleCase(nativeSession.source)}${session}`;
+}
+
+function titleCase(value: string): string {
+  return value ? `${value[0]?.toUpperCase()}${value.slice(1)}` : "Native";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

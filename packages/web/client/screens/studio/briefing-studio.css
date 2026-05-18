@@ -1,0 +1,1046 @@
+/* ── Briefing Studio ──────────────────────────────────────────────────
+   A self-contained sandbox for iterating on the briefing-generation
+   experience. Renders full-screen over the app shell when the URL
+   contains `?studio=briefing`.
+
+   Model:
+     - idle:        quick-scan facts + CTA upselling the brief
+     - generating:  step rows where the active row expands to show a
+                    real PREVIEW of the data being collected (session IDs,
+                    broker messages, tail events, etc.). Completed rows
+                    collapse to a compact summary; pending rows stay quiet.
+     - done:        the synthesized brief, a real report. */
+
+.bstudio {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+
+/* ── Top bar ───────────────────────────────────────────────────── */
+
+.bstudio-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+}
+
+.bstudio-bar-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.bstudio-mark { color: var(--accent); }
+.bstudio-title { color: var(--ink); font-weight: 500; }
+.bstudio-sep { color: var(--dim); opacity: 0.5; }
+
+.bstudio-meta {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.bstudio-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  width: 22px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
+}
+.bstudio-close:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+/* ── Controls strip ───────────────────────────────────────────── */
+
+.bstudio-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 50%, var(--bg));
+}
+
+.bstudio-ctrl-group { display: inline-flex; align-items: center; gap: 6px; }
+.bstudio-ctrl-group--meta { margin-left: auto; }
+
+.bstudio-ctrl-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--dim);
+}
+
+.bstudio-btn,
+.bstudio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
+}
+.bstudio-btn:hover,
+.bstudio-chip:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.bstudio-btn:disabled { opacity: 0.45; cursor: default; }
+.bstudio-chip--active {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.bstudio-phase-tag {
+  color: var(--accent);
+  letter-spacing: 0.18em;
+}
+
+/* ── Stage / card ──────────────────────────────────────────────── */
+
+.bstudio-stage {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 16px;
+  overflow: auto;
+}
+
+.bstudio-card {
+  width: min(100%, 760px);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 18px 22px;
+  background: color-mix(in srgb, var(--surface) 60%, var(--bg));
+}
+
+.bstudio-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  width: 100%;
+}
+
+.bstudio-card-glyph {
+  color: color-mix(in srgb, var(--accent) 50%, var(--dim));
+  opacity: 0.75;
+  flex-shrink: 0;
+  transform: translateY(-0.5px);
+}
+
+.bstudio-card-status {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+}
+
+/* ── Idle preview — quick-scan + CTA ─────────────────────────── */
+
+.bstudio-idle {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 14px 0 4px;
+  animation: bstudio-fade-in 240ms ease both;
+}
+
+.bstudio-idle-scan { display: flex; flex-direction: column; gap: 6px; }
+
+.bstudio-idle-label {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.bstudio-idle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bstudio-idle-item {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.bstudio-idle-bullet {
+  color: var(--accent);
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.bstudio-idle-item--warn { color: color-mix(in srgb, gold 60%, var(--ink)); }
+.bstudio-idle-item--err  { color: color-mix(in srgb, crimson 60%, var(--ink)); }
+
+.bstudio-idle-pitch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.bstudio-idle-copy {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.bstudio-idle-sparkle {
+  color: var(--accent);
+  flex-shrink: 0;
+  transform: translateY(2px);
+}
+
+.bstudio-cta {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.bstudio-cta:hover {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-color: var(--accent);
+}
+
+@keyframes bstudio-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── View 1 — LOGS: compact step rows, no body expansion ────── */
+
+.bstudio-logs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bstudio-log-row {
+  display: grid;
+  grid-template-columns: 16px minmax(140px, max-content) 1fr max-content;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  border-radius: 2px;
+  transition: background-color 0.18s ease, color 0.18s ease, opacity 0.24s ease;
+}
+
+.bstudio-log-row[data-state="pending"] { color: var(--dim); opacity: 0.45; }
+.bstudio-log-row[data-state="active"]  {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.bstudio-log-row[data-state="done"]    { color: var(--ink); opacity: 0.9; }
+
+.bstudio-log-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.bstudio-log-row[data-state="pending"] .bstudio-log-state { color: var(--dim); }
+.bstudio-log-row[data-state="active"]  .bstudio-log-state { color: var(--accent); }
+.bstudio-log-row[data-state="done"]    .bstudio-log-state { color: var(--accent); }
+
+.bstudio-log-pending { font-size: 14px; line-height: 1; color: var(--muted); }
+
+.bstudio-log-label {
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bstudio-log-leader {
+  height: 1px;
+  align-self: center;
+  background-image: radial-gradient(
+    circle at 1px 50%,
+    color-mix(in srgb, var(--border) 80%, transparent) 0 1px,
+    transparent 1px 100%
+  );
+  background-size: 4px 1px;
+  background-repeat: repeat-x;
+  opacity: 0.4;
+}
+.bstudio-log-row[data-state="pending"] .bstudio-log-leader { opacity: 0.18; }
+
+.bstudio-log-result {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-align: right;
+  color: var(--accent);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.bstudio-log-row[data-state="active"] .bstudio-log-result {
+  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+}
+.bstudio-log-row[data-state="pending"] .bstudio-log-result { color: var(--dim); }
+
+.bstudio-log-result--warn { color: color-mix(in srgb, gold 70%, var(--accent)) !important; }
+.bstudio-log-result--err  { color: color-mix(in srgb, crimson 70%, var(--accent)) !important; }
+
+/* ── View 2 — SEQUENCE — row + active preview panel ──────────── */
+
+.bstudio-seq {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 0 4px;
+}
+
+.bstudio-seq-row {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 50%, transparent);
+  padding: 8px 0;
+  transition: opacity 0.18s ease;
+}
+.bstudio-seq-row:last-child { border-bottom: none; }
+
+.bstudio-seq-row[data-state="pending"] { opacity: 0.45; }
+.bstudio-seq-row[data-state="active"]  { opacity: 1; }
+.bstudio-seq-row[data-state="done"]    { opacity: 0.7; }
+
+.bstudio-seq-head {
+  display: grid;
+  grid-template-columns: 16px minmax(140px, max-content) 1fr max-content;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bstudio-seq-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.bstudio-seq-row[data-state="pending"] .bstudio-seq-state { color: var(--dim); }
+.bstudio-seq-row[data-state="active"]  .bstudio-seq-state { color: var(--accent); }
+.bstudio-seq-row[data-state="done"]    .bstudio-seq-state { color: var(--accent); }
+
+.bstudio-spin { animation: bstudio-spin 0.9s linear infinite; }
+@keyframes bstudio-spin { to { transform: rotate(360deg); } }
+
+.bstudio-seq-label {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.bstudio-seq-leader {
+  height: 1px;
+  align-self: center;
+  background-image: radial-gradient(
+    circle at 1px 50%,
+    color-mix(in srgb, var(--border) 80%, transparent) 0 1px,
+    transparent 1px 100%
+  );
+  background-size: 4px 1px;
+  background-repeat: repeat-x;
+  opacity: 0.35;
+}
+
+.bstudio-seq-result {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-align: right;
+  color: var(--accent);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.bstudio-seq-row[data-state="pending"] .bstudio-seq-result { color: var(--dim); }
+.bstudio-seq-row[data-state="active"]  .bstudio-seq-result {
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+}
+
+.bstudio-seq-result--warn { color: color-mix(in srgb, gold 70%, var(--accent)) !important; }
+.bstudio-seq-result--err  { color: color-mix(in srgb, crimson 70%, var(--accent)) !important; }
+
+.bstudio-seq-body {
+  padding: 10px 0 4px;
+  margin-left: 24px;
+  animation: bstudio-fade-in 200ms ease both;
+}
+
+/* ── View 3 — CAROUSEL — one preview at a time, ambient stepper ─
+   The preview is the hero. The stepper is a thin ambient strip and
+   the step label is a single-line caption. Nothing else competes for
+   attention. */
+
+.bstudio-carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 0 4px;
+}
+
+.bstudio-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.bstudio-stepper-pip {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bstudio-stepper-pip + .bstudio-stepper-pip::before {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+  margin-right: 4px;
+}
+
+/* The line LEADING INTO the active pip fills lime as the previous step
+ * progresses — gives the carousel a live, ticking sense of advancement. */
+.bstudio-stepper-pip[data-fill]::before {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--accent) 70%, var(--border)) 0,
+    color-mix(in srgb, var(--accent) 70%, var(--border)) var(--pip-fill, 0%),
+    color-mix(in srgb, var(--border) 60%, transparent) var(--pip-fill, 0%),
+    color-mix(in srgb, var(--border) 60%, transparent) 100%
+  );
+}
+
+/* Completed → completed line is fully lime. */
+.bstudio-stepper-pip[data-state="done"] + .bstudio-stepper-pip[data-state="done"]::before {
+  background: color-mix(in srgb, var(--accent) 70%, var(--border));
+}
+
+.bstudio-stepper-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--bg);
+  color: var(--accent);
+  flex-shrink: 0;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.bstudio-stepper-pip[data-state="active"] .bstudio-stepper-circle {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.bstudio-stepper-pip[data-state="done"] .bstudio-stepper-circle {
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.bstudio-carousel-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: bstudio-slide-in-right 320ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
+}
+
+@keyframes bstudio-slide-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.bstudio-carousel-now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.bstudio-carousel-now-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.bstudio-carousel-now-action {
+  color: var(--accent);
+  font-style: italic;
+  letter-spacing: 0.04em;
+}
+
+.bstudio-carousel-now-label {
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 10px;
+}
+
+.bstudio-carousel-now-counter {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.bstudio-carousel-progress {
+  height: 2px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.bstudio-carousel-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 100ms linear;
+}
+
+.bstudio-carousel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* ── Sample panels ─────────────────────────────────────────── */
+
+.bstudio-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bstudio-sample-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bstudio-sample-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bstudio-sample-more {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+.bstudio-sample-more--row {
+  padding: 4px 0;
+  font-style: italic;
+}
+
+/* — Fleet chips — */
+.bstudio-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 50%, var(--bg));
+  color: var(--ink);
+  animation: bstudio-row-in 280ms ease both;
+}
+.bstudio-agent-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.bstudio-agent-chip--idle .bstudio-agent-dot { background: gold; opacity: 0.6; }
+.bstudio-agent-chip--err  .bstudio-agent-dot { background: crimson; }
+.bstudio-agent-project { color: var(--dim); }
+
+/* — Session cards — fragments that look like real session detail rows — */
+.bstudio-session-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 50%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--surface) 50%, var(--bg));
+  animation: bstudio-row-in 300ms ease both;
+}
+.bstudio-session-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+}
+.bstudio-session-id {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 500;
+}
+.bstudio-session-project-chip {
+  display: inline-flex;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.bstudio-session-ago { color: var(--dim); }
+.bstudio-session-summary {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+/* — Broker message cards — fragments that look like real queue rows — */
+.bstudio-broker-card {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--surface) 50%, var(--bg));
+  border-radius: 3px;
+  animation: bstudio-row-in 320ms ease both;
+  align-items: start;
+}
+.bstudio-broker-card--warn { border-left-color: color-mix(in srgb, gold 80%, var(--border)); }
+.bstudio-broker-card--err  { border-left-color: color-mix(in srgb, crimson 80%, var(--border)); }
+
+.bstudio-broker-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.bstudio-broker-card--warn .bstudio-broker-avatar {
+  background: color-mix(in srgb, gold 16%, transparent);
+  border-color: color-mix(in srgb, gold 50%, var(--border));
+  color: color-mix(in srgb, gold 80%, var(--ink));
+}
+.bstudio-broker-card--err .bstudio-broker-avatar {
+  background: color-mix(in srgb, crimson 16%, transparent);
+  border-color: color-mix(in srgb, crimson 50%, var(--border));
+  color: color-mix(in srgb, crimson 80%, var(--ink));
+}
+
+.bstudio-broker-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bstudio-broker-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dim);
+  flex-wrap: wrap;
+}
+.bstudio-broker-from { color: var(--accent); font-weight: 500; }
+.bstudio-broker-to   { color: var(--ink); }
+.bstudio-broker-arrow { opacity: 0.5; }
+.bstudio-broker-ago  { margin-left: auto; color: var(--dim); font-size: 9.5px; }
+
+.bstudio-broker-tag {
+  display: inline-flex;
+  padding: 0 6px;
+  height: 14px;
+  align-items: center;
+  border-radius: 9999px;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.bstudio-broker-tag--warn {
+  background: color-mix(in srgb, gold 18%, transparent);
+  color: color-mix(in srgb, gold 80%, var(--ink));
+  border: 1px solid color-mix(in srgb, gold 40%, var(--border));
+}
+.bstudio-broker-tag--err {
+  background: color-mix(in srgb, crimson 18%, transparent);
+  color: color-mix(in srgb, crimson 80%, var(--ink));
+  border: 1px solid color-mix(in srgb, crimson 40%, var(--border));
+}
+
+.bstudio-broker-body {
+  font-size: 12px;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* — Tail event rows — */
+.bstudio-tail-rows {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.bstudio-tail-row {
+  display: grid;
+  grid-template-columns: max-content max-content max-content 1fr;
+  gap: 10px;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--surface) 30%, var(--bg));
+  border-radius: 2px;
+  align-items: baseline;
+  animation: bstudio-row-in 260ms ease both;
+}
+.bstudio-tail-ts { color: var(--dim); }
+.bstudio-tail-source { color: color-mix(in srgb, var(--accent) 60%, var(--ink)); }
+.bstudio-tail-kind {
+  color: var(--muted);
+  padding: 1px 5px;
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+  border-radius: 2px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+.bstudio-tail-row[data-kind="error"] .bstudio-tail-kind {
+  background: color-mix(in srgb, crimson 18%, transparent);
+  color: color-mix(in srgb, crimson 80%, var(--ink));
+}
+.bstudio-tail-body {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* — Plan cards — */
+.bstudio-plan-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  animation: bstudio-row-in 320ms ease both;
+}
+.bstudio-plan-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+}
+.bstudio-plan-title { color: var(--ink); flex: 1; }
+.bstudio-plan-status {
+  font-size: 9.5px;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.bstudio-plan-sub {
+  display: inline-flex;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+/* — Anomaly cards — fragments that look like real alert callouts — */
+.bstudio-anom-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, gold 35%, var(--border));
+  background: color-mix(in srgb, gold 6%, transparent);
+  border-radius: 4px;
+  animation: bstudio-row-in 320ms ease both;
+}
+.bstudio-anom-card--error {
+  border-color: color-mix(in srgb, crimson 40%, var(--border));
+  background: color-mix(in srgb, crimson 6%, transparent);
+}
+
+.bstudio-anom-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.bstudio-anom-icon { color: gold; flex-shrink: 0; }
+.bstudio-anom-card--error .bstudio-anom-icon { color: crimson; }
+.bstudio-anom-label {
+  font-size: 12px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.bstudio-anom-severity {
+  margin-left: auto;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: color-mix(in srgb, gold 70%, var(--ink));
+}
+.bstudio-anom-card--error .bstudio-anom-severity {
+  color: color-mix(in srgb, crimson 70%, var(--ink));
+}
+
+.bstudio-anom-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 21px;
+}
+.bstudio-anom-row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.bstudio-anom-key {
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 9px;
+  padding-top: 2px;
+}
+.bstudio-anom-val { color: var(--ink); }
+.bstudio-anom-val--action {
+  color: color-mix(in srgb, var(--accent) 60%, var(--ink));
+  font-style: italic;
+}
+
+/* — Synthesize sample (bars folding in) — */
+.bstudio-sample--synth {
+  align-items: flex-start;
+  gap: 6px;
+}
+.bstudio-synth-copy {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  margin: 0;
+}
+.bstudio-synth-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  max-width: 380px;
+}
+.bstudio-synth-bar {
+  height: 8px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 15%, transparent) 100%
+  );
+  transform-origin: left;
+  animation: bstudio-synth-bar 320ms ease both;
+}
+@keyframes bstudio-synth-bar {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 1; }
+}
+
+@keyframes bstudio-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Synthesized brief — the report ──────────────────────────── */
+
+.bstudio-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 0 4px;
+  animation: bstudio-fade-in 320ms ease both;
+}
+
+.bstudio-brief-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.bstudio-brief-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.bstudio-brief-meta {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+.bstudio-brief-list { display: flex; flex-direction: column; gap: 12px; }
+
+.bstudio-brief-line {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+  animation: bstudio-row-in 320ms ease both;
+}
+.bstudio-brief-icon { color: var(--accent); transform: translateY(3px); }
+.bstudio-brief-line--warn { color: color-mix(in srgb, gold 70%, var(--ink)); }
+.bstudio-brief-line--err  { color: color-mix(in srgb, crimson 70%, var(--ink)); }
+
+.bstudio-brief-line-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.bstudio-brief-refs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.bstudio-brief-ref {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 9999px;
+  font-size: 9.5px;
+  color: var(--dim);
+  background: color-mix(in srgb, var(--surface) 40%, var(--bg));
+  letter-spacing: 0.02em;
+}
+
+.bstudio-brief-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+/* ── Reduced motion ──────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .bstudio-spin,
+  .bstudio-brief,
+  .bstudio-idle,
+  .bstudio-seq-body,
+  .bstudio-agent-chip,
+  .bstudio-session-row,
+  .bstudio-broker-row,
+  .bstudio-tail-row,
+  .bstudio-plan-row,
+  .bstudio-anom-row,
+  .bstudio-synth-bar,
+  .bstudio-brief-line {
+    animation: none;
+  }
+}

@@ -76,7 +76,9 @@ import {
   getTailDiscovery,
   readRecentTranscriptEvents,
   snapshotRecentEvents,
+  type DiscoveredTranscript,
 } from "@openscout/runtime/tail";
+import type { ScoutVantageNativeSession } from "@openscout/runtime/vantage-plan";
 import {
   projectSessionsAttention,
   sessionApprovalAttentionId,
@@ -100,9 +102,17 @@ import {
   createRangerAssistantService,
   RangerAssistantError,
   type RangerBrief,
+  type RangerBriefCapture,
   type RangerBriefObservation,
   type RangerBriefReference,
 } from "./ranger-assistant.ts";
+import {
+  deleteBriefing,
+  getBriefing,
+  listBriefings,
+  saveBriefing,
+  type BriefingKind,
+} from "./db/briefings.ts";
 import {
   createRangerReminderStore,
   RangerReminderError,
@@ -167,6 +177,62 @@ function parseConversationKinds(value: string | undefined): ConversationKind[] |
       || kind === "system"
     ));
 }
+
+function parseStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+      .filter((candidate): candidate is string => typeof candidate === "string")
+      .map((candidate) => candidate.trim())
+      .filter(Boolean)
+    : [];
+}
+
+function resolveVantageNativeSessions(
+  transcripts: readonly DiscoveredTranscript[],
+  selectedIds: readonly string[],
+): ScoutVantageNativeSession[] {
+  const selected = new Set(selectedIds);
+  return transcripts
+    .map((transcript) => toVantageNativeSession(transcript))
+    .filter((session) => selected.has(session.id));
+}
+
+function toVantageNativeSession(transcript: DiscoveredTranscript): ScoutVantageNativeSession {
+  return {
+    id: nativeSessionId(transcript),
+    source: transcript.source,
+    sessionId: transcript.sessionId,
+    transcriptPath: transcript.transcriptPath,
+    project: transcript.project,
+    harness: transcript.harness,
+    cwd: transcript.cwd,
+    mtimeMs: transcript.mtimeMs,
+    tmuxSessionName: `scout-vantage-${slugifyTmuxName(transcript.source)}-${stableHash(transcript.transcriptPath)}`,
+  };
+}
+
+function nativeSessionId(transcript: DiscoveredTranscript): string {
+  const sessionId = transcript.sessionId?.trim() || "session";
+  return `native:${transcript.source}:${sessionId}:${stableHash(transcript.transcriptPath)}`;
+}
+
+function slugifyTmuxName(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+  return slug || "native";
+}
+
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
 import { buildHarnessResumeCommand, findHarnessEntry, loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   resolveOpenScoutWebRoutes,
@@ -224,6 +290,34 @@ type FleetHomeBriefObservation = {
 };
 
 const FLEET_HOME_BRIEF_TTL_MS = 30 * 60_000;
+
+function persistBriefing(
+  kind: BriefingKind,
+  brief: RangerBrief,
+  capture: RangerBriefCapture,
+): void {
+  try {
+    const observations = brief.steps.flatMap((step) => step.observations ?? []);
+    saveBriefing({
+      id: brief.id,
+      kind,
+      title: brief.title,
+      summary: brief.summary,
+      recommendation: brief.recommendation || null,
+      preparedAt: brief.preparedAt,
+      ttlMs: brief.ttlMs,
+      brief,
+      observations,
+      snapshot: capture.snapshot,
+      call: capture.call,
+    });
+  } catch (err) {
+    console.warn(
+      "[briefings] auto-save failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
 
 function buildFleetHomeBrief(brief: RangerBrief): FleetHomeBrief {
   const fleetStep = brief.steps.find((step) => step.route?.view === "fleet");
@@ -2170,12 +2264,17 @@ export async function createOpenScoutWebServer(
     if (!force && fleetHomeBriefInFlight) {
       return fleetHomeBriefInFlight;
     }
+    let captured: RangerBriefCapture | null = null;
     fleetHomeBriefInFlight = rangerAssistant.createBrief({
       route: { view: "fleet" },
       ttlMs: FLEET_HOME_BRIEF_TTL_MS,
       mode: "fleet-home",
+      onCaptured: (c) => { captured = c; },
     })
-      .then(buildFleetHomeBrief)
+      .then((rangerBrief) => {
+        if (captured) persistBriefing("fleet-home", rangerBrief, captured);
+        return buildFleetHomeBrief(rangerBrief);
+      })
       .then((brief) => {
         fleetHomeBrief = brief;
         return brief;
@@ -2402,15 +2501,33 @@ export async function createOpenScoutWebServer(
     }>().catch(() => ({}));
 
     try {
-      return c.json(await rangerAssistant.createBrief({
+      let captured: RangerBriefCapture | null = null;
+      const brief = await rangerAssistant.createBrief({
         route: body.route,
         ttlMs: body.ttlMs,
-      }));
+        onCaptured: (cap) => { captured = cap; },
+      });
+      if (captured) persistBriefing("tour", brief, captured);
+      return c.json(brief);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ranger brief failed";
       const status = error instanceof RangerAssistantError ? error.status : 500;
       return c.json({ error: message }, status as 400 | 500 | 502 | 503);
     }
+  });
+  app.get("/api/briefings", (c) => {
+    const limitParam = c.req.query("limit");
+    const parsed = limitParam ? Number.parseInt(limitParam, 10) : NaN;
+    const limit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 100) : 50;
+    return c.json({ briefings: listBriefings({ limit }) });
+  });
+  app.get("/api/briefings/:id", (c) => {
+    const briefing = getBriefing(c.req.param("id"));
+    if (!briefing) return c.json({ error: "not found" }, 404);
+    return c.json(briefing);
+  });
+  app.delete("/api/briefings/:id", (c) => {
+    return c.json({ deleted: deleteBriefing(c.req.param("id")) });
   });
   app.get("/api/file/roots", (c) => {
     const roots = collectTrustedRoots({ currentDirectory });
@@ -3317,12 +3434,22 @@ export async function createOpenScoutWebServer(
   app.post(routes.vantageOpenPath, async (c) => {
     const body = await c.req.json().catch(() => ({})) as {
       agentId?: unknown;
+      agentIds?: unknown;
+      nativeSessionIds?: unknown;
       launch?: unknown;
     };
+    const agentIds = parseStringArray(body.agentIds);
+    const nativeSessionIds = parseStringArray(body.nativeSessionIds);
     try {
+      const nativeSessions = nativeSessionIds.length > 0
+        ? resolveVantageNativeSessions((await getTailDiscovery()).transcripts, nativeSessionIds)
+        : [];
       const handoff = await (options.createVantageHandoff ?? createOpenScoutVantageHandoff)({
         currentDirectory,
         agentId: typeof body.agentId === "string" ? body.agentId.trim() || null : null,
+        agentIds,
+        nativeSessionIds,
+        nativeSessions,
         launch: body.launch !== false,
       });
       return c.json(handoff);
