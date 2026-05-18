@@ -5,13 +5,18 @@ import {
   type ScoutAskCommandOptions,
 } from "../options.ts";
 import { resolvePromptBody } from "../input-file.ts";
+import { scoutAskHandler } from "../../core/broker/ask.ts";
+import type {
+  ScoutAskReceipt,
+} from "../../core/broker/ask-types.ts";
 import {
-  askScoutQuestion,
   loadScoutFlight,
   parseScoutHarness,
+  resolveHumanAskSenderName,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
   type ScoutAskResult,
+  type ScoutFlightRecord,
   waitForScoutFlight,
 } from "../../core/broker/service.ts";
 
@@ -20,7 +25,7 @@ const DEFAULT_ASK_ACK_TIMEOUT_SECONDS = 30;
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask (--to <agent> | --ref <ref>) [--as <sender>] [--channel <name>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--prompt-file <path> | <message>]",
+    "Usage: scout ask (--to <agent> | --ref <ref> | --project <path>) [--as <sender>] [--channel <name>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -42,6 +47,7 @@ export function renderAskCommandHelp(): string {
     "Examples:",
     '  scout ask --to hudson "review the parser"',
     '  scout ask --ref 7f3a9c21 "continue from that result"',
+    '  scout ask --project ../talkie "how did you handle auth?"',
     "  scout ask --to hudson --prompt-file ./handoff.md",
     '  scout ask --as premotion.master.mini --to hudson "build the editor"',
     '  scout ask --to hudson --reply-mode notify "take the next pass and report back"',
@@ -53,21 +59,21 @@ export function renderAskCommandHelp(): string {
 }
 
 function renderScoutAskReceipt(value: {
-  conversationId?: string | null;
-  messageId?: string | null;
-  bindingRef?: string | null;
-  flight: NonNullable<ScoutAskResult["flight"]>;
+  receipt: ScoutAskReceipt;
   replyMode: NonNullable<ScoutAskCommandOptions["replyMode"]>;
 }): string {
+  const { ids } = value.receipt;
   const pieces = [
-    `asked ${value.flight.targetAgentId}`,
-    `flight ${value.flight.id}`,
-    value.conversationId ? renderConversationRoute(value.conversationId) : null,
-    value.bindingRef,
+    ids.targetAgentId ? `asked ${ids.targetAgentId}` : "ask queued",
+    ids.flightId ? `flight ${ids.flightId}` : null,
+    ids.conversationId ? renderConversationRoute(ids.conversationId) : null,
+    renderBindingRef(ids.bindingRef),
   ].filter((piece): piece is string => Boolean(piece));
   const suffix = value.replyMode === "notify"
     ? "Scout will surface the completion when it arrives."
-    : `Next: scout wait ${value.flight.invocationId} --timeout 600`;
+    : ids.invocationId
+      ? `Next: scout wait ${ids.invocationId} --timeout 600`
+      : "Follow the ask receipt to continue.";
   return `${pieces.join(" · ")}. ${suffix}`;
 }
 
@@ -93,6 +99,36 @@ function renderConversationRoute(conversationId?: string): string {
   return conversationId.startsWith("dm.")
     ? `DM ${conversationId}`
     : `conversation ${conversationId}`;
+}
+
+function waitReferenceForFlight(flight: ScoutFlightRecord): string {
+  return flight.invocationId || flight.id;
+}
+
+function renderBindingRef(bindingRef?: string | null): string | null {
+  if (!bindingRef) {
+    return null;
+  }
+  return bindingRef.startsWith("ref:") ? bindingRef : `ref:${bindingRef}`;
+}
+
+function formatScoutAskReceiptError(
+  receipt: ScoutAskReceipt,
+  targetLabel: string | undefined,
+): string {
+  const renderedTarget = targetLabel
+    ? renderScoutTargetLabel(targetLabel)
+    : "the requested project";
+  if (receipt.state === "ambiguous") {
+    return `target ${renderedTarget} matches multiple agents; nothing was sent. Re-run with a fully qualified @handle to disambiguate.`;
+  }
+  if (receipt.error) {
+    return receipt.error.message;
+  }
+  if (receipt.next) {
+    return `target ${renderedTarget} is not currently routable; nothing was sent. ${receipt.next.reason}`;
+  }
+  return `target ${renderedTarget} is not currently routable; nothing was sent.`;
 }
 
 export function formatScoutAskRoutingError(
@@ -168,30 +204,39 @@ export async function runAskWithOptions(
   const currentDirectory =
     options.currentDirectory ?? defaultScoutContextDirectory(context);
   const senderId = await resolveScoutSenderId(
-    options.agentName,
+    resolveHumanAskSenderName(options.agentName, context.env),
     currentDirectory,
     context.env,
   );
   const body = await resolvePromptBody(options);
-  const result = await askScoutQuestion({
+  const to = options.targetRef
+    ? `ref:${options.targetRef}`
+    : options.targetLabel;
+  if (to && options.projectPath) {
+    throw new Error("provide either to or projectPath, not both");
+  }
+  const target:
+    | { to: string; projectPath?: never }
+    | { to?: never; projectPath: string } =
+    options.projectPath
+      ? { projectPath: options.projectPath }
+      : { to: to ?? "" };
+  const receipt = await scoutAskHandler({
     senderId,
-    targetLabel: options.targetLabel,
-    targetRef: options.targetRef,
+    ...target,
     body,
     channel: options.channel,
-    executionHarness: parseScoutHarness(options.harness),
+    harness: parseScoutHarness(options.harness),
     currentDirectory,
+    source: "scout-cli",
   });
 
-  if (!result.usedBroker) {
-    throw new Error("broker is not reachable");
-  }
-  if (!result.flight) {
-    throw new Error(formatScoutAskRoutingError(result, options.targetLabel));
+  if (!receipt.ok || !receipt.ids.flightId) {
+    throw new Error(formatScoutAskReceiptError(receipt, options.targetLabel));
   }
 
   context.stderr(
-    `asking ${result.flight.targetAgentId} as ${senderId} via ${renderConversationRoute(result.conversationId)}... (flight ${result.flight.id})`,
+    `asking ${receipt.ids.targetAgentId ?? options.targetLabel ?? options.projectPath ?? "target"} as ${senderId} via ${renderConversationRoute(receipt.ids.conversationId)}... (flight ${receipt.ids.flightId})`,
   );
 
   const replyMode = options.replyMode ?? "inline";
@@ -199,10 +244,10 @@ export async function runAskWithOptions(
     context.output.writeValue(
       {
         senderId,
-        conversationId: result.conversationId ?? null,
-        messageId: result.messageId ?? null,
-        bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
-        flight: result.flight,
+        conversationId: receipt.ids.conversationId ?? null,
+        messageId: receipt.ids.messageId ?? null,
+        bindingRef: renderBindingRef(receipt.ids.bindingRef),
+        receipt,
         replyMode,
       },
       renderScoutAskReceipt,
@@ -211,12 +256,12 @@ export async function runAskWithOptions(
   }
 
   const brokerUrl = resolveScoutBrokerUrl();
-  let completed: NonNullable<ScoutAskResult["flight"]>;
+  let completed: ScoutFlightRecord;
   let timedOut = false;
   try {
     completed = await waitForScoutFlight(
       brokerUrl,
-      result.flight.id,
+      receipt.ids.flightId,
       {
         timeoutSeconds: options.timeoutSeconds ?? DEFAULT_ASK_ACK_TIMEOUT_SECONDS,
         waitUntil: "acknowledged",
@@ -228,20 +273,27 @@ export async function runAskWithOptions(
       throw error;
     }
     timedOut = true;
-    completed = await loadScoutFlight(brokerUrl, result.flight.id) ?? result.flight;
+    completed = await loadScoutFlight(brokerUrl, receipt.ids.flightId) ?? {
+      id: receipt.ids.flightId,
+      invocationId: receipt.ids.invocationId ?? receipt.ids.flightId,
+      requesterId: senderId,
+      targetAgentId: receipt.ids.targetAgentId ?? options.targetLabel ?? options.projectPath ?? "target",
+      state: "queued",
+    };
   }
 
   context.output.writeValue(
     {
       senderId,
-      conversationId: result.conversationId ?? null,
-      messageId: result.messageId ?? null,
-      bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
+      conversationId: receipt.ids.conversationId ?? null,
+      messageId: receipt.ids.messageId ?? null,
+      bindingRef: renderBindingRef(receipt.ids.bindingRef),
+      receipt,
       flight: completed,
       output: renderScoutAskInlineResult({
-        conversationId: result.conversationId ?? null,
-        messageId: result.messageId ?? null,
-        bindingRef: result.bindingRef ? `ref:${result.bindingRef}` : null,
+        conversationId: receipt.ids.conversationId ?? null,
+        messageId: receipt.ids.messageId ?? null,
+        bindingRef: renderBindingRef(receipt.ids.bindingRef),
         flight: completed,
         timedOut,
       }),
@@ -254,7 +306,7 @@ function renderScoutAskInlineResult(value: {
   conversationId?: string | null;
   messageId?: string | null;
   bindingRef?: string | null;
-  flight: NonNullable<ScoutAskResult["flight"]>;
+  flight: ScoutFlightRecord;
   timedOut?: boolean;
 }): string {
   if (value.flight.state === "completed") {
@@ -270,5 +322,5 @@ function renderScoutAskInlineResult(value: {
     value.conversationId ? renderConversationRoute(value.conversationId) : null,
     value.bindingRef,
   ].filter((piece): piece is string => Boolean(piece));
-  return `${pieces.join(" · ")}. Next: scout wait ${value.flight.invocationId} --timeout 600.`;
+  return `${pieces.join(" · ")}. Next: scout wait ${waitReferenceForFlight(value.flight)} --timeout 600.`;
 }

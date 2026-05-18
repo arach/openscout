@@ -29,6 +29,7 @@ import {
   queryWorkItemById,
   queryWorkItems,
 } from "./db-queries.ts";
+import { createAskRoutes } from "./routes/ask.ts";
 import {
   askScoutAgentById,
   askScoutQuestion,
@@ -290,6 +291,7 @@ export function createScoutControlPlaneServer(
   app.get("/api/tasks/:id", handleTaskDetail);
   app.post("/api/work", handleCreateWork);
   app.post("/api/tasks", handleCreateWork);
+  app.route("/api", createAskRoutes({ currentDirectory }));
   app.get("/api/flights", (c) => {
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");

@@ -126,6 +126,36 @@ describe("parseAskCommandOptions", () => {
     expect(options.message).toBe("review the parser");
   });
 
+  test("accepts an explicit project path target", () => {
+    const options = parseAskCommandOptions(
+      ["--project", "../talkie", "compare", "auth"],
+      "/tmp/workspace",
+    );
+
+    expect(options.projectPath).toBe("/tmp/talkie");
+    expect(options.targetLabel).toBeUndefined();
+    expect(options.message).toBe("compare auth");
+  });
+
+  test("accepts a composer project path target", () => {
+    const options = parseAskCommandOptions(
+      [">>", "project:../talkie", "compare", "auth"],
+      "/tmp/workspace",
+    );
+
+    expect(options.projectPath).toBe("/tmp/talkie");
+    expect(options.targetLabel).toBeUndefined();
+    expect(options.message).toBe("compare auth");
+  });
+
+  test("rejects mixing agent and project path targets", () => {
+    expect(() =>
+      parseAskCommandOptions(
+        ["--to", "hudson", "--project", "../talkie", "review"],
+        "/tmp/workspace",
+      )).toThrow("provide either --to/--ref or --project, not both");
+  });
+
   test("rejects mixing inline questions with a prompt file", () => {
     expect(() =>
       parseAskCommandOptions(

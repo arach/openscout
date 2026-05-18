@@ -12,6 +12,7 @@ describe("renderMcpCommandHelp", () => {
     expect(help).toContain("session_attach_current");
     expect(help).toContain("agents_start");
     expect(help).toContain("agents_search");
+    expect(help).toContain("ask");
     expect(help).toContain("messages_send");
     expect(help).toContain("invocations_ask");
     expect(help).toContain("invocations_get");

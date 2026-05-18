@@ -52,7 +52,10 @@ finalized; package manifests currently use `UNLICENSED`.
 - Mesh means reachability and coordination, not exactly-once delivery, global consensus, or transcript replication.
 - First-run order: `scout --help`, `scout setup`, `scout doctor`, `scout whoami`, `scout who`, then `scout send --to <agent-from-scout-who> ...`.
 - Use `scout send` / `messages_send` for durable messages and update receipts.
-- Use `scout ask` / `invocations_ask` for invocations with lifecycle receipts.
+- Use `ask` through MCP, or `scout ask` through the CLI, for agent-to-agent
+  work. `invocations_ask` is a lower-level invocation compatibility surface.
+- `ask` accepts either `to` for an agent-like target or `projectPath` for a
+  project-root target that the broker resolves to a concrete agent.
 - Use session semantics for harness lifecycle: cards are identities, sessions are concrete Claude/Codex runtimes, endpoints attach agents to sessions.
 - Use explicit target fields; do not hide routing in message body text.
 - If a host-side approval prompt is stuck, use the host UI or a host integration

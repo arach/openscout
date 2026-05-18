@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import {
   diagnoseAgentIdentity,
   formatMinimalAgentIdentity,
@@ -52,6 +54,8 @@ function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined)
     ? target.label
     : target.kind === "binding_ref"
     ? target.ref
+    : target.kind === "project_path"
+    ? target.projectPath
     : target.kind === "channel"
     ? target.channel
     : target.value;
@@ -129,6 +133,21 @@ function preferredEndpointForAgent(
   return endpoints.find((endpoint) => endpoint.state === "active")
     ?? endpoints.find((endpoint) => endpoint.state === "idle" || endpoint.state === "waiting")
     ?? endpoints[0];
+}
+
+function projectRootForAgent(
+  snapshot: RuntimeSnapshot,
+  agent: AgentDefinition,
+): string | undefined {
+  const endpoint = preferredEndpointForAgent(snapshot, agent.id);
+  return endpoint?.projectRoot?.trim()
+    || metadataStringValue(agent.metadata, "projectRoot")
+    || endpoint?.cwd?.trim();
+}
+
+function normalizeProjectPath(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? resolve(trimmed) : undefined;
 }
 
 function buildAgentLabelCandidate(
@@ -236,6 +255,73 @@ export function resolveAgentLabel(
   };
 }
 
+function endpointRank(endpoint: AgentEndpoint | undefined): number {
+  switch (endpoint?.state) {
+    case "active":
+      return 40;
+    case "idle":
+      return 30;
+    case "waiting":
+      return 20;
+    case "offline":
+      return 0;
+    default:
+      return 10;
+  }
+}
+
+function projectCandidateRank(
+  snapshot: RuntimeSnapshot,
+  agent: AgentDefinition,
+  preferLocalNodeId: string | undefined,
+): number {
+  const endpoint = preferredEndpointForAgent(snapshot, agent.id);
+  const nodeRank = preferLocalNodeId && agent.authorityNodeId === preferLocalNodeId ? 100 : 0;
+  return nodeRank + endpointRank(endpoint);
+}
+
+function resolveProjectPathTarget(
+  snapshot: RuntimeSnapshot,
+  projectPath: string,
+  options: { preferLocalNodeId?: string; helpers: Pick<DispatcherHelpers, "isStale"> },
+): BrokerLabelResolution {
+  const normalizedProjectPath = normalizeProjectPath(projectPath);
+  if (!normalizedProjectPath) {
+    return { kind: "unparseable", label: projectPath };
+  }
+
+  const candidates = Object.values(snapshot.agents)
+    .filter((agent) => !options.helpers.isStale(agent))
+    .filter((agent) => normalizeProjectPath(projectRootForAgent(snapshot, agent)) === normalizedProjectPath)
+    .map((agent) => ({
+      agent,
+      rank: projectCandidateRank(snapshot, agent, options.preferLocalNodeId),
+    }))
+    .sort((left, right) => {
+      const rankDelta = right.rank - left.rank;
+      if (rankDelta !== 0) return rankDelta;
+      return left.agent.id.localeCompare(right.agent.id);
+    });
+
+  if (candidates.length === 0) {
+    return { kind: "unknown", label: projectPath };
+  }
+
+  const first = candidates[0]!;
+  const second = candidates[1];
+  if (!second || first.rank > second.rank) {
+    return { kind: "resolved", agent: first.agent };
+  }
+
+  return {
+    kind: "ambiguous",
+    label: projectPath,
+    candidates: candidates
+      .filter((candidate) => candidate.rank === first.rank)
+      .map((candidate) => candidate.agent),
+  };
+}
+
 export function resolveBrokerRouteTarget(
   snapshot: RuntimeSnapshot,
   input: BrokerRouteTargetInput,
@@ -290,6 +376,16 @@ export function resolveBrokerRouteTarget(
       };
     }
     return { kind: "unknown", label: `ref:${bindingRef}` };
+  }
+
+  const projectPath = routeTarget?.kind === "project_path"
+    ? normalizedRouteTargetValue(routeTarget)
+    : "";
+  if (projectPath) {
+    return resolveProjectPathTarget(snapshot, projectPath, {
+      preferLocalNodeId,
+      helpers: options.helpers,
+    });
   }
 
   const label = routeTarget?.kind === "agent_label"

@@ -54,6 +54,13 @@ import {
   type ScoutStructuredMessagePostResult,
   type ScoutWhoEntry,
 } from "../broker/service.ts";
+import {
+  scoutAskHandler as defaultScoutAskHandler,
+  type ScoutAskHandler,
+} from "../broker/ask.ts";
+import type {
+  ScoutAskReceipt,
+} from "../broker/ask-types.ts";
 import { SCOUT_APP_VERSION } from "../../shared/product.ts";
 
 const AGENT_STATE_VALUES = [
@@ -380,6 +387,7 @@ type ScoutMcpDependencies = {
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutReplyPostResult>;
+  scoutAskHandler: ScoutAskHandler;
   askQuestion: (input: {
     senderId: string;
     targetLabel: string;
@@ -809,6 +817,33 @@ const askResultSchema = z.object({
   startSuggestion: startSuggestionSchema.nullable().optional(),
 });
 
+const askReceiptSchema = z.object({
+  ok: z.boolean(),
+  state: z.enum(["queued", "completed", "failed", "ambiguous"]),
+  ids: z.object({
+    targetAgentId: z.string().optional(),
+    invocationId: z.string().optional(),
+    flightId: z.string().optional(),
+    conversationId: z.string().optional(),
+    messageId: z.string().optional(),
+    workId: z.string().optional(),
+    bindingRef: z.string().optional(),
+  }),
+  next: z
+    .object({
+      tool: z.enum(["agents_resolve", "agents_search", "agents_start"]),
+      arguments: z.record(z.string(), z.unknown()),
+      reason: z.string(),
+    })
+    .optional(),
+  error: z
+    .object({
+      code: z.enum(["broker_unreachable", "invalid_request"]),
+      message: z.string(),
+    })
+    .optional(),
+});
+
 const invocationLookupResultSchema = z.object({
   currentDirectory: z.string(),
   flightId: z.string(),
@@ -1030,6 +1065,24 @@ function renderMcpAskSummary(result: {
     return `Ask sent to ${target}; reply will be delivered by MCP notification${detailText}.${followText}`;
   }
   return `Ask sent to ${target}${detailText}.${followText}`;
+}
+
+function renderMcpAskPrimitiveSummary(receipt: ScoutAskReceipt): string {
+  if (receipt.ok) {
+    const target = receipt.ids.targetAgentId
+      ? ` to ${receipt.ids.targetAgentId}`
+      : "";
+    const flight = receipt.ids.flightId ? `; flight ${receipt.ids.flightId}` : "";
+    const work = receipt.ids.workId ? `; work ${receipt.ids.workId}` : "";
+    return `Ask ${receipt.state}${target}${flight}${work}.`;
+  }
+  if (receipt.next) {
+    return `Ask was not sent: ${receipt.next.reason}`;
+  }
+  if (receipt.error) {
+    return `Ask was not sent: ${receipt.error.message}`;
+  }
+  return "Ask was not sent.";
 }
 
 function resolveAskReplyMode(input: {
@@ -2261,6 +2314,7 @@ function defaultScoutMcpDependencies(
         currentDirectory,
         source,
       }),
+    scoutAskHandler: defaultScoutAskHandler,
     askQuestion: ({
       senderId,
       targetLabel,
@@ -2337,7 +2391,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Scout Whoami",
       description:
-        "Inspect the default Scout sender identity and broker URL for a working directory. Use this when host or workspace context is unclear; direct explicit-target sends can call messages_send or invocations_ask without a whoami preflight.",
+        "Inspect the default Scout sender identity and broker URL for a working directory. Use this when host or workspace context is unclear; direct ask and messages_send calls can route without a whoami preflight.",
       inputSchema: z.object({
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
@@ -2731,7 +2785,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Start Scout Agent",
       description:
-        "Start or create a concrete local Scout agent session before routing work to it. Use this when the user asks for a new session, or when a precise label such as @openscout#claude is unresolved. After it returns, prefer exactTargetAgentId for messages_send or invocations_ask.",
+        "Start or create a concrete local Scout agent session before routing work to it. Use this when the user asks for a new session, or when a precise label such as @openscout#claude is unresolved. For agent-to-agent work, retry with ask after the session exists.",
       inputSchema: z.object({
         targetLabel: z
           .string()
@@ -2900,11 +2954,132 @@ export function createScoutMcpServer(options: {
   );
 
   server.registerTool(
+    "ask",
+    {
+      title: "Ask",
+      description:
+        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the normal agent-to-agent ask primitive: pass who to ask in `to`, or pass `projectPath` when you know the project root and want Scout to choose the concrete agent. Scout resolves, routes, wakes when possible, and returns a compact receipt. Use discovery tools only when you need broker help rather than agent work.",
+      inputSchema: z.object({
+        to: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Agent id, label, sibling, specialist, or recent collaborator."),
+        projectPath: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Project root to ask; Scout resolves the owning agent."),
+        body: z.string().min(1),
+        currentDirectory: z.string().optional(),
+        senderId: z.string().optional(),
+        harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
+        workspace: z.enum(["same", "new_worktree"]).optional(),
+        session: z.enum(["reuse", "new"]).optional(),
+        wait: z.boolean().optional(),
+      }),
+      outputSchema: askReceiptSchema,
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      _meta: createToolUiMeta({
+        to: createAgentPickerFieldMeta({
+          selection: "single",
+          valueField: "label",
+          resolveTool: "agents_resolve",
+        }),
+      }),
+    },
+    async ({
+      to,
+      projectPath,
+      body,
+      currentDirectory,
+      senderId,
+      harness,
+      workspace,
+      session,
+      wait,
+    }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const resolvedSenderId = await resolveMcpSenderId(
+        deps,
+        senderId,
+        resolvedCurrentDirectory,
+        env,
+      );
+      const targetTo = to?.trim();
+      const targetProjectPath = projectPath?.trim();
+      let structuredContent = targetTo && targetProjectPath
+        ? {
+            ok: false,
+            state: "failed" as const,
+            ids: {},
+            error: {
+              code: "invalid_request" as const,
+              message: "provide either to or projectPath, not both",
+            },
+          }
+        : await deps.scoutAskHandler({
+            senderId: resolvedSenderId,
+            ...(targetProjectPath
+              ? { projectPath: targetProjectPath }
+              : { to: targetTo ?? "" }),
+            body,
+            harness,
+            workspace,
+            session,
+            currentDirectory: resolvedCurrentDirectory,
+            source: "scout-mcp",
+          });
+
+      if (wait && structuredContent.ids.flightId) {
+        try {
+          const flight = await deps.waitForFlight(
+            deps.resolveBrokerUrl(),
+            structuredContent.ids.flightId,
+          );
+          structuredContent = {
+            ...structuredContent,
+            state: flight.state === "completed"
+              ? "completed"
+              : flight.state === "failed" || flight.state === "cancelled"
+                ? "failed"
+                : "queued",
+            ok: flight.state !== "failed" && flight.state !== "cancelled",
+            ids: {
+              ...structuredContent.ids,
+              targetAgentId: flight.targetAgentId,
+              invocationId: flight.invocationId,
+              flightId: flight.id,
+            },
+          };
+        } catch {
+          // Keep the initial receipt; callers can follow by flight id.
+        }
+      }
+
+      return {
+        content: createPlainTextContent(
+          renderMcpAskPrimitiveSummary(structuredContent),
+        ),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
     "messages_send",
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Targeted DMs are dispatched by the broker when the target can be reached; callers should not preflight wake/session mechanics. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For owned work or a reply lifecycle, use invocations_ask instead.",
+        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Targeted DMs are dispatched by the broker when the target can be reached; callers should not preflight wake/session mechanics. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For agent-to-agent work, use ask instead.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -3231,9 +3406,9 @@ export function createScoutMcpServer(options: {
   server.registerTool(
     "invocations_ask",
     {
-      title: "Ask Scout Agent",
+      title: "Create Scout Invocation",
       description:
-        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' Pass targetLabel or targetAgentId as routing fields; one target without a channel becomes a DM and the body remains payload text. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with exactTargetAgentId instead of substituting a different agent. Provide workItem to mint a durable workId beyond the message and flight ids. replyMode='inline' returns once the ask is acknowledged or already complete; use invocations_wait for a longer follow-up poll. replyMode='notify' returns immediately and emits notifications/scout/reply later; replyMode='none' returns the durable receipt only. awaitReply is kept as a boolean alias for replyMode='inline'.",
+        "Low-level broker-backed invocation handoff. For normal agent-to-agent work, use ask. Use this only when you need exact invocation controls such as targetAgentId, workItem, or replyMode. Pass targetLabel or targetAgentId as routing fields; one target without a channel becomes a DM and the body remains payload text. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. replyMode='inline' returns once the invocation is acknowledged or already complete; use invocations_wait for a longer follow-up poll. replyMode='notify' returns immediately and emits notifications/scout/reply later; replyMode='none' returns the durable receipt only. awaitReply is kept as a boolean alias for replyMode='inline'.",
       inputSchema: z
         .object({
           body: z.string().min(1),
@@ -3569,7 +3744,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Get Scout Ask",
       description:
-        "Fetch the current broker flight state for a previously-created Scout ask. Use this with a flightId returned by invocations_ask to observe long-running work without blocking the original ask call.",
+        "Fetch the current broker flight state for a previously-created Scout ask or invocation. Use this with a flightId returned by ask to observe long-running work without blocking the original ask call.",
       inputSchema: z.object({
         currentDirectory: z.string().optional(),
         flightId: z.string().min(1),

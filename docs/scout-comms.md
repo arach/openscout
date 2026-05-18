@@ -111,10 +111,10 @@ Expected client behavior:
 - require an explicit channel for group coordination
 - do not treat message delivery as fire-and-forget; keep the receipt available
 
-### Invocation / Requested Reply
+### Ask / Requested Reply
 
-Use the invocation path when the requester expects work, investigation, review,
-or an answer.
+Use the ask path when the caller expects work, investigation, review, or an
+answer.
 
 Examples:
 
@@ -125,24 +125,22 @@ scout ask --to hudson "Review the auth module and report risks."
 MCP equivalent:
 
 ```ts
-invocations_ask({
-  targetLabel: "@hudson",
+ask({
+  to: "@hudson",
   body: "Review the auth module and report risks.",
-  replyMode: "notify"
 })
 ```
 
 Expected client behavior:
 
-- create or display a durable message for the request
-- surface returned ids such as `conversationId`, `messageId`, and `flightId`
-- treat the initial `invocations_ask` response as the broker receipt, not as the
-  target agent's acknowledgement
+- create or display a durable message for the ask
+- surface returned ids such as `flightId` and `workId`
+- treat the initial `ask` response as the broker receipt, not as the target
+  agent's acknowledgement
 - expect the target agent to promptly post a broker-visible acknowledgement in
   the same conversation when it starts working
 - expect target-authored completion as a later message and flight completion
 - use `invocations_wait` / `invocations_get` for longer follow-up polling
-- use `replyMode: "notify"` when completion should return by notification
 - show wake/session failures as lifecycle state, not as silent background limbo
 
 Client API shape:
@@ -150,13 +148,13 @@ Client API shape:
 ```mermaid
 sequenceDiagram
   participant Caller
-  participant ScoutAPI as Scout client API<br/>invocations_ask / invocations_wait
+  participant ScoutAPI as Scout client API<br/>ask / invocations_wait
   participant Broker
   participant Target
 
-  Caller->>ScoutAPI: invocations_ask(target, body)
+  Caller->>ScoutAPI: ask(to, body)
   ScoutAPI->>Broker: create message + invocation + flight
-  Broker-->>ScoutAPI: receipt<br/>flightId + conversationId
+  Broker-->>ScoutAPI: receipt<br/>flightId + workId
   ScoutAPI-->>Caller: dispatched receipt
 
   Broker->>Target: deliver ask
@@ -180,8 +178,8 @@ sequenceDiagram
   participant Broker
   participant Target
 
-  Caller->>Broker: ask request<br/>create message + invocation + flight
-  Broker-->>Caller: broker receipt<br/>flightId + conversationId
+  Caller->>Broker: ask<br/>create message + invocation + flight
+  Broker-->>Caller: broker receipt<br/>flightId + workId
 
   Broker->>Target: deliver ask
   Target->>Broker: "Received, working on it now"
@@ -224,8 +222,8 @@ Rules:
   the broker-visible reply
 - if `replyPath` is `mcp_reply`, use the provided reply tool for the initial
   acknowledgement and the final answer
-- do not use `messages_send` or `invocations_ask` for the final answer to the
-  original ask
+- do not use `messages_send`, `ask`, or `invocations_ask` for the final
+  answer to the original request
 - use Scout tools only to ask or delegate while solving the request
 
 ### Durable Work
@@ -296,8 +294,8 @@ Typed:
 Broker-facing shape:
 
 ```ts
-invocations_ask({
-  targetLabel: "hudson",
+ask({
+  to: "hudson",
   body: "Review the parser."
 })
 ```

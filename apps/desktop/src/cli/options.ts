@@ -28,8 +28,9 @@ export type ScoutSetupCommandOptions = {
 
 export type ScoutAskCommandOptions = ContextRootOptions & {
   agentName: string | null;
-  targetLabel: string;
+  targetLabel?: string;
   targetRef?: string;
+  projectPath?: string;
   channel?: string;
   harness?: string;
   timeoutSeconds?: number;
@@ -224,6 +225,7 @@ function stripMention(input: string, mention: MentionMatch): string {
 type ComposerRoutedBody = {
   targetLabel?: string;
   targetRef?: string;
+  projectPath?: string;
   channel?: string;
   message: string;
 };
@@ -244,6 +246,7 @@ function mergeComposerChannel(
 function parseComposerRoutedBody(
   input: string,
   commandName: "ask" | "send",
+  currentDirectory: string,
 ): ComposerRoutedBody | null {
   const parsed = parseScoutComposerRoute(input);
   if (!parsed.route) {
@@ -268,9 +271,18 @@ function parseComposerRoutedBody(
       message: parsed.body,
     };
   }
+  if (target.kind === "project_path") {
+    if (commandName === "send") {
+      throw new ScoutCliError("send route operator must target an agent label, ref, channel, or broadcast");
+    }
+    return {
+      projectPath: resolveInputFilePath(currentDirectory, target.projectPath),
+      message: parsed.body,
+    };
+  }
   if (target.kind === "channel") {
     if (commandName === "ask") {
-      throw new ScoutCliError("ask route operator must target an agent label or ref");
+      throw new ScoutCliError("ask route operator must target an agent label, ref, or project path");
     }
     return {
       channel: target.channel,
@@ -279,7 +291,7 @@ function parseComposerRoutedBody(
   }
   if (target.kind === "broadcast") {
     if (commandName === "ask") {
-      throw new ScoutCliError("ask route operator must target an agent label or ref");
+      throw new ScoutCliError("ask route operator must target an agent label, ref, or project path");
     }
     return {
       channel: "shared",
@@ -288,7 +300,7 @@ function parseComposerRoutedBody(
   }
 
   throw new ScoutCliError(
-    `${commandName} route operator does not support agent id targets yet; use an agent label or ref`,
+    `${commandName} route operator does not support agent id targets yet; use an agent label, ref, or project path`,
   );
 }
 
@@ -399,7 +411,7 @@ export function parseSendCommandOptions(
 
   let message = messageParts.join(" ").trim();
   if (!targetLabel && !targetRef) {
-    const routed = parseComposerRoutedBody(message, "send");
+    const routed = parseComposerRoutedBody(message, "send", parsed.currentDirectory);
     if (routed) {
       targetLabel = routed.targetLabel;
       targetRef = routed.targetRef;
@@ -437,6 +449,7 @@ export function parseAskCommandOptions(
   let agentName: string | null = null;
   let targetLabel: string | null = null;
   let targetRef: string | undefined;
+  let projectPath: string | undefined;
   let channel: string | undefined;
   let harness: string | undefined;
   let timeoutSeconds: number | undefined;
@@ -462,6 +475,12 @@ export function parseAskCommandOptions(
       const value = parseFlagValue(parsed.args, index, "--ref");
       targetRef = value.value.replace(/^ref:/, "");
       targetLabel = `ref:${targetRef}`;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--project" || current.startsWith("--project=")) {
+      const value = parseFlagValue(parsed.args, index, "--project");
+      projectPath = resolveInputFilePath(parsed.currentDirectory, value.value);
       index = value.nextIndex;
       continue;
     }
@@ -519,16 +538,20 @@ export function parseAskCommandOptions(
 
   let message = messageParts.join(" ").trim();
   if (!targetLabel) {
-    const routed = parseComposerRoutedBody(message, "ask");
+    const routed = parseComposerRoutedBody(message, "ask", parsed.currentDirectory);
     if (routed) {
       targetLabel = routed.targetLabel ?? null;
       targetRef = routed.targetRef;
+      projectPath = routed.projectPath;
       channel = mergeComposerChannel(channel, routed.channel);
       message = routed.message;
     }
   }
-  if (!targetLabel) {
-    throw new ScoutCliError("--to <name> is required");
+  if (targetLabel && projectPath) {
+    throw new ScoutCliError("provide either --to/--ref or --project, not both");
+  }
+  if (!targetLabel && !projectPath) {
+    throw new ScoutCliError("--to <name> or --project <path> is required");
   }
   if (message && promptFile) {
     rejectMixedBodySources("question");
@@ -541,8 +564,9 @@ export function parseAskCommandOptions(
     currentDirectory: parsed.currentDirectory,
     args: parsed.args,
     agentName,
-    targetLabel,
+    ...(targetLabel ? { targetLabel } : {}),
     targetRef,
+    projectPath,
     channel,
     harness,
     timeoutSeconds,
@@ -630,7 +654,7 @@ export function parseImplicitAskCommandOptions(
     throw new ScoutCliError("no question provided");
   }
 
-  const routed = parseComposerRoutedBody(input, "ask");
+  const routed = parseComposerRoutedBody(input, "ask", parsed.currentDirectory);
   if (routed) {
     const message = routed.message;
     if (message && promptFile) {
@@ -644,8 +668,9 @@ export function parseImplicitAskCommandOptions(
       currentDirectory: parsed.currentDirectory,
       args: parsed.args,
       agentName,
-      targetLabel: routed.targetLabel!,
+      ...(routed.targetLabel ? { targetLabel: routed.targetLabel } : {}),
       targetRef: routed.targetRef,
+      projectPath: routed.projectPath,
       channel: mergeComposerChannel(channel, routed.channel),
       harness,
       timeoutSeconds,

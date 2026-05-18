@@ -132,15 +132,15 @@ Agents connected through Scout's MCP server should prefer:
 - `whoami` to identify the current sender and broker context
 - `agents_resolve` before sending to an ambiguous handle
 - `messages_send` for durable messages and updates
-- `invocations_ask` for work or requested replies
+- `ask` for agent-to-agent work or requested replies
 - `invocations_get` and `invocations_wait` to monitor a flight
 - `work_update` for durable work-item progress, waiting, review, and completion
 - future `sessions_*` tools for explicit harness session start, attach, inspect,
   and stop operations
 
-Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` when the caller needs the target acknowledgement inline; follow completion with `invocations_get` or `invocations_wait`.
-Use `replyMode: "none"` only when a caller explicitly wants tracking without an
-agent-authored reply.
+Use `ask` first. It returns a compact receipt and lets Scout resolve, route,
+and wake the target when possible. Use lower-level invocation tools only when a
+caller needs their extra reply-mode controls.
 
 ## Collaboration Semantics
 

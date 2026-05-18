@@ -6421,7 +6421,8 @@ async function acceptBrokerDelivery(
   const typedChannelTarget = payload.target?.kind === "channel" || payload.target?.kind === "broadcast";
   const hasAgentTarget = Boolean(
     payload.target?.kind === "agent_id"
-      || payload.target?.kind === "agent_label",
+      || payload.target?.kind === "agent_label"
+      || payload.target?.kind === "project_path",
   ) || (!payload.target && Boolean(payload.targetAgentId?.trim() || payload.targetLabel?.trim()));
 
   if (isLocalScoutProductTarget(payload)) {
