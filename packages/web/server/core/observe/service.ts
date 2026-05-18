@@ -1162,16 +1162,27 @@ function unavailableObserveData(agent: WebAgent): ObserveData {
   };
 }
 
+function isLiveSessionSnapshot(snapshot: SessionState | null | undefined): boolean {
+  return Boolean(
+    snapshot
+    && (
+      snapshot.currentTurnId
+      || snapshot.session.status === "active"
+      || snapshot.turns.some((turn) => (
+        turn.status === "streaming"
+        || turn.blocks.some((block) => block.status === "streaming")
+      ))
+    ),
+  );
+}
+
 async function resolveSnapshotSource(
   agent: WebAgent,
   broker: ObserveBrokerContext,
 ): Promise<SnapshotSource> {
   const endpoint = broker ? activeEndpoint(broker.snapshot, agent.id) : null;
   const liveSnapshot = await readLiveSnapshot(agent, endpoint);
-  const live = Boolean(
-    liveSnapshot
-    && (liveSnapshot.currentTurnId || liveSnapshot.session.status === "active"),
-  );
+  const live = isLiveSessionSnapshot(liveSnapshot);
 
   const historyCandidate = resolveHistoryCandidate(agent, liveSnapshot);
   const historySnapshot = readHistorySnapshot(historyCandidate);
@@ -1181,7 +1192,7 @@ async function resolveSnapshotSource(
       historyPath: historySnapshot.historyPath,
       snapshot: historySnapshot.snapshot,
       timedEvents: historySnapshot.timedEvents,
-      live,
+      live: live || isLiveSessionSnapshot(historySnapshot.snapshot),
       sessionId: liveSnapshot?.session.id ?? endpoint?.sessionId ?? null,
     };
   }

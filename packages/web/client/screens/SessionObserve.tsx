@@ -409,7 +409,7 @@ function FollowToggle({
           <path d="M2 1.5l7 3.5-7 3.5V1.5z" />
         </svg>
       )}
-      <span>{isFollowing ? (isLive ? "Live" : "Following") : "Follow"}</span>
+      <span>{isFollowing ? (isLive ? "Live" : "Latest") : "Follow"}</span>
     </button>
   );
 }
