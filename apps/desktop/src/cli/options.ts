@@ -34,6 +34,7 @@ export type ScoutAskCommandOptions = ContextRootOptions & {
   harness?: string;
   timeoutSeconds?: number;
   replyMode?: "inline" | "notify" | "none";
+  labels?: string[];
   message: string;
   promptFile?: string;
 };
@@ -147,6 +148,15 @@ function parseSinceTimestamp(value: string): number {
   }
 
   throw new ScoutCliError(`invalid since value: ${value}`);
+}
+
+function appendLabelValues(target: string[], value: string): void {
+  for (const entry of value.split(",")) {
+    const label = entry.trim();
+    if (label && !target.includes(label)) {
+      target.push(label);
+    }
+  }
 }
 
 function flagNameFor(current: string, flagNames: readonly string[]): string | null {
@@ -442,6 +452,7 @@ export function parseAskCommandOptions(
   let timeoutSeconds: number | undefined;
   let replyMode: ScoutAskCommandOptions["replyMode"];
   let promptFile: string | undefined;
+  const labels: string[] = [];
   const messageParts: string[] = [];
 
   for (let index = 0; index < parsed.args.length; index += 1) {
@@ -504,6 +515,13 @@ export function parseAskCommandOptions(
       replyMode = "notify";
       continue;
     }
+    const labelFlag = flagNameFor(current, ["--label", "--labels"]);
+    if (labelFlag) {
+      const value = parseFlagValue(parsed.args, index, labelFlag);
+      appendLabelValues(labels, value.value);
+      index = value.nextIndex;
+      continue;
+    }
     const fileFlag = flagNameFor(current, ["--prompt-file", "--body-file"]);
     if (fileFlag) {
       if (promptFile) {
@@ -547,6 +565,7 @@ export function parseAskCommandOptions(
     harness,
     timeoutSeconds,
     replyMode,
+    ...(labels.length ? { labels } : {}),
     message,
     promptFile,
   };
@@ -563,6 +582,7 @@ export function parseImplicitAskCommandOptions(
   let timeoutSeconds: number | undefined;
   let replyMode: ScoutAskCommandOptions["replyMode"];
   let promptFile: string | undefined;
+  const labels: string[] = [];
   const messageParts: string[] = [];
 
   for (let index = 0; index < parsed.args.length; index += 1) {
@@ -612,6 +632,13 @@ export function parseImplicitAskCommandOptions(
       replyMode = "notify";
       continue;
     }
+    const labelFlag = flagNameFor(current, ["--label", "--labels"]);
+    if (labelFlag) {
+      const value = parseFlagValue(parsed.args, index, labelFlag);
+      appendLabelValues(labels, value.value);
+      index = value.nextIndex;
+      continue;
+    }
     const fileFlag = flagNameFor(current, ["--prompt-file", "--body-file"]);
     if (fileFlag) {
       if (promptFile) {
@@ -650,6 +677,7 @@ export function parseImplicitAskCommandOptions(
       harness,
       timeoutSeconds,
       replyMode,
+      ...(labels.length ? { labels } : {}),
       message,
       promptFile,
     };
@@ -681,6 +709,7 @@ export function parseImplicitAskCommandOptions(
     harness,
     timeoutSeconds,
     replyMode,
+    ...(labels.length ? { labels } : {}),
     message,
     promptFile,
   };

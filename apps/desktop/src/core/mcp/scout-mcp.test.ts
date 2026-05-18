@@ -91,6 +91,9 @@ describe("createScoutMcpServer", () => {
       updateWorkItem: async () => {
         throw new Error("not used");
       },
+      readLabelBrief: async () => {
+        throw new Error("not used");
+      },
       waitForFlight: async () => {
         throw new Error("not used");
       },
@@ -112,6 +115,8 @@ describe("createScoutMcpServer", () => {
       "invocations_ask",
       "invocations_get",
       "invocations_wait",
+      "labels_brief",
+      "labels_feed",
       "work_update",
     ]);
     expect(result.tools.find((tool) => tool.name === "whoami")?.description)
@@ -126,6 +131,124 @@ describe("createScoutMcpServer", () => {
       .toContain("active ScoutReplyContext");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)
       .toContain("progress, waiting, review, and done transitions");
+    expect(result.tools.find((tool) => tool.name === "labels_brief")?.description)
+      .toContain("sharing a Scout label");
+    expect(result.tools.find((tool) => tool.name === "labels_feed")?.description)
+      .toContain("normalized firehose-style event backlog");
+  });
+
+  test("returns a compact label brief", async () => {
+    const { client } = await connectTestServer({
+      readLabelBrief: async (label) => ({
+        label,
+        generatedAt: 1_000,
+        lastActivityAt: 900,
+        participants: ["operator", "hudson.main"],
+        counts: {
+          flights: 1,
+          activeFlights: 1,
+          workItems: 0,
+        },
+        flightsByState: {
+          running: 1,
+        },
+        activeFlights: [
+          {
+            id: "flt-1",
+            invocationId: "inv-1",
+            state: "running",
+            requesterId: "operator",
+            targetAgentId: "hudson.main",
+            summary: "Running tests.",
+            output: null,
+            error: null,
+            labels: [label],
+            conversationId: null,
+            messageId: null,
+            workId: null,
+            startedAt: 900,
+            completedAt: null,
+            lastActivityAt: 900,
+          },
+        ],
+        recentFlights: [],
+        workItems: [],
+      }),
+    });
+
+    const result = await client.callTool({
+      name: "labels_brief",
+      arguments: {
+        label: "release:0.2.66",
+      },
+    });
+
+    const content = result.content as Array<{ text?: string }> | undefined;
+    expect(content?.[0]?.text).toContain("Label release:0.2.66");
+    expect((result.structuredContent as { found?: boolean; counts?: { activeFlights: number } }).found).toBe(true);
+    expect((result.structuredContent as { counts?: { activeFlights: number } }).counts?.activeFlights).toBe(1);
+  });
+
+  test("returns a normalized label feed", async () => {
+    let receivedOptions:
+      | { since?: number | null; limit?: number | null }
+      | undefined;
+    const { client } = await connectTestServer({
+      readLabelFeed: async (label, _baseUrl, options) => {
+        receivedOptions = options;
+        return {
+          label,
+          generatedAt: 1_000,
+          cursor: "work-event:evt-1",
+          since: options?.since ?? null,
+          counts: {
+            events: 1,
+            messages: 0,
+            invocations: 0,
+            flights: 0,
+            workEvents: 1,
+          },
+          events: [
+            {
+              id: "work-event:evt-1",
+              label,
+              at: 900,
+              kind: "work_event",
+              category: "work",
+              actorId: "hudson.main",
+              targetAgentId: "hudson.main",
+              conversationId: "dm.operator.hudson",
+              messageId: null,
+              invocationId: null,
+              flightId: null,
+              workId: "work-1",
+              state: "working",
+              eventKind: "progressed",
+              summary: "Tests are still running.",
+              labels: [label],
+            },
+          ],
+        };
+      },
+    });
+
+    const result = await client.callTool({
+      name: "labels_feed",
+      arguments: {
+        label: "release:0.2.66",
+        since: 500,
+        limit: 10,
+      },
+    });
+
+    expect(receivedOptions).toEqual({
+      since: 500,
+      limit: 10,
+    });
+    const content = result.content as Array<{ text?: string }> | undefined;
+    expect(content?.[0]?.text).toContain("Label release:0.2.66");
+    expect(content?.[0]?.text).toContain("Tests are still running.");
+    expect((result.structuredContent as { counts?: { events: number } }).counts?.events).toBe(1);
   });
 
   test("reads inbox messages through the broker dependency", async () => {

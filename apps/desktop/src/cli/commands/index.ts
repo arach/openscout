@@ -15,6 +15,7 @@ export type ScoutCommandName =
   | "flight"
   | "init"
   | "inbox"
+  | "label"
   | "latest"
   | "mcp"
   | "menu"
@@ -61,6 +62,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./init.ts")).runInitCommand;
     case "inbox":
       return (await import("./inbox.ts")).runInboxCommand;
+    case "label":
+      return (await import("./label.ts")).runLabelCommand;
     case "latest":
       return (await import("./latest.ts")).runLatestCommand;
     case "mcp":

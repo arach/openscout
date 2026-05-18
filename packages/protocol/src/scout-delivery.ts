@@ -47,6 +47,7 @@ export interface ScoutDeliverRequest {
   speechText?: string;
   ensureAwake?: boolean;
   execution?: InvocationExecutionPreference;
+  labels?: string[];
   createdAt?: number;
   collaborationRecordId?: ScoutId;
   workItem?: {

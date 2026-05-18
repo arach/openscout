@@ -272,11 +272,13 @@ describe("InMemoryControlRuntime", () => {
       task: "Status?",
       ensureAwake: true,
       stream: false,
+      labels: ["release:0.2.66"],
       createdAt: Date.now(),
     };
     const flight = runtime.planInvocation(invocation);
 
     expect(runtime.flightForInvocation("inv-1")).toBeUndefined();
+    expect(flight.labels).toEqual(["release:0.2.66"]);
 
     await runtime.commitInvocation(invocation, flight);
 

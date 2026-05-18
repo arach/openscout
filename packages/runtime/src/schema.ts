@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 6;
+export const CONTROL_PLANE_SCHEMA_VERSION = 7;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS invocations (
   ensure_awake INTEGER NOT NULL DEFAULT 1,
   stream INTEGER NOT NULL DEFAULT 1,
   timeout_ms INTEGER,
+  labels_json TEXT,
   metadata_json TEXT,
   created_at INTEGER NOT NULL
 );
@@ -160,6 +161,7 @@ CREATE TABLE IF NOT EXISTS flights (
   summary TEXT,
   output TEXT,
   error TEXT,
+  labels_json TEXT,
   metadata_json TEXT,
   started_at INTEGER,
   completed_at INTEGER
