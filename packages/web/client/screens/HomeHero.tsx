@@ -4,8 +4,8 @@ import {
   BriefSequenceView,
   useBriefSequenceRuntime,
 } from "../components/brief-sequence/index.tsx";
-import { briefGenerationSequence } from "./studio/brief-sequence.ts";
-import "./studio/briefing-studio.css";
+import { briefGenerationSequence } from "../components/brief-sequence/sample-sequence.ts";
+import "../components/brief-sequence/brief-sequence.css";
 import "./home-hero.css";
 
 type HeartrateBucketView = { ts: number; count: number; value: number };

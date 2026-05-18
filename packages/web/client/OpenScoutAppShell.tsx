@@ -14,7 +14,6 @@ import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { RangerBroadcastChip } from "./components/RangerBroadcastChip.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
-import { BriefingStudio } from "./screens/studio/BriefingStudio.tsx";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -34,20 +33,7 @@ function computeSidePanelMaxWidth(viewportWidth: number) {
   );
 }
 
-function resolveStudio(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return new URL(window.location.href).searchParams.get("studio");
-  } catch {
-    return null;
-  }
-}
-
 export function OpenScoutAppShell({ app, assistant = true }: OpenScoutAppShellProps) {
-  const [studio] = useState<string | null>(() => resolveStudio());
-  if (studio === "briefing") {
-    return <BriefingStudio />;
-  }
   return (
     <app.Provider>
       <CanvasMinimapProvider>

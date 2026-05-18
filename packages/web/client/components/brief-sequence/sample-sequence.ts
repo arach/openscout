@@ -1,82 +1,14 @@
 /**
- * Brief generation sequence — mock script for the BriefingStudio.
+ * Placeholder step sequence driving the Home BRIEFING panel's
+ * brief-generation animation while real ranger-scan events aren't yet
+ * wired through. The narrative is illustrative — when a live brief lands,
+ * the timing/labels read as a plausible sequence of work.
  *
- * Each step represents one phase Ranger goes through to assemble a brief
- * (scanning fleet, reading sessions, inspecting broker queue, etc.) and
- * carries a SAMPLE of the actual data it would surface. The studio plays
- * the steps through with adjustable speed so each preview can be iterated
- * without firing real backend calls.
+ * Replace with a real-event-driven sequence (or pull the animation
+ * entirely) once Ranger emits per-phase progress on the broker.
  */
 
-export type BriefStepKind =
-  | "scan"
-  | "collect"
-  | "inspect"
-  | "analyze"
-  | "synthesize";
-
-export type FleetAgentPreview = {
-  id: string;
-  name: string;
-  project: string;
-  tone?: "active" | "idle" | "err";
-};
-
-export type SessionPreview = {
-  id: string;
-  project: string;
-  lastActive: string;
-  summary: string;
-};
-
-export type BrokerMessagePreview = {
-  from: string;
-  to: string;
-  body: string;
-  ago: string;
-  tone?: "warn" | "err";
-};
-
-export type TailEventPreview = {
-  ts: string;
-  source: string;
-  kind: string;
-  body: string;
-};
-
-export type PlanPreview = {
-  title: string;
-  owner: string;
-  status: string;
-  files: number;
-};
-
-export type AnomalyPreview = {
-  kind: "idle" | "error" | "stalled";
-  label: string;
-  detail: string;
-  resource: string;
-  suggested: string;
-};
-
-export type StepSample =
-  | { type: "fleet"; agents: FleetAgentPreview[]; more: number }
-  | { type: "sessions"; sessions: SessionPreview[]; more: number }
-  | { type: "broker"; messages: BrokerMessagePreview[]; more: number }
-  | { type: "tail"; events: TailEventPreview[]; more: number }
-  | { type: "plans"; plans: PlanPreview[] }
-  | { type: "anomalies"; items: AnomalyPreview[] }
-  | { type: "synthesize"; lines: number };
-
-export type BriefStep = {
-  id: string;
-  kind: BriefStepKind;
-  label: string;
-  duration: number;
-  result: string;
-  sample: StepSample;
-  countTone?: "neutral" | "warn" | "err";
-};
+import type { BriefStep } from "./types.ts";
 
 export const briefGenerationSequence: BriefStep[] = [
   {
@@ -258,39 +190,3 @@ export const briefGenerationSequence: BriefStep[] = [
     sample: { type: "synthesize", lines: 4 },
   },
 ];
-
-export type BriefObservation = {
-  id: string;
-  text: string;
-  tone?: "neutral" | "warn" | "err";
-  refs?: { label: string; href?: string }[];
-};
-
-export const mockBriefObservations: BriefObservation[] = [
-  {
-    id: "o1",
-    text: "47 agents are available across 8 projects; 5 are actively running.",
-    refs: [{ label: "fleet" }, { label: "8 projects" }],
-  },
-  {
-    id: "o2",
-    text: "Broker delivery sync has 3 unacked failures on workspace-hero — flight 401 needs attention.",
-    tone: "err",
-    refs: [{ label: "broker queue" }, { label: "flight 401" }],
-  },
-  {
-    id: "o3",
-    text: "hkshell has been idle for 6 hours — last tail event was a tool result at 05:24.",
-    tone: "warn",
-    refs: [{ label: "hkshell" }, { label: "tail" }],
-  },
-  {
-    id: "o4",
-    text: "2 plans in motion: Ranger consolidation (8 files, in motion) and Broker delivery sync rewrite (4 files, awaiting review).",
-    refs: [{ label: "plans" }],
-  },
-];
-
-export function totalSequenceDuration(steps: BriefStep[]): number {
-  return steps.reduce((sum, step) => sum + step.duration, 0);
-}

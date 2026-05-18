@@ -1,6 +1,6 @@
 /**
- * Shared brief-sequence components — used by both the Briefing Studio
- * sandbox and the Home BRIEFING panel's live loading treatment.
+ * Brief-sequence components — drive the Home BRIEFING panel's live loading
+ * treatment.
  *
  * What's here:
  *   - useBriefSequenceRuntime: drives a step sequence via requestAnimationFrame
@@ -9,8 +9,9 @@
  *   - SamplePanel + sample-type components: the per-step preview-as-hero
  *     panels (fleet chips, session cards, broker messages, tail rows, etc.)
  *
- * CSS lives in screens/studio/briefing-studio.css under the `bstudio-*`
- * prefix. Both surfaces import that stylesheet.
+ * Types live in ./types.ts; the placeholder step sequence is in
+ * ./sample-sequence.ts. CSS is co-located as ./brief-sequence.css under the
+ * `bstudio-*` selector prefix (kept for legacy compatibility).
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -26,7 +27,7 @@ import {
   Telescope,
 } from "lucide-react";
 
-import type { BriefStep, StepSample } from "../../screens/studio/brief-sequence.ts";
+import type { BriefStep, StepSample } from "./types.ts";
 
 export type StepState = "pending" | "active" | "done";
 
