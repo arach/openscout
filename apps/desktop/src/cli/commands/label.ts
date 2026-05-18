@@ -173,12 +173,17 @@ export async function runLabelCommand(
   }
 
   const seen = new Set<string>();
+  let pollSince = options.since;
+  const advancePollSince = (event: ScoutLabelFeedEvent): void => {
+    pollSince = Math.max(pollSince ?? 0, Math.max(0, event.at - 1));
+  };
   const initialFeed = await loadRequiredLabelFeed(options.label, {
     since: options.since,
     limit: options.limit ?? DEFAULT_LABEL_FEED_LIMIT,
   });
   for (const event of initialFeed.events) {
     seen.add(event.id);
+    advancePollSince(event);
     context.output.writeValue(event, renderLabelFeedEvent);
   }
   if (options.once) {
@@ -188,9 +193,11 @@ export async function runLabelCommand(
   const intervalSeconds = options.intervalSeconds ?? DEFAULT_LABEL_WATCH_INTERVAL_SECONDS;
   while (true) {
     const feed = await loadRequiredLabelFeed(options.label, {
+      since: pollSince,
       limit: options.limit ?? DEFAULT_LABEL_FEED_LIMIT,
     });
     for (const event of feed.events) {
+      advancePollSince(event);
       if (seen.has(event.id)) {
         continue;
       }
