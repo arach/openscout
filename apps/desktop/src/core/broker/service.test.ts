@@ -22,6 +22,7 @@ import {
   parseScoutHarness,
   parseScoutLocalHarness,
   readScoutBrokerHealth,
+  resolveHumanAskSenderName,
   resolveScoutSenderId,
   sendScoutMessage,
   sendScoutMessageToAgentIds,
@@ -29,6 +30,8 @@ import {
   waitForScoutFlight,
   watchScoutMessages,
 } from "./service.ts";
+import { scoutAskHandler } from "./ask.ts";
+import type { ScoutAskCommand } from "./ask-types.ts";
 
 const originalHome = process.env.HOME;
 const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
@@ -453,6 +456,433 @@ describe("loadScoutBrokerContext", () => {
     expect(health.counts?.collaborationRecords).toBe(6);
     expect(health.checkedAt).toBeGreaterThan(0);
   });
+});
+
+describe("scoutAskHandler", () => {
+  test("rejects asks with both an agent target and project path", async () => {
+    const receipt = await scoutAskHandler({
+      senderId: "operator",
+      to: "talkie",
+      projectPath: "/tmp/talkie",
+      body: "Review this.",
+      currentDirectory: process.cwd(),
+    } as unknown as ScoutAskCommand);
+
+    expect(receipt).toEqual({
+      ok: false,
+      state: "failed",
+      ids: {},
+      error: {
+        code: "invalid_request",
+        message: "provide either to or projectPath, not both",
+      },
+    });
+  });
+
+  test("posts one broker ask with sender context and returns a compact receipt", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const talkieRoot = join(workspaceRoot, "talkie");
+    mkdirSync(join(talkieRoot, ".git"), { recursive: true });
+
+    const captured = {
+      delivery: null as {
+        body: string;
+        target?: { kind?: string; label?: string };
+        execution?: { harness?: string; session?: string };
+        messageMetadata?: {
+          source?: string;
+          askWorkspace?: string;
+          senderContext?: Record<string, unknown>;
+        };
+        invocationMetadata?: {
+          source?: string;
+          askWorkspace?: string;
+          senderContext?: Record<string, unknown>;
+        };
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = (await request.json()) as NonNullable<
+          typeof captured.delivery
+        >;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.talkie",
+            kind: "direct",
+            title: "Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "talkie.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.talkie",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: captured.delivery.body,
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "talkie.main",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "talkie.main",
+            state: "waking",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const receipt = await scoutAskHandler({
+      senderId: "operator",
+      to: "talkie",
+      body: "How did you handle auth?",
+      harness: "claude",
+      workspace: "new_worktree",
+      session: "reuse",
+      currentDirectory: talkieRoot,
+    });
+
+    expect(receipt).toEqual({
+      ok: true,
+      state: "queued",
+      ids: {
+        targetAgentId: "talkie.main",
+        invocationId: "inv-1",
+        flightId: "flt-1",
+        conversationId: "dm.operator.talkie",
+        messageId: "msg-1",
+      },
+    });
+    expect(captured.delivery?.target).toEqual({
+      kind: "agent_label",
+      label: "talkie",
+    });
+    expect(captured.delivery?.execution).toEqual({
+      harness: "claude",
+      session: "any",
+    });
+    expect(captured.delivery?.messageMetadata).toMatchObject({
+      source: "scout-ask",
+      askWorkspace: "new_worktree",
+      senderContext: {
+        agentId: "operator",
+        project: "talkie",
+        cwd: talkieRoot,
+        worktree: "unknown",
+      },
+    });
+    expect(captured.delivery?.invocationMetadata).toMatchObject(
+      captured.delivery?.messageMetadata ?? {},
+    );
+  }, 15000);
+
+  test("routes id-prefixed ask targets through direct agent ids", async () => {
+    useIsolatedOpenScoutHome();
+
+    const captured = {
+      delivery: null as {
+        target?: { kind?: string; agentId?: string };
+        targetAgentId?: string;
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = (await request.json()) as NonNullable<
+          typeof captured.delivery
+        >;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.talkie",
+            kind: "direct",
+            title: "Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "talkie.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.talkie",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Review this.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "talkie.main",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "talkie.main",
+            state: "waking",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const receipt = await scoutAskHandler({
+      senderId: "operator",
+      to: "id:talkie.main",
+      body: "Review this.",
+      currentDirectory: process.cwd(),
+    });
+
+    expect(receipt.ids.targetAgentId).toBe("talkie.main");
+    expect(captured.delivery?.target).toEqual({
+      kind: "agent_id",
+      agentId: "talkie.main",
+    });
+    expect(captured.delivery?.targetAgentId).toBe("talkie.main");
+  }, 15000);
+
+  test("routes project path asks through broker project resolution", async () => {
+    useIsolatedOpenScoutHome();
+    const projectRoot = "/tmp/talkie";
+
+    type CapturedDelivery = {
+      target?: { kind?: string; projectPath?: string };
+      targetLabel?: string;
+    };
+    const captured = {
+      delivery: null as CapturedDelivery | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = (await request.json()) as NonNullable<
+          typeof captured.delivery
+        >;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.talkie",
+            kind: "direct",
+            title: "Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "talkie.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.talkie",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Review this.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "talkie.main",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "talkie.main",
+            state: "waking",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const receipt = await scoutAskHandler({
+      senderId: "operator",
+      projectPath: projectRoot,
+      body: "Review this.",
+      currentDirectory: "/tmp",
+    });
+
+    expect(receipt.ids.targetAgentId).toBe("talkie.main");
+    expect(captured.delivery?.target).toEqual({
+      kind: "project_path",
+      projectPath: projectRoot,
+    });
+    expect(captured.delivery?.targetLabel).toBe(projectRoot);
+
+  }, 15000);
+
+  test("rejects project-prefixed to targets at the core boundary", async () => {
+    const receipt = await scoutAskHandler({
+      senderId: "operator",
+      to: "project:talkie",
+      body: "Review this.",
+      currentDirectory: "/tmp",
+    });
+
+    expect(receipt).toEqual({
+      ok: false,
+      state: "failed",
+      ids: {},
+      error: {
+        code: "invalid_request",
+        message: "project targets must use projectPath",
+      },
+    });
+  });
+
+  test("returns one required resolve call for ambiguous targets", async () => {
+    useIsolatedOpenScoutHome();
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        return jsonResponse({
+          kind: "rejected",
+          accepted: false,
+          reason: "ambiguous_target",
+          rejection: {
+            id: "dispatch-1",
+            kind: "ambiguous",
+            askedLabel: "vox",
+            detail: "vox matches multiple agents",
+            candidates: [
+              { agentId: "vox.codex", label: "@vox.harness:codex" },
+              { agentId: "vox.claude", label: "@vox.harness:claude" },
+            ],
+            dispatchedAt: Date.now(),
+            dispatcherNodeId: "node-1",
+          },
+        });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const receipt = await scoutAskHandler({
+      senderId: "operator",
+      to: "vox",
+      body: "Review this.",
+      currentDirectory: process.cwd(),
+    });
+
+    expect(receipt).toEqual({
+      ok: false,
+      state: "ambiguous",
+      ids: {},
+      next: {
+        tool: "agents_resolve",
+        arguments: {
+          label: "vox",
+          currentDirectory: process.cwd(),
+        },
+        reason: "Choose one concrete target, then retry the ask.",
+      },
+    });
+  }, 15000);
 });
 
 describe("askScoutQuestion", () => {
@@ -1248,6 +1678,30 @@ describe("updateScoutWorkItem", () => {
     expect(typeof captured.postedRecord?.reviewRequestedAt).toBe("number");
     expect(captured.postedEvent?.kind).toBe("review_requested");
     expect(captured.postedEvent?.summary).toBe("Ready for operator review");
+  });
+});
+
+describe("resolveHumanAskSenderName", () => {
+  test("keeps human ask senders as the operator by default", () => {
+    expect(resolveHumanAskSenderName(null, {} as NodeJS.ProcessEnv)).toBe(
+      "operator",
+    );
+  });
+
+  test("preserves explicit ask sender identity", () => {
+    expect(
+      resolveHumanAskSenderName("talkie.main.mini", {
+        OPENSCOUT_AGENT: "openscout.main.mini",
+      } as NodeJS.ProcessEnv),
+    ).toBe("talkie.main.mini");
+  });
+
+  test("defers to agent environment when an agent is asking", () => {
+    expect(
+      resolveHumanAskSenderName(null, {
+        OPENSCOUT_AGENT: "openscout.main.mini",
+      } as NodeJS.ProcessEnv),
+    ).toBeUndefined();
   });
 });
 

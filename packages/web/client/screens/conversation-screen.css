@@ -1294,6 +1294,50 @@ details[open] > .s-thread-meta-toggle::before {
   background: color-mix(in srgb, var(--green) 14%, transparent);
 }
 
+.s-thread-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.s-thread-meta-vantage-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.s-thread-meta-vantage-btn:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.s-thread-meta-vantage-btn:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+.s-thread-meta-vantage-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+}
+
+.s-thread-meta-vantage-status--ok {
+  color: var(--accent);
+}
+
+.s-thread-meta-vantage-status--error {
+  color: var(--red);
+}
+
 /* ── Empty / error states ── */
 
 .s-thread-empty {

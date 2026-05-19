@@ -95,6 +95,9 @@ function parsePrefixedRouteTarget(prefix: string, rawValue: string): ScoutRouteT
   if (prefix === "ref" || prefix === "binding" || prefix === "binding-ref") {
     return { kind: "binding_ref", ref: value, value: `ref:${value}` };
   }
+  if (prefix === "project" || prefix === "project-path" || prefix === "project_path") {
+    return { kind: "project_path", projectPath: value, value: `project:${value}` };
+  }
   if (prefix === "id" || prefix === "agent-id" || prefix === "agent_id") {
     return { kind: "agent_id", agentId: value, value: `id:${value}` };
   }

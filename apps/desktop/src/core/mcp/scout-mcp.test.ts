@@ -12,6 +12,7 @@ import {
   createScoutMcpServer,
   type ScoutMcpAgentCandidate,
 } from "./scout-mcp.ts";
+import type { ScoutAskCommand } from "../broker/ask-types.ts";
 
 const openClients = new Set<Client>();
 const openServers = new Set<ReturnType<typeof createScoutMcpServer>>();
@@ -111,6 +112,7 @@ describe("createScoutMcpServer", () => {
       "agents_start",
       "agents_search",
       "agents_resolve",
+      "ask",
       "messages_send",
       "invocations_ask",
       "invocations_get",
@@ -122,7 +124,7 @@ describe("createScoutMcpServer", () => {
     expect(result.tools.find((tool) => tool.name === "whoami")?.description)
       .toContain("Use this when host or workspace context is unclear");
     expect(result.tools.find((tool) => tool.name === "messages_send")?.description)
-      .toContain("For owned work or a reply lifecycle, use invocations_ask instead.");
+      .toContain("For agent-to-agent work, use ask instead.");
     expect(result.tools.find((tool) => tool.name === "messages_inbox")?.description)
       .toContain("instead of curling broker HTTP endpoints");
     expect(result.tools.find((tool) => tool.name === "messages_channel")?.description)
@@ -719,6 +721,104 @@ describe("createScoutMcpServer", () => {
       (result.structuredContent as { candidates: Array<{ agentId: string }> })
         .candidates[0]?.agentId,
     ).toBe("hudson.main");
+  });
+
+  test("ask wraps the ScoutAskHandler primitive", async () => {
+    let receivedAsk: ScoutAskCommand | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator.main",
+      scoutAskHandler: async (input) => {
+        receivedAsk = input;
+        return {
+          ok: true,
+          state: "queued",
+          ids: {
+            targetAgentId: "talkie.main",
+            invocationId: "inv-1",
+            flightId: "flt-1",
+          },
+        };
+      },
+    });
+
+    const result = await client.callTool({
+      name: "ask",
+      arguments: {
+        to: "talkie",
+        body: "How did you handle auth?",
+        harness: "claude",
+        workspace: "new_worktree",
+        session: "new",
+      },
+    });
+
+    expect(receivedAsk).toEqual({
+      senderId: "operator.main",
+      to: "talkie",
+      body: "How did you handle auth?",
+      harness: "claude",
+      workspace: "new_worktree",
+      session: "new",
+      currentDirectory: "/tmp/openscout-test",
+      source: "scout-mcp",
+    });
+    expect(result.structuredContent).toEqual({
+      ok: true,
+      state: "queued",
+      ids: {
+        targetAgentId: "talkie.main",
+        invocationId: "inv-1",
+        flightId: "flt-1",
+      },
+    });
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]?.text).toBe(
+      "Ask queued to talkie.main; flight flt-1.",
+    );
+  });
+
+  test("ask can target a project path without an agent label", async () => {
+    let receivedAsk: ScoutAskCommand | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator.main",
+      scoutAskHandler: async (input) => {
+        receivedAsk = input;
+        return {
+          ok: true,
+          state: "queued",
+          ids: {
+            targetAgentId: "talkie.main",
+            invocationId: "inv-1",
+            flightId: "flt-1",
+          },
+        };
+      },
+    });
+
+    const result = await client.callTool({
+      name: "ask",
+      arguments: {
+        projectPath: "/tmp/talkie",
+        body: "How did you handle auth?",
+      },
+    });
+
+    expect(receivedAsk).toEqual({
+      senderId: "operator.main",
+      projectPath: "/tmp/talkie",
+      body: "How did you handle auth?",
+      currentDirectory: "/tmp/openscout-test",
+      source: "scout-mcp",
+    });
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      state: "queued",
+      ids: {
+        targetAgentId: "talkie.main",
+        invocationId: "inv-1",
+        flightId: "flt-1",
+      },
+    });
   });
 
   test("creates a reply-ready card from the current sender and directory", async () => {

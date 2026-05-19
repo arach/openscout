@@ -1,12 +1,13 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import {
   buildScoutVantagePlan,
   type ScoutVantagePlan,
+  type ScoutVantageNativeSession,
   type TmuxSession,
 } from "@openscout/runtime/vantage-plan";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
@@ -14,10 +15,14 @@ import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { loadScoutBrokerContext } from "./core/broker/service.ts";
 
 const execFileAsync = promisify(execFile);
+const VANTAGE_BROKER_CONTEXT_TIMEOUT_MS = 2_000;
 
 export type OpenScoutVantageHandoffInput = {
   currentDirectory: string;
   agentId?: string | null;
+  agentIds?: readonly string[];
+  nativeSessionIds?: readonly string[];
+  nativeSessions?: readonly ScoutVantageNativeSession[];
   launch?: boolean;
   now?: Date;
   broker?: Awaited<ReturnType<typeof loadScoutBrokerContext>>;
@@ -29,6 +34,7 @@ export type OpenScoutVantageHandoff = {
   schema: "openscout.vantage.handoff.v1";
   handoffId: string;
   handoffPath: string;
+  setupPath: string;
   openUrl: string;
   plan: ScoutVantagePlan;
   launch: {
@@ -41,17 +47,33 @@ export type OpenScoutVantageHandoff = {
 export async function createOpenScoutVantageHandoff(
   input: OpenScoutVantageHandoffInput,
 ): Promise<OpenScoutVantageHandoff> {
-  const broker = input.broker === undefined ? await loadScoutBrokerContext() : input.broker;
+  const broker = input.broker === undefined
+    ? await loadVantageBrokerContext()
+    : input.broker;
+  const nativeSessions = [...(input.nativeSessions ?? [])];
+  if (input.tmuxSessions === undefined) {
+    ensureNativeTailTmuxSessions(nativeSessions);
+  }
   const tmuxSessions = input.tmuxSessions ?? readTmuxSessions();
+  const selectedAgentIds = uniqueIds(input.agentIds ?? []);
+  const selectedNativeSessionIds = uniqueIds(
+    input.nativeSessionIds ?? nativeSessions.map((session) => session.id),
+  );
+  const focusAgentId = input.agentId?.trim() || selectedAgentIds[0] || null;
+  const focusNativeSessionId = focusAgentId ? null : selectedNativeSessionIds[0] || null;
   const plan = buildScoutVantagePlan({
     currentDirectory: input.currentDirectory,
     broker,
     tmuxSessions,
-    focusAgentId: input.agentId,
+    nativeSessions,
+    focusAgentId,
+    focusNativeSessionId,
+    selectedAgentIds,
+    selectedNativeSessionIds,
     now: input.now,
   });
   const handoffId = `handoff-${Date.now()}-${randomUUID().slice(0, 8)}`;
-  const handoffPath = writeVantageHandoffFile({
+  const { handoffPath, setupPath } = writeVantageHandoffFiles({
     handoffId,
     plan,
     source: "scout-web",
@@ -59,17 +81,51 @@ export async function createOpenScoutVantageHandoff(
   const openUrl = buildVantageOpenUrl({ handoffId, handoffPath });
   const launch = input.launch === false
     ? { attempted: false, ok: false, error: null }
-    : await launchVantageOpenUrl(openUrl);
+    : await launchVantageOpenUrl(openUrl, {
+      handoffId,
+      setupPath,
+      currentDirectory: input.currentDirectory,
+    });
 
   return {
     ok: true,
     schema: "openscout.vantage.handoff.v1",
     handoffId,
     handoffPath,
+    setupPath,
     openUrl,
     plan,
     launch,
   };
+}
+
+async function loadVantageBrokerContext(): Promise<Awaited<ReturnType<typeof loadScoutBrokerContext>> | null> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    timeout = setTimeout(() => {
+      controller.abort(new Error("Vantage broker context probe timed out."));
+    }, VANTAGE_BROKER_CONTEXT_TIMEOUT_MS);
+    return await loadScoutBrokerContext(undefined, { signal: controller.signal }).catch(() => null);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function uniqueIds(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const value of values) {
+    const id = value.trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
 }
 
 function readTmuxSessions(): TmuxSession[] {
@@ -94,14 +150,73 @@ function readTmuxSessions(): TmuxSession[] {
   }
 }
 
-function writeVantageHandoffFile(input: {
+function ensureNativeTailTmuxSessions(nativeSessions: readonly ScoutVantageNativeSession[]): void {
+  for (const nativeSession of nativeSessions) {
+    if (!nativeSession.tmuxSessionName || !nativeSession.transcriptPath) {
+      continue;
+    }
+    if (tmuxSessionExists(nativeSession.tmuxSessionName)) {
+      continue;
+    }
+    createNativeTailTmuxSession(nativeSession);
+  }
+}
+
+function tmuxSessionExists(sessionName: string): boolean {
+  try {
+    execFileSync("tmux", ["has-session", "-t", sessionName], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function createNativeTailTmuxSession(nativeSession: ScoutVantageNativeSession): void {
+  try {
+    const args = [
+      "new-session",
+      "-d",
+      "-s",
+      nativeSession.tmuxSessionName,
+      "-n",
+      "tail",
+    ];
+    if (nativeSession.cwd && existsSync(nativeSession.cwd)) {
+      args.push("-c", nativeSession.cwd);
+    }
+    args.push(nativeTailCommand(nativeSession));
+    execFileSync("tmux", args, {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+  } catch {
+    // The planner will diagnose the missing tmux session if creation failed.
+  }
+}
+
+function nativeTailCommand(nativeSession: ScoutVantageNativeSession): string {
+  const title = `${nativeSession.source} ${nativeSession.sessionId ?? nativeSession.id}`;
+  return [
+    `printf 'Scout Vantage tail: %s\\n' ${shellQuote(title)}`,
+    `printf 'Transcript: %s\\n\\n' ${shellQuote(nativeSession.transcriptPath)}`,
+    `tail -n 200 -F ${shellQuote(nativeSession.transcriptPath)}`,
+  ].join("; ");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function writeVantageHandoffFiles(input: {
   handoffId: string;
   plan: ScoutVantagePlan;
   source: "scout-web";
-}): string {
+}): { handoffPath: string; setupPath: string } {
   const handoffDirectory = join(resolveOpenScoutSupportPaths().supportDirectory, "vantage", "handoffs");
   mkdirSync(handoffDirectory, { recursive: true });
   const handoffPath = join(handoffDirectory, `${input.handoffId}.json`);
+  const setupPath = join(handoffDirectory, `${input.handoffId}.setup.json`);
   writeFileSync(
     handoffPath,
     `${JSON.stringify({
@@ -118,7 +233,8 @@ function writeVantageHandoffFile(input: {
     }, null, 2)}\n`,
     "utf8",
   );
-  return handoffPath;
+  writeFileSync(setupPath, `${JSON.stringify(input.plan.manifest, null, 2)}\n`, "utf8");
+  return { handoffPath, setupPath };
 }
 
 function buildVantageOpenUrl(input: { handoffId: string; handoffPath: string }): string {
@@ -129,7 +245,10 @@ function buildVantageOpenUrl(input: { handoffId: string; handoffPath: string }):
   return `openscout-vantage://handoff?${params.toString()}`;
 }
 
-async function launchVantageOpenUrl(openUrl: string): Promise<OpenScoutVantageHandoff["launch"]> {
+async function launchVantageOpenUrl(
+  openUrl: string,
+  input: { handoffId: string; setupPath: string; currentDirectory: string },
+): Promise<OpenScoutVantageHandoff["launch"]> {
   if (process.platform !== "darwin") {
     return {
       attempted: false,
@@ -142,10 +261,94 @@ async function launchVantageOpenUrl(openUrl: string): Promise<OpenScoutVantageHa
     await execFileAsync("/usr/bin/open", [openUrl]);
     return { attempted: true, ok: true, error: null };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isMissingUrlHandlerError(message)) {
+      const fallback = launchHudsonTerminiCanvas(input);
+      if (fallback.ok) {
+        return { attempted: true, ok: true, error: null };
+      }
+      return {
+        attempted: true,
+        ok: false,
+        error: fallback.error,
+      };
+    }
     return {
       attempted: true,
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     };
   }
+}
+
+function isMissingUrlHandlerError(message: string): boolean {
+  return message.includes("kLSApplicationNotFoundErr")
+    || message.includes("No application knows how to open URL");
+}
+
+function launchHudsonTerminiCanvas(input: {
+  handoffId: string;
+  setupPath: string;
+  currentDirectory: string;
+}): { ok: true } | { ok: false; error: string } {
+  const packagePath = findHudsonTerminiCanvasPackage(input.currentDirectory);
+  if (!packagePath) {
+    return {
+      ok: false,
+      error: "OpenScout Vantage is not installed, and no sibling Hudson TerminiCanvas package was found.",
+    };
+  }
+
+  try {
+    execFileSync("/usr/bin/xcrun", ["--find", "swift"], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+  } catch {
+    return {
+      ok: false,
+      error: "OpenScout Vantage is not installed, and the Swift toolchain was not found for the Hudson Vantage fallback.",
+    };
+  }
+
+  try {
+    const statePath = join(dirname(input.setupPath), `${input.handoffId}.state.json`);
+    const child = spawn(
+      "/usr/bin/xcrun",
+      ["swift", "run", "--package-path", packagePath, "TerminiCanvas"],
+      {
+        detached: true,
+        stdio: "ignore",
+        env: {
+          ...process.env,
+          HUDSON_VANTAGE_SETUP_FILE: input.setupPath,
+          HUDSON_VANTAGE_STATE_FILE: statePath,
+          HUDSON_VANTAGE_RESTORE_ON_LAUNCH: "0",
+        },
+      },
+    );
+    child.unref();
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `OpenScout Vantage is not installed, and Hudson Vantage fallback launch failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+}
+
+function findHudsonTerminiCanvasPackage(currentDirectory: string): string | null {
+  const candidates = [
+    resolve(currentDirectory, "../hudson/examples/termini-canvas"),
+    resolve(currentDirectory, "../Hudson/examples/termini-canvas"),
+    "/Users/arach/dev/hudson/examples/termini-canvas",
+    "/Users/arach/dev/Hudson/examples/termini-canvas",
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(join(candidate, "Package.swift"))) {
+      return candidate;
+    }
+  }
+  return null;
 }

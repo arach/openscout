@@ -318,7 +318,7 @@ Future CLI, MCP, and skill updates should converge on these names:
 | Attach a session | `scout session attach ...` | `sessions_attach` |
 | Inspect runtime state | `scout session inspect ...` | `sessions_inspect` |
 | Message receipt | `scout send ...` | `messages_send` |
-| Invocation receipt | `scout ask ...` | `invocations_ask` |
+| Ask receipt | `scout ask ...` | `ask` |
 
 Old commands should continue to work while emitting behavior that maps cleanly
 onto these semantics.

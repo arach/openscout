@@ -50,6 +50,10 @@ function fmtWindowSpan(seconds: number): string {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
+function shortHostLabel(value: string): string {
+  return value.replace(/\.local$/i, "").replace(/-local-openscout$/i, "");
+}
+
 function pathLeaf(path: string): string {
   const normalized = path.replace(/[\\/]+$/, "");
   const parts = normalized.split(/[\\/]/).filter(Boolean);
@@ -225,6 +229,9 @@ function AgentContextPanel({
         {agent.role && <Row label="Role" value={agent.role} />}
         {agent.harness && <Row label="Harness" value={agent.harness} />}
         {agent.transport && <Row label="Transport" value={agent.transport} />}
+        {(agent.homeNodeName || agent.homeNodeId) && (
+          <Row label="Host" value={shortHostLabel(agent.homeNodeName ?? agent.homeNodeId ?? "")} />
+        )}
       </Section>
 
       {/* Project */}

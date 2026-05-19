@@ -34,15 +34,13 @@ import {
   type WakePolicy,
   type WorkItemRecord,
   type WorkItemState,
-  normalizeAgentSelectorSegment,
   type ScoutReturnAddress,
+  type ScoutRouteTarget,
 } from "@openscout/protocol";
 import {
-  buildRelayAgentInstance,
   ensureRelayAgentConfigured,
   findNearestProjectRoot,
   loadResolvedRelayAgents,
-  readProjectConfig,
   readRelayAgentOverrides,
   resolveRelayAgentConfig,
   SCOUT_AGENT_ID,
@@ -64,7 +62,6 @@ import {
 } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
-import { resolveOperatorName } from "@openscout/runtime/user-config";
 
 import {
   openAiAudioSpeechUrl,
@@ -73,6 +70,16 @@ import {
   scoutBrokerMessagesListPath,
   scoutBrokerPaths,
 } from "./paths.ts";
+import { buildScoutAskMetadata } from "./ask-metadata.ts";
+import type {
+  ScoutAskSenderContext,
+  ScoutAskWorkspace,
+} from "./ask-types.ts";
+export {
+  resolveHumanAskSenderName,
+  resolveScoutAgentName,
+  resolveScoutSenderId,
+} from "./sender.ts";
 
 export type ScoutBrokerActorRecord = ActorIdentity;
 export type ScoutBrokerAgentRecord = AgentDefinition;
@@ -504,100 +511,6 @@ function relayHubDirectory(): string {
 
 export function resolveScoutBrokerUrl(): string {
   return buildScoutBrokerUrlFromEnv();
-}
-
-export function resolveScoutAgentName(agentName?: string | null): string {
-  const trimmed = agentName?.trim();
-  if (trimmed) {
-    return trimmed;
-  }
-  if (process.env.OPENSCOUT_AGENT?.trim()) {
-    return process.env.OPENSCOUT_AGENT.trim();
-  }
-  return resolveOperatorName();
-}
-
-function resolveConfiguredSenderIdForProjectRoot(
-  overrides: Awaited<ReturnType<typeof readRelayAgentOverrides>>,
-  projectRoot: string,
-  preferredDefinitionIds: string[] = [],
-): string | null {
-  let fallbackSenderId: string | null = null;
-  const normalizedPreferredDefinitionIds = preferredDefinitionIds
-    .map((value) => normalizeAgentSelectorSegment(value))
-    .filter(Boolean);
-
-  for (const preferredDefinitionId of normalizedPreferredDefinitionIds) {
-    for (const [agentId, override] of Object.entries(overrides)) {
-      if (BUILT_IN_AGENT_DEFINITION_IDS.has(agentId)) {
-        continue;
-      }
-      if (!override.projectRoot || override.projectRoot !== projectRoot) {
-        continue;
-      }
-      if (override.definitionId === preferredDefinitionId) {
-        return agentId;
-      }
-    }
-  }
-
-  for (const [agentId, override] of Object.entries(overrides)) {
-    if (BUILT_IN_AGENT_DEFINITION_IDS.has(agentId)) {
-      continue;
-    }
-    if (!override.projectRoot || override.projectRoot !== projectRoot) {
-      continue;
-    }
-    fallbackSenderId ??= agentId;
-  }
-  return fallbackSenderId;
-}
-
-async function inferSenderIdForProjectRoot(
-  projectRoot: string,
-): Promise<string> {
-  const overrides = await readRelayAgentOverrides();
-  const projectConfig = await readProjectConfig(projectRoot);
-  const configuredDefinitionId = normalizeAgentSelectorSegment(
-    projectConfig?.agent?.id?.trim() ?? "",
-  );
-  const projectDefaultDefinitionIds = [
-    configuredDefinitionId,
-    projectConfig?.project?.id,
-    basename(projectRoot),
-  ].filter((value): value is string => Boolean(value));
-  const configuredSenderId = resolveConfiguredSenderIdForProjectRoot(
-    overrides,
-    projectRoot,
-    projectDefaultDefinitionIds,
-  );
-  if (configuredSenderId) {
-    return configuredSenderId;
-  }
-
-  const definitionId =
-    configuredDefinitionId ||
-    normalizeAgentSelectorSegment(basename(projectRoot)) ||
-    "agent";
-  return buildRelayAgentInstance(definitionId, projectRoot).id;
-}
-
-export async function resolveScoutSenderId(
-  agentName: string | null | undefined,
-  currentDirectory: string,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<string> {
-  if (agentName?.trim()) {
-    return agentName.trim();
-  }
-  if (env.OPENSCOUT_AGENT?.trim()) {
-    return env.OPENSCOUT_AGENT.trim();
-  }
-  const projectRoot = await findNearestProjectRoot(currentDirectory);
-  if (!projectRoot) {
-    return resolveOperatorName();
-  }
-  return inferSenderIdForProjectRoot(projectRoot);
 }
 
 export function parseScoutHarness(
@@ -3599,119 +3512,97 @@ export async function askScoutAgentById(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionSession?: "new" | "existing" | "any";
+  workspace?: ScoutAskWorkspace;
+  senderContext?: ScoutAskSenderContext;
   labels?: string[];
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskByIdResult> {
-  const broker = await loadScoutBrokerContext();
-  if (!broker) {
-    return { usedBroker: false, unresolvedTargetId: input.targetAgentId };
-  }
-
-  const currentDirectory = input.currentDirectory ?? process.cwd();
-  const createdAtMs = input.createdAtMs ?? Date.now();
-  const source = input.source?.trim() || "scout-mcp";
-  const senderId = await resolveConversationActorId(
-    broker.baseUrl,
-    broker.snapshot,
-    broker.node.id,
-    input.senderId,
-    currentDirectory,
-  );
-  const targetAgentId = input.targetAgentId.trim();
-  if (!targetAgentId) {
-    return { usedBroker: true, unresolvedTargetId: input.targetAgentId };
-  }
-  const labels = normalizeWorkItemLabels(input.labels);
-  const workRecordId = input.workItem ? buildScoutEntityId("work", createdAtMs) : undefined;
-  const deliveryWorkItem = input.workItem && workRecordId
-    ? { id: workRecordId, ...input.workItem }
-    : undefined;
-  const delivery = await brokerPostDeliver(broker.baseUrl, {
-    caller: {
-      actorId: senderId,
-      nodeId: broker.node.id,
-      currentDirectory,
-      metadata: { source },
-    },
+  const result = await deliverScoutAsk({
+    senderId: input.senderId,
     target: {
       kind: "agent_id",
-      agentId: targetAgentId,
+      agentId: input.targetAgentId.trim(),
     },
-    targetAgentId,
-    body: input.body.trim(),
-    intent: "consult",
+    targetLabel: input.targetAgentId.trim(),
+    body: input.body,
+    workItem: input.workItem,
     channel: input.channel,
-    speechText: input.shouldSpeak ? input.body.trim() : undefined,
-    ...(deliveryWorkItem ? { collaborationRecordId: workRecordId, workItem: deliveryWorkItem } : {}),
-    execution: {
-      ...(input.executionHarness ? { harness: input.executionHarness } : {}),
-      session: "new",
-    },
-    ensureAwake: true,
-    ...(labels ? { labels } : {}),
-    messageMetadata: {
-      source,
-      ...(labels ? { labels } : {}),
-      ...(workRecordId ? { collaborationRecordId: workRecordId, workId: workRecordId } : {}),
-    },
-    invocationMetadata: {
-      source,
-      ...(labels ? { labels } : {}),
-      ...(workRecordId ? { collaborationRecordId: workRecordId, workId: workRecordId } : {}),
-    },
+    shouldSpeak: input.shouldSpeak,
+    createdAtMs: input.createdAtMs,
+    executionHarness: input.executionHarness,
+    executionSession: input.executionSession,
+    workspace: input.workspace,
+    senderContext: input.senderContext,
+    labels: input.labels,
+    currentDirectory: input.currentDirectory,
+    source: input.source ?? "scout-mcp",
   });
-  if (delivery.kind !== "delivery") {
-    return {
-      usedBroker: true,
-      unresolvedTargetId: targetAgentId,
-      targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
-    };
-  }
-  const workItem = delivery.workItem
-    ? createTrackedWorkItemSummary(delivery.workItem)
-    : input.workItem
-    ? await createScoutTrackedWorkItem({
-        baseUrl: broker.baseUrl,
-        senderId,
-        targetAgentId,
-        conversationId: delivery.conversation.id,
-        createdAtMs,
-        source,
-        workItem: input.workItem,
-        recordId: workRecordId,
-      })
-    : undefined;
-
   return {
-    usedBroker: true,
-    flight: delivery.flight,
-    conversationId: delivery.conversation.id,
-    messageId: delivery.message.id,
-    workItem,
+    usedBroker: result.usedBroker,
+    flight: result.flight,
+    conversationId: result.conversationId,
+    messageId: result.messageId,
+    workItem: result.workItem,
+    unresolvedTargetId: result.unresolvedTarget,
+    targetDiagnostic: result.targetDiagnostic,
   };
 }
 
-export async function askScoutQuestion(input: {
+function renderedScoutAskTarget(target: ScoutRouteTarget): string {
+  switch (target.kind) {
+    case "agent_id":
+      return target.agentId.trim();
+    case "agent_label":
+      return target.label.trim();
+    case "binding_ref":
+      return `ref:${target.ref.trim()}`;
+    case "project_path":
+      return target.projectPath.trim();
+    case "channel":
+      return `channel:${target.channel.trim()}`;
+    case "broadcast":
+      return "broadcast";
+  }
+}
+
+function directAgentIdForAskTarget(target: ScoutRouteTarget): string | undefined {
+  return target.kind === "agent_id" ? target.agentId.trim() : undefined;
+}
+
+function defaultAskExecutionSession(
+  target: ScoutRouteTarget,
+): "new" | "existing" {
+  return target.kind === "binding_ref" ? "existing" : "new";
+}
+
+export async function deliverScoutAsk(input: {
   senderId: string;
-  targetLabel: string;
-  targetRef?: string;
+  target: ScoutRouteTarget;
+  targetLabel?: string;
   body: string;
   workItem?: ScoutWorkItemInput;
   channel?: string;
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionSession?: "new" | "existing" | "any";
+  workspace?: ScoutAskWorkspace;
+  senderContext?: ScoutAskSenderContext;
   labels?: string[];
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskResult> {
   const broker = await loadScoutBrokerContext();
+  const renderedTarget = input.targetLabel?.trim() || renderedScoutAskTarget(input.target);
   if (!broker) {
-    return { usedBroker: false, unresolvedTarget: input.targetLabel };
+    return { usedBroker: false, unresolvedTarget: renderedTarget };
   }
+
   const currentDirectory = input.currentDirectory ?? process.cwd();
-  const source = input.source?.trim() || "scout-cli";
+  const createdAtMs = input.createdAtMs ?? Date.now();
+  const source = input.source?.trim() || "scout-ask";
   const senderId = await resolveConversationActorId(
     broker.baseUrl,
     broker.snapshot,
@@ -3719,19 +3610,22 @@ export async function askScoutQuestion(input: {
     input.senderId,
     currentDirectory,
   );
-  const createdAt = input.createdAtMs ?? Date.now();
-  const messageBody = input.body.trim();
+  const targetAgentId = directAgentIdForAskTarget(input.target);
+  if (!renderedTarget) {
+    return { usedBroker: true, unresolvedTarget: renderedTarget };
+  }
   const labels = normalizeWorkItemLabels(input.labels);
-  const targetRef = input.targetRef?.trim()
-    || (input.targetLabel.trim().startsWith("ref:") ? input.targetLabel.trim().slice("ref:".length) : "");
-  const target = targetRef
-    ? { kind: "binding_ref" as const, ref: targetRef }
-    : { kind: "agent_label" as const, label: input.targetLabel };
-  const renderedTarget = targetRef ? `ref:${targetRef}` : input.targetLabel;
-  const workRecordId = input.workItem ? buildScoutEntityId("work", createdAt) : undefined;
+  const workRecordId = input.workItem ? buildScoutEntityId("work", createdAtMs) : undefined;
   const deliveryWorkItem = input.workItem && workRecordId
     ? { id: workRecordId, ...input.workItem }
     : undefined;
+  const askMetadata = buildScoutAskMetadata({
+    source,
+    workRecordId,
+    senderContext: input.senderContext,
+    workspace: input.workspace,
+    labels,
+  });
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     caller: {
       actorId: senderId,
@@ -3739,33 +3633,27 @@ export async function askScoutQuestion(input: {
       currentDirectory,
       metadata: { source },
     },
-    target,
+    target: input.target,
+    ...(targetAgentId ? { targetAgentId } : {}),
     targetLabel: renderedTarget,
-    body: messageBody,
+    body: input.body.trim(),
     intent: "consult",
     channel: input.channel,
     speechText: input.shouldSpeak
-      ? stripScoutAgentSelectorLabels(messageBody)
+      ? input.target.kind === "agent_id"
+        ? input.body.trim()
+        : stripScoutAgentSelectorLabels(input.body.trim())
       : undefined,
     ...(deliveryWorkItem ? { collaborationRecordId: workRecordId, workItem: deliveryWorkItem } : {}),
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
-      session: targetRef ? "existing" : "new",
+      session: input.executionSession ?? defaultAskExecutionSession(input.target),
     },
     ensureAwake: true,
     ...(labels ? { labels } : {}),
-    messageMetadata: {
-      source,
-      ...(labels ? { labels } : {}),
-      ...(workRecordId ? { collaborationRecordId: workRecordId, workId: workRecordId } : {}),
-    },
-    invocationMetadata: {
-      source,
-      ...(labels ? { labels } : {}),
-      ...(workRecordId ? { collaborationRecordId: workRecordId, workId: workRecordId } : {}),
-    },
+    messageMetadata: askMetadata,
+    invocationMetadata: askMetadata,
   });
-
   if (delivery.kind !== "delivery") {
     return {
       usedBroker: true,
@@ -3773,7 +3661,6 @@ export async function askScoutQuestion(input: {
       targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
     };
   }
-
   const workItem = delivery.workItem
     ? createTrackedWorkItemSummary(delivery.workItem)
     : input.workItem && delivery.targetAgentId
@@ -3782,7 +3669,7 @@ export async function askScoutQuestion(input: {
         senderId,
         targetAgentId: delivery.targetAgentId,
         conversationId: delivery.conversation.id,
-        createdAtMs: createdAt,
+        createdAtMs,
         source,
         workItem: input.workItem,
         recordId: workRecordId,
@@ -3797,6 +3684,49 @@ export async function askScoutQuestion(input: {
     bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
     workItem,
   };
+}
+
+export async function askScoutQuestion(input: {
+  senderId: string;
+  targetLabel: string;
+  targetRef?: string;
+  target?: ScoutRouteTarget;
+  body: string;
+  workItem?: ScoutWorkItemInput;
+  channel?: string;
+  shouldSpeak?: boolean;
+  createdAtMs?: number;
+  executionHarness?: AgentHarness;
+  executionSession?: "new" | "existing" | "any";
+  workspace?: ScoutAskWorkspace;
+  senderContext?: ScoutAskSenderContext;
+  labels?: string[];
+  currentDirectory?: string;
+  source?: string;
+}): Promise<ScoutAskResult> {
+  const targetRef = input.targetRef?.trim()
+    || (input.targetLabel.trim().startsWith("ref:") ? input.targetLabel.trim().slice("ref:".length) : "");
+  const target = input.target
+    ?? (targetRef
+      ? { kind: "binding_ref" as const, ref: targetRef }
+      : { kind: "agent_label" as const, label: input.targetLabel });
+  return deliverScoutAsk({
+    senderId: input.senderId,
+    target,
+    targetLabel: input.targetLabel,
+    body: input.body,
+    workItem: input.workItem,
+    channel: input.channel,
+    shouldSpeak: input.shouldSpeak,
+    createdAtMs: input.createdAtMs,
+    executionHarness: input.executionHarness,
+    executionSession: input.executionSession,
+    workspace: input.workspace,
+    senderContext: input.senderContext,
+    labels: input.labels,
+    currentDirectory: input.currentDirectory,
+    source: input.source ?? "scout-cli",
+  });
 }
 
 async function loadBrokerFlight(

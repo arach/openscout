@@ -88,12 +88,32 @@
   border-color: var(--hud-chrome-border) !important;
 }
 
+/* Hudson's StatusBar uses Tailwind `h-7` (1.75rem), but our root font-size is
+ * 13px (--hud-text-base), so h-7 resolves to ~22.75px — short of the
+ * documented `SHELL_THEME.layout.statusBarHeight: 28`. Lock to 28px so the
+ * content's `bottom: 28` offset lands flush against the bar's top. */
+[data-scout-theme] [data-frame-panel="status-bar"] {
+  height: 28px;
+}
+
 [data-scout-theme] [data-frame-panel="manifest"] [class*="border-b"],
 [data-scout-theme] [data-frame-panel="manifest"] [class*="border-t"],
 [data-scout-theme] [data-frame-panel="inspector"] [class*="border-b"],
 [data-scout-theme] [data-frame-panel="inspector"] [class*="border-t"],
 [data-scout-theme] [data-frame-panel="status-bar"] [class*="border"] {
   border-color: var(--hud-chrome-border) !important;
+}
+
+/* Lift small chrome glyphs (status dots, clock icon) toward the visual middle
+ * of the mono text instead of the line-box center, which makes them read
+ * "dropped". Applies inside the status bar only. The Ranger chip's Bot icon
+ * is opted out because it's centered inside its own flex container — the
+ * outer lift would double-nudge it relative to the adjacent chip text. */
+[data-scout-theme] [data-frame-panel="status-bar"] .rounded-full {
+  transform: translateY(-1.5px);
+}
+[data-scout-theme] [data-frame-panel="status-bar"] svg:not(.s-ranger-chip-icon) {
+  transform: translateY(-1px);
 }
 
 /* Keyboard focus affordance for interactive elements. :focus-visible only

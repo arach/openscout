@@ -72,6 +72,8 @@ function makeEndpoint(input: {
   agentId: string;
   harness: AgentEndpoint["harness"];
   model?: string;
+  projectRoot?: string;
+  state?: AgentEndpoint["state"];
 }): AgentEndpoint {
   return {
     id: input.id,
@@ -79,7 +81,8 @@ function makeEndpoint(input: {
     nodeId: "node.local",
     harness: input.harness,
     transport: input.harness === "codex" ? "codex_app_server" : "claude_stream_json",
-    state: "idle",
+    state: input.state ?? "idle",
+    ...(input.projectRoot ? { projectRoot: input.projectRoot, cwd: input.projectRoot } : {}),
     metadata: {
       ...(input.model ? { model: input.model } : {}),
     },
@@ -315,6 +318,81 @@ describe("resolveBrokerRouteTarget", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe("ranger.codex-vox-getting-started.mini");
+    }
+  });
+
+  test("resolves typed project path targets by broker-owned project root", () => {
+    const projectRoot = "/tmp/talkie";
+    const target = makeAgent({
+      id: "talkie.main",
+      definitionId: "talkie",
+      metadata: { projectRoot },
+    });
+    const snapshot = makeSnapshot([target]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "project_path", projectPath: projectRoot } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("talkie.main");
+    }
+  });
+
+  test("prefers the reachable project path target when several agents share the project", () => {
+    const projectRoot = "/tmp/talkie";
+    const offline = makeAgent({
+      id: "talkie.offline",
+      definitionId: "talkie",
+      metadata: { projectRoot },
+    });
+    const online = makeAgent({
+      id: "talkie.online",
+      definitionId: "talkie-helper",
+      metadata: { projectRoot },
+    });
+    const snapshot = makeSnapshot(
+      [offline, online],
+      [makeEndpoint({
+        id: "endpoint.online",
+        agentId: online.id,
+        harness: "codex",
+        projectRoot,
+        state: "idle",
+      })],
+    );
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "project_path", projectPath: projectRoot } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("talkie.online");
+    }
+  });
+
+  test("keeps project path routing ambiguous when the broker cannot choose", () => {
+    const projectRoot = "/tmp/talkie";
+    const snapshot = makeSnapshot([
+      makeAgent({ id: "talkie.one", definitionId: "talkie", metadata: { projectRoot } }),
+      makeAgent({ id: "talkie.two", definitionId: "talkie-alt", metadata: { projectRoot } }),
+    ]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "project_path", projectPath: projectRoot } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates.map((agent) => agent.id).sort()).toEqual([
+        "talkie.one",
+        "talkie.two",
+      ]);
     }
   });
 });

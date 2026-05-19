@@ -124,8 +124,85 @@
 
 .s-mission-hotkeys {
   display: flex;
+  align-items: center;
   gap: 12px;
   margin-left: auto;
+}
+
+.s-mission-selection {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.s-mission-selection-count,
+.s-mission-selection-note,
+.s-mission-selection-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.s-mission-selection-note {
+  color: var(--dim);
+}
+
+.s-mission-selection-status {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dim);
+}
+
+.s-mission-selection-status--ok {
+  color: var(--accent);
+}
+
+.s-mission-selection-status--error {
+  color: var(--red);
+}
+
+.s-mission-selection-action {
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.s-mission-selection-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border-color: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.s-mission-selection-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.s-mission-selection-action--vantage {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.s-mission-selection-action--vantage:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
 }
 
 .s-mission-hotkey {
@@ -279,10 +356,45 @@
 .s-mission-tile-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   flex: none;
+}
+
+.s-mission-select {
+  position: relative;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg) 50%, transparent);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+
+.s-mission-select:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.s-mission-select--selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.s-mission-select--selected::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid var(--bg);
+  border-bottom: 2px solid var(--bg);
+  transform: rotate(-45deg);
 }
 
 .s-mission-tile-identity {

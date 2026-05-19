@@ -87,7 +87,7 @@ export function renderScoutHelp(version = "0.2.19"): string {
     "  Dimensions combine, any order: @vox.harness:codex.model:sonnet.node:mini",
     "",
     "MCP parity:",
-    "  messages_send / invocations_ask take explicit targets; use whoami/search/resolve only when unclear",
+    "  ask handles agent-to-agent work; messages_send handles tell/update",
     "",
     "Compatibility:",
     "  relay         Namespace alias for ask/send/speak/watch/card",

@@ -445,9 +445,14 @@ function isSupersededBrokerAgent(snapshot: ScoutBrokerSnapshot, agentId: string)
   return Boolean(replacementAgentId && snapshot.agents[replacementAgentId]);
 }
 
-async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
+async function brokerReadJson<T>(
+  baseUrl: string,
+  path: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<T> {
   return requestScoutBrokerJson<T>(baseUrl, path, {
     socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
+    signal: options.signal,
   });
 }
 
@@ -541,7 +546,10 @@ function scoutTargetDiagnosticFromDeliveryFailure(
   return undefined;
 }
 
-export async function readScoutBrokerHealth(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerHealthState> {
+export async function readScoutBrokerHealth(
+  baseUrl = resolveScoutBrokerUrl(),
+  options: { signal?: AbortSignal } = {},
+): Promise<ScoutBrokerHealthState> {
   try {
     const health = await brokerReadJson<{
       ok?: boolean;
@@ -555,7 +563,7 @@ export async function readScoutBrokerHealth(baseUrl = resolveScoutBrokerUrl()): 
         messages?: number;
         flights?: number;
       };
-    }>(baseUrl, scoutBrokerPaths.health);
+    }>(baseUrl, scoutBrokerPaths.health, { signal: options.signal });
 
     return {
       baseUrl,
@@ -642,16 +650,19 @@ export async function appendScoutUnblockRequestEvent(
   await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.unblockRequestEvents, event);
 }
 
-export async function loadScoutBrokerContext(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerContext | null> {
-  const health = await readScoutBrokerHealth(baseUrl);
+export async function loadScoutBrokerContext(
+  baseUrl = resolveScoutBrokerUrl(),
+  options: { signal?: AbortSignal } = {},
+): Promise<ScoutBrokerContext | null> {
+  const health = await readScoutBrokerHealth(baseUrl, { signal: options.signal });
   if (!health.reachable || !health.ok) {
     return null;
   }
 
   try {
     const [node, snapshot] = await Promise.all([
-      brokerReadJson<ScoutBrokerNodeRecord>(baseUrl, scoutBrokerPaths.v1.node),
-      brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot),
+      brokerReadJson<ScoutBrokerNodeRecord>(baseUrl, scoutBrokerPaths.v1.node, { signal: options.signal }),
+      brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot, { signal: options.signal }),
     ]);
     if (!node.id) {
       return null;

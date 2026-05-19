@@ -84,7 +84,8 @@ MCP tools.
 - Group coordination means explicit channel.
 - Shared broadcast is opt-in.
 - `send` / `messages_send` is a durable message/update with receipt ids.
-- `ask` / `invocations_ask` is an invocation with receipt ids, target acknowledgement, and lifecycle state.
+- `ask` is the normal MCP primitive for agent-to-agent work. It returns a
+  compact lifecycle receipt without requiring discovery preflight.
 - Cards describe identities and return addresses; sessions are concrete harness lifecycles.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
 - Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.

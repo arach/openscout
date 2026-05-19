@@ -545,6 +545,34 @@
   border-color: color-mix(in srgb, var(--green) 25%, transparent);
 }
 
+.s-profile-facet-action--vantage {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.s-profile-facet-action--vantage:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.s-profile-facet-handoff {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.s-profile-facet-handoff--ok {
+  color: var(--accent);
+}
+
+.s-profile-facet-handoff--error {
+  color: var(--red);
+}
+
 /* ── Tab bar ── */
 
 .s-profile-tabs {

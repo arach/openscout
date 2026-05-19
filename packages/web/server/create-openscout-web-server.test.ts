@@ -915,6 +915,7 @@ describe("createOpenScoutWebServer", () => {
           schema: "openscout.vantage.handoff.v1",
           handoffId: "handoff-test",
           handoffPath: "/tmp/openscout/vantage/handoff-test.json",
+          setupPath: "/tmp/openscout/vantage/handoff-test.setup.json",
           openUrl: "openscout-vantage://handoff?id=handoff-test",
           launch: { attempted: true, ok: true, error: null },
           plan: {
@@ -930,7 +931,10 @@ describe("createOpenScoutWebServer", () => {
               currentDirectory: "/tmp/openscout",
               broker: null,
               focus: { agentId: "agent-1" },
+              selectedAgentIds: [],
+              selectedNativeSessionIds: [],
               selection: [],
+              focused: null,
               focusedNodeId: null,
               nodes: [],
             },
@@ -956,6 +960,9 @@ describe("createOpenScoutWebServer", () => {
       {
         currentDirectory: "/tmp/openscout",
         agentId: "agent-1",
+        agentIds: [],
+        nativeSessionIds: [],
+        nativeSessions: [],
         launch: false,
       },
     ]);

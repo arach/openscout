@@ -41,9 +41,14 @@ export function TerminalScreen({
     void createVantageHandoff({ agentId: agentId ?? null, launch: true })
       .then((handoff) => {
         const nodeCount = handoff.plan.manifest.nodes.length;
-        const launchDetail = handoff.launch.ok
-          ? "Vantage launch requested"
-          : handoff.launch.error ?? "Vantage handoff written";
+        if (!handoff.launch.ok && handoff.launch.error) {
+          setHandoffState({
+            state: "failed",
+            error: handoff.launch.error,
+          });
+          return;
+        }
+        const launchDetail = handoff.launch.ok ? "Vantage launch requested" : "Vantage handoff written";
         setHandoffState({
           state: "opened",
           detail: `${nodeCount} node${nodeCount === 1 ? "" : "s"} - ${launchDetail}`,

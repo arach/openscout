@@ -36,6 +36,7 @@ import {
 } from "../lib/observe.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
+import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import { type SessionObserveData } from "./SessionObserve.tsx";
 import type {
   Agent,
@@ -825,6 +826,17 @@ export function MissionControlView({
   );
   useCanvasMinimapRegistration(minimapRegistration);
 
+  const selectedScoutAgentIds = useMemo(() => {
+    const scoutIds = new Set(agents.map((agent) => agent.id));
+    return mc.selectedIds.filter((id) => scoutIds.has(id));
+  }, [agents, mc.selectedIds]);
+  const selectedNativeSessionIds = useMemo(() => {
+    const nativeIds = new Set(visibleNativeSessions.map((session) => session.id));
+    return mc.selectedIds.filter((id) => nativeIds.has(id));
+  }, [mc.selectedIds, visibleNativeSessions]);
+  const selectedNativeCount = selectedNativeSessionIds.length;
+  const selectedLaunchableCount = selectedScoutAgentIds.length + selectedNativeSessionIds.length;
+
   return (
     <div className="s-mission">
       <div className="s-mission-bar">
@@ -918,6 +930,37 @@ export function MissionControlView({
           </div>
         )}
         <div className="s-mission-hotkeys">
+          {mc.selectedIds.length > 0 && (
+            <div className="s-mission-selection" role="group" aria-label="Selected agent actions">
+              <span className="s-mission-selection-count">
+                {mc.selectedIds.length} selected
+              </span>
+              {selectedNativeCount > 0 && (
+                <span className="s-mission-selection-note">
+                  {selectedScoutAgentIds.length} Scout · {selectedNativeCount} native
+                </span>
+              )}
+              <VantageHandoffButton
+                agentIds={selectedScoutAgentIds}
+                nativeSessionIds={selectedNativeSessionIds}
+                className="s-mission-selection-action s-mission-selection-action--vantage"
+                statusClassName="s-mission-selection-status"
+                label="Open in Vantage"
+                openingLabel="Opening..."
+                disabled={selectedLaunchableCount === 0}
+                title={selectedLaunchableCount > 0
+                  ? "Open selected sessions in the native Vantage canvas"
+                  : "Select Scout agents or native sessions to open in Vantage"}
+              />
+              <button
+                type="button"
+                className="s-mission-selection-action"
+                onClick={clearMissionSelection}
+              >
+                Clear
+              </button>
+            </div>
+          )}
           <button
             className="s-mission-hotkey s-mission-hotkey--btn"
             onClick={() => triggerEntry(false)}
@@ -987,6 +1030,7 @@ export function MissionControlView({
                   x={pos.x}
                   y={pos.y}
                   selected={isSelected}
+                  onToggleSelected={() => toggleMissionSelected(agent.id)}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey || e.shiftKey) {
                       toggleMissionSelected(agent.id);
@@ -1009,6 +1053,7 @@ export function MissionControlView({
                   x={pos.x}
                   y={pos.y}
                   selected={isSelected}
+                  onToggleSelected={() => toggleMissionSelected(session.id)}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey || e.shiftKey) {
                       toggleMissionSelected(session.id);
@@ -1071,6 +1116,7 @@ function ObserveTile({
   x,
   y,
   selected = false,
+  onToggleSelected,
   onClick,
 }: {
   agent: Agent;
@@ -1078,7 +1124,8 @@ function ObserveTile({
   x: number;
   y: number;
   selected?: boolean;
-  onClick: (e: React.MouseEvent) => void;
+  onToggleSelected: () => void;
+  onClick: (e: ReactMouseEvent) => void;
 }) {
   const streamRef = useRef<HTMLDivElement>(null);
   const state = normalizeAgentState(agent.state);
@@ -1116,6 +1163,16 @@ function ObserveTile({
       onPointerLeave={hoverHandlers.onPointerLeave}
     >
       <div className="s-mission-tile-header">
+        <button
+          type="button"
+          className={`s-mission-select${selected ? " s-mission-select--selected" : ""}`}
+          aria-pressed={selected}
+          title={selected ? "Remove from selection" : "Select for batch actions"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleSelected();
+          }}
+        />
         <div
           className="s-ops-avatar"
           style={{ "--size": "22px", background: color } as React.CSSProperties}

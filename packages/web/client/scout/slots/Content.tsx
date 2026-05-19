@@ -3,6 +3,8 @@ import { useScout } from "../Provider.tsx";
 import { ActivityScreen } from "../../screens/ActivityScreen.tsx";
 import { AgentInfoScreen } from "../../screens/AgentInfoScreen.tsx";
 import { AgentsScreen } from "../../screens/AgentsScreen.tsx";
+import { BriefingDetailScreen } from "../../screens/BriefingDetailScreen.tsx";
+import { BriefingsScreen } from "../../screens/BriefingsScreen.tsx";
 import { BrokerScreen } from "../../screens/BrokerScreen.tsx";
 import { ChannelsScreen } from "../../screens/ChannelsScreen.tsx";
 import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
@@ -101,6 +103,10 @@ function renderScreen(
       return <MeshScreen navigate={navigate} />;
     case "broker":
       return <BrokerScreen navigate={navigate} />;
+    case "briefings":
+      return route.briefingId
+        ? <BriefingDetailScreen briefingId={route.briefingId} navigate={navigate} />
+        : <BriefingsScreen navigate={navigate} />;
     case "activity":
       return <ActivityScreen navigate={navigate} />;
     case "ops":

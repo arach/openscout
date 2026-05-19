@@ -44,7 +44,7 @@ type AgentQueryRow = {
   updated_at: number | null;
 };
 
-export function queryAgents(limit = 50): WebAgent[] {
+export function queryAgents(limit = 500): WebAgent[] {
   const executingAgentIds = queryExecutingAgentIds();
   const rows = db()
     .prepare(

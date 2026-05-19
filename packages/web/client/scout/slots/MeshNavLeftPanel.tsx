@@ -6,6 +6,8 @@ import {
   toggleTreeFullMachine,
   setMeshSelection,
   requestScrollToMachine,
+  soloMachine,
+  showAllMachines,
   type AgentStateToken,
 } from "../../lib/mesh-view-store.ts";
 import { useScout } from "../Provider.tsx";
@@ -88,9 +90,14 @@ export function MeshNavLeftPanel() {
   }
 
   const focusMachine = (id: string) => {
+    const allIds = buckets.map((b) => b.machineId);
+    soloMachine(id, allIds);
     setMeshSelection(id, "node");
     requestScrollToMachine(id);
   };
+
+  const hiddenCount = hiddenMachineIds.size;
+  const totalMachines = buckets.length;
 
   const selectAgent = (a: Agent) => {
     setMeshSelection(a.id, "agent");
@@ -176,6 +183,19 @@ export function MeshNavLeftPanel() {
           placeholder="Find machines or agents…"
         />
         <FleetFilterPills active={agentStateFilters} onToggle={toggleAgentStateFilter} />
+        {hiddenCount > 0 && hiddenCount < totalMachines && (
+          <button
+            type="button"
+            className="mesh-nav-focus-chip"
+            onClick={showAllMachines}
+            title="Show all machines"
+          >
+            <span className="mesh-nav-focus-chip-label">
+              focused · {totalMachines - hiddenCount}/{totalMachines}
+            </span>
+            <span className="mesh-nav-focus-chip-clear" aria-hidden>×</span>
+          </button>
+        )}
       </div>
 
       <div className="mesh-nav-tree">

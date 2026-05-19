@@ -284,8 +284,9 @@ full ids. Unicode hints are for visual scanning, not durable indexing.
 - The visible hint should omit ambient facts such as the current target.
 - The visible hint should not include long conversation ids, fully qualified
   agent ids, transport names, or delivery attempts.
-- Do not overload `ask` to mean durable assigned work when the request is
-  actually owned execution; render that as `task`.
+- `ask` is the agent-to-agent handoff primitive. When the interaction needs
+  durable ownership, attach or create a work item rather than relying on chat
+  text alone.
 
 ## Relationship To Other SCOs
 

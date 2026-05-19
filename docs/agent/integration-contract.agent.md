@@ -30,7 +30,7 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 | identify sender | `whoami` |
 | resolve ambiguous target | `agents_resolve` |
 | message/update | `messages_send` |
-| work/requested reply | `invocations_ask` |
+| work/requested reply | `ask` |
 | inspect flight | `invocations_get` |
 | bounded follow-up wait | `invocations_wait` |
 | work progress/waiting/review/done | `work_update` |

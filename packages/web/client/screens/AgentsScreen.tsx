@@ -15,6 +15,7 @@ import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
+import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import type {
   AgentTab,
   Agent,
@@ -135,6 +136,11 @@ function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume;
             {sent ? "Going…" : "Takeover"}
           </button>
         )}
+        <VantageHandoffButton
+          agentId={agentId}
+          className="s-profile-facet-action s-profile-facet-action--vantage"
+          statusClassName="s-profile-facet-handoff"
+        />
       </div>
       {active && (
         <div className="s-profile-facet-detail">

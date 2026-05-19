@@ -43,7 +43,7 @@ transcripts.
 | Workflow | Use | API/tool |
 |---|---|---|
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
-| invocation/requested reply | answer/work expected, creates invocation/flight | `scout ask`, `invocations_ask` |
+| ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
 | active reply | answer an inbound broker ask | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
 
@@ -99,16 +99,17 @@ Examples:
 |---|---|---|
 | `/scout:ask >> hudson Review the parser.` | `targetLabel: "hudson"` | `Review the parser.` |
 | `/scout:ask >> ref:8kj4pd Continue.` | `target: { kind: "binding_ref", ref: "8kj4pd" }` | `Continue.` |
+| `/scout:ask >> project:../talkie Compare auth.` | `projectPath: "../talkie"` | `Compare auth.` |
 | `/scout:send >> channel:ops Status is green.` | `target: { kind: "channel", channel: "ops" }` | `Status is green.` |
 
 Supported route target forms: agent labels, `agent:<label>`, `ref:<id>`,
-`id:<agentId>`, `channel:<name>`, and `broadcast`. `@agent` remains compatibility
-syntax, but new Scout-aware composers should prefer `>>` and strip the route
-operator from payload before calling the broker.
+`project:<path>`, `id:<agentId>`, `channel:<name>`, and `broadcast`. `@agent`
+remains compatibility syntax, but new Scout-aware composers should prefer `>>`
+and strip the route operator from payload before calling the broker.
 
-CLI composer routing currently uses labels and refs for asks; `channel:<name>`
-and `broadcast` are send/update routes. Direct `id:<agentId>` targets are for
-clients that can submit `targetAgentId`.
+CLI composer routing currently uses labels, refs, and project paths for asks;
+`channel:<name>` and `broadcast` are send/update routes. Direct `id:<agentId>`
+targets are for clients that can submit `targetAgentId`.
 
 ## Reply Context
 
@@ -129,7 +130,8 @@ Rules:
 
 - `final_response`: final assistant message is broker-visible reply.
 - `mcp_reply`: call reply tool exactly once.
-- Do not answer original ask with `messages_send` or `invocations_ask`.
+- Do not answer the original ask with `messages_send`, `ask`, or
+  `invocations_ask`.
 
 ## Scout Contact Line
 

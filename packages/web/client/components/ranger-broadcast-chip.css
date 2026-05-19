@@ -1,0 +1,77 @@
+/* ── Ranger broadcast chip ───────────────────────────────────────────
+   Inline chip in the status bar's left cluster. Folds the fleet
+   broadcast stream into Ranger's surface: idle is just the bot head
+   at low opacity (it has nothing to say); active surfaces a one-line
+   preempt with tier color. */
+
+.s-ranger-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 38vw;
+  height: 18px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
+}
+
+/* Match the BROKER status dot's lift (`.rounded-full` at -1.5px in app.css)
+ * so the two peers in the same row sit on the same visual line. The chip's
+ * Bot icon stays at flex-center because the icon is large enough that
+ * additional lift makes it look airborne. */
+.s-ranger-chip-dot {
+  position: relative;
+  top: -1.5px;
+}
+
+.s-ranger-chip--idle {
+  padding: 1px 4px;
+}
+.s-ranger-chip--idle .s-ranger-chip-icon {
+  color: var(--muted);
+}
+.s-ranger-chip--idle:hover .s-ranger-chip-icon {
+  color: var(--ink);
+}
+
+.s-ranger-chip--active {
+  padding: 1px 8px;
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.s-ranger-chip--active:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+.s-ranger-chip--active .s-ranger-chip-icon {
+  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+}
+
+.s-ranger-chip-icon {
+  flex-shrink: 0;
+}
+
+.s-ranger-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+.s-ranger-chip-dot--info  { background: var(--muted); }
+.s-ranger-chip-dot--warn  { background: color-mix(in srgb, gold 70%, var(--muted)); }
+.s-ranger-chip-dot--error { background: color-mix(in srgb, crimson 70%, var(--muted)); }
+
+.s-ranger-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

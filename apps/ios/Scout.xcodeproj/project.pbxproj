@@ -40,7 +40,9 @@
 		43C16D70F1056087789D0C39 /* SessionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA76BF506FD778E1BC17EF0 /* SessionCardView.swift */; };
 		444064FD2C85AA15680B89E5 /* OSNDiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3660CAAEF34179A20975A799 /* OSNDiscoveryView.swift */; };
 		4476BB46CE8DC39B4CBC67CA /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FDE9E16EC017A6B945AF9D /* MicButton.swift */; };
+		46D29FC64771D39622F00016 /* TerminalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32ECA0A1711A4B06FC9008C2 /* TerminalStore.swift */; };
 		496DA7B61427F3321BFF87AB /* ConnectionStatusPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D2631C057E2ADADEB19ED90 /* ConnectionStatusPresentationTests.swift */; };
+		4BEF1C25673FE6FEF343D479 /* Termini in Frameworks */ = {isa = PBXBuildFile; productRef = 91FF88A038B9886B24F11C38 /* Termini */; };
 		4C338EE4D28D668134EA3F52 /* KeyComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37F081F478DEDB2F906765D /* KeyComponents.swift */; };
 		4C4D0937368EECDAE8EFC76B /* FileBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB1259D202C983314D17199 /* FileBlockView.swift */; };
 		4F6B19AF43BFDFA1FD35963C /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D43A2017A04707A443F35BA /* AgentsView.swift */; };
@@ -57,9 +59,11 @@
 		7B50398135D3578EC1D3A90B /* SessionDiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3161549947E066F37145FB0C /* SessionDiscoveryView.swift */; };
 		7FB90125803C0B185AE36E74 /* ScoutAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1480A7B45017C3E2A44619D /* ScoutAppDelegate.swift */; };
 		82F0EA626092AD1FD2889BAB /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6165FD7CA7E5F70CAD1284 /* TimelineView.swift */; };
+		878B1498E49A7845A0EFED4F /* TerminalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D695A2C2EBE99FA6410A28D5 /* TerminalModels.swift */; };
 		89C658D59512376E44D79698 /* ScoutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B05A33D42DFC47E9C54BEE0 /* ScoutApp.swift */; };
 		8D3F4293E86ED617E69A2612 /* Identity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49D6BFBD08AE670C1FC7B8A6 /* Identity.swift */; };
 		928B8FEA4EA1A6731D9F468F /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */; };
+		92A2C0FDA06CB352C569E77D /* TerminiSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 8A9A0D1770D43A8B0FF728C2 /* TerminiSSH */; };
 		94E40717522CC80B764A1EA8 /* ScoutTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F85B4A803447D47B4A7372 /* ScoutTextField.swift */; };
 		97F9CF6388F7B35B757675B2 /* BlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD01439D63376EE86259929 /* BlockView.swift */; };
 		991AF8193D1AD31F82BF3EE8 /* TailEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C81BBACB546A9DD851FE685 /* TailEvent.swift */; };
@@ -72,11 +76,6 @@
 		A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */; };
 		A8FBB96BCACD70C0303EC45D /* RPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D678FD46C36DEE704DF0493 /* RPC.swift */; };
 		B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */; };
-		B70000000000000000000001 /* TerminalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000011 /* TerminalModels.swift */; };
-		B70000000000000000000002 /* TerminalKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000012 /* TerminalKeychain.swift */; };
-		B70000000000000000000003 /* TerminalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000013 /* TerminalStore.swift */; };
-		B70000000000000000000004 /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000014 /* TerminalAdapter.swift */; };
-		B70000000000000000000005 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000015 /* TerminalView.swift */; };
 		C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */; };
 		C5AAC1B07CC4593997CC7A1E /* ActionBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */; };
 		C6FACCAD49E7E43628B33F79 /* ScoutSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 390280403D808E04858F3EA7 /* ScoutSearchField.swift */; };
@@ -84,6 +83,7 @@
 		CBCE2EADF2F6B1EDB5DF3CC0 /* AppStoreScreenshotMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C46A2565EF034B8EBDC0E7 /* AppStoreScreenshotMode.swift */; };
 		CCB65C48A10E885795764D27 /* ScoutCompactKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFAD4CD356A35B1F2E319563 /* ScoutCompactKeyboard.swift */; };
 		CCFF56AC0101E94DC30A7EF5 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6940B82A6F6FB299D5556A /* SessionStore.swift */; };
+		D90F9928BAC8392DF5FFEE6A /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 151F9571252B05942B683C8B /* TerminalView.swift */; };
 		DA89CEF284347FCCA2AB04E8 /* AddressBarPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10BA2E5EE2B7C4C28BF65201 /* AddressBarPill.swift */; };
 		DDFC98FBA0851D0B5601178E /* MeshRendezvousClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6BE3D3048D6DA6252B7CAA8 /* MeshRendezvousClient.swift */; };
 		DF22D6C8EE12251B47279018 /* SecureTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2043B28142C57D92E9226882 /* SecureTransport.swift */; };
@@ -95,7 +95,9 @@
 		EF85469C0FD2BC422025BF62 /* EdgeSwipeGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10952B15E281C5F9E7ECBA08 /* EdgeSwipeGesture.swift */; };
 		F18B83B363B995E588C34B5B /* NodeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21CE3025DE755A2428B0FDD0 /* NodeDetailView.swift */; };
 		F2339562BD7F60D19A3F608C /* WorkspaceBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8954092B5A751A7EBC5AD437 /* WorkspaceBrowserView.swift */; };
+		F3E5BE654E3E40336D803ED6 /* TerminalKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9E6A93874847210CEB2205 /* TerminalKeychain.swift */; };
 		F52869C4547FCD738992F356 /* ScoutLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 451CC5D7711018A3EB64FBA9 /* ScoutLog.swift */; };
+		F6C3BCA878E96461544DFD01 /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA00505E183B992F6E69FA32 /* TerminalAdapter.swift */; };
 		FC900834CED212A124E3D589 /* HistoryRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D8F1FFB1CB46F1A8E15322 /* HistoryRPC.swift */; };
 /* End PBXBuildFile section */
 
@@ -123,6 +125,7 @@
 		110ABDD1A3E9A65540CD8EDC /* ScoutNavigationShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutNavigationShell.swift; sourceTree = "<group>"; };
 		1111361D907783103CAF1029 /* TextBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBlockView.swift; sourceTree = "<group>"; };
 		116CD8574D6F90085DC7E951 /* ScoutDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ScoutDebug.entitlements; sourceTree = "<group>"; };
+		151F9571252B05942B683C8B /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		16E69A9F79BC8EBB2C853CAC /* SessionRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRowView.swift; sourceTree = "<group>"; };
 		17807A002C04E20022167DC2 /* ScoutTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScoutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1CB1259D202C983314D17199 /* FileBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBlockView.swift; sourceTree = "<group>"; };
@@ -137,6 +140,7 @@
 		2E552A43E6BA2AB3110C09C8 /* PermissionAuthorizations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionAuthorizations.swift; sourceTree = "<group>"; };
 		2FEDA458D1C9A7D31A9B5369 /* FleetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetView.swift; sourceTree = "<group>"; };
 		3161549947E066F37145FB0C /* SessionDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDiscoveryView.swift; sourceTree = "<group>"; };
+		32ECA0A1711A4B06FC9008C2 /* TerminalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStore.swift; sourceTree = "<group>"; };
 		346072AC5366E16E4A616FB6 /* ScoutNotificationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutNotificationDelegate.swift; sourceTree = "<group>"; };
 		3660CAAEF34179A20975A799 /* OSNDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSNDiscoveryView.swift; sourceTree = "<group>"; };
 		37311097FD4418A4CC259888 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
@@ -177,21 +181,19 @@
 		9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashCatcher.swift; sourceTree = "<group>"; };
 		9D2631C057E2ADADEB19ED90 /* ConnectionStatusPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusPresentationTests.swift; sourceTree = "<group>"; };
 		9D6165FD7CA7E5F70CAD1284 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		9D9E6A93874847210CEB2205 /* TerminalKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeychain.swift; sourceTree = "<group>"; };
 		A156270D797264F0441EF34B /* TurnHashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnHashTests.swift; sourceTree = "<group>"; };
 		A16F0DA040107782446B4DEA /* TailFeedRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailFeedRow.swift; sourceTree = "<group>"; };
 		B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
-		B70000000000000000000011 /* TerminalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalModels.swift; sourceTree = "<group>"; };
-		B70000000000000000000012 /* TerminalKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeychain.swift; sourceTree = "<group>"; };
-		B70000000000000000000013 /* TerminalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStore.swift; sourceTree = "<group>"; };
-		B70000000000000000000014 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
-		B70000000000000000000015 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		B99060478E7E956242D977B5 /* InboxStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxStore.swift; sourceTree = "<group>"; };
+		BA00505E183B992F6E69FA32 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
 		C06649F0636F0648AB140561 /* Primitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Primitives.swift; sourceTree = "<group>"; };
 		C6BE3D3048D6DA6252B7CAA8 /* MeshRendezvousClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshRendezvousClient.swift; sourceTree = "<group>"; };
 		C8268ECA15DDAFB9D1C5B351 /* ScoutRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ScoutRelease.entitlements; sourceTree = "<group>"; };
 		CBA76BF506FD778E1BC17EF0 /* SessionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCardView.swift; sourceTree = "<group>"; };
 		CD0DC1A52DFF1F128145DA0C /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
 		D153B14135CBBE348AFAFCCC /* DMView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMView.swift; sourceTree = "<group>"; };
+		D695A2C2EBE99FA6410A28D5 /* TerminalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalModels.swift; sourceTree = "<group>"; };
 		D8D0C482CFF39891FF22556C /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
 		D9460188DFF1700D3892C49C /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		DAD9F0954B70D484018D2E72 /* InboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxView.swift; sourceTree = "<group>"; };
@@ -212,6 +214,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				40BB09A722485DE63DE08361 /* FluidAudio in Frameworks */,
+				4BEF1C25673FE6FEF343D479 /* Termini in Frameworks */,
+				92A2C0FDA06CB352C569E77D /* TerminiSSH in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -312,6 +316,18 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		43C8173E0927395439617D75 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				BA00505E183B992F6E69FA32 /* TerminalAdapter.swift */,
+				9D9E6A93874847210CEB2205 /* TerminalKeychain.swift */,
+				D695A2C2EBE99FA6410A28D5 /* TerminalModels.swift */,
+				32ECA0A1711A4B06FC9008C2 /* TerminalStore.swift */,
+				151F9571252B05942B683C8B /* TerminalView.swift */,
+			);
+			path = Terminal;
+			sourceTree = "<group>";
+		};
 		46386624F8303C9353AEE28F /* Workspace */ = {
 			isa = PBXGroup;
 			children = (
@@ -354,23 +370,11 @@
 				417B947BB7902B25DD001027 /* Resources */,
 				7CD8AAB56579D6BA2161B0B2 /* Security */,
 				20420D1AD5DE18B3D0ED20EC /* Services */,
-				B70000000000000000000020 /* Terminal */,
+				43C8173E0927395439617D75 /* Terminal */,
 				84CAD3644ECA6E0D8C04C52A /* Views */,
 				40E0C6191E5F1A8091F3DE70 /* Voice */,
 			);
 			path = Scout;
-			sourceTree = "<group>";
-		};
-		B70000000000000000000020 /* Terminal */ = {
-			isa = PBXGroup;
-			children = (
-				B70000000000000000000014 /* TerminalAdapter.swift */,
-				B70000000000000000000012 /* TerminalKeychain.swift */,
-				B70000000000000000000011 /* TerminalModels.swift */,
-				B70000000000000000000013 /* TerminalStore.swift */,
-				B70000000000000000000015 /* TerminalView.swift */,
-			);
-			path = Terminal;
 			sourceTree = "<group>";
 		};
 		7CD8AAB56579D6BA2161B0B2 /* Security */ = {
@@ -594,6 +598,8 @@
 			name = ScoutApp;
 			packageProductDependencies = (
 				00F1A9565B1EE831E901D4BB /* FluidAudio */,
+				91FF88A038B9886B24F11C38 /* Termini */,
+				8A9A0D1770D43A8B0FF728C2 /* TerminiSSH */,
 			);
 			productName = ScoutApp;
 			productReference = 95B30342DC09B9A9CD56EDB0 /* ScoutApp.app */;
@@ -628,6 +634,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				4444AAE709EC21FF36F3DC04 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				075E6D5D040E9A39DA29CFD1 /* XCRemoteSwiftPackageReference "Termini" */,
 			);
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
@@ -728,11 +735,11 @@
 				991AF8193D1AD31F82BF3EE8 /* TailEvent.swift in Sources */,
 				0AF97A3564D02AC6C9FAF352 /* TailFeedRow.swift in Sources */,
 				0D1C62514CC0961737A7DF5A /* TailFeedView.swift in Sources */,
-				B70000000000000000000004 /* TerminalAdapter.swift in Sources */,
-				B70000000000000000000002 /* TerminalKeychain.swift in Sources */,
-				B70000000000000000000001 /* TerminalModels.swift in Sources */,
-				B70000000000000000000003 /* TerminalStore.swift in Sources */,
-				B70000000000000000000005 /* TerminalView.swift in Sources */,
+				F6C3BCA878E96461544DFD01 /* TerminalAdapter.swift in Sources */,
+				F3E5BE654E3E40336D803ED6 /* TerminalKeychain.swift in Sources */,
+				878B1498E49A7845A0EFED4F /* TerminalModels.swift in Sources */,
+				46D29FC64771D39622F00016 /* TerminalStore.swift in Sources */,
+				D90F9928BAC8392DF5FFEE6A /* TerminalView.swift in Sources */,
 				5C568548FBEF22CDE57196DE /* TextBlockView.swift in Sources */,
 				2BE63822046698F6281DED9E /* Theme.swift in Sources */,
 				82F0EA626092AD1FD2889BAB /* TimelineView.swift in Sources */,
@@ -1016,6 +1023,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		075E6D5D040E9A39DA29CFD1 /* XCRemoteSwiftPackageReference "Termini" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/arach/Termini.git";
+			requirement = {
+				kind = revision;
+				revision = 5f337c1faf802412d83cdeabf753aead6d614780;
+			};
+		};
 		4444AAE709EC21FF36F3DC04 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
@@ -1031,6 +1046,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4444AAE709EC21FF36F3DC04 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		8A9A0D1770D43A8B0FF728C2 /* TerminiSSH */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 075E6D5D040E9A39DA29CFD1 /* XCRemoteSwiftPackageReference "Termini" */;
+			productName = TerminiSSH;
+		};
+		91FF88A038B9886B24F11C38 /* Termini */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 075E6D5D040E9A39DA29CFD1 /* XCRemoteSwiftPackageReference "Termini" */;
+			productName = Termini;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
