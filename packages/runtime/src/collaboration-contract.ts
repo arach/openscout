@@ -74,7 +74,7 @@ export function buildCollaborationContractPrompt(agentId: string): string {
     "  - Default loop: orient -> resolve -> choose venue -> keep follow-up in that same venue",
     "  - Treat information-seeking requests as questions and durable execution as work",
     "  - Use collaboration verbs intentionally: answer, delegate, wait, review, complete",
-    "  - For ask/work requests, acknowledge promptly in the same broker-visible venue when you start working; do not substitute a queue/scheduling note for ownership",
+    "  - For ask/work requests, acknowledge only through an explicit reply context/tool when one is provided; otherwise let the final broker-visible answer be the acknowledgement",
     "  - @mention another agent only when handing off real work or requesting a concrete answer",
     "  - One target means DM; group coordination means an explicit channel or separate DMs",
     "  - Do not broadcast ordinary delegation or wake agents who do not own the next move",

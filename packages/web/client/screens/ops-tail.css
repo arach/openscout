@@ -120,6 +120,46 @@
   font-size: 10px;
 }
 
+.s-tail-status-filter {
+  display: inline-block;
+  max-width: min(34vw, 260px);
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.s-tail--embedded {
+  background: color-mix(in srgb, var(--bg) 96%, var(--surface));
+}
+
+.s-tail--embedded .s-tail-status {
+  padding: 6px 10px;
+  gap: 8px;
+  font-size: 10.5px;
+  background: color-mix(in srgb, var(--surface) 42%, transparent);
+}
+
+.s-tail--embedded .s-tail-status-cluster--metrics {
+  gap: 9px;
+}
+
+.s-tail--embedded .s-tail-status-cluster--harnesses {
+  display: none;
+}
+
+.s-tail--embedded .s-tail-status-spacer {
+  display: block;
+  flex: 1;
+}
+
+.s-tail--embedded .s-tail-status-filter {
+  max-width: 220px;
+}
+
 .s-tail-issue-filter {
   display: inline-flex;
   align-items: center;
@@ -240,6 +280,23 @@
   line-height: 1.35;
   color: var(--ink);
   white-space: nowrap;
+}
+
+.s-tail--embedded .s-tail-row {
+  grid-template-columns:
+    68px
+    10px
+    68px
+    minmax(92px, 150px)
+    14px
+    minmax(0, 1fr);
+  gap: 6px;
+  padding: 2px 10px;
+  font-size: 11.5px;
+}
+
+.s-tail--embedded .s-tail-chip--origin {
+  display: none;
 }
 
 .s-tail-row {
@@ -525,6 +582,13 @@
   letter-spacing: 0.04em;
 }
 
+.s-tail-keys--embedded {
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 10px;
+}
+
 .s-tail-keys kbd {
   display: inline-block;
   padding: 0 4px;
@@ -535,6 +599,25 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+}
+
+.s-tail--embedded .s-tail-empty {
+  padding: 44px 18px;
+}
+
+@media (max-width: 720px) {
+  .s-tail--embedded .s-tail-row {
+    grid-template-columns: 64px 64px 14px minmax(0, 1fr);
+  }
+
+  .s-tail--embedded .s-tail-gutter,
+  .s-tail--embedded .s-tail-cell-context {
+    display: none;
+  }
+
+  .s-tail--embedded .s-tail-status-filter {
+    max-width: 150px;
+  }
 }
 
 .s-tail-keys-spacer {

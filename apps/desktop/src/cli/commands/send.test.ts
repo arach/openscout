@@ -29,6 +29,18 @@ describe("formatScoutSendRoutingError", () => {
     })).toBe("there is no @mars; nothing was sent.");
   });
 
+  test("does not decorate unresolved refs as agent handles", () => {
+    expect(formatScoutSendRoutingError({
+      unresolvedTargets: ["ref:msg-missing"],
+      targetDiagnostic: {
+        agentId: "ref:msg-missing",
+        state: "unknown",
+        registrationKind: null,
+        projectRoot: null,
+      },
+    })).toBe("there is no ref:msg-missing; nothing was sent.");
+  });
+
   test("lists candidates when a short handle is ambiguous", () => {
     const message = formatScoutSendRoutingError({
       unresolvedTargets: ["@vox"],
