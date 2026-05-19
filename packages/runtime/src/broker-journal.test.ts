@@ -105,9 +105,9 @@ function sampleUnblockRequest(): UnblockRequestRecord {
     id: "unblock-1",
     kind: "permission",
     state: "open",
-    source: "claude-permission-hook",
-    sourceRef: "claude-permission:req-1",
-    title: "Allow Claude tool: Bash",
+    source: "test-permission-source",
+    sourceRef: "permission:req-1",
+    title: "Allow tool: Bash",
     ownerId: "operator",
     createdById: "system",
     actions: [{ kind: "approve", label: "Allow" }],
@@ -217,7 +217,7 @@ describe("FileBackedBrokerJournal", () => {
     await journal.load();
 
     expect(journal.snapshot().unblockRequests["unblock-1"]).toEqual(expect.objectContaining({
-      sourceRef: "claude-permission:req-1",
+      sourceRef: "permission:req-1",
     }));
     expect(journal.listUnblockRequestEvents({ requestId: "unblock-1" })).toHaveLength(1);
   });

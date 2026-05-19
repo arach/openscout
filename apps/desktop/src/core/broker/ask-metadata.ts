@@ -8,6 +8,7 @@ export type ScoutAskMetadataInput = {
   workRecordId?: string;
   senderContext?: ScoutAskSenderContext;
   workspace?: ScoutAskWorkspace;
+  labels?: string[];
 };
 
 export type ScoutAskMetadata = {
@@ -16,6 +17,7 @@ export type ScoutAskMetadata = {
   workId?: string;
   senderContext?: ScoutAskSenderContext;
   askWorkspace?: ScoutAskWorkspace;
+  labels?: string[];
 };
 
 export function buildScoutAskMetadata(
@@ -31,5 +33,6 @@ export function buildScoutAskMetadata(
       : {}),
     ...(input.senderContext ? { senderContext: input.senderContext } : {}),
     ...(input.workspace ? { askWorkspace: input.workspace } : {}),
+    ...(input.labels ? { labels: input.labels } : {}),
   };
 }

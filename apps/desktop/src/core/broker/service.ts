@@ -247,7 +247,103 @@ export type ScoutFlightRecord = {
   error?: string;
   startedAt?: number;
   completedAt?: number;
+  labels?: string[];
   metadata?: Record<string, unknown>;
+};
+
+export type ScoutLabelBriefFlight = {
+  id: string;
+  invocationId: string;
+  state: string;
+  requesterId: string;
+  targetAgentId: string;
+  summary: string | null;
+  output: string | null;
+  error: string | null;
+  labels: string[];
+  conversationId: string | null;
+  messageId: string | null;
+  workId: string | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  lastActivityAt: number | null;
+};
+
+export type ScoutLabelBriefWorkItem = {
+  id: string;
+  title: string;
+  state: string;
+  ownerId: string | null;
+  nextMoveOwnerId: string | null;
+  summary: string | null;
+  labels: string[];
+  updatedAt: number;
+};
+
+export type ScoutLabelBrief = {
+  label: string;
+  generatedAt: number;
+  lastActivityAt: number | null;
+  participants: string[];
+  counts: {
+    flights: number;
+    activeFlights: number;
+    workItems: number;
+  };
+  flightsByState: Record<string, number>;
+  activeFlights: ScoutLabelBriefFlight[];
+  recentFlights: ScoutLabelBriefFlight[];
+  workItems: ScoutLabelBriefWorkItem[];
+};
+
+export type ScoutLabelFeedEventKind =
+  | "message"
+  | "invocation_created"
+  | "flight_started"
+  | "flight_state"
+  | "flight_completed"
+  | "flight_failed"
+  | "flight_cancelled"
+  | "work_event"
+  | "work_snapshot";
+
+export type ScoutLabelFeedEvent = {
+  id: string;
+  label: string;
+  at: number;
+  kind: ScoutLabelFeedEventKind;
+  category: "message" | "invocation" | "flight" | "work";
+  actorId: string | null;
+  targetAgentId: string | null;
+  conversationId: string | null;
+  messageId: string | null;
+  invocationId: string | null;
+  flightId: string | null;
+  workId: string | null;
+  state: string | null;
+  eventKind: string | null;
+  summary: string;
+  labels: string[];
+};
+
+export type ScoutLabelFeedOptions = {
+  since?: number | null;
+  limit?: number | null;
+};
+
+export type ScoutLabelFeed = {
+  label: string;
+  generatedAt: number;
+  cursor: string | null;
+  since: number | null;
+  counts: {
+    events: number;
+    messages: number;
+    invocations: number;
+    flights: number;
+    workEvents: number;
+  };
+  events: ScoutLabelFeedEvent[];
 };
 
 export type ScoutInvocationSnapshot = {
@@ -562,6 +658,165 @@ function metadataString(
     : undefined;
 }
 
+function metadataStringList(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string[] {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => typeof entry === "string" ? entry.trim() : "")
+    .filter(Boolean);
+}
+
+function metadataNumber(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): number | undefined {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function normalizeSingleScoutLabel(label: string): string {
+  return label.trim();
+}
+
+function normalizeLabelList(labels: string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const label of labels ?? []) {
+    const trimmed = normalizeSingleScoutLabel(label);
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function labelListIncludes(labels: string[], label: string): boolean {
+  return Boolean(label) && labels.includes(label);
+}
+
+function labelsForMessage(message: ScoutBrokerMessageRecord): string[] {
+  return normalizeLabelList([
+    ...metadataStringList(message.metadata, "labels"),
+  ]);
+}
+
+function messageWorkId(message: ScoutBrokerMessageRecord): string | undefined {
+  return metadataString(message.metadata, "workId")
+    ?? metadataString(message.metadata, "collaborationRecordId");
+}
+
+function labelsForFlight(
+  flight: ScoutFlightRecord,
+  invocation: ScoutBrokerInvocationRecord | undefined,
+  workRecord: ScoutBrokerCollaborationRecord | undefined,
+): string[] {
+  return normalizeLabelList([
+    ...(flight.labels ?? []),
+    ...metadataStringList(flight.metadata, "labels"),
+    ...(invocation?.labels ?? []),
+    ...metadataStringList(invocation?.metadata, "labels"),
+    ...(workRecord?.labels ?? []),
+  ]);
+}
+
+function flightWorkId(
+  flight: ScoutFlightRecord,
+  invocation: ScoutBrokerInvocationRecord | undefined,
+): string | undefined {
+  return invocation?.collaborationRecordId
+    ?? metadataString(flight.metadata, "workId")
+    ?? metadataString(flight.metadata, "collaborationRecordId")
+    ?? metadataString(invocation?.metadata, "workId")
+    ?? metadataString(invocation?.metadata, "collaborationRecordId");
+}
+
+function flightConversationId(
+  flight: ScoutFlightRecord,
+  invocation: ScoutBrokerInvocationRecord | undefined,
+): string | null {
+  return invocation?.conversationId
+    ?? metadataString(flight.metadata, "conversationId")
+    ?? null;
+}
+
+function flightMessageId(
+  flight: ScoutFlightRecord,
+  invocation: ScoutBrokerInvocationRecord | undefined,
+): string | null {
+  return invocation?.messageId
+    ?? metadataString(flight.metadata, "messageId")
+    ?? null;
+}
+
+function flightLastActivityAt(
+  flight: ScoutFlightRecord,
+  invocation: ScoutBrokerInvocationRecord | undefined,
+): number | null {
+  return flight.completedAt
+    ?? flight.startedAt
+    ?? invocation?.createdAt
+    ?? null;
+}
+
+function isActiveLabelFlightState(state: string): boolean {
+  return state === "queued" || state === "waking" || state === "running" || state === "waiting";
+}
+
+function matchingWorkIdsForLabel(
+  snapshot: ScoutBrokerSnapshot,
+  label: string,
+): string[] {
+  const normalizedLabel = normalizeSingleScoutLabel(label);
+  const workIds = new Set<string>();
+
+  for (const record of Object.values(snapshot.collaborationRecords ?? {})) {
+    if (record.kind === "work_item" && labelListIncludes(normalizeLabelList(record.labels), normalizedLabel)) {
+      workIds.add(record.id);
+    }
+  }
+
+  for (const invocation of Object.values(snapshot.invocations ?? {}) as ScoutBrokerInvocationRecord[]) {
+    const labels = normalizeLabelList([
+      ...(invocation.labels ?? []),
+      ...metadataStringList(invocation.metadata, "labels"),
+    ]);
+    if (invocation.collaborationRecordId && labelListIncludes(labels, normalizedLabel)) {
+      workIds.add(invocation.collaborationRecordId);
+    }
+  }
+
+  for (const flight of Object.values(snapshot.flights ?? {}) as ScoutFlightRecord[]) {
+    const invocation = snapshot.invocations?.[flight.invocationId] as ScoutBrokerInvocationRecord | undefined;
+    const workId = flightWorkId(flight, invocation);
+    const labels = labelsForFlight(
+      flight,
+      invocation,
+      workId ? snapshot.collaborationRecords?.[workId] : undefined,
+    );
+    if (workId && labelListIncludes(labels, normalizedLabel)) {
+      workIds.add(workId);
+    }
+  }
+
+  for (const message of Object.values(snapshot.messages ?? {}) as ScoutBrokerMessageRecord[]) {
+    const workId = messageWorkId(message);
+    if (workId && labelListIncludes(labelsForMessage(message), normalizedLabel)) {
+      workIds.add(workId);
+    }
+  }
+
+  return [...workIds].sort((left, right) => left.localeCompare(right));
+}
+
 function metadataBoolean(
   metadata: Record<string, unknown> | undefined,
   key: string,
@@ -830,6 +1085,444 @@ export async function readScoutBrokerSnapshot(
   } catch {
     return null;
   }
+}
+
+export async function readScoutLabelBrief(
+  label: string,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<ScoutLabelBrief | null> {
+  const snapshot = await readScoutBrokerSnapshot(baseUrl);
+  return snapshot ? buildScoutLabelBrief(snapshot, label) : null;
+}
+
+export async function readScoutLabelFeed(
+  label: string,
+  options: ScoutLabelFeedOptions = {},
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<ScoutLabelFeed | null> {
+  const snapshot = await readScoutBrokerSnapshot(baseUrl);
+  if (!snapshot) {
+    return null;
+  }
+  const collaborationEvents = await readLabelCollaborationEvents(
+    baseUrl,
+    snapshot,
+    label,
+    options.limit,
+  );
+  return buildScoutLabelFeed(snapshot, label, {
+    ...options,
+    collaborationEvents,
+  });
+}
+
+export function buildScoutLabelBrief(
+  snapshot: ScoutBrokerSnapshot,
+  label: string,
+  now = Date.now(),
+): ScoutLabelBrief {
+  const normalizedLabel = normalizeSingleScoutLabel(label);
+  const participants = new Set<string>();
+  const matchedFlights: ScoutLabelBriefFlight[] = [];
+  const matchedWorkItems: ScoutLabelBriefWorkItem[] = [];
+  const matchingWorkIds = new Set<string>();
+
+  for (const record of Object.values(snapshot.collaborationRecords ?? {})) {
+    if (record.kind !== "work_item") {
+      continue;
+    }
+    const labels = normalizeLabelList(record.labels);
+    if (!labelListIncludes(labels, normalizedLabel)) {
+      continue;
+    }
+    matchingWorkIds.add(record.id);
+    if (record.ownerId) participants.add(record.ownerId);
+    if (record.nextMoveOwnerId) participants.add(record.nextMoveOwnerId);
+    matchedWorkItems.push({
+      id: record.id,
+      title: record.title,
+      state: record.state,
+      ownerId: record.ownerId ?? null,
+      nextMoveOwnerId: record.nextMoveOwnerId ?? null,
+      summary: record.summary ?? null,
+      labels,
+      updatedAt: record.updatedAt,
+    });
+  }
+
+  for (const flight of Object.values(snapshot.flights ?? {}) as ScoutFlightRecord[]) {
+    const invocation = snapshot.invocations?.[flight.invocationId] as ScoutBrokerInvocationRecord | undefined;
+    const workId = flightWorkId(flight, invocation);
+    const labels = labelsForFlight(flight, invocation, workId ? snapshot.collaborationRecords?.[workId] : undefined);
+    const matchesLabel = labelListIncludes(labels, normalizedLabel)
+      || (workId ? matchingWorkIds.has(workId) : false);
+    if (!matchesLabel) {
+      continue;
+    }
+
+    participants.add(flight.requesterId);
+    participants.add(flight.targetAgentId);
+    matchedFlights.push({
+      id: flight.id,
+      invocationId: flight.invocationId,
+      state: flight.state,
+      requesterId: flight.requesterId,
+      targetAgentId: flight.targetAgentId,
+      summary: flight.summary ?? null,
+      output: flight.output ?? null,
+      error: flight.error ?? null,
+      labels,
+      conversationId: flightConversationId(flight, invocation),
+      messageId: flightMessageId(flight, invocation),
+      workId: workId ?? null,
+      startedAt: flight.startedAt ?? null,
+      completedAt: flight.completedAt ?? null,
+      lastActivityAt: flightLastActivityAt(flight, invocation),
+    });
+  }
+
+  matchedFlights.sort((left, right) => (right.lastActivityAt ?? 0) - (left.lastActivityAt ?? 0));
+  matchedWorkItems.sort((left, right) => right.updatedAt - left.updatedAt);
+
+  const flightsByState: Record<string, number> = {};
+  for (const flight of matchedFlights) {
+    flightsByState[flight.state] = (flightsByState[flight.state] ?? 0) + 1;
+  }
+
+  const activeFlights = matchedFlights.filter((flight) => isActiveLabelFlightState(flight.state));
+  const lastActivityAt = [
+    ...matchedFlights.map((flight) => flight.lastActivityAt ?? 0),
+    ...matchedWorkItems.map((workItem) => workItem.updatedAt),
+  ].reduce((max, value) => Math.max(max, value), 0) || null;
+
+  return {
+    label: normalizedLabel,
+    generatedAt: now,
+    lastActivityAt,
+    participants: [...participants].sort((left, right) => left.localeCompare(right)),
+    counts: {
+      flights: matchedFlights.length,
+      activeFlights: activeFlights.length,
+      workItems: matchedWorkItems.length,
+    },
+    flightsByState,
+    activeFlights: activeFlights.slice(0, 12),
+    recentFlights: matchedFlights.slice(0, 12),
+    workItems: matchedWorkItems.slice(0, 12),
+  };
+}
+
+export function buildScoutLabelFeed(
+  snapshot: ScoutBrokerSnapshot,
+  label: string,
+  options: ScoutLabelFeedOptions & { collaborationEvents?: CollaborationEvent[] } = {},
+  now = Date.now(),
+): ScoutLabelFeed {
+  const normalizedLabel = normalizeSingleScoutLabel(label);
+  const matchingWorkIds = new Set(matchingWorkIdsForLabel(snapshot, normalizedLabel));
+  const events = new Map<string, ScoutLabelFeedEvent>();
+
+  for (const message of Object.values(snapshot.messages ?? {}) as ScoutBrokerMessageRecord[]) {
+    const labels = labelsForMessage(message);
+    const workId = messageWorkId(message);
+    const matchesLabel = labelListIncludes(labels, normalizedLabel)
+      || (workId ? matchingWorkIds.has(workId) : false);
+    if (!matchesLabel) {
+      continue;
+    }
+    addLabelFeedEvent(events, {
+      id: `message:${message.id}`,
+      label: normalizedLabel,
+      at: message.createdAt,
+      kind: "message",
+      category: "message",
+      actorId: message.actorId,
+      targetAgentId: null,
+      conversationId: message.conversationId,
+      messageId: message.id,
+      invocationId: metadataString(message.metadata, "invocationId") ?? null,
+      flightId: metadataString(message.metadata, "flightId") ?? null,
+      workId: workId ?? null,
+      state: null,
+      eventKind: message.class,
+      summary: compactLabelFeedSummary(message.body),
+      labels: labelFeedLabels(labels, normalizedLabel),
+    });
+  }
+
+  for (const invocation of Object.values(snapshot.invocations ?? {}) as ScoutBrokerInvocationRecord[]) {
+    const workRecord = invocation.collaborationRecordId
+      ? snapshot.collaborationRecords?.[invocation.collaborationRecordId]
+      : undefined;
+    const labels = normalizeLabelList([
+      ...(invocation.labels ?? []),
+      ...metadataStringList(invocation.metadata, "labels"),
+      ...(workRecord?.labels ?? []),
+    ]);
+    const matchesLabel = labelListIncludes(labels, normalizedLabel)
+      || (invocation.collaborationRecordId
+        ? matchingWorkIds.has(invocation.collaborationRecordId)
+        : false);
+    if (!matchesLabel) {
+      continue;
+    }
+    addLabelFeedEvent(events, {
+      id: `invocation:${invocation.id}`,
+      label: normalizedLabel,
+      at: invocation.createdAt,
+      kind: "invocation_created",
+      category: "invocation",
+      actorId: invocation.requesterId,
+      targetAgentId: invocation.targetAgentId,
+      conversationId: invocation.conversationId ?? null,
+      messageId: invocation.messageId ?? null,
+      invocationId: invocation.id,
+      flightId: null,
+      workId: invocation.collaborationRecordId ?? null,
+      state: null,
+      eventKind: invocation.action,
+      summary: compactLabelFeedSummary(invocation.task),
+      labels: labelFeedLabels(labels, normalizedLabel),
+    });
+  }
+
+  for (const flight of Object.values(snapshot.flights ?? {}) as ScoutFlightRecord[]) {
+    const invocation = snapshot.invocations?.[flight.invocationId] as ScoutBrokerInvocationRecord | undefined;
+    const workId = flightWorkId(flight, invocation);
+    const labels = labelsForFlight(
+      flight,
+      invocation,
+      workId ? snapshot.collaborationRecords?.[workId] : undefined,
+    );
+    const matchesLabel = labelListIncludes(labels, normalizedLabel)
+      || (workId ? matchingWorkIds.has(workId) : false);
+    if (!matchesLabel) {
+      continue;
+    }
+    const conversationId = flightConversationId(flight, invocation);
+    const messageId = flightMessageId(flight, invocation);
+    const flightSummary = compactLabelFeedSummary(
+      flight.summary
+        ?? flight.output
+        ?? flight.error
+        ?? `${flight.targetAgentId} ${flight.state}`,
+    );
+    if (flight.startedAt) {
+      addLabelFeedEvent(events, {
+        id: `flight:${flight.id}:started`,
+        label: normalizedLabel,
+        at: flight.startedAt,
+        kind: "flight_started",
+        category: "flight",
+        actorId: flight.requesterId,
+        targetAgentId: flight.targetAgentId,
+        conversationId,
+        messageId,
+        invocationId: flight.invocationId,
+        flightId: flight.id,
+        workId: workId ?? null,
+        state: flight.state,
+        eventKind: "started",
+        summary: flightSummary,
+        labels: labelFeedLabels(labels, normalizedLabel),
+      });
+    }
+    if (flight.completedAt) {
+      const kind = terminalFlightLabelEventKind(flight.state);
+      addLabelFeedEvent(events, {
+        id: `flight:${flight.id}:${flight.state}:${flight.completedAt}`,
+        label: normalizedLabel,
+        at: flight.completedAt,
+        kind,
+        category: "flight",
+        actorId: flight.requesterId,
+        targetAgentId: flight.targetAgentId,
+        conversationId,
+        messageId,
+        invocationId: flight.invocationId,
+        flightId: flight.id,
+        workId: workId ?? null,
+        state: flight.state,
+        eventKind: flight.state,
+        summary: flightSummary,
+        labels: labelFeedLabels(labels, normalizedLabel),
+      });
+    } else {
+      const stateAt = flightLastActivityAt(flight, invocation)
+        ?? metadataNumber(flight.metadata, "updatedAt")
+        ?? now;
+      addLabelFeedEvent(events, {
+        id: `flight:${flight.id}:state:${flight.state}:${stateAt}`,
+        label: normalizedLabel,
+        at: stateAt,
+        kind: "flight_state",
+        category: "flight",
+        actorId: flight.requesterId,
+        targetAgentId: flight.targetAgentId,
+        conversationId,
+        messageId,
+        invocationId: flight.invocationId,
+        flightId: flight.id,
+        workId: workId ?? null,
+        state: flight.state,
+        eventKind: flight.state,
+        summary: flightSummary,
+        labels: labelFeedLabels(labels, normalizedLabel),
+      });
+    }
+  }
+
+  const seenWorkEventRecordIds = new Set<string>();
+  for (const event of options.collaborationEvents ?? []) {
+    if (!matchingWorkIds.has(event.recordId)) {
+      continue;
+    }
+    seenWorkEventRecordIds.add(event.recordId);
+    const record = snapshot.collaborationRecords?.[event.recordId];
+    const labels = normalizeLabelList(record?.labels);
+    addLabelFeedEvent(events, {
+      id: `work-event:${event.id}`,
+      label: normalizedLabel,
+      at: event.at,
+      kind: "work_event",
+      category: "work",
+      actorId: event.actorId,
+      targetAgentId: record?.nextMoveOwnerId ?? record?.ownerId ?? null,
+      conversationId: record?.conversationId ?? null,
+      messageId: metadataString(event.metadata, "messageId") ?? null,
+      invocationId: metadataString(event.metadata, "invocationId") ?? null,
+      flightId: metadataString(event.metadata, "flightId") ?? null,
+      workId: event.recordId,
+      state: record && "state" in record ? record.state : null,
+      eventKind: event.kind,
+      summary: compactLabelFeedSummary(event.summary ?? record?.summary ?? record?.title ?? event.kind),
+      labels: labelFeedLabels(labels, normalizedLabel),
+    });
+  }
+
+  for (const workId of matchingWorkIds) {
+    if (seenWorkEventRecordIds.has(workId)) {
+      continue;
+    }
+    const record = snapshot.collaborationRecords?.[workId];
+    if (!record?.kind || record.kind !== "work_item") {
+      continue;
+    }
+    addLabelFeedEvent(events, {
+      id: `work:${record.id}:snapshot:${record.updatedAt}`,
+      label: normalizedLabel,
+      at: record.updatedAt,
+      kind: "work_snapshot",
+      category: "work",
+      actorId: record.nextMoveOwnerId ?? record.ownerId ?? record.createdById,
+      targetAgentId: record.nextMoveOwnerId ?? record.ownerId ?? null,
+      conversationId: record.conversationId ?? null,
+      messageId: null,
+      invocationId: null,
+      flightId: null,
+      workId: record.id,
+      state: record.state,
+      eventKind: record.state,
+      summary: compactLabelFeedSummary(record.progress?.summary ?? record.summary ?? record.title),
+      labels: labelFeedLabels(record.labels ?? [], normalizedLabel),
+    });
+  }
+
+  const since = typeof options.since === "number" && Number.isFinite(options.since)
+    ? options.since
+    : null;
+  let sorted = [...events.values()]
+    .filter((event) => since === null || event.at > since)
+    .sort((left, right) => {
+      const timeDelta = left.at - right.at;
+      if (timeDelta !== 0) return timeDelta;
+      return left.id.localeCompare(right.id);
+    });
+  const limit = typeof options.limit === "number" && Number.isFinite(options.limit) && options.limit > 0
+    ? Math.floor(options.limit)
+    : null;
+  if (limit !== null && sorted.length > limit) {
+    sorted = sorted.slice(-limit);
+  }
+  const cursor = sorted.at(-1)?.id ?? null;
+
+  return {
+    label: normalizedLabel,
+    generatedAt: now,
+    cursor,
+    since,
+    counts: {
+      events: sorted.length,
+      messages: sorted.filter((event) => event.category === "message").length,
+      invocations: sorted.filter((event) => event.category === "invocation").length,
+      flights: sorted.filter((event) => event.category === "flight").length,
+      workEvents: sorted.filter((event) => event.category === "work").length,
+    },
+    events: sorted,
+  };
+}
+
+function addLabelFeedEvent(
+  events: Map<string, ScoutLabelFeedEvent>,
+  event: ScoutLabelFeedEvent,
+): void {
+  events.set(event.id, event);
+}
+
+function labelFeedLabels(labels: string[], label: string): string[] {
+  return normalizeLabelList([...labels, label]);
+}
+
+function terminalFlightLabelEventKind(state: string): ScoutLabelFeedEventKind {
+  if (state === "failed") return "flight_failed";
+  if (state === "cancelled") return "flight_cancelled";
+  return "flight_completed";
+}
+
+function compactLabelFeedSummary(value: string | null | undefined): string {
+  const normalized = value
+    ?.replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return "(no summary)";
+  }
+  return normalized.length <= 220
+    ? normalized
+    : `${normalized.slice(0, 217)}...`;
+}
+
+async function readLabelCollaborationEvents(
+  baseUrl: string,
+  snapshot: ScoutBrokerSnapshot,
+  label: string,
+  limit: number | null | undefined,
+): Promise<CollaborationEvent[]> {
+  const recordIds = matchingWorkIdsForLabel(snapshot, label);
+  if (recordIds.length === 0) {
+    return [];
+  }
+
+  const perRecordLimit = Math.max(
+    20,
+    Math.min(100, Math.ceil((limit ?? 50) / Math.max(1, Math.min(recordIds.length, 10)))),
+  );
+  const eventLists = await Promise.all(
+    recordIds.map(async (recordId) => {
+      const search = new URLSearchParams({
+        recordId,
+        limit: String(perRecordLimit),
+      });
+      try {
+        return await brokerReadJson<CollaborationEvent[]>(
+          baseUrl,
+          `${scoutBrokerPaths.v1.collaborationEvents}?${search.toString()}`,
+        );
+      } catch {
+        return [];
+      }
+    }),
+  );
+  return eventLists.flat();
 }
 
 export async function loadScoutBrokerContext(
@@ -2822,6 +3515,7 @@ export async function askScoutAgentById(input: {
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
+  labels?: string[];
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskByIdResult> {
@@ -2841,6 +3535,7 @@ export async function askScoutAgentById(input: {
     executionSession: input.executionSession,
     workspace: input.workspace,
     senderContext: input.senderContext,
+    labels: input.labels,
     currentDirectory: input.currentDirectory,
     source: input.source ?? "scout-mcp",
   });
@@ -2895,6 +3590,7 @@ export async function deliverScoutAsk(input: {
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
+  labels?: string[];
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskResult> {
@@ -2918,6 +3614,7 @@ export async function deliverScoutAsk(input: {
   if (!renderedTarget) {
     return { usedBroker: true, unresolvedTarget: renderedTarget };
   }
+  const labels = normalizeWorkItemLabels(input.labels);
   const workRecordId = input.workItem ? buildScoutEntityId("work", createdAtMs) : undefined;
   const deliveryWorkItem = input.workItem && workRecordId
     ? { id: workRecordId, ...input.workItem }
@@ -2927,6 +3624,7 @@ export async function deliverScoutAsk(input: {
     workRecordId,
     senderContext: input.senderContext,
     workspace: input.workspace,
+    labels,
   });
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     caller: {
@@ -2952,6 +3650,7 @@ export async function deliverScoutAsk(input: {
       session: input.executionSession ?? defaultAskExecutionSession(input.target),
     },
     ensureAwake: true,
+    ...(labels ? { labels } : {}),
     messageMetadata: askMetadata,
     invocationMetadata: askMetadata,
   });
@@ -3001,6 +3700,7 @@ export async function askScoutQuestion(input: {
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
+  labels?: string[];
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskResult> {
@@ -3023,6 +3723,7 @@ export async function askScoutQuestion(input: {
     executionSession: input.executionSession,
     workspace: input.workspace,
     senderContext: input.senderContext,
+    labels: input.labels,
     currentDirectory: input.currentDirectory,
     source: input.source ?? "scout-cli",
   });

@@ -156,6 +156,15 @@ describe("parseAskCommandOptions", () => {
       )).toThrow("provide either --to/--ref or --project, not both");
   });
 
+  test("accepts repeated labels", () => {
+    const options = parseAskCommandOptions(
+      ["--to", "hudson", "--label", "release:0.2.66", "--labels=goal:hook,release:0.2.66", "review"],
+      "/tmp/workspace",
+    );
+
+    expect(options.labels).toEqual(["release:0.2.66", "goal:hook"]);
+  });
+
   test("rejects mixing inline questions with a prompt file", () => {
     expect(() =>
       parseAskCommandOptions(
@@ -190,12 +199,13 @@ describe("parseImplicitAskCommandOptions", () => {
 
   test("parses ask flags before the freeform request", () => {
     const options = parseImplicitAskCommandOptions(
-      ["--as", "vox", "--timeout", "900", "--context-root", "/tmp/repo", "@talkie", "take", "another", "pass"],
+      ["--as", "vox", "--timeout", "900", "--label", "goal:ios-shell", "--context-root", "/tmp/repo", "@talkie", "take", "another", "pass"],
       "/tmp/workspace",
     );
 
     expect(options.agentName).toBe("vox");
     expect(options.timeoutSeconds).toBe(900);
+    expect(options.labels).toEqual(["goal:ios-shell"]);
     expect(options.targetLabel).toBe("talkie");
     expect(options.message).toBe("take another pass");
     expect(options.currentDirectory).toBe("/tmp/repo");

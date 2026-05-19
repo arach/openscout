@@ -144,7 +144,7 @@ function resolveEdgeScheme(): OpenScoutLocalEdgeScheme {
   if (value === "http" || value === "https" || value === "both") {
     return value;
   }
-  return "both";
+  return "http";
 }
 
 function resolveEdgeConfig(): OpenScoutLocalEdgeConfig {

@@ -288,6 +288,7 @@ Typed:
 ```text
 /scout:ask >> hudson Review the parser.
 /scout:ask >> ref:8kj4pd Continue from that result.
+/scout:ask >> project:../talkie Compare auth.
 /scout:send >> channel:ops Status is green.
 ```
 
@@ -307,13 +308,14 @@ The route target grammar is:
 | `>> hudson` | `{ kind: "agent_label", label: "hudson" }` |
 | `>> agent:hudson` | `{ kind: "agent_label", label: "hudson" }` |
 | `>> ref:8kj4pd` | `{ kind: "binding_ref", ref: "8kj4pd" }` |
+| `>> project:../talkie` | `{ kind: "project_path", projectPath: "../talkie" }` |
 | `>> id:agent-...` | `{ kind: "agent_id", agentId: "agent-..." }` |
 | `>> channel:ops` | `{ kind: "channel", channel: "ops" }` |
 | `>> broadcast` | `{ kind: "broadcast" }` |
 
 The shared parser can recognize direct agent ids for clients that pass
-`targetAgentId`. CLI composer routing currently uses labels and refs for asks;
-`channel:<name>` and `broadcast` are send/update routes.
+`targetAgentId`. CLI composer routing currently uses labels, refs, and project
+paths for asks; `channel:<name>` and `broadcast` are send/update routes.
 
 `@agent` remains valid compatibility syntax where a surface owns the text box.
 For new Scout-aware composers, prefer `>>` for target entry and render the

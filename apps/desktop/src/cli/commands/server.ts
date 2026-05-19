@@ -77,9 +77,9 @@ export function renderServerCommandHelp(): string {
     "  --vite-url URL    Dev proxy target for non-API routes (optional override OPENSCOUT_WEB_VITE_URL)",
     "  --public-origin URL",
     "                    Public origin behind Caddy, e.g. https://scout.local",
-    "  --http            Run/print only the plain HTTP edge on port 80",
+    "  --http            Run/print only the plain HTTP edge on port 80 (default)",
     "  --https           Run/print only the HTTPS edge with Caddy local TLS",
-    "  --both            Run/print HTTP and HTTPS edges (default)",
+    "  --both            Run/print HTTP and HTTPS edges",
     "  --advertised-host HOST",
     "                    Explicit node host to advertise/trust (default <machine>.scout.local)",
     "  --trusted-host HOST",
@@ -405,7 +405,7 @@ function resolveServerPort(env: NodeJS.ProcessEnv): number {
 
 function resolveServerEdgeScheme(env: NodeJS.ProcessEnv): OpenScoutLocalEdgeScheme {
   const value = env.OPENSCOUT_WEB_EDGE_SCHEME?.trim().toLowerCase();
-  if (!value) return "both";
+  if (!value) return "http";
   if (value === "http" || value === "https" || value === "both") return value;
   throw new ScoutCliError(`invalid edge scheme: ${value}`);
 }
@@ -649,21 +649,7 @@ async function runScoutLocalEdge(env: NodeJS.ProcessEnv): Promise<void> {
       stdio: "inherit",
       env,
     });
-    const trustTimer = config.scheme === "http"
-      ? null
-      : setTimeout(() => {
-          const trust = ensureScoutLocalEdgeTrust({ env });
-          if (trust.status === "installed" || trust.status === "trusted") {
-            process.stderr.write(`Scout local HTTPS trust: ${trust.detail}\n`);
-            return;
-          }
-          process.stderr.write(`Scout local HTTPS trust: ${trust.detail}\n`);
-        }, 2_000);
-
     caddy.once("error", (error: NodeJS.ErrnoException) => {
-      if (trustTimer) {
-        clearTimeout(trustTimer);
-      }
       cleanup();
       if (error.code === "ENOENT") {
         rejectPromise(new ScoutCliError("Caddy is not installed. Install Caddy or set OPENSCOUT_CADDY_BIN."));
@@ -673,9 +659,6 @@ async function runScoutLocalEdge(env: NodeJS.ProcessEnv): Promise<void> {
     });
 
     caddy.once("exit", (code, signal) => {
-      if (trustTimer) {
-        clearTimeout(trustTimer);
-      }
       cleanup();
       if (signal === "SIGINT" || signal === "SIGTERM") {
         resolvePromise();

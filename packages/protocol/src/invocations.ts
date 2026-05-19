@@ -45,6 +45,7 @@ export interface InvocationRequest {
   ensureAwake: boolean;
   stream: boolean;
   timeoutMs?: number;
+  labels?: string[];
   createdAt: number;
   metadata?: MetadataMap;
 }
@@ -60,5 +61,6 @@ export interface FlightRecord {
   error?: string;
   startedAt?: number;
   completedAt?: number;
+  labels?: string[];
   metadata?: MetadataMap;
 }

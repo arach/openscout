@@ -6019,6 +6019,32 @@ function compactWorkSummary(value: string | undefined, maxLength = 320): string 
     : `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
+function normalizeScoutLabels(labels: string[] | undefined): string[] {
+  if (!labels) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const label of labels) {
+    const trimmed = label.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function mergeScoutLabels(
+  left: string[] | undefined,
+  right: string[] | undefined,
+): string[] | undefined {
+  const merged = normalizeScoutLabels([...(left ?? []), ...(right ?? [])]);
+  return merged.length ? merged : undefined;
+}
+
 function buildDeliveryWorkItem(input: {
   payload: ScoutDeliverRequest;
   requestId: string;
@@ -6038,6 +6064,7 @@ function buildDeliveryWorkItem(input: {
   const recordId = workItem.id?.trim()
     || input.payload.collaborationRecordId?.trim()
     || createRuntimeId("work");
+  const labels = mergeScoutLabels(input.payload.labels, workItem.labels);
   return {
     id: recordId,
     kind: "work_item",
@@ -6051,7 +6078,7 @@ function buildDeliveryWorkItem(input: {
     conversationId: input.conversationId,
     ...(workItem.parentId?.trim() ? { parentId: workItem.parentId.trim() } : {}),
     ...(workItem.priority ? { priority: workItem.priority as CollaborationPriority } : {}),
-    ...(workItem.labels?.length ? { labels: workItem.labels.map((label) => label.trim()).filter(Boolean) } : {}),
+    ...(labels ? { labels } : {}),
     createdAt: input.createdAt,
     updatedAt: input.createdAt,
     requestedById: input.requesterId,
@@ -6418,6 +6445,7 @@ async function acceptBrokerDelivery(
   const { requesterId, requesterNodeId } = callerContextForDelivery(payload);
   const askedLabel = askedLabelForRouteTarget(payload);
   const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
+  const labels = normalizeScoutLabels(payload.labels);
   const typedChannelTarget = payload.target?.kind === "channel" || payload.target?.kind === "broadcast";
   const hasAgentTarget = Boolean(
     payload.target?.kind === "agent_id"
@@ -6455,6 +6483,7 @@ async function acceptBrokerDelivery(
       createdAt,
       metadata: {
         ...(payload.messageMetadata ?? {}),
+        ...(labels.length ? { labels } : {}),
         relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
         relayTarget: SCOUT_DISPATCHER_AGENT_ID,
         relayTargetIds: [SCOUT_DISPATCHER_AGENT_ID],
@@ -6524,6 +6553,7 @@ async function acceptBrokerDelivery(
       createdAt,
       metadata: {
         ...(payload.messageMetadata ?? {}),
+        ...(labels.length ? { labels } : {}),
         relayChannel: deliveryChannel,
         relayMessageId: messageId,
         returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
@@ -6654,6 +6684,7 @@ async function acceptBrokerDelivery(
     createdAt,
     metadata: {
       ...(payload.messageMetadata ?? {}),
+      ...(labels.length ? { labels } : {}),
       relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       relayTargetIds: [resolved.agent.id],
@@ -6719,8 +6750,10 @@ async function acceptBrokerDelivery(
     ensureAwake: payload.ensureAwake ?? true,
     stream: false,
     createdAt,
+    ...(labels.length ? { labels } : {}),
     metadata: {
       ...invocationMetadata,
+      ...(labels.length ? { labels } : {}),
       relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       ...(collaborationRecordId ? { collaborationRecordId, workId: collaborationRecordId } : {}),

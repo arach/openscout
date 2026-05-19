@@ -249,9 +249,9 @@ describe("SQLiteControlPlaneStore", () => {
         id: "unblock-1",
         kind: "permission",
         state: "open",
-        source: "claude-permission-hook",
-        sourceRef: "claude-permission:req-1",
-        title: "Allow Claude tool: Bash",
+        source: "test-permission-source",
+        sourceRef: "permission:req-1",
+        title: "Allow tool: Bash",
         ownerId: "operator",
         createdById: "system",
         severity: "warning",
@@ -270,7 +270,7 @@ describe("SQLiteControlPlaneStore", () => {
         at: 100,
       });
 
-      expect(store.loadSnapshot().unblockRequests["unblock-1"]?.sourceRef).toBe("claude-permission:req-1");
+      expect(store.loadSnapshot().unblockRequests["unblock-1"]?.sourceRef).toBe("permission:req-1");
       expect(store.listUnblockRequests({ ownerId: "operator", active: true })).toHaveLength(1);
       expect(store.listUnblockRequestEvents({ requestId: "unblock-1" })).toHaveLength(1);
 
@@ -474,6 +474,7 @@ describe("SQLiteControlPlaneStore", () => {
         task: "Handle this",
         ensureAwake: true,
         stream: false,
+        labels: ["release:0.2.66"],
         createdAt: 110,
       };
       store.recordInvocation(invocation);
@@ -483,10 +484,13 @@ describe("SQLiteControlPlaneStore", () => {
         requesterId: "operator",
         targetAgentId: "agent-1",
         state: "running",
+        labels: ["release:0.2.66"],
         startedAt: 120,
       });
       store.recordInvocation({ ...invocation, task: "Handle this updated" });
       expect(countRows(db, "flights", "invocation_id", "inv-1")).toBe(1);
+      expect((db.query("SELECT labels_json FROM flights WHERE id = 'flight-1'").get() as { labels_json: string } | null)?.labels_json)
+        .toBe("[\"release:0.2.66\"]");
 
       const collaborationRecord = {
         id: "work-1",
@@ -660,10 +664,13 @@ describe("SQLiteControlPlaneStore", () => {
     const db = new Database(dbPath, { readonly: true });
 
     try {
-      const columns = db.query("SELECT name FROM pragma_table_info('invocations')").all() as Array<{ name: string }>;
+      const invocationColumns = db.query("SELECT name FROM pragma_table_info('invocations')").all() as Array<{ name: string }>;
+      const flightColumns = db.query("SELECT name FROM pragma_table_info('flights')").all() as Array<{ name: string }>;
       const indexNames = getIndexNames(db, ["conversations", "flights", "activity_items", "invocations"]);
 
-      expect(columns.some((column) => column.name === "collaboration_record_id")).toBe(true);
+      expect(invocationColumns.some((column) => column.name === "collaboration_record_id")).toBe(true);
+      expect(invocationColumns.some((column) => column.name === "labels_json")).toBe(true);
+      expect(flightColumns.some((column) => column.name === "labels_json")).toBe(true);
       expect(indexNames).toContain("idx_invocations_collaboration_record_id_created_at");
       expect(indexNames).toContain("idx_invocations_requester_created_at");
       expect(indexNames).toContain("idx_flights_invocation_id");

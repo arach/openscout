@@ -27,6 +27,7 @@ type ScoutAskCommandBase = {
     acceptanceState?: "none" | "pending" | "accepted" | "reopened";
     metadata?: Record<string, unknown>;
   };
+  labels?: string[];
   channel?: string;
   shouldSpeak?: boolean;
   currentDirectory?: string;

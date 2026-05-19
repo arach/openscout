@@ -97,6 +97,7 @@ mock.module("./db-queries.ts", () => ({
     failedDeliveries: [],
     dialogue: [],
   }),
+  queryAgentById: () => null,
   queryConversationDefinitionById: () => null,
   queryHeartrate: () => [],
   queryFleet: () => ({
@@ -751,381 +752,21 @@ describe("createOpenScoutWebServer", () => {
       ]);
   });
 
-  test("bridges Claude permission files into broker-owned unblock attention", async () => {
-    const home = useIsolatedOpenScoutHome();
+  test("renders broker unblock requests without dead approval actions", async () => {
     const createdAt = 1_700_000_000_000;
-    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
-    mkdirSync(permissionDir, { recursive: true });
-    writeFileSync(
-      join(permissionDir, "req-1.json"),
-      `${JSON.stringify({
-        id: "req-1",
-        source: "claude-code",
-        status: "pending",
-        createdAt,
-        updatedAt: createdAt,
-        cwd: "/tmp/project",
-        hookEventName: "PreToolUse",
-        toolName: "Bash",
-        toolInput: { command: "npm test" },
-        sessionId: "session-1",
-        transcriptPath: "/tmp/transcript.jsonl",
-        summary: "npm test",
-      })}\n`,
-      "utf8",
-    );
-    readUnblockRequestsResult = [];
-
-    const server = await createOpenScoutWebServer({
-      currentDirectory: "/tmp/openscout",
-      assetMode: "static",
-      staticRoot: makeStaticRoot(),
-    });
-    const response = await server.app.request("http://localhost/api/operator-attention");
-
-    expect(response.status).toBe(200);
-    const body = await response.json() as {
-      items: Array<{
-        id: string;
-        title: string;
-        permissionRequest?: { id: string };
-        unblockRequest?: { id: string; sourceRef: string };
-      }>;
-    };
-    expect(upsertUnblockRequestCalls).toEqual([
-      expect.objectContaining({
-        id: "unblock:claude-permission:req-1",
-        sourceRef: "claude-permission:req-1",
-      }),
-    ]);
-    expect(body.items.filter((item) => item.title === "Allow Claude tool: Bash")).toHaveLength(1);
-    expect(body.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: "unblock:claude-permission:req-1",
-        permissionRequest: expect.objectContaining({ id: "req-1" }),
-        unblockRequest: expect.objectContaining({
-          id: "unblock:claude-permission:req-1",
-          sourceRef: "claude-permission:req-1",
-        }),
-      }),
-    ]));
-  });
-
-  test("does not rewrite unchanged brokered Claude permission attention", async () => {
-    const home = useIsolatedOpenScoutHome();
-    const createdAt = 1_700_000_000_000;
-    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
-    mkdirSync(permissionDir, { recursive: true });
-    writeFileSync(
-      join(permissionDir, "req-1.json"),
-      `${JSON.stringify({
-        id: "req-1",
-        source: "claude-code",
-        status: "pending",
-        createdAt,
-        updatedAt: createdAt,
-        cwd: "/tmp/project",
-        hookEventName: "PreToolUse",
-        toolName: "Bash",
-        toolInput: { command: "npm test" },
-        sessionId: "session-1",
-        transcriptPath: "/tmp/transcript.jsonl",
-        summary: "npm test",
-      })}\n`,
-      "utf8",
-    );
     readUnblockRequestsResult = [{
-      id: "unblock:claude-permission:req-1",
+      id: "unblock-1",
       kind: "permission",
       state: "open",
-      source: "claude-permission-hook",
-      sourceRef: "claude-permission:req-1",
-      sourceLabel: "Claude hook",
-      title: "Allow Claude tool: Bash",
-      summary: "npm test",
-      detail: "/tmp/project",
-      ownerId: "operator",
-      createdById: "system",
-      sessionId: "session-1",
-      severity: "warning",
-      actions: [
-        { kind: "approve", label: "Allow" },
-        { kind: "deny", label: "Deny" },
-      ],
-      createdAt,
-      updatedAt: createdAt,
-    }];
-
-    const server = await createOpenScoutWebServer({
-      currentDirectory: "/tmp/openscout",
-      assetMode: "static",
-      staticRoot: makeStaticRoot(),
-    });
-    const response = await server.app.request("http://localhost/api/operator-attention");
-
-    expect(response.status).toBe(200);
-    expect(upsertUnblockRequestCalls).toHaveLength(0);
-  });
-
-  test("permission decisions resolve the broker-owned unblock request", async () => {
-    const home = useIsolatedOpenScoutHome();
-    const createdAt = 1_700_000_000_000;
-    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
-    mkdirSync(permissionDir, { recursive: true });
-    writeFileSync(
-      join(permissionDir, "req-1.json"),
-      `${JSON.stringify({
-        id: "req-1",
-        source: "claude-code",
-        status: "pending",
-        createdAt,
-        updatedAt: createdAt,
-        cwd: "/tmp/project",
-        hookEventName: "PreToolUse",
-        toolName: "Bash",
-        toolInput: { command: "npm test" },
-        sessionId: "session-1",
-        transcriptPath: "/tmp/transcript.jsonl",
-        summary: "npm test",
-      })}\n`,
-      "utf8",
-    );
-    readUnblockRequestsResult = [{
-      id: "unblock:claude-permission:req-1",
-      kind: "permission",
-      state: "open",
-      source: "claude-permission-hook",
-      sourceRef: "claude-permission:req-1",
-      title: "Allow Claude tool: Bash",
-      ownerId: "operator",
-      createdById: "system",
-      actions: [{ kind: "approve", label: "Allow" }],
-      createdAt,
-      updatedAt: createdAt,
-    }];
-
-    const server = await createOpenScoutWebServer({
-      currentDirectory: "/tmp/openscout",
-      assetMode: "static",
-      staticRoot: makeStaticRoot(),
-    });
-    const response = await server.app.request("http://localhost/api/operator-attention/permissions/decide", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "req-1", decision: "allow" }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(JSON.parse(readFileSync(join(permissionDir, "req-1.json"), "utf8"))).toMatchObject({
-      status: "decided",
-      decision: "allow",
-    });
-    expect(upsertUnblockRequestCalls).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: "unblock:claude-permission:req-1",
-        state: "resolved",
-      }),
-    ]));
-    expect(appendUnblockRequestEventCalls).toEqual([
-      expect.objectContaining({
-        requestId: "unblock:claude-permission:req-1",
-        kind: "resolved",
-      }),
-    ]);
-  });
-
-  test("expired Claude permission files close stale broker-owned unblock attention", async () => {
-    const home = useIsolatedOpenScoutHome();
-    const createdAt = 1_700_000_000_000;
-    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
-    mkdirSync(permissionDir, { recursive: true });
-    writeFileSync(
-      join(permissionDir, "req-1.json"),
-      `${JSON.stringify({
-        id: "req-1",
-        source: "claude-code",
-        status: "expired",
-        createdAt,
-        updatedAt: createdAt + 45_000,
-        cwd: "/tmp/project",
-        hookEventName: "PreToolUse",
-        toolName: "Bash",
-        toolInput: { command: "npm test" },
-        sessionId: "session-1",
-        transcriptPath: "/tmp/transcript.jsonl",
-        summary: "npm test",
-      })}\n`,
-      "utf8",
-    );
-    readUnblockRequestsResult = [{
-      id: "unblock:claude-permission:req-1",
-      kind: "permission",
-      state: "open",
-      source: "claude-permission-hook",
-      sourceRef: "claude-permission:req-1",
-      title: "Allow Claude tool: Bash",
+      source: "test-permission-source",
+      sourceRef: "permission:req-1",
+      title: "Tool permission needed",
       ownerId: "operator",
       createdById: "system",
       actions: [
         { kind: "approve", label: "Allow" },
         { kind: "deny", label: "Deny" },
-      ],
-      createdAt,
-      updatedAt: createdAt,
-    }];
-
-    const server = await createOpenScoutWebServer({
-      currentDirectory: "/tmp/openscout",
-      assetMode: "static",
-      staticRoot: makeStaticRoot(),
-    });
-    const response = await server.app.request("http://localhost/api/operator-attention");
-
-    expect(response.status).toBe(200);
-    const body = await response.json() as {
-      items: Array<{ id: string; title: string }>;
-    };
-    expect(upsertUnblockRequestCalls).toEqual([
-      expect.objectContaining({
-        id: "unblock:claude-permission:req-1",
-        state: "expired",
-      }),
-    ]);
-    expect(body.items.some((item) => item.id === "unblock:claude-permission:req-1")).toBe(false);
-  });
-
-  test("timed-out pending Claude permission files close stale broker-owned unblock attention", async () => {
-    const home = useIsolatedOpenScoutHome();
-    const createdAt = 1_700_000_000_000;
-    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
-    mkdirSync(permissionDir, { recursive: true });
-    writeFileSync(
-      join(permissionDir, "req-1.json"),
-      `${JSON.stringify({
-        id: "req-1",
-        source: "claude-code",
-        status: "pending",
-        createdAt,
-        updatedAt: createdAt,
-        expiresAt: 1,
-        cwd: "/tmp/project",
-        hookEventName: "PreToolUse",
-        toolName: "Bash",
-        toolInput: { command: "npm test" },
-        sessionId: "session-1",
-        transcriptPath: "/tmp/transcript.jsonl",
-        summary: "npm test",
-      })}\n`,
-      "utf8",
-    );
-    readUnblockRequestsResult = [{
-      id: "unblock:claude-permission:req-1",
-      kind: "permission",
-      state: "open",
-      source: "claude-permission-hook",
-      sourceRef: "claude-permission:req-1",
-      title: "Allow Claude tool: Bash",
-      ownerId: "operator",
-      createdById: "system",
-      actions: [
-        { kind: "approve", label: "Allow" },
-        { kind: "deny", label: "Deny" },
-      ],
-      createdAt,
-      updatedAt: createdAt,
-    }];
-
-    const server = await createOpenScoutWebServer({
-      currentDirectory: "/tmp/openscout",
-      assetMode: "static",
-      staticRoot: makeStaticRoot(),
-    });
-    const response = await server.app.request("http://localhost/api/operator-attention");
-
-    expect(response.status).toBe(200);
-    const body = await response.json() as {
-      items: Array<{ id: string; title: string }>;
-    };
-    expect(upsertUnblockRequestCalls).toEqual([
-      expect.objectContaining({
-        id: "unblock:claude-permission:req-1",
-        state: "expired",
-      }),
-    ]);
-    expect(body.items.some((item) => item.id === "unblock:claude-permission:req-1")).toBe(false);
-  });
-
-  test("permission decisions reject timed-out Claude permission files", async () => {
-    const home = useIsolatedOpenScoutHome();
-    const createdAt = 1_700_000_000_000;
-    const permissionDir = join(home, ".openscout", "control-plane", "permission-requests");
-    mkdirSync(permissionDir, { recursive: true });
-    writeFileSync(
-      join(permissionDir, "req-1.json"),
-      `${JSON.stringify({
-        id: "req-1",
-        source: "claude-code",
-        status: "pending",
-        createdAt,
-        updatedAt: createdAt,
-        expiresAt: 1,
-        cwd: "/tmp/project",
-        hookEventName: "PreToolUse",
-        toolName: "Bash",
-        toolInput: { command: "npm test" },
-        sessionId: "session-1",
-        transcriptPath: "/tmp/transcript.jsonl",
-        summary: "npm test",
-      })}\n`,
-      "utf8",
-    );
-
-    const server = await createOpenScoutWebServer({
-      currentDirectory: "/tmp/openscout",
-      assetMode: "static",
-      staticRoot: makeStaticRoot(),
-    });
-    const response = await server.app.request("http://localhost/api/operator-attention/permissions/decide", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "req-1", decision: "allow" }),
-    });
-
-    expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({
-      error: "permission request expired",
-      id: "req-1",
-    });
-    expect(JSON.parse(readFileSync(join(permissionDir, "req-1.json"), "utf8"))).toMatchObject({
-      status: "pending",
-    });
-    expect(upsertUnblockRequestCalls).toEqual([
-      expect.objectContaining({
-        id: "unblock:claude-permission:req-1",
-        state: "expired",
-      }),
-    ]);
-  });
-
-  test("stale Claude permission unblock records cue instead of rendering dead approval actions", async () => {
-    useIsolatedOpenScoutHome();
-    const createdAt = 1_700_000_000_000;
-    readUnblockRequestsResult = [{
-      id: "unblock:claude-permission:req-missing",
-      kind: "permission",
-      state: "open",
-      source: "claude-permission-hook",
-      sourceRef: "claude-permission:req-missing",
-      sourceLabel: "Claude hook",
-      title: "Allow Claude tool: Bash",
-      summary: "npm test",
-      detail: "/tmp/project",
-      ownerId: "operator",
-      createdById: "system",
-      severity: "warning",
-      actions: [
-        { kind: "approve", label: "Allow" },
-        { kind: "deny", label: "Deny" },
+        { kind: "open", label: "Open settings", route: { view: "settings" } },
       ],
       createdAt,
       updatedAt: createdAt,
@@ -1142,15 +783,11 @@ describe("createOpenScoutWebServer", () => {
     const body = await response.json() as {
       items: Array<{
         id: string;
-        detail: string | null;
-        actions: Array<{ kind: string; value?: string }>;
+        actions: Array<{ kind: string }>;
       }>;
     };
-    const item = body.items.find((candidate) => candidate.id === "unblock:claude-permission:req-missing");
-    expect(item).toBeDefined();
-    expect(item?.detail).toContain("no longer pending");
-    expect(item?.actions.map((action) => action.kind)).toEqual(["copy", "dismiss"]);
-    expect(item?.actions[0]?.value).toBe("claude-permission:req-missing");
+    expect(body.items.find((item) => item.id === "unblock-1")?.actions.map((action) => action.kind))
+      .toEqual(["open", "dismiss"]);
   });
 
   test("passes run filters to the run registry API", async () => {

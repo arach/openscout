@@ -304,6 +304,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     targetLabel: resolvedTarget.display,
     body: command.body,
     workItem: command.workItem,
+    labels: command.labels,
     channel: command.channel,
     shouldSpeak: command.shouldSpeak,
     executionHarness: command.harness,

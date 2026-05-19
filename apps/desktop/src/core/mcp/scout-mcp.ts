@@ -34,6 +34,8 @@ import {
   loadScoutFlight,
   loadScoutBrokerContext,
   loadScoutMessages,
+  readScoutLabelFeed,
+  readScoutLabelBrief,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
   sendScoutMessage,
@@ -45,6 +47,8 @@ import {
   type ScoutAskByIdResult,
   type ScoutAskResult,
   type ScoutFlightRecord,
+  type ScoutLabelBrief,
+  type ScoutLabelFeed,
   type ScoutBrokerMessageRecord,
   type ScoutMessagePostResult,
   type ScoutReplyPostResult,
@@ -395,6 +399,7 @@ type ScoutMcpDependencies = {
     workItem?: ScoutWorkItemInput;
     channel?: string;
     shouldSpeak?: boolean;
+    labels?: string[];
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutAskResult>;
@@ -405,6 +410,7 @@ type ScoutMcpDependencies = {
     workItem?: ScoutWorkItemInput;
     channel?: string;
     shouldSpeak?: boolean;
+    labels?: string[];
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutAskByIdResult>;
@@ -423,6 +429,15 @@ type ScoutMcpDependencies = {
     baseUrl: string,
     flightId: string,
   ) => Promise<ScoutFlightRecord | null>;
+  readLabelBrief: (
+    label: string,
+    baseUrl: string,
+  ) => Promise<ScoutLabelBrief | null>;
+  readLabelFeed: (
+    label: string,
+    baseUrl: string,
+    options?: { since?: number | null; limit?: number | null },
+  ) => Promise<ScoutLabelFeed | null>;
 };
 
 const flightSchema = z.object({
@@ -436,7 +451,97 @@ const flightSchema = z.object({
   error: z.string().optional(),
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
+  labels: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const labelBriefFlightSchema = z.object({
+  id: z.string(),
+  invocationId: z.string(),
+  state: z.string(),
+  requesterId: z.string(),
+  targetAgentId: z.string(),
+  summary: z.string().nullable(),
+  output: z.string().nullable(),
+  error: z.string().nullable(),
+  labels: z.array(z.string()),
+  conversationId: z.string().nullable(),
+  messageId: z.string().nullable(),
+  workId: z.string().nullable(),
+  startedAt: z.number().nullable(),
+  completedAt: z.number().nullable(),
+  lastActivityAt: z.number().nullable(),
+});
+
+const labelBriefWorkItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  state: z.string(),
+  ownerId: z.string().nullable(),
+  nextMoveOwnerId: z.string().nullable(),
+  summary: z.string().nullable(),
+  labels: z.array(z.string()),
+  updatedAt: z.number(),
+});
+
+const labelBriefSchema = z.object({
+  label: z.string(),
+  generatedAt: z.number(),
+  lastActivityAt: z.number().nullable(),
+  participants: z.array(z.string()),
+  counts: z.object({
+    flights: z.number(),
+    activeFlights: z.number(),
+    workItems: z.number(),
+  }),
+  flightsByState: z.record(z.string(), z.number()),
+  activeFlights: z.array(labelBriefFlightSchema),
+  recentFlights: z.array(labelBriefFlightSchema),
+  workItems: z.array(labelBriefWorkItemSchema),
+});
+
+const labelFeedEventSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  at: z.number(),
+  kind: z.enum([
+    "message",
+    "invocation_created",
+    "flight_started",
+    "flight_state",
+    "flight_completed",
+    "flight_failed",
+    "flight_cancelled",
+    "work_event",
+    "work_snapshot",
+  ]),
+  category: z.enum(["message", "invocation", "flight", "work"]),
+  actorId: z.string().nullable(),
+  targetAgentId: z.string().nullable(),
+  conversationId: z.string().nullable(),
+  messageId: z.string().nullable(),
+  invocationId: z.string().nullable(),
+  flightId: z.string().nullable(),
+  workId: z.string().nullable(),
+  state: z.string().nullable(),
+  eventKind: z.string().nullable(),
+  summary: z.string(),
+  labels: z.array(z.string()),
+});
+
+const labelFeedSchema = z.object({
+  label: z.string(),
+  generatedAt: z.number(),
+  cursor: z.string().nullable(),
+  since: z.number().nullable(),
+  counts: z.object({
+    events: z.number(),
+    messages: z.number(),
+    invocations: z.number(),
+    flights: z.number(),
+    workEvents: z.number(),
+  }),
+  events: z.array(labelFeedEventSchema),
 });
 
 const trackedWorkItemSchema = z.object({
@@ -1298,6 +1403,35 @@ function renderInvocationLookupSummary(result: {
     return `Flight ${result.flightId} is still ${result.flight.state}.${followText}`;
   }
   return `Flight ${result.flightId} is ${result.flight.state}.${followText}`;
+}
+
+function renderMcpLabelBriefSummary(brief: ScoutLabelBrief & { found: boolean }): string {
+  if (!brief.found) {
+    return `Label ${brief.label} was not found.`;
+  }
+  const pieces = [
+    `Label ${brief.label}`,
+    `${brief.counts.activeFlights} active flights`,
+    `${brief.counts.flights} total flights`,
+    `${brief.counts.workItems} work items`,
+  ];
+  const active = brief.activeFlights
+    .slice(0, 3)
+    .map((flight) => `${flight.id} ${flight.state} -> ${flight.targetAgentId}`)
+    .join("; ");
+  const recent = active ? ` Active: ${active}.` : "";
+  return `${pieces.join("; ")}.${recent}`;
+}
+
+function renderMcpLabelFeedSummary(feed: ScoutLabelFeed & { found: boolean }): string {
+  if (!feed.found) {
+    return `Label ${feed.label} feed is unavailable.`;
+  }
+  const latest = feed.events.at(-1);
+  const latestText = latest
+    ? ` Latest: ${latest.kind} from ${latest.actorId ?? "unknown"} - ${latest.summary}`
+    : " No events yet.";
+  return `Label ${feed.label}; ${feed.counts.events} events; cursor ${feed.cursor ?? "none"}.${latestText}`;
 }
 
 function resolveCurrentCodexThreadId(env: NodeJS.ProcessEnv): string {
@@ -2322,6 +2456,7 @@ function defaultScoutMcpDependencies(
       workItem,
       channel,
       shouldSpeak,
+      labels,
       currentDirectory,
       source,
     }) =>
@@ -2332,6 +2467,7 @@ function defaultScoutMcpDependencies(
         workItem,
         channel,
         shouldSpeak,
+        labels,
         currentDirectory,
         source,
       }),
@@ -2342,6 +2478,7 @@ function defaultScoutMcpDependencies(
       workItem,
       channel,
       shouldSpeak,
+      labels,
       currentDirectory,
       source,
     }) =>
@@ -2352,6 +2489,7 @@ function defaultScoutMcpDependencies(
         workItem,
         channel,
         shouldSpeak,
+        labels,
         currentDirectory,
         source,
       }),
@@ -2359,6 +2497,9 @@ function defaultScoutMcpDependencies(
     waitForFlight: (baseUrl, flightId, options) =>
       waitForScoutFlight(baseUrl, flightId, options),
     getFlight: (baseUrl, flightId) => loadScoutFlight(baseUrl, flightId),
+    readLabelBrief: (label, baseUrl) => readScoutLabelBrief(label, baseUrl),
+    readLabelFeed: (label, baseUrl, options) =>
+      readScoutLabelFeed(label, options, baseUrl),
   };
 }
 
@@ -3416,6 +3557,7 @@ export function createScoutMcpServer(options: {
           senderId: z.string().optional(),
           targetAgentId: targetAgentIdInputSchema,
           targetLabel: targetLabelInputSchema,
+          labels: z.array(z.string()).optional(),
           workItem: workItemInputSchema.optional(),
           channel: z.string().optional(),
           shouldSpeak: z.boolean().optional(),
@@ -3464,6 +3606,7 @@ export function createScoutMcpServer(options: {
       senderId,
       targetAgentId,
       targetLabel,
+      labels,
       workItem,
       channel,
       shouldSpeak,
@@ -3492,6 +3635,7 @@ export function createScoutMcpServer(options: {
           workItem,
           channel,
           shouldSpeak,
+          labels,
           currentDirectory: resolvedCurrentDirectory,
           source: "scout-mcp",
         });
@@ -3631,12 +3775,13 @@ export function createScoutMcpServer(options: {
       const result = await deps.askQuestion({
         senderId: resolvedSenderId,
         targetLabel: targetLabel!.trim(),
-        body,
-        workItem,
-        channel,
-        shouldSpeak,
-        currentDirectory: resolvedCurrentDirectory,
-        source: "scout-mcp",
+          body,
+          workItem,
+          channel,
+          shouldSpeak,
+          labels,
+          currentDirectory: resolvedCurrentDirectory,
+          source: "scout-mcp",
       });
       const waitResult = shouldAwait
         ? await waitForFlightForMcp({
@@ -3838,6 +3983,136 @@ export function createScoutMcpServer(options: {
         content: createPlainTextContent(
           renderInvocationLookupSummary(structuredContent),
         ),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "labels_brief",
+    {
+      title: "Brief Scout Label",
+      description:
+        "Fetch a compact, non-chatty brief for records sharing a Scout label. Labels are lightweight coordination metadata: they can mean a goal, release, milestone, incident, or any local convention without creating a lifecycle.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        label: z.string().min(1),
+      }),
+      outputSchema: labelBriefSchema.extend({
+        currentDirectory: z.string(),
+        found: z.boolean(),
+      }),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ currentDirectory, label }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const trimmedLabel = label.trim();
+      const brief = await deps.readLabelBrief(trimmedLabel, deps.resolveBrokerUrl());
+      if (!brief) {
+        const empty = {
+          currentDirectory: resolvedCurrentDirectory,
+          found: false,
+          label: trimmedLabel,
+          generatedAt: Date.now(),
+          lastActivityAt: null,
+          participants: [],
+          counts: {
+            flights: 0,
+            activeFlights: 0,
+            workItems: 0,
+          },
+          flightsByState: {},
+          activeFlights: [],
+          recentFlights: [],
+          workItems: [],
+        };
+        return {
+          content: createPlainTextContent("Scout broker is not reachable; label brief is unavailable."),
+          structuredContent: empty,
+        };
+      }
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        found: true,
+        ...brief,
+      };
+      return {
+        content: createPlainTextContent(renderMcpLabelBriefSummary(structuredContent)),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "labels_feed",
+    {
+      title: "Read Scout Label Feed",
+      description:
+        "Fetch a normalized firehose-style event backlog for records sharing a Scout label. Use this to see whether label-scoped work is moving without parsing harness-native session files.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        label: z.string().min(1),
+        since: z.number().optional(),
+        limit: z.number().int().min(1).max(1000).optional(),
+      }),
+      outputSchema: labelFeedSchema.extend({
+        currentDirectory: z.string(),
+        found: z.boolean(),
+      }),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ currentDirectory, label, since, limit }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const trimmedLabel = label.trim();
+      const feed = await deps.readLabelFeed(trimmedLabel, deps.resolveBrokerUrl(), {
+        since: since ?? null,
+        limit: limit ?? 80,
+      });
+      if (!feed) {
+        const empty = {
+          currentDirectory: resolvedCurrentDirectory,
+          found: false,
+          label: trimmedLabel,
+          generatedAt: Date.now(),
+          cursor: null,
+          since: since ?? null,
+          counts: {
+            events: 0,
+            messages: 0,
+            invocations: 0,
+            flights: 0,
+            workEvents: 0,
+          },
+          events: [],
+        };
+        return {
+          content: createPlainTextContent("Scout broker is not reachable; label feed is unavailable."),
+          structuredContent: empty,
+        };
+      }
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        found: true,
+        ...feed,
+      };
+      return {
+        content: createPlainTextContent(renderMcpLabelFeedSummary(structuredContent)),
         structuredContent,
       };
     },

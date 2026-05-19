@@ -102,8 +102,6 @@ export function renderScoutDoctorTailAfterStream(report: ScoutDoctorReport): str
     "",
     ...renderLocalEdgeDoctor(report.localEdge),
     "",
-    ...renderClaudePermissionHook(report.claudePermissionHook),
-    "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
 
@@ -161,12 +159,6 @@ function renderLocalEdgeDependencyReport(report: LocalEdgeDependencyReport): str
   if (report.installCommand) {
     lines.push(`  Install: ${report.installCommand}`);
   }
-  lines.push(`  HTTPS trust: ${report.trust.status}`);
-  lines.push(`  Trust detail: ${report.trust.detail}`);
-  lines.push(`  Root CA: ${report.trust.rootCertificatePath}`);
-  if (report.trust.trustCommand) {
-    lines.push(`  Trust: ${report.trust.trustCommand}`);
-  }
   return lines;
 }
 
@@ -193,12 +185,6 @@ function renderLocalEdgeDoctor(edge: ScoutLocalEdgeDoctorReport): string[] {
   if (edge.dependency.installCommand) {
     lines.push(`  Install: ${edge.dependency.installCommand}`);
   }
-  lines.push(`  HTTPS trust: ${edge.dependency.trust.status}`);
-  lines.push(`  Trust detail: ${edge.dependency.trust.detail}`);
-  lines.push(`  Root CA: ${edge.dependency.trust.rootCertificatePath}`);
-  if (edge.dependency.trust.trustCommand) {
-    lines.push(`  Trust: ${edge.dependency.trust.trustCommand}`);
-  }
   lines.push(
     `  Portal host: ${formatLocalEdgeHostResolution(edge.dns.portal)}`,
     `  Node host: ${formatLocalEdgeHostResolution(edge.dns.node)}`,
@@ -211,17 +197,6 @@ function renderLocalEdgeDoctor(edge: ScoutLocalEdgeDoctorReport): string[] {
     lines.push(`  Hint: ${hint}`);
   }
 
-  return lines;
-}
-
-function renderClaudePermissionHook(report: ScoutDoctorReport["claudePermissionHook"] | ScoutSetupReport["claudePermissionHook"]): string[] {
-  const lines = [
-    "Claude permission hook:",
-    `  State: ${report.state}`,
-    `  Detail: ${report.detail}`,
-    `  Settings: ${report.settingsPath}`,
-    `  Hook: ${report.hookPath}`,
-  ];
   return lines;
 }
 
@@ -275,8 +250,6 @@ export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
     "",
     ...renderLocalEdgeDoctor(report.localEdge),
     "",
-    ...renderClaudePermissionHook(report.claudePermissionHook),
-    "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
 
@@ -323,7 +296,6 @@ export function renderScoutSetupReport(report: ScoutSetupReport): string {
   }
 
   lines.push("", ...renderLocalEdgeDependencyReport(report.localEdge));
-  lines.push("", ...renderClaudePermissionHook(report.claudePermissionHook));
 
   lines.push("", "Harnesses:");
   for (const entry of report.catalog.entries) {

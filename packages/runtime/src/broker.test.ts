@@ -145,9 +145,9 @@ describe("InMemoryControlRuntime", () => {
       id: "unblock-1",
       kind: "permission",
       state: "open",
-      source: "claude-permission-hook",
-      sourceRef: "claude-permission:req-1",
-      title: "Allow Claude tool: Bash",
+      source: "test-permission-source",
+      sourceRef: "permission:req-1",
+      title: "Allow tool: Bash",
       ownerId: "operator",
       createdById: "system",
       actions: [
@@ -272,11 +272,13 @@ describe("InMemoryControlRuntime", () => {
       task: "Status?",
       ensureAwake: true,
       stream: false,
+      labels: ["release:0.2.66"],
       createdAt: Date.now(),
     };
     const flight = runtime.planInvocation(invocation);
 
     expect(runtime.flightForInvocation("inv-1")).toBeUndefined();
+    expect(flight.labels).toEqual(["release:0.2.66"]);
 
     await runtime.commitInvocation(invocation, flight);
 

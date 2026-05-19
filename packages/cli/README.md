@@ -161,6 +161,23 @@ scout ask --as premotion.master.mini --to hudson "Build the editable CodeViewer 
 Use `channel.shared` only when the work is genuinely for a group, not for a
 single owner.
 
+### Label-scoped catch-up
+
+Use labels to tie related asks together without creating a new workflow object:
+
+```bash
+scout ask --to hudson --label release:0.2.66 "Review the package bump."
+scout ask --to lattices --label release:0.2.66 "Check the install path."
+scout label feed release:0.2.66 --since 10m
+scout label watch release:0.2.66 --interval 2
+scout label brief release:0.2.66
+```
+
+Labels are plain metadata. They can mean a goal, release, milestone, incident,
+or any local convention. `scout label watch` streams a normalized firehose of
+matching Scout-owned activity; `scout label brief` gives a compact digest. Scout
+does not assign a lifecycle to the label.
+
 ### Addressing specific agents
 
 Agent identity has six dimensions: `definitionId`, workspace qualifier, `profile`, `harness`, `model`, `node`. Canonical form:
@@ -266,7 +283,7 @@ scout server open
 scout server start
 scout server start --port 3200
 scout server open --path /agents/arc-codex-2.master.mini
-scout server start --public-origin https://scout.local
+scout server start --public-origin http://scout.local
 scout server edge --local-name m1
 scout server start --vite-url http://127.0.0.1:43173   # SPA dev server
 scout server start --static --static-root /custom/client
@@ -274,7 +291,7 @@ scout server start --static --static-root /custom/client
 
 `scout server open` reuses an already-running matching Scout server on that port, or starts one in the background and opens the browser for you. Use `scout server` or `scout server help` for full flags.
 
-The application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. `scout server edge` publishes `scout.local` plus the node host with Bonjour/mDNS and runs Caddy against the active web port. The managed edge serves HTTP on port `80` for zero-cert local browsing and HTTPS on port `443` with Caddy's local CA; the HTTPS path needs the local CA trusted once by browsers that enforce their own trust store.
+The application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. `scout server edge` publishes `scout.local` plus the node host with Bonjour/mDNS and runs Caddy against the active web port. The managed edge defaults to HTTP on port `80` for zero-cert local browsing. HTTPS remains an explicit opt-in via `--edge-scheme https` or `--edge-scheme both` plus `scout server trust`.
 
 `scout setup` verifies Caddy for this path. The setup command installs it with Homebrew on macOS when `caddy` is not already available, but Scout still runs Caddy directly with the generated `~/.scout/local-edge/Caddyfile` instead of registering a separate Homebrew service. The base LaunchAgent is labelled `dev.openscout` in source/dev installs and supervises the broker, local edge, web startup, and menu bar app; `scout doctor` prints the exact `launchctl bootout ...` command for the current mode.
 

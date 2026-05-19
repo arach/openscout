@@ -25,7 +25,7 @@ const DEFAULT_ASK_ACK_TIMEOUT_SECONDS = 30;
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask (--to <agent> | --ref <ref> | --project <path>) [--as <sender>] [--channel <name>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--prompt-file <path> | <message>]",
+    "Usage: scout ask (--to <agent> | --ref <ref> | --project <path>) [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -52,6 +52,7 @@ export function renderAskCommandHelp(): string {
     '  scout ask --as premotion.master.mini --to hudson "build the editor"',
     '  scout ask --to hudson --reply-mode notify "take the next pass and report back"',
     '  scout ask --to hudson --no-wait "start the longer implementation"',
+    '  scout ask --to hudson --label release:0.2.66 "review the package bump"',
     '  scout ask --to vox.harness:codex "take another pass on the runtime fix"',
     '  scout ask --to lattices#codex?5.5 "take task A"',
     '  scout ask --to lattices#claude?sonnet "take task B"',
@@ -227,6 +228,7 @@ export async function runAskWithOptions(
     body,
     channel: options.channel,
     harness: parseScoutHarness(options.harness),
+    labels: options.labels,
     currentDirectory,
     source: "scout-cli",
   });

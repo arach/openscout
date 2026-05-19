@@ -426,23 +426,6 @@ export type OperatorAttentionItem = {
     source: string;
     sourceRef: string;
   };
-  permissionRequest?: {
-    id: string;
-    source: "claude-code";
-    status: "pending" | "decided" | "expired";
-    createdAt: number;
-    updatedAt: number;
-    expiresAt?: number;
-    sessionId: string | null;
-    transcriptPath: string | null;
-    cwd: string;
-    hookEventName: string;
-    toolName: string;
-    toolInput: unknown;
-    summary: string | null;
-    decision?: "allow" | "deny";
-    reason?: string;
-  };
   actions: OperatorAttentionAction[];
 };
 
