@@ -64,6 +64,22 @@ describe("agents route parsing", () => {
     expect(routePath(route)).toBe("/ops/tail?q=019ddb1b-test-thread");
   });
 
+  test("ops issues route accepts error-oriented aliases", () => {
+    expect(routeFromUrl("http://127.0.0.1:3200/ops/plan")).toEqual({
+      view: "ops",
+      mode: "plan",
+    });
+    expect(routeFromUrl("http://127.0.0.1:3200/ops/issues")).toEqual({
+      view: "ops",
+      mode: "issues",
+    });
+    expect(routeFromUrl("http://127.0.0.1:3200/ops/errors")).toEqual({
+      view: "ops",
+      mode: "issues",
+    });
+    expect(routePath({ view: "ops", mode: "issues" })).toBe("/ops/issues");
+  });
+
   test("messages index route round-trips", () => {
     expect(routeFromUrl("http://127.0.0.1:3200/messages")).toEqual({
       view: "messages",

@@ -269,8 +269,12 @@ function BroadcastPopover({
   }, [onClose]);
 
   const recent = useMemo(
-    () => history.slice(-20).slice().reverse(),
-    [history],
+    () => history
+      .filter((broadcast) => tierAllowed(broadcast.tier, muteState.filter))
+      .slice(-20)
+      .slice()
+      .reverse(),
+    [history, muteState.filter],
   );
 
   const setFilter = (filter: MuteFilter) => {
@@ -319,6 +323,7 @@ function BroadcastPopover({
               muteState.filter === "all" && !muteState.goDark ? " s-broadcast-mute-btn--active" : ""
             }`}
             onClick={() => setFilter("all")}
+            aria-pressed={muteState.filter === "all" && !muteState.goDark}
           >
             All
           </button>
@@ -328,6 +333,7 @@ function BroadcastPopover({
               muteState.filter === "warn-plus" && !muteState.goDark ? " s-broadcast-mute-btn--active" : ""
             }`}
             onClick={() => setFilter("warn-plus")}
+            aria-pressed={muteState.filter === "warn-plus" && !muteState.goDark}
           >
             Warn+
           </button>
@@ -337,6 +343,7 @@ function BroadcastPopover({
               muteState.filter === "errors-only" && !muteState.goDark ? " s-broadcast-mute-btn--active" : ""
             }`}
             onClick={() => setFilter("errors-only")}
+            aria-pressed={muteState.filter === "errors-only" && !muteState.goDark}
           >
             Errors
           </button>
@@ -347,6 +354,7 @@ function BroadcastPopover({
             }`}
             onClick={toggleMute30m}
             title={muteCountdown ?? "Suppress for 30 minutes"}
+            aria-pressed={muteState.muteUntil > now}
           >
             {muteCountdown ? `Mute ${muteCountdown}` : "Mute 30m"}
           </button>
@@ -357,13 +365,16 @@ function BroadcastPopover({
             }`}
             onClick={toggleGoDark}
             title="Suppress until toggled off"
+            aria-pressed={muteState.goDark}
           >
             Go dark
           </button>
         </div>
         <div className="s-broadcast-popover-list">
           {recent.length === 0 ? (
-            <div className="s-broadcast-popover-empty">No broadcasts yet.</div>
+            <div className="s-broadcast-popover-empty">
+              {history.length === 0 ? "No broadcasts yet." : "No broadcasts match this filter."}
+            </div>
           ) : (
             recent.map((broadcast) => (
               <div key={broadcast.id} className="s-broadcast-popover-row">
@@ -382,7 +393,7 @@ function BroadcastPopover({
           )}
         </div>
         <div className="s-broadcast-popover-foot">
-          Showing last {Math.min(recent.length, 20)} broadcast{recent.length === 1 ? "" : "s"}.
+          Showing {Math.min(recent.length, 20)} of {history.length} buffered broadcast{history.length === 1 ? "" : "s"}.
           Filtering applies live.
         </div>
       </div>

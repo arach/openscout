@@ -96,15 +96,17 @@
 .s-broadcast-popover-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: 10000;
   background: transparent;
+  pointer-events: auto;
 }
 
 .s-broadcast-popover {
   position: fixed;
   bottom: 56px;
   right: 12px;
-  z-index: 71;
+  z-index: 10001;
+  pointer-events: auto;
   width: min(440px, calc(100vw - 24px));
   max-height: 60vh;
   display: flex;
