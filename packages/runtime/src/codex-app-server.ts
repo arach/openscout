@@ -502,6 +502,12 @@ type CodexSessionCatalog = {
 
 const SESSION_CATALOG_FILENAME = "session-catalog.json";
 const SESSION_CATALOG_MAX_ENTRIES = 64;
+const CODEX_ROLLOUT_STALE_ACTIVE_TURN_MS = 10 * 60 * 1000;
+
+type CodexRolloutSnapshotProjectionOptions = {
+  nowMs?: number;
+  staleActiveTurnMs?: number;
+};
 
 async function readCodexSessionCatalog(runtimeDirectory: string): Promise<CodexSessionCatalog> {
   const raw = await readOptionalFile(join(runtimeDirectory, SESSION_CATALOG_FILENAME));
@@ -1241,6 +1247,7 @@ export function buildCodexRolloutSessionSnapshot(
   options: CodexSessionSnapshotOptions,
   targetThreadId?: string | null,
   rolloutPath?: string | null,
+  projectionOptions: CodexRolloutSnapshotProjectionOptions = {},
 ): SessionState | null {
   const lines = raw
     .split(/\r?\n/)
@@ -1263,6 +1270,7 @@ export function buildCodexRolloutSessionSnapshot(
   const turnsById = new Map<string, TurnState & { nextBlockIndex: number }>();
   const blocksByCallId = new Map<string, BlockState>();
   let currentTurnId: string | null = null;
+  let lastObservedAt: number | null = null;
 
   const ensureTurn = (turnId: string, startedAt?: number) => {
     const existing = turnsById.get(turnId);
@@ -1294,6 +1302,7 @@ export function buildCodexRolloutSessionSnapshot(
     }
 
     const timestamp = parseCodexTimestamp(message.timestamp) ?? Date.now();
+    lastObservedAt = timestamp;
     const entryType = typeof message.type === "string" ? message.type : "";
     const payload = message.payload && typeof message.payload === "object" && !Array.isArray(message.payload)
       ? message.payload as Record<string, unknown>
@@ -1500,6 +1509,31 @@ export function buildCodexRolloutSessionSnapshot(
   }
 
   setCodexProviderMeta(snapshot, resolvedThreadId, rolloutPath ?? null);
+
+  if (snapshot.currentTurnId && lastObservedAt !== null) {
+    const staleActiveTurnMs = projectionOptions.staleActiveTurnMs ?? CODEX_ROLLOUT_STALE_ACTIVE_TURN_MS;
+    const nowMs = projectionOptions.nowMs ?? Date.now();
+    const turn = turnsById.get(snapshot.currentTurnId);
+    const hasStreamingBlocks = turn?.blocks.some((blockState) => blockState.status !== "completed") ?? false;
+    if (
+      staleActiveTurnMs > 0
+      && nowMs - lastObservedAt >= staleActiveTurnMs
+      && turn
+      && !hasStreamingBlocks
+    ) {
+      turn.status = "interrupted";
+      turn.endedAt = lastObservedAt;
+      finalizeCodexTurnBlocks(turn, "interrupted");
+      snapshot.currentTurnId = undefined;
+      snapshot.session.status = resolvedThreadId ? "idle" : snapshot.session.status;
+
+      const runtime = ensureCodexProviderMetaRecord(snapshot, "observeRuntime");
+      runtime.staleActiveTurn = true;
+      runtime.staleActiveTurnMs = nowMs - lastObservedAt;
+      runtime.staleActiveTurnReason = "No Codex rollout activity after an unfinished turn.";
+    }
+  }
+
   snapshot.session.status = snapshot.currentTurnId ? "active" : snapshot.session.status;
   return snapshot;
 }
