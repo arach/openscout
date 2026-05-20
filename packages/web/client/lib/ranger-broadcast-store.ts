@@ -1,12 +1,27 @@
 import { useSyncExternalStore } from "react";
 
 import { api } from "./api.ts";
-import type { Broadcast } from "./types.ts";
+import type { Broadcast, BroadcastTier } from "./types.ts";
 
 const HISTORY_LIMIT = 50;
 const VISIBLE_LIFETIME_MS = 30_000;
 const PROMOTE_LIFETIME_MS = 5 * 60_000;
 const TOGGLE_RANGER_EVENT = "openscout:toggle-ranger";
+const MUTE_KEY = "openscout.broadcast.mute";
+
+export type MuteFilter = "all" | "warn-plus" | "errors-only";
+
+export type MuteState = {
+  filter: MuteFilter;
+  goDark: boolean;
+  muteUntil: number;
+};
+
+export const DEFAULT_MUTE: MuteState = {
+  filter: "all",
+  goDark: false,
+  muteUntil: 0,
+};
 
 type StoreSnapshot = {
   history: readonly Broadcast[];
@@ -14,6 +29,7 @@ type StoreSnapshot = {
   promotedId: string | null;
   dismissedId: string | null;
   now: number;
+  mute: MuteState;
 };
 
 let snapshot: StoreSnapshot = {
@@ -22,6 +38,7 @@ let snapshot: StoreSnapshot = {
   promotedId: null,
   dismissedId: null,
   now: Date.now(),
+  mute: DEFAULT_MUTE,
 };
 const listeners = new Set<() => void>();
 let eventSource: EventSource | null = null;
@@ -29,6 +46,56 @@ let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 let failures = 0;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let seeded = false;
+let storageHandler: ((event: StorageEvent) => void) | null = null;
+
+function readMuteFromStorage(): MuteState {
+  if (typeof window === "undefined") return DEFAULT_MUTE;
+  try {
+    const raw = window.localStorage.getItem(MUTE_KEY);
+    if (!raw) return DEFAULT_MUTE;
+    const parsed = JSON.parse(raw) as Partial<MuteState>;
+    return {
+      filter:
+        parsed.filter === "warn-plus" || parsed.filter === "errors-only"
+          ? parsed.filter
+          : "all",
+      goDark: parsed.goDark === true,
+      muteUntil: typeof parsed.muteUntil === "number" ? parsed.muteUntil : 0,
+    };
+  } catch {
+    return DEFAULT_MUTE;
+  }
+}
+
+function writeMuteToStorage(state: MuteState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MUTE_KEY, JSON.stringify(state));
+  } catch {
+    /* swallow */
+  }
+}
+
+export function tierAllowed(tier: BroadcastTier, filter: MuteFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "warn-plus") return tier !== "info";
+  return tier === "error";
+}
+
+export function isFullyMuted(state: MuteState, now: number): boolean {
+  if (state.goDark) return true;
+  if (state.muteUntil > now) return true;
+  return false;
+}
+
+export function shouldDisplayBroadcast(
+  broadcast: Broadcast,
+  state: MuteState,
+  now: number,
+): boolean {
+  if (isFullyMuted(state, now)) return false;
+  return tierAllowed(broadcast.tier, state.filter);
+}
 
 function emit(): void {
   for (const listener of [...listeners]) listener();
@@ -152,11 +219,30 @@ async function seedFromRecent(): Promise<void> {
   }
 }
 
+function startMuteStorageSync(): void {
+  if (storageHandler || typeof window === "undefined") return;
+  storageHandler = (event: StorageEvent) => {
+    if (event.key !== MUTE_KEY) return;
+    const next = readMuteFromStorage();
+    setSnapshot((prev) => ({ ...prev, mute: next }));
+  };
+  window.addEventListener("storage", storageHandler);
+}
+
+function stopMuteStorageSync(): void {
+  if (!storageHandler || typeof window === "undefined") return;
+  window.removeEventListener("storage", storageHandler);
+  storageHandler = null;
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   if (listeners.size === 1) {
+    // Seed mute from storage on first subscriber.
+    setSnapshot((prev) => ({ ...prev, mute: readMuteFromStorage() }));
     connectStream();
     startTicking();
+    startMuteStorageSync();
     void seedFromRecent();
   }
   return () => {
@@ -164,6 +250,7 @@ function subscribe(listener: () => void): () => void {
     if (listeners.size === 0) {
       tearDownStream();
       stopTicking();
+      stopMuteStorageSync();
     }
   };
 }
@@ -189,6 +276,7 @@ export function selectActiveBroadcast(snap: StoreSnapshot): Broadcast | null {
   const found = snap.history.find((b) => b.id === snap.promotedId);
   if (!found) return null;
   if (snap.now - found.ts > PROMOTE_LIFETIME_MS) return null;
+  if (!shouldDisplayBroadcast(found, snap.mute, snap.now)) return null;
   return found;
 }
 
@@ -197,6 +285,11 @@ export function selectChipBroadcast(snap: StoreSnapshot): Broadcast | null {
   if (!active) return null;
   if (snap.now - active.ts > VISIBLE_LIFETIME_MS) return null;
   return active;
+}
+
+export function updateMute(next: MuteState): void {
+  writeMuteToStorage(next);
+  setSnapshot((prev) => ({ ...prev, mute: next }));
 }
 
 export function toggleRanger(broadcast?: Broadcast | null): void {
