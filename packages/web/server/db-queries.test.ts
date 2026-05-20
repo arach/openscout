@@ -170,6 +170,18 @@ function setConversationCreatedAt(conversationId: string, createdAt: number): vo
   }
 }
 
+function setSeededRunTimestamps(createdAt: number, startedAt: number): void {
+  const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
+  try {
+    rawDb.query("UPDATE invocations SET created_at = ?1 WHERE id = 'inv-1'").run(createdAt);
+    rawDb.query("UPDATE flights SET started_at = ?1 WHERE id = 'flight-1'").run(startedAt);
+    rawDb.query("UPDATE activity_items SET ts = ?1 WHERE id = 'activity:invocation:inv-1'").run(createdAt);
+    rawDb.query("UPDATE activity_items SET ts = ?1 WHERE id = 'activity:flight:flight-1'").run(startedAt);
+  } finally {
+    rawDb.close();
+  }
+}
+
 describe("web db query flights", () => {
   test("surfaces durable collaboration joins from invocations", () => {
     const store = createSeededStore();
@@ -187,10 +199,75 @@ describe("web db query flights", () => {
           collaborationRecordId: "work-1",
           state: "running",
           summary: "In progress",
-          startedAt: 101,
+          startedAt: 101_000,
           completedAt: null,
         },
       ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("normalizes recent active flights stored as milliseconds or seconds", () => {
+    const store = createSeededStore();
+    const recentMs = Date.now() - 1_000;
+    const recentSeconds = Math.floor((Date.now() - 2_000) / 1000);
+
+    try {
+      store.recordInvocation({
+        id: "inv-recent-active-ms",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Recent millisecond running work",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: recentMs,
+      });
+      store.recordFlight({
+        id: "flight-recent-active-ms",
+        invocationId: "inv-recent-active-ms",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "running",
+        summary: "Agent One is running.",
+        startedAt: recentMs,
+      });
+      store.recordInvocation({
+        id: "inv-recent-active-seconds",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Recent legacy-second running work",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: recentSeconds,
+      });
+      store.recordFlight({
+        id: "flight-recent-active-seconds",
+        invocationId: "inv-recent-active-seconds",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "queued",
+        summary: "Agent One is queued.",
+        startedAt: recentSeconds,
+      });
+
+      const flights = queryFlights({ conversationId: "conv-1", activeOnly: true });
+      const runs = queryRuns({ conversationId: "conv-1" });
+
+      expect(flights).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "flight-recent-active-ms", startedAt: recentMs }),
+        expect.objectContaining({ id: "flight-recent-active-seconds", startedAt: recentSeconds * 1000 }),
+      ]));
+      expect(runs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ flightIds: ["flight-recent-active-ms"], updatedAt: recentMs }),
+        expect.objectContaining({ flightIds: ["flight-recent-active-seconds"], updatedAt: recentSeconds * 1000 }),
+      ]));
     } finally {
       store.close();
     }
@@ -266,7 +343,7 @@ describe("web db query runs", () => {
     const store = createSeededStore();
 
     try {
-      const runs = queryRuns({ conversationId: "conv-1", collaborationRecordId: "work-1" });
+      const runs = queryRuns({ conversationId: "conv-1", collaborationRecordId: "work-1", active: false });
 
       expect(runs).toEqual([
         {
@@ -292,9 +369,9 @@ describe("web db query runs", () => {
           output: {
             summary: "In progress",
           },
-          createdAt: 100,
-          startedAt: 101,
-          updatedAt: 101,
+          createdAt: 100_000,
+          startedAt: 101_000,
+          updatedAt: 101_000,
         },
       ]);
     } finally {
@@ -418,7 +495,7 @@ describe("web db query runs", () => {
         completedAt: 240,
       });
 
-      expect(queryRuns().map((run) => run.id)).toEqual(["run:flight:flight-1"]);
+      expect(queryRuns().map((run) => run.id)).toEqual([]);
       expect(queryRuns({ active: false }).map((run) => run.id)).toEqual([
         "run:flight:flight-2",
         "run:flight:flight-1",
@@ -476,8 +553,8 @@ describe("web db query runs", () => {
         state: "unknown",
         reviewState: "needed",
         permissionProfile: "trusted_local",
-        createdAt: 300,
-        updatedAt: 300,
+        createdAt: 300_000,
+        updatedAt: 300_000,
       });
       expect(run?.flightIds).toBeUndefined();
       expect(run?.output).toBeUndefined();
@@ -540,6 +617,61 @@ describe("web db query heartrate", () => {
       const firstFilled = filledIndexes[0] ?? -1;
       expect(heartrate.buckets[firstFilled].value).toBeGreaterThan(0);
       expect(heartrate.buckets[firstFilled + 1].value).toBeGreaterThan(0);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("web db timestamp normalization", () => {
+  test("returns epoch milliseconds for message, session, activity, and mobile agent projections", () => {
+    const store = createSeededStore();
+    const recentMs = Date.now() - 5_000;
+    const recentSeconds = Math.floor((Date.now() - 4_000) / 1000);
+
+    try {
+      store.recordMessage({
+        id: "msg-normalized-ms",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "Millisecond timestamp message.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: recentMs,
+      });
+      store.recordMessage({
+        id: "msg-normalized-seconds",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Legacy second timestamp message.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: recentSeconds,
+      });
+
+      const messages = queryRecentMessages(10, { conversationId: "conv-1" });
+      const session = querySessionById("conv-1");
+      const activity = queryActivity(20);
+      const mobileDetail = queryMobileAgentDetail("agent-1");
+
+      expect(messages[0]).toMatchObject({
+        id: "msg-normalized-seconds",
+        createdAt: recentSeconds * 1000,
+      });
+      expect(messages.find((message) => message.id === "msg-normalized-ms")?.createdAt)
+        .toBe(recentMs);
+      expect(session?.lastMessageAt).toBe(recentSeconds * 1000);
+      expect(activity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
+        .toBe(recentSeconds * 1000);
+      expect(mobileDetail?.lastActiveAt).toBe(recentSeconds * 1000);
+      expect(mobileDetail?.recentActivity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
+        .toBe(recentSeconds * 1000);
+      expect(mobileDetail?.activeFlights.find((flight) => flight.id === "flight-1")?.startedAt)
+        .toBe(101_000);
     } finally {
       store.close();
     }
@@ -1320,6 +1452,8 @@ describe("web db query fleet", () => {
     const old = now - (5 * 24 * 60 * 60 * 1000);
 
     try {
+      setSeededRunTimestamps(now - 60_000, now - 59_000);
+
       store.upsertActor({
         id: "agent-2",
         kind: "agent",
@@ -1911,6 +2045,9 @@ describe("web db query work item by id", () => {
     const store = createSeededStore();
 
     try {
+      const now = Date.now();
+      setSeededRunTimestamps(now - 60_000, now - 59_000);
+
       store.recordCollaborationEvent({
         id: "event-2",
         recordId: "work-1",

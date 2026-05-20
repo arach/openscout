@@ -545,6 +545,73 @@ describe("broker daemon comms layer", () => {
     expect(events.some((event) => event.kind === "delivery.planned")).toBe(true);
   }, 15_000);
 
+  test("serves broker messages with status and errors for one agent", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const createdAt = Date.now();
+    await postJson(harness.baseUrl, "/v1/messages", {
+      id: "msg-broker-feed-1",
+      conversationId: "channel.shared",
+      actorId: "operator",
+      originNodeId: harness.nodeId,
+      class: "agent",
+      body: "@fabric please check the broker view",
+      mentions: [{ actorId: "fabric", label: "@fabric" }],
+      audience: {
+        notify: ["fabric"],
+        invoke: ["fabric"],
+      },
+      visibility: "workspace",
+      policy: "durable",
+      createdAt,
+    });
+    await postJson(harness.baseUrl, "/v1/flights", {
+      id: "flight-broker-feed-1",
+      invocationId: "inv-broker-feed-1",
+      requesterId: "operator",
+      targetAgentId: "fabric",
+      state: "failed",
+      summary: "Dispatch failed",
+      error: "composer did not submit",
+      startedAt: createdAt + 1,
+      completedAt: createdAt + 2,
+    });
+
+    const feed = await getJson<{
+      agentId: string;
+      status: { found: boolean; lastError?: string; pendingDeliveryIds: string[] };
+      counts: { messages: number; deliveries: number; errors: number };
+      items: Array<{
+        kind: string;
+        severity: string;
+        messageId?: string;
+        flightId?: string;
+        deliveryId?: string;
+        summary: string;
+      }>;
+    }>(harness.baseUrl, "/v1/broker/messages?agentId=fabric&limit=20");
+
+    expect(feed.agentId).toBe("fabric");
+    expect(feed.status.found).toBe(true);
+    expect(feed.status.lastError).toBe("composer did not submit");
+    expect(feed.status.pendingDeliveryIds.length).toBeGreaterThan(0);
+    expect(feed.counts.messages).toBeGreaterThanOrEqual(1);
+    expect(feed.counts.deliveries).toBeGreaterThanOrEqual(1);
+    expect(feed.counts.errors).toBeGreaterThanOrEqual(1);
+    expect(feed.items).toContainEqual(expect.objectContaining({
+      kind: "message",
+      messageId: "msg-broker-feed-1",
+    }));
+    expect(feed.items).toContainEqual(expect.objectContaining({
+      kind: "flight",
+      severity: "error",
+      flightId: "flight-broker-feed-1",
+      summary: "composer did not submit",
+    }));
+    expect(feed.items.some((item) => item.kind === "delivery" && item.deliveryId)).toBe(true);
+  }, 15_000);
+
   test("projects target deliveries as claimable inbox items", async () => {
     const harness = await startBroker();
     await seedBasicConversation(harness);

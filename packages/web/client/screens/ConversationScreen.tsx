@@ -10,7 +10,13 @@ import {
   minimalAgentHandle,
 } from "../lib/agent-labels.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
-import { timeAgo } from "../lib/time.ts";
+import {
+  compareTimestampsAsc,
+  compareTimestampsDesc,
+  formatAbsoluteTimestamp,
+  normalizeTimestampMs,
+  timeAgo,
+} from "../lib/time.ts";
 import { isSameCalendarDay, formatThreadDayLabel } from "../lib/thread-days.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
@@ -183,12 +189,6 @@ type ConversationPresence = {
   showTyping: boolean;
 };
 
-function normalizeTimestampMs(value: number | null | undefined): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
-    return null;
-  return value < 1e12 ? value * 1000 : value;
-}
-
 function pathLeaf(path: string | null | undefined): string | null {
   if (!path) return null;
   const normalized = path.replace(/[\\/]+$/, "");
@@ -209,15 +209,6 @@ function deriveDisplayTitle(session: SessionEntry): string {
   return session.title.replace(/\s*<>\s*/g, " · ");
 }
 
-function formatAbsoluteTimestamp(value: number | null | undefined): string {
-  const normalized = normalizeTimestampMs(value);
-  if (normalized === null) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(normalized);
-}
-
 function messageClassLabel(kind: string): string | null {
   switch (kind) {
     case "status":
@@ -232,10 +223,8 @@ function messageClassLabel(kind: string): string | null {
 }
 
 function sortMessages(messages: Message[]): Message[] {
-  return [...messages].sort(
-    (left, right) =>
-      (normalizeTimestampMs(left.createdAt) ?? 0) -
-      (normalizeTimestampMs(right.createdAt) ?? 0),
+  return [...messages].sort((left, right) =>
+    compareTimestampsAsc(left.createdAt, right.createdAt),
   );
 }
 
@@ -243,10 +232,8 @@ function selectCurrentFlight(flights: Flight[]): Flight | null {
   return (
     flights
       .filter((flight) => !TERMINAL_FLIGHT_STATES.has(flight.state))
-      .sort(
-        (left, right) =>
-          (normalizeTimestampMs(right.startedAt) ?? 0) -
-          (normalizeTimestampMs(left.startedAt) ?? 0),
+      .sort((left, right) =>
+        compareTimestampsDesc(left.startedAt, right.startedAt),
       )[0] ?? null
   );
 }

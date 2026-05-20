@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import { and, asc, eq } from "drizzle-orm";
 
+import { epochMs, nowMs } from "@openscout/protocol";
 import type {
   ActorIdentity,
   AgentDefinition,
@@ -72,6 +73,14 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 
 function stringify(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
+}
+
+function currentTimestampMs(): number {
+  return nowMs();
+}
+
+function normalizeTimestampMs(value: number | null | undefined): number | null {
+  return epochMs(value);
 }
 
 function isSqliteConstraintError(error: unknown): boolean {
@@ -1191,8 +1200,8 @@ export class SQLiteControlPlaneStore {
   upsertActor(actor: ActorIdentity): void {
     this.db.query(
       `INSERT INTO actors (
-        id, kind, display_name, handle, labels_json, metadata_json
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        id, kind, display_name, handle, labels_json, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         display_name = excluded.display_name,
@@ -1206,6 +1215,7 @@ export class SQLiteControlPlaneStore {
       actor.handle ?? null,
       stringify(actor.labels),
       stringify(actor.metadata),
+      currentTimestampMs(),
     );
   }
 
@@ -1253,7 +1263,7 @@ export class SQLiteControlPlaneStore {
       `INSERT INTO agent_endpoints (
         id, agent_id, node_id, harness, transport, state, address, session_id, pane, cwd,
         project_root, metadata_json, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, unixepoch())
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
       ON CONFLICT(id) DO UPDATE SET
         agent_id = excluded.agent_id,
         node_id = excluded.node_id,
@@ -1280,6 +1290,7 @@ export class SQLiteControlPlaneStore {
       endpoint.cwd ?? null,
       endpoint.projectRoot ?? null,
       stringify(endpoint.metadata),
+      currentTimestampMs(),
     );
   }
 
@@ -1288,8 +1299,8 @@ export class SQLiteControlPlaneStore {
       this.db.query(
         `INSERT INTO conversations (
           id, kind, title, visibility, share_mode, authority_node_id, topic,
-          parent_conversation_id, message_id, metadata_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+          parent_conversation_id, message_id, metadata_json, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ON CONFLICT(id) DO UPDATE SET
           kind = excluded.kind,
           title = excluded.title,
@@ -1311,6 +1322,7 @@ export class SQLiteControlPlaneStore {
         nextConversation.parentConversationId ?? null,
         nextConversation.messageId ?? null,
         stringify(nextConversation.metadata),
+        currentTimestampMs(),
       );
       this.db.query("DELETE FROM conversation_members WHERE conversation_id = ?1").run(nextConversation.id);
       for (const participantId of nextConversation.participantIds) {
@@ -1934,6 +1946,7 @@ export class SQLiteControlPlaneStore {
           leaseOwner: delivery.leaseOwner ?? null,
           leaseExpiresAt: delivery.leaseExpiresAt ?? null,
           metadataJson: stringify(delivery.metadata),
+          createdAt: this.deliveryCreatedAt(delivery),
         })
         .onConflictDoUpdate({
           target: deliveriesTable.id,
@@ -1955,6 +1968,26 @@ export class SQLiteControlPlaneStore {
         })
         .run();
     }
+  }
+
+  private deliveryCreatedAt(delivery: DeliveryIntent): number {
+    const messageCreatedAt = delivery.messageId
+      ? queryGet<{ created_at: number }, [string]>(
+          this.db,
+          "SELECT created_at FROM messages WHERE id = ?1 LIMIT 1",
+          delivery.messageId,
+        )?.created_at
+      : null;
+    const invocationCreatedAt = delivery.invocationId
+      ? queryGet<{ created_at: number }, [string]>(
+          this.db,
+          "SELECT created_at FROM invocations WHERE id = ?1 LIMIT 1",
+          delivery.invocationId,
+        )?.created_at
+      : null;
+    return normalizeTimestampMs(messageCreatedAt)
+      ?? normalizeTimestampMs(invocationCreatedAt)
+      ?? currentTimestampMs();
   }
 
   listDeliveries(options: {
@@ -2619,7 +2652,7 @@ export class SQLiteControlPlaneStore {
     return {
       id: `activity:flight:${flight.id}`,
       kind: "flight_updated",
-      ts: flight.completedAt ?? flight.startedAt ?? Math.floor(Date.now() / 1000),
+      ts: flight.completedAt ?? flight.startedAt ?? currentTimestampMs(),
       invocationId: flight.invocationId,
       flightId: flight.id,
       actorId: flight.requesterId,
@@ -2957,7 +2990,7 @@ export class SQLiteControlPlaneStore {
     const payload = this.threadModeForConversation(conversation) === "summary"
       ? { flight: this.buildThreadFlightSummary(flight) }
       : { flight };
-    const ts = flight.completedAt ?? flight.startedAt ?? Date.now();
+    const ts = flight.completedAt ?? flight.startedAt ?? currentTimestampMs();
 
     return [this.appendThreadEvent({
       id: `thread-event:flight:${flight.id}:${flight.state}:${ts}`,

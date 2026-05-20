@@ -90,6 +90,7 @@ The semantics do not change by host. Only the verbs change:
 | Resolve who you are | `scout whoami` | `whoami` | use when sender context is unclear |
 | Read your addressed messages | `scout inbox --latest 20 --json` | `messages_inbox` | use before replying when context may be missing |
 | Read a named channel | `scout channel <name> --latest 20 --json` | `messages_channel` | use for group/channel context |
+| Inspect broker-native messages/status/errors | `scout latest` | `broker_feed` | use when delivery, dispatch, unblock, or flight status matters |
 | Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | use when direct routing is ambiguous |
 | Message / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
 | Invocation / requested reply | `scout ask --to x "msg"` | `invocations_ask` with explicit target fields | one target -> DM |

@@ -72,6 +72,11 @@ describe("createBrokerCoreService", () => {
       journal: {
         listCollaborationRecords: () => Object.values(snapshot.collaborationRecords),
         listCollaborationEvents: () => [],
+        listUnblockRequests: () => [],
+        listUnblockRequestEvents: () => [],
+        listDeliveries: () => [],
+        listDeliveryAttempts: () => [],
+        listScoutDispatches: () => [],
       },
       threadEvents: {
         replay: async () => [],
@@ -185,5 +190,238 @@ describe("createBrokerCoreService", () => {
         message: expect.objectContaining({ id: "msg-2" }),
       },
     ]);
+  });
+
+  test("builds an agent broker feed from messages, status, and broker error records", async () => {
+    const snapshot = createRuntimeRegistrySnapshot({
+      agents: {
+        "agent-1": {
+          id: "agent-1",
+          kind: "agent",
+          definitionId: "agent-1",
+          displayName: "Agent One",
+          agentClass: "general",
+          capabilities: ["chat", "invoke"],
+          wakePolicy: "on_demand",
+          homeNodeId: "node-1",
+          authorityNodeId: "node-1",
+          advertiseScope: "local",
+        },
+      },
+      endpoints: {
+        "endpoint-1": {
+          id: "endpoint-1",
+          agentId: "agent-1",
+          nodeId: "node-1",
+          harness: "claude",
+          transport: "tmux",
+          state: "offline",
+          metadata: {
+            lastError: "composer did not submit",
+            lastFailureStage: "dispatch_stalled",
+            lastFailedAt: 180,
+          },
+        },
+      },
+      conversations: {
+        "conv-1": {
+          id: "conv-1",
+          kind: "direct",
+          title: "Agent One DM",
+          authorityNodeId: "node-1",
+          participantIds: ["operator", "agent-1"],
+          visibility: "workspace",
+          shareMode: "local",
+        },
+      },
+      messages: {
+        "msg-1": {
+          id: "msg-1",
+          conversationId: "conv-1",
+          actorId: "operator",
+          originNodeId: "node-1",
+          class: "agent",
+          body: "please take this",
+          audience: { notify: ["agent-1"] },
+          visibility: "workspace",
+          policy: "durable",
+          createdAt: 110,
+        },
+      },
+      invocations: {
+        "inv-1": {
+          id: "inv-1",
+          requesterId: "operator",
+          requesterNodeId: "node-1",
+          targetAgentId: "agent-1",
+          action: "execute",
+          task: "do the work",
+          conversationId: "conv-1",
+          messageId: "msg-1",
+          ensureAwake: true,
+          stream: false,
+          createdAt: 120,
+        },
+      },
+      flights: {
+        "flight-1": {
+          id: "flight-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: "agent-1",
+          state: "failed",
+          summary: "Dispatch stalled",
+          error: "composer did not submit",
+          startedAt: 130,
+          completedAt: 140,
+        },
+      },
+    });
+
+    const service = createBrokerCoreService({
+      baseUrl: "http://broker.test",
+      nodeId: "node-1",
+      meshId: "mesh-1",
+      localNode: {
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "node-1",
+        advertiseScope: "local",
+        registeredAt: 1,
+        lastSeenAt: 1,
+      },
+      runtime: {
+        snapshot: () => snapshot,
+      },
+      projection: {
+        listActivityItems: async () => [
+          {
+            id: "activity:status:1",
+            kind: "ask_failed",
+            ts: 150,
+            agentId: "agent-1",
+            actorId: "agent-1",
+            flightId: "flight-1",
+            title: "Dispatch stalled",
+            summary: "composer did not submit",
+            payload: { state: "failed" },
+          },
+        ],
+      },
+      journal: {
+        listCollaborationRecords: () => [],
+        listCollaborationEvents: () => [],
+        listUnblockRequests: () => [
+          {
+            id: "unblock-1",
+            kind: "flight",
+            state: "open",
+            source: "broker",
+            sourceRef: "flight-1",
+            title: "Flight needs attention",
+            ownerId: "agent-1",
+            createdById: "operator",
+            agentId: "agent-1",
+            severity: "warning",
+            createdAt: 160,
+            updatedAt: 160,
+            actions: [{ kind: "open", label: "Open" }],
+          },
+        ],
+        listUnblockRequestEvents: () => [],
+        listDeliveries: () => [
+          {
+            id: "delivery-1",
+            messageId: "msg-1",
+            invocationId: "inv-1",
+            targetId: "agent-1",
+            targetKind: "agent",
+            transport: "tmux",
+            reason: "invocation",
+            policy: "durable",
+            status: "accepted",
+          },
+        ],
+        listDeliveryAttempts: () => [
+          {
+            id: "attempt-1",
+            deliveryId: "delivery-1",
+            attempt: 1,
+            status: "failed",
+            error: "tmux pane was stale",
+            createdAt: 155,
+          },
+        ],
+        listScoutDispatches: () => [
+          {
+            id: "dispatch-1",
+            kind: "unavailable",
+            askedLabel: "@agent-1",
+            detail: "No online endpoint",
+            candidates: [],
+            target: {
+              agentId: "agent-1",
+              displayName: "Agent One",
+              reason: "manual_wake_required",
+              detail: "Manual wake required",
+              endpointState: "offline",
+              transport: "tmux",
+            },
+            dispatchedAt: 170,
+            dispatcherNodeId: "node-1",
+            requesterId: "operator",
+            conversationId: "conv-1",
+            invocationId: "inv-1",
+          },
+        ],
+      },
+      threadEvents: {
+        replay: async () => [],
+        snapshot: async () => ({
+          conversation: snapshot.conversations["conv-1"]!,
+          latestSeq: 0,
+          messages: [],
+          collaboration: [],
+          activeFlights: [],
+        }),
+        openWatch: async (request) => ({
+          watchId: `${request.watcherId}-watch`,
+          conversationId: request.conversationId,
+          authorityNodeId: "node-1",
+          acceptedAfterSeq: request.afterSeq ?? 0,
+          latestSeq: 0,
+          leaseExpiresAt: 999,
+          mode: "snapshot_then_stream",
+        }),
+        renewWatch: async (request) => ({
+          watchId: request.watchId,
+          leaseExpiresAt: 999,
+        }),
+        closeWatch: async () => {},
+      },
+      isReconciledStaleFlightActivityItem: () => false,
+      executeCommand: async () => ({ ok: true }),
+    });
+
+    const feed = await service.readAgentBrokerFeed?.({
+      agentId: "agent-1",
+      limit: 20,
+    });
+
+    expect(feed?.status).toMatchObject({
+      agentId: "agent-1",
+      displayName: "Agent One",
+      found: true,
+      lastError: "No online endpoint",
+    });
+    expect(feed?.status.pendingDeliveryIds).toEqual(["delivery-1"]);
+    expect(feed?.counts.errors).toBeGreaterThanOrEqual(2);
+    expect(feed?.items.map((item) => item.kind)).toEqual(
+      expect.arrayContaining(["message", "invocation", "flight", "delivery", "delivery_attempt", "dispatch", "unblock_request"]),
+    );
+    expect(feed?.items.find((item) => item.kind === "flight")).toMatchObject({
+      severity: "error",
+      summary: "composer did not submit",
+    });
   });
 });

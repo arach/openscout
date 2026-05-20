@@ -8,18 +8,20 @@ import { db } from "./internal/db.ts";
 import { compact } from "./internal/paths.ts";
 import {
   isDuplicateActivityFeedItem,
+  sqlTimestampMsExpression,
   staleFlightActivityPredicate,
 } from "./internal/sql-helpers.ts";
 import type { HeartrateBucket } from "./types/common.ts";
 import type { WebActivityItem } from "./types/web.ts";
 
 export function queryActivity(limit = 60): WebActivityItem[] {
+  const activityTsExpression = sqlTimestampMsExpression("ai.ts");
   const rows = db()
     .prepare(
       `SELECT
          ai.id,
          ai.kind,
-         ai.ts,
+         ${activityTsExpression} AS ts,
          ac.display_name AS actor_name,
          ai.title,
          ai.summary,
@@ -37,7 +39,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
        LEFT JOIN actors agent_actor ON agent_actor.id = ai.agent_id
        WHERE ai.kind != 'ask_replied'
          AND ${staleFlightActivityPredicate("ai")}
-       ORDER BY ai.ts DESC
+       ORDER BY ${activityTsExpression} DESC
        LIMIT ?`,
     )
     .all(limit) as Array<{
@@ -85,11 +87,6 @@ type HeartrateResult = { windowLabel: string; bucketLabel: string; buckets: Hear
 
 const HEARTRATE_WINDOW_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_HEARTRATE_BUCKETS = 56;
-const SQLITE_MILLISECONDS_THRESHOLD = 1e12;
-
-function normalizeActivityTimestampMs(ts: number): number {
-  return ts < SQLITE_MILLISECONDS_THRESHOLD ? ts * 1000 : ts;
-}
 
 function smoothHeartrateCounts(counts: number[]): number[] {
   const energy = counts.map((count) => Math.sqrt(count));
@@ -127,21 +124,20 @@ export function queryHeartrate(
   const bucketMs = HEARTRATE_WINDOW_MS / numBuckets;
   const currentBucketStart = Math.floor(nowMs / bucketMs) * bucketMs;
   const alignedStart = currentBucketStart - (numBuckets - 1) * bucketMs;
-  const alignedStartSeconds = Math.floor(alignedStart / 1000);
+  const activityTsExpression = sqlTimestampMsExpression("ts");
 
   const rows = db()
     .prepare(
-      `SELECT ts
+      `SELECT ${activityTsExpression} AS ts
        FROM activity_items
-       WHERE ts >= ?1
-          OR (ts < ?2 AND ts >= ?3)
-       ORDER BY ts ASC`,
+       WHERE ${activityTsExpression} >= ?1
+       ORDER BY ${activityTsExpression} ASC`,
     )
-    .all(alignedStart, SQLITE_MILLISECONDS_THRESHOLD, alignedStartSeconds) as Array<{ ts: number }>;
+    .all(alignedStart) as Array<{ ts: number }>;
 
   const counts = new Array<number>(numBuckets).fill(0);
   for (const row of rows) {
-    const ms = normalizeActivityTimestampMs(row.ts);
+    const ms = row.ts;
     if (ms < alignedStart || ms > nowMs) continue;
     const idx = Math.min(numBuckets - 1, Math.floor((ms - alignedStart) / bucketMs));
     if (idx >= 0) counts[idx]++;

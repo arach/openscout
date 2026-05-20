@@ -756,6 +756,7 @@ export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
   "mcp__scout__whoami",
   "mcp__scout__messages_inbox",
   "mcp__scout__messages_channel",
+  "mcp__scout__broker_feed",
   "mcp__scout__agents_search",
   "mcp__scout__agents_resolve",
   "mcp__scout__messages_reply",

@@ -4808,6 +4808,22 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (method === "GET" && url.pathname === "/v1/broker/messages") {
+    const agentId = url.searchParams.get("agentId")?.trim();
+    if (!agentId) {
+      badRequest(response, new Error("agentId is required"));
+      return;
+    }
+    json(response, 200, await brokerService.readAgentBrokerFeed?.({
+      agentId,
+      since: parseSince(url),
+      limit: parseLimit(url),
+      includeAcknowledged: url.searchParams.get("includeAcknowledged") === "1"
+        || url.searchParams.get("includeAcknowledged") === "true",
+    }));
+    return;
+  }
+
   if (threadEventsMatch) {
     try {
       const conversationId = decodeURIComponent(threadEventsMatch[1] ?? "");

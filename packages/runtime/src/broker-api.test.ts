@@ -43,6 +43,9 @@ describe("active broker service helpers", () => {
         },
       },
     });
+    let feedQuery:
+      | { agentId: string; limit?: number; since?: number | null; includeAcknowledged?: boolean }
+      | undefined;
 
     const service: ActiveScoutBrokerService = {
       baseUrl: "http://broker.test",
@@ -70,6 +73,39 @@ describe("active broker service helpers", () => {
       }),
       readSnapshot: async () => snapshot,
       readMessages: async () => Object.values(snapshot.messages),
+      readAgentBrokerFeed: async (query) => {
+        feedQuery = query;
+        return {
+          agentId: query.agentId,
+          generatedAt: 200,
+          since: query.since ?? null,
+          limit: query.limit ?? 100,
+          cursor: null,
+          status: {
+            agentId: query.agentId,
+            found: true,
+            endpoints: [],
+            activeFlightIds: [],
+            pendingDeliveryIds: [],
+            errorCount: 0,
+            warningCount: 0,
+          },
+          counts: {
+            items: 0,
+            messages: 0,
+            statuses: 0,
+            invocations: 0,
+            flights: 0,
+            deliveries: 0,
+            deliveryAttempts: 0,
+            dispatches: 0,
+            unblockRequests: 0,
+            errors: 0,
+            warnings: 0,
+          },
+          items: [],
+        };
+      },
       executeCommand: async () => ({ ok: true }),
     };
 
@@ -85,6 +121,9 @@ describe("active broker service helpers", () => {
     const messages = await maybeReadJsonFromActiveScoutBrokerService<
       MessageRecord[]
     >("http://broker.test", "/v1/messages?limit=20");
+    const feed = await maybeReadJsonFromActiveScoutBrokerService<{
+      agentId: string;
+    }>("http://broker.test", "/v1/broker/messages?agentId=agent-1&limit=5&since=50&includeAcknowledged=1");
     const miss = await maybeReadJsonFromActiveScoutBrokerService(
       "http://elsewhere.test",
       "/health",
@@ -105,6 +144,16 @@ describe("active broker service helpers", () => {
     });
     expect(messages.handled).toBe(true);
     expect(messages.handled && messages.value[0]?.id).toBe("msg-1");
+    expect(feed).toEqual({
+      handled: true,
+      value: expect.objectContaining({ agentId: "agent-1" }),
+    });
+    expect(feedQuery).toEqual({
+      agentId: "agent-1",
+      since: 50,
+      limit: 5,
+      includeAcknowledged: true,
+    });
     expect(miss).toEqual({ handled: false });
   });
 

@@ -4,6 +4,7 @@ import { basename, join, resolve } from "node:path";
 import {
   buildScoutReturnAddress as buildScoutReturnAddressRecord,
   type ActorIdentity,
+  type AgentBrokerFeed,
   type AgentDefinition,
   type AgentEndpoint,
   diagnoseAgentIdentity,
@@ -65,6 +66,7 @@ import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import {
   openAiAudioSpeechUrl,
+  scoutBrokerMessagesPath,
   scoutBrokerInvocationPath,
   scoutBrokerInvocationStreamPath,
   scoutBrokerMessagesListPath,
@@ -92,6 +94,7 @@ export type ScoutBrokerInvocationRecord = InvocationRequest;
 export type ScoutBrokerConversationBindingRecord = ConversationBinding;
 export type ScoutBrokerCollaborationRecord = CollaborationRecord;
 export type ScoutBrokerSnapshot = RuntimeRegistrySnapshot;
+export type ScoutAgentBrokerFeed = AgentBrokerFeed;
 
 export type ScoutBrokerContext = {
   baseUrl: string;
@@ -4180,6 +4183,48 @@ export async function loadScoutMessages(
     options.baseUrl ?? resolveScoutBrokerUrl(),
     scoutBrokerMessagesListPath(search),
   );
+}
+
+export async function readScoutBrokerFeed(
+  options: {
+    agentId: string;
+    since?: number | null;
+    limit?: number;
+    includeAcknowledged?: boolean;
+    baseUrl?: string;
+  },
+): Promise<ScoutAgentBrokerFeed | null> {
+  const agentId = options.agentId.trim();
+  if (!agentId) {
+    return null;
+  }
+  const search = new URLSearchParams();
+  search.set("agentId", agentId);
+  if (
+    typeof options.since === "number" &&
+    Number.isFinite(options.since) &&
+    options.since > 0
+  ) {
+    search.set("since", String(options.since));
+  }
+  if (
+    typeof options.limit === "number" &&
+    Number.isFinite(options.limit) &&
+    options.limit > 0
+  ) {
+    search.set("limit", String(options.limit));
+  }
+  if (options.includeAcknowledged) {
+    search.set("includeAcknowledged", "1");
+  }
+  try {
+    return await brokerReadJson<ScoutAgentBrokerFeed>(
+      options.baseUrl ?? resolveScoutBrokerUrl(),
+      scoutBrokerMessagesPath(search),
+    );
+  } catch {
+    return null;
+  }
 }
 
 export type ScoutActivityItem = {

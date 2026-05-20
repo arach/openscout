@@ -18,6 +18,7 @@ export function renderMcpCommandHelp(): string {
     "  whoami           inspect sender identity when the host is unclear",
     "  messages_inbox   read recent direct/addressed messages for this sender",
     "  messages_channel read recent messages from a named channel",
+    "  broker_feed      native broker messages/status/errors for an agent",
     "  session_attach_current",
     "                   attach the current live Codex session to Scout",
     "  card_create      fresh reply-ready return address",
