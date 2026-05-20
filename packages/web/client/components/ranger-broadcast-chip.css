@@ -54,6 +54,52 @@
   color: color-mix(in srgb, var(--accent) 80%, var(--ink));
 }
 
+/* Activity preempt: listening / thinking / speaking / briefing. Reads
+ * as a live state on the chip, takes priority over broadcast text. */
+.s-ranger-chip--activity {
+  padding: 1px 8px;
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.s-ranger-chip--activity:hover {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+}
+.s-ranger-chip--activity .s-ranger-chip-icon {
+  color: color-mix(in srgb, var(--accent) 90%, var(--ink));
+}
+.s-ranger-chip-spinner {
+  flex-shrink: 0;
+  animation: s-ranger-chip-spin 1s linear infinite;
+}
+@keyframes s-ranger-chip-spin {
+  to { transform: rotate(360deg); }
+}
+.s-ranger-chip-dot--pulse {
+  background: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  animation: s-ranger-chip-pulse 1.4s ease-in-out infinite;
+}
+@keyframes s-ranger-chip-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Brief-fresh: small "Nm" age chip after a brief lands. Faint until
+ * it decays out of the 5-minute window. */
+.s-ranger-chip--fresh {
+  padding: 1px 6px;
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  background: transparent;
+}
+.s-ranger-chip--fresh:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.s-ranger-chip--fresh .s-ranger-chip-icon {
+  color: color-mix(in srgb, var(--accent) 60%, var(--muted));
+}
+
 .s-ranger-chip-icon {
   flex-shrink: 0;
 }
