@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 7;
+export const CONTROL_PLANE_SCHEMA_VERSION = 8;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -414,6 +414,10 @@ CREATE TABLE IF NOT EXISTS briefings (
   observations_json TEXT NOT NULL,
   snapshot_json TEXT NOT NULL,
   call_json TEXT NOT NULL,
+  -- SCO-037: canonical markdown body. NULL for rows persisted before the
+  -- markdown pipeline landed; rows persisted after step 3 of SCO-037 carry
+  -- the full markdown document the analyst emitted.
+  markdown TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 

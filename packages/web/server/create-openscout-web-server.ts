@@ -311,6 +311,7 @@ function persistBriefing(
       observations,
       snapshot: capture.snapshot,
       call: capture.call,
+      markdown: brief.markdown ?? null,
     });
   } catch (err) {
     console.warn(

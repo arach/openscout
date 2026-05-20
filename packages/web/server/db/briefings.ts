@@ -52,9 +52,28 @@ function getDb() {
     _db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS};`);
     _db.exec("PRAGMA journal_mode = WAL;");
     _db.exec("PRAGMA synchronous = NORMAL;");
+    // SCO-037 step 3: ensure the markdown column exists on databases
+    // provisioned before schema v8. The runtime broker also runs the new
+    // CREATE TABLE on startup, but its idempotent path won't add columns to
+    // an existing table. This defensive ALTER is safe on every boot because
+    // it only runs when the column is missing.
+    ensureBriefingsMarkdownColumn(_db);
     _drizzle = openControlPlaneDrizzle(_db);
   }
   return _drizzle!;
+}
+
+function ensureBriefingsMarkdownColumn(db: Database): void {
+  try {
+    const cols = db.prepare("PRAGMA table_info('briefings')").all() as { name: string }[];
+    if (!cols.some((c) => c.name === "markdown")) {
+      db.exec("ALTER TABLE briefings ADD COLUMN markdown TEXT;");
+    }
+  } catch {
+    // If briefings doesn't exist yet, the broker's startup will create it
+    // with the column already present. Swallow — getDb() will be called
+    // again once the table is in place.
+  }
 }
 
 export type BriefingKind = "fleet-home" | "tour";
@@ -71,6 +90,8 @@ export type SaveBriefingInput = {
   observations: unknown;
   snapshot: unknown;
   call: unknown;
+  /** SCO-037: canonical markdown body. Optional for rows persisted before the markdown pipeline landed. */
+  markdown?: string | null;
 };
 
 export type SavedBriefingRow = {
@@ -85,6 +106,7 @@ export type SavedBriefingRow = {
   observations: unknown;
   snapshot: unknown;
   call: unknown;
+  markdown: string | null;
   createdAt: number;
 };
 
@@ -97,6 +119,7 @@ export type BriefingSummary = {
   preparedAt: number;
   ttlMs: number;
   observationCount: number;
+  hasMarkdown: boolean;
   createdAt: number;
 };
 
@@ -122,6 +145,7 @@ function rowToRecord(row: typeof briefingsTable.$inferSelect): SavedBriefingRow 
     observations: parseJson(row.observationsJson, []),
     snapshot: parseJson(row.snapshotJson, {}),
     call: parseJson(row.callJson, {}),
+    markdown: row.markdown ?? null,
     createdAt: row.createdAt,
   };
 }
@@ -137,6 +161,7 @@ function rowToSummary(row: typeof briefingsTable.$inferSelect): BriefingSummary 
     preparedAt: row.preparedAt,
     ttlMs: row.ttlMs,
     observationCount: Array.isArray(observations) ? observations.length : 0,
+    hasMarkdown: typeof row.markdown === "string" && row.markdown.length > 0,
     createdAt: row.createdAt,
   };
 }
@@ -144,6 +169,9 @@ function rowToSummary(row: typeof briefingsTable.$inferSelect): BriefingSummary 
 export function saveBriefing(input: SaveBriefingInput): SavedBriefingRow {
   const db = getDb();
   const createdAt = Math.floor(Date.now() / 1000);
+  const markdown = typeof input.markdown === "string" && input.markdown.length > 0
+    ? input.markdown
+    : null;
   const row = {
     id: input.id,
     kind: input.kind,
@@ -156,6 +184,7 @@ export function saveBriefing(input: SaveBriefingInput): SavedBriefingRow {
     observationsJson: JSON.stringify(input.observations),
     snapshotJson: JSON.stringify(input.snapshot),
     callJson: JSON.stringify(input.call),
+    markdown,
     createdAt,
   };
   db.insert(briefingsTable)
@@ -173,6 +202,7 @@ export function saveBriefing(input: SaveBriefingInput): SavedBriefingRow {
         observationsJson: row.observationsJson,
         snapshotJson: row.snapshotJson,
         callJson: row.callJson,
+        markdown: row.markdown,
       },
     })
     .run();
