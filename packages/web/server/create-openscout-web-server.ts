@@ -77,12 +77,14 @@ import {
   readRecentTranscriptEvents,
   snapshotRecentEvents,
 } from "@openscout/runtime/tail";
+import { getSessionInventory } from "@openscout/runtime/sessions";
 import {
   projectSessionsAttention,
   sessionApprovalAttentionId,
   type SessionAttentionItem,
 } from "@openscout/runtime";
 import {
+  emitBroadcast,
   snapshotRecentBroadcasts,
   subscribeBroadcast,
 } from "./core/broadcast/service.ts";
@@ -2073,10 +2075,18 @@ export async function createOpenScoutWebServer(
     }>().catch(() => ({}));
 
     try {
-      return c.json(await rangerAssistant.createBrief({
+      const brief = await rangerAssistant.createBrief({
         route: body.route,
         ttlMs: body.ttlMs,
-      }));
+      });
+      emitBroadcast({
+        tier: "info",
+        text: `Ranger brief · ${brief.title}`,
+        ruleId: "ranger.brief",
+        key: "ranger.brief",
+        agent: "ranger",
+      });
+      return c.json(brief);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ranger brief failed";
       const status = error instanceof RangerAssistantError ? error.status : 500;
@@ -3216,6 +3226,14 @@ export async function createOpenScoutWebServer(
     const force = c.req.query("force") === "true";
     const snapshot = await getTailDiscovery(force);
     return c.json(snapshot);
+  });
+
+  app.get("/api/sessions/inventory", async (c) => {
+    const scope = c.req.query("scope") === "deep" ? "deep" : "shallow";
+    const turnsRaw = c.req.query("turns");
+    const turns = turnsRaw != null ? Number(turnsRaw) : undefined;
+    const inventory = await getSessionInventory(scope, { turns });
+    return c.json(inventory);
   });
 
   app.get("/api/tail/recent", async (c) => {

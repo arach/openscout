@@ -1,5 +1,5 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ListChecks, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import type { CommandOption, StatusColor, TakeoverState } from "@hudsonkit";
 import { api } from "../lib/api.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
@@ -324,32 +324,8 @@ export function useScoutNavCenter(): ReactNode | null {
 
 /* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
-  const { openSettings, applyRangerUiAction } = useScout();
+  const { openSettings } = useScout();
   return createElement("div", { className: "scout-nav-actions" },
-    createElement("div", { className: "scout-nav-action-group scout-nav-action-group--ranger" },
-      createElement(
-        "button",
-        {
-          onClick: () => applyRangerUiAction({ type: "open-ranger", mode: "ask" }),
-          className: "scout-nav-action scout-nav-action--ranger",
-          title: "Open Ranger",
-        },
-        "Ranger",
-      ),
-      createElement(
-        "button",
-        {
-          onClick: () => {
-            applyRangerUiAction({ type: "open-ranger", mode: "ask" });
-            window.dispatchEvent(new CustomEvent("scout:ranger-brief-now"));
-          },
-          className: "scout-nav-action scout-nav-action--ranger-brief",
-          title: "Run a one-minute brief",
-          "aria-label": "Run brief",
-        },
-        createElement(ListChecks, { size: 12, strokeWidth: 1.6, "aria-hidden": true }),
-      ),
-    ),
     createElement(
       "button",
       {

@@ -19,7 +19,7 @@ import type { Agent, FleetAsk, FleetAttentionItem, FleetState, OpsMode, Route } 
 
 const RANGER_MIN_HEIGHT = 180;
 const RANGER_MAX_HEIGHT_RATIO = 0.7;
-const RANGER_DEFAULT_HEIGHT = 320;
+const RANGER_DEFAULT_HEIGHT = 260;
 
 function clampRangerHeight(value: number, inspectorHeight: number) {
   const max = Math.max(RANGER_MIN_HEIGHT, Math.floor(inspectorHeight * RANGER_MAX_HEIGHT_RATIO));
@@ -28,7 +28,7 @@ function clampRangerHeight(value: number, inspectorHeight: number) {
 
 export function ScoutInspector() {
   const { route, navigate, agents, selectedBrokerAttempt, clearBrokerAttempt } = useScout();
-  const [rangerCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", false);
+  const [rangerCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", true);
   const [rangerHeight, setRangerHeight] = usePersistentNumber("openscout.ranger.height", RANGER_DEFAULT_HEIGHT);
   const containerRef = useRef<HTMLDivElement>(null);
   const [inspectorHeight, setInspectorHeight] = useState(0);

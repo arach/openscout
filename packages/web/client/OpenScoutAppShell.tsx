@@ -14,6 +14,7 @@ import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
 import { BroadcastTicker } from "./screens/BroadcastTicker.tsx";
+import { RangerStatusPill } from "./scout/ranger/RangerStatusPill.tsx";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -67,11 +68,14 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
 
 function OpenScoutStatusBarRight({ statusBar }: { statusBar: ScoutStatusBarState }) {
   return (
-    <div
-      className="max-w-[38vw] truncate font-mono text-[11px] text-neutral-500"
-      title={statusBar.build.title}
-    >
-      {statusBar.build.label}
+    <div className="flex items-center gap-3">
+      <div
+        className="max-w-[38vw] truncate font-mono text-[11px] text-neutral-500"
+        title={statusBar.build.title}
+      >
+        {statusBar.build.label}
+      </div>
+      <RangerStatusPill />
     </div>
   );
 }
