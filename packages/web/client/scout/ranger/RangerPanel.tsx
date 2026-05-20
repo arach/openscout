@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Archive, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Plus, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
+import { Archive, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
@@ -516,7 +516,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setPromptDraft(config.systemPrompt);
       setConfigStatus(null);
     } catch (err) {
-      setConfigError(err instanceof Error ? err.message : "Could not load Ranger settings.");
+      setConfigError(err instanceof Error ? err.message : "Could not load settings.");
     } finally {
       setConfigLoading(false);
     }
@@ -566,7 +566,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setPromptDraft(result.config.systemPrompt);
       setConfigStatus("Saved");
     } catch (err) {
-      setConfigError(err instanceof Error ? err.message : "Could not save Ranger settings.");
+      setConfigError(err instanceof Error ? err.message : "Could not save settings.");
     } finally {
       setConfigSaving(false);
     }
@@ -587,7 +587,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setSessionPickerOpen(false);
       setChatExpanded(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not switch Ranger session.");
+      setError(err instanceof Error ? err.message : "Could not switch session.");
     } finally {
       setSwitchingSessionId(null);
     }
@@ -596,7 +596,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const resetRangerSession = useCallback(async () => {
     setResettingSession(true);
     setError(null);
-    setAskStatus("Starting fresh Ranger session");
+    setAskStatus("Starting fresh session");
     stopSpeech();
     try {
       const state = await api<RangerAssistantSessionState>("/api/ranger/session/reset", { method: "POST" });
@@ -605,10 +605,10 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setLastReply(null);
       setChatExpanded(false);
       setSessionPickerOpen(false);
-      setAskStatus("Fresh Ranger session ready");
+      setAskStatus("Fresh session ready");
     } catch (err) {
       setAskStatus(null);
-      setError(err instanceof Error ? err.message : "Could not start a fresh Ranger session.");
+      setError(err instanceof Error ? err.message : "Could not start a fresh session.");
     } finally {
       setResettingSession(false);
     }
@@ -627,9 +627,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setSessionState(state);
       syncLastMessages(state.session);
       setChatExpanded(false);
-      setAskStatus("Ranger session archived");
+      setAskStatus("session archived");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not archive Ranger session.");
+      setError(err instanceof Error ? err.message : "Could not archive session.");
     } finally {
       setArchivingSessionId(null);
     }
@@ -713,7 +713,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         }).then((reminder) => {
           setAskStatus(`Reminder set for ${formatReminderDueAt(reminder.dueAt)}`);
         }).catch((err) => {
-          setError(err instanceof Error ? err.message : "Could not set Ranger reminder.");
+          setError(err instanceof Error ? err.message : "Could not set reminder.");
         });
       } else {
         applyRangerUiAction(action);
@@ -1010,7 +1010,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     } catch (err) {
       if (briefRunRef.current === runId) {
         setAskStatus(null);
-        setError(err instanceof Error ? err.message : "Could not prepare Ranger brief.");
+        setError(err instanceof Error ? err.message : "Could not prepare brief.");
         setBriefing(false);
         setBriefStepIndex(null);
         briefRunRef.current = null;
@@ -1025,7 +1025,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setError(null);
     setLastAsk(trimmed);
     setLastReply(null);
-    setAskStatus("Sending to Ranger");
+    setAskStatus("Sending");
     setDraft((current) => current.trim() === trimmed ? "" : current);
     try {
       const reminderIntent = parseRangerReminderIntent(trimmed);
@@ -1056,11 +1056,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         sessions: result.sessions,
         config: result.config,
       });
-      setAskStatus("Ranger replied");
+      setAskStatus("Reply received");
       handleRangerReply(result.reply.body);
     } catch (err) {
       setAskStatus(null);
-      setError(err instanceof Error ? err.message : "Could not ask Ranger.");
+      setError(err instanceof Error ? err.message : "Could not send.");
     } finally {
       setSending(false);
     }
@@ -1337,29 +1337,21 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Bot size={13} className="shrink-0 text-lime-300" />
-          <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--scout-chrome-ink-strong)]">
-            Ranger
-          </h2>
-          <span className="truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
-            direct loop
-          </span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <RangerIconButton
-            icon={resettingSession ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
-            title="New Ranger chat"
-            onClick={() => void resetRangerSession()}
-            disabled={resettingSession}
-          />
-          <RangerIconButton
-            icon={<Settings size={11} />}
-            title="Ranger settings"
-            onClick={() => setSettingsOpen((open) => !open)}
-            active={settingsOpen}
+            icon={voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
+            title={voiceReplies ? "Voice replies on (click to mute)" : "Voice replies off (click to enable)"}
+            onClick={() => {
+              const next = !voiceReplies;
+              setVoiceReplies(next);
+              if (!next) stopSpeech();
+            }}
+            active={voiceReplies}
           />
           <RangerIconButton
             icon={<ChevronDown size={11} />}
-            title="Minimize Ranger"
+            title="Minimize"
             onClick={() => setCollapsed(true)}
           />
         </div>
@@ -1386,8 +1378,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             </span>
             <button
               type="button"
-              title="Ask Ranger about this"
-              aria-label="Ask Ranger about this"
+              title="Ask about this"
+              aria-label="Ask about this"
               onClick={() => void askRanger(`Tell me about this broadcast: ${promotedBroadcast.text}`)}
               disabled={sending || briefing}
               className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:opacity-40"
@@ -1523,7 +1515,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
 
         {(partial || speaking) && (
           <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-            <span className="min-w-0 truncate">{speaking ? "Speaking Ranger reply…" : partial}</span>
+            <span className="min-w-0 truncate">{speaking ? "Speaking reply…" : partial}</span>
             {speaking && (
               <button
                 type="button"
@@ -1548,74 +1540,29 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           onDraftChange={setDraft}
           onSubmit={() => void askRanger(draft)}
           sending={sending}
+          recording={recording}
+          voiceBusy={voiceState === "processing" || voiceProbeState === "probing" || voiceProbeState === "launching"}
+          voiceUnavailable={voiceAvailable === false}
+          onMicClick={() => {
+            if (voiceAvailable === false) {
+              launchVox();
+              return;
+            }
+            void (recording ? stopVoice() : startVoice());
+          }}
         />
 
-        <div className="flex gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              if (voiceAvailable === false) {
-                launchVox();
-                return;
-              }
-              void (recording ? stopVoice() : startVoice());
-            }}
-            className={`flex flex-1 items-center justify-center gap-2 rounded border px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors ${
-              recording
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
-            }`}
-            disabled={sending || voiceState === "processing" || voiceProbeState === "probing"}
-          >
-            {voiceState === "processing" || voiceProbeState === "probing" ? <Loader2 size={13} className="animate-spin" /> : recording ? <Square size={12} className="fill-current" /> : <Mic size={13} />}
-            {voiceLabel}
-          </button>
-          <button
-            type="button"
-            onClick={() => void askRanger(STATE_PROMPT)}
-            disabled={sending || briefing}
-            title="Ask Ranger for a state summary"
-            className="flex items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Radio size={12} />
-            State
-          </button>
-          <button
-            type="button"
-            onClick={() => void startBrief()}
-            disabled={sending}
-            title="Run a one-minute Ranger brief"
-            className="flex items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {briefing ? <Loader2 size={12} className="animate-spin" /> : <ListChecks size={12} />}
-            {briefing ? "Briefing" : "Brief"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !voiceReplies;
-              setVoiceReplies(next);
-              if (!next) stopSpeech();
-            }}
-            title={voiceReplies ? "Voice replies on (click to mute)" : "Voice replies off (click to enable)"}
-            className={`flex shrink-0 items-center justify-center rounded border p-2 transition-colors ${
-              voiceReplies
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-            }`}
-          >
-            {voiceReplies ? <Volume2 size={12} /> : <VolumeX size={12} />}
-          </button>
-          {recording && (
+        {recording && (
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={() => void cancelVoice()}
-              className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)]"
+              className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)]"
             >
               Discard
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {error && (
           <div className="rounded border border-red-400/30 bg-red-400/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-red-200">
@@ -1653,7 +1600,7 @@ function makeScoutAudioLaunchContext() {
   return {
     requesterName: "OpenScout",
     productName: "Scout Audio",
-    headline: "Turn on local voice for Ranger",
+    headline: "Turn on local voice",
     body: "Scout Audio uses Vox for local speech capture and spoken replies. Start Vox, then return here to talk with your workspace.",
     actionLabel: "Return to OpenScout",
     logo: {
@@ -1865,8 +1812,8 @@ function ChatHistory({
                   </button>
                   <button
                     type="button"
-                    title="Archive Ranger chat"
-                    aria-label={`Archive Ranger chat ${display}`}
+                    title="Archive chat"
+                    aria-label={`Archive chat ${display}`}
                     onClick={() => onArchiveSession(entry.id)}
                     disabled={Boolean(switchingSessionId) || Boolean(archivingSessionId)}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-transparent text-[var(--scout-chrome-ink-ghost)] transition-colors hover:border-[var(--scout-chrome-border-soft)] hover:bg-black/20 hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-30"
@@ -1891,7 +1838,7 @@ function ChatHistory({
           </button>
         )}
         {visible.length === 0 && !pendingAsk && (
-          <p className="text-[var(--scout-chrome-ink-ghost)]">No messages yet — ask Ranger anything below.</p>
+          <p className="text-[var(--scout-chrome-ink-ghost)]">No messages yet — ask anything below.</p>
         )}
         {visible.map((message, index) => {
           const showTimestamp = shouldShowRangerMessageTimestamp(visible[index - 1], message);
@@ -1935,24 +1882,57 @@ function ChatInput({
   onDraftChange,
   onSubmit,
   sending,
+  recording,
+  voiceBusy,
+  voiceUnavailable,
+  onMicClick,
 }: {
   draft: string;
   onDraftChange: (next: string) => void;
   onSubmit: () => void;
   sending: boolean;
+  recording: boolean;
+  voiceBusy: boolean;
+  voiceUnavailable: boolean;
+  onMicClick: () => void;
 }) {
+  const micTitle = recording
+    ? "Stop talking"
+    : voiceUnavailable
+      ? "Launch voice"
+      : "Start talking";
   return (
     <form
-      className="grid grid-cols-[1fr_auto] gap-2"
+      className="grid grid-cols-[auto_1fr_auto] gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
       }}
     >
+      <button
+        type="button"
+        title={micTitle}
+        aria-label={micTitle}
+        onClick={onMicClick}
+        disabled={sending || voiceBusy}
+        className={`flex w-9 items-center justify-center self-stretch rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          recording
+            ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+            : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+        }`}
+      >
+        {voiceBusy ? (
+          <Loader2 size={13} className="animate-spin" />
+        ) : recording ? (
+          <Square size={12} className="fill-current" />
+        ) : (
+          <Mic size={13} />
+        )}
+      </button>
       <textarea
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
-        placeholder="Ask Ranger to inspect state or move the UI…"
+        placeholder="Ask to inspect state or move the UI…"
         rows={2}
         className="w-full resize-none rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]"
         onKeyDown={(event) => {
@@ -1964,8 +1944,8 @@ function ChatInput({
       />
       <button
         type="submit"
-        title="Ask Ranger"
-        aria-label="Ask Ranger"
+        title="Send"
+        aria-label="Send"
         disabled={!draft.trim() || sending}
         className="flex w-9 items-center justify-center self-stretch rounded bg-lime-300/90 px-0 text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
       >
@@ -1999,7 +1979,7 @@ function ChatBubble({
     <div className="group flex flex-col gap-0.5" onContextMenu={onContextMenu}>
       <div className="flex items-center justify-between gap-2">
         <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
-          {isUser ? "You" : "Ranger"}
+          {isUser ? "You" : "Reply"}
           {pending && " · sending"}
         </span>
         <button
