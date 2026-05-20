@@ -85,6 +85,7 @@ import {
   type SessionAttentionItem,
 } from "@openscout/runtime";
 import {
+  emitBroadcast,
   snapshotRecentBroadcasts,
   subscribeBroadcast,
 } from "./core/broadcast/service.ts";
@@ -2179,6 +2180,13 @@ export async function createOpenScoutWebServer(
         onCaptured: (cap) => { captured = cap; },
       });
       if (captured) persistBriefing("tour", brief, captured);
+      emitBroadcast({
+        tier: "info",
+        text: `Brief · ${brief.title}`,
+        ruleId: "ranger.brief",
+        key: "ranger.brief",
+        agent: "ranger",
+      });
       return c.json(brief);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ranger brief failed";
