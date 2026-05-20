@@ -19,7 +19,9 @@ Purpose: dense context for coding agents working in this repo.
 
 | Area | Path |
 |---|---|
-| Desktop app, CLI, app services | `apps/desktop` |
+| Transitional desktop/CLI source | `apps/desktop` |
+| Web UI/server | `packages/web` |
+| Native macOS menu app | `apps/macos` |
 | iOS app | `apps/ios` |
 | Broker/runtime | `packages/runtime` |
 | Shared protocol | `packages/protocol` |
@@ -105,6 +107,7 @@ MCP tools.
 ```bash
 bun test apps/desktop/src/core/pairing/runtime/bridge/router.test.ts
 bun run --cwd apps/desktop check
+bun run --cwd packages/web build:server
 npm --prefix packages/protocol run check
 npm --prefix packages/runtime run check
 ```

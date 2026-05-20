@@ -4,6 +4,14 @@ This directory contains OpenScout's shared TypeScript packages. The apps use
 these packages to speak one broker/runtime/protocol model instead of each host
 surface inventing its own state shape.
 
+Packages are distribution and dependency boundaries, not only libraries. A
+package may expose an executable or bundled server. The long-term rule is that
+package code should not import from `apps/`; shared behavior moves down into
+`packages/runtime`, `packages/protocol`, `packages/cli`, or another package-owned
+boundary before an app consumes it. The current known exception is
+`packages/cli/src/main.ts`, which temporarily imports the old
+`apps/desktop/src/cli/main.ts` command tree until the CLI implementation moves.
+
 ## Directory Map
 
 | Path | Purpose | Start here |

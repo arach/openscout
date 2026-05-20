@@ -16,6 +16,7 @@ export * from "./broker-process-manager.js";
 export * from "./broker-api.js";
 export * from "./broker-core-service.js";
 export * from "./local-agents.js";
+export * from "./control-plane-agents.js";
 export * from "./scout-broker.js";
 export * from "./codex-app-server.js";
 export * from "./setup.js";

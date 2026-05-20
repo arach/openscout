@@ -38,13 +38,13 @@ Run from `/Users/arach/dev/openscout`.
 1. Ensure the Scout web/broker surface is available:
 
 ```bash
-bun ./apps/desktop/bin/scout.ts server open --cwd /Users/arach/dev/openscout
+bun ./packages/cli/src/main.ts server open --cwd /Users/arach/dev/openscout
 ```
 
 2. Create a fresh Claude-backed reply-ready card:
 
 ```bash
-bun ./apps/desktop/bin/scout.ts card create /Users/arach/dev/openscout \
+bun ./packages/cli/src/main.ts card create /Users/arach/dev/openscout \
   --name route-smoke-claude \
   --display-name "Route Smoke Claude" \
   --harness claude \
@@ -58,7 +58,7 @@ Record the rendered `Agent:` line, for example
 3. Start or revive that concrete agent:
 
 ```bash
-bun ./apps/desktop/bin/scout.ts up route-smoke-claude
+bun ./packages/cli/src/main.ts up route-smoke-claude
 ```
 
 Acceptance:
@@ -71,8 +71,8 @@ Acceptance:
 4. Ask the fresh Claude agent to use the simplified broker path:
 
 ```bash
-bun ./apps/desktop/bin/scout.ts ask --to route-smoke-claude --timeout 180 \
-  'Use the repo-local Scout CLI only. Do not run scout whoami, scout who, agents_search, or agents_resolve first. Create a reply-ready card for this workspace with bun /Users/arach/dev/openscout/apps/desktop/bin/scout.ts card create, then send a short broker-backed status with bun /Users/arach/dev/openscout/apps/desktop/bin/scout.ts --json send --to route-smoke-claude. Include the literal text @codex in the message body. Reply with the exact Scout commands you ran and the returned JSON fields.'
+bun ./packages/cli/src/main.ts ask --to route-smoke-claude --timeout 180 \
+  'Use the repo-local Scout CLI only. Do not run scout whoami, scout who, agents_search, or agents_resolve first. Create a reply-ready card for this workspace with bun /Users/arach/dev/openscout/packages/cli/src/main.ts card create, then send a short broker-backed status with bun /Users/arach/dev/openscout/packages/cli/src/main.ts --json send --to route-smoke-claude. Include the literal text @codex in the message body. Reply with the exact Scout commands you ran and the returned JSON fields.'
 ```
 
 Acceptance:

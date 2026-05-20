@@ -23,6 +23,11 @@
       "bun": "./src/local-agents.ts",
       "default": "./dist/local-agents.js"
     },
+    "./control-plane-agents": {
+      "types": "./src/control-plane-agents.ts",
+      "bun": "./src/control-plane-agents.ts",
+      "default": "./dist/control-plane-agents.js"
+    },
     "./local-agent-template": {
       "types": "./src/local-agent-template.ts",
       "bun": "./src/local-agent-template.ts",
