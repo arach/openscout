@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ListChecks,
   Loader2,
+  Plus,
   Radio,
   Settings,
   Volume2,
@@ -334,6 +335,14 @@ export function RangerChipPopover({
             >
               <Settings size={11} />
               <span>Settings</span>
+            </button>
+            <button
+              type="button"
+              className="s-ranger-popover-action"
+              onClick={handleAction(actions.startNewChat)}
+            >
+              <Plus size={11} />
+              <span>New chat</span>
             </button>
             <button
               type="button"

@@ -51,6 +51,7 @@ export type RangerActionApi = {
   triggerAskState: () => void;
   toggleVoiceReplies: () => void;
   openRangerSettings: () => void;
+  startNewChat: () => void;
   dismissReminder: (id: string) => void;
   askReminderStatus: (reminder: { id: string; body: string }) => void;
 };
@@ -72,6 +73,7 @@ const DEFAULT_RANGER_ACTIONS: RangerActionApi = {
   triggerAskState: noop,
   toggleVoiceReplies: noop,
   openRangerSettings: noop,
+  startNewChat: noop,
   dismissReminder: noop,
   askReminderStatus: noop,
 };
@@ -104,6 +106,7 @@ export function RangerStateProvider({ children }: { children: ReactNode }) {
       triggerAskState: () => actionsRef.current.triggerAskState(),
       toggleVoiceReplies: () => actionsRef.current.toggleVoiceReplies(),
       openRangerSettings: () => actionsRef.current.openRangerSettings(),
+      startNewChat: () => actionsRef.current.startNewChat(),
       dismissReminder: (id) => actionsRef.current.dismissReminder(id),
       askReminderStatus: (reminder) => actionsRef.current.askReminderStatus(reminder),
     }),

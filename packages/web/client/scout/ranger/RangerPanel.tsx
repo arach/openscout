@@ -1248,6 +1248,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         setCollapsed(false);
         setSettingsOpen(true);
       },
+      startNewChat: () => {
+        setCollapsed(false);
+        if (!resettingSession) {
+          void resetRangerSession();
+        }
+      },
       dismissReminder: (id) => {
         void dismissRangerReminder(id);
       },
@@ -1270,6 +1276,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setVoiceReplies,
     stopSpeech,
     setSettingsOpen,
+    resettingSession,
+    resetRangerSession,
     dismissRangerReminder,
   ]);
 
