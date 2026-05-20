@@ -82,6 +82,26 @@ type CallBody = {
   systemPrompt: string;
   operatorRequest: string;
   responseId: string | null;
+  telemetry?: CallTelemetry | null;
+  presenter?: PresenterTelemetry | null;
+};
+
+type CallTelemetry = {
+  elapsedMs: number;
+  usage: TokenUsage | null;
+};
+
+type TokenUsage = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+};
+
+type PresenterTelemetry = CallTelemetry & {
+  model: string;
+  responseId: string | null;
+  skipped: "rate-guard" | "error" | null;
+  errorMessage?: string;
 };
 
 const KIND_LABEL: Record<BriefingKind, string> = {
@@ -171,6 +191,7 @@ export function BriefingDetailScreen({
       {detail.brief?.presented ? (
         <PresentedLayer presented={detail.brief.presented} />
       ) : null}
+      <TelemetryLayer call={detail.call} />
       <BriefLayer brief={detail.brief} navigate={navigate} />
       <ObservationsLayer
         observations={detail.observations}
@@ -189,6 +210,70 @@ function MarkdownLayer({ markdown }: { markdown: string }) {
         <RangerMarkdown text={markdown} />
       </div>
     </section>
+  );
+}
+
+function TelemetryLayer({ call }: { call: CallBody | null }) {
+  if (!call || (!call.telemetry && !call.presenter)) return null;
+  return (
+    <section className="briefing-layer briefing-layer-telemetry">
+      <LayerHead eyebrow="Telemetry" title="Calls & usage" />
+      <dl className="briefing-telemetry">
+        <CallTelemetryRow
+          label="Analyst"
+          model={call.model}
+          responseId={call.responseId}
+          telemetry={call.telemetry ?? null}
+        />
+        {call.presenter ? (
+          <CallTelemetryRow
+            label="Presenter"
+            model={call.presenter.model}
+            responseId={call.presenter.responseId}
+            telemetry={call.presenter}
+            note={
+              call.presenter.skipped === "rate-guard"
+                ? "skipped — rate-guard hit"
+                : call.presenter.skipped === "error"
+                  ? `failed — ${call.presenter.errorMessage ?? "unknown"}`
+                  : null
+            }
+          />
+        ) : null}
+      </dl>
+    </section>
+  );
+}
+
+function CallTelemetryRow({
+  label,
+  model,
+  responseId,
+  telemetry,
+  note,
+}: {
+  label: string;
+  model: string;
+  responseId: string | null;
+  telemetry: CallTelemetry | null;
+  note?: string | null;
+}) {
+  const usage = telemetry?.usage ?? null;
+  return (
+    <div className="briefing-telemetry-row">
+      <div className="briefing-telemetry-row-head">
+        <span className="briefing-telemetry-label">{label}</span>
+        <span className="briefing-telemetry-model">{model}</span>
+        {note ? <span className="briefing-telemetry-note">{note}</span> : null}
+      </div>
+      <div className="briefing-telemetry-stats">
+        <span>{telemetry && telemetry.elapsedMs > 0 ? `${(telemetry.elapsedMs / 1000).toFixed(2)}s` : "—"}</span>
+        <span>in {usage?.inputTokens ?? "—"}</span>
+        <span>out {usage?.outputTokens ?? "—"}</span>
+        <span>total {usage?.totalTokens ?? "—"}</span>
+        {responseId ? <span className="briefing-telemetry-response">{responseId}</span> : null}
+      </div>
+    </div>
   );
 }
 

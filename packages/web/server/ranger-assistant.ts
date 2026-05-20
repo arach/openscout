@@ -131,6 +131,37 @@ export type RangerBriefCall = {
   systemPrompt: string;
   operatorRequest: string;
   responseId: string | null;
+  /** SCO-037 step 7: cost + timing telemetry for the analyst call. */
+  telemetry?: BriefCallTelemetry;
+  /** SCO-037 step 7: presenter sub-call telemetry, when the presenter ran. */
+  presenter?: BriefPresenterTelemetry;
+};
+
+export type BriefCallTelemetry = {
+  /** ms between the request leaving and the response landing. */
+  elapsedMs: number;
+  /** OpenAI usage block (input/output/total). Null if unavailable. */
+  usage: BriefTokenUsage | null;
+};
+
+export type BriefTokenUsage = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+};
+
+export type BriefPresenterTelemetry = BriefCallTelemetry & {
+  /** Which model the presenter used. */
+  model: string;
+  /** The presenter's responseId, or null if the call didn't return one. */
+  responseId: string | null;
+  /**
+   * Why the presenter result is absent from the brief, when it is.
+   * Null when the presenter ran successfully and `brief.presented` is set.
+   */
+  skipped: "rate-guard" | "error" | null;
+  /** Error message when `skipped === "error"`. */
+  errorMessage?: string;
 };
 
 export type RangerBriefCapture = {
@@ -172,6 +203,7 @@ type OpenAIResponsePayload = {
   output_text?: unknown;
   output?: unknown;
   error?: unknown;
+  usage?: unknown;
 };
 
 const DEFAULT_MODEL = "gpt-4.1-mini";
@@ -453,6 +485,7 @@ export function createRangerAssistantService(input: {
       const context = await contextSnapshot(route);
       const resolvedSystemPrompt = briefSystemPrompt(systemPrompt, mode);
       const operatorRequest = briefOperatorRequest(resolvedTtlMs, mode);
+      const analystStart = Date.now();
       const response = await callOpenAIResponse({
         apiKey,
         baseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
@@ -464,22 +497,10 @@ export function createRangerAssistantService(input: {
         body: operatorRequest,
         context,
       });
-
-      if (onCaptured) {
-        try {
-          onCaptured({
-            snapshot: context,
-            call: {
-              model,
-              systemPrompt: resolvedSystemPrompt,
-              operatorRequest,
-              responseId: response.id,
-            },
-          });
-        } catch {
-          // capture is fire-and-forget; never let it break the brief response
-        }
-      }
+      const analystTelemetry: BriefCallTelemetry = {
+        elapsedMs: Date.now() - analystStart,
+        usage: response.usage,
+      };
 
       const brief = parseBriefResponse(
         response.text,
@@ -492,6 +513,7 @@ export function createRangerAssistantService(input: {
       // with no Scout context; it just turns the markdown into spoken
       // cadence. On failure we keep the derived narration and skip TTS
       // polish — the brief is still readable.
+      let presenterTelemetry: BriefPresenterTelemetry | undefined;
       if (brief.markdown) {
         const presenterStart = Date.now();
         if (!presenterRateGuardAllow(presenterStart)) {
@@ -502,6 +524,13 @@ export function createRangerAssistantService(input: {
           console.warn(
             `[ranger] presenter rate-guard hit (${presenterCallTimestamps.length}/${presenterMaxPerWindow()} calls in window); skipping presenter for this brief.`,
           );
+          presenterTelemetry = {
+            elapsedMs: 0,
+            usage: null,
+            model: PRESENTER_MODEL,
+            responseId: null,
+            skipped: "rate-guard",
+          };
         } else {
           presenterRateGuardRecord(presenterStart);
           const voiceSpec: BriefVoiceSpec = {
@@ -509,7 +538,7 @@ export function createRangerAssistantService(input: {
             persona: DEFAULT_PRESENTER_PERSONA,
           };
           try {
-            const presented = await presentBriefMarkdown({
+            const { presented, usage: presenterUsage } = await presentBriefMarkdown({
               apiKey,
               baseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
                 ?? DEFAULT_OPENAI_BASE_URL,
@@ -518,6 +547,13 @@ export function createRangerAssistantService(input: {
               markdown: brief.markdown,
               voiceSpec,
             });
+            presenterTelemetry = {
+              elapsedMs: Date.now() - presenterStart,
+              usage: presenterUsage,
+              model: PRESENTER_MODEL,
+              responseId: presented.responseId,
+              skipped: null,
+            };
             if (presented.sentences.length > 0) {
               brief.presented = presented;
               const spokenNarration = presented.sentences.join(" ");
@@ -529,11 +565,40 @@ export function createRangerAssistantService(input: {
           } catch (err) {
             // Non-fatal: brief is readable from markdown; TTS just won't be
             // as polished. Log once for diagnostics.
+            const message = err instanceof Error ? err.message : String(err);
             console.warn(
               "[ranger] presenter call failed; brief returns without TTS polish:",
-              err instanceof Error ? err.message : err,
+              message,
             );
+            presenterTelemetry = {
+              elapsedMs: Date.now() - presenterStart,
+              usage: null,
+              model: PRESENTER_MODEL,
+              responseId: null,
+              skipped: "error",
+              errorMessage: message,
+            };
           }
+        }
+      }
+
+      // SCO-037 step 7: emit capture once both calls have settled so
+      // Briefing Room persists the full call+telemetry, not just analyst.
+      if (onCaptured) {
+        try {
+          onCaptured({
+            snapshot: context,
+            call: {
+              model,
+              systemPrompt: resolvedSystemPrompt,
+              operatorRequest,
+              responseId: response.id,
+              telemetry: analystTelemetry,
+              ...(presenterTelemetry ? { presenter: presenterTelemetry } : {}),
+            },
+          });
+        } catch {
+          // capture is fire-and-forget; never let it break the brief response
         }
       }
 
@@ -560,7 +625,7 @@ async function callOpenAIResponse(input: {
   previousResponseId: string | null;
   body: string;
   context: RangerAssistantContextSnapshot;
-}): Promise<{ id: string | null; text: string }> {
+}): Promise<{ id: string | null; text: string; usage: BriefTokenUsage | null }> {
   // Without an abort signal, a slow/stuck Responses call leaves the endpoint
   // hanging indefinitely — operators see an empty reply / generic 500 from the
   // browser. Cap the wait at OPENAI_CALL_TIMEOUT_MS so the failure path is a
@@ -627,7 +692,23 @@ async function callOpenAIResponse(input: {
   return {
     id: typeof parsed.id === "string" ? parsed.id : null,
     text: extractResponseText(parsed),
+    usage: extractUsage(parsed),
   };
+}
+
+function extractUsage(payload: OpenAIResponsePayload): BriefTokenUsage | null {
+  const usage = payload.usage;
+  if (!usage || typeof usage !== "object") return null;
+  const record = usage as Record<string, unknown>;
+  const pickInt = (value: unknown): number | null => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    return Math.round(value);
+  };
+  const input = pickInt(record.input_tokens);
+  const output = pickInt(record.output_tokens);
+  const total = pickInt(record.total_tokens);
+  if (input === null && output === null && total === null) return null;
+  return { inputTokens: input, outputTokens: output, totalTokens: total };
 }
 
 /* ── Presenter call (SCO-037 step 5) ──────────────────────────────────
@@ -644,7 +725,7 @@ async function presentBriefMarkdown(input: {
   model: string;
   markdown: string;
   voiceSpec: BriefVoiceSpec;
-}): Promise<RangerBriefPresented> {
+}): Promise<{ presented: RangerBriefPresented; usage: BriefTokenUsage | null }> {
   const systemPrompt = buildPresenterSystemPrompt(input.voiceSpec);
   const userInput = buildPresenterUserPrompt(input.markdown, input.voiceSpec);
 
@@ -701,10 +782,13 @@ async function presentBriefMarkdown(input: {
   const sentences = parsePresenterSentences(text);
 
   return {
-    sentences,
-    voiceSpec: input.voiceSpec,
-    model: input.model,
-    responseId: typeof parsed.id === "string" ? parsed.id : null,
+    presented: {
+      sentences,
+      voiceSpec: input.voiceSpec,
+      model: input.model,
+      responseId: typeof parsed.id === "string" ? parsed.id : null,
+    },
+    usage: extractUsage(parsed),
   };
 }
 

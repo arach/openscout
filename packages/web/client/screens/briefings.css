@@ -209,6 +209,64 @@
   font-family: var(--font-mono);
 }
 
+/* SCO-037 step 7: per-call telemetry (analyst + presenter). */
+.briefing-layer-telemetry {
+  border-style: dashed;
+}
+
+.briefing-telemetry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.briefing-telemetry-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--hud-text, #ddd);
+}
+
+.briefing-telemetry-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.briefing-telemetry-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hud-text-muted, #888);
+}
+
+.briefing-telemetry-model {
+  color: var(--hud-text, #ddd);
+}
+
+.briefing-telemetry-note {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--hud-accent, #f4b860) 80%, var(--hud-text-muted, #888));
+}
+
+.briefing-telemetry-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--hud-text-muted, #888);
+  font-size: 11px;
+}
+
+.briefing-telemetry-response {
+  color: var(--hud-text-muted, #888);
+  font-size: 10px;
+  opacity: 0.7;
+}
+
 .briefing-steps {
   list-style: none;
   padding: 0;
