@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Archive, Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Plus, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
+import { Archive, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Plus, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
@@ -1322,9 +1322,6 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     ? new Date(activeSession.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : null;
   const sessionRuntimeLabel = activeSession?.model ?? sessionState?.config.model ?? null;
-  const dueReminders = reminderState?.due ?? [];
-  const nextReminder = reminderState?.scheduled[0] ?? null;
-
   if (collapsed) {
     return null;
   }
@@ -1675,32 +1672,8 @@ function estimateBriefDuration(text: string): number {
   return Math.min(12_000, Math.max(3500, words * 360));
 }
 
-function briefFreshnessLabel(brief: RangerBrief): string {
-  const now = Date.now();
-  if (now > brief.expiresAt) {
-    return "expired";
-  }
-  const ageSeconds = Math.max(0, Math.round((now - brief.preparedAt) / 1000));
-  const remainingSeconds = Math.max(0, Math.round((brief.expiresAt - now) / 1000));
-  return `prepared ${ageSeconds}s ago · ${remainingSeconds}s TTL`;
-}
-
 function formatReminderDueAt(dueAt: number): string {
   return new Date(dueAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function relativeReminderLabel(reminder: RangerReminder): string {
-  const deltaMs = reminder.dueAt - Date.now();
-  const absSeconds = Math.max(1, Math.round(Math.abs(deltaMs) / 1000));
-  if (absSeconds < 60) {
-    return deltaMs < 0 ? `${absSeconds}s ago` : `in ${absSeconds}s`;
-  }
-  const absMinutes = Math.round(absSeconds / 60);
-  if (absMinutes < 60) {
-    return deltaMs < 0 ? `${absMinutes}m ago` : `in ${absMinutes}m`;
-  }
-  const absHours = Math.round(absMinutes / 60);
-  return deltaMs < 0 ? `${absHours}h ago` : `in ${absHours}h`;
 }
 
 const RANGER_MESSAGE_TIMESTAMP_GAP_MS = 5 * 60_000;
