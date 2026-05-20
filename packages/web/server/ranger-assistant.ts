@@ -78,6 +78,21 @@ export type RangerBriefAction = {
   prompt?: string;
 };
 
+export type BriefVoiceSpec = {
+  /** Target word count for the spoken output. Presenter aims at this, not a hard cap. */
+  targetWords: number;
+  /** Short persona hint that shapes cadence/tone. */
+  persona: string;
+};
+
+export type RangerBriefPresented = {
+  /** TTS-shaped sentences in the order they should be spoken. */
+  sentences: string[];
+  voiceSpec: BriefVoiceSpec;
+  model: string;
+  responseId: string | null;
+};
+
 export type RangerBrief = {
   id: string;
   title: string;
@@ -95,6 +110,13 @@ export type RangerBrief = {
    * markdown rendering yet.
    */
   markdown?: string;
+  /**
+   * SCO-037 step 5: presenter output. When present, step narrations are
+   * overwritten with these sentences so the TTS pipeline reads the
+   * presenter's voice. Absent when the presenter call failed or the brief
+   * had no markdown body to present from.
+   */
+  presented?: RangerBriefPresented;
 };
 
 export type RangerAssistantContextSnapshot = {
@@ -154,6 +176,15 @@ type OpenAIResponsePayload = {
 
 const DEFAULT_MODEL = "gpt-4.1-mini";
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+
+// SCO-037 step 5: presenter defaults. The presenter is a small-model
+// formatter that turns the analyst's markdown into spoken sentences. Both
+// of these are eventually configurable via Ranger settings; for v1 they
+// are baked here.
+const PRESENTER_MODEL = "gpt-4o-mini";
+const PRESENTER_TIMEOUT_MS = 25_000;
+const DEFAULT_PRESENTER_TARGET_WORDS = 80;
+const DEFAULT_PRESENTER_PERSONA = "calm dispatcher";
 const DEFAULT_ACTIVE_SESSION_LIMIT = 8;
 const MAX_ACTIVE_SESSION_LIMIT = 24;
 const MAX_ARCHIVED_SESSIONS = 32;
@@ -421,11 +452,51 @@ export function createRangerAssistantService(input: {
         }
       }
 
-      return parseBriefResponse(
+      const brief = parseBriefResponse(
         response.text,
         { preparedAt: now, ttlMs: resolvedTtlMs },
         mode,
       );
+
+      // SCO-037 step 5: if we got markdown, run the presenter to produce
+      // TTS-shaped sentences. The presenter is a separate small-model call
+      // with no Scout context; it just turns the markdown into spoken
+      // cadence. On failure we keep the derived narration and skip TTS
+      // polish — the brief is still readable.
+      if (brief.markdown) {
+        const voiceSpec: BriefVoiceSpec = {
+          targetWords: DEFAULT_PRESENTER_TARGET_WORDS,
+          persona: DEFAULT_PRESENTER_PERSONA,
+        };
+        try {
+          const presented = await presentBriefMarkdown({
+            apiKey,
+            baseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
+              ?? DEFAULT_OPENAI_BASE_URL,
+            fetchImpl,
+            model: PRESENTER_MODEL,
+            markdown: brief.markdown,
+            voiceSpec,
+          });
+          if (presented.sentences.length > 0) {
+            brief.presented = presented;
+            const spokenNarration = presented.sentences.join(" ");
+            brief.steps = brief.steps.map((step) => ({
+              ...step,
+              narration: spokenNarration,
+            }));
+          }
+        } catch (err) {
+          // Non-fatal: brief is readable from markdown; TTS just won't be
+          // as polished. Log once for diagnostics.
+          console.warn(
+            "[ranger] presenter call failed; brief returns without TTS polish:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+
+      return brief;
     },
   };
 }
@@ -516,6 +587,119 @@ async function callOpenAIResponse(input: {
     id: typeof parsed.id === "string" ? parsed.id : null,
     text: extractResponseText(parsed),
   };
+}
+
+/* ── Presenter call (SCO-037 step 5) ──────────────────────────────────
+ *
+ * The analyst emits markdown; the presenter turns that markdown into a
+ * small bundle of TTS-shaped sentences. Cheaper model, smaller context,
+ * shorter timeout. On any failure we throw — the caller catches and
+ * degrades gracefully (brief returns without TTS polish). */
+
+async function presentBriefMarkdown(input: {
+  apiKey: string;
+  baseUrl: string;
+  fetchImpl: typeof fetch;
+  model: string;
+  markdown: string;
+  voiceSpec: BriefVoiceSpec;
+}): Promise<RangerBriefPresented> {
+  const systemPrompt = buildPresenterSystemPrompt(input.voiceSpec);
+  const userInput = buildPresenterUserPrompt(input.markdown, input.voiceSpec);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PRESENTER_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await input.fetchImpl(`${trimTrailingSlash(input.baseUrl)}/responses`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${input.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: input.model,
+        instructions: systemPrompt,
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: userInput }],
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new RangerAssistantError(
+        `Presenter call exceeded ${Math.round(PRESENTER_TIMEOUT_MS / 1000)}s — falling back to derived narration.`,
+        504,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const raw = await response.text();
+  let parsed: OpenAIResponsePayload = {};
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw) as OpenAIResponsePayload;
+    } catch {
+      parsed = {};
+    }
+  }
+  if (!response.ok) {
+    throw new RangerAssistantError(
+      openAIErrorMessage(parsed) || raw || `Presenter HTTP ${response.status}`,
+      502,
+    );
+  }
+  const text = extractResponseText(parsed);
+  const sentences = parsePresenterSentences(text);
+
+  return {
+    sentences,
+    voiceSpec: input.voiceSpec,
+    model: input.model,
+    responseId: typeof parsed.id === "string" ? parsed.id : null,
+  };
+}
+
+function buildPresenterSystemPrompt(voiceSpec: BriefVoiceSpec): string {
+  return [
+    `You are the Brief Presenter. You receive a clean markdown brief and produce ${voiceSpec.targetWords} (roughly, give or take 15) words of spoken narration.`,
+    `Voice persona: ${voiceSpec.persona}. Keep cadence calm and confident.`,
+    "Return ONLY the spoken sentences, one per line. No JSON, no markdown, no preamble.",
+    "Rules:",
+    "- 3 to 4 sentences total.",
+    "- Open with the headline reworded for speech (do not literally say 'headline').",
+    "- The next 1 to 2 sentences cover the highest-weighted finding(s). Mention concrete names from the markdown.",
+    "- The final sentence is the recommendation, phrased as a quiet directive.",
+    "- Do not enumerate counters, do not list every reference, do not name every finding.",
+    "- Do not introduce facts that are not in the markdown.",
+  ].join("\n");
+}
+
+function buildPresenterUserPrompt(markdown: string, voiceSpec: BriefVoiceSpec): string {
+  return [
+    `Voice spec: target ${voiceSpec.targetWords} words, persona "${voiceSpec.persona}".`,
+    "",
+    "Markdown brief:",
+    markdown,
+  ].join("\n");
+}
+
+function parsePresenterSentences(text: string): string[] {
+  if (!text) return [];
+  // The presenter is asked for one sentence per line. Be lenient: also split
+  // on plain newlines and strip empty lines / common bullet prefixes.
+  return text
+    .split(/\r?\n+/)
+    .map((line) => line.replace(/^[\s\-*•]+/, "").trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 6);
 }
 
 function extractResponseText(payload: OpenAIResponsePayload): string {
