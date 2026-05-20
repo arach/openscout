@@ -1580,6 +1580,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             onSwitchSession={(id) => void switchRangerSession(id)}
             switchingSessionId={switchingSessionId}
             sending={sending}
+            briefing={briefing}
             pendingAsk={sending ? lastAsk : null}
             onArchiveSession={(id) => void archiveRangerSession(id)}
             archivingSessionId={archivingSessionId}
@@ -1762,6 +1763,7 @@ function ChatHistory({
   onSwitchSession,
   switchingSessionId,
   sending,
+  briefing,
   pendingAsk,
   onArchiveSession,
   archivingSessionId,
@@ -1775,6 +1777,7 @@ function ChatHistory({
   onSwitchSession: (id: string) => void;
   switchingSessionId: string | null;
   sending: boolean;
+  briefing: boolean;
   pendingAsk: string | null;
   onArchiveSession: (id: string) => void;
   archivingSessionId: string | null;
@@ -1956,6 +1959,17 @@ function ChatHistory({
         )}
         {sending && !pendingAsk && (
           <p className="text-[var(--scout-chrome-ink-ghost)]">Reading the control plane…</p>
+        )}
+        {briefing && (
+          <div className="flex items-center gap-2 rounded border border-lime-300/30 bg-lime-300/[0.06] px-2.5 py-2 font-mono text-[10px] leading-relaxed text-lime-100">
+            <Loader2 size={12} className="shrink-0 animate-spin text-lime-300" aria-hidden="true" />
+            <div className="min-w-0 flex flex-col gap-0.5">
+              <span className="text-[10px] uppercase tracking-[0.14em] text-lime-300">Briefing</span>
+              <span className="text-[var(--scout-chrome-ink)]">
+                Codex is reviewing the control-plane snapshot. Voice will pick up when it lands.
+              </span>
+            </div>
+          </div>
         )}
       </div>
     </div>
