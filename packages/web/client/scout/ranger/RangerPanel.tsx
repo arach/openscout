@@ -1343,7 +1343,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     <section className={expandedClassName} style={expandedStyle}>
       <div className="flex shrink-0 flex-col gap-2 px-3 pt-2.5 pb-1.5">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2" />
+        <div className="flex min-w-0 items-center gap-2">
+          <Bot size={13} className="shrink-0 text-lime-300" aria-hidden="true" />
+        </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <RangerIconButton
             icon={voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
