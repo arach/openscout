@@ -3,6 +3,7 @@ import { Bot, Loader2 } from "lucide-react";
 
 import {
   selectChipBroadcast,
+  toggleRanger,
   useRangerBroadcastStore,
 } from "../lib/ranger-broadcast-store.ts";
 import {
@@ -13,7 +14,6 @@ import {
 import { useContextMenu, type MenuItem } from "./ContextMenu.tsx";
 import type { BroadcastTier } from "../lib/types.ts";
 
-import { RangerChipPopover } from "./RangerChipPopover.tsx";
 import "./ranger-broadcast-chip.css";
 
 const BRIEF_FRESH_WINDOW_MS = 5 * 60_000;
@@ -115,7 +115,6 @@ export function RangerBroadcastChip() {
   const { state, actions } = useRangerState();
   const showContextMenu = useContextMenu();
   const [now, setNow] = useState(() => Date.now());
-  const [popoverOpen, setPopoverOpen] = useState(false);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), TICK_MS);
@@ -139,9 +138,12 @@ export function RangerBroadcastChip() {
     }
   })();
 
-  const openPopover = (event: ReactMouseEvent) => {
-    event.preventDefault();
-    setPopoverOpen(true);
+  const handlePrimaryClick = () => {
+    // Restore the pre-SCO-035 click behavior: one click toggles the Ranger
+    // panel. The popover-on-click route (SCO-037) added a layout shift
+    // operators perceived as broken — it positioned poorly inside the status
+    // bar's stacking context and made the primary action a two-click flow.
+    toggleRanger(broadcast ?? null);
   };
 
   const openQuickMenu = (event: ReactMouseEvent) => {
@@ -156,38 +158,33 @@ export function RangerBroadcastChip() {
   };
 
   return (
-    <>
-      <button
-        type="button"
-        className={`s-ranger-chip ${variantClass}`}
-        onClick={openPopover}
-        onContextMenu={openQuickMenu}
-        title={title}
-        aria-expanded={popoverOpen}
-        aria-haspopup="dialog"
-      >
-        <Bot size={14} className="s-ranger-chip-icon" aria-hidden="true" />
-        {surface.kind === "activity" && (
-          <>
-            {activityShowsSpinner(surface.activity) ? (
-              <Loader2 size={10} className="s-ranger-chip-spinner" aria-hidden="true" />
-            ) : (
-              <span className="s-ranger-chip-dot s-ranger-chip-dot--pulse" aria-hidden="true" />
-            )}
-            <span className="s-ranger-chip-text">{surface.label}</span>
-          </>
-        )}
-        {surface.kind === "broadcast" && (
-          <>
-            <span className={tierClass(surface.tier)} aria-hidden="true" />
-            <span className="s-ranger-chip-text">{surface.text}</span>
-          </>
-        )}
-        {surface.kind === "brief-fresh" && (
+    <button
+      type="button"
+      className={`s-ranger-chip ${variantClass}`}
+      onClick={handlePrimaryClick}
+      onContextMenu={openQuickMenu}
+      title={title}
+    >
+      <Bot size={14} className="s-ranger-chip-icon" aria-hidden="true" />
+      {surface.kind === "activity" && (
+        <>
+          {activityShowsSpinner(surface.activity) ? (
+            <Loader2 size={10} className="s-ranger-chip-spinner" aria-hidden="true" />
+          ) : (
+            <span className="s-ranger-chip-dot s-ranger-chip-dot--pulse" aria-hidden="true" />
+          )}
           <span className="s-ranger-chip-text">{surface.label}</span>
-        )}
-      </button>
-      <RangerChipPopover open={popoverOpen} onClose={() => setPopoverOpen(false)} />
-    </>
+        </>
+      )}
+      {surface.kind === "broadcast" && (
+        <>
+          <span className={tierClass(surface.tier)} aria-hidden="true" />
+          <span className="s-ranger-chip-text">{surface.text}</span>
+        </>
+      )}
+      {surface.kind === "brief-fresh" && (
+        <span className="s-ranger-chip-text">{surface.label}</span>
+      )}
+    </button>
   );
 }
