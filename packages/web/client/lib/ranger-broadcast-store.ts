@@ -292,6 +292,75 @@ export function updateMute(next: MuteState): void {
   setSnapshot((prev) => ({ ...prev, mute: next }));
 }
 
+/* ── Client-side broadcasts ─────────────────────────────────────────
+   Attention states that originate in the client (reminders due, voice
+   offline, Ranger errors) flow through the same store as server SSE
+   broadcasts so the chip surfaces them without per-state branching.
+   Each client broadcast has a stable `key`; emitting the same key again
+   replaces the existing entry in place rather than stacking duplicates.
+   `clearClientBroadcast(key)` removes the entry when conditions clear. */
+
+function clientBroadcastId(key: string): string {
+  return `client:${key}`;
+}
+
+export function emitClientBroadcast(input: {
+  key: string;
+  tier: BroadcastTier;
+  text: string;
+}): void {
+  const id = clientBroadcastId(input.key);
+  setSnapshot((prev) => {
+    const ts = Date.now();
+    const broadcast: Broadcast = {
+      id,
+      tier: input.tier,
+      text: input.text,
+      ts,
+      ruleId: `client.${input.key}`,
+      key: input.key,
+    };
+    const existingIndex = prev.history.findIndex((b) => b.id === id);
+    let nextHistory: Broadcast[];
+    if (existingIndex >= 0) {
+      nextHistory = [...prev.history];
+      nextHistory[existingIndex] = broadcast;
+    } else {
+      nextHistory = [...prev.history, broadcast];
+      if (nextHistory.length > HISTORY_LIMIT) {
+        nextHistory = nextHistory.slice(nextHistory.length - HISTORY_LIMIT);
+      }
+    }
+    return {
+      ...prev,
+      history: nextHistory,
+      latest: broadcast,
+      promotedId: id,
+      dismissedId: prev.dismissedId === id ? null : prev.dismissedId,
+    };
+  });
+}
+
+export function clearClientBroadcast(key: string): void {
+  const id = clientBroadcastId(key);
+  setSnapshot((prev) => {
+    const nextHistory = prev.history.filter((b) => b.id !== id);
+    if (nextHistory.length === prev.history.length) return prev;
+    const promotedId = prev.promotedId === id ? null : prev.promotedId;
+    const dismissedId = prev.dismissedId === id ? null : prev.dismissedId;
+    const latest = prev.latest?.id === id
+      ? (nextHistory.length > 0 ? nextHistory[nextHistory.length - 1] : null)
+      : prev.latest;
+    return {
+      ...prev,
+      history: nextHistory,
+      latest: latest ?? null,
+      promotedId,
+      dismissedId,
+    };
+  });
+}
+
 export function toggleRanger(broadcast?: Broadcast | null): void {
   if (typeof window === "undefined") return;
   const detail = broadcast ? { broadcastId: broadcast.id } : {};

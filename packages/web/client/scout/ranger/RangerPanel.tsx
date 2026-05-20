@@ -5,7 +5,9 @@ import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx"
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import {
+  clearClientBroadcast,
   dismissPromotedBroadcast,
+  emitClientBroadcast,
   onToggleRanger,
   selectActiveBroadcast,
   useRangerBroadcastStore,
@@ -1270,6 +1272,44 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setSettingsOpen,
     dismissRangerReminder,
   ]);
+
+  // Sync attention states onto the broadcast store so the chip surfaces them.
+  const dueReminderCount = reminderState?.due.length ?? 0;
+  useEffect(() => {
+    if (dueReminderCount > 0) {
+      emitClientBroadcast({
+        key: "reminder.due",
+        tier: "warn",
+        text: `${dueReminderCount} reminder${dueReminderCount === 1 ? "" : "s"} due`,
+      });
+    } else {
+      clearClientBroadcast("reminder.due");
+    }
+  }, [dueReminderCount]);
+
+  useEffect(() => {
+    if (voiceAvailable === false) {
+      emitClientBroadcast({
+        key: "voice.offline",
+        tier: "warn",
+        text: "Voice setup needed",
+      });
+    } else if (voiceAvailable === true) {
+      clearClientBroadcast("voice.offline");
+    }
+  }, [voiceAvailable]);
+
+  useEffect(() => {
+    if (error) {
+      emitClientBroadcast({
+        key: "ranger.error",
+        tier: "error",
+        text: error,
+      });
+    } else {
+      clearClientBroadcast("ranger.error");
+    }
+  }, [error]);
 
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"
