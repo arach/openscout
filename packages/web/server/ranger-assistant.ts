@@ -185,6 +185,35 @@ const PRESENTER_MODEL = "gpt-4o-mini";
 const PRESENTER_TIMEOUT_MS = 25_000;
 const DEFAULT_PRESENTER_TARGET_WORDS = 80;
 const DEFAULT_PRESENTER_PERSONA = "calm dispatcher";
+
+// SCO-037 step 6: simple in-memory rate guard for the presenter. If the
+// presenter has been called more than RATE_GUARD_MAX_CALLS in the trailing
+// RATE_GUARD_WINDOW_MS, skip the presenter on subsequent briefs until the
+// window falls below the threshold. The analyst is unaffected — only the
+// optional TTS-polish step is gated.
+// Override via env: OPENSCOUT_RANGER_PRESENTER_MAX_PER_HOUR.
+const RATE_GUARD_WINDOW_MS = 60 * 60_000;
+const RATE_GUARD_DEFAULT_MAX = 60;
+const presenterCallTimestamps: number[] = [];
+
+function presenterMaxPerWindow(): number {
+  const raw = process.env.OPENSCOUT_RANGER_PRESENTER_MAX_PER_HOUR?.trim();
+  if (!raw) return RATE_GUARD_DEFAULT_MAX;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : RATE_GUARD_DEFAULT_MAX;
+}
+
+function presenterRateGuardAllow(now: number): boolean {
+  const cutoff = now - RATE_GUARD_WINDOW_MS;
+  while (presenterCallTimestamps.length > 0 && presenterCallTimestamps[0]! < cutoff) {
+    presenterCallTimestamps.shift();
+  }
+  return presenterCallTimestamps.length < presenterMaxPerWindow();
+}
+
+function presenterRateGuardRecord(now: number): void {
+  presenterCallTimestamps.push(now);
+}
 const DEFAULT_ACTIVE_SESSION_LIMIT = 8;
 const MAX_ACTIVE_SESSION_LIMIT = 24;
 const MAX_ARCHIVED_SESSIONS = 32;
@@ -464,35 +493,47 @@ export function createRangerAssistantService(input: {
       // cadence. On failure we keep the derived narration and skip TTS
       // polish — the brief is still readable.
       if (brief.markdown) {
-        const voiceSpec: BriefVoiceSpec = {
-          targetWords: DEFAULT_PRESENTER_TARGET_WORDS,
-          persona: DEFAULT_PRESENTER_PERSONA,
-        };
-        try {
-          const presented = await presentBriefMarkdown({
-            apiKey,
-            baseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
-              ?? DEFAULT_OPENAI_BASE_URL,
-            fetchImpl,
-            model: PRESENTER_MODEL,
-            markdown: brief.markdown,
-            voiceSpec,
-          });
-          if (presented.sentences.length > 0) {
-            brief.presented = presented;
-            const spokenNarration = presented.sentences.join(" ");
-            brief.steps = brief.steps.map((step) => ({
-              ...step,
-              narration: spokenNarration,
-            }));
-          }
-        } catch (err) {
-          // Non-fatal: brief is readable from markdown; TTS just won't be
-          // as polished. Log once for diagnostics.
+        const presenterStart = Date.now();
+        if (!presenterRateGuardAllow(presenterStart)) {
+          // SCO-037 step 6: cost cap. Don't burn the relay budget if briefs
+          // are being requested in a tight loop. The analyst still ran and
+          // the brief is fully readable; TTS just won't be polished this
+          // round. The rate window self-clears, so this is a soft skip.
           console.warn(
-            "[ranger] presenter call failed; brief returns without TTS polish:",
-            err instanceof Error ? err.message : err,
+            `[ranger] presenter rate-guard hit (${presenterCallTimestamps.length}/${presenterMaxPerWindow()} calls in window); skipping presenter for this brief.`,
           );
+        } else {
+          presenterRateGuardRecord(presenterStart);
+          const voiceSpec: BriefVoiceSpec = {
+            targetWords: DEFAULT_PRESENTER_TARGET_WORDS,
+            persona: DEFAULT_PRESENTER_PERSONA,
+          };
+          try {
+            const presented = await presentBriefMarkdown({
+              apiKey,
+              baseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
+                ?? DEFAULT_OPENAI_BASE_URL,
+              fetchImpl,
+              model: PRESENTER_MODEL,
+              markdown: brief.markdown,
+              voiceSpec,
+            });
+            if (presented.sentences.length > 0) {
+              brief.presented = presented;
+              const spokenNarration = presented.sentences.join(" ");
+              brief.steps = brief.steps.map((step) => ({
+                ...step,
+                narration: spokenNarration,
+              }));
+            }
+          } catch (err) {
+            // Non-fatal: brief is readable from markdown; TTS just won't be
+            // as polished. Log once for diagnostics.
+            console.warn(
+              "[ranger] presenter call failed; brief returns without TTS polish:",
+              err instanceof Error ? err.message : err,
+            );
+          }
         }
       }
 

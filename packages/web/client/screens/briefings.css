@@ -178,6 +178,37 @@
   max-width: 72ch;
 }
 
+/* SCO-037 step 6: spoken-form disclosure — what the presenter produced
+ * for TTS, beside the markdown report. */
+.briefing-layer-presented {
+  background: color-mix(in srgb, var(--hud-accent, #f4b860) 4%, transparent);
+  border-color: color-mix(in srgb, var(--hud-accent, #f4b860) 24%, var(--hud-border, rgba(255, 255, 255, 0.08)));
+}
+
+.briefing-presented-sentences {
+  list-style: decimal;
+  padding-left: 20px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.briefing-presented-sentence {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--hud-text, #ddd);
+  max-width: 72ch;
+}
+
+.briefing-presented-meta {
+  margin-top: 4px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--hud-text-muted, #888);
+  font-family: var(--font-mono);
+}
+
 .briefing-steps {
   list-style: none;
   padding: 0;
