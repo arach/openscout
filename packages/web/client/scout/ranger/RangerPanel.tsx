@@ -282,7 +282,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   } = useScout();
   const publisher = useRangerStatePublisher();
 
-  const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", false);
+  const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1326,90 +1326,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const nextReminder = reminderState?.scheduled[0] ?? null;
 
   if (collapsed) {
-    const stopAndRun = (fn: () => void) => (event: React.MouseEvent) => {
-      event.stopPropagation();
-      fn();
-    };
-    return (
-      <section
-        role="button"
-        tabIndex={0}
-        aria-label="Expand Ranger panel"
-        onClick={() => setCollapsed(false)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setCollapsed(false);
-          }
-        }}
-        className="flex shrink-0 cursor-pointer items-center gap-2 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-3 py-1.5 transition-colors hover:bg-black/20"
-      >
-        <div className="flex min-w-0 items-center gap-1.5">
-          <Bot size={12} className="shrink-0 text-lime-300" />
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--scout-chrome-ink-strong)]">
-            Ranger
-          </span>
-          {(dueReminders.length > 0 || nextReminder) && (
-            <span className="truncate font-mono text-[9.5px] text-[var(--scout-chrome-ink-faint)]">
-              · {dueReminders.length ? `${dueReminders.length} due` : `next ${relativeReminderLabel(nextReminder!)}`}
-            </span>
-          )}
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            title={recording ? "Stop talking" : voiceAvailable === false ? "Launch Vox" : "Start talking"}
-            aria-label={recording ? "Stop talking" : "Start talking"}
-            onClick={stopAndRun(() => {
-              if (voiceAvailable === false) {
-                launchVox();
-                return;
-              }
-              void (recording ? stopVoice() : startVoice());
-            })}
-            className={`flex shrink-0 items-center justify-center rounded border p-1 transition-colors ${
-              recording
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-            }`}
-          >
-            {recording ? <Square size={11} className="fill-current" /> : <Mic size={11} />}
-          </button>
-          <button
-            type="button"
-            title="Run a one-minute Ranger brief"
-            aria-label="Run brief"
-            onClick={stopAndRun(() => void startBrief())}
-            disabled={sending}
-            className="flex shrink-0 items-center justify-center rounded border border-[var(--scout-chrome-border-soft)] p-1 text-lime-300/80 transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-lime-200 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {briefing ? <Loader2 size={11} className="animate-spin" /> : <ListChecks size={11} />}
-          </button>
-          <button
-            type="button"
-            title={voiceReplies ? "Voice replies on" : "Voice replies off"}
-            aria-label="Toggle voice replies"
-            onClick={stopAndRun(() => {
-              const next = !voiceReplies;
-              setVoiceReplies(next);
-              if (!next) stopSpeech();
-            })}
-            className={`flex shrink-0 items-center justify-center rounded border p-1 transition-colors ${
-              voiceReplies
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-            }`}
-          >
-            {voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
-          </button>
-          <span className="mx-1 h-3 w-px bg-[var(--scout-chrome-border-soft)]" aria-hidden="true" />
-          <span className="flex items-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.06] px-2 py-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] text-lime-200">
-            <ChevronUp size={11} />
-            Expand
-          </span>
-        </div>
-      </section>
-    );
+    return null;
   }
 
   const expandedClassName = height === undefined
@@ -1490,100 +1407,6 @@ export function RangerPanel({ height }: { height?: number } = {}) {
               <X size={11} />
             </button>
           </div>
-        </div>
-      )}
-
-      {(dueReminders.length > 0 || nextReminder) && (
-        <div className={`rounded border px-2.5 py-2 font-mono text-[10px] leading-relaxed ${
-          dueReminders.length
-            ? "border-amber-300/30 bg-amber-300/[0.07] text-amber-50"
-            : "border-[var(--scout-chrome-border-soft)] bg-black/10 text-[var(--scout-chrome-ink-faint)]"
-        }`}>
-          <div className="flex items-center justify-between gap-2">
-            <span className={`flex min-w-0 items-center gap-1.5 truncate uppercase tracking-[0.12em] ${
-              dueReminders.length ? "text-amber-200" : "text-[var(--scout-chrome-ink-ghost)]"
-            }`}>
-              <Bell size={12} />
-              {dueReminders.length ? `${dueReminders.length} reminder${dueReminders.length === 1 ? "" : "s"} due` : "Next reminder"}
-            </span>
-            {nextReminder && dueReminders.length === 0 ? (
-              <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">{relativeReminderLabel(nextReminder)}</span>
-            ) : null}
-          </div>
-          <div className="mt-1.5 flex flex-col gap-1.5">
-            {(dueReminders.length ? dueReminders.slice(0, 3) : nextReminder ? [nextReminder] : []).map((reminder) => (
-              <div key={reminder.id} className="flex min-w-0 items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[var(--scout-chrome-ink)]">{reminder.body}</div>
-                  <div className="truncate text-[9px] text-[var(--scout-chrome-ink-ghost)]">
-                    {reminder.status === "due" ? relativeReminderLabel(reminder) : `due ${formatReminderDueAt(reminder.dueAt)}`}
-                  </div>
-                </div>
-                {reminder.status === "due" && (
-                  <button
-                    type="button"
-                    title="Ask Ranger for this reminder's status"
-                    aria-label="Ask Ranger for this reminder's status"
-                    onClick={() => void askRanger(`Reminder due: ${reminder.body}. Check the current Scout control-plane state and give me the shortest useful status update.`)}
-                    className="shrink-0 rounded border border-amber-300/25 p-1 text-amber-100 hover:bg-amber-300/10"
-                    disabled={sending || briefing}
-                  >
-                    <Radio size={11} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  title={reminder.status === "due" ? "Dismiss reminder" : "Clear reminder"}
-                  aria-label={reminder.status === "due" ? "Dismiss reminder" : "Clear reminder"}
-                  onClick={() => void dismissRangerReminder(reminder.id)}
-                  className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-                >
-                  <CheckCircle2 size={11} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {brief && (
-        <div className="rounded border border-lime-300/20 bg-lime-300/[0.05] px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-          <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate uppercase tracking-[0.12em] text-lime-200">
-              {briefing && briefStepIndex !== null
-                ? `Briefing ${brief.steps[briefStepIndex]?.label ?? "step"}`
-                : brief.title}
-            </span>
-            <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">
-              {briefFreshnessLabel(brief)}
-            </span>
-          </div>
-          <div className="mt-1 truncate text-[var(--scout-chrome-ink-faint)]">
-            {brief.summary}
-          </div>
-          {brief.actions.length > 0 && !briefing && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {brief.actions.map((action) => (
-                <button
-                  key={`${action.label}:${action.prompt ?? JSON.stringify(action.route ?? {})}`}
-                  type="button"
-                  onClick={() => {
-                    if (action.route) {
-                      const uiAction = normalizeRangerUiAction({ type: "navigate", route: action.route });
-                      if (uiAction?.type === "navigate") applyRangerUiAction(uiAction);
-                      return;
-                    }
-                    if (action.prompt) {
-                      void askRanger(action.prompt);
-                    }
-                  }}
-                  className="rounded border border-lime-300/20 px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-lime-100 hover:bg-lime-300/10"
-                >
-                  {action.label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
