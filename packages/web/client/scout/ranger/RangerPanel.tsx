@@ -24,6 +24,8 @@ import { VOICE_FX_PRESETS, type VoiceFxParams } from "@voxd/client/fx";
 // read closer to a clean mic with dispatch bookends than a noisy radio.
 const DEFAULT_RANGER_VOICE_PRESET_ID = "chill-dispatcher";
 const RANGER_BRIEF_CUE_EARLY_MS = 100;
+const VOX_LIVE_STOP_TIMEOUT_MS = 60_000;
+const VOX_LIVE_CANCEL_TIMEOUT_MS = 2_500;
 const CHILL_DISPATCHER_OVERRIDES: Partial<VoiceFxParams> = {
   lowCutHz: 160,
   highCutHz: 5200,
@@ -66,6 +68,30 @@ function rangerActivityParams(onlineCount: number): Partial<VoiceFxParams> {
 function resolveRangerFxParams(presetId: string, onlineCount: number): Partial<VoiceFxParams> {
   const base = presetId === "chill-dispatcher" ? CHILL_DISPATCHER_OVERRIDES : {};
   return { ...base, ...rangerActivityParams(onlineCount) };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(resolve, reject).finally(() => window.clearTimeout(timeout));
+  });
+}
+
+async function releaseVoxLive(
+  live: VoxLiveHandle,
+  options: { allowCurrentSession?: boolean } = {},
+): Promise<void> {
+  if (!live.sessionId && !options.allowCurrentSession) return;
+  await withTimeout(
+    live.cancel(),
+    VOX_LIVE_CANCEL_TIMEOUT_MS,
+    "Timed out releasing Vox live session.",
+  ).catch(() => undefined);
+}
+
+function isVoxLiveCancellation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /session_cancelled|was cancelled|cancelled/i.test(message);
 }
 import { useScout } from "../Provider.tsx";
 import {
@@ -119,6 +145,8 @@ type RangerAssistantReply = RangerAssistantSessionState & {
   reply: RangerAssistantMessage;
   responseId: string | null;
 };
+
+type VoxLiveCancelReason = "discard" | "stop-failed";
 
 type RangerBriefStep = {
   id: string;
@@ -319,6 +347,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
+  const liveCancelReasonRef = useRef<VoxLiveCancelReason | null>(null);
   const speechRef = useRef<VoxSpeakHandle | null>(null);
   const speechPrepareAbortRef = useRef<AbortController | null>(null);
   const briefRunRef = useRef<string | null>(null);
@@ -1070,6 +1099,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     if (recording) return;
     const client = clientRef.current ?? new VoxBrowserClient();
     clientRef.current = client;
+    liveCancelReasonRef.current = null;
     setError(null);
     setPartial("");
     setVoiceState("starting");
@@ -1082,37 +1112,85 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       }
     }
 
+    let live: VoxLiveHandle | null = null;
+    let released = false;
+    const cleanupLive = async () => {
+      if (!live || released) return;
+      released = true;
+      await releaseVoxLive(live, { allowCurrentSession: liveRef.current === live });
+      if (liveRef.current === live) {
+        liveRef.current = null;
+      }
+    };
+
     try {
-      const live = await client.startLive({
+      live = await client.startLive({
         onState: setVoiceState,
         onPartial: setPartial,
       });
       liveRef.current = live;
       setRecording(true);
       const final = await live.result;
+      await cleanupLive();
       setRecording(false);
-      liveRef.current = null;
       setPartial("");
+      if (liveCancelReasonRef.current) {
+        return;
+      }
       setVoiceState("done");
       if (final.text) {
         await askRanger(final.text);
       }
     } catch (err) {
+      const cancelReason = liveCancelReasonRef.current;
+      const wasCancellation = Boolean(cancelReason) || isVoxLiveCancellation(err);
+      await cleanupLive();
       setRecording(false);
-      liveRef.current = null;
-      setVoiceState("error");
-      setError(err instanceof Error ? err.message : "Vox recording failed.");
+      setPartial("");
+      if (cancelReason === "stop-failed") {
+        return;
+      }
+      setVoiceState(wasCancellation ? null : "error");
+      if (!wasCancellation) {
+        setError(err instanceof Error ? err.message : "Vox recording failed.");
+      }
+    } finally {
+      await cleanupLive();
+      liveCancelReasonRef.current = null;
     }
   }, [askRanger, probeVoice, recording, voiceAvailable]);
 
   const stopVoice = useCallback(async () => {
+    const live = liveRef.current;
+    if (!live) return;
     setVoiceState("processing");
-    await liveRef.current?.stop();
+    try {
+      await withTimeout(
+        live.stop(),
+        VOX_LIVE_STOP_TIMEOUT_MS,
+        "Vox did not finish processing the recording.",
+      );
+    } catch (err) {
+      liveCancelReasonRef.current = "stop-failed";
+      await releaseVoxLive(live, { allowCurrentSession: true });
+      if (liveRef.current === live) {
+        liveRef.current = null;
+        setRecording(false);
+        setPartial("");
+        setVoiceState("error");
+      }
+      setError(err instanceof Error ? `Vox recording did not finish: ${err.message}` : "Vox recording did not finish.");
+    }
   }, []);
 
   const cancelVoice = useCallback(async () => {
-    await liveRef.current?.cancel();
-    liveRef.current = null;
+    const live = liveRef.current;
+    if (!live) return;
+    liveCancelReasonRef.current = "discard";
+    await releaseVoxLive(live, { allowCurrentSession: true });
+    if (liveRef.current === live) {
+      liveRef.current = null;
+    }
     setRecording(false);
     setPartial("");
     setVoiceState(null);
