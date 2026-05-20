@@ -13,9 +13,10 @@ finalized; package manifests currently use `UNLICENSED`.
 
 - Runtime: `packages/runtime`
 - Protocol: `packages/protocol`
-- Desktop/CLI: `apps/desktop`
+- Web UI/server: `packages/web`
+- Native macOS menu app: `apps/macos`
+- Transitional desktop/CLI source: `apps/desktop`
 - iOS: `apps/ios`
-- Web package: `packages/web`
 - Public CLI package: `packages/cli`
 - Docs: `docs`
 

@@ -75,7 +75,7 @@ struct OpenScoutToolchain {
             )
         }
 
-        if let script = resolver.resolveRepoEntrypoint(relativePath: "apps/desktop/bin/scout.ts") {
+        if let script = resolver.resolveRepoEntrypoint(relativePath: "packages/cli/src/main.ts") {
             guard let bun = resolver.resolveBunExecutable() else {
                 throw OpenScoutToolchainError.missingBun
             }
@@ -109,7 +109,7 @@ struct OpenScoutToolchain {
         let repoCandidates = [
             "packages/cli/dist/pair-supervisor.mjs",
             "packages/web/dist/pair-supervisor.mjs",
-            "apps/desktop/bin/pair-supervisor.ts",
+            "packages/web/server/pair-supervisor.ts",
         ]
 
         for relativePath in repoCandidates {

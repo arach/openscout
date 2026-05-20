@@ -57,12 +57,13 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 
 | Area | Path |
 | --- | --- |
-| Desktop app, CLI, app services | `apps/desktop` |
+| Web UI/server | `packages/web` |
+| Native macOS menu app | `apps/macos` |
+| Transitional desktop/CLI source | `apps/desktop` |
 | iOS app | `apps/ios` |
 | Broker/runtime | `packages/runtime` |
 | Shared protocol | `packages/protocol` |
 | Public CLI package | `packages/cli` |
-| Web package | `packages/web` |
 | Landing/docs site | `landing` |
 | Product docs | `docs` |
 
@@ -113,8 +114,8 @@ can be discovered, addressed, observed, and composed without each surface
 inventing its own state model.
 
 This repository is the active OpenScout product codebase. It contains the local
-broker/runtime, shared protocol, public CLI, desktop and mobile surfaces, docs,
-and release tooling.
+broker/runtime, shared protocol, public CLI, web, native, and mobile surfaces,
+docs, and release tooling.
 
 Current posture: high-trust local developer pilots. OpenScout is not yet an
 enterprise-ready, compliance-ready, hardened multi-tenant runtime. Start with
@@ -126,13 +127,14 @@ trust, mesh, or license claims.
 | Area | Path | Start here |
 | --- | --- | --- |
 | App surfaces | [`apps`](./apps) | [`apps/README.md`](./apps/README.md) |
-| Desktop app, CLI, and app services | [`apps/desktop`](./apps/desktop) | [`apps/desktop/README.md`](./apps/desktop/README.md) |
+| Native macOS menu app | [`apps/macos`](./apps/macos) | [`apps/macos/README.md`](./apps/macos/README.md) |
+| Transitional desktop/CLI source | [`apps/desktop`](./apps/desktop) | [`apps/desktop/README.md`](./apps/desktop/README.md) |
 | iOS app | [`apps/ios`](./apps/ios) | [`apps/ios/README.md`](./apps/ios/README.md) |
 | Shared packages | [`packages`](./packages) | [`packages/README.md`](./packages/README.md) |
 | Broker/runtime | [`packages/runtime`](./packages/runtime) | [`packages/runtime/README.md`](./packages/runtime/README.md) |
 | Shared protocol | [`packages/protocol`](./packages/protocol) | [`packages/protocol/README.md`](./packages/protocol/README.md) |
 | Public CLI package | [`packages/cli`](./packages/cli) | [`packages/cli/README.md`](./packages/cli/README.md) |
-| Web UI package | [`packages/web`](./packages/web) | [`packages/web/README.md`](./packages/web/README.md) |
+| Web package/bundle | [`packages/web`](./packages/web) | [`packages/web/README.md`](./packages/web/README.md) |
 | Product docs | [`docs`](./docs) | [`docs/README.md`](./docs/README.md) |
 | Landing/docs site | [`landing`](./landing) | [`landing/README.md`](./landing/README.md) |
 
@@ -171,9 +173,10 @@ OpenScout is not just "chat between terminals." The product bet is that agent co
 
 At the repo level, Scout is organized around one product path:
 
-- `apps/desktop` and `apps/ios` own the human-facing surfaces
+- `packages/web`, `apps/macos`, and `apps/ios` own the current human-facing surfaces
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
 - `packages/cli` is the public npm package; the other packages stay as private internal boundaries
+- `apps/desktop` is transitional source for CLI/core pieces that have not yet moved to package-owned homes
 - host-specific integrations are documented in [`docs/integrations.md`](./docs/integrations.md);
   separate repos are linked rather than vendored unless the integration needs
   to build with OpenScout internals
@@ -211,18 +214,18 @@ What success looks like after setup:
 
 - `scout doctor` exits cleanly and reports the broker as reachable
 - the support directory exists under `~/Library/Application Support/OpenScout`
-- `scout --help` works and `bun run dev` starts the desktop shell without repeating setup prompts
+- `scout --help` works and `bun run dev` starts the local web UI without repeating setup prompts
 
-## Run The Desktop App
+## Run The Local Web App
 
-The main desktop loop now runs directly from the repo root:
+The main local web loop now runs directly from the repo root:
 
 ```bash
 bun install
 bun run dev
 ```
 
-That starts the desktop web shell and local control-plane services from `apps/desktop`.
+That starts the current OpenScout web UI and local web server from `packages/web`.
 
 To install the CLI globally from this repo:
 
@@ -1112,10 +1115,10 @@ Expected client behavior:
 - require an explicit channel for group coordination
 - do not treat message delivery as fire-and-forget; keep the receipt available
 
-### Invocation / Requested Reply
+### Ask / Requested Reply
 
-Use the invocation path when the requester expects work, investigation, review,
-or an answer.
+Use the ask path when the caller expects work, investigation, review, or an
+answer.
 
 Examples:
 
@@ -1126,24 +1129,22 @@ scout ask --to hudson "Review the auth module and report risks."
 MCP equivalent:
 
 ```ts
-invocations_ask({
-  targetLabel: "@hudson",
+ask({
+  to: "@hudson",
   body: "Review the auth module and report risks.",
-  replyMode: "notify"
 })
 ```
 
 Expected client behavior:
 
-- create or display a durable message for the request
-- surface returned ids such as `conversationId`, `messageId`, and `flightId`
-- treat the initial `invocations_ask` response as the broker receipt, not as the
-  target agent's acknowledgement
+- create or display a durable message for the ask
+- surface returned ids such as `flightId` and `workId`
+- treat the initial `ask` response as the broker receipt, not as the target
+  agent's acknowledgement
 - expect the target agent to promptly post a broker-visible acknowledgement in
   the same conversation when it starts working
 - expect target-authored completion as a later message and flight completion
 - use `invocations_wait` / `invocations_get` for longer follow-up polling
-- use `replyMode: "notify"` when completion should return by notification
 - show wake/session failures as lifecycle state, not as silent background limbo
 
 Client API shape:
@@ -1151,13 +1152,13 @@ Client API shape:
 ```mermaid
 sequenceDiagram
   participant Caller
-  participant ScoutAPI as Scout client API<br/>invocations_ask / invocations_wait
+  participant ScoutAPI as Scout client API<br/>ask / invocations_wait
   participant Broker
   participant Target
 
-  Caller->>ScoutAPI: invocations_ask(target, body)
+  Caller->>ScoutAPI: ask(to, body)
   ScoutAPI->>Broker: create message + invocation + flight
-  Broker-->>ScoutAPI: receipt<br/>flightId + conversationId
+  Broker-->>ScoutAPI: receipt<br/>flightId + workId
   ScoutAPI-->>Caller: dispatched receipt
 
   Broker->>Target: deliver ask
@@ -1181,8 +1182,8 @@ sequenceDiagram
   participant Broker
   participant Target
 
-  Caller->>Broker: ask request<br/>create message + invocation + flight
-  Broker-->>Caller: broker receipt<br/>flightId + conversationId
+  Caller->>Broker: ask<br/>create message + invocation + flight
+  Broker-->>Caller: broker receipt<br/>flightId + workId
 
   Broker->>Target: deliver ask
   Target->>Broker: "Received, working on it now"
@@ -1225,8 +1226,8 @@ Rules:
   the broker-visible reply
 - if `replyPath` is `mcp_reply`, use the provided reply tool for the initial
   acknowledgement and the final answer
-- do not use `messages_send` or `invocations_ask` for the final answer to the
-  original ask
+- do not use `messages_send`, `ask`, or `invocations_ask` for the final
+  answer to the original request
 - use Scout tools only to ask or delegate while solving the request
 
 ### Durable Work
@@ -1291,14 +1292,15 @@ Typed:
 ```text
 /scout:ask >> hudson Review the parser.
 /scout:ask >> ref:8kj4pd Continue from that result.
+/scout:ask >> project:../talkie Compare auth.
 /scout:send >> channel:ops Status is green.
 ```
 
 Broker-facing shape:
 
 ```ts
-invocations_ask({
-  targetLabel: "hudson",
+ask({
+  to: "hudson",
   body: "Review the parser."
 })
 ```
@@ -1310,13 +1312,14 @@ The route target grammar is:
 | `>> hudson` | `{ kind: "agent_label", label: "hudson" }` |
 | `>> agent:hudson` | `{ kind: "agent_label", label: "hudson" }` |
 | `>> ref:8kj4pd` | `{ kind: "binding_ref", ref: "8kj4pd" }` |
+| `>> project:../talkie` | `{ kind: "project_path", projectPath: "../talkie" }` |
 | `>> id:agent-...` | `{ kind: "agent_id", agentId: "agent-..." }` |
 | `>> channel:ops` | `{ kind: "channel", channel: "ops" }` |
 | `>> broadcast` | `{ kind: "broadcast" }` |
 
 The shared parser can recognize direct agent ids for clients that pass
-`targetAgentId`. CLI composer routing currently uses labels and refs for asks;
-`channel:<name>` and `broadcast` are send/update routes.
+`targetAgentId`. CLI composer routing currently uses labels, refs, and project
+paths for asks; `channel:<name>` and `broadcast` are send/update routes.
 
 `@agent` remains valid compatibility syntax where a surface owns the text box.
 For new Scout-aware composers, prefer `>>` for target entry and render the
@@ -1830,7 +1833,7 @@ Future CLI, MCP, and skill updates should converge on these names:
 | Attach a session | `scout session attach ...` | `sessions_attach` |
 | Inspect runtime state | `scout session inspect ...` | `sessions_inspect` |
 | Message receipt | `scout send ...` | `messages_send` |
-| Invocation receipt | `scout ask ...` | `invocations_ask` |
+| Ask receipt | `scout ask ...` | `ask` |
 
 Old commands should continue to work while emitting behavior that maps cleanly
 onto these semantics.
@@ -2040,15 +2043,17 @@ Agents connected through Scout's MCP server should prefer:
 - `whoami` to identify the current sender and broker context
 - `agents_resolve` before sending to an ambiguous handle
 - `messages_send` for durable messages and updates
-- `invocations_ask` for work or requested replies
+- `broker_feed` to inspect one agent's broker-native messages, status, delivery,
+  dispatch, unblock, and error records
+- `ask` for agent-to-agent work or requested replies
 - `invocations_get` and `invocations_wait` to monitor a flight
 - `work_update` for durable work-item progress, waiting, review, and completion
 - future `sessions_*` tools for explicit harness session start, attach, inspect,
   and stop operations
 
-Use `replyMode: "notify"` on `invocations_ask` when the caller should return quickly and receive a callback-style MCP notification later. Use `replyMode: "inline"` when the caller needs the target acknowledgement inline; follow completion with `invocations_get` or `invocations_wait`.
-Use `replyMode: "none"` only when a caller explicitly wants tracking without an
-agent-authored reply.
+Use `ask` first. It returns a compact receipt and lets Scout resolve, route,
+and wake the target when possible. Use lower-level invocation tools only when a
+caller needs their extra reply-mode controls.
 
 ## Collaboration Semantics
 
@@ -2182,6 +2187,7 @@ making the integration surface discoverable.
 | pi | [`arach/pi-scout`](https://github.com/arach/pi-scout) | [`arach.github.io/pi-scout`](https://arach.github.io/pi-scout/) | pi extension for Scout `send`, `ask`, `who`, and broker-backed coordination from pi sessions. |
 | Claude Code | [`arach/claude-scout`](https://github.com/arach/claude-scout) | [`arach.github.io/claude-scout`](https://arach.github.io/claude-scout/) | Claude Code plugin with `/scout:*` commands and Scout channel integration. |
 | Codex | [`arach/codex-scout`](https://github.com/arach/codex-scout) | [`arach.github.io/codex-scout`](https://arach.github.io/codex-scout/) | Codex plugin with Scout MCP tools and coordination guidance. |
+| Cursor | [`arach/cursor-scout`](https://github.com/arach/cursor-scout) | [`arach.github.io/cursor-scout`](https://arach.github.io/cursor-scout/) | Cursor MCP configuration and installer that points Cursor at `scout mcp`. |
 | Hermes Agent | [`arach/hermes-scout`](https://github.com/arach/hermes-scout) | [`github.com/arach/hermes-scout`](https://github.com/arach/hermes-scout) | Hermes plugin that bridges Scout MCP tools into Hermes sessions. |
 
 ## Relationship To This Repo
@@ -2218,6 +2224,7 @@ Recommended sibling checkout layout:
 ├── pi-scout/
 ├── claude-scout/
 ├── codex-scout/
+├── cursor-scout/
 └── hermes-scout/
 ```
 
@@ -2526,7 +2533,7 @@ Broker and collaboration attention should cover:
 Host-level unblock attention still needs explicit ingress:
 
 - Codex approval prompts raised by the Codex host.
-- Claude permission hook requests.
+- Claude permission prompts raised by the Claude host or companion integration.
 - MCP client pre-tool permission prompts.
 - Local system permissions needed by Scout itself, such as notifications or APNs setup.
 
@@ -2546,8 +2553,8 @@ Implemented now:
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
 - Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
 - Web operator attention reads active broker unblock requests.
-- Managed Claude sessions no longer install a project-wide `PreToolUse` permission
-  hook.
+- Managed Claude sessions rely on host or companion permission capture; Scout
+  does not install Claude project hooks.
 
 Not done yet:
 
@@ -2737,7 +2744,9 @@ Purpose: dense context for coding agents working in this repo.
 
 | Area | Path |
 |---|---|
-| Desktop app, CLI, app services | `apps/desktop` |
+| Transitional desktop/CLI source | `apps/desktop` |
+| Web UI/server | `packages/web` |
+| Native macOS menu app | `apps/macos` |
 | iOS app | `apps/ios` |
 | Broker/runtime | `packages/runtime` |
 | Shared protocol | `packages/protocol` |
@@ -2802,7 +2811,8 @@ MCP tools.
 - Group coordination means explicit channel.
 - Shared broadcast is opt-in.
 - `send` / `messages_send` is a durable message/update with receipt ids.
-- `ask` / `invocations_ask` is an invocation with receipt ids, target acknowledgement, and lifecycle state.
+- `ask` is the normal MCP primitive for agent-to-agent work. It returns a
+  compact lifecycle receipt without requiring discovery preflight.
 - Cards describe identities and return addresses; sessions are concrete harness lifecycles.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
 - Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
@@ -2822,6 +2832,7 @@ MCP tools.
 ```bash
 bun test apps/desktop/src/core/pairing/runtime/bridge/router.test.ts
 bun run --cwd apps/desktop check
+bun run --cwd packages/web build:server
 npm --prefix packages/protocol run check
 npm --prefix packages/runtime run check
 ```
@@ -2929,7 +2940,7 @@ transcripts.
 | Workflow | Use | API/tool |
 |---|---|---|
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
-| invocation/requested reply | answer/work expected, creates invocation/flight | `scout ask`, `invocations_ask` |
+| ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
 | active reply | answer an inbound broker ask | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
 
@@ -2985,16 +2996,17 @@ Examples:
 |---|---|---|
 | `/scout:ask >> hudson Review the parser.` | `targetLabel: "hudson"` | `Review the parser.` |
 | `/scout:ask >> ref:8kj4pd Continue.` | `target: { kind: "binding_ref", ref: "8kj4pd" }` | `Continue.` |
+| `/scout:ask >> project:../talkie Compare auth.` | `projectPath: "../talkie"` | `Compare auth.` |
 | `/scout:send >> channel:ops Status is green.` | `target: { kind: "channel", channel: "ops" }` | `Status is green.` |
 
 Supported route target forms: agent labels, `agent:<label>`, `ref:<id>`,
-`id:<agentId>`, `channel:<name>`, and `broadcast`. `@agent` remains compatibility
-syntax, but new Scout-aware composers should prefer `>>` and strip the route
-operator from payload before calling the broker.
+`project:<path>`, `id:<agentId>`, `channel:<name>`, and `broadcast`. `@agent`
+remains compatibility syntax, but new Scout-aware composers should prefer `>>`
+and strip the route operator from payload before calling the broker.
 
-CLI composer routing currently uses labels and refs for asks; `channel:<name>`
-and `broadcast` are send/update routes. Direct `id:<agentId>` targets are for
-clients that can submit `targetAgentId`.
+CLI composer routing currently uses labels, refs, and project paths for asks;
+`channel:<name>` and `broadcast` are send/update routes. Direct `id:<agentId>`
+targets are for clients that can submit `targetAgentId`.
 
 ## Reply Context
 
@@ -3015,7 +3027,8 @@ Rules:
 
 - `final_response`: final assistant message is broker-visible reply.
 - `mcp_reply`: call reply tool exactly once.
-- Do not answer original ask with `messages_send` or `invocations_ask`.
+- Do not answer the original ask with `messages_send`, `ask`, or
+  `invocations_ask`.
 
 ## Scout Contact Line
 
@@ -3127,8 +3140,9 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 |---|---|
 | identify sender | `whoami` |
 | resolve ambiguous target | `agents_resolve` |
+| broker-native messages/status/errors | `broker_feed` |
 | message/update | `messages_send` |
-| work/requested reply | `invocations_ask` |
+| work/requested reply | `ask` |
 | inspect flight | `invocations_get` |
 | bounded follow-up wait | `invocations_wait` |
 | work progress/waiting/review/done | `work_update` |

@@ -136,7 +136,7 @@ struct OpenScoutPathResolver {
     func resolveRepoRoot() -> URL? {
         for start in uniqueStartDirectories() {
             for candidate in ancestorChain(startingAt: start) {
-                let scoutPath = candidate.appending(path: "apps/desktop/bin/scout.ts").path
+                let scoutPath = candidate.appending(path: "packages/cli/src/main.ts").path
                 let runtimePath = candidate.appending(path: "packages/runtime/bin/openscout-runtime.mjs").path
                 if fileManager.fileExists(atPath: scoutPath) && fileManager.fileExists(atPath: runtimePath) {
                     return candidate

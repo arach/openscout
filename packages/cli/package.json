@@ -17,7 +17,7 @@
   },
   "scripts": {
     "build": "npm --prefix ../protocol run build && npm --prefix ../runtime run build && node ./scripts/build.mjs",
-    "dev": "bun ../../apps/desktop/bin/scout.ts",
+    "dev": "bun ./src/main.ts",
     "test:happy": "node --test test/*.test.mjs",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpack": "node ../../scripts/restore-publish-manifest.mjs .",

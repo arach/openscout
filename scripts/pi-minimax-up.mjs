@@ -376,7 +376,7 @@ async function startPairSupervisor(options) {
   mkdirSync(paths.rootDir, { recursive: true });
   appendFileSync(paths.upLogPath, `\n[${new Date().toISOString()}] starting pi-minimax pair supervisor\n`);
   const logFd = openSync(paths.upLogPath, "a");
-  const child = spawn(process.execPath || "bun", [join(REPO_ROOT, "apps", "desktop", "bin", "pair-supervisor.ts")], {
+  const child = spawn(process.execPath || "bun", [join(REPO_ROOT, "packages", "web", "server", "pair-supervisor.ts")], {
     cwd: REPO_ROOT,
     env,
     detached: true,
@@ -536,7 +536,7 @@ async function main() {
   const session = await waitForPiSession(brokerUrl, options);
   const attached = await attachSession(brokerUrl, session, options);
   console.log(`Attached ${options.alias} to ${attached.agentId}.`);
-  console.log(`Try it with: bun apps/desktop/bin/scout.ts ask --to ${options.alias.slice(1)} "Reply exactly: ok"`);
+  console.log(`Try it with: bun packages/cli/src/main.ts ask --to ${options.alias.slice(1)} "Reply exactly: ok"`);
 }
 
 main().catch((error) => {

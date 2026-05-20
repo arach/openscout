@@ -165,7 +165,7 @@ resolve_js_runtime_bin() {
 }
 
 resolve_repo_root() {
-  if [ -f "${REPO_ROOT}/apps/desktop/bin/scout.ts" ] && [ -f "${REPO_ROOT}/packages/runtime/bin/openscout-runtime.mjs" ]; then
+  if [ -f "${REPO_ROOT}/packages/cli/src/main.ts" ] && [ -f "${REPO_ROOT}/packages/runtime/bin/openscout-runtime.mjs" ]; then
     printf '%s\n' "${REPO_ROOT}"
     return 0
   fi
@@ -225,8 +225,8 @@ resolve_scout_command() {
 
   repo_root="$(resolve_repo_root || true)"
   bun_bin="$(resolve_bun_bin || true)"
-  if [ -n "${repo_root}" ] && [ -n "${bun_bin}" ] && [ -f "${repo_root}/apps/desktop/bin/scout.ts" ]; then
-    SCOUT_COMMAND=("${bun_bin}" "${repo_root}/apps/desktop/bin/scout.ts")
+  if [ -n "${repo_root}" ] && [ -n "${bun_bin}" ] && [ -f "${repo_root}/packages/cli/src/main.ts" ]; then
+    SCOUT_COMMAND=("${bun_bin}" "${repo_root}/packages/cli/src/main.ts")
     return 0
   fi
 
@@ -354,9 +354,9 @@ build_process_targets() {
     append_process_target_if_exists "${repo_root}/packages/web/server/index.ts"
     append_process_target_if_exists "${repo_root}/packages/cli/dist/scout-control-plane-web.mjs"
     append_process_target_if_exists "${repo_root}/packages/web/dist/openscout-web-server.mjs"
-    append_process_target_if_exists "${repo_root}/apps/desktop/bin/pair-supervisor.ts"
     append_process_target_if_exists "${repo_root}/packages/cli/dist/pair-supervisor.mjs"
     append_process_target_if_exists "${repo_root}/packages/web/dist/pair-supervisor.mjs"
+    append_process_target_if_exists "${repo_root}/packages/web/server/pair-supervisor.ts"
   fi
 
   for node_root in "${GLOBAL_NODE_MODULE_ROOTS[@]:-}"; do

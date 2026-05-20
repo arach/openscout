@@ -91,7 +91,7 @@ if (!bundleRuntimeEntrypoints()) {
   process.exit(1);
 }
 
-const pairSupervisorEntry = resolve(repoRoot, "apps", "desktop", "bin", "pair-supervisor.ts");
+const pairSupervisorEntry = resolve(repoRoot, "packages", "web", "server", "pair-supervisor.ts");
 const pairSupervisorResult = spawnSync(
   "bun",
   ["build", pairSupervisorEntry, "--target=bun", "--format=esm", "--outfile", pairSupervisorOutput],

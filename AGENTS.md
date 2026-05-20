@@ -22,12 +22,13 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 
 | Area | Path |
 | --- | --- |
-| Desktop app, CLI, app services | `apps/desktop` |
+| Web UI/server | `packages/web` |
+| Native macOS menu app | `apps/macos` |
+| Transitional desktop/CLI source | `apps/desktop` |
 | iOS app | `apps/ios` |
 | Broker/runtime | `packages/runtime` |
 | Shared protocol | `packages/protocol` |
 | Public CLI package | `packages/cli` |
-| Web package | `packages/web` |
 | Landing/docs site | `landing` |
 | Product docs | `docs` |
 
