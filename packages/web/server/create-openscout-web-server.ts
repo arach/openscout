@@ -2114,7 +2114,7 @@ export async function createOpenScoutWebServer(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ranger assistant failed";
       const status = error instanceof RangerAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
   app.post("/api/ranger/actions/ask", async (c) => {
@@ -2191,7 +2191,7 @@ export async function createOpenScoutWebServer(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ranger brief failed";
       const status = error instanceof RangerAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
   app.get("/api/briefings", (c) => {
@@ -2524,7 +2524,7 @@ export async function createOpenScoutWebServer(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Fleet brief failed";
       const status = error instanceof RangerAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
   app.get("/api/fleet", (c) =>

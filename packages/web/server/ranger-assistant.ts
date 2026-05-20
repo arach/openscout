@@ -429,6 +429,8 @@ export class RangerAssistantError extends Error {
   }
 }
 
+const OPENAI_CALL_TIMEOUT_MS = 60_000;
+
 async function callOpenAIResponse(input: {
   apiKey: string;
   baseUrl: string;
@@ -439,34 +441,54 @@ async function callOpenAIResponse(input: {
   body: string;
   context: RangerAssistantContextSnapshot;
 }): Promise<{ id: string | null; text: string }> {
-  const response = await input.fetchImpl(`${trimTrailingSlash(input.baseUrl)}/responses`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${input.apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: input.model,
-      instructions: input.systemPrompt,
-      ...(input.previousResponseId ? { previous_response_id: input.previousResponseId } : {}),
-      input: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: [
-                `Operator request:\n${input.body}`,
-                "",
-                "Current Scout control-plane snapshot:",
-                JSON.stringify(input.context),
-              ].join("\n"),
-            },
-          ],
-        },
-      ],
-    }),
-  });
+  // Without an abort signal, a slow/stuck Responses call leaves the endpoint
+  // hanging indefinitely — operators see an empty reply / generic 500 from the
+  // browser. Cap the wait at OPENAI_CALL_TIMEOUT_MS so the failure path is a
+  // real 504 instead of mystery.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OPENAI_CALL_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await input.fetchImpl(`${trimTrailingSlash(input.baseUrl)}/responses`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${input.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: input.model,
+        instructions: input.systemPrompt,
+        ...(input.previousResponseId ? { previous_response_id: input.previousResponseId } : {}),
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: [
+                  `Operator request:\n${input.body}`,
+                  "",
+                  "Current Scout control-plane snapshot:",
+                  JSON.stringify(input.context),
+                ].join("\n"),
+              },
+            ],
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new RangerAssistantError(
+        `OpenAI Responses call exceeded ${Math.round(OPENAI_CALL_TIMEOUT_MS / 1000)}s — likely a large brief context or a stuck upstream.`,
+        504,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const raw = await response.text();
   let parsed: OpenAIResponsePayload = {};
