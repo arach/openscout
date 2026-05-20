@@ -165,6 +165,19 @@
   font-weight: 500;
 }
 
+/* SCO-037: markdown body becomes the canonical briefing view.
+ * Sits above the structured layers so the human-readable form is primary. */
+.briefing-layer-markdown {
+  background: color-mix(in srgb, var(--hud-surface, #1a1a1a) 60%, transparent);
+}
+
+.briefing-markdown {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--hud-text, #ddd);
+  max-width: 72ch;
+}
+
 .briefing-steps {
   list-style: none;
   padding: 0;

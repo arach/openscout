@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { api } from "../lib/api.ts";
+import { RangerMarkdown } from "../lib/ranger-markdown.tsx";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { Route } from "../lib/types.ts";
 import "./system-surfaces-redesign.css";
@@ -20,6 +21,8 @@ type BriefingDetail = {
   observations: ObservationItem[];
   snapshot: SnapshotBody | null;
   call: CallBody | null;
+  /** SCO-037: canonical markdown body. Null for rows persisted before the markdown pipeline. */
+  markdown: string | null;
   createdAt: number;
 };
 
@@ -154,6 +157,9 @@ export function BriefingDetailScreen({
         ) : null}
       </header>
 
+      {detail.markdown ? (
+        <MarkdownLayer markdown={detail.markdown} />
+      ) : null}
       <BriefLayer brief={detail.brief} navigate={navigate} />
       <ObservationsLayer
         observations={detail.observations}
@@ -161,6 +167,17 @@ export function BriefingDetailScreen({
       />
       <SnapshotLayer snapshot={detail.snapshot} call={detail.call} />
     </div>
+  );
+}
+
+function MarkdownLayer({ markdown }: { markdown: string }) {
+  return (
+    <section className="briefing-layer briefing-layer-markdown">
+      <LayerHead eyebrow="Layer 0" title="Brief (markdown)" />
+      <div className="briefing-markdown">
+        <RangerMarkdown text={markdown} />
+      </div>
+    </section>
   );
 }
 
