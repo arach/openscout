@@ -52,6 +52,8 @@ implementation specs.
 - [sco-030-claude-code-tmux-personal-dev-transport.md](./sco-030-claude-code-tmux-personal-dev-transport.md)
 - [sco-031-native-terminal-surfaces.md](./sco-031-native-terminal-surfaces.md)
 - [sco-035-ranger-chip-unification.md](./sco-035-ranger-chip-unification.md)
+- [sco-036-agent-state-vocabulary.md](./sco-036-agent-state-vocabulary.md)
+- [sco-037-ranger-brief-pipeline.md](./sco-037-ranger-brief-pipeline.md)
 
 ## Operations
 
