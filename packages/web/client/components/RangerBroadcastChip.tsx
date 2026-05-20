@@ -166,7 +166,7 @@ export function RangerBroadcastChip() {
         aria-expanded={popoverOpen}
         aria-haspopup="dialog"
       >
-        <Bot size={14} className="s-ranger-chip-icon" aria-hidden="true" />
+        <Bot size={18} className="s-ranger-chip-icon" aria-hidden="true" />
         {surface.kind === "activity" && (
           <>
             {activityShowsSpinner(surface.activity) ? (

@@ -9,9 +9,9 @@
   align-items: center;
   gap: 6px;
   max-width: 38vw;
-  height: 18px;
+  height: 22px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 11px;
   background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
