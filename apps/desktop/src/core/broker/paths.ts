@@ -7,6 +7,7 @@ export const scoutBrokerPaths = {
     node: "/v1/node",
     snapshot: "/v1/snapshot",
     messages: "/v1/messages",
+    brokerMessages: "/v1/broker/messages",
     eventsStream: "/v1/events/stream",
     actors: "/v1/actors",
     agents: "/v1/agents",
@@ -27,6 +28,13 @@ export const scoutBrokerPaths = {
 export function scoutBrokerMessagesListPath(search: URLSearchParams): string {
   const q = search.toString();
   return q ? `${scoutBrokerPaths.v1.messages}?${q}` : scoutBrokerPaths.v1.messages;
+}
+
+export function scoutBrokerMessagesPath(search: URLSearchParams): string {
+  const q = search.toString();
+  return q
+    ? `${scoutBrokerPaths.v1.brokerMessages}?${q}`
+    : scoutBrokerPaths.v1.brokerMessages;
 }
 
 export function scoutBrokerInvocationPath(invocationId: string): string {

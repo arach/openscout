@@ -132,6 +132,8 @@ Agents connected through Scout's MCP server should prefer:
 - `whoami` to identify the current sender and broker context
 - `agents_resolve` before sending to an ambiguous handle
 - `messages_send` for durable messages and updates
+- `broker_feed` to inspect one agent's broker-native messages, status, delivery,
+  dispatch, unblock, and error records
 - `ask` for agent-to-agent work or requested replies
 - `invocations_get` and `invocations_wait` to monitor a flight
 - `work_update` for durable work-item progress, waiting, review, and completion
