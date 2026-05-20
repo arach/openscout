@@ -10,12 +10,14 @@ import { conversationIdAliases } from "./internal/conversation-ids.ts";
 import {
   sqlJoinClauses,
   sqlPlaceholders,
+  sqlTimestampMsExpression,
   transientBrokerWorkingStatusPredicate,
 } from "./internal/sql-helpers.ts";
 import type { WebMessage } from "./types/web.ts";
 
 export function queryRecentMessages(limit = 80, opts?: { conversationId?: string }): WebMessage[] {
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
+  const messageCreatedAtExpression = sqlTimestampMsExpression("m.created_at");
   const where = sqlJoinClauses([
     transientBrokerWorkingStatusPredicate("m"),
     conversationIds.length > 0
@@ -30,7 +32,7 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
          m.conversation_id,
          ac.display_name AS actor_name,
          m.body,
-         m.created_at,
+         ${messageCreatedAtExpression} AS created_at,
          m.class,
          m.metadata_json,
          m.reply_to_message_id,
@@ -38,7 +40,7 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
        FROM messages m
        JOIN actors ac ON ac.id = m.actor_id
        WHERE ${where}
-       ORDER BY m.created_at DESC
+       ORDER BY ${messageCreatedAtExpression} DESC
        LIMIT ?`,
     )
     .all(...conversationIds, limit) as Array<{

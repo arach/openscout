@@ -3,6 +3,8 @@
  * db-queries.ts as part of SCO-031 Phase A.
  */
 
+import { epochMs } from "@openscout/protocol";
+
 export function metadataString(
   metadata: Record<string, unknown> | undefined,
   key: string,
@@ -22,7 +24,9 @@ export function parseJson<T>(value: string | null, fallback: T): T {
   }
 }
 
-export function coerceNumber(value: number | string | null): number | null {
+export const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
+
+export function coerceNumber(value: number | string | null | undefined): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
   }
@@ -33,10 +37,6 @@ export function coerceNumber(value: number | string | null): number | null {
   return null;
 }
 
-export function normalizeTimestampMs(value: number | string | null): number | null {
-  const numeric = coerceNumber(value);
-  if (numeric === null) {
-    return null;
-  }
-  return numeric < 1e12 ? numeric * 1000 : numeric;
+export function normalizeTimestampMs(value: number | string | null | undefined): number | null {
+  return epochMs(value);
 }

@@ -1,21 +1,17 @@
+import { normalizeTimestampMs, type TimestampInput } from "./time.ts";
+
 /**
  * Helpers for grouping thread messages by calendar day.
  *
  * Both helpers accept either seconds-since-epoch or milliseconds-since-epoch
- * (auto-detected via the 1e12 cutoff) so callers don't need to normalize
- * inputs from different sources.
+ * via the shared time helper so callers don't need to normalize inputs from
+ * different sources.
  */
-
-function normalizeTimestampMs(value: number | null | undefined): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
-    return null;
-  return value < 1e12 ? value * 1000 : value;
-}
 
 /** True when both timestamps fall on the same calendar day in local time. */
 export function isSameCalendarDay(
-  left: number | null | undefined,
-  right: number | null | undefined,
+  left: TimestampInput,
+  right: TimestampInput,
 ): boolean {
   const leftValue = normalizeTimestampMs(left);
   const rightValue = normalizeTimestampMs(right);
@@ -37,7 +33,7 @@ export function isSameCalendarDay(
  * time; otherwise a short weekday/month/day in the user's locale.
  * Returns an empty string for unusable input.
  */
-export function formatThreadDayLabel(value: number | null | undefined): string {
+export function formatThreadDayLabel(value: TimestampInput): string {
   const normalized = normalizeTimestampMs(value);
   if (normalized === null) return "";
 

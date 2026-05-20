@@ -8,12 +8,12 @@
 
 import { db } from "../internal/db.ts";
 import { conversationIdForAgent } from "../internal/conversation-ids.ts";
-import { normalizeTimestampMs } from "../internal/parse.ts";
 import { compact } from "../internal/paths.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
   activeAgentMetadataPredicate,
   queryExecutingAgentIds,
+  sqlTimestampMsExpression,
   summarizeAgentState,
   summarizeAgentStatusLabel,
 } from "../internal/sql-helpers.ts";
@@ -24,11 +24,13 @@ import type {
 
 export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
   const executingAgentIds = queryExecutingAgentIds();
+  const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
+  const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
 
   // Latest message timestamp per actor (for lastActiveAt)
   const lastMessageAt = new Map(
     (db().prepare(
-      `SELECT actor_id, MAX(created_at) AS last_at FROM messages GROUP BY actor_id`,
+      `SELECT actor_id, MAX(${messageCreatedAtExpression}) AS last_at FROM messages GROUP BY actor_id`,
     ).all() as Array<{ actor_id: string; last_at: number }>).map((r) => [r.actor_id, r.last_at]),
   );
 
@@ -44,12 +46,12 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
        ep.state,
        ep.project_root,
        ep.session_id,
-       ep.updated_at
+       ${endpointUpdatedAtExpression} AS updated_at
      FROM agents a
      JOIN actors ac ON ac.id = a.id
      ${LATEST_AGENT_ENDPOINT_JOIN}
      WHERE ${activeAgentMetadataPredicate("a")}
-     ORDER BY COALESCE(ep.updated_at, 0) DESC, ac.display_name ASC
+     ORDER BY COALESCE(${endpointUpdatedAtExpression}, 0) DESC, ac.display_name ASC
      LIMIT ?`,
   ).all(limit) as Array<{
     id: string;
@@ -84,7 +86,7 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
       state,
       statusLabel,
       sessionId: conversationIdForAgent(r.id),
-      lastActiveAt: normalizeTimestampMs(lastMessageAt.get(r.id) ?? null),
+      lastActiveAt: lastMessageAt.get(r.id) ?? null,
     };
   });
 }
@@ -92,6 +94,7 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
 /* ── Agent detail (single agent, richer data) ── */
 
 export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | null {
+  const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
   const row = db().prepare(
     `SELECT
        a.id,
@@ -106,7 +109,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
        ep.project_root,
        ep.cwd,
        ep.session_id,
-       ep.updated_at
+       ${endpointUpdatedAtExpression} AS updated_at
      FROM agents a
      JOIN actors ac ON ac.id = a.id
      ${LATEST_AGENT_ENDPOINT_JOIN}
@@ -137,12 +140,13 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
   try { capabilities = row.capabilities_json ? JSON.parse(row.capabilities_json) : []; } catch {}
 
   const executingAgentIds = queryExecutingAgentIds();
+  const flightStartedAtExpression = sqlTimestampMsExpression("started_at");
 
   const activeFlights = (db().prepare(
-    `SELECT id, state, summary, started_at
+    `SELECT id, state, summary, ${flightStartedAtExpression} AS started_at
      FROM flights
      WHERE target_agent_id = ? AND state NOT IN ('completed','failed','cancelled')
-     ORDER BY started_at DESC`,
+     ORDER BY ${flightStartedAtExpression} DESC`,
   ).all(agentId) as Array<{
     id: string;
     state: string;
@@ -155,11 +159,12 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     startedAt: f.started_at,
   }));
 
+  const activityTsExpression = sqlTimestampMsExpression("ai.ts");
   const recentActivity = (db().prepare(
-    `SELECT ai.id, ai.kind, ai.ts, ai.title, ai.summary
+    `SELECT ai.id, ai.kind, ${activityTsExpression} AS ts, ai.title, ai.summary
      FROM activity_items ai
      WHERE ai.actor_id = ?
-     ORDER BY ai.ts DESC
+     ORDER BY ${activityTsExpression} DESC
      LIMIT 20`,
   ).all(agentId) as Array<{
     id: string;
@@ -181,7 +186,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
   const messageCount = msgRow?.cnt ?? 0;
 
   const lastMessageAt = (db().prepare(
-    `SELECT MAX(created_at) AS last_at FROM messages WHERE actor_id = ?`,
+    `SELECT MAX(${sqlTimestampMsExpression("created_at")}) AS last_at FROM messages WHERE actor_id = ?`,
   ).get(agentId) as { last_at: number | null } | null)?.last_at ?? null;
 
   const isWorking = executingAgentIds.has(row.id);

@@ -11,7 +11,12 @@ import type { AgentSummaryState } from "../types/common.ts";
 import type { WebActivityItem } from "../types/web.ts";
 
 import { db } from "./db.ts";
-import { normalizeTimestampMs } from "./parse.ts";
+import {
+  EPOCH_MILLISECONDS_FLOOR,
+  normalizeTimestampMs,
+} from "./parse.ts";
+
+export { EPOCH_MILLISECONDS_FLOOR } from "./parse.ts";
 
 /* ── Internal-only SQL helper types ── */
 
@@ -40,13 +45,26 @@ export function sqlStringList(values: readonly string[]): string {
   return `(${values.map(sqlQuoteLiteral).join(",")})`;
 }
 
+export function sqlTimestampMsExpression(valueExpression: string): string {
+  return `CASE
+    WHEN ${valueExpression} IS NULL THEN NULL
+    WHEN CAST(${valueExpression} AS REAL) < ${EPOCH_MILLISECONDS_FLOOR}
+      THEN CAST(CAST(${valueExpression} AS REAL) * 1000 AS INTEGER)
+    ELSE CAST(${valueExpression} AS INTEGER)
+  END`;
+}
+
+export function sqlTimestampMsCoalesceExpression(valueExpression: string, fallback = "0"): string {
+  return `COALESCE(${sqlTimestampMsExpression(valueExpression)}, ${fallback})`;
+}
+
 /* ── Agent endpoint join + flight predicates ── */
 
 export const LATEST_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id = (
   SELECT ep2.id
   FROM agent_endpoints ep2
   WHERE ep2.agent_id = a.id
-  ORDER BY ep2.updated_at DESC
+  ORDER BY ${sqlTimestampMsCoalesceExpression("ep2.updated_at")} DESC
   LIMIT 1
 )`;
 
@@ -101,17 +119,16 @@ export function summarizeAgentStatusLabel(
 
 export const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
 export const ACTIVE_FLIGHT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-export const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
 export const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
 
 /** Active-flight freshness — shared between runs and fleet projections. */
-export function isFreshActiveTimestamp(timestamp: number): boolean {
-  return timestamp < EPOCH_MILLISECONDS_FLOOR || Date.now() - timestamp <= ACTIVE_FLIGHT_MAX_AGE_MS;
+export function isFreshActiveTimestamp(timestamp: number | string | null | undefined): boolean {
+  const timestampMs = normalizeTimestampMs(timestamp);
+  return timestampMs !== null && Date.now() - timestampMs <= ACTIVE_FLIGHT_MAX_AGE_MS;
 }
 
 export function isStaleActiveFlight(startedAt: number | null, createdAt: number): boolean {
-  const timestamp = normalizeTimestampMs(startedAt ?? createdAt) ?? createdAt;
-  return !isFreshActiveTimestamp(timestamp);
+  return !isFreshActiveTimestamp(startedAt ?? createdAt);
 }
 
 export function isDuplicateActivityFeedItem(

@@ -10,7 +10,11 @@ import HomeHero, {
 } from "./HomeHero.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
-import { timeAgo } from "../lib/time.ts";
+import {
+  compareTimestampsDesc,
+  normalizeTimestampMs,
+  timeAgo,
+} from "../lib/time.ts";
 import { actorColor } from "../lib/colors.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
@@ -59,8 +63,9 @@ type FleetHomeBrief = {
 };
 
 function formatAge(timestamp: number | null | undefined, nowMs: number): string {
-  if (!timestamp || !Number.isFinite(timestamp)) return "—";
-  const seconds = Math.max(0, Math.floor((nowMs - timestamp) / 1000));
+  const timestampMs = normalizeTimestampMs(timestamp);
+  if (timestampMs === null) return "—";
+  const seconds = Math.max(0, Math.floor((nowMs - timestampMs) / 1000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
@@ -103,8 +108,9 @@ function formatLookback(ms: number): string {
 }
 
 function formatTimeUntil(timestamp: number | null | undefined, nowMs: number): string {
-  if (!timestamp || !Number.isFinite(timestamp)) return "unknown";
-  const seconds = Math.floor((timestamp - nowMs) / 1000);
+  const timestampMs = normalizeTimestampMs(timestamp);
+  if (timestampMs === null) return "unknown";
+  const seconds = Math.floor((timestampMs - nowMs) / 1000);
   if (seconds <= 0) return "expired";
   if (seconds < 60) return `in ${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -350,7 +356,9 @@ export function HomeScreen({
     const byAgent = new Map<string, FleetAsk>();
     for (const ask of movingAsks) {
       const current = byAgent.get(ask.agentId);
-      if (!current || ask.updatedAt > current.updatedAt) {
+      const askUpdatedAt = normalizeTimestampMs(ask.updatedAt) ?? 0;
+      const currentUpdatedAt = normalizeTimestampMs(current?.updatedAt) ?? 0;
+      if (!current || askUpdatedAt > currentUpdatedAt) {
         byAgent.set(ask.agentId, ask);
       }
     }
@@ -372,7 +380,9 @@ export function HomeScreen({
       ...needsYouAsks.map((a) => a.updatedAt),
       ...needsYouItems.map((w) => w.updatedAt),
       ...attentionItems.map((item) => item.updatedAt),
-    ];
+    ]
+      .map(normalizeTimestampMs)
+      .filter((value): value is number => value !== null);
     return stamps.length > 0 ? Math.min(...stamps) : null;
   }, [attentionItems, needsYouAsks, needsYouItems]);
 
@@ -387,7 +397,9 @@ export function HomeScreen({
   const sinceMs = nowMs - lookbackMs;
   const liveActivity = useMemo<FleetActivity[]>(() => {
     const items = fleet?.activity ?? [];
-    return items.filter((item) => item.ts >= sinceMs);
+    return items.filter(
+      (item) => (normalizeTimestampMs(item.ts) ?? 0) >= sinceMs,
+    );
   }, [fleet?.activity, sinceMs]);
 
   const now = new Date();
@@ -417,7 +429,8 @@ export function HomeScreen({
     ]);
     const byActor = new Map<string, FleetActivity>();
     for (const item of items) {
-      if (item.ts < cutoff) continue;
+      const itemTs = normalizeTimestampMs(item.ts);
+      if (itemTs === null || itemTs < cutoff) continue;
       if (!interestingKinds.has(item.kind)) continue;
       const name = item.actorName?.trim();
       if (!name) continue;
@@ -426,10 +439,17 @@ export function HomeScreen({
       if (item.agentId && managedIds.has(item.agentId)) continue;
       const key = name.toLowerCase();
       const current = byActor.get(key);
-      if (!current || item.ts > current.ts) byActor.set(key, item);
+      const currentTs = normalizeTimestampMs(current?.ts) ?? 0;
+      if (!current || itemTs > currentTs) byActor.set(key, item);
     }
-    return [...byActor.values()].sort((a, b) => b.ts - a.ts);
+    return [...byActor.values()].sort((a, b) =>
+      compareTimestampsDesc(a.ts, b.ts),
+    );
   }, [fleet?.activity, nowMs, agents, operatorName]);
+
+  const fleetBriefExpiresAtMs = normalizeTimestampMs(fleetBrief?.expiresAt);
+  const fleetBriefIsFresh =
+    fleetBriefExpiresAtMs !== null && fleetBriefExpiresAtMs > nowMs;
 
   const systemSignals = useMemo<HomeHeroSignal[]>(() => {
     const signals: HomeHeroSignal[] = [];
@@ -508,12 +528,13 @@ export function HomeScreen({
       value: fleetBrief
         ? `prepared ${timeAgo(fleetBrief.preparedAt)} · expires ${formatTimeUntil(fleetBrief.expiresAt, nowMs)}`
         : "no generated brief loaded yet",
-      tone: fleetBrief && fleetBrief.expiresAt > nowMs ? "dim" : "warn",
+      tone: fleetBriefIsFresh ? "dim" : "warn",
     });
 
     return signals;
   }, [
     fleetBrief,
+    fleetBriefIsFresh,
     movingAsksWithoutActiveAgent.length,
     nowMs,
     observedActiveActors.length,
@@ -545,7 +566,7 @@ export function HomeScreen({
         : "waiting";
 
   const briefSpeechText = useMemo(() => {
-    if (!fleetBrief || fleetBrief.expiresAt <= nowMs) return "";
+    if (!fleetBrief || !fleetBriefIsFresh) return "";
     const parts: string[] = [];
     const statement = fleetBrief.statement?.trim();
     if (statement) parts.push(statement);
@@ -554,7 +575,7 @@ export function HomeScreen({
       if (text) parts.push(text);
     }
     return parts.join(". ");
-  }, [fleetBrief, nowMs]);
+  }, [fleetBrief, fleetBriefIsFresh]);
 
   const stopBriefSpeech = useCallback(() => {
     briefSpeechRef.current?.stop();
@@ -595,7 +616,7 @@ export function HomeScreen({
   const briefSpeakable = Boolean(briefSpeechText);
   const briefIsNew = Boolean(
     fleetBrief
-      && fleetBrief.expiresAt > nowMs
+      && fleetBriefIsFresh
       && fleetBrief.id !== lastSpokenBriefId,
   );
 
@@ -615,8 +636,8 @@ export function HomeScreen({
     briefIsNew,
     totalOperatorQueue,
     narrativeParts,
-    briefStatement: fleetBrief && fleetBrief.expiresAt > nowMs ? fleetBrief.statement : null,
-    briefObservations: fleetBrief && fleetBrief.expiresAt > nowMs ? fleetBrief.observations ?? [] : [],
+    briefStatement: fleetBrief && fleetBriefIsFresh ? fleetBrief.statement : null,
+    briefObservations: fleetBrief && fleetBriefIsFresh ? fleetBrief.observations ?? [] : [],
     navigate,
     opsEnabled,
     onReviewQueue: () => {

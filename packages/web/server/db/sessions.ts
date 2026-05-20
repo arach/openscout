@@ -18,7 +18,11 @@ import {
   parseDirectConversationId,
 } from "./internal/conversation-ids.ts";
 import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "./internal/paths.ts";
-import { LATEST_AGENT_ENDPOINT_JOIN, transientBrokerWorkingStatusPredicate } from "./internal/sql-helpers.ts";
+import {
+  LATEST_AGENT_ENDPOINT_JOIN,
+  sqlTimestampMsExpression,
+  transientBrokerWorkingStatusPredicate,
+} from "./internal/sql-helpers.ts";
 import type { MobileSessionSummary } from "./types/mobile.ts";
 
 export { isLikelyLocalSessionAgentId };
@@ -155,6 +159,7 @@ function projectSessionConversationRows(
   },
 ): MobileSessionSummary[] {
   const dedupeLocalSessionDirects = opts?.dedupeLocalSessionDirects ?? false;
+  const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
   const memberStmt = db().prepare(
     `SELECT actor_id FROM conversation_members WHERE conversation_id = ?`,
   );
@@ -179,7 +184,7 @@ function projectSessionConversationRows(
      FROM messages m
      WHERE conversation_id = ?
        AND ${transientBrokerWorkingStatusPredicate("m")}
-     ORDER BY created_at DESC
+     ORDER BY ${messageCreatedAtExpression} DESC
      LIMIT 1`,
   );
 
@@ -313,6 +318,8 @@ function projectSessionConversationRows(
 }
 
 export function querySessions(limit = 80): MobileSessionSummary[] {
+  const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
+  const conversationCreatedAtExpression = sqlTimestampMsExpression("c.created_at");
   const rows = db().prepare(
     `SELECT
        c.id,
@@ -323,11 +330,11 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
        ms.last_message_at
      FROM conversations c
      LEFT JOIN (
-       SELECT conversation_id, COUNT(*) AS message_count, MAX(created_at) AS last_message_at
+       SELECT conversation_id, COUNT(*) AS message_count, MAX(${messageCreatedAtExpression}) AS last_message_at
        FROM messages
        GROUP BY conversation_id
      ) ms ON ms.conversation_id = c.id
-     ORDER BY COALESCE(ms.last_message_at, c.created_at, 0) DESC, c.created_at DESC, c.id ASC
+     ORDER BY COALESCE(ms.last_message_at, ${conversationCreatedAtExpression}, 0) DESC, ${conversationCreatedAtExpression} DESC, c.id ASC
      LIMIT ?`,
   ).all(limit) as SessionConversationRow[];
 
@@ -338,6 +345,7 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
 }
 
 export function querySessionById(conversationId: string): MobileSessionSummary | null {
+  const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
   const row = db().prepare(
     `SELECT
        c.id,
@@ -348,7 +356,7 @@ export function querySessionById(conversationId: string): MobileSessionSummary |
        ms.last_message_at
      FROM conversations c
      LEFT JOIN (
-       SELECT conversation_id, COUNT(*) AS message_count, MAX(created_at) AS last_message_at
+       SELECT conversation_id, COUNT(*) AS message_count, MAX(${messageCreatedAtExpression}) AS last_message_at
        FROM messages
        WHERE conversation_id = ?
        GROUP BY conversation_id
