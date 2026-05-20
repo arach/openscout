@@ -10,6 +10,7 @@ import {
   type RangerActivity,
   type RangerPublicState,
 } from "../scout/ranger/RangerStateContext.tsx";
+import { useContextMenu, type MenuItem } from "./ContextMenu.tsx";
 import type { BroadcastTier } from "../lib/types.ts";
 
 import { RangerChipPopover } from "./RangerChipPopover.tsx";
@@ -111,7 +112,8 @@ function buildTitle(surface: ChipSurface, state: RangerPublicState): string {
 export function RangerBroadcastChip() {
   const snap = useRangerBroadcastStore();
   const broadcast = selectChipBroadcast(snap);
-  const { state } = useRangerState();
+  const { state, actions } = useRangerState();
+  const showContextMenu = useContextMenu();
   const [now, setNow] = useState(() => Date.now());
   const [popoverOpen, setPopoverOpen] = useState(false);
 
@@ -142,13 +144,24 @@ export function RangerBroadcastChip() {
     setPopoverOpen(true);
   };
 
+  const openQuickMenu = (event: ReactMouseEvent) => {
+    const items: MenuItem[] = [
+      { kind: "action", label: "Brief me now", onSelect: () => actions.triggerBrief() },
+      { kind: "action", label: "Ask state", onSelect: () => actions.triggerAskState() },
+      { kind: "action", label: "New chat", onSelect: () => actions.startNewChat() },
+      { kind: "separator" },
+      { kind: "action", label: "Open chat", onSelect: () => actions.focusRanger() },
+    ];
+    showContextMenu(event, items);
+  };
+
   return (
     <>
       <button
         type="button"
         className={`s-ranger-chip ${variantClass}`}
         onClick={openPopover}
-        onContextMenu={openPopover}
+        onContextMenu={openQuickMenu}
         title={title}
         aria-expanded={popoverOpen}
         aria-haspopup="dialog"

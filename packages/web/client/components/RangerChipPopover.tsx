@@ -188,7 +188,6 @@ export function RangerChipPopover({
         aria-label="Ranger"
       >
         <header className="s-ranger-popover-head">
-          <Bot size={14} className="s-ranger-popover-head-icon" aria-hidden="true" />
           <span className="s-ranger-popover-head-title">
             {state.session.title ?? "Chat"}
           </span>

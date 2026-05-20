@@ -1343,9 +1343,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     <section className={expandedClassName} style={expandedStyle}>
       <div className="flex shrink-0 flex-col gap-2 px-3 pt-2.5 pb-1.5">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <Bot size={13} className="shrink-0 text-lime-300" />
-        </div>
+        <div className="flex min-w-0 items-center gap-2" />
         <div className="flex shrink-0 items-center gap-0.5">
           <RangerIconButton
             icon={voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
@@ -1729,7 +1727,6 @@ function ChatHistory({
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--scout-chrome-border-soft)] px-2.5 py-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <Bot size={11} className="shrink-0 text-lime-300" />
           <span className="min-w-0 truncate text-[var(--scout-chrome-ink)]" title={state.session.id}>
             {titleLine}
           </span>
