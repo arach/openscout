@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Archive, Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Plus, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
@@ -66,6 +66,12 @@ function resolveRangerFxParams(presetId: string, onlineCount: number): Partial<V
   return { ...base, ...rangerActivityParams(onlineCount) };
 }
 import { useScout } from "../Provider.tsx";
+import {
+  useRangerStatePublisher,
+  type RangerActionApi,
+  type RangerActivity,
+  type RangerPublicState,
+} from "./RangerStateContext.tsx";
 
 type RangerAgentConfig = {
   editable: boolean;
@@ -272,6 +278,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     route,
     onlineCount,
   } = useScout();
+  const publisher = useRangerStatePublisher();
 
   const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", false);
   const [draft, setDraft] = useState("");
@@ -1148,6 +1155,121 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     window.addEventListener("scout:ranger-brief-now", briefHandler);
     return () => window.removeEventListener("scout:ranger-brief-now", briefHandler);
   }, [briefing, sending, setCollapsed, startBrief]);
+
+  const rangerPublicState = useMemo<RangerPublicState>(() => {
+    const activity: RangerActivity = speaking
+      ? "speaking"
+      : briefing
+        ? "briefing"
+        : sending
+          ? "thinking"
+          : recording
+            ? "listening"
+            : "idle";
+    const session = sessionState?.session ?? null;
+    const lastMessage = session && session.messages.length > 0
+      ? session.messages[session.messages.length - 1]
+      : null;
+    const due = (reminderState?.due ?? []).slice(0, 5).map((reminder) => ({
+      id: reminder.id,
+      body: reminder.body,
+      status: reminder.status,
+      dueAt: reminder.dueAt,
+    }));
+    const nextScheduled = reminderState?.scheduled[0];
+    return {
+      activity,
+      brief: {
+        lastDeliveredAt: brief && !briefing ? brief.preparedAt : null,
+      },
+      reminders: {
+        dueCount: reminderState?.due.length ?? 0,
+        upcomingCount: reminderState?.scheduled.length ?? 0,
+        due,
+        next: nextScheduled
+          ? {
+              id: nextScheduled.id,
+              body: nextScheduled.body,
+              status: nextScheduled.status,
+              dueAt: nextScheduled.dueAt,
+            }
+          : null,
+      },
+      voice: {
+        available: voiceAvailable,
+        setupBlocked: voiceAvailable === false,
+        replies: voiceReplies,
+      },
+      error,
+      session: {
+        title: session?.title ?? null,
+        lastActivityAt: lastMessage?.createdAt ?? session?.updatedAt ?? null,
+      },
+    };
+  }, [
+    speaking,
+    briefing,
+    sending,
+    recording,
+    brief,
+    reminderState,
+    voiceAvailable,
+    voiceReplies,
+    error,
+    sessionState,
+  ]);
+
+  useEffect(() => {
+    publisher?.publishState(rangerPublicState);
+  }, [publisher, rangerPublicState]);
+
+  useEffect(() => {
+    if (!publisher) return;
+    const actions: RangerActionApi = {
+      focusRanger: () => setCollapsed(false),
+      triggerBrief: () => {
+        setCollapsed(false);
+        if (!briefing && !sending) {
+          void startBrief();
+        }
+      },
+      triggerAskState: () => {
+        setCollapsed(false);
+        void askRanger(STATE_PROMPT);
+      },
+      toggleVoiceReplies: () => {
+        const next = !voiceReplies;
+        setVoiceReplies(next);
+        if (!next) stopSpeech();
+      },
+      openRangerSettings: () => {
+        setCollapsed(false);
+        setSettingsOpen(true);
+      },
+      dismissReminder: (id) => {
+        void dismissRangerReminder(id);
+      },
+      askReminderStatus: ({ body }) => {
+        setCollapsed(false);
+        void askRanger(
+          `Reminder due: ${body}. Check the current Scout control-plane state and give me the shortest useful status update.`,
+        );
+      },
+    };
+    publisher.registerActions(actions);
+  }, [
+    publisher,
+    setCollapsed,
+    briefing,
+    sending,
+    startBrief,
+    askRanger,
+    voiceReplies,
+    setVoiceReplies,
+    stopSpeech,
+    setSettingsOpen,
+    dismissRangerReminder,
+  ]);
 
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"

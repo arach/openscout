@@ -21,6 +21,7 @@ import {
 } from "../lib/ranger.ts";
 import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { FilePreviewOverlay } from "./FilePreviewOverlay.tsx";
+import { RangerStateProvider } from "./ranger/RangerStateContext.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
@@ -337,12 +338,14 @@ export function ScoutProvider({
         }}
       >
         <ContextMenuProvider>
-          {children}
-          <SettingsDrawer open={settingsOpen} onClose={closeSettings} />
-          <FilePreviewOverlay
-            path={filePreviewPath}
-            onClose={closeFilePreview}
-          />
+          <RangerStateProvider>
+            {children}
+            <SettingsDrawer open={settingsOpen} onClose={closeSettings} />
+            <FilePreviewOverlay
+              path={filePreviewPath}
+              onClose={closeFilePreview}
+            />
+          </RangerStateProvider>
         </ContextMenuProvider>
       </div>
     </ScoutContext.Provider>
