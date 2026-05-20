@@ -33,6 +33,14 @@ type BriefBody = {
   recommendation: string;
   steps: BriefStep[];
   actions: BriefAction[];
+  presented?: PresentedBody | null;
+};
+
+type PresentedBody = {
+  sentences: string[];
+  voiceSpec: { targetWords: number; persona: string };
+  model: string;
+  responseId: string | null;
 };
 
 type BriefStep = {
@@ -160,6 +168,9 @@ export function BriefingDetailScreen({
       {detail.markdown ? (
         <MarkdownLayer markdown={detail.markdown} />
       ) : null}
+      {detail.brief?.presented ? (
+        <PresentedLayer presented={detail.brief.presented} />
+      ) : null}
       <BriefLayer brief={detail.brief} navigate={navigate} />
       <ObservationsLayer
         observations={detail.observations}
@@ -176,6 +187,28 @@ function MarkdownLayer({ markdown }: { markdown: string }) {
       <LayerHead eyebrow="Layer 0" title="Brief (markdown)" />
       <div className="briefing-markdown">
         <RangerMarkdown text={markdown} />
+      </div>
+    </section>
+  );
+}
+
+function PresentedLayer({ presented }: { presented: PresentedBody }) {
+  return (
+    <section className="briefing-layer briefing-layer-presented">
+      <LayerHead
+        eyebrow="Spoken"
+        title={`Presented as · ${presented.voiceSpec.persona}, ~${presented.voiceSpec.targetWords} words`}
+      />
+      <ol className="briefing-presented-sentences">
+        {presented.sentences.map((sentence, idx) => (
+          <li key={idx} className="briefing-presented-sentence">
+            {sentence}
+          </li>
+        ))}
+      </ol>
+      <div className="briefing-presented-meta">
+        model: {presented.model}
+        {presented.responseId ? ` · response: ${presented.responseId}` : ""}
       </div>
     </section>
   );
