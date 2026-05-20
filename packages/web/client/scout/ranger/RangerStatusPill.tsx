@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { Bot, Loader2, MoreHorizontal } from "lucide-react";
+import { Bot, Loader2 } from "lucide-react";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import {
   useRangerState,
@@ -194,15 +194,6 @@ export function RangerStatusPill() {
             <span className={toneClass(indicator.tone)}>{indicator.label}</span>
           </>
         )}
-      </button>
-      <button
-        type="button"
-        title="More actions"
-        aria-label="Open menu"
-        onClick={openMenu}
-        className="flex items-center justify-center border-l border-neutral-700/60 px-1.5 py-0.5 opacity-60 transition-opacity hover:opacity-100"
-      >
-        <MoreHorizontal size={12} />
       </button>
     </div>
   );
