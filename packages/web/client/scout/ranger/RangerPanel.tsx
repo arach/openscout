@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Archive, Bell, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, ListChecks, Loader2, Map, Mic, Plus, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Archive, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import {
+  clearClientBroadcast,
   dismissPromotedBroadcast,
+  emitClientBroadcast,
   onToggleRanger,
   selectActiveBroadcast,
   useRangerBroadcastStore,
@@ -66,6 +68,12 @@ function resolveRangerFxParams(presetId: string, onlineCount: number): Partial<V
   return { ...base, ...rangerActivityParams(onlineCount) };
 }
 import { useScout } from "../Provider.tsx";
+import {
+  useRangerStatePublisher,
+  type RangerActionApi,
+  type RangerActivity,
+  type RangerPublicState,
+} from "./RangerStateContext.tsx";
 
 type RangerAgentConfig = {
   editable: boolean;
@@ -272,8 +280,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     route,
     onlineCount,
   } = useScout();
+  const publisher = useRangerStatePublisher();
 
-  const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", false);
+  const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -507,7 +516,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setPromptDraft(config.systemPrompt);
       setConfigStatus(null);
     } catch (err) {
-      setConfigError(err instanceof Error ? err.message : "Could not load Ranger settings.");
+      setConfigError(err instanceof Error ? err.message : "Could not load settings.");
     } finally {
       setConfigLoading(false);
     }
@@ -557,7 +566,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setPromptDraft(result.config.systemPrompt);
       setConfigStatus("Saved");
     } catch (err) {
-      setConfigError(err instanceof Error ? err.message : "Could not save Ranger settings.");
+      setConfigError(err instanceof Error ? err.message : "Could not save settings.");
     } finally {
       setConfigSaving(false);
     }
@@ -578,7 +587,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setSessionPickerOpen(false);
       setChatExpanded(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not switch Ranger session.");
+      setError(err instanceof Error ? err.message : "Could not switch session.");
     } finally {
       setSwitchingSessionId(null);
     }
@@ -587,7 +596,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const resetRangerSession = useCallback(async () => {
     setResettingSession(true);
     setError(null);
-    setAskStatus("Starting fresh Ranger session");
+    setAskStatus("Starting fresh session");
     stopSpeech();
     try {
       const state = await api<RangerAssistantSessionState>("/api/ranger/session/reset", { method: "POST" });
@@ -596,10 +605,10 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setLastReply(null);
       setChatExpanded(false);
       setSessionPickerOpen(false);
-      setAskStatus("Fresh Ranger session ready");
+      setAskStatus("Fresh session ready");
     } catch (err) {
       setAskStatus(null);
-      setError(err instanceof Error ? err.message : "Could not start a fresh Ranger session.");
+      setError(err instanceof Error ? err.message : "Could not start a fresh session.");
     } finally {
       setResettingSession(false);
     }
@@ -618,9 +627,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       setSessionState(state);
       syncLastMessages(state.session);
       setChatExpanded(false);
-      setAskStatus("Ranger session archived");
+      setAskStatus("session archived");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not archive Ranger session.");
+      setError(err instanceof Error ? err.message : "Could not archive session.");
     } finally {
       setArchivingSessionId(null);
     }
@@ -704,7 +713,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         }).then((reminder) => {
           setAskStatus(`Reminder set for ${formatReminderDueAt(reminder.dueAt)}`);
         }).catch((err) => {
-          setError(err instanceof Error ? err.message : "Could not set Ranger reminder.");
+          setError(err instanceof Error ? err.message : "Could not set reminder.");
         });
       } else {
         applyRangerUiAction(action);
@@ -1001,7 +1010,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     } catch (err) {
       if (briefRunRef.current === runId) {
         setAskStatus(null);
-        setError(err instanceof Error ? err.message : "Could not prepare Ranger brief.");
+        setError(err instanceof Error ? err.message : "Could not prepare brief.");
         setBriefing(false);
         setBriefStepIndex(null);
         briefRunRef.current = null;
@@ -1016,7 +1025,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setError(null);
     setLastAsk(trimmed);
     setLastReply(null);
-    setAskStatus("Sending to Ranger");
+    setAskStatus("Sending");
     setDraft((current) => current.trim() === trimmed ? "" : current);
     try {
       const reminderIntent = parseRangerReminderIntent(trimmed);
@@ -1047,11 +1056,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         sessions: result.sessions,
         config: result.config,
       });
-      setAskStatus("Ranger replied");
+      setAskStatus("Reply received");
       handleRangerReply(result.reply.body);
     } catch (err) {
       setAskStatus(null);
-      setError(err instanceof Error ? err.message : "Could not ask Ranger.");
+      setError(err instanceof Error ? err.message : "Could not send.");
     } finally {
       setSending(false);
     }
@@ -1149,6 +1158,167 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     return () => window.removeEventListener("scout:ranger-brief-now", briefHandler);
   }, [briefing, sending, setCollapsed, startBrief]);
 
+  const rangerPublicState = useMemo<RangerPublicState>(() => {
+    const activity: RangerActivity = speaking
+      ? "speaking"
+      : briefing
+        ? "briefing"
+        : sending
+          ? "thinking"
+          : recording
+            ? "listening"
+            : "idle";
+    const session = sessionState?.session ?? null;
+    const lastMessage = session && session.messages.length > 0
+      ? session.messages[session.messages.length - 1]
+      : null;
+    const due = (reminderState?.due ?? []).slice(0, 5).map((reminder) => ({
+      id: reminder.id,
+      body: reminder.body,
+      status: reminder.status,
+      dueAt: reminder.dueAt,
+    }));
+    const nextScheduled = reminderState?.scheduled[0];
+    return {
+      activity,
+      brief: {
+        lastDeliveredAt: brief && !briefing ? brief.preparedAt : null,
+      },
+      reminders: {
+        dueCount: reminderState?.due.length ?? 0,
+        upcomingCount: reminderState?.scheduled.length ?? 0,
+        due,
+        next: nextScheduled
+          ? {
+              id: nextScheduled.id,
+              body: nextScheduled.body,
+              status: nextScheduled.status,
+              dueAt: nextScheduled.dueAt,
+            }
+          : null,
+      },
+      voice: {
+        available: voiceAvailable,
+        setupBlocked: voiceAvailable === false,
+        replies: voiceReplies,
+      },
+      error,
+      session: {
+        title: session?.title ?? null,
+        lastActivityAt: lastMessage?.createdAt ?? session?.updatedAt ?? null,
+      },
+    };
+  }, [
+    speaking,
+    briefing,
+    sending,
+    recording,
+    brief,
+    reminderState,
+    voiceAvailable,
+    voiceReplies,
+    error,
+    sessionState,
+  ]);
+
+  useEffect(() => {
+    publisher?.publishState(rangerPublicState);
+  }, [publisher, rangerPublicState]);
+
+  useEffect(() => {
+    if (!publisher) return;
+    const actions: RangerActionApi = {
+      focusRanger: () => setCollapsed(false),
+      triggerBrief: () => {
+        setCollapsed(false);
+        if (!briefing && !sending) {
+          void startBrief();
+        }
+      },
+      triggerAskState: () => {
+        setCollapsed(false);
+        void askRanger(STATE_PROMPT);
+      },
+      toggleVoiceReplies: () => {
+        const next = !voiceReplies;
+        setVoiceReplies(next);
+        if (!next) stopSpeech();
+      },
+      openRangerSettings: () => {
+        setCollapsed(false);
+        setSettingsOpen(true);
+      },
+      startNewChat: () => {
+        setCollapsed(false);
+        if (!resettingSession) {
+          void resetRangerSession();
+        }
+      },
+      dismissReminder: (id) => {
+        void dismissRangerReminder(id);
+      },
+      askReminderStatus: ({ body }) => {
+        setCollapsed(false);
+        void askRanger(
+          `Reminder due: ${body}. Check the current Scout control-plane state and give me the shortest useful status update.`,
+        );
+      },
+    };
+    publisher.registerActions(actions);
+  }, [
+    publisher,
+    setCollapsed,
+    briefing,
+    sending,
+    startBrief,
+    askRanger,
+    voiceReplies,
+    setVoiceReplies,
+    stopSpeech,
+    setSettingsOpen,
+    resettingSession,
+    resetRangerSession,
+    dismissRangerReminder,
+  ]);
+
+  // Sync attention states onto the broadcast store so the chip surfaces them.
+  const dueReminderCount = reminderState?.due.length ?? 0;
+  useEffect(() => {
+    if (dueReminderCount > 0) {
+      emitClientBroadcast({
+        key: "reminder.due",
+        tier: "warn",
+        text: `${dueReminderCount} reminder${dueReminderCount === 1 ? "" : "s"} due`,
+      });
+    } else {
+      clearClientBroadcast("reminder.due");
+    }
+  }, [dueReminderCount]);
+
+  useEffect(() => {
+    if (voiceAvailable === false) {
+      emitClientBroadcast({
+        key: "voice.offline",
+        tier: "warn",
+        text: "Voice setup needed",
+      });
+    } else if (voiceAvailable === true) {
+      clearClientBroadcast("voice.offline");
+    }
+  }, [voiceAvailable]);
+
+  useEffect(() => {
+    if (error) {
+      emitClientBroadcast({
+        key: "ranger.error",
+        tier: "error",
+        text: error,
+      });
+    } else {
+      clearClientBroadcast("ranger.error");
+    }
+  }, [error]);
+
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"
     : voiceProbeState === "probing" ? "Checking Vox"
@@ -1160,94 +1330,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     ? new Date(activeSession.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : null;
   const sessionRuntimeLabel = activeSession?.model ?? sessionState?.config.model ?? null;
-  const dueReminders = reminderState?.due ?? [];
-  const nextReminder = reminderState?.scheduled[0] ?? null;
-
   if (collapsed) {
-    const stopAndRun = (fn: () => void) => (event: React.MouseEvent) => {
-      event.stopPropagation();
-      fn();
-    };
-    return (
-      <section
-        role="button"
-        tabIndex={0}
-        aria-label="Expand Ranger panel"
-        onClick={() => setCollapsed(false)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setCollapsed(false);
-          }
-        }}
-        className="flex shrink-0 cursor-pointer items-center gap-2 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-3 py-1.5 transition-colors hover:bg-black/20"
-      >
-        <div className="flex min-w-0 items-center gap-1.5">
-          <Bot size={12} className="shrink-0 text-lime-300" />
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--scout-chrome-ink-strong)]">
-            Ranger
-          </span>
-          {(dueReminders.length > 0 || nextReminder) && (
-            <span className="truncate font-mono text-[9.5px] text-[var(--scout-chrome-ink-faint)]">
-              · {dueReminders.length ? `${dueReminders.length} due` : `next ${relativeReminderLabel(nextReminder!)}`}
-            </span>
-          )}
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            title={recording ? "Stop talking" : voiceAvailable === false ? "Launch Vox" : "Start talking"}
-            aria-label={recording ? "Stop talking" : "Start talking"}
-            onClick={stopAndRun(() => {
-              if (voiceAvailable === false) {
-                launchVox();
-                return;
-              }
-              void (recording ? stopVoice() : startVoice());
-            })}
-            className={`flex shrink-0 items-center justify-center rounded border p-1 transition-colors ${
-              recording
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-            }`}
-          >
-            {recording ? <Square size={11} className="fill-current" /> : <Mic size={11} />}
-          </button>
-          <button
-            type="button"
-            title="Run a one-minute Ranger brief"
-            aria-label="Run brief"
-            onClick={stopAndRun(() => void startBrief())}
-            disabled={sending}
-            className="flex shrink-0 items-center justify-center rounded border border-[var(--scout-chrome-border-soft)] p-1 text-lime-300/80 transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-lime-200 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {briefing ? <Loader2 size={11} className="animate-spin" /> : <ListChecks size={11} />}
-          </button>
-          <button
-            type="button"
-            title={voiceReplies ? "Voice replies on" : "Voice replies off"}
-            aria-label="Toggle voice replies"
-            onClick={stopAndRun(() => {
-              const next = !voiceReplies;
-              setVoiceReplies(next);
-              if (!next) stopSpeech();
-            })}
-            className={`flex shrink-0 items-center justify-center rounded border p-1 transition-colors ${
-              voiceReplies
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-            }`}
-          >
-            {voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
-          </button>
-          <span className="mx-1 h-3 w-px bg-[var(--scout-chrome-border-soft)]" aria-hidden="true" />
-          <span className="flex items-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.06] px-2 py-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] text-lime-200">
-            <ChevronUp size={11} />
-            Expand
-          </span>
-        </div>
-      </section>
-    );
+    return null;
   }
 
   const expandedClassName = height === undefined
@@ -1260,30 +1344,22 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       <div className="flex shrink-0 flex-col gap-2 px-3 pt-2.5 pb-1.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Bot size={13} className="shrink-0 text-lime-300" />
-          <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--scout-chrome-ink-strong)]">
-            Ranger
-          </h2>
-          <span className="truncate font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
-            direct loop
-          </span>
+          <Bot size={20} className="shrink-0 text-lime-300" aria-hidden="true" />
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <RangerIconButton
-            icon={resettingSession ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
-            title="New Ranger chat"
-            onClick={() => void resetRangerSession()}
-            disabled={resettingSession}
-          />
-          <RangerIconButton
-            icon={<Settings size={11} />}
-            title="Ranger settings"
-            onClick={() => setSettingsOpen((open) => !open)}
-            active={settingsOpen}
+            icon={voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
+            title={voiceReplies ? "Voice replies on (click to mute)" : "Voice replies off (click to enable)"}
+            onClick={() => {
+              const next = !voiceReplies;
+              setVoiceReplies(next);
+              if (!next) stopSpeech();
+            }}
+            active={voiceReplies}
           />
           <RangerIconButton
             icon={<ChevronDown size={11} />}
-            title="Minimize Ranger"
+            title="Minimize"
             onClick={() => setCollapsed(true)}
           />
         </div>
@@ -1310,8 +1386,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             </span>
             <button
               type="button"
-              title="Ask Ranger about this"
-              aria-label="Ask Ranger about this"
+              title="Ask about this"
+              aria-label="Ask about this"
               onClick={() => void askRanger(`Tell me about this broadcast: ${promotedBroadcast.text}`)}
               disabled={sending || briefing}
               className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:opacity-40"
@@ -1328,100 +1404,6 @@ export function RangerPanel({ height }: { height?: number } = {}) {
               <X size={11} />
             </button>
           </div>
-        </div>
-      )}
-
-      {(dueReminders.length > 0 || nextReminder) && (
-        <div className={`rounded border px-2.5 py-2 font-mono text-[10px] leading-relaxed ${
-          dueReminders.length
-            ? "border-amber-300/30 bg-amber-300/[0.07] text-amber-50"
-            : "border-[var(--scout-chrome-border-soft)] bg-black/10 text-[var(--scout-chrome-ink-faint)]"
-        }`}>
-          <div className="flex items-center justify-between gap-2">
-            <span className={`flex min-w-0 items-center gap-1.5 truncate uppercase tracking-[0.12em] ${
-              dueReminders.length ? "text-amber-200" : "text-[var(--scout-chrome-ink-ghost)]"
-            }`}>
-              <Bell size={12} />
-              {dueReminders.length ? `${dueReminders.length} reminder${dueReminders.length === 1 ? "" : "s"} due` : "Next reminder"}
-            </span>
-            {nextReminder && dueReminders.length === 0 ? (
-              <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">{relativeReminderLabel(nextReminder)}</span>
-            ) : null}
-          </div>
-          <div className="mt-1.5 flex flex-col gap-1.5">
-            {(dueReminders.length ? dueReminders.slice(0, 3) : nextReminder ? [nextReminder] : []).map((reminder) => (
-              <div key={reminder.id} className="flex min-w-0 items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[var(--scout-chrome-ink)]">{reminder.body}</div>
-                  <div className="truncate text-[9px] text-[var(--scout-chrome-ink-ghost)]">
-                    {reminder.status === "due" ? relativeReminderLabel(reminder) : `due ${formatReminderDueAt(reminder.dueAt)}`}
-                  </div>
-                </div>
-                {reminder.status === "due" && (
-                  <button
-                    type="button"
-                    title="Ask Ranger for this reminder's status"
-                    aria-label="Ask Ranger for this reminder's status"
-                    onClick={() => void askRanger(`Reminder due: ${reminder.body}. Check the current Scout control-plane state and give me the shortest useful status update.`)}
-                    className="shrink-0 rounded border border-amber-300/25 p-1 text-amber-100 hover:bg-amber-300/10"
-                    disabled={sending || briefing}
-                  >
-                    <Radio size={11} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  title={reminder.status === "due" ? "Dismiss reminder" : "Clear reminder"}
-                  aria-label={reminder.status === "due" ? "Dismiss reminder" : "Clear reminder"}
-                  onClick={() => void dismissRangerReminder(reminder.id)}
-                  className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-                >
-                  <CheckCircle2 size={11} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {brief && (
-        <div className="rounded border border-lime-300/20 bg-lime-300/[0.05] px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-          <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate uppercase tracking-[0.12em] text-lime-200">
-              {briefing && briefStepIndex !== null
-                ? `Briefing ${brief.steps[briefStepIndex]?.label ?? "step"}`
-                : brief.title}
-            </span>
-            <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">
-              {briefFreshnessLabel(brief)}
-            </span>
-          </div>
-          <div className="mt-1 truncate text-[var(--scout-chrome-ink-faint)]">
-            {brief.summary}
-          </div>
-          {brief.actions.length > 0 && !briefing && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {brief.actions.map((action) => (
-                <button
-                  key={`${action.label}:${action.prompt ?? JSON.stringify(action.route ?? {})}`}
-                  type="button"
-                  onClick={() => {
-                    if (action.route) {
-                      const uiAction = normalizeRangerUiAction({ type: "navigate", route: action.route });
-                      if (uiAction?.type === "navigate") applyRangerUiAction(uiAction);
-                      return;
-                    }
-                    if (action.prompt) {
-                      void askRanger(action.prompt);
-                    }
-                  }}
-                  className="rounded border border-lime-300/20 px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-lime-100 hover:bg-lime-300/10"
-                >
-                  {action.label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -1541,7 +1523,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
 
         {(partial || speaking) && (
           <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-            <span className="min-w-0 truncate">{speaking ? "Speaking Ranger reply…" : partial}</span>
+            <span className="min-w-0 truncate">{speaking ? "Speaking reply…" : partial}</span>
             {speaking && (
               <button
                 type="button"
@@ -1566,74 +1548,29 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           onDraftChange={setDraft}
           onSubmit={() => void askRanger(draft)}
           sending={sending}
+          recording={recording}
+          voiceBusy={voiceState === "processing" || voiceProbeState === "probing" || voiceProbeState === "launching"}
+          voiceUnavailable={voiceAvailable === false}
+          onMicClick={() => {
+            if (voiceAvailable === false) {
+              launchVox();
+              return;
+            }
+            void (recording ? stopVoice() : startVoice());
+          }}
         />
 
-        <div className="flex gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              if (voiceAvailable === false) {
-                launchVox();
-                return;
-              }
-              void (recording ? stopVoice() : startVoice());
-            }}
-            className={`flex flex-1 items-center justify-center gap-2 rounded border px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors ${
-              recording
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
-            }`}
-            disabled={sending || voiceState === "processing" || voiceProbeState === "probing"}
-          >
-            {voiceState === "processing" || voiceProbeState === "probing" ? <Loader2 size={13} className="animate-spin" /> : recording ? <Square size={12} className="fill-current" /> : <Mic size={13} />}
-            {voiceLabel}
-          </button>
-          <button
-            type="button"
-            onClick={() => void askRanger(STATE_PROMPT)}
-            disabled={sending || briefing}
-            title="Ask Ranger for a state summary"
-            className="flex items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Radio size={12} />
-            State
-          </button>
-          <button
-            type="button"
-            onClick={() => void startBrief()}
-            disabled={sending}
-            title="Run a one-minute Ranger brief"
-            className="flex items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {briefing ? <Loader2 size={12} className="animate-spin" /> : <ListChecks size={12} />}
-            {briefing ? "Briefing" : "Brief"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !voiceReplies;
-              setVoiceReplies(next);
-              if (!next) stopSpeech();
-            }}
-            title={voiceReplies ? "Voice replies on (click to mute)" : "Voice replies off (click to enable)"}
-            className={`flex shrink-0 items-center justify-center rounded border p-2 transition-colors ${
-              voiceReplies
-                ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-            }`}
-          >
-            {voiceReplies ? <Volume2 size={12} /> : <VolumeX size={12} />}
-          </button>
-          {recording && (
+        {recording && (
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={() => void cancelVoice()}
-              className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)]"
+              className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)]"
             >
               Discard
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {error && (
           <div className="rounded border border-red-400/30 bg-red-400/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-red-200">
@@ -1671,7 +1608,7 @@ function makeScoutAudioLaunchContext() {
   return {
     requesterName: "OpenScout",
     productName: "Scout Audio",
-    headline: "Turn on local voice for Ranger",
+    headline: "Turn on local voice",
     body: "Scout Audio uses Vox for local speech capture and spoken replies. Start Vox, then return here to talk with your workspace.",
     actionLabel: "Return to OpenScout",
     logo: {
@@ -1690,32 +1627,8 @@ function estimateBriefDuration(text: string): number {
   return Math.min(12_000, Math.max(3500, words * 360));
 }
 
-function briefFreshnessLabel(brief: RangerBrief): string {
-  const now = Date.now();
-  if (now > brief.expiresAt) {
-    return "expired";
-  }
-  const ageSeconds = Math.max(0, Math.round((now - brief.preparedAt) / 1000));
-  const remainingSeconds = Math.max(0, Math.round((brief.expiresAt - now) / 1000));
-  return `prepared ${ageSeconds}s ago · ${remainingSeconds}s TTL`;
-}
-
 function formatReminderDueAt(dueAt: number): string {
   return new Date(dueAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function relativeReminderLabel(reminder: RangerReminder): string {
-  const deltaMs = reminder.dueAt - Date.now();
-  const absSeconds = Math.max(1, Math.round(Math.abs(deltaMs) / 1000));
-  if (absSeconds < 60) {
-    return deltaMs < 0 ? `${absSeconds}s ago` : `in ${absSeconds}s`;
-  }
-  const absMinutes = Math.round(absSeconds / 60);
-  if (absMinutes < 60) {
-    return deltaMs < 0 ? `${absMinutes}m ago` : `in ${absMinutes}m`;
-  }
-  const absHours = Math.round(absMinutes / 60);
-  return deltaMs < 0 ? `${absHours}h ago` : `in ${absHours}h`;
 }
 
 const RANGER_MESSAGE_TIMESTAMP_GAP_MS = 5 * 60_000;
@@ -1816,7 +1729,6 @@ function ChatHistory({
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--scout-chrome-border-soft)] px-2.5 py-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <Bot size={11} className="shrink-0 text-lime-300" />
           <span className="min-w-0 truncate text-[var(--scout-chrome-ink)]" title={state.session.id}>
             {titleLine}
           </span>
@@ -1907,8 +1819,8 @@ function ChatHistory({
                   </button>
                   <button
                     type="button"
-                    title="Archive Ranger chat"
-                    aria-label={`Archive Ranger chat ${display}`}
+                    title="Archive chat"
+                    aria-label={`Archive chat ${display}`}
                     onClick={() => onArchiveSession(entry.id)}
                     disabled={Boolean(switchingSessionId) || Boolean(archivingSessionId)}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-transparent text-[var(--scout-chrome-ink-ghost)] transition-colors hover:border-[var(--scout-chrome-border-soft)] hover:bg-black/20 hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-30"
@@ -1933,7 +1845,7 @@ function ChatHistory({
           </button>
         )}
         {visible.length === 0 && !pendingAsk && (
-          <p className="text-[var(--scout-chrome-ink-ghost)]">No messages yet — ask Ranger anything below.</p>
+          <p className="text-[var(--scout-chrome-ink-ghost)]">No messages yet — ask anything below.</p>
         )}
         {visible.map((message, index) => {
           const showTimestamp = shouldShowRangerMessageTimestamp(visible[index - 1], message);
@@ -1977,24 +1889,57 @@ function ChatInput({
   onDraftChange,
   onSubmit,
   sending,
+  recording,
+  voiceBusy,
+  voiceUnavailable,
+  onMicClick,
 }: {
   draft: string;
   onDraftChange: (next: string) => void;
   onSubmit: () => void;
   sending: boolean;
+  recording: boolean;
+  voiceBusy: boolean;
+  voiceUnavailable: boolean;
+  onMicClick: () => void;
 }) {
+  const micTitle = recording
+    ? "Stop talking"
+    : voiceUnavailable
+      ? "Launch voice"
+      : "Start talking";
   return (
     <form
-      className="grid grid-cols-[1fr_auto] gap-2"
+      className="grid grid-cols-[auto_1fr_auto] gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
       }}
     >
+      <button
+        type="button"
+        title={micTitle}
+        aria-label={micTitle}
+        onClick={onMicClick}
+        disabled={sending || voiceBusy}
+        className={`flex w-9 items-center justify-center self-stretch rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          recording
+            ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+            : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+        }`}
+      >
+        {voiceBusy ? (
+          <Loader2 size={13} className="animate-spin" />
+        ) : recording ? (
+          <Square size={12} className="fill-current" />
+        ) : (
+          <Mic size={13} />
+        )}
+      </button>
       <textarea
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
-        placeholder="Ask Ranger to inspect state or move the UI…"
+        placeholder="Ask to inspect state or move the UI…"
         rows={2}
         className="w-full resize-none rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]"
         onKeyDown={(event) => {
@@ -2006,8 +1951,8 @@ function ChatInput({
       />
       <button
         type="submit"
-        title="Ask Ranger"
-        aria-label="Ask Ranger"
+        title="Send"
+        aria-label="Send"
         disabled={!draft.trim() || sending}
         className="flex w-9 items-center justify-center self-stretch rounded bg-lime-300/90 px-0 text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
       >
@@ -2041,7 +1986,7 @@ function ChatBubble({
     <div className="group flex flex-col gap-0.5" onContextMenu={onContextMenu}>
       <div className="flex items-center justify-between gap-2">
         <span className={`text-[9px] uppercase tracking-[0.12em] ${isUser ? "text-[var(--scout-chrome-ink-ghost)]" : "text-lime-300"}`}>
-          {isUser ? "You" : "Ranger"}
+          {isUser ? "You" : "Reply"}
           {pending && " · sending"}
         </span>
         <button
