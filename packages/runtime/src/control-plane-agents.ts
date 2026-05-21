@@ -3,12 +3,17 @@ import type { AgentHarness, ScoutAgentCard, ScoutPermissionProfile } from "@open
 import {
   inferLocalAgentBinding,
   listLocalAgents,
+  retireLocalAgent,
   restartAllLocalAgents,
+  restartLocalAgent,
   startLocalAgent,
   stopAllLocalAgents,
   stopLocalAgent,
+  updateLocalAgentCard,
   type LocalAgentBinding,
+  type LocalAgentConfigState,
   type ScoutLocalAgentStatus,
+  type UpdateLocalAgentCardInput,
 } from "./local-agents.js";
 import { buildScoutAgentCard } from "./scout-agent-cards.js";
 
@@ -38,6 +43,10 @@ export type UpScoutAgentInput = {
   branch?: string;
 };
 
+export type UpdateScoutAgentCardInput = UpdateLocalAgentCardInput & {
+  restart?: boolean;
+};
+
 export type ScoutAgentServiceBrokerContext = {
   node: {
     id: string;
@@ -62,6 +71,10 @@ export type ScoutAgentServiceDeps<TBroker extends ScoutAgentServiceBrokerContext
     agentId: string;
     broker?: TBroker | null;
   }) => Promise<ScoutLocalAgentBindingSyncResult | null>;
+  retireScoutLocalAgentBinding?: (input: {
+    agentId: string;
+    broker?: TBroker | null;
+  }) => Promise<boolean>;
   openScoutPeerSession: (input: {
     sourceId: string;
     targetId: string;
@@ -69,10 +82,13 @@ export type ScoutAgentServiceDeps<TBroker extends ScoutAgentServiceBrokerContext
   }) => Promise<ScoutPeerSessionResult>;
   localAgents?: {
     listLocalAgents?: typeof listLocalAgents;
+    retireLocalAgent?: typeof retireLocalAgent;
     restartAllLocalAgents?: typeof restartAllLocalAgents;
+    restartLocalAgent?: typeof restartLocalAgent;
     startLocalAgent?: typeof startLocalAgent;
     stopAllLocalAgents?: typeof stopAllLocalAgents;
     stopLocalAgent?: typeof stopLocalAgent;
+    updateLocalAgentCard?: typeof updateLocalAgentCard;
     inferLocalAgentBinding?: typeof inferLocalAgentBinding;
   };
 };
@@ -82,10 +98,13 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
 ) {
   const localAgents = {
     listLocalAgents: deps.localAgents?.listLocalAgents ?? listLocalAgents,
+    retireLocalAgent: deps.localAgents?.retireLocalAgent ?? retireLocalAgent,
     restartAllLocalAgents: deps.localAgents?.restartAllLocalAgents ?? restartAllLocalAgents,
+    restartLocalAgent: deps.localAgents?.restartLocalAgent ?? restartLocalAgent,
     startLocalAgent: deps.localAgents?.startLocalAgent ?? startLocalAgent,
     stopAllLocalAgents: deps.localAgents?.stopAllLocalAgents ?? stopAllLocalAgents,
     stopLocalAgent: deps.localAgents?.stopLocalAgent ?? stopLocalAgent,
+    updateLocalAgentCard: deps.localAgents?.updateLocalAgentCard ?? updateLocalAgentCard,
     inferLocalAgentBinding: deps.localAgents?.inferLocalAgentBinding ?? inferLocalAgentBinding,
   };
 
@@ -108,6 +127,30 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
 
     async downScoutAgent(agentId: string): Promise<ScoutAgentStatus | null> {
       return localAgents.stopLocalAgent(agentId);
+    },
+
+    async retireScoutAgentCard(agentId: string): Promise<ScoutAgentStatus | null> {
+      const broker = await deps.loadScoutBrokerContext().catch(() => null);
+      const retired = await localAgents.retireLocalAgent(agentId);
+      if (retired) {
+        await deps.retireScoutLocalAgentBinding?.({ agentId, broker }).catch(() => false);
+      }
+      return retired;
+    },
+
+    async updateScoutAgentCard(
+      agentId: string,
+      input: UpdateScoutAgentCardInput,
+    ): Promise<LocalAgentConfigState | null> {
+      const config = await localAgents.updateLocalAgentCard(agentId, input);
+      if (!config) {
+        return null;
+      }
+      if (input.restart === true) {
+        await localAgents.restartLocalAgent(agentId);
+      }
+      await deps.registerScoutLocalAgentBinding({ agentId }).catch(() => {});
+      return config;
     },
 
     async downAllScoutAgents(input: {

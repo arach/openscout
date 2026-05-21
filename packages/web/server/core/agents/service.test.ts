@@ -25,7 +25,9 @@ describe("agent service wiring", () => {
       downAllScoutAgents: mock(async () => []),
       downScoutAgent: mock(async () => null),
       loadScoutAgentStatuses: mock(async () => []),
+      retireScoutAgentCard: mock(async () => null),
       restartScoutAgents: mock(async () => []),
+      updateScoutAgentCard: mock(async () => null),
       upScoutAgent,
     }));
     const loadScoutBrokerContext = mock(async () => null);
@@ -33,6 +35,7 @@ describe("agent service wiring", () => {
       throw new Error("unexpected peer session");
     });
     const registerScoutLocalAgentBinding = mock(async () => null);
+    const retireScoutLocalAgentBinding = mock(async () => false);
 
     mock.module("@openscout/runtime/control-plane-agents", () => ({
       createScoutAgentService,
@@ -41,6 +44,7 @@ describe("agent service wiring", () => {
       loadScoutBrokerContext,
       openScoutPeerSession,
       registerScoutLocalAgentBinding,
+      retireScoutLocalAgentBinding,
     }));
 
     const { upScoutAgent: wiredUpScoutAgent } = await import("./service.ts");
@@ -56,6 +60,7 @@ describe("agent service wiring", () => {
       loadScoutBrokerContext,
       openScoutPeerSession,
       registerScoutLocalAgentBinding,
+      retireScoutLocalAgentBinding,
     });
     expect(upScoutAgent.mock.calls).toEqual([
       [{

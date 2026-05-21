@@ -7,9 +7,11 @@ import {
   getLocalAgentConfig,
   inferLocalAgentBinding,
   listLocalAgents,
+  retireLocalAgent,
   resolveLocalAgentByName,
   resolveLocalAgentIdentity,
   startLocalAgent,
+  updateLocalAgentCard,
   updateLocalAgentConfig,
 } from "./local-agents.js";
 import {
@@ -217,6 +219,56 @@ describe("local agent lifecycle", () => {
 
     expect(cleared?.model).toBeNull();
     expect(cleared?.launchArgs.join("\n")).not.toContain("gpt-5.4-mini");
+  });
+
+  test("updates and retires an existing card through the local registry", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const talkieRoot = join(workspaceRoot, "talkie");
+
+    mkdirSync(talkieRoot, { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "talkie-drift-investigator": {
+        agentId: "talkie-drift-investigator",
+        definitionId: "talkie-drift-investigator",
+        displayName: "Talkie Drift Investigator",
+        projectName: "Talkie",
+        projectRoot: talkieRoot,
+        source: "manual",
+        launchArgs: ["--model", "gpt-5.4-mini"],
+        runtime: {
+          cwd: talkieRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "talkie-drift-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const agentId = buildRelayAgentInstance("talkie-drift-investigator", talkieRoot).id;
+    const updated = await updateLocalAgentCard(agentId, {
+      harness: "claude",
+      model: "claude-opus-4-7",
+    });
+
+    expect(updated).toMatchObject({
+      agentId,
+      model: "claude-opus-4-7",
+      runtime: {
+        harness: "claude",
+        transport: "tmux",
+      },
+    });
+    expect(updated?.runtime.sessionId).toContain("claude");
+    expect(updated?.launchArgs.join("\n")).toContain("claude-opus-4-7");
+    expect(updated?.launchArgs.join("\n")).not.toContain("gpt-5.4-mini");
+
+    const retired = await retireLocalAgent(agentId);
+    expect(retired?.agentId).toBe(agentId);
+    expect(await getLocalAgentConfig(agentId)).toBeNull();
+    expect(Object.keys(await readRelayAgentOverrides())).not.toContain(agentId);
   });
 
   test("does not treat a project name as an agent name unless explicitly requested", async () => {

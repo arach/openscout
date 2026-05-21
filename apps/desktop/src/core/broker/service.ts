@@ -2110,6 +2110,55 @@ export async function registerScoutLocalAgentBinding(input: {
   };
 }
 
+export async function retireScoutLocalAgentBinding(input: {
+  agentId: string;
+  broker?: ScoutBrokerContext | null;
+}): Promise<boolean> {
+  const broker = input.broker ?? await loadScoutBrokerContext();
+  if (!broker) {
+    return false;
+  }
+
+  const retiredAt = Date.now();
+  let retired = false;
+  const agent = broker.snapshot.agents[input.agentId];
+  if (agent) {
+    const nextAgent: ScoutBrokerAgentRecord = {
+      ...agent,
+      metadata: {
+        ...(agent.metadata ?? {}),
+        retiredFromFleet: true,
+        retiredAt,
+      },
+    };
+    await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.agents, nextAgent);
+    broker.snapshot.agents[input.agentId] = nextAgent;
+    retired = true;
+  }
+
+  for (const endpoint of Object.values(broker.snapshot.endpoints)) {
+    if (endpoint.agentId !== input.agentId) {
+      continue;
+    }
+    const nextEndpoint: ScoutBrokerEndpointRecord = {
+      ...endpoint,
+      state: "offline",
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        retiredFromFleet: true,
+        retiredAt,
+        lastError: "local agent card retired",
+        lastFailedAt: retiredAt,
+      },
+    };
+    await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.endpoints, nextEndpoint);
+    broker.snapshot.endpoints[endpoint.id] = nextEndpoint;
+    retired = true;
+  }
+
+  return retired;
+}
+
 async function resolveConversationActorId(
   baseUrl: string,
   snapshot: ScoutBrokerSnapshot,
