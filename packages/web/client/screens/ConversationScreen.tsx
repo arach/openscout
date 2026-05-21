@@ -25,6 +25,7 @@ import {
   conversationShortLabel,
   isActiveConversationFlight,
   isGroupConversation,
+  isStaleConversationWorkingTurn,
   shouldClearConversationWorkingStateForAgentMessage,
   shouldShowConversationWorkingTurn,
 } from "../lib/conversations.ts";
@@ -190,7 +191,7 @@ type ComposeAction = "tell" | "ask" | "steer";
 type ConversationPresence = {
   label: string;
   detail: string;
-  tone: "idle" | "pending" | "working" | "offline";
+  tone: "idle" | "pending" | "working" | "stale" | "offline";
   showStrip: boolean;
   showTyping: boolean;
 };
@@ -315,9 +316,20 @@ function describePresence(input: {
   sending: boolean;
   currentFlight: Flight | null;
   showWorkingTurn: boolean;
+  workingTurnIsGone: boolean;
+  workingTurnIsStale: boolean;
+  nowMs: number;
 }): ConversationPresence {
-  const { agentName, agentState, sending, currentFlight, showWorkingTurn } =
-    input;
+  const {
+    agentName,
+    agentState,
+    sending,
+    currentFlight,
+    showWorkingTurn,
+    workingTurnIsGone,
+    workingTurnIsStale,
+    nowMs,
+  } = input;
 
   if (sending && !currentFlight) {
     return {
@@ -326,6 +338,22 @@ function describePresence(input: {
       tone: "pending",
       showStrip: true,
       showTyping: false,
+    };
+  }
+
+  if (currentFlight && showWorkingTurn && workingTurnIsStale) {
+    const staleAge = timeAgo(currentFlight.startedAt, nowMs);
+    const staleDetail = staleAge
+      ? `No update from ${agentName} for ${staleAge}.`
+      : `No recent update from ${agentName}.`;
+    return {
+      label: workingTurnIsGone ? "Gone" : "Stale",
+      detail: workingTurnIsGone
+        ? `${staleDetail} Agent is offline.`
+        : staleDetail,
+      tone: "stale",
+      showStrip: true,
+      showTyping: true,
     };
   }
 
@@ -397,6 +425,8 @@ function presenceColor(
       return "var(--accent)";
     case "working":
       return "var(--green)";
+    case "stale":
+      return "var(--amber)";
     case "offline":
       return "var(--dim)";
     default:
@@ -1166,8 +1196,20 @@ export function ConversationScreen({
   const showWorkingTurn = useMemo(() => {
     return shouldShowConversationWorkingTurn(currentFlight);
   }, [currentFlight]);
-  const hasOutstandingReply =
+  const currentNowMs = Date.now();
+  const workingTurnIsStale = isStaleConversationWorkingTurn(
+    currentFlight,
+    currentNowMs,
+  );
+  const workingTurnIsGone =
+    workingTurnIsStale &&
+    normalizeAgentState(agent?.state ?? null) === "offline";
+  const shouldPollOutstandingTurn =
     sending || awaitingResponseSince !== null || showWorkingTurn;
+  const hasOutstandingReply =
+    sending ||
+    awaitingResponseSince !== null ||
+    (showWorkingTurn && !workingTurnIsStale);
 
   const agentName = minimalAgentDisplayName({
     name: agent?.name,
@@ -1183,9 +1225,61 @@ export function ConversationScreen({
         sending,
         currentFlight,
         showWorkingTurn,
+        workingTurnIsGone,
+        workingTurnIsStale,
+        nowMs: currentNowMs,
       }),
-    [agent?.state, agentName, currentFlight, sending, showWorkingTurn],
+    [
+      agent?.state,
+      agentName,
+      currentFlight,
+      currentNowMs,
+      sending,
+      showWorkingTurn,
+      workingTurnIsGone,
+      workingTurnIsStale,
+    ],
   );
+  const hasStaleWorkingTurnPresence = presence.tone === "stale";
+  const workingTurnBadgeLabel = hasStaleWorkingTurnPresence
+    ? presence.label
+    : "Live";
+  const presenceLineLabel = hasStaleWorkingTurnPresence
+    ? presence.detail
+    : `${agentName} is ${presence.label.toLowerCase()}...`;
+  const workingTurnCardClassName = [
+    "s-thread-msg-card",
+    "s-thread-msg-working-card",
+    "s-thread-msg-card--avatar-row",
+    hasStaleWorkingTurnPresence ? "s-thread-msg-working-card--stale" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const workingTurnKindClassName = [
+    "s-thread-msg-kind",
+    hasStaleWorkingTurnPresence ? "s-thread-msg-kind--stale" : null,
+    workingTurnIsGone ? "s-thread-msg-kind--gone" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const staleIndicatorClassName = [
+    "s-thread-stale-indicator",
+    workingTurnIsGone ? "s-thread-stale-indicator--gone" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const presenceLineClassName = [
+    "s-thread-presence-line",
+    hasStaleWorkingTurnPresence ? "s-thread-presence-line--stale" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const presenceStripClassName = [
+    "s-thread-presence-strip",
+    hasStaleWorkingTurnPresence ? "s-thread-presence-strip--stale" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
   const kindLabel = sessionMeta?.kind
     ? (KIND_LABELS[sessionMeta.kind] ?? sessionMeta.kind)
@@ -1340,7 +1434,7 @@ export function ConversationScreen({
   );
 
   useEffect(() => {
-    if (!hasOutstandingReply) {
+    if (!shouldPollOutstandingTurn) {
       return;
     }
 
@@ -1348,7 +1442,7 @@ export function ConversationScreen({
       void load();
     }, 5000);
     return () => clearInterval(timer);
-  }, [hasOutstandingReply, load]);
+  }, [shouldPollOutstandingTurn, load]);
 
   useEffect(() => {
     const refreshIfVisible = () => {
@@ -2169,7 +2263,7 @@ export function ConversationScreen({
           {presence.showTyping && (
             <div className="s-thread-feed-block">
               <div className="s-thread-msg" aria-live="polite">
-                <div className="s-thread-msg-card s-thread-msg-working-card s-thread-msg-card--avatar-row">
+                <div className={workingTurnCardClassName}>
                   <div
                     className="s-ops-avatar s-thread-msg-avatar"
                     style={{
@@ -2183,7 +2277,9 @@ export function ConversationScreen({
                     <div className="s-thread-msg-header">
                       <div className="s-thread-msg-meta">
                         <span className="s-thread-msg-actor">{agentName}</span>
-                        <span className="s-thread-msg-kind">Live</span>
+                        <span className={workingTurnKindClassName}>
+                          {workingTurnBadgeLabel}
+                        </span>
                       </div>
                       <span
                         className="s-thread-msg-time"
@@ -2199,14 +2295,21 @@ export function ConversationScreen({
                       </span>
                     </div>
                     <div className="s-thread-msg-working-body">
-                      <span
-                        className="s-thread-typing-indicator"
-                        aria-hidden="true"
-                      >
-                        <span className="s-thread-typing-dot" />
-                        <span className="s-thread-typing-dot" />
-                        <span className="s-thread-typing-dot" />
-                      </span>
+                      {hasStaleWorkingTurnPresence ? (
+                        <span
+                          className={staleIndicatorClassName}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <span
+                          className="s-thread-typing-indicator"
+                          aria-hidden="true"
+                        >
+                          <span className="s-thread-typing-dot" />
+                          <span className="s-thread-typing-dot" />
+                          <span className="s-thread-typing-dot" />
+                        </span>
+                      )}
                       <span className="s-thread-msg-working-copy">
                         {presence.detail}
                       </span>
@@ -2221,7 +2324,7 @@ export function ConversationScreen({
         </div>
 
         {presence.showTyping && (
-          <div className="s-thread-presence-line">
+          <div className={presenceLineClassName}>
             <div className="s-thread-presence-line-avatars">
               <div
                 className="s-ops-avatar"
@@ -2234,9 +2337,9 @@ export function ConversationScreen({
               </div>
             </div>
             <span className="s-thread-presence-line-label">
-              {agentName} is {presence.label.toLowerCase()}...
+              {presenceLineLabel}
             </span>
-            <div className="s-thread-presence-strip" />
+            <div className={presenceStripClassName} />
           </div>
         )}
 
