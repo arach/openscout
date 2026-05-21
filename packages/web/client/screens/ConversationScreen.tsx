@@ -26,6 +26,7 @@ import {
   isActiveConversationFlight,
   isGroupConversation,
   isStaleConversationWorkingTurn,
+  isStaleConversationWorkingTurnAnswered,
   shouldClearConversationWorkingStateForAgentMessage,
   shouldShowConversationWorkingTurn,
 } from "../lib/conversations.ts";
@@ -467,6 +468,24 @@ function StopIcon() {
   );
 }
 
+function DismissIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M4 4l8 8" />
+      <path d="M12 4l-8 8" />
+    </svg>
+  );
+}
+
 function participantListLabel(session: SessionEntry | null): string | null {
   if (!session) return null;
   if (session.kind === "direct") {
@@ -848,6 +867,9 @@ export function ConversationScreen({
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
+  const [dismissedWorkingTurnIds, setDismissedWorkingTurnIds] = useState<
+    Set<string>
+  >(new Set());
   const [allFlights, setAllFlights] = useState<Flight[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -987,6 +1009,15 @@ export function ConversationScreen({
   useEffect(() => {
     currentFlightRef.current = currentFlight;
   }, [currentFlight]);
+
+  const dismissWorkingTurn = useCallback(() => {
+    if (!currentFlight?.id) return;
+    setDismissedWorkingTurnIds((previous) => {
+      const next = new Set(previous);
+      next.add(currentFlight.id);
+      return next;
+    });
+  }, [currentFlight?.id]);
 
   const [draft, setDraft] = useState(() => initialDraft ?? "");
   const [sending, setSending] = useState(false);
@@ -1187,20 +1218,33 @@ export function ConversationScreen({
 
   useEffect(() => {
     if (awaitingResponseSince === null || lastAgentReplyAt === null) return;
-    if (isActiveConversationFlight(currentFlight)) return;
     if (lastAgentReplyAt >= awaitingResponseSince) {
       setAwaitingResponseSince(null);
     }
-  }, [awaitingResponseSince, currentFlight, lastAgentReplyAt]);
+  }, [awaitingResponseSince, lastAgentReplyAt]);
 
-  const showWorkingTurn = useMemo(() => {
+  const rawShowWorkingTurn = useMemo(() => {
     return shouldShowConversationWorkingTurn(currentFlight);
   }, [currentFlight]);
   const currentNowMs = Date.now();
-  const workingTurnIsStale = isStaleConversationWorkingTurn(
+  const currentFlightIsStale = isStaleConversationWorkingTurn(
     currentFlight,
     currentNowMs,
   );
+  const staleWorkingTurnHasNewerReply =
+    isStaleConversationWorkingTurnAnswered(
+      currentFlight,
+      lastAgentReplyAt,
+      currentNowMs,
+    );
+  const workingTurnDismissed = currentFlight
+    ? dismissedWorkingTurnIds.has(currentFlight.id)
+    : false;
+  const showWorkingTurn =
+    rawShowWorkingTurn &&
+    !staleWorkingTurnHasNewerReply &&
+    !workingTurnDismissed;
+  const workingTurnIsStale = showWorkingTurn && currentFlightIsStale;
   const workingTurnIsGone =
     workingTurnIsStale &&
     normalizeAgentState(agent?.state ?? null) === "offline";
@@ -2293,6 +2337,17 @@ export function ConversationScreen({
                           ? timeAgo(currentFlight.startedAt)
                           : "now"}
                       </span>
+                      {hasStaleWorkingTurnPresence && (
+                        <button
+                          type="button"
+                          className="s-thread-msg-dismiss"
+                          aria-label="Dismiss stale turn"
+                          title="Dismiss stale turn"
+                          onClick={dismissWorkingTurn}
+                        >
+                          <DismissIcon />
+                        </button>
+                      )}
                     </div>
                     <div className="s-thread-msg-working-body">
                       {hasStaleWorkingTurnPresence ? (

@@ -399,39 +399,53 @@ function contextLoadPercent(context: LocalAgentContextState): number {
   const turnRatio = context.policy.maxTurns > 0
     ? context.turnCount / context.policy.maxTurns
     : 0;
-  const ageRatio = context.sessionAgeMs !== null && context.policy.maxAgeMs > 0
-    ? context.sessionAgeMs / context.policy.maxAgeMs
-    : 0;
-  return Math.max(0, Math.min(100, Math.round(Math.max(turnRatio, ageRatio) * 100)));
+  return Math.max(0, Math.min(100, Math.round(turnRatio * 100)));
 }
 
-function contextStateLabel(state: LocalAgentContextState["state"]): string {
-  switch (state) {
-    case "stale":
-      return "Stale";
-    case "aging":
-      return "Aging";
-    default:
-      return "Fresh";
+function contextTurnLabel(context: LocalAgentContextState): string {
+  if (context.policy.maxTurns <= 0) {
+    return `${context.turnCount} turn${context.turnCount === 1 ? "" : "s"}`;
   }
+  return `${context.turnCount} / ${context.policy.maxTurns} turns`;
+}
+
+function formatContextLastActivity(
+  lastActivityAt: number | null,
+  sessionAgeMs: number | null,
+): string {
+  if (lastActivityAt) {
+    const age = timeAgo(lastActivityAt);
+    return age === "now" ? "last activity now" : `last activity ${age} ago`;
+  }
+  if (sessionAgeMs !== null) {
+    return `session ${formatContextAge(sessionAgeMs)}`;
+  }
+  return "last activity unknown";
 }
 
 function ContextFacet({
   context,
+  lastActivityAt,
   resetting,
   onReset,
 }: {
   context: LocalAgentContextState;
+  lastActivityAt: number | null;
   resetting: boolean;
   onReset: () => void;
 }) {
   const percent = contextLoadPercent(context);
+  const turns = contextTurnLabel(context);
+  const lastActivity = formatContextLastActivity(
+    lastActivityAt,
+    context.sessionAgeMs,
+  );
   const resetDisabled = resetting || context.currentTurnActive;
   return (
-    <div className={`s-profile-facet s-profile-context s-profile-context--${context.state}`}>
+    <div className="s-profile-facet s-profile-context">
       <div className="s-profile-facet-label">Context</div>
       <div className="s-profile-context-head">
-        <span className="s-profile-context-state">{contextStateLabel(context.state)}</span>
+        <span className="s-profile-context-metric">{percent}% used</span>
         <button
           type="button"
           className="s-profile-facet-action"
@@ -445,8 +459,8 @@ function ContextFacet({
       <div className="s-profile-context-gauge" aria-label={`Context load ${percent}%`}>
         <div className="s-profile-context-gauge-fill" style={{ width: `${percent}%` }} />
       </div>
-      <div className="s-profile-facet-detail" title={context.reason ?? undefined}>
-        {context.turnCount}/{context.policy.maxTurns} turns / {formatContextAge(context.sessionAgeMs)}
+      <div className="s-profile-facet-detail" title={`${turns} · ${lastActivity}`}>
+        {turns} · {lastActivity}
       </div>
     </div>
   );
@@ -1029,6 +1043,7 @@ function AgentDetailWithRail({
               {contextState && (
                 <ContextFacet
                   context={contextState}
+                  lastActivityAt={agent.updatedAt ?? null}
                   resetting={resettingContext}
                   onReset={() => void resetAgentContext()}
                 />
