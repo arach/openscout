@@ -351,6 +351,13 @@
   box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+.s-mission-tile--canvas-focused {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 6px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
 /* ── Tile header ── */
 
 .s-mission-tile-header {
