@@ -18,15 +18,38 @@
       "react-dom/*": ["./node_modules/@types/react-dom/*"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"],
-      "@hudsonkit": ["../../../hudson/packages/web/hudsonkit/src/index.ts"],
-      "@hudsonkit/app-shell": ["../../../hudson/packages/web/hudsonkit/src/app-shell.ts"],
-      "@hudsonkit/shell": ["../../../hudson/packages/web/hudsonkit/src/shell.ts"],
-      "@hudsonkit/chrome": ["../../../hudson/packages/web/hudsonkit/src/chrome.ts"],
-      "@hudsonkit/controls": ["../../../hudson/packages/web/hudsonkit/src/controls.ts"],
-      "@hudsonkit/canvas": ["../../../hudson/packages/web/hudsonkit/src/canvas.ts"],
-      "@hudsonkit/overlays": ["../../../hudson/packages/web/hudsonkit/src/overlays.ts"],
-      "@hudsonkit/vault": ["../../../hudson/packages/web/hudsonkit/src/vault.ts"],
-      "@hudsonkit/styles": ["../../../hudson/packages/web/hudsonkit/src/styles/bundle.css"]
+      "@hudsonkit": [
+        "./node_modules/hudsonkit/dist/index.d.ts",
+        "../../../hudson/packages/web/hudsonkit/src/index.ts"
+      ],
+      "@hudsonkit/app-shell": [
+        "./node_modules/hudsonkit/dist/app-shell.d.ts",
+        "../../../hudson/packages/web/hudsonkit/src/app-shell.ts"
+      ],
+      "@hudsonkit/shell": [
+        "./node_modules/hudsonkit/dist/shell.d.ts",
+        "../../../hudson/packages/web/hudsonkit/src/shell.ts"
+      ],
+      "@hudsonkit/chrome": [
+        "./node_modules/hudsonkit/dist/chrome.d.ts",
+        "../../../hudson/packages/web/hudsonkit/src/chrome.ts"
+      ],
+      "@hudsonkit/controls": [
+        "./node_modules/hudsonkit/dist/controls.d.ts",
+        "../../../hudson/packages/web/hudsonkit/src/controls.ts"
+      ],
+      "@hudsonkit/canvas": [
+        "./node_modules/hudsonkit/dist/canvas.d.ts",
+        "../../../hudson/packages/web/hudsonkit/src/canvas.ts"
+      ],
+      "@hudsonkit/overlays": [
+        "./node_modules/hudsonkit/dist/overlays.d.ts",
+        "../../../hudson/packages/web/hudsonkit/src/overlays.ts"
+      ],
+      "@hudsonkit/styles": [
+        "./node_modules/hudsonkit/dist/styles.css",
+        "../../../hudson/packages/web/hudsonkit/src/styles/bundle.css"
+      ]
     }
   },
   "include": ["client/**/*.ts", "client/**/*.tsx", "server/**/*.ts", "vite.config.ts"],
