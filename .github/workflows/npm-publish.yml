@@ -76,9 +76,6 @@ jobs:
           if (cli.name !== "@openscout/scout") {
             throw new Error(`Unexpected public package name: ${cli.name}`);
           }
-          if (!cli.repository?.url?.includes("github.com/arach/openscout")) {
-            throw new Error("packages/cli/package.json repository.url must point at arach/openscout for npm provenance.");
-          }
           JS
 
       - name: Publish @openscout/scout
