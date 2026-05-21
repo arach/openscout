@@ -22,6 +22,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: Production
     steps:
       - name: Resolve release target
         id: release
