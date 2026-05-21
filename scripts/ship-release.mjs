@@ -38,6 +38,8 @@ Options:
   --allow-dirty          Allow a dirty worktree before bumping.
   --skip-bump            Do not run scripts/bump-version.mjs.
   --skip-npm             Skip npm package verification and publish.
+  --github-npm           Verify npm locally, then let GitHub Actions publish
+                         after the GitHub release is created.
   --skip-dmg             Skip the macOS DMG build and GitHub asset upload.
   --skip-github-release  Skip gh release creation.
   --include-ios          Run apps/ios/scripts/release.sh after npm/GitHub steps.
@@ -79,6 +81,7 @@ function parseArgs(argv) {
     allowDirty: false,
     skipBump: false,
     skipNpm: false,
+    githubNpm: false,
     skipDmg: false,
     skipGithubRelease: false,
     includeIos: false,
@@ -113,6 +116,10 @@ function parseArgs(argv) {
     }
     if (arg === "--skip-npm") {
       options.skipNpm = true;
+      continue;
+    }
+    if (arg === "--github-npm") {
+      options.githubNpm = true;
       continue;
     }
     if (arg === "--skip-dmg") {
@@ -159,6 +166,12 @@ function parseArgs(argv) {
 
   if (!target) {
     throw new Error("Missing release version target.");
+  }
+  if (options.skipNpm && options.githubNpm) {
+    throw new Error("Use either --skip-npm or --github-npm, not both.");
+  }
+  if (options.githubNpm && options.skipGithubRelease) {
+    throw new Error("--github-npm runs after GitHub release creation; remove --skip-github-release.");
   }
   if (options.releaseNotesFile && !existsSync(path.resolve(repoRoot, options.releaseNotesFile))) {
     throw new Error(`Release notes file not found: ${options.releaseNotesFile}`);
@@ -207,6 +220,10 @@ function printVersionTable(nextVersion) {
   }
 }
 
+function npmDistTag() {
+  return process.env.NPM_TAG || "latest";
+}
+
 function printPlan(version, options) {
   const dmgPath = `apps/macos/dist/OpenScoutMenu-${version}.dmg`;
 
@@ -230,7 +247,9 @@ function printPlan(version, options) {
   if (!options.skipPush) {
     run("git", ["push", "origin", "HEAD", "--follow-tags"], { execute: false });
   }
-  if (!options.skipNpm) {
+  if (options.githubNpm) {
+    console.log("  DRY GitHub Actions publishes npm after release creation");
+  } else if (!options.skipNpm) {
     run("bash", ["scripts/ship-npm.sh"], { execute: false });
   }
   if (!options.skipGithubRelease) {
@@ -242,6 +261,19 @@ function printPlan(version, options) {
       args.push("--generate-notes");
     }
     run("gh", args, { execute: false });
+  }
+  if (options.githubNpm) {
+    run("gh", [
+      "workflow",
+      "run",
+      "npm-publish.yml",
+      "--ref",
+      "main",
+      "--field",
+      `tag=v${version}`,
+      "--field",
+      `npm_tag=${npmDistTag()}`,
+    ], { execute: false });
   }
   if (options.includeIos) {
     run("bash", ["apps/ios/scripts/release.sh"], { execute: false });
@@ -330,7 +362,9 @@ function main() {
   if (!options.skipPush) {
     run("git", ["push", "origin", "HEAD", "--follow-tags"], { execute: true });
   }
-  if (!options.skipNpm) {
+  if (options.githubNpm) {
+    console.log("\nGitHub Actions will publish npm after the GitHub release is created.");
+  } else if (!options.skipNpm) {
     run("bash", ["scripts/ship-npm.sh"], { execute: true });
   }
   if (!options.skipGithubRelease) {
@@ -345,6 +379,19 @@ function main() {
       args.push("--generate-notes");
     }
     run("gh", args, { execute: true });
+  }
+  if (options.githubNpm) {
+    run("gh", [
+      "workflow",
+      "run",
+      "npm-publish.yml",
+      "--ref",
+      "main",
+      "--field",
+      `tag=v${nextVersion}`,
+      "--field",
+      `npm_tag=${npmDistTag()}`,
+    ], { execute: true });
   }
   if (options.includeIos) {
     run("bash", ["apps/ios/scripts/release.sh"], { execute: true });

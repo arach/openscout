@@ -26,10 +26,18 @@ else
   if [[ -z "${NPM_TOKEN:-}" ]] && command -v secret >/dev/null 2>&1; then
     NPM_TOKEN="$(secret get OPENSCOUT_NPM_TOKEN 2>/dev/null || true)"
   fi
-  [[ -z "${NPM_TOKEN:-}" ]] && { echo "ERROR: NPM_TOKEN is not set (try: secret set OPENSCOUT_NPM_TOKEN)"; exit 1; }
-  NPMRC=$(mktemp)
-  echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$NPMRC"
-  trap 'rm -f "$NPMRC"' EXIT
+  NPM_ARGS=()
+  if [[ -n "${NPM_TOKEN:-}" ]]; then
+    NPMRC=$(mktemp)
+    echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$NPMRC"
+    NPM_ARGS=(--userconfig "$NPMRC")
+    trap 'rm -f "$NPMRC"' EXIT
+  elif [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    echo "No NPM_TOKEN set; relying on npm trusted publishing/OIDC."
+  else
+    echo "ERROR: NPM_TOKEN is not set (try: secret set OPENSCOUT_NPM_TOKEN)"
+    exit 1
+  fi
 fi
 
 publish() {
@@ -48,13 +56,13 @@ publish() {
     return
   fi
 
-  (cd "$dir" && npm publish --access public --tag "$NPM_TAG" --userconfig "$NPMRC")
+  (cd "$dir" && npm publish --access public --tag "$NPM_TAG" "${NPM_ARGS[@]}")
 
-  published_tag=$(npm view "$name" "dist-tags.$NPM_TAG" --userconfig "$NPMRC" 2>/dev/null || true)
+  published_tag=$(npm view "$name" "dist-tags.$NPM_TAG" "${NPM_ARGS[@]}" 2>/dev/null || true)
   if [[ "$published_tag" != "$version" ]]; then
     echo "  dist-tag ${NPM_TAG} points at ${published_tag:-nothing}; updating…"
-    npm dist-tag add "${name}@${version}" "$NPM_TAG" --userconfig "$NPMRC"
-    published_tag=$(npm view "$name" "dist-tags.$NPM_TAG" --userconfig "$NPMRC" 2>/dev/null || true)
+    npm dist-tag add "${name}@${version}" "$NPM_TAG" "${NPM_ARGS[@]}"
+    published_tag=$(npm view "$name" "dist-tags.$NPM_TAG" "${NPM_ARGS[@]}" 2>/dev/null || true)
   fi
 
   [[ "$published_tag" == "$version" ]] || {
