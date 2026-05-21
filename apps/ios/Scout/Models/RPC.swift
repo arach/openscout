@@ -6,6 +6,16 @@
 import Foundation
 import SwiftUI
 
+let scoutEpochMillisecondsCutoff = 10_000_000_000
+
+func scoutEpochMilliseconds(_ value: Int) -> Int {
+    value > scoutEpochMillisecondsCutoff ? value : value * 1000
+}
+
+func scoutDate(fromEpoch value: Int) -> Date {
+    Date(timeIntervalSince1970: Double(scoutEpochMilliseconds(value)) / 1000.0)
+}
+
 // MARK: - tRPC method routing
 
 /// Maps legacy method strings (e.g. "mobile/sessions") to tRPC procedure paths and method types.
@@ -381,7 +391,7 @@ extension MobileAgentSummary {
 
     var lastActiveDate: Date? {
         guard let lastActiveAt else { return nil }
-        return Date(timeIntervalSince1970: Double(lastActiveAt))
+        return scoutDate(fromEpoch: lastActiveAt)
     }
 
     /// Short handle used in @mention autocomplete and URLs (e.g. "vox" from "@vox.host.abc").
@@ -404,7 +414,7 @@ struct AgentFlight: Codable, Identifiable, Sendable {
 
     var date: Date? {
         guard let startedAt else { return nil }
-        return Date(timeIntervalSince1970: Double(startedAt > 10_000_000_000 ? startedAt : startedAt * 1000) / 1000.0)
+        return scoutDate(fromEpoch: startedAt)
     }
 }
 
@@ -448,7 +458,7 @@ extension MobileAgentDetail {
 
     var lastActiveDate: Date? {
         guard let lastActiveAt else { return nil }
-        return Date(timeIntervalSince1970: Double(lastActiveAt))
+        return scoutDate(fromEpoch: lastActiveAt)
     }
 }
 
@@ -536,7 +546,7 @@ struct MobileInboxItem: Codable, Identifiable, Sendable {
     let actionStatus: ActionStatus?
 
     var createdDate: Date {
-        Date(timeIntervalSince1970: Double(createdAt > 10_000_000_000 ? createdAt : createdAt * 1000) / 1000.0)
+        scoutDate(fromEpoch: createdAt)
     }
 }
 
@@ -594,7 +604,7 @@ struct ActivityItem: Codable, Identifiable, Sendable {
 
     /// Normalized timestamp in milliseconds — broker sends mixed seconds/milliseconds.
     var tsMs: Int {
-        ts > 10_000_000_000 ? ts : ts * 1000
+        scoutEpochMilliseconds(ts)
     }
 
     var date: Date {

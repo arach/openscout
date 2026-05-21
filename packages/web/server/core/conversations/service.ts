@@ -43,6 +43,11 @@ function normalizeTimestamp(value: number | null | undefined): number | null {
   return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
 }
 
+function normalizeTimestampMs(value: number | null | undefined): number | null {
+  if (!value) return null;
+  return value > 10_000_000_000 ? Math.floor(value) : Math.floor(value * 1000);
+}
+
 function metadataString(
   metadata: Record<string, unknown> | undefined,
   key: string,
@@ -172,7 +177,7 @@ export async function getScoutConversations(
             ?? metadataString(agent.metadata, "workspaceQualifier"),
           preview: latestMessage?.body ?? null,
           messageCount,
-          lastMessageAt: normalizeTimestamp(latestMessage?.createdAt),
+          lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
           workspaceRoot: endpoint.projectRoot ?? endpoint.cwd ?? null,
         }];
       }
@@ -201,7 +206,7 @@ export async function getScoutConversations(
         currentBranch: null,
         preview: latestMessage?.body ?? null,
         messageCount,
-        lastMessageAt: normalizeTimestamp(latestMessage?.createdAt),
+        lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
         workspaceRoot: null,
       }];
     })

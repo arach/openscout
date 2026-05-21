@@ -9,6 +9,7 @@
  */
 
 import { db } from "./internal/db.ts";
+import { sqlTimestampMsExpression } from "./internal/sql-helpers.ts";
 import { normalizeTimestampMs, parseJson } from "./internal/parse.ts";
 import type {
   WebBrokerDialogueItem,
@@ -58,6 +59,9 @@ export function queryBrokerDiagnostics(opts?: {
   const windowMs = opts?.windowMs ?? 24 * 60 * 60_000;
   const now = Date.now();
   const since = now - windowMs;
+  const messageCreatedAtExpression = sqlTimestampMsExpression("m.created_at");
+  const deliveryCreatedAtExpression = sqlTimestampMsExpression("d.created_at");
+  const attemptCreatedAtExpression = sqlTimestampMsExpression("da.created_at");
 
   const messageRows = db()
     .prepare(
@@ -72,8 +76,8 @@ export function queryBrokerDiagnostics(opts?: {
          m.created_at
        FROM messages m
        LEFT JOIN actors ac ON ac.id = m.actor_id
-       WHERE m.created_at >= ?
-       ORDER BY m.created_at DESC
+       WHERE ${messageCreatedAtExpression} >= ?
+       ORDER BY ${messageCreatedAtExpression} DESC
        LIMIT ?`,
     )
     .all(since, Math.max(limit * 2, 200)) as Array<{
@@ -194,11 +198,11 @@ export function queryBrokerDiagnostics(opts?: {
        FROM deliveries d
        LEFT JOIN messages m ON m.id = d.message_id
        LEFT JOIN actors ac ON ac.id = d.target_id
-       WHERE d.created_at >= ?
-       ORDER BY d.created_at DESC
+       WHERE ${deliveryCreatedAtExpression} >= ?
+       ORDER BY ${deliveryCreatedAtExpression} DESC
        LIMIT ?`,
     )
-    .all(Math.floor(since / 1000), limit) as Array<{
+    .all(since, limit) as Array<{
     id: string;
     message_id: string | null;
     invocation_id: string | null;
@@ -254,8 +258,8 @@ export function queryBrokerDiagnostics(opts?: {
        JOIN deliveries d ON d.id = da.delivery_id
        LEFT JOIN messages m ON m.id = d.message_id
        LEFT JOIN actors ac ON ac.id = d.target_id
-       WHERE da.created_at >= ?
-       ORDER BY da.created_at DESC
+       WHERE ${attemptCreatedAtExpression} >= ?
+       ORDER BY ${attemptCreatedAtExpression} DESC
        LIMIT ?`,
     )
     .all(since, limit) as Array<{

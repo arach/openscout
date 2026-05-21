@@ -15,6 +15,7 @@ import {
   queryHeartrate,
   queryMobileAgents,
   queryMobileAgentDetail,
+  queryMobileSessions,
   queryRecentMessages,
   queryRuns,
   querySessions,
@@ -657,6 +658,7 @@ describe("web db timestamp normalization", () => {
       const session = querySessionById("conv-1");
       const activity = queryActivity(20);
       const mobileDetail = queryMobileAgentDetail("agent-1");
+      const mobileSessions = queryMobileSessions(10);
 
       expect(messages[0]).toMatchObject({
         id: "msg-normalized-seconds",
@@ -665,6 +667,8 @@ describe("web db timestamp normalization", () => {
       expect(messages.find((message) => message.id === "msg-normalized-ms")?.createdAt)
         .toBe(recentMs);
       expect(session?.lastMessageAt).toBe(recentSeconds * 1000);
+      expect(mobileSessions.find((item) => item.id === "conv-1")?.lastMessageAt)
+        .toBe(recentSeconds * 1000);
       expect(activity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
         .toBe(recentSeconds * 1000);
       expect(mobileDetail?.lastActiveAt).toBe(recentSeconds * 1000);

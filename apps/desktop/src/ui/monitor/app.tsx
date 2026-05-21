@@ -7,6 +7,7 @@ import type { ScoutAgentStatus } from "../../core/agents/service.ts";
 import { type ScoutMonitorSnapshot, loadScoutMonitorSnapshot } from "../../core/monitor/service.ts";
 import type { ScoutBrokerMessageRecord, ScoutWhoEntry } from "../../core/broker/service.ts";
 import { resolveScoutBrokerUrl } from "../../core/broker/service.ts";
+import { normalizeUnixTimestamp } from "../../core/broker/view.ts";
 import { scoutBrokerPaths } from "../../core/broker/paths.ts";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
 
@@ -45,26 +46,31 @@ function displayName(actorId: string): string {
   return segments[0] || trimmed;
 }
 
-function formatClock(value: number): string {
-  const date = new Date(value * 1000);
+function formatClock(value: number | null | undefined): string {
+  const timestamp = normalizeUnixTimestamp(value);
+  if (timestamp === null) return "--:--:--";
+  const date = new Date(timestamp * 1000);
   return [date.getHours(), date.getMinutes(), date.getSeconds()]
     .map((entry) => String(entry).padStart(2, "0"))
     .join(":");
 }
 
 function formatRelative(value: number | null | undefined): string {
-  if (!value || !Number.isFinite(value)) {
+  const timestamp = normalizeUnixTimestamp(value);
+  if (timestamp === null) {
     return "not seen";
   }
-  const age = Math.max(0, Math.floor(Date.now() / 1000) - value);
+  const age = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
   if (age < 60) return `${age}s ago`;
   if (age < 3_600) return `${Math.floor(age / 60)}m ago`;
   if (age < 86_400) return `${Math.floor(age / 3_600)}h ago`;
   return `${Math.floor(age / 86_400)}d ago`;
 }
 
-function formatUptime(value: number): string {
-  const age = Math.max(0, Math.floor(Date.now() / 1000) - value);
+function formatUptime(value: number | null | undefined): string {
+  const timestamp = normalizeUnixTimestamp(value);
+  if (timestamp === null) return "unknown";
+  const age = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
   if (age < 60) return `${age}s`;
   if (age < 3_600) return `${Math.floor(age / 60)}m`;
   return `${Math.floor(age / 3_600)}h ${Math.floor((age % 3_600) / 60)}m`;
@@ -193,15 +199,15 @@ function ChatPanel({
   const ordered = snapshot.recentMessages
     .slice()
     .sort((left, right) => {
-      const leftTs = left.createdAt;
-      const rightTs = right.createdAt;
+      const leftTs = normalizeUnixTimestamp(left.createdAt) ?? 0;
+      const rightTs = normalizeUnixTimestamp(right.createdAt) ?? 0;
       if (leftTs !== rightTs) return leftTs - rightTs;
       return String(left.id).localeCompare(String(right.id));
     });
 
   const rendered = ordered.flatMap((message) => {
     const actor = truncate(displayName(message.actorId), 12).padEnd(12, " ");
-    const stamp = formatClock(Math.floor(message.createdAt / 1000));
+    const stamp = formatClock(message.createdAt);
     const lines = wrapText(message.body, bodyWidth);
     const color = messageTone(message);
     return lines.map((line, index) => ({
