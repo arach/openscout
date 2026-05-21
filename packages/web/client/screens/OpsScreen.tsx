@@ -11,7 +11,7 @@ import type { OpsMode, Route } from "../lib/types.ts";
 
 const TABS: { id: OpsMode; label: string }[] = [
   { id: "mission", label: "Control" },
-  { id: "plan", label: "Plan" },
+  { id: "plan", label: "Work" },
   { id: "issues", label: "Issues" },
   { id: "tail", label: "Tail" },
   { id: "atop", label: "Atop" },

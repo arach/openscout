@@ -144,7 +144,7 @@ function BrokerInspectorEmpty() {
 
 const OPS_MODE_LABELS: Record<OpsMode, string> = {
   mission: "Control",
-  plan: "Plan",
+  plan: "Work",
   issues: "Issues",
   tail: "Tail",
   atop: "Atop",
