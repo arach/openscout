@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS,
   isActiveConversationFlight,
+  isStaleConversationWorkingTurn,
   shouldClearConversationWorkingStateForAgentMessage,
   shouldShowConversationWorkingTurn,
 } from "./conversations.ts";
@@ -31,5 +33,29 @@ describe("conversation flight presence", () => {
 
   test("allows an agent message to resolve pending state before a flight exists", () => {
     expect(shouldClearConversationWorkingStateForAgentMessage(null)).toBe(true);
+  });
+
+  test("marks unresolved working turns stale after the active window", () => {
+    const nowMs = 2_000_000_000_000;
+    const freshFlight = {
+      state: "running",
+      startedAt: nowMs - CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS,
+    };
+    const staleFlight = {
+      state: "running",
+      startedAt: nowMs - CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS - 1,
+    };
+
+    expect(isStaleConversationWorkingTurn(freshFlight, nowMs)).toBe(false);
+    expect(isStaleConversationWorkingTurn(staleFlight, nowMs)).toBe(true);
+  });
+
+  test("does not stale terminal flights", () => {
+    const flight = {
+      state: "completed",
+      startedAt: 1,
+    };
+
+    expect(isStaleConversationWorkingTurn(flight, 1_000_000)).toBe(false);
   });
 });

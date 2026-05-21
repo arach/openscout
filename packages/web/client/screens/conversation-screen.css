@@ -677,6 +677,18 @@ button.s-thread-msg-actor:focus-visible {
   font-family: var(--font-mono);
 }
 
+.s-thread-msg-kind--stale {
+  border-color: color-mix(in srgb, var(--amber) 35%, var(--border));
+  background: color-mix(in srgb, var(--amber) 8%, var(--bg));
+  color: var(--amber);
+}
+
+.s-thread-msg-kind--gone {
+  border-color: color-mix(in srgb, var(--dim) 35%, var(--border));
+  background: color-mix(in srgb, var(--dim) 8%, var(--bg));
+  color: var(--muted);
+}
+
 .s-thread-msg-time {
   font-size: 10px;
   font-family: var(--font-sans);
@@ -742,6 +754,11 @@ button.s-thread-msg-actor:focus-visible {
   background: color-mix(in srgb, var(--green) 2%, var(--surface));
 }
 
+.s-thread-msg-working-card--stale {
+  border-color: color-mix(in srgb, var(--amber) 26%, var(--border));
+  background: color-mix(in srgb, var(--amber) 4%, var(--surface));
+}
+
 .s-thread-msg-working-body {
   display: flex;
   align-items: center;
@@ -776,6 +793,21 @@ button.s-thread-msg-actor:focus-visible {
 
 .s-thread-typing-dot:nth-child(3) {
   animation-delay: 0.3s;
+}
+
+.s-thread-stale-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 12%, transparent);
+  opacity: 0.85;
+}
+
+.s-thread-stale-indicator--gone {
+  background: var(--muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 12%, transparent);
 }
 
 @keyframes s-thread-typing-bounce {
@@ -814,6 +846,10 @@ button.s-thread-msg-actor:focus-visible {
   color: var(--muted);
 }
 
+.s-thread-presence-line--stale .s-thread-presence-line-label {
+  color: color-mix(in srgb, var(--amber) 72%, var(--muted));
+}
+
 .s-thread-presence-strip {
   flex: 1;
   height: 2px;
@@ -827,6 +863,13 @@ button.s-thread-msg-actor:focus-visible {
   );
   background-size: 200% 100%;
   animation: s-thread-thinking-strip 2s ease-in-out infinite;
+}
+
+.s-thread-presence-strip--stale {
+  background: color-mix(in srgb, var(--amber) 70%, transparent);
+  background-size: auto;
+  animation: none;
+  opacity: 0.75;
 }
 
 /* ── Dispatch tiles ── */
@@ -1422,12 +1465,21 @@ details[open] > .s-thread-meta-toggle::before {
   background: color-mix(in srgb, var(--green) 3%, var(--surface));
 }
 
+.s-thread-status--stale {
+  border-color: color-mix(in srgb, var(--amber) 24%, var(--border));
+  background: color-mix(in srgb, var(--amber) 4%, var(--surface));
+}
+
 .s-thread-status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
   animation: s-thread-sidebar-pulse 1.5s ease-in-out infinite;
+}
+
+.s-thread-status--stale .s-thread-status-dot {
+  animation: none;
 }
 
 .s-thread-status-copy {
