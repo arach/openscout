@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { extractAgentIdentities, SCOUT_DISPATCHER_AGENT_ID } from "@openscout/protocol";
 import type { AgentIdentity } from "@openscout/protocol";
 import { actorColor } from "./colors.ts";
+import { AgentMention } from "../components/AgentHoverCard.tsx";
+import { findPathMatches, PathToken } from "./path-token.tsx";
 
 type Segment = { kind: "text"; value: string } | { kind: "mention"; identity: AgentIdentity };
 
@@ -45,19 +47,48 @@ function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
   let cursor = 0;
   let match: RegExpExecArray | null;
   let sub = 0;
+
+  const pushText = (raw: string) => {
+    if (!raw) return;
+    // Detect filepaths within this plain-text slice and replace them with PathTokens.
+    const pathMatches = findPathMatches(raw);
+    if (pathMatches.length === 0) {
+      parts.push(<span key={`${keyBase}-${sub++}`}>{raw}</span>);
+      return;
+    }
+    let local = 0;
+    for (const pm of pathMatches) {
+      if (pm.start > local) {
+        parts.push(<span key={`${keyBase}-${sub++}`}>{raw.slice(local, pm.start)}</span>);
+      }
+      parts.push(<PathToken key={`${keyBase}-${sub++}`} path={pm.path} />);
+      local = pm.end;
+    }
+    if (local < raw.length) {
+      parts.push(<span key={`${keyBase}-${sub++}`}>{raw.slice(local)}</span>);
+    }
+  };
+
   while ((match = pattern.exec(value)) !== null) {
     if (match.index > cursor) {
-      parts.push(<span key={`${keyBase}-${sub++}`}>{value.slice(cursor, match.index)}</span>);
+      pushText(value.slice(cursor, match.index));
     }
     if (match[1] !== undefined) {
-      parts.push(<code key={`${keyBase}-${sub++}`} className="s-inline-code">{match[1]}</code>);
+      // Inline code: also treat as a path token when it looks like one.
+      const inner = match[1];
+      const pm = findPathMatches(` ${inner}`);
+      if (pm.length === 1 && pm[0]!.path === inner) {
+        parts.push(<PathToken key={`${keyBase}-${sub++}`} path={inner} />);
+      } else {
+        parts.push(<code key={`${keyBase}-${sub++}`} className="s-inline-code">{inner}</code>);
+      }
     } else if (match[2] !== undefined) {
       parts.push(<strong key={`${keyBase}-${sub++}`}>{match[2]}</strong>);
     } else if (match[3] !== undefined) {
       parts.push(<em key={`${keyBase}-${sub++}`}>{match[3]}</em>);
     } else if (match[4] !== undefined && match[5] !== undefined && safeInlineHref(match[5])) {
       parts.push(
-        <a key={`${keyBase}-${sub++}`} href={match[5]} target="_blank" rel="noreferrer">
+        <a key={`${keyBase}-${sub++}`} className="s-inline-link" href={match[5]} target="_blank" rel="noreferrer">
           {match[4]}
         </a>,
       );
@@ -65,7 +96,7 @@ function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
       const href = match[6].replace(/[.,;:!?]+$/u, "");
       const trailing = match[6].slice(href.length);
       parts.push(
-        <a key={`${keyBase}-${sub++}`} href={href} target="_blank" rel="noreferrer">
+        <a key={`${keyBase}-${sub++}`} className="s-inline-link" href={href} target="_blank" rel="noreferrer">
           {href}
         </a>,
       );
@@ -78,7 +109,7 @@ function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
     cursor = match.index + match[0].length;
   }
   if (cursor < value.length) {
-    parts.push(<span key={`${keyBase}-${sub++}`}>{value.slice(cursor)}</span>);
+    pushText(value.slice(cursor));
   }
   return parts.length > 0 ? parts : [<span key={keyBase}>{value}</span>];
 }
@@ -100,13 +131,11 @@ export function renderWithMentions(text: string | null | undefined): ReactNode {
     const isScout = identity.definitionId === SCOUT_DISPATCHER_AGENT_ID;
     const color = isScout ? "var(--accent)" : actorColor(identity.definitionId);
     return (
-      <span
+      <AgentMention
         key={index}
-        className="s-mention"
-        style={{ "--mention-color": color } as React.CSSProperties}
-      >
-        {identity.label}
-      </span>
+        identity={identity}
+        color={color}
+      />
     );
   });
 }

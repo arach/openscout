@@ -343,31 +343,35 @@ function ChannelFeed({
               )}
               <article
                 id={`msg-${msg.id}`}
-                className={["ch-msg", showAvatar && "ch-msg--with-avatar"].filter(Boolean).join(" ")}
+                className={["ch-msg", showAvatar && "ch-msg--with-meta"].filter(Boolean).join(" ")}
               >
-                {showAvatar ? (
-                  <div className="ch-msg-avatar" style={{ background: color }}>
-                    {(isYou ? operatorName[0] : msg.actorName?.[0] ?? "?").toUpperCase()}
-                  </div>
-                ) : (
-                  <div className="ch-msg-avatar-gap">
-                    <span className="ch-msg-inline-time" title={abs}>{timeAgo(msg.createdAt)}</span>
-                  </div>
-                )}
-                <div className="ch-msg-content">
-                  {showAvatar && (
-                    <div className="ch-msg-header">
-                      <span className="ch-msg-author" style={{ color }}>
-                        {isYou ? operatorName : msg.actorName}
-                      </span>
-                      {handle && (
-                        <span className="ch-msg-handle">@{handle}</span>
-                      )}
-                      <span className="ch-msg-time" title={abs}>
-                        {timeAgo(msg.createdAt)}
-                      </span>
-                    </div>
+                <div className="ch-msg-meta">
+                  {showAvatar ? (
+                    <>
+                      <div className="ch-msg-meta-top">
+                        <div className="ch-msg-avatar" style={{ background: color }}>
+                          {(isYou ? operatorName[0] : msg.actorName?.[0] ?? "?").toUpperCase()}
+                        </div>
+                        <span className="ch-msg-author" style={{ color }}>
+                          {isYou ? operatorName : msg.actorName}
+                        </span>
+                      </div>
+                      <div className="ch-msg-meta-detail">
+                        {handle && (
+                          <span className="ch-msg-handle">@{handle}</span>
+                        )}
+                        <span className="ch-msg-time" title={abs}>
+                          {timeAgo(msg.createdAt)}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <span className="ch-msg-inline-time" title={abs}>
+                      {timeAgo(msg.createdAt)}
+                    </span>
                   )}
+                </div>
+                <div className="ch-msg-body-col">
                   <div className="ch-msg-body">
                     <MessageMarkup text={msg.body} />
                   </div>

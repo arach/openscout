@@ -343,6 +343,7 @@ export function ScoutProvider({
             <SettingsDrawer open={settingsOpen} onClose={closeSettings} />
             <FilePreviewOverlay
               path={filePreviewPath}
+              onOpenPath={openFilePreview}
               onClose={closeFilePreview}
             />
           </RangerStateProvider>

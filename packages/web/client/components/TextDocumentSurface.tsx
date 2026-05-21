@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 export type TextDocumentKind = "text" | "markdown" | "code" | "raw";
 export type TextDocumentMode = "read" | "preview";
@@ -142,9 +142,14 @@ export function TextDocumentSurface({
 }
 
 function CodeLikePreview({ document }: { document: TextDocument }) {
+  const highlighted = useMemo(
+    () => renderHighlightedCode(document.value, document.language ?? document.kind),
+    [document.language, document.kind, document.value],
+  );
+
   return (
     <pre className="s-text-document-code" data-language={document.language ?? document.kind}>
-      <code>{document.value}</code>
+      <code>{highlighted}</code>
     </pre>
   );
 }
@@ -288,14 +293,246 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
       );
     }
     case "code":
+      const language = normalizeCodeLanguage(block.language);
       return (
-        <pre key={index} className="s-text-document-fenced-code" data-language={block.language}>
-          <code>{block.content}</code>
+        <pre key={index} className="s-text-document-fenced-code" data-language={language}>
+          <code>{renderHighlightedCode(block.content, language)}</code>
         </pre>
       );
     case "hr":
       return <hr key={index} />;
   }
+}
+
+type HighlightLanguage = TextDocumentLanguage | TextDocumentKind | string | undefined;
+type SyntaxClass =
+  | "attribute"
+  | "comment"
+  | "function"
+  | "keyword"
+  | "literal"
+  | "meta"
+  | "number"
+  | "operator"
+  | "property"
+  | "punctuation"
+  | "string"
+  | "tag"
+  | "type";
+
+const TYPE_SCRIPT_PATTERN = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|`(?:\\[\s\S]|[^`\\])*`|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|\b\d+(?:\.\d+)?(?:e[+-]?\d+)?n?\b|\b[A-Za-z_$][\w$]*\b|=>|[{}()[\].,;:?]|[-+*/%=&|!<>~^]+/giu;
+const JSON_PATTERN = /"(?:\\.|[^"\\])*"|-?\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b|\b(?:true|false|null)\b|[{}\[\]:,]/giu;
+const CSS_PATTERN = /\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|#[0-9a-f]{3,8}\b|@[a-z-]+|--[a-z0-9-]+|[a-z-]+(?=\s*:)|\b\d+(?:\.\d+)?(?:%|px|r?em|vh|vw|vmin|vmax|s|ms|deg|fr)?\b|[{}():;,]|\.[a-z_][\w-]*|#[a-z_][\w-]*|[a-z_][\w-]*/giu;
+const HTML_PATTERN = /<!--[\s\S]*?-->|<!doctype[^>]*>|<\/?[a-z][\w:-]*|\/?>|[a-z_:][\w:.-]*(?==)|=|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|&[a-z0-9#]+;/giu;
+const SHELL_PATTERN = /#[^\n]*|"(?:\\.|[^"\\])*"|'[^']*'|\$\{?[\w?@#$!-]+\}?|--?[A-Za-z0-9][\w-]*(?:=[^\s]+)?|\b(?:case|cd|do|done|echo|elif|else|esac|exit|export|fi|for|function|if|in|local|return|set|source|test|then|unset|while)\b|\b\d+\b|[|&;(){}<>]/giu;
+
+const TS_KEYWORDS = new Set([
+  "abstract",
+  "as",
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "declare",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "finally",
+  "for",
+  "from",
+  "function",
+  "get",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "infer",
+  "interface",
+  "is",
+  "keyof",
+  "let",
+  "new",
+  "of",
+  "private",
+  "protected",
+  "public",
+  "readonly",
+  "return",
+  "satisfies",
+  "set",
+  "static",
+  "switch",
+  "throw",
+  "try",
+  "type",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+]);
+
+const TS_LITERALS = new Set(["false", "null", "super", "this", "true", "undefined"]);
+
+function renderHighlightedCode(value: string, language: HighlightLanguage): ReactNode[] {
+  const normalized = normalizeCodeLanguage(language);
+  switch (normalized) {
+    case "css":
+      return tokenizeSyntax(value, CSS_PATTERN, classifyCssToken);
+    case "html":
+      return tokenizeSyntax(value, HTML_PATTERN, classifyHtmlToken);
+    case "javascript":
+    case "typescript":
+      return tokenizeSyntax(value, TYPE_SCRIPT_PATTERN, classifyTypeScriptToken);
+    case "json":
+      return tokenizeSyntax(value, JSON_PATTERN, classifyJsonToken);
+    case "shell":
+      return tokenizeSyntax(value, SHELL_PATTERN, classifyShellToken);
+    default:
+      return [value];
+  }
+}
+
+function tokenizeSyntax(
+  value: string,
+  pattern: RegExp,
+  classify: (token: string, start: number, end: number, source: string) => SyntaxClass | null,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  let tokenIndex = 0;
+  pattern.lastIndex = 0;
+
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value)) !== null) {
+    const token = match[0];
+    if (!token) {
+      pattern.lastIndex += 1;
+      continue;
+    }
+    if (match.index > cursor) {
+      nodes.push(value.slice(cursor, match.index));
+    }
+    const className = classify(token, match.index, match.index + token.length, value);
+    nodes.push(className
+      ? (
+          <span key={`syntax-${tokenIndex++}`} className={`s-syntax s-syntax-${className}`}>
+            {token}
+          </span>
+        )
+      : token);
+    cursor = match.index + token.length;
+  }
+
+  if (cursor < value.length) {
+    nodes.push(value.slice(cursor));
+  }
+
+  return nodes.length > 0 ? nodes : [value];
+}
+
+function normalizeCodeLanguage(language: HighlightLanguage): TextDocumentLanguage {
+  const value = String(language ?? "").toLowerCase().replace(/^\./, "");
+  if (value === "bash" || value === "sh" || value === "shell" || value === "zsh") return "shell";
+  if (value === "css" || value === "scss") return "css";
+  if (value === "html" || value === "htm" || value === "xml" || value === "svg") return "html";
+  if (value === "js" || value === "jsx" || value === "javascript" || value === "mjs" || value === "cjs") return "javascript";
+  if (value === "json" || value === "jsonc") return "json";
+  if (value === "markdown" || value === "md" || value === "mdx") return "markdown";
+  if (value === "ts" || value === "tsx" || value === "typescript") return "typescript";
+  return "plain";
+}
+
+function classifyTypeScriptToken(token: string, start: number, end: number, source: string): SyntaxClass | null {
+  if (token.startsWith("//") || token.startsWith("/*")) return "comment";
+  if (startsWithQuote(token)) return "string";
+  if (/^\d/u.test(token)) return "number";
+  if (TS_KEYWORDS.has(token)) return "keyword";
+  if (TS_LITERALS.has(token)) return "literal";
+  if (/^[A-Z][\w$]*$/u.test(token)) return "type";
+  if (/^[A-Za-z_$][\w$]*$/u.test(token) && source.slice(end).trimStart().startsWith("(")) return "function";
+  if (/^[{}()[\].,;:?]$/u.test(token)) return "punctuation";
+  if (/^(?:=>|[-+*/%=&|!<>~^]+)$/u.test(token)) return "operator";
+  return null;
+}
+
+function classifyJsonToken(token: string, _start: number, end: number, source: string): SyntaxClass | null {
+  if (startsWithQuote(token)) return source.slice(end).trimStart().startsWith(":") ? "property" : "string";
+  if (/^-?\d/u.test(token)) return "number";
+  if (token === "true" || token === "false" || token === "null") return "literal";
+  return "punctuation";
+}
+
+function classifyCssToken(token: string, _start: number, end: number, source: string): SyntaxClass | null {
+  if (token.startsWith("/*")) return "comment";
+  if (startsWithQuote(token)) return "string";
+  if (token.startsWith("@")) return "keyword";
+  if (token.startsWith("#") && /^#[0-9a-f]/iu.test(token)) return "number";
+  if (/^\d/u.test(token)) return "number";
+  if (token.startsWith(".") || token.startsWith("#")) return "tag";
+  if (/^--/u.test(token) || source.slice(end).trimStart().startsWith(":")) return "property";
+  if (/^[{}():;,]$/u.test(token)) return "punctuation";
+  return null;
+}
+
+function classifyHtmlToken(token: string): SyntaxClass | null {
+  if (token.startsWith("<!--")) return "comment";
+  if (/^<!doctype/iu.test(token) || token.startsWith("&")) return "meta";
+  if (token.startsWith("<")) return "tag";
+  if (startsWithQuote(token)) return "string";
+  if (token === "=") return "operator";
+  if (token === ">" || token === "/>") return "punctuation";
+  return "attribute";
+}
+
+function classifyShellToken(token: string): SyntaxClass | null {
+  if (token.startsWith("#")) return "comment";
+  if (startsWithQuote(token)) return "string";
+  if (token.startsWith("$")) return "property";
+  if (token.startsWith("-")) return "attribute";
+  if (/^\d/u.test(token)) return "number";
+  if (/^[|&;(){}<>]$/u.test(token)) return "operator";
+  if (SHELL_PATTERN_KEYWORDS.has(token)) return "keyword";
+  return null;
+}
+
+const SHELL_PATTERN_KEYWORDS = new Set([
+  "case",
+  "cd",
+  "do",
+  "done",
+  "echo",
+  "elif",
+  "else",
+  "esac",
+  "exit",
+  "export",
+  "fi",
+  "for",
+  "function",
+  "if",
+  "in",
+  "local",
+  "return",
+  "set",
+  "source",
+  "test",
+  "then",
+  "unset",
+  "while",
+]);
+
+function startsWithQuote(value: string): boolean {
+  return value.startsWith("\"") || value.startsWith("'") || value.startsWith("`");
 }
 
 function renderInlineMarkdown(value: string): ReactNode[] {
