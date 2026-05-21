@@ -762,7 +762,42 @@
   color: var(--dim);
 }
 
-/* ── Activity feed (fallback when no work items) ── */
+.s-profile-task-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.s-profile-task-btn {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.s-profile-task-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--ink);
+}
+
+.s-profile-task-btn--primary {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--ink);
+}
+
+/* ── Activity feed ── */
 
 .s-profile-activity-feed {
   display: flex;
