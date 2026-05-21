@@ -18,6 +18,7 @@ import { statusOnHover } from "../lib/page-status.ts";
 import {
   MISSION_RECENT_WINDOWS,
   missionAgentMatchesQuery,
+  clearMissionCanvasFocusRequest,
   setMissionActivityFilter,
   setMissionFocusedId,
   setMissionQuery,
@@ -637,6 +638,7 @@ export function MissionControlView({
 
   const animTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [canvasFocusHighlightId, setCanvasFocusHighlightId] = useState<string | null>(null);
+  const consumedCanvasFocusSerialRef = useRef<number | null>(null);
 
   const triggerEntry = useCallback((useSaved = true) => {
     if (layout.canvasW === 0 || vpSize.w === 0) return;
@@ -808,9 +810,9 @@ export function MissionControlView({
     return map;
   }, [layout]);
 
-  const focusCanvasSubject = useCallback((id: string) => {
+  const focusCanvasSubject = useCallback((id: string): boolean => {
     const pos = tilePositions[id];
-    if (!pos || vpSize.w === 0 || vpSize.h === 0) return;
+    if (!pos || vpSize.w === 0 || vpSize.h === 0) return false;
 
     animTimers.current.forEach(clearTimeout);
     const horizontalZoom = (vpSize.w - FOCUS_TILE_MARGIN * 2) / TILE_W;
@@ -829,16 +831,19 @@ export function MissionControlView({
     setZoom(nextZoom);
     setPan(nextPan);
     setCanvasFocusHighlightId(id);
-    saveViewport({ pan: nextPan, zoom: nextZoom });
 
     const settle = setTimeout(() => setIsTransitioning(false), 650);
     const clearHighlight = setTimeout(() => setCanvasFocusHighlightId(null), 1800);
     animTimers.current = [settle, clearHighlight];
+    return true;
   }, [tilePositions, vpSize]);
 
   useEffect(() => {
     if (!canvasFocusRequest) return;
-    focusCanvasSubject(canvasFocusRequest.id);
+    if (consumedCanvasFocusSerialRef.current === canvasFocusRequest.serial) return;
+    if (!focusCanvasSubject(canvasFocusRequest.id)) return;
+    consumedCanvasFocusSerialRef.current = canvasFocusRequest.serial;
+    clearMissionCanvasFocusRequest(canvasFocusRequest.serial);
   }, [canvasFocusRequest, focusCanvasSubject]);
 
   const activeCount =

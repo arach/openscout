@@ -98,6 +98,12 @@ export function requestMissionCanvasFocus(id: string): void {
   _notify();
 }
 
+export function clearMissionCanvasFocusRequest(serial: number): void {
+  if (_state.canvasFocusRequest?.serial !== serial) return;
+  _state = { ..._state, canvasFocusRequest: null };
+  _notify();
+}
+
 function visibleAgentsEqual(a: MissionVisibleAgent[], b: MissionVisibleAgent[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
