@@ -50,6 +50,7 @@ const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[1].value;
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
 const FLEET_BRIEF_REFRESH_MS = 5 * 60_000;
+const MOVING_ACTIVE_WINDOW_MS = 30 * 60_000;
 
 type FleetHomeBrief = {
   id: string;
@@ -116,6 +117,14 @@ function formatTimeUntil(timestamp: number | null | undefined, nowMs: number): s
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `in ${hours}h`;
   return `in ${Math.floor(hours / 24)}d`;
+}
+
+function isFreshMovingTimestamp(
+  timestamp: number | null | undefined,
+  nowMs: number,
+): boolean {
+  const timestampMs = normalizeTimestampMs(timestamp);
+  return timestampMs !== null && nowMs - timestampMs <= MOVING_ACTIVE_WINDOW_MS;
 }
 
 type HeartrateBucketView = {
@@ -303,10 +312,14 @@ export function HomeScreen({
     };
   }, [load]);
 
-  const active = useMemo(
-    () => agents.filter((a) => normalizeAgentState(a.state) === "working"),
-    [agents],
-  );
+  const [lookbackMs, setLookbackMs] = useState<number>(DEFAULT_LOOKBACK_MS);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const waiting = useMemo(
     () =>
       agents.filter((a) => {
@@ -334,10 +347,14 @@ export function HomeScreen({
       ),
     [fleet],
   );
+  const freshMovingAsks = useMemo(
+    () => movingAsks.filter((ask) => isFreshMovingTimestamp(ask.updatedAt, nowMs)),
+    [movingAsks, nowMs],
+  );
   const needsYouItems = useMemo(() => fleet?.needsAttention ?? [], [fleet]);
   const activeAskByAgent = useMemo(() => {
     const byAgent = new Map<string, FleetAsk>();
-    for (const ask of movingAsks) {
+    for (const ask of freshMovingAsks) {
       const current = byAgent.get(ask.agentId);
       const askUpdatedAt = normalizeTimestampMs(ask.updatedAt) ?? 0;
       const currentUpdatedAt = normalizeTimestampMs(current?.updatedAt) ?? 0;
@@ -346,13 +363,33 @@ export function HomeScreen({
       }
     }
     return byAgent;
-  }, [movingAsks]);
+  }, [freshMovingAsks]);
+  const active = useMemo(
+    () =>
+      agents.filter((agent) =>
+        normalizeAgentState(agent.state) === "working" &&
+        (isFreshMovingTimestamp(agent.updatedAt, nowMs) || activeAskByAgent.has(agent.id))
+      ),
+    [activeAskByAgent, agents, nowMs],
+  );
+  const activeIds = useMemo(() => new Set(active.map((agent) => agent.id)), [active]);
+  const staleWorkingAgents = useMemo(
+    () =>
+      agents.filter((agent) =>
+        normalizeAgentState(agent.state) === "working" && !activeIds.has(agent.id)
+      ),
+    [activeIds, agents],
+  );
+  const staleMovingAsks = useMemo(
+    () => movingAsks.filter((ask) => !isFreshMovingTimestamp(ask.updatedAt, nowMs)),
+    [movingAsks, nowMs],
+  );
   const movingAsksWithoutActiveAgent = useMemo(
     () =>
-      movingAsks.filter(
+      freshMovingAsks.filter(
         (ask) => !active.some((agent) => agent.id === ask.agentId),
       ),
-    [active, movingAsks],
+    [active, freshMovingAsks],
   );
 
   const totalNeedsYou = needsYouAsks.length + needsYouItems.length;
@@ -368,14 +405,6 @@ export function HomeScreen({
       .filter((value): value is number => value !== null);
     return stamps.length > 0 ? Math.min(...stamps) : null;
   }, [attentionItems, needsYouAsks, needsYouItems]);
-
-  const [lookbackMs, setLookbackMs] = useState<number>(DEFAULT_LOOKBACK_MS);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   const sinceMs = nowMs - lookbackMs;
   const liveActivity = useMemo<FleetActivity[]>(() => {
@@ -463,6 +492,18 @@ export function HomeScreen({
         tone: "warn",
         route: { view: "activity" },
       });
+    } else if (staleWorkingAgents.length > 0 || staleMovingAsks.length > 0) {
+      const count = new Set([
+        ...staleWorkingAgents.map((agent) => agent.id),
+        ...staleMovingAsks.map((ask) => ask.agentId),
+      ]).size;
+      signals.push({
+        id: "stale-motion",
+        label: "stale motion",
+        value: `${count} old state${count === 1 ? "" : "s"} hidden after ${formatLookback(MOVING_ACTIVE_WINDOW_MS)} idle`,
+        tone: "dim",
+        route: { view: "agents" },
+      });
     } else if (observedActiveActors.length > 0) {
       signals.push({
         id: "organic-work",
@@ -523,6 +564,8 @@ export function HomeScreen({
     observedActiveActors.length,
     oldestNeedsTs,
     serviceGauges,
+    staleMovingAsks,
+    staleWorkingAgents,
     totalOperatorQueue,
   ]);
 
