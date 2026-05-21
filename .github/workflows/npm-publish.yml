@@ -1,0 +1,88 @@
+name: Publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, for example v0.2.68"
+        required: true
+      npm_tag:
+        description: "npm dist-tag"
+        required: true
+        default: "latest"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release target
+        id: release
+        shell: bash
+        run: |
+          tag="${{ inputs.tag }}"
+          npm_tag="${{ inputs.npm_tag }}"
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "Release tag must look like vX.Y.Z, got: $tag" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=${npm_tag:-latest}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate release manifest
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from "node:fs";
+
+          const root = JSON.parse(readFileSync("package.json", "utf8"));
+          const cli = JSON.parse(readFileSync("packages/cli/package.json", "utf8"));
+          const expected = process.env.RELEASE_VERSION;
+          const tag = process.env.RELEASE_TAG;
+
+          if (root.version !== expected || cli.version !== expected) {
+            throw new Error(`Manifest versions must match ${tag}: root=${root.version}, cli=${cli.version}`);
+          }
+          if (cli.name !== "@openscout/scout") {
+            throw new Error(`Unexpected public package name: ${cli.name}`);
+          }
+          if (!cli.repository?.url?.includes("github.com/arach/openscout")) {
+            throw new Error("packages/cli/package.json repository.url must point at arach/openscout for npm provenance.");
+          }
+          JS
+
+      - name: Publish @openscout/scout
+        env:
+          NPM_TAG: ${{ steps.release.outputs.npm_tag }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+        run: bash scripts/ship-npm.sh

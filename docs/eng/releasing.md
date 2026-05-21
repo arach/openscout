@@ -20,10 +20,15 @@ Before your first release, make sure the following are set up locally.
 
 ### npm
 
-- `~/.npmrc` must contain `//registry.npmjs.org/:_authToken=...`, or export
-  `NPM_TOKEN` in the shell before publishing. An automation token avoids the
-  OTP prompt.
-- Confirm publish access: `npm whoami` and `npm access list packages`.
+- Preferred: configure npm trusted publishing for `@openscout/scout`:
+  - owner/repo: `arach/openscout`
+  - workflow filename: `npm-publish.yml`
+  - allowed action: `npm publish`
+- Fallback: add a GitHub repository secret named `NPM_TOKEN` with publish
+  access.
+- For local emergency publishing, `~/.npmrc` must contain
+  `//registry.npmjs.org/:_authToken=...`, or export `NPM_TOKEN` in the shell
+  before publishing. Confirm publish access with `npm whoami`.
 
 ### macOS signing + notarization
 
@@ -93,8 +98,19 @@ inside the repo without becoming public npm artifacts.
 
 ## Publishing npm
 
-The release helper builds the internal packages, verifies the packed public
-manifest, and publishes only `@openscout/scout`.
+Normal releases should publish npm through GitHub Actions:
+
+```bash
+npm run ship -- 0.2.68 --execute --yes --github-npm
+```
+
+This verifies the internal builds and packed public manifest locally, pushes the
+tag, creates the GitHub release, then dispatches `.github/workflows/npm-publish.yml`
+to publish `@openscout/scout` from the release tag.
+
+For manual recovery or an emergency local publish, the lower-level helper still
+builds the internal packages, verifies the packed public manifest, and publishes
+only `@openscout/scout`.
 
 ```bash
 bash scripts/ship-npm.sh --dry-run

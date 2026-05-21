@@ -4,6 +4,15 @@
   "description": "Public Scout package that installs the `scout` command and bundled local runtime",
   "license": "UNLICENSED",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arach/openscout.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/arach/openscout/issues"
+  },
+  "homepage": "https://github.com/arach/openscout#readme",
   "bin": {
     "scout": "./bin/scout.mjs"
   },
