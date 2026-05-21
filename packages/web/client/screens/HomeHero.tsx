@@ -37,6 +37,7 @@ export type HomeHeroSignal = {
   value: string;
   tone?: GaugeTone;
   route?: Route;
+  onClick?: () => void;
 };
 
 export type HomeHeroBriefReference = {
@@ -305,13 +306,14 @@ function SystemSignalStack({
             </span>
           </>
         );
-        if (signal.route) {
+        const handleClick = signal.onClick ?? (signal.route ? () => navigate(signal.route) : undefined);
+        if (handleClick) {
           return (
             <button
               key={signal.id}
               type="button"
               className="hd-signal-row hd-signal-row--button"
-              onClick={() => navigate(signal.route as Route)}
+              onClick={handleClick}
             >
               {content}
             </button>

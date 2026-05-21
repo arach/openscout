@@ -709,6 +709,100 @@
   text-align: right;
 }
 
+/* ── Stale motion review ──────────────────────────────────────────── */
+
+.s-stale-motion-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--bg));
+  overflow: hidden;
+}
+
+.s-stale-motion-row {
+  min-height: 60px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.s-stale-motion-row:last-child {
+  border-bottom: 0;
+}
+
+.s-stale-motion-row:hover {
+  background: color-mix(in srgb, var(--amber) 4%, transparent);
+}
+
+.s-stale-motion-main {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.s-stale-motion-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.s-stale-motion-name {
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.s-stale-motion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+.s-stale-motion-summary {
+  max-width: 860px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-stale-motion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .s-stale-motion-row {
+    grid-template-columns: 1fr;
+  }
+
+  .s-stale-motion-actions {
+    justify-content: flex-start;
+  }
+
+  .s-stale-motion-summary {
+    white-space: normal;
+  }
+}
+
 .s-now-card {
   padding: 16px 18px;
   border: 1px solid var(--border);

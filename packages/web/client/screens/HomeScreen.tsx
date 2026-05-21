@@ -23,6 +23,7 @@ import {
   stopHomeBriefSpeech,
   useHomeBriefPlayerState,
 } from "../lib/home-brief-player.ts";
+import { usePersistentString } from "../lib/persistent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
@@ -51,6 +52,8 @@ const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[1].value;
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
 const FLEET_BRIEF_REFRESH_MS = 5 * 60_000;
 const MOVING_ACTIVE_WINDOW_MS = 30 * 60_000;
+const STALE_MOTION_INACTIVE_KEY = "openscout.home.staleMotionInactive.v1";
+const STALE_MOTION_INACTIVE_LIMIT = 200;
 
 type FleetHomeBrief = {
   id: string;
@@ -59,6 +62,16 @@ type FleetHomeBrief = {
   preparedAt: number;
   expiresAt: number;
   ttlMs: number;
+};
+
+type StaleMotionItem = {
+  agentId: string;
+  agentName: string;
+  updatedAtMs: number;
+  summary: string;
+  route: Route;
+  hasAgentState: boolean;
+  askCount: number;
 };
 
 function formatAge(timestamp: number | null | undefined, nowMs: number): string {
@@ -125,6 +138,48 @@ function isFreshMovingTimestamp(
 ): boolean {
   const timestampMs = normalizeTimestampMs(timestamp);
   return timestampMs !== null && nowMs - timestampMs <= MOVING_ACTIVE_WINDOW_MS;
+}
+
+function parseStaleMotionInactive(raw: string): Record<string, number> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const inactive: Record<string, number> = {};
+    for (const [agentId, value] of Object.entries(parsed)) {
+      const timestamp = typeof value === "number" ? value : Number(value);
+      if (agentId && Number.isFinite(timestamp)) {
+        inactive[agentId] = timestamp;
+      }
+    }
+    return inactive;
+  } catch {
+    return {};
+  }
+}
+
+function encodeStaleMotionInactive(inactive: Record<string, number>): string {
+  const trimmed = Object.entries(inactive)
+    .filter((entry): entry is [string, number] => Number.isFinite(entry[1]))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, STALE_MOTION_INACTIVE_LIMIT);
+  return JSON.stringify(Object.fromEntries(trimmed));
+}
+
+function routeForFleetAsk(ask: FleetAsk): Route {
+  if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
+  if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
+  return { view: "agents", agentId: ask.agentId };
+}
+
+function staleMotionSourceLabel(item: StaleMotionItem): string {
+  const parts: string[] = [];
+  if (item.hasAgentState) parts.push("agent state");
+  if (item.askCount > 0) {
+    parts.push(`${item.askCount} ask${item.askCount === 1 ? "" : "s"}`);
+  }
+  return parts.join(" + ") || "stale state";
 }
 
 type HeartrateBucketView = {
@@ -314,6 +369,14 @@ export function HomeScreen({
 
   const [lookbackMs, setLookbackMs] = useState<number>(DEFAULT_LOOKBACK_MS);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [staleMotionInactiveRaw, setStaleMotionInactiveRaw] = usePersistentString(
+    STALE_MOTION_INACTIVE_KEY,
+    "{}",
+  );
+  const staleMotionInactive = useMemo(
+    () => parseStaleMotionInactive(staleMotionInactiveRaw),
+    [staleMotionInactiveRaw],
+  );
 
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
@@ -383,6 +446,59 @@ export function HomeScreen({
   const staleMovingAsks = useMemo(
     () => movingAsks.filter((ask) => !isFreshMovingTimestamp(ask.updatedAt, nowMs)),
     [movingAsks, nowMs],
+  );
+  const staleMotionItems = useMemo<StaleMotionItem[]>(() => {
+    const byAgent = new Map<string, StaleMotionItem>();
+    const upsert = (item: StaleMotionItem) => {
+      const current = byAgent.get(item.agentId);
+      if (!current) {
+        byAgent.set(item.agentId, item);
+        return;
+      }
+      const useNextDetail = item.updatedAtMs >= current.updatedAtMs;
+      byAgent.set(item.agentId, {
+        agentId: item.agentId,
+        agentName: current.agentName || item.agentName,
+        updatedAtMs: Math.max(current.updatedAtMs, item.updatedAtMs),
+        summary: useNextDetail ? item.summary : current.summary,
+        route: useNextDetail ? item.route : current.route,
+        hasAgentState: current.hasAgentState || item.hasAgentState,
+        askCount: current.askCount + item.askCount,
+      });
+    };
+
+    for (const agent of staleWorkingAgents) {
+      upsert({
+        agentId: agent.id,
+        agentName: agent.name,
+        updatedAtMs: normalizeTimestampMs(agent.updatedAt) ?? 0,
+        summary: agent.cwd ?? agent.projectRoot ?? agent.project ?? agent.branch ?? "Registered as working",
+        route: { view: "agents", agentId: agent.id, tab: "profile" },
+        hasAgentState: true,
+        askCount: 0,
+      });
+    }
+
+    for (const ask of staleMovingAsks) {
+      upsert({
+        agentId: ask.agentId,
+        agentName: ask.agentName ?? ask.agentId,
+        updatedAtMs: normalizeTimestampMs(ask.updatedAt) ?? 0,
+        summary: ask.summary ?? ask.task ?? ask.statusLabel,
+        route: routeForFleetAsk(ask),
+        hasAgentState: false,
+        askCount: 1,
+      });
+    }
+
+    return [...byAgent.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+  }, [staleMovingAsks, staleWorkingAgents]);
+  const visibleStaleMotionItems = useMemo(
+    () =>
+      staleMotionItems.filter(
+        (item) => (staleMotionInactive[item.agentId] ?? -1) < item.updatedAtMs,
+      ),
+    [staleMotionInactive, staleMotionItems],
   );
   const movingAsksWithoutActiveAgent = useMemo(
     () =>
@@ -463,6 +579,28 @@ export function HomeScreen({
   const fleetBriefIsFresh =
     fleetBriefExpiresAtMs !== null && fleetBriefExpiresAtMs > nowMs;
 
+  const markStaleMotionInactive = useCallback((item: StaleMotionItem) => {
+    setStaleMotionInactiveRaw(encodeStaleMotionInactive({
+      ...staleMotionInactive,
+      [item.agentId]: item.updatedAtMs,
+    }));
+  }, [setStaleMotionInactiveRaw, staleMotionInactive]);
+
+  const markAllStaleMotionInactive = useCallback(() => {
+    const next = { ...staleMotionInactive };
+    for (const item of visibleStaleMotionItems) {
+      next[item.agentId] = item.updatedAtMs;
+    }
+    setStaleMotionInactiveRaw(encodeStaleMotionInactive(next));
+  }, [setStaleMotionInactiveRaw, staleMotionInactive, visibleStaleMotionItems]);
+
+  const scrollToStaleMotion = useCallback(() => {
+    document.getElementById("home-stale-motion")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, []);
+
   const systemSignals = useMemo<HomeHeroSignal[]>(() => {
     const signals: HomeHeroSignal[] = [];
 
@@ -492,17 +630,14 @@ export function HomeScreen({
         tone: "warn",
         route: { view: "activity" },
       });
-    } else if (staleWorkingAgents.length > 0 || staleMovingAsks.length > 0) {
-      const count = new Set([
-        ...staleWorkingAgents.map((agent) => agent.id),
-        ...staleMovingAsks.map((ask) => ask.agentId),
-      ]).size;
+    } else if (visibleStaleMotionItems.length > 0) {
+      const count = visibleStaleMotionItems.length;
       signals.push({
         id: "stale-motion",
         label: "stale motion",
-        value: `${count} old state${count === 1 ? "" : "s"} hidden after ${formatLookback(MOVING_ACTIVE_WINDOW_MS)} idle`,
+        value: `${count} old state${count === 1 ? "" : "s"} ready to mark inactive`,
         tone: "dim",
-        route: { view: "agents" },
+        onClick: scrollToStaleMotion,
       });
     } else if (observedActiveActors.length > 0) {
       signals.push({
@@ -563,10 +698,10 @@ export function HomeScreen({
     nowMs,
     observedActiveActors.length,
     oldestNeedsTs,
+    scrollToStaleMotion,
     serviceGauges,
-    staleMovingAsks,
-    staleWorkingAgents,
     totalOperatorQueue,
+    visibleStaleMotionItems.length,
   ]);
 
   const narrativeParts = useMemo(() => {
@@ -706,6 +841,34 @@ export function HomeScreen({
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Stale motion review ────────────────────────────────── */}
+        {visibleStaleMotionItems.length > 0 && (
+          <div className="s-fleet-section" id="home-stale-motion">
+            <SectionRule
+              label={`Stale motion · ${visibleStaleMotionItems.length}`}
+              right={
+                <button
+                  type="button"
+                  className="s-link-btn"
+                  onClick={markAllStaleMotionInactive}
+                >
+                  mark all inactive
+                </button>
+              }
+            />
+            <div className="s-stale-motion-list">
+              {visibleStaleMotionItems.map((item) => (
+                <StaleMotionRow
+                  key={item.agentId}
+                  item={item}
+                  navigate={navigate}
+                  onMarkInactive={() => markStaleMotionInactive(item)}
+                />
+              ))}
+            </div>
           </div>
         )}
 
@@ -1304,11 +1467,7 @@ function MovingAskRow({
   ask: FleetAsk;
   navigate: (r: Route) => void;
 }) {
-  const route: Route = ask.conversationId
-    ? { view: "conversation", conversationId: ask.conversationId }
-    : ask.collaborationRecordId
-      ? { view: "work", workId: ask.collaborationRecordId }
-      : { view: "agents", agentId: ask.agentId };
+  const route = routeForFleetAsk(ask);
 
   return (
     <button
@@ -1328,6 +1487,66 @@ function MovingAskRow({
         {timeAgo(ask.updatedAt)}
       </span>
     </button>
+  );
+}
+
+function StaleMotionRow({
+  item,
+  navigate,
+  onMarkInactive,
+}: {
+  item: StaleMotionItem;
+  navigate: (r: Route) => void;
+  onMarkInactive: () => void;
+}) {
+  const age = item.updatedAtMs > 0 ? timeAgo(item.updatedAtMs) : "unknown";
+  const source = staleMotionSourceLabel(item);
+  const summary = summarize(item.summary, 180);
+
+  return (
+    <div className="s-stale-motion-row">
+      <button
+        type="button"
+        className="s-stale-motion-main"
+        onClick={() => navigate(item.route)}
+      >
+        <span
+          className="s-avatar s-avatar-sm"
+          style={{ background: actorColor(item.agentName) }}
+        >
+          {item.agentName[0]?.toUpperCase() ?? "?"}
+        </span>
+        <span className="s-stale-motion-copy">
+          <span className="s-stale-motion-name">{item.agentName}</span>
+          <span className="s-stale-motion-meta">
+            <span>last signal {age}</span>
+            <span>{source}</span>
+            <span>hidden after {formatLookback(MOVING_ACTIVE_WINDOW_MS)} idle</span>
+          </span>
+          {summary && <span className="s-stale-motion-summary">{summary}</span>}
+        </span>
+      </button>
+      <div className="s-stale-motion-actions">
+        <button
+          type="button"
+          className="s-icon-btn"
+          title="Open stale source"
+          onClick={() => navigate(item.route)}
+        >
+          <ExternalLink size={14} aria-hidden="true" />
+          <span>Open</span>
+        </button>
+        <button
+          type="button"
+          className="s-icon-btn"
+          title="Mark inactive"
+          onClick={onMarkInactive}
+        >
+          <Check size={14} aria-hidden="true" />
+          <span>Mark inactive</span>
+        </button>
+      </div>
+    </div>
   );
 }
 
