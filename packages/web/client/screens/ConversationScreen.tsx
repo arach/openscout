@@ -20,7 +20,14 @@ import {
 import { isSameCalendarDay, formatThreadDayLabel } from "../lib/thread-days.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
-import { conversationShortLabel, isGroupConversation } from "../lib/conversations.ts";
+import {
+  TERMINAL_CONVERSATION_FLIGHT_STATES,
+  conversationShortLabel,
+  isActiveConversationFlight,
+  isGroupConversation,
+  shouldClearConversationWorkingStateForAgentMessage,
+  shouldShowConversationWorkingTurn,
+} from "../lib/conversations.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import {
@@ -52,7 +59,6 @@ import type {
 import "./conversation-screen.css";
 import "./ops-screen.css";
 
-const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
 const KIND_LABELS: Record<string, string> = {
   direct: "Direct message",
   channel: "Channel",
@@ -231,7 +237,7 @@ function sortMessages(messages: Message[]): Message[] {
 function selectCurrentFlight(flights: Flight[]): Flight | null {
   return (
     flights
-      .filter((flight) => !TERMINAL_FLIGHT_STATES.has(flight.state))
+      .filter(isActiveConversationFlight)
       .sort((left, right) =>
         compareTimestampsDesc(left.startedAt, right.startedAt),
       )[0] ?? null
@@ -479,14 +485,14 @@ function deriveParticipantActivity(
     (f) =>
       f.agentId === agent.id &&
       f.conversationId === conversationId &&
-      !TERMINAL_FLIGHT_STATES.has(f.state),
+      isActiveConversationFlight(f),
   );
   if (hasFlight) {
     const flight = flights.find(
       (f) =>
         f.agentId === agent.id &&
         f.conversationId === conversationId &&
-        !TERMINAL_FLIGHT_STATES.has(f.state),
+        isActiveConversationFlight(f),
     );
     if (flight?.state === "running") return "running tool";
     if (flight?.state === "waiting") return "thinking";
@@ -1151,20 +1157,15 @@ export function ConversationScreen({
 
   useEffect(() => {
     if (awaitingResponseSince === null || lastAgentReplyAt === null) return;
+    if (isActiveConversationFlight(currentFlight)) return;
     if (lastAgentReplyAt >= awaitingResponseSince) {
       setAwaitingResponseSince(null);
     }
-  }, [awaitingResponseSince, lastAgentReplyAt]);
+  }, [awaitingResponseSince, currentFlight, lastAgentReplyAt]);
 
   const showWorkingTurn = useMemo(() => {
-    if (!currentFlight || TERMINAL_FLIGHT_STATES.has(currentFlight.state))
-      return false;
-    const flightStartedAt =
-      normalizeTimestampMs(currentFlight.startedAt) ??
-      awaitingResponseSince ??
-      Date.now();
-    return flightStartedAt >= (lastAgentReplyAt ?? 0);
-  }, [awaitingResponseSince, currentFlight, lastAgentReplyAt]);
+    return shouldShowConversationWorkingTurn(currentFlight);
+  }, [currentFlight]);
   const hasOutstandingReply =
     sending || awaitingResponseSince !== null || showWorkingTurn;
 
@@ -1272,13 +1273,14 @@ export function ConversationScreen({
               normalizeTimestampMs(message.createdAt) ?? Date.now();
             setAwaitingResponseSince((current) => {
               if (current === null || messageAt < current) return current;
+              if (isActiveConversationFlight(currentFlightRef.current))
+                return current;
               return null;
             });
             setCurrentFlight((current) => {
-              if (!current) return current;
-              const flightStartedAt =
-                normalizeTimestampMs(current.startedAt) ?? 0;
-              return messageAt >= flightStartedAt ? null : current;
+              return shouldClearConversationWorkingStateForAgentMessage(current)
+                ? null
+                : current;
             });
           }
           return;
@@ -1309,10 +1311,11 @@ export function ConversationScreen({
             currentFlightRef.current?.id === flight.id;
           if (!isTracked) return;
 
-          if (TERMINAL_FLIGHT_STATES.has(flight.state)) {
+          if (TERMINAL_CONVERSATION_FLIGHT_STATES.has(flight.state)) {
             setCurrentFlight((current) =>
               current?.id === flight.id ? null : current,
             );
+            setAwaitingResponseSince(null);
             void load();
             return;
           }

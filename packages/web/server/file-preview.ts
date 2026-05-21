@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 
@@ -9,21 +9,59 @@ const MAX_PREVIEW_BYTES = 256 * 1024;
 export type FilePreviewResult =
   | {
       ok: true;
-      content: {
-        path: string;
-        realPath: string;
-        title: string;
-        mediaType: string;
-        content: string;
-        sizeBytes: number;
-        truncated: boolean;
-        generatedAt: number;
-      };
+      content: FilePreviewContent;
     }
   | {
       ok: false;
       status: number;
       error: string;
+    };
+
+export type FilePreviewDirectoryEntry = {
+  name: string;
+  path: string;
+  realPath: string;
+  kind: "file" | "directory";
+};
+
+export type FilePreviewContent =
+  | {
+      kind: "file";
+      previewable: true;
+      path: string;
+      realPath: string;
+      rootPath: string;
+      title: string;
+      mediaType: string;
+      rawUrl: string;
+      content: string;
+      sizeBytes: number;
+      truncated: boolean;
+      generatedAt: number;
+    }
+  | {
+      kind: "file";
+      previewable: false;
+      path: string;
+      realPath: string;
+      rootPath: string;
+      title: string;
+      mediaType: string;
+      rawUrl: string;
+      sizeBytes: number;
+      previewReason: string;
+      generatedAt: number;
+    }
+  | {
+      kind: "directory";
+      previewable: false;
+      path: string;
+      realPath: string;
+      rootPath: string;
+      title: string;
+      mediaType: "inode/directory";
+      entries: FilePreviewDirectoryEntry[];
+      generatedAt: number;
     };
 
 export type TrustedRoot = {
@@ -88,8 +126,21 @@ export function findContainingRoot(
   return null;
 }
 
-function mediaTypeFor(path: string): string {
+export function mediaTypeFor(path: string): string {
   const lower = path.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".zip")) return "application/zip";
+  if (lower.endsWith(".gz") || lower.endsWith(".tgz")) return "application/gzip";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".mp4")) return "video/mp4";
   if (lower.endsWith(".md") || lower.endsWith(".mdx")) return "text/markdown";
   if (lower.endsWith(".json") || lower.endsWith(".jsonc")) return "application/json";
   if (lower.endsWith(".ts") || lower.endsWith(".tsx")) return "text/typescript";
@@ -100,7 +151,7 @@ function mediaTypeFor(path: string): string {
   if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "text/yaml";
   if (lower.endsWith(".toml")) return "text/toml";
   if (lower.endsWith(".txt") || lower.endsWith(".log")) return "text/plain";
-  return "text/plain";
+  return "application/octet-stream";
 }
 
 function looksTextual(path: string, buffer: Buffer): boolean {
@@ -109,6 +160,27 @@ function looksTextual(path: string, buffer: Buffer): boolean {
   }
   const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
   return !sample.includes(0);
+}
+
+function readPreviewBuffer(path: string, maxBytes: number): Buffer {
+  if (maxBytes <= 0) return Buffer.alloc(0);
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(maxBytes);
+    const bytesRead = readSync(fd, buffer, 0, maxBytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function isRawMediaType(mediaType: string): boolean {
+  return mediaType.startsWith("image/")
+    || mediaType.startsWith("audio/")
+    || mediaType.startsWith("video/")
+    || mediaType === "application/pdf"
+    || mediaType === "application/zip"
+    || mediaType === "application/gzip";
 }
 
 export function resolveTrustedPath(input: {
@@ -120,20 +192,38 @@ export function resolveTrustedPath(input: {
     return { ok: false, status: 400, error: "path is required" };
   }
   const expanded = expand(requested);
-  if (!isAbsolute(expanded)) {
-    return { ok: false, status: 400, error: "path must be absolute" };
+
+  // Absolute path: resolve directly, then verify it sits inside a trusted root.
+  if (isAbsolute(expanded)) {
+    let realPath: string;
+    try {
+      realPath = realpathSync(expanded);
+    } catch {
+      return { ok: false, status: 404, error: "file not found" };
+    }
+    const root = findContainingRoot(realPath, input.roots);
+    if (!root) {
+      return { ok: false, status: 403, error: "path is outside Scout's trusted workspace roots" };
+    }
+    return { ok: true, realPath, root };
   }
-  let realPath: string;
-  try {
-    realPath = realpathSync(expanded);
-  } catch {
-    return { ok: false, status: 404, error: "file not found" };
+
+  // Relative path: try resolving against each trusted root, in order.
+  // First root that yields an existing path inside that root wins.
+  const stripped = expanded.replace(/^\.\/+/u, "");
+  for (const root of input.roots) {
+    const candidate = resolve(root.path, stripped);
+    let realCandidate: string;
+    try {
+      realCandidate = realpathSync(candidate);
+    } catch {
+      continue;
+    }
+    if (pathInsideRoot(realCandidate, root.path)) {
+      return { ok: true, realPath: realCandidate, root };
+    }
   }
-  const root = findContainingRoot(realPath, input.roots);
-  if (!root) {
-    return { ok: false, status: 403, error: "path is outside Scout's trusted workspace roots" };
-  }
-  return { ok: true, realPath, root };
+  return { ok: false, status: 404, error: "file not found in any trusted workspace root" };
 }
 
 export function readFilePreview(input: {
@@ -145,28 +235,82 @@ export function readFilePreview(input: {
   if (!resolved.ok) {
     return resolved;
   }
-  const { realPath } = resolved;
+  const { realPath, root } = resolved;
   try {
     const stat = statSync(realPath);
+    const title = realPath === "/" ? "/" : realPath.split("/").pop() || realPath;
+    if (stat.isDirectory()) {
+      return {
+        ok: true,
+        content: {
+          kind: "directory",
+          previewable: false,
+          path: input.requestedPath,
+          realPath,
+          rootPath: root.path,
+          title,
+          mediaType: "inode/directory",
+          entries: listDirectoryEntries({ realPath, roots }),
+          generatedAt: Date.now(),
+        },
+      };
+    }
     if (!stat.isFile()) {
-      return { ok: false, status: 415, error: "path is not a file" };
+      return { ok: false, status: 415, error: "path is not a file or directory" };
     }
-    const buffer = readFileSync(realPath);
-    if (!looksTextual(realPath, buffer)) {
-      return { ok: false, status: 415, error: "file is not a text document" };
+    const mediaType = mediaTypeFor(realPath);
+    const rawUrl = `/api/file/raw?path=${encodeURIComponent(realPath)}`;
+    if (isRawMediaType(mediaType)) {
+      return {
+        ok: true,
+        content: {
+          kind: "file",
+          previewable: false,
+          path: input.requestedPath,
+          realPath,
+          rootPath: root.path,
+          title,
+          mediaType,
+          rawUrl,
+          sizeBytes: stat.size,
+          previewReason: previewReasonFor(mediaType),
+          generatedAt: Date.now(),
+        },
+      };
     }
-    const truncated = buffer.length > MAX_PREVIEW_BYTES;
-    const readable = truncated ? buffer.subarray(0, MAX_PREVIEW_BYTES) : buffer;
-    const title = realPath.split("/").pop() ?? realPath;
+    const truncated = stat.size > MAX_PREVIEW_BYTES;
+    const readable = readPreviewBuffer(realPath, Math.min(stat.size, MAX_PREVIEW_BYTES));
+    if (!looksTextual(realPath, readable)) {
+      return {
+        ok: true,
+        content: {
+          kind: "file",
+          previewable: false,
+          path: input.requestedPath,
+          realPath,
+          rootPath: root.path,
+          title,
+          mediaType,
+          rawUrl,
+          sizeBytes: stat.size,
+          previewReason: previewReasonFor(mediaType),
+          generatedAt: Date.now(),
+        },
+      };
+    }
     return {
       ok: true,
       content: {
+        kind: "file",
+        previewable: true,
         path: input.requestedPath,
         realPath,
+        rootPath: root.path,
         title,
-        mediaType: mediaTypeFor(realPath),
+        mediaType,
+        rawUrl,
         content: readable.toString("utf8"),
-        sizeBytes: buffer.length,
+        sizeBytes: stat.size,
         truncated,
         generatedAt: Date.now(),
       },
@@ -178,4 +322,49 @@ export function readFilePreview(input: {
       error: err instanceof Error ? err.message : "could not read file",
     };
   }
+}
+
+function previewReasonFor(mediaType: string): string {
+  if (mediaType.startsWith("image/")) return "Image file";
+  if (mediaType.startsWith("audio/")) return "Audio file";
+  if (mediaType.startsWith("video/")) return "Video file";
+  if (mediaType === "application/pdf") return "PDF file";
+  return "Binary file";
+}
+
+function listDirectoryEntries(input: {
+  realPath: string;
+  roots: TrustedRoot[];
+}): FilePreviewDirectoryEntry[] {
+  return readdirSync(input.realPath, { withFileTypes: true })
+    .flatMap((entry) => {
+      const candidate = resolve(input.realPath, entry.name);
+      let realEntryPath: string;
+      try {
+        realEntryPath = realpathSync(candidate);
+      } catch {
+        realEntryPath = candidate;
+      }
+      if (!findContainingRoot(realEntryPath, input.roots)) {
+        return [];
+      }
+      let kind: FilePreviewDirectoryEntry["kind"] = "file";
+      try {
+        kind = statSync(realEntryPath).isDirectory() ? "directory" : "file";
+      } catch {
+        kind = entry.isDirectory() ? "directory" : "file";
+      }
+      return [{
+        name: entry.name,
+        path: realEntryPath,
+        realPath: realEntryPath,
+        kind,
+      }];
+    })
+    .sort((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind === "directory" ? -1 : 1;
+      }
+      return left.name.localeCompare(right.name);
+    });
 }

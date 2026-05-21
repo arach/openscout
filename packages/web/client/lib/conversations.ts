@@ -1,4 +1,4 @@
-import type { ConversationEntry, SessionEntry } from "./types.ts";
+import type { ConversationEntry, Flight, SessionEntry } from "./types.ts";
 
 type ConversationLike = ConversationEntry | SessionEntry;
 
@@ -29,4 +29,30 @@ export function conversationShortLabel(conversation: ConversationLike): string {
     return conversation.id.replace(/^channel\./, "");
   }
   return conversationDisplayTitle(conversation);
+}
+
+export const TERMINAL_CONVERSATION_FLIGHT_STATES = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+export function isActiveConversationFlight(
+  flight: Pick<Flight, "state"> | null | undefined,
+): boolean {
+  return Boolean(
+    flight && !TERMINAL_CONVERSATION_FLIGHT_STATES.has(flight.state),
+  );
+}
+
+export function shouldShowConversationWorkingTurn(
+  flight: Pick<Flight, "state"> | null | undefined,
+): boolean {
+  return isActiveConversationFlight(flight);
+}
+
+export function shouldClearConversationWorkingStateForAgentMessage(
+  flight: Pick<Flight, "state"> | null | undefined,
+): boolean {
+  return !isActiveConversationFlight(flight);
 }

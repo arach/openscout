@@ -133,6 +133,7 @@ import {
 } from "./material-heuristics.ts";
 import {
   collectTrustedRoots,
+  mediaTypeFor,
   readFilePreview,
   resolveTrustedPath,
 } from "./file-preview.ts";
@@ -2224,6 +2225,32 @@ export async function createOpenScoutWebServer(
       return c.json({ error: result.error }, result.status as 400 | 403 | 404 | 415 | 500);
     }
     return c.json(result.content);
+  });
+
+  app.get("/api/file/raw", (c) => {
+    const requestedPath = c.req.query("path");
+    if (!requestedPath) {
+      return c.json({ error: "missing path" }, 400);
+    }
+    const roots = collectTrustedRoots({ currentDirectory });
+    const resolved = resolveTrustedPath({ requestedPath, roots });
+    if (!resolved.ok) {
+      return c.json({ error: resolved.error }, resolved.status as 400 | 403 | 404);
+    }
+    try {
+      if (!statSync(resolved.realPath).isFile()) {
+        return c.json({ error: "path is not a file" }, 415);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "could not read file";
+      return c.json({ error: message }, 500);
+    }
+    return new Response(Bun.file(resolved.realPath), {
+      headers: {
+        "content-type": mediaTypeFor(resolved.realPath),
+        "cache-control": "private, max-age=60",
+      },
+    });
   });
 
   app.post("/api/file/reveal", async (c) => {
