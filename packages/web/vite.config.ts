@@ -2,13 +2,23 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import { resolveOpenScoutWebRoutes } from "./shared/runtime-config.js";
 
-function resolveHudsonSdk(): string {
+const require = createRequire(import.meta.url);
+
+function resolveHudsonSdkSource(): string | null {
+  const sourceMode = process.env.OPENSCOUT_WEB_HUDSONKIT_SOURCE?.trim();
+  if (sourceMode === "package") {
+    return null;
+  }
   if (process.env.HUDSON_SDK_PATH) {
     return resolve(process.env.HUDSON_SDK_PATH);
+  }
+  if (sourceMode !== "local" && sourceMode !== "auto") {
+    return null;
   }
   const direct = resolve(__dirname, "../../..", "hudson/packages/web/hudsonkit");
   if (existsSync(direct)) {
@@ -35,10 +45,10 @@ function resolveHudsonSdk(): string {
   } catch {
     // git not available or not a repo — fall through
   }
-  return direct;
+  return null;
 }
 
-const hudsonSdk = resolveHudsonSdk();
+const hudsonSdk = resolveHudsonSdkSource();
 const webNodeModules = resolve(__dirname, "node_modules");
 const bunTarget = process.env.OPENSCOUT_WEB_BUN_URL?.trim() || "http://127.0.0.1:3200";
 const routes = resolveOpenScoutWebRoutes(process.env);
@@ -48,6 +58,17 @@ const viteHmrClientPort = Number.parseInt(
   process.env.OPENSCOUT_WEB_VITE_HMR_CLIENT_PORT?.trim() || "",
   10,
 );
+
+function resolveHudsonKitModule(id: string): string {
+  return require.resolve(id, { paths: [__dirname] });
+}
+
+function hudsonKitAlias(sourceFile: string, packageExport: string): string {
+  if (hudsonSdk) {
+    return resolve(hudsonSdk, "src", sourceFile);
+  }
+  return resolveHudsonKitModule(packageExport);
+}
 
 export default defineConfig({
   root: resolve(__dirname, "client"),
@@ -74,15 +95,14 @@ export default defineConfig({
       "react-dom": resolve(webNodeModules, "react-dom"),
       "@ai-sdk/react": resolve(webNodeModules, "@ai-sdk/react"),
       "ai": resolve(webNodeModules, "ai"),
-      "@hudsonkit/app-shell": resolve(hudsonSdk, "src/app-shell.ts"),
-      "@hudsonkit/shell": resolve(hudsonSdk, "src/shell.ts"),
-      "@hudsonkit/chrome": resolve(hudsonSdk, "src/chrome.ts"),
-      "@hudsonkit/controls": resolve(hudsonSdk, "src/controls.ts"),
-      "@hudsonkit/canvas": resolve(hudsonSdk, "src/canvas.ts"),
-      "@hudsonkit/overlays": resolve(hudsonSdk, "src/overlays.ts"),
-      "@hudsonkit/vault": resolve(hudsonSdk, "src/vault.ts"),
-      "@hudsonkit/styles": resolve(hudsonSdk, "src/styles/bundle.css"),
-      "@hudsonkit": resolve(hudsonSdk, "src/index.ts"),
+      "@hudsonkit/app-shell": hudsonKitAlias("app-shell.ts", "hudsonkit/app-shell"),
+      "@hudsonkit/shell": hudsonKitAlias("shell.ts", "hudsonkit/shell"),
+      "@hudsonkit/chrome": hudsonKitAlias("chrome.ts", "hudsonkit/chrome"),
+      "@hudsonkit/controls": hudsonKitAlias("controls.ts", "hudsonkit/controls"),
+      "@hudsonkit/canvas": hudsonKitAlias("canvas.ts", "hudsonkit/canvas"),
+      "@hudsonkit/overlays": hudsonKitAlias("overlays.ts", "hudsonkit/overlays"),
+      "@hudsonkit/styles": hudsonKitAlias("styles/bundle.css", "hudsonkit/styles"),
+      "@hudsonkit": hudsonKitAlias("index.ts", "hudsonkit"),
     },
   },
   build: {

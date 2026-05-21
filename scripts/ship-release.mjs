@@ -20,7 +20,17 @@ const PUBLIC_PACKAGES = [
 
 const VERSION_MANIFESTS = [
   ".",
-  ...PUBLIC_PACKAGES,
+  "apps/cloud",
+  "apps/desktop",
+  "apps/mesh-front-door",
+  "landing",
+  "packages/agent-sessions",
+  "packages/cli",
+  "packages/protocol",
+  "packages/runtime",
+  "packages/session-trace",
+  "packages/session-trace-react",
+  "packages/web",
 ];
 
 function usage() {
@@ -239,7 +249,7 @@ function printPlan(version, options) {
   }
   if (options.commit) {
     run("git", ["add", ...VERSION_MANIFESTS.map((dir) => dir === "." ? "package.json" : `${dir}/package.json`)], { execute: false });
-    run("git", ["commit", "-m", `Release v${version}`], { execute: false });
+    run("git", ["commit", "-m", `🔖 Release v${version}`], { execute: false });
   }
   if (!options.skipTag) {
     run("git", ["tag", "-a", `v${version}`, "-m", `Release v${version}`], { execute: false });
@@ -350,7 +360,7 @@ function main() {
   if (options.commit) {
     gitAddReleaseManifests(true);
     if (stagedChangesExist()) {
-      run("git", ["commit", "-m", `Release v${nextVersion}`], { execute: true });
+      run("git", ["commit", "-m", `🔖 Release v${nextVersion}`], { execute: true });
     } else {
       console.log("\nNo release manifest changes to commit.");
     }

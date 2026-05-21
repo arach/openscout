@@ -1,5 +1,5 @@
-import { HudVault } from "@hudsonkit/vault";
 import { api } from "./api.ts";
+import { HudVault } from "./hud-vault.ts";
 
 const OPENSCOUT_VAULT_SERVICE = "dev.openscout.credentials";
 const OPENAI_KEY = "openai_api_key";

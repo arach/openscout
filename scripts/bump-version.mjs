@@ -7,10 +7,9 @@
 //   node scripts/bump-version.mjs minor           # 0.2.38 -> 0.3.0
 //   node scripts/bump-version.mjs major           # 0.2.38 -> 1.0.0
 //
-// Walks the root release manifest plus every package listed in PUBLIC_PACKAGES
-// (lockstep — they share one product version), rewrites their `version` fields,
-// and rewrites pinned public package dependency ranges when needed. Internal
-// workspace packages stay private and keep their own local versions.
+// Walks every first-party package manifest that carries an OpenScout product
+// version, rewrites their `version` fields, and rewrites pinned first-party
+// package dependency ranges when needed.
 
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -18,12 +17,19 @@ import path from "node:path";
 
 const REPO_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "..");
 
-const PUBLIC_PACKAGES = [
-  "packages/cli",
-];
-const VERSIONED_MANIFESTS = [
+const RELEASE_MANIFESTS = [
   ".",
-  ...PUBLIC_PACKAGES,
+  "apps/cloud",
+  "apps/desktop",
+  "apps/mesh-front-door",
+  "landing",
+  "packages/agent-sessions",
+  "packages/cli",
+  "packages/protocol",
+  "packages/runtime",
+  "packages/session-trace",
+  "packages/session-trace-react",
+  "packages/web",
 ];
 
 const DEP_SECTIONS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
@@ -57,9 +63,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Read current version from the public Scout package. The root manifest is
-  // synced to that stream for app builds.
-  const anchor = await readPkg(path.join(REPO_ROOT, PUBLIC_PACKAGES[0]));
+  // Read current version from the public Scout package. All release manifests
+  // are synced to that product stream.
+  const anchor = await readPkg(path.join(REPO_ROOT, "packages/cli"));
   const currentVersion = anchor.version;
 
   const nextVersion = ["patch", "minor", "major"].includes(arg)
@@ -71,20 +77,16 @@ async function main() {
     process.exit(1);
   }
 
-  if (nextVersion === currentVersion) {
-    console.error(`Version is already ${currentVersion} — nothing to bump.`);
-    process.exit(1);
-  }
-
   // Map of package-name -> new-version (for pinned cross-package rewrites).
   const rewriteMap = new Map();
-  for (const rel of PUBLIC_PACKAGES) {
+  for (const rel of RELEASE_MANIFESTS) {
+    if (rel === ".") continue;
     const pkg = await readPkg(path.join(REPO_ROOT, rel));
     if (pkg.name) rewriteMap.set(pkg.name, nextVersion);
   }
 
   let touched = 0;
-  for (const rel of VERSIONED_MANIFESTS) {
+  for (const rel of RELEASE_MANIFESTS) {
     const dir = path.join(REPO_ROOT, rel);
     const pkg = await readPkg(dir);
     const priorVersion = pkg.version;
@@ -125,6 +127,11 @@ async function main() {
         console.log(`  ${rel}: cleared stale ${BACKUP_FILENAME}`);
       }
     }
+  }
+
+  if (touched === 0) {
+    console.log(`\nAll release package manifests are already ${nextVersion}.`);
+    return;
   }
 
   console.log(`\n${dryRun ? "Would bump" : "Bumped"} ${touched} package(s) to ${nextVersion}.`);
