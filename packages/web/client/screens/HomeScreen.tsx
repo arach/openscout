@@ -19,11 +19,10 @@ import { actorColor } from "../lib/colors.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import {
-  isVoxSpeechStopped,
-  startVoxSpeech,
-  type VoxSpeakHandle,
-} from "../lib/vox.ts";
-import { toSpokenScoutText } from "../lib/spoken-text.ts";
+  startHomeBriefSpeech,
+  stopHomeBriefSpeech,
+  useHomeBriefPlayerState,
+} from "../lib/home-brief-player.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
@@ -51,7 +50,6 @@ const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[1].value;
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
 const FLEET_BRIEF_REFRESH_MS = 5 * 60_000;
-const LAST_SPOKEN_BRIEF_KEY = "openscout.home.lastSpokenBriefId.v1";
 
 type FleetHomeBrief = {
   id: string;
@@ -266,22 +264,7 @@ export function HomeScreen({
     }
   }, []);
 
-  const [lastSpokenBriefId, setLastSpokenBriefId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(LAST_SPOKEN_BRIEF_KEY);
-    } catch {
-      return null;
-    }
-  });
-  const [briefSpeaking, setBriefSpeaking] = useState(false);
-  const briefSpeechRef = useRef<VoxSpeakHandle | null>(null);
-
-  useEffect(() => {
-    return () => {
-      briefSpeechRef.current?.stop();
-      briefSpeechRef.current = null;
-    };
-  }, []);
+  const briefPlayer = useHomeBriefPlayerState();
 
   useEffect(() => {
     void fetchFleetBrief();
@@ -577,47 +560,20 @@ export function HomeScreen({
     return parts.join(". ");
   }, [fleetBrief, fleetBriefIsFresh]);
 
-  const stopBriefSpeech = useCallback(() => {
-    briefSpeechRef.current?.stop();
-    briefSpeechRef.current = null;
-    setBriefSpeaking(false);
-  }, []);
-
   const speakBrief = useCallback(() => {
-    if (briefSpeaking) {
-      stopBriefSpeech();
+    if (briefPlayer.speaking) {
+      stopHomeBriefSpeech();
       return;
     }
     if (!fleetBrief || !briefSpeechText) return;
-    const briefId = fleetBrief.id;
-    const handle = startVoxSpeech(toSpokenScoutText(briefSpeechText));
-    briefSpeechRef.current = handle;
-    setBriefSpeaking(true);
-    setLastSpokenBriefId(briefId);
-    try {
-      localStorage.setItem(LAST_SPOKEN_BRIEF_KEY, briefId);
-    } catch {
-      // ignore storage failures; in-memory state still tracks the speak.
-    }
-    void handle.promise
-      .catch((err) => {
-        if (!isVoxSpeechStopped(err)) {
-          console.warn("brief speech failed", err);
-        }
-      })
-      .finally(() => {
-        if (briefSpeechRef.current === handle) {
-          briefSpeechRef.current = null;
-          setBriefSpeaking(false);
-        }
-      });
-  }, [briefSpeaking, briefSpeechText, fleetBrief, stopBriefSpeech]);
+    startHomeBriefSpeech({ briefId: fleetBrief.id, text: briefSpeechText });
+  }, [briefPlayer.speaking, briefSpeechText, fleetBrief]);
 
   const briefSpeakable = Boolean(briefSpeechText);
   const briefIsNew = Boolean(
     fleetBrief
       && fleetBriefIsFresh
-      && fleetBrief.id !== lastSpokenBriefId,
+      && fleetBrief.id !== briefPlayer.lastSpokenBriefId,
   );
 
   const heroProps = {
@@ -631,8 +587,8 @@ export function HomeScreen({
     briefRefreshing,
     onRefresh: () => void load("manual"),
     onRegenerateBrief: () => void fetchFleetBrief(true),
-    onSpeakBrief: briefSpeakable ? speakBrief : undefined,
-    briefSpeaking,
+    onSpeakBrief: briefSpeakable || briefPlayer.speaking ? speakBrief : undefined,
+    briefSpeaking: briefPlayer.speaking,
     briefIsNew,
     totalOperatorQueue,
     narrativeParts,

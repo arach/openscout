@@ -8,7 +8,6 @@ import { api } from "../lib/api.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
-import { formatLabel } from "../lib/text.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
@@ -241,73 +240,70 @@ function AgentActivityFeed({
   }, [fleet, agent.id]);
 
   if (agentActivity.length === 0 && agentCompletedAsks.length === 0) {
-    return (
-      <div className="s-profile-activity-empty">
-        <div className="s-profile-activity-empty-title">Quiet for now</div>
-        <div className="s-profile-activity-empty-detail">
-          Activity will appear here as this agent works, receives asks, and
-          completes tasks.
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="s-profile-activity-feed">
-      {agentCompletedAsks.map((ask) => (
-        <div
-          key={ask.invocationId}
-          className="s-profile-activity-row"
-          onClick={() => {
-            if (ask.conversationId) {
-              navigate({
-                view: "agents",
-                agentId: agent.id,
-                conversationId: ask.conversationId,
-              });
-            }
-          }}
-        >
-          <div className="s-profile-activity-dot s-profile-activity-dot--done" />
-          <div className="s-profile-activity-body">
-            <div className="s-profile-activity-title">
-              {ask.summary ?? ask.task}
+    <>
+      <SectionRule label="Activity" />
+      <div className="s-profile-work">
+        <div className="s-profile-activity-feed">
+          {agentCompletedAsks.map((ask) => (
+            <div
+              key={ask.invocationId}
+              className="s-profile-activity-row"
+              onClick={() => {
+                if (ask.conversationId) {
+                  navigate({
+                    view: "agents",
+                    agentId: agent.id,
+                    conversationId: ask.conversationId,
+                  });
+                }
+              }}
+            >
+              <div className="s-profile-activity-dot s-profile-activity-dot--done" />
+              <div className="s-profile-activity-body">
+                <div className="s-profile-activity-title">
+                  {ask.summary ?? ask.task}
+                </div>
+                <div className="s-profile-activity-meta">
+                  {ask.status === "completed" ? "completed" : ask.status}
+                  {ask.completedAt && ` · ${timeAgo(ask.completedAt)}`}
+                </div>
+              </div>
             </div>
-            <div className="s-profile-activity-meta">
-              {ask.status === "completed" ? "completed" : ask.status}
-              {ask.completedAt && ` · ${timeAgo(ask.completedAt)}`}
+          ))}
+          {agentActivity.map((item) => (
+            <div
+              key={item.id}
+              className="s-profile-activity-row"
+              onClick={() => {
+                if (item.conversationId) {
+                  navigate({
+                    view: "agents",
+                    agentId: agent.id,
+                    conversationId: item.conversationId,
+                  });
+                }
+              }}
+            >
+              <div className="s-profile-activity-dot" />
+              <div className="s-profile-activity-body">
+                <div className="s-profile-activity-title">
+                  {item.title ?? item.summary ?? item.kind}
+                </div>
+                <div className="s-profile-activity-meta">
+                  {item.kind.replace(/_/g, " ")}
+                  {item.actorName && ` · ${item.actorName}`}
+                  {` · ${timeAgo(item.ts)}`}
+                </div>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
-      ))}
-      {agentActivity.map((item) => (
-        <div
-          key={item.id}
-          className="s-profile-activity-row"
-          onClick={() => {
-            if (item.conversationId) {
-              navigate({
-                view: "agents",
-                agentId: agent.id,
-                conversationId: item.conversationId,
-              });
-            }
-          }}
-        >
-          <div className="s-profile-activity-dot" />
-          <div className="s-profile-activity-body">
-            <div className="s-profile-activity-title">
-              {item.title ?? item.summary ?? item.kind}
-            </div>
-            <div className="s-profile-activity-meta">
-              {item.kind.replace(/_/g, " ")}
-              {item.actorName && ` · ${item.actorName}`}
-              {` · ${timeAgo(item.ts)}`}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -425,6 +421,7 @@ function AgentDetailWithRail({
   const [dismissingWorkId, setDismissingWorkId] = useState<string | null>(null);
   const state = normalizeAgentState(agent.state);
   const showContextMenu = useContextMenu();
+  const { route } = useScout();
 
   const load = useCallback(async () => {
     const [workResult, fleetResult] = await Promise.allSettled([
@@ -578,7 +575,9 @@ function AgentDetailWithRail({
     (w) => w.state === "working" || w.state === "review",
   );
   const activeWork = work.filter(
-    (w) => w.state === "working" || w.state === "review" || w.state === "waiting",
+    (w) =>
+      (w.state === "working" || w.state === "review" || w.state === "waiting") &&
+      w.id !== currentWork?.id,
   );
   const recentDone = work.filter((w) => w.state === "done").slice(0, 5);
 
@@ -598,6 +597,13 @@ function AgentDetailWithRail({
     : currentWork?.currentPhase === "working"
       ? 50
       : 20;
+  const currentWorkAgeMs = currentWork ? Date.now() - currentWork.lastMeaningfulAt : 0;
+  const currentWorkIsStale = currentWorkAgeMs > 30 * 60_000;
+  const currentTaskStatus = currentWork
+    ? currentWorkIsStale
+      ? `stale · ${timeAgo(currentWork.lastMeaningfulAt)}`
+      : `${taskProgress}% · live`
+    : "";
 
   const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
     { key: "profile", label: "Profile" },
@@ -797,7 +803,7 @@ function AgentDetailWithRail({
             <>
               <SectionRule
                 label="Current task"
-                right={`${taskProgress}% · live`}
+                right={currentTaskStatus}
               />
               <div className="s-profile-task">
                 <div className="s-profile-task-title">{currentWork.title}</div>
@@ -821,6 +827,36 @@ function AgentDetailWithRail({
                 <div className="s-profile-task-meta">
                   <span>{currentWork.currentPhase}</span>
                   <span>{timeAgo(currentWork.lastMeaningfulAt)}</span>
+                </div>
+                <div className="s-profile-task-controls" aria-label="Current task actions">
+                  <button
+                    type="button"
+                    className="s-profile-task-btn s-profile-task-btn--primary"
+                    onClick={() =>
+                      openContent(
+                        navigate,
+                        { view: "work", workId: currentWork.id },
+                        { returnTo: route },
+                      )}
+                  >
+                    Open work
+                  </button>
+                  <button
+                    type="button"
+                    className="s-profile-task-btn"
+                    onClick={() => navigateToTab("observe")}
+                  >
+                    Observe
+                  </button>
+                  {conversationId && (
+                    <button
+                      type="button"
+                      className="s-profile-task-btn"
+                      onClick={() => navigateToTab("message")}
+                    >
+                      Message
+                    </button>
+                  )}
                 </div>
               </div>
             </>
@@ -860,14 +896,11 @@ function AgentDetailWithRail({
             </>
           )}
 
-          <SectionRule label="Activity" />
-          <div className="s-profile-work">
-            <AgentActivityFeed
-              agent={agent}
-              fleet={fleet}
-              navigate={navigate}
-            />
-          </div>
+          <AgentActivityFeed
+            agent={agent}
+            fleet={fleet}
+            navigate={navigate}
+          />
 
           <SignalFeed
             messages={messages}
