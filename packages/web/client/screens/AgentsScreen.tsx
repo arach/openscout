@@ -581,7 +581,6 @@ function AgentDetailWithRail({
     (w) => w.state === "working" || w.state === "review" || w.state === "waiting",
   );
   const recentDone = work.filter((w) => w.state === "done").slice(0, 5);
-  const primaryWork = currentWork ?? activeWork[0] ?? work[0] ?? null;
 
   const roleLabel = formatLabel(agent.role) ?? formatLabel(agent.agentClass);
   const harnessLabel = agent.harness;
@@ -615,18 +614,6 @@ function AgentDetailWithRail({
     });
   };
 
-  const agentRoute: Route = {
-    view: "agents",
-    agentId: agent.id,
-    ...(conversationId ? { conversationId } : {}),
-    ...(activeTab ? { tab: activeTab } : {}),
-  };
-
-  const openPrimaryWork = () => {
-    if (!primaryWork) return;
-    openContent(navigate, { view: "work", workId: primaryWork.id }, { returnTo: agentRoute });
-  };
-
   const renderTabs = (className = "") => (
     <nav className={`s-profile-tabs${className ? ` ${className}` : ""}`}>
       {tabs.map((t) => (
@@ -652,23 +639,6 @@ function AgentDetailWithRail({
           navigate={navigate}
           className="s-profile-back-position"
         />
-        {primaryWork && (
-          <button
-            type="button"
-            className="s-profile-work-return"
-            onClick={openPrimaryWork}
-            title={primaryWork.title}
-          >
-            <span className="s-profile-work-return-copy">
-              <span className="s-profile-work-return-kicker">Related work</span>
-              <span className="s-profile-work-return-title">{primaryWork.title}</span>
-              <span className="s-profile-work-return-meta">
-                {primaryWork.currentPhase} · {timeAgo(primaryWork.lastMeaningfulAt)}
-              </span>
-            </span>
-            <span className="s-profile-work-return-arrow" aria-hidden="true">↗</span>
-          </button>
-        )}
       </div>
 
 
