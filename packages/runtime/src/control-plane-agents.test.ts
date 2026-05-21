@@ -241,4 +241,100 @@ describe("createScoutAgentService", () => {
     ]);
     expect(openScoutPeerSession.mock.calls).toHaveLength(0);
   });
+
+  test("updateScoutAgentCard updates local config, restarts, and resyncs broker", async () => {
+    const config = {
+      agentId: "alpha.test-node",
+      editable: true,
+      model: "claude-opus-4-7",
+      permissionProfile: null,
+      systemPrompt: "prompt",
+      runtime: {
+        cwd: "/tmp/alpha",
+        harness: "claude" as const,
+        transport: "tmux" as const,
+        sessionId: "alpha-claude",
+        wakePolicy: "on_demand" as const,
+      },
+      launchArgs: ["--model", "claude-opus-4-7"],
+      capabilities: ["chat", "invoke", "deliver"],
+      applyMode: "restart" as const,
+      templateHint: "hint",
+    };
+    const updateLocalAgentCard = mock(async () => config);
+    const restartLocalAgent = mock(async () => makeStatus());
+    const registerScoutLocalAgentBinding = mock(async () => null);
+    const service = createScoutAgentService({
+      loadScoutBrokerContext: mock(async () => null),
+      openScoutPeerSession: mock(async () => {
+        throw new Error("unexpected peer session");
+      }),
+      registerScoutLocalAgentBinding,
+      localAgents: {
+        listLocalAgents: mock(async () => []),
+        restartAllLocalAgents: mock(async () => []),
+        restartLocalAgent,
+        startLocalAgent: mock(async () => makeStatus()),
+        stopAllLocalAgents: mock(async () => []),
+        stopLocalAgent: mock(async () => null),
+        updateLocalAgentCard,
+        inferLocalAgentBinding: mock(async () => null),
+      },
+    });
+
+    const result = await service.updateScoutAgentCard("alpha.test-node", {
+      harness: "claude",
+      model: "claude-opus-4-7",
+      restart: true,
+    });
+
+    expect(result).toEqual(config);
+    expect(updateLocalAgentCard.mock.calls).toEqual([
+      ["alpha.test-node", {
+        harness: "claude",
+        model: "claude-opus-4-7",
+        restart: true,
+      }],
+    ]);
+    expect(restartLocalAgent.mock.calls).toEqual([["alpha.test-node"]]);
+    expect(registerScoutLocalAgentBinding.mock.calls).toEqual([
+      [{ agentId: "alpha.test-node" }],
+    ]);
+  });
+
+  test("retireScoutAgentCard removes local config and marks broker registration retired", async () => {
+    const status = makeStatus();
+    const broker = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {},
+    };
+    const retireLocalAgent = mock(async () => status);
+    const retireScoutLocalAgentBinding = mock(async () => true);
+    const service = createScoutAgentService({
+      loadScoutBrokerContext: mock(async () => broker),
+      openScoutPeerSession: mock(async () => {
+        throw new Error("unexpected peer session");
+      }),
+      registerScoutLocalAgentBinding: mock(async () => null),
+      retireScoutLocalAgentBinding,
+      localAgents: {
+        listLocalAgents: mock(async () => []),
+        retireLocalAgent,
+        restartAllLocalAgents: mock(async () => []),
+        startLocalAgent: mock(async () => status),
+        stopAllLocalAgents: mock(async () => []),
+        stopLocalAgent: mock(async () => null),
+        inferLocalAgentBinding: mock(async () => null),
+      },
+    });
+
+    const result = await service.retireScoutAgentCard("alpha.test-node");
+
+    expect(result).toEqual(status);
+    expect(retireLocalAgent.mock.calls).toEqual([["alpha.test-node"]]);
+    expect(retireScoutLocalAgentBinding.mock.calls).toEqual([
+      [{ agentId: "alpha.test-node", broker }],
+    ]);
+  });
 });

@@ -1628,6 +1628,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           onSubmit={() => void askRanger(draft)}
           sending={sending}
           recording={recording}
+          voiceLabel={voiceLabel}
           voiceBusy={voiceState === "processing" || voiceProbeState === "probing" || voiceProbeState === "launching"}
           voiceUnavailable={voiceAvailable === false}
           onMicClick={() => {
@@ -1982,6 +1983,7 @@ function ChatInput({
   onSubmit,
   sending,
   recording,
+  voiceLabel,
   voiceBusy,
   voiceUnavailable,
   onMicClick,
@@ -1991,15 +1993,16 @@ function ChatInput({
   onSubmit: () => void;
   sending: boolean;
   recording: boolean;
+  voiceLabel: string;
   voiceBusy: boolean;
   voiceUnavailable: boolean;
   onMicClick: () => void;
 }) {
-  const micTitle = recording
-    ? "Stop talking"
-    : voiceUnavailable
-      ? "Launch voice"
-      : "Start talking";
+  let micTitle = "Start talking";
+  if (voiceUnavailable) micTitle = "Launch Vox";
+  if (recording) micTitle = "Stop talking";
+  if (voiceBusy) micTitle = voiceLabel;
+  const showVoiceLabel = voiceUnavailable || voiceBusy || recording;
   return (
     <form
       className="grid grid-cols-[auto_1fr_auto] gap-2"
@@ -2014,11 +2017,11 @@ function ChatInput({
         aria-label={micTitle}
         onClick={onMicClick}
         disabled={sending || voiceBusy}
-        className={`flex w-9 items-center justify-center self-stretch rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        className={`flex items-center justify-center self-stretch rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
           recording
             ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
             : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-        }`}
+        } ${showVoiceLabel ? "min-w-[7.5rem] gap-1.5 px-2.5 font-mono text-[10px] uppercase tracking-[0.12em]" : "w-9"}`}
       >
         {voiceBusy ? (
           <Loader2 size={13} className="animate-spin" />
@@ -2027,6 +2030,7 @@ function ChatInput({
         ) : (
           <Mic size={13} />
         )}
+        {showVoiceLabel && <span className="truncate">{voiceLabel}</span>}
       </button>
       <textarea
         value={draft}
@@ -2226,10 +2230,10 @@ function VoxSetupPanel({
       <div className="mt-3 grid grid-cols-3 gap-2">
         <VoxSetupButton
           icon={probeState === "launching" ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
-          label={probeState === "launching" ? "Opening" : "Launch"}
+          label={probeState === "launching" ? "Opening" : "Launch Vox"}
           onClick={onLaunch}
           disabled={probeState === "probing"}
-          title="Open Vox"
+          title="Launch Vox"
         />
         <VoxSetupButton
           icon={probeState === "probing" ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}

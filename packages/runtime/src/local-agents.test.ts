@@ -12,11 +12,12 @@ import {
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
-  buildTmuxPromptSubmitKeys,
+  buildTmuxDispatchStrategy,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
+  tmuxPaneTailContainsPromptFragment,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
 
@@ -375,9 +376,56 @@ describe("local agent prompts", () => {
       .toBe('exec bash "/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"');
   });
 
-  test("tmux prompt submission leaves Claude Code insert mode before Enter", () => {
-    expect(buildTmuxPromptSubmitKeys()).toEqual(["C-[", "Enter"]);
-    expect(buildTmuxPromptSubmitKeys("pi")).toEqual(["Enter"]);
+  test("tmux dispatch strategy sends a single Enter and relies on verification + retry", () => {
+    // Leading Escape (C-[) was dropped because newer Claude Code builds bind it to
+    // composer state actions and can swallow the Enter that follows.
+    const prompt = "noop prompt body";
+    expect(buildTmuxDispatchStrategy("claude", prompt).submit).toEqual(["Enter"]);
+    expect(buildTmuxDispatchStrategy("pi", prompt).submit).toEqual(["Enter"]);
+    expect(buildTmuxDispatchStrategy("claude", prompt).pre).toBeUndefined();
+  });
+
+  test("tmux pane tail detection flags prompts that are still parked in the composer", () => {
+    const prompt =
+      "New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.";
+    const stuckTail = [
+      "╭──────────────────────────────────────────────────────────────────╮",
+      "│ > New broker ask from operator. Task: please refactor the        │",
+      "│   dispatch path so it submits the prompt.                        │",
+      "╰──────────────────────────────────────────────────────────────────╯",
+    ].join("\n");
+    const submittedTail = [
+      "● Reading file…",
+      "  src/dispatch.ts",
+      "╭──────────────────────────────────────────────────────────────────╮",
+      "│ >                                                                │",
+      "╰──────────────────────────────────────────────────────────────────╯",
+    ].join("\n");
+    expect(tmuxPaneTailContainsPromptFragment(stuckTail, prompt)).toBe(true);
+    expect(tmuxPaneTailContainsPromptFragment(submittedTail, prompt)).toBe(false);
+    expect(tmuxPaneTailContainsPromptFragment("", prompt)).toBe(false);
+  });
+
+  test("tmux dispatch strategy verifier reports submission via the pane tail", () => {
+    const prompt =
+      "New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.";
+    const strategy = buildTmuxDispatchStrategy("claude", prompt);
+    const stuckTail = [
+      "╭──────────────────────────────────────────────────────────────────╮",
+      "│ > New broker ask from operator. Task: please refactor the        │",
+      "│   dispatch path so it submits the prompt.                        │",
+      "╰──────────────────────────────────────────────────────────────────╯",
+    ].join("\n");
+    const submittedTail = [
+      "● Reading file…",
+      "  src/dispatch.ts",
+      "╭──────────────────────────────────────────────────────────────────╮",
+      "│ >                                                                │",
+      "╰──────────────────────────────────────────────────────────────────╯",
+    ].join("\n");
+    // verify(paneTail) === true means "submitted" (prompt absent from tail).
+    expect(strategy.verify(stuckTail)).toBe(false);
+    expect(strategy.verify(submittedTail)).toBe(true);
   });
 
   test("claude runtime launch args preapprove Scout MCP coordination tools", () => {

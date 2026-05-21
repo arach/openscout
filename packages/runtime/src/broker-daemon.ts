@@ -127,6 +127,7 @@ import {
 import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
 import { isRequesterWaitTimeoutError } from "./requester-timeout.js";
+import { isDispatchStalledError } from "./dispatch-stalled.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   requestScoutBrokerJson,
@@ -4148,6 +4149,38 @@ async function executeLocalInvocation(
       return;
     }
 
+    if (isDispatchStalledError(error)) {
+      const stalledFlight = {
+        ...runningFlight,
+        state: "failed" as const,
+        summary: `${agent.displayName} dispatch stalled — prompt left in composer after submit + retry.`,
+        error: message,
+        completedAt: Date.now(),
+        metadata: {
+          ...(runningFlight.metadata ?? {}),
+          failureStage: "dispatch_stalled",
+          dispatchStalledSession: error.sessionName,
+          dispatchStalledRetries: error.retries,
+          dispatchStalledPaneTail: error.paneTail.slice(0, 1_000),
+        },
+      };
+      await persistFlight(stalledFlight);
+
+      await persistEndpoint({
+        ...runningEndpoint,
+        state: "offline",
+        metadata: {
+          ...(runningEndpoint.metadata ?? {}),
+          lastError: message,
+          lastFailedAt: Date.now(),
+          lastFailureStage: "dispatch_stalled",
+        },
+      });
+
+      await postInvocationStatusMessage(invocation, stalledFlight);
+      return;
+    }
+
     const failedFlight = {
       ...runningFlight,
       state: "failed" as const,
@@ -4728,7 +4761,6 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   const threadWatchStreamMatch = method === "GET"
     ? url.pathname.match(/^\/v1\/thread-watches\/([^/]+)\/stream$/)
     : null;
-
   if ((url.pathname === "/v1/web/status" || url.pathname === "/v1/web/start") && method === "OPTIONS") {
     response.writeHead(204, scoutWebSupervisorCorsHeaders(request));
     response.end();
