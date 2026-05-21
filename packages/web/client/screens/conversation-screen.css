@@ -518,6 +518,26 @@
   color: var(--ink);
 }
 
+.s-thread-msg-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: color-mix(in srgb, var(--amber) 78%, var(--muted));
+  background: color-mix(in srgb, var(--amber) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 28%, transparent);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.s-thread-msg-dismiss:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+}
+
 .s-thread-feed-block--full-width {
   max-width: 100%;
   align-self: stretch;

@@ -66,6 +66,19 @@ export function isStaleConversationWorkingTurn(
   return startedAt !== null && nowMs - startedAt > activeWindowMs;
 }
 
+export function isStaleConversationWorkingTurnAnswered(
+  flight: Pick<Flight, "state" | "startedAt"> | null | undefined,
+  lastAgentReplyAt: number | null | undefined,
+  nowMs = Date.now(),
+): boolean {
+  if (!isStaleConversationWorkingTurn(flight, nowMs)) {
+    return false;
+  }
+  const startedAt = normalizeTimestampMs(flight?.startedAt);
+  const replyAt = normalizeTimestampMs(lastAgentReplyAt);
+  return startedAt !== null && replyAt !== null && replyAt > startedAt;
+}
+
 export function shouldClearConversationWorkingStateForAgentMessage(
   flight: Pick<Flight, "state"> | null | undefined,
 ): boolean {

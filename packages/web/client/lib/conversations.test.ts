@@ -4,6 +4,7 @@ import {
   CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS,
   isActiveConversationFlight,
   isStaleConversationWorkingTurn,
+  isStaleConversationWorkingTurnAnswered,
   shouldClearConversationWorkingStateForAgentMessage,
   shouldShowConversationWorkingTurn,
 } from "./conversations.ts";
@@ -57,5 +58,28 @@ describe("conversation flight presence", () => {
     };
 
     expect(isStaleConversationWorkingTurn(flight, 1_000_000)).toBe(false);
+  });
+
+  test("treats a stale working turn as answered after a newer agent reply", () => {
+    const nowMs = 2_000_000_000_000;
+    const flight = {
+      state: "running",
+      startedAt: nowMs - CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS - 1,
+    };
+
+    expect(
+      isStaleConversationWorkingTurnAnswered(
+        flight,
+        flight.startedAt - 1,
+        nowMs,
+      ),
+    ).toBe(false);
+    expect(
+      isStaleConversationWorkingTurnAnswered(
+        flight,
+        flight.startedAt + 1,
+        nowMs,
+      ),
+    ).toBe(true);
   });
 });

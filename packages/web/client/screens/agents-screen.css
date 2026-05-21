@@ -493,6 +493,11 @@
   gap: 10px;
 }
 
+.s-profile-context-metric {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
 .s-profile-context-state {
   font-size: 13.5px;
   color: var(--ink);
