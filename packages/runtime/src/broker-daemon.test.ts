@@ -2521,6 +2521,83 @@ describe("broker daemon comms layer", () => {
     expect(body.question?.target?.detail).toContain("stale registration");
   }, 15_000);
 
+  test("returns a broker question for stale peer authority targets", async () => {
+    const harness = await startBroker();
+    const stalePeerNodeId = "mini-peer";
+
+    await postJson(harness.baseUrl, "/v1/nodes", {
+      id: stalePeerNodeId,
+      meshId: "openscout",
+      name: "Mini Peer",
+      advertiseScope: "mesh",
+      brokerUrl: "http://100.64.0.2:65535",
+      registeredAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+      lastSeenAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+    });
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "arach.mini",
+      kind: "agent",
+      definitionId: "arach",
+      nodeQualifier: "mini",
+      selector: "@arach.node:mini",
+      defaultSelector: "@arach",
+      displayName: "Arach",
+      handle: "arach",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        projectRoot: "/Users/arach",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: stalePeerNodeId,
+      authorityNodeId: stalePeerNodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "deliver-test-stale-peer",
+        requesterId: "codex",
+        requesterNodeId: harness.nodeId,
+        targetLabel: "@arach",
+        body: "@arach local status update",
+        intent: "tell",
+        createdAt: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      question?: {
+        kind: string;
+        askedLabel: string;
+        target?: {
+          agentId: string;
+          reason: string;
+          detail: string;
+        };
+      };
+    };
+    expect(body.kind).toBe("question");
+    expect(body.accepted).toBe(false);
+    expect(body.question?.kind).toBe("unavailable");
+    expect(body.question?.askedLabel).toBe("@arach");
+    expect(body.question?.target?.agentId).toBe("arach.mini");
+    expect(body.question?.target?.reason).toBe("unknown");
+    expect(body.question?.target?.detail).toContain("peer is stale");
+
+    const snapshot = await getJson<{ flights: Record<string, unknown> }>(
+      harness.baseUrl,
+      "/v1/snapshot",
+    );
+    expect(Object.keys(snapshot.flights)).toHaveLength(0);
+  }, 15_000);
+
   test("rejects unknown delivery targets explicitly", async () => {
     const harness = await startBroker();
 

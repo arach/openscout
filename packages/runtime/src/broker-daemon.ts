@@ -375,6 +375,8 @@ const DEFAULT_INBOX_STATUSES = new Set<DeliveryStatus>([
   "leased",
 ]);
 
+const STALE_MESH_AUTHORITY_NODE_MS = 24 * 60 * 60 * 1000;
+
 async function listInboxItems(options: {
   targetId: string;
   statuses?: Set<DeliveryStatus>;
@@ -2244,7 +2246,7 @@ function describeUnavailableDeliveryTarget(
   }
 
   if (agent.authorityNodeId && agent.authorityNodeId !== nodeId) {
-    return null;
+    return describeRemoteAuthorityIssue(agent, snapshot.nodes[agent.authorityNodeId]);
   }
 
   if (agent.wakePolicy !== "manual") {
@@ -3532,6 +3534,72 @@ function isReachableMeshNode(node: NodeDefinition | undefined): node is NodeDefi
   return Boolean(node?.brokerUrl || hasReachableMeshEntrypoint(node));
 }
 
+function meshNodeLastSeenAt(node: NodeDefinition | undefined): number {
+  return typeof node?.lastSeenAt === "number" && Number.isFinite(node.lastSeenAt)
+    ? node.lastSeenAt
+    : typeof node?.registeredAt === "number" && Number.isFinite(node.registeredAt)
+    ? node.registeredAt
+    : 0;
+}
+
+function isStaleMeshAuthorityNode(node: NodeDefinition | undefined): boolean {
+  if (!node) {
+    return false;
+  }
+  const lastSeenAt = meshNodeLastSeenAt(node);
+  return lastSeenAt > 0 && Date.now() - lastSeenAt > STALE_MESH_AUTHORITY_NODE_MS;
+}
+
+function formatMeshNodeLastSeen(node: NodeDefinition | undefined): string {
+  const lastSeenAt = meshNodeLastSeenAt(node);
+  if (!lastSeenAt) {
+    return "with no recent heartbeat";
+  }
+  return `last seen ${new Date(lastSeenAt).toISOString()}`;
+}
+
+function describeRemoteAuthorityIssue(
+  agent: AgentDefinition,
+  authorityNode: NodeDefinition | undefined,
+): ScoutDispatchUnavailableTarget | null {
+  const displayName = agent.displayName ?? agent.id;
+  const authorityNodeId = agent.authorityNodeId;
+  if (!authorityNodeId || authorityNodeId === nodeId) {
+    return null;
+  }
+
+  const nodeLabel = authorityNode?.name
+    ? `${authorityNode.name} (${authorityNodeId})`
+    : authorityNodeId;
+
+  const unavailable = !authorityNode || !isReachableMeshNode(authorityNode);
+  const stale = isStaleMeshAuthorityNode(authorityNode);
+  if (!unavailable && !stale) {
+    return null;
+  }
+
+  const endpoint = homeEndpointForAgent(runtime.snapshot(), agent.id);
+  const projectRoot = brokerTargetProjectRoot(agent, endpoint);
+  const detail = unavailable
+    ? `${displayName} belongs to peer node ${nodeLabel}, but that peer has no reachable broker URL or mesh entrypoint.`
+    : `${displayName} belongs to peer node ${nodeLabel}, but that peer is stale (${formatMeshNodeLastSeen(authorityNode)}).`;
+
+  return {
+    agentId: agent.id,
+    displayName,
+    reason: "unknown",
+    detail,
+    wakePolicy: agent.wakePolicy,
+    endpointState: endpoint?.state === "active" || endpoint?.state === "idle" || endpoint?.state === "waiting"
+      ? "online"
+      : endpoint?.state === "offline"
+      ? "offline"
+      : "unknown",
+    transport: endpoint?.transport ?? null,
+    projectRoot,
+  };
+}
+
 function authorityNodeForConversation(conversationId: string): {
   conversation: ConversationDefinition;
   authorityNode: NodeDefinition;
@@ -4595,11 +4663,12 @@ async function dispatchAcceptedInvocation(invocation: InvocationRequest): Promis
     // Cross-node: hand off to the outbox worker. Peer reachability is now a
     // delivery concern (deferred ↔ accepted retries), not an HTTP error.
     const authorityNode = runtime.node(targetAgent.authorityNodeId);
-    if (!authorityNode) {
-      await failAcceptedInvocation(invocation, `authority node ${targetAgent.authorityNodeId} is not reachable`);
+    const authorityIssue = describeRemoteAuthorityIssue(targetAgent, authorityNode);
+    if (authorityIssue) {
+      await failAcceptedInvocation(invocation, authorityIssue.detail);
       return;
     }
-    await peerDelivery.enqueue(invocation, authorityNode);
+    await peerDelivery.enqueue(invocation, authorityNode!);
     return;
   }
 
