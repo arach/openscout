@@ -5,6 +5,11 @@ import type {
 } from "@openscout/protocol";
 import { api } from "../lib/api.ts";
 import {
+  filterAgentsByMachineScope,
+  filterSessionsByMachineScope,
+  machineScopedAgentIds,
+} from "../lib/machine-scope.ts";
+import {
   compactAgentId,
   minimalAgentDisplayName,
   minimalAgentHandle,
@@ -35,6 +40,7 @@ import { queueTakeover } from "../lib/terminal-takeover.ts";
 import {
   agentIdFromConversation,
   conversationForAgent,
+  routeMachineId,
 } from "../lib/router.ts";
 import {
   loadLastViewedMap,
@@ -864,6 +870,15 @@ export function ConversationScreen({
   embedded?: boolean;
 }) {
   const { agents, route } = useScout();
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(agents, machineId),
+    [agents, machineId],
+  );
+  const scopedAgents = useMemo(
+    () => filterAgentsByMachineScope(agents, machineId),
+    [agents, machineId],
+  );
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
@@ -890,11 +905,15 @@ export function ConversationScreen({
   const isDm = sessionMeta?.kind === "direct" || legacyAgentId !== null;
   const agent = useMemo<Agent | null>(
     () =>
-      agentId ? (agents.find((item) => item.id === agentId) ?? null) : null,
-    [agents, agentId],
+      agentId ? (scopedAgents.find((item) => item.id === agentId) ?? null) : null,
+    [scopedAgents, agentId],
   );
 
   const [railSessions, setRailSessions] = useState<SessionEntry[]>([]);
+  const scopedRailSessions = useMemo(
+    () => filterSessionsByMachineScope(railSessions, scopedAgentIds, machineId),
+    [railSessions, scopedAgentIds, machineId],
+  );
   const [needsYouIds, setNeedsYouIds] = useState<Set<string>>(new Set());
   const [lastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
 
@@ -930,11 +949,11 @@ export function ConversationScreen({
   }, []);
 
   useEffect(() => {
-    const current = railSessions.find((session) => session.id === conversationId);
+    const current = scopedRailSessions.find((session) => session.id === conversationId);
     if (current && isGroupConversation(current)) {
       navigate({ view: "channels", channelId: conversationId });
     }
-  }, [conversationId, navigate, railSessions]);
+  }, [conversationId, navigate, scopedRailSessions]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -1070,7 +1089,7 @@ export function ConversationScreen({
   const mentionCandidates = useMemo<MentionCandidate[]>(() => {
     const seen = new Set<string>();
     const list: MentionCandidate[] = [];
-    for (const a of agents) {
+    for (const a of scopedAgents) {
       const handleRaw = a.handle?.trim().replace(/^@+/, "") ?? compactAgentId(a.id) ?? a.id;
       if (!handleRaw) continue;
       const key = handleRaw.toLowerCase();
@@ -1084,7 +1103,7 @@ export function ConversationScreen({
       });
     }
     return list.sort((a, b) => a.handle.localeCompare(b.handle));
-  }, [agents]);
+  }, [scopedAgents]);
 
   const filteredSlashCommands = useMemo(() => {
     if (!slashState.open) return [];
@@ -1680,18 +1699,18 @@ export function ConversationScreen({
       .filter((id) => id !== "operator")
       .slice(0, 4)
       .map((id) => {
-        const a = agents.find((ag) => ag.id === id);
+        const a = scopedAgents.find((ag) => ag.id === id);
         return { id, name: a?.name ?? id };
       });
-  }, [sessionMeta, agents]);
+  }, [sessionMeta, scopedAgents]);
 
   const existingChannelSlugs = useMemo(() => {
-    const values = railSessions
+    const values = scopedRailSessions
       .filter((session) => session.kind === "channel" || session.id.startsWith("channel."))
       .map((session) => conversationShortLabel(session))
       .filter((slug) => slug.trim().length > 0);
     return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-  }, [railSessions]);
+  }, [scopedRailSessions]);
 
   const submitAddToChannel = useCallback(async () => {
     if (!agentId || !isDm) return;
@@ -2108,7 +2127,7 @@ export function ConversationScreen({
               const absoluteTime = formatAbsoluteTimestamp(message.createdAt);
               const messageAgent =
                 !isYou && message.actorName
-                  ? agents.find((a) => a.name === message.actorName) ?? null
+                  ? scopedAgents.find((a) => a.name === message.actorName) ?? null
                   : null;
               const actorHandle = isYou
                 ? operatorName.toLowerCase()

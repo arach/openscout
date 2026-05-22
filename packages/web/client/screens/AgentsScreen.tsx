@@ -7,7 +7,8 @@ import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
-import { conversationForAgent } from "../lib/router.ts";
+import { conversationForAgent, routeMachineId } from "../lib/router.ts";
+import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
@@ -833,6 +834,13 @@ function AgentDetailWithRail({
 
   const roleLabel = formatLabel(agent.role) ?? formatLabel(agent.agentClass);
   const harnessLabel = agent.harness;
+  const machineLabel = agent.authorityNodeName
+    ?? agent.homeNodeName
+    ?? agent.authorityNodeId
+    ?? agent.homeNodeId;
+  const machineDetail = agent.authorityNodeId && agent.homeNodeId && agent.authorityNodeId !== agent.homeNodeId
+    ? `home ${agent.homeNodeName ?? agent.homeNodeId}`
+    : null;
   const eyebrowParts = [roleLabel, harnessLabel]
     .filter(Boolean)
     .filter((v, i, arr) => arr.indexOf(v) === i);
@@ -994,8 +1002,17 @@ function AgentDetailWithRail({
 
       {activeTab === "profile" && (
         <div className="s-profile-tab-content">
-          {(agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
+          {(machineLabel || agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
             <div className="s-profile-facets">
+              {machineLabel && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Machine</div>
+                  <div className="s-profile-facet-value">{machineLabel}</div>
+                  {machineDetail && (
+                    <div className="s-profile-facet-detail">{machineDetail}</div>
+                  )}
+                </div>
+              )}
               {agent.project && (
                 <div className="s-profile-facet">
                   <div className="s-profile-facet-label">Workspace</div>
@@ -1206,9 +1223,14 @@ export function AgentsScreen({
   conversationId?: string;
   tab?: AgentTab;
 }) {
-  const { agents } = useScout();
+  const { agents, route } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
+  const machineId = routeMachineId(route);
+  const scopedAgents = useMemo(
+    () => filterAgentsByMachineScope(agents, machineId),
+    [agents, machineId],
+  );
 
   const load = useCallback(async () => {
     const [sessionsResult, fleetResult] = await Promise.allSettled([
@@ -1226,7 +1248,7 @@ export function AgentsScreen({
     void load();
   });
 
-  const selectedAgent = resolveSelectedAgent(agents, selectedAgentId);
+  const selectedAgent = resolveSelectedAgent(scopedAgents, selectedAgentId);
   const selectedAgentWasAliased = Boolean(
     selectedAgentId && selectedAgent && selectedAgent.id !== selectedAgentId,
   );
@@ -1268,7 +1290,7 @@ export function AgentsScreen({
     return (
       <AgentDetailWithRail
         agent={selectedAgent}
-        allAgents={agents}
+        allAgents={scopedAgents}
         session={sessionByAgentId.get(selectedAgent.id) ?? null}
         conversationId={resolvedConversationId}
         navigate={navigate}
@@ -1279,7 +1301,7 @@ export function AgentsScreen({
 
   return (
     <AgentsLibrary
-      agents={agents}
+      agents={scopedAgents}
       fleet={fleet}
       sessionByAgentId={sessionByAgentId}
       conversationByAgentId={conversationByAgentId}

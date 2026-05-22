@@ -55,13 +55,13 @@ export function bucketAgentsByMachine(agents: Agent[], mesh: MeshStatus): Machin
   });
 
   for (const agent of agents) {
-    const id = agent.homeNodeId ?? localId;
+    const id = agent.authorityNodeId ?? agent.homeNodeId ?? localId;
     let bucket = buckets.get(id);
     if (!bucket) {
       const remote = mesh.nodes?.[id];
       bucket = {
         machineId: id,
-        machineLabel: machineLabelFor(remote) || agent.homeNodeName || id,
+        machineLabel: machineLabelFor(remote) || agent.authorityNodeName || agent.homeNodeName || id,
         reachability: "peer",
         online: true,
         host: remote?.host,

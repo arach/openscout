@@ -101,7 +101,8 @@ export function MeshNavLeftPanel() {
 
   const selectAgent = (a: Agent) => {
     setMeshSelection(a.id, "agent");
-    if (a.homeNodeId) requestScrollToMachine(a.homeNodeId);
+    const machineId = a.authorityNodeId ?? a.homeNodeId;
+    if (machineId) requestScrollToMachine(machineId);
     openAgent(navigate, a, { from: "mesh-tree", returnTo: { view: "mesh" } });
   };
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { routeFromUrl, routePath } from "./router.ts";
+import { clearRouteMachineScope, routeFromUrl, routePath, setRouteMachineScope } from "./router.ts";
 
 describe("agents route parsing", () => {
   test("conversations routes round-trip", () => {
@@ -20,6 +20,72 @@ describe("agents route parsing", () => {
       tab: "message",
     });
     expect(routePath(route)).toBe("/agents/openscout-6.main.mini?tab=message");
+  });
+
+  test("machine-scoped routes round-trip through URLs", () => {
+    expect(routeFromUrl("http://127.0.0.1:3200/fleet?machineId=node-b")).toEqual({
+      view: "fleet",
+      machineId: "node-b",
+    });
+    expect(routePath({ view: "fleet", machineId: "node-b" })).toBe("/fleet?machineId=node-b");
+
+    expect(routeFromUrl("http://127.0.0.1:3200/mesh?machineId=node-b")).toEqual({
+      view: "mesh",
+      machineId: "node-b",
+    });
+    expect(routePath({ view: "mesh", machineId: "node-b" })).toBe("/mesh?machineId=node-b");
+
+    expect(routeFromUrl("http://127.0.0.1:3200/work/work-1?machineId=node-b")).toEqual({
+      view: "work",
+      workId: "work-1",
+      machineId: "node-b",
+    });
+    expect(routePath({ view: "work", workId: "work-1", machineId: "node-b" })).toBe(
+      "/work/work-1?machineId=node-b",
+    );
+  });
+
+  test("machine scope composes with existing route query params", () => {
+    const agentRoute = routeFromUrl("http://127.0.0.1:3200/agents/hudson.main?tab=observe&machineId=node-b");
+    expect(agentRoute).toEqual({
+      view: "agents",
+      agentId: "hudson.main",
+      tab: "observe",
+      machineId: "node-b",
+    });
+    expect(routePath(agentRoute)).toBe("/agents/hudson.main?tab=observe&machineId=node-b");
+
+    const conversationRoute = routeFromUrl("http://127.0.0.1:3200/c/dm.operator.hudson?compose=ask&machineId=node-b");
+    expect(conversationRoute).toEqual({
+      view: "conversation",
+      conversationId: "dm.operator.hudson",
+      composeMode: "ask",
+      machineId: "node-b",
+    });
+    expect(routePath(conversationRoute)).toBe("/c/dm.operator.hudson?compose=ask&machineId=node-b");
+
+    const messagesRoute = routeFromUrl(
+      "http://127.0.0.1:3200/messages/channel.font-studio?filter=channel&sort=unread&machineId=node-b",
+    );
+    expect(messagesRoute).toEqual({
+      view: "messages",
+      conversationId: "channel.font-studio",
+      filter: "channel",
+      sort: "unread",
+      machineId: "node-b",
+    });
+    expect(routePath(messagesRoute)).toBe(
+      "/messages/channel.font-studio?filter=channel&sort=unread&machineId=node-b",
+    );
+  });
+
+  test("machine scope helpers set and explicitly clear scoped routes", () => {
+    expect(setRouteMachineScope({ view: "agents" }, "node-b")).toEqual({
+      view: "agents",
+      machineId: "node-b",
+    });
+    expect(routePath(clearRouteMachineScope({ view: "agents", machineId: "node-b" }))).toBe("/agents");
+    expect(setRouteMachineScope({ view: "settings" }, "node-b")).toEqual({ view: "settings" });
   });
 
   test("observe deep links preserve the explicit observe tab", () => {

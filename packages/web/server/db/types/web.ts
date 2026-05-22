@@ -31,6 +31,8 @@ export type WebAgent = {
   harnessSessionId: string | null;
   harnessLogPath: string | null;
   conversationId: string;
+  authorityNodeId: string | null;
+  authorityNodeName: string | null;
   homeNodeId: string | null;
   homeNodeName: string | null;
   ownerId: string | null;

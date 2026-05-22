@@ -86,9 +86,89 @@ function isOpsEnabledForUrl(url: URL): boolean {
   return isOpsEnabled();
 }
 
+const MACHINE_SCOPE_PARAM = "machineId";
+const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
+  "inbox",
+  "conversation",
+  "agents",
+  "fleet",
+  "conversations",
+  "messages",
+  "sessions",
+  "channels",
+  "mesh",
+  "activity",
+  "work",
+]);
+
+function parseMachineId(url: URL): string | undefined {
+  return url.searchParams.get(MACHINE_SCOPE_PARAM)?.trim() || undefined;
+}
+
+function withMachineScope<T extends Route>(route: T, machineId: string | undefined): T {
+  if (!machineId || !MACHINE_SCOPED_VIEWS.has(route.view)) return route;
+  return { ...route, machineId } as T;
+}
+
+export function routeSupportsMachineScope(route: Pick<Route, "view">): boolean {
+  return MACHINE_SCOPED_VIEWS.has(route.view);
+}
+
+export function routeMachineId(route: Route): string | null {
+  return "machineId" in route && route.machineId ? route.machineId : null;
+}
+
+export function setRouteMachineScope(route: Route, machineId: string | null): Route {
+  if (!routeSupportsMachineScope(route)) return route;
+  const scoped = { ...route } as Route & { machineId?: string };
+  const value = machineId?.trim();
+  if (value) {
+    scoped.machineId = value;
+  } else {
+    delete scoped.machineId;
+  }
+  return scoped;
+}
+
+export function clearRouteMachineScope(route: Route): Route {
+  if (!routeSupportsMachineScope(route)) return route;
+  return { ...route, machineId: "" } as Route;
+}
+
+function resolveNavigatedMachineScope(nextRoute: Route, currentRoute: Route): Route {
+  if (!routeSupportsMachineScope(nextRoute)) return nextRoute;
+  if ("machineId" in nextRoute) {
+    return setRouteMachineScope(nextRoute, nextRoute.machineId ?? null);
+  }
+  return setRouteMachineScope(nextRoute, routeMachineId(currentRoute));
+}
+
+function appendMachineScope(params: URLSearchParams, route: Route): void {
+  if ("machineId" in route && route.machineId) {
+    params.set(MACHINE_SCOPE_PARAM, route.machineId);
+  }
+}
+
+function searchSuffix(params: URLSearchParams): string {
+  const search = params.toString();
+  return search ? `?${search}` : "";
+}
+
+function pathWithMachineScope(path: string, route: Route): string {
+  const params = new URLSearchParams();
+  appendMachineScope(params, route);
+  return `${path}${searchSuffix(params)}`;
+}
+
+function routeScopeKey(route: Route): string {
+  return "machineId" in route && route.machineId ? `:machine:${route.machineId}` : "";
+}
+
 export function routeFromUrl(urlLike: string | URL): Route {
   const url = new URL(urlLike.toString());
   const parts = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
+  const machineId = parseMachineId(url);
+  const scoped = <T extends Route>(route: T): T => withMachineScope(route, machineId);
   const composeMode =
     url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   const agentTab = parseAgentTab(url.searchParams.get("tab"));
@@ -97,45 +177,45 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   // /agents/{agentId}/c/{conversationId} → agent detail with inline conversation
   if (parts[0] === "agents" && parts[1] && parts[2] === "c" && parts[3]) {
-    return {
+    return scoped({
       view: "agents",
       agentId: decodeURIComponent(parts[1]),
       conversationId: decodeURIComponent(parts[3]),
       tab: agentTab ?? "message",
-    };
+    });
   }
   // /agents/{agentId} → agents view with selected agent
   if (parts[0] === "agents" && parts[1]) {
     const agentId = decodeURIComponent(parts[1]);
     // When tab=message, the DM conversation is implied from the agentId.
     if (agentTab === "message") {
-      return {
+      return scoped({
         view: "agents",
         agentId,
         conversationId: conversationForAgent(agentId),
         tab: "message",
-      };
+      });
     }
-    return {
+    return scoped({
       view: "agents",
       agentId,
       ...(agentTab ? { tab: agentTab } : {}),
-    };
+    });
   }
-  if (parts[0] === "agents") return { view: "agents" };
-  if (parts[0] === "fleet") return { view: "fleet" };
+  if (parts[0] === "agents") return scoped({ view: "agents" });
+  if (parts[0] === "fleet") return scoped({ view: "fleet" });
   // /c/{conversationId} always opens the conversation surface directly.
   if (parts[0] === "c" && parts[1]) {
-    return {
+    return scoped({
       view: "conversation",
       conversationId: decodeURIComponent(parts[1]),
       ...(composeMode ? { composeMode } : {}),
-    };
+    });
   }
   if (parts[0] === "sessions" && parts[1]) {
-    return { view: "sessions", sessionId: decodeURIComponent(parts[1]) };
+    return scoped({ view: "sessions", sessionId: decodeURIComponent(parts[1]) });
   }
-  if (parts[0] === "conversations") return { view: "conversations" };
+  if (parts[0] === "conversations") return scoped({ view: "conversations" });
   if (parts[0] === "messages") {
     const filter = parseMessagesFilter(url.searchParams.get("filter"));
     const sort = parseMessagesSort(url.searchParams.get("sort"));
@@ -145,22 +225,22 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(filter ? { filter } : {}),
       ...(sort ? { sort } : {}),
     };
-    return base;
+    return scoped(base);
   }
-  if (parts[0] === "sessions") return { view: "sessions" };
+  if (parts[0] === "sessions") return scoped({ view: "sessions" });
   if (parts[0] === "channels" && parts[1]) {
-    return { view: "channels", channelId: decodeURIComponent(parts[1]) };
+    return scoped({ view: "channels", channelId: decodeURIComponent(parts[1]) });
   }
-  if (parts[0] === "channels") return { view: "channels" };
-  if (parts[0] === "mesh") return { view: "mesh" };
+  if (parts[0] === "channels") return scoped({ view: "channels" });
+  if (parts[0] === "mesh") return scoped({ view: "mesh" });
   if (parts[0] === "broker") return { view: "broker" };
   if (parts[0] === "briefings" && parts[1]) {
     return { view: "briefings", briefingId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "briefings") return { view: "briefings" };
-  if (parts[0] === "activity") return { view: "activity" };
+  if (parts[0] === "activity") return scoped({ view: "activity" });
   if (parts[0] === "work" && parts[1]) {
-    return { view: "work", workId: decodeURIComponent(parts[1]) };
+    return scoped({ view: "work", workId: decodeURIComponent(parts[1]) });
   }
   if (parts[0] === "follow") {
     const preferredView = parseFollowPreferredView(url.searchParams.get("view"));
@@ -205,13 +285,13 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "ops") {
     if (!isOpsEnabledForUrl(url)) {
-      return { view: "inbox" };
+      return scoped({ view: "inbox" });
     }
     const mode = parseOpsMode(parts[1]) ?? "mission";
     const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
     return { view: "ops", mode, ...(tailQuery ? { tailQuery } : {}) };
   }
-  return { view: "inbox" };
+  return scoped({ view: "inbox" });
 }
 
 function routeFromPath(): Route {
@@ -221,14 +301,14 @@ function routeFromPath(): Route {
 export function routePath(r: Route): string {
   switch (r.view) {
     case "inbox":
-      return "/";
+      return pathWithMachineScope("/", r);
     case "conversation": {
       const params = new URLSearchParams();
       if (r.composeMode === "ask") {
         params.set("compose", "ask");
       }
-      const search = params.toString();
-      return `/c/${encodeURIComponent(r.conversationId)}${search ? `?${search}` : ""}`;
+      appendMachineScope(params, r);
+      return `/c/${encodeURIComponent(r.conversationId)}${searchSuffix(params)}`;
     }
     case "agent-info":
       return `/agent/${encodeURIComponent(r.conversationId)}`;
@@ -249,7 +329,7 @@ export function routePath(r: Route): string {
       } else if (r.tab && r.tab !== defaultTab) {
         params.set("tab", r.tab);
       }
-      const search = params.toString();
+      appendMachineScope(params, r);
       const path = r.agentId
         ? isDmConv
           ? `/agents/${encodeURIComponent(r.agentId)}`
@@ -257,32 +337,32 @@ export function routePath(r: Route): string {
             ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
             : `/agents/${encodeURIComponent(r.agentId)}`
         : "/agents";
-      return `${path}${search ? `?${search}` : ""}`;
+      return `${path}${searchSuffix(params)}`;
     }
     case "fleet":
-      return "/fleet";
+      return pathWithMachineScope("/fleet", r);
     case "conversations":
-      return "/conversations";
+      return pathWithMachineScope("/conversations", r);
     case "messages": {
       const params = new URLSearchParams();
       if (r.filter && r.filter !== "all") params.set("filter", r.filter);
       if (r.sort && r.sort !== "recent") params.set("sort", r.sort);
-      const search = params.toString();
+      appendMachineScope(params, r);
       const base = r.conversationId
         ? `/messages/${encodeURIComponent(r.conversationId)}`
         : "/messages";
-      return `${base}${search ? `?${search}` : ""}`;
+      return `${base}${searchSuffix(params)}`;
     }
     case "sessions":
-      return r.sessionId
+      return pathWithMachineScope(r.sessionId
         ? `/sessions/${encodeURIComponent(r.sessionId)}`
-        : "/sessions";
+        : "/sessions", r);
     case "channels":
-      return r.channelId
+      return pathWithMachineScope(r.channelId
         ? `/channels/${encodeURIComponent(r.channelId)}`
-        : "/channels";
+        : "/channels", r);
     case "mesh":
-      return "/mesh";
+      return pathWithMachineScope("/mesh", r);
     case "broker":
       return "/broker";
     case "briefings":
@@ -290,9 +370,9 @@ export function routePath(r: Route): string {
         ? `/briefings/${encodeURIComponent(r.briefingId)}`
         : "/briefings";
     case "activity":
-      return "/activity";
+      return pathWithMachineScope("/activity", r);
     case "work":
-      return `/work/${encodeURIComponent(r.workId)}`;
+      return pathWithMachineScope(`/work/${encodeURIComponent(r.workId)}`, r);
     case "settings":
       if (r.section === "agents") {
         return r.agentId
@@ -324,9 +404,10 @@ export function routePath(r: Route): string {
 }
 
 function routeKey(r: Route): string {
+  const scope = routeScopeKey(r);
   switch (r.view) {
     case "conversation":
-      return `conv:${r.conversationId}`;
+      return `conv:${r.conversationId}${scope}`;
     case "agent-info":
       return `agent-info:${r.conversationId}`;
     case "settings":
@@ -335,24 +416,24 @@ function routeKey(r: Route): string {
         : "settings";
     case "agents":
       return r.conversationId
-        ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}`
+        ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}${scope}`
         : r.agentId
-          ? `agent:${r.agentId}:${r.tab ?? "profile"}`
-          : "agents";
+          ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
+          : `agents${scope}`;
     case "sessions":
-      return r.sessionId ? `session:${r.sessionId}` : "sessions";
+      return r.sessionId ? `session:${r.sessionId}${scope}` : `sessions${scope}`;
     case "messages":
-      return r.conversationId ? `messages:${r.conversationId}` : "messages";
+      return r.conversationId ? `messages:${r.conversationId}${scope}` : `messages${scope}`;
     case "channels":
-      return r.channelId ? `channel:${r.channelId}` : "channels";
+      return r.channelId ? `channel:${r.channelId}${scope}` : `channels${scope}`;
     case "work":
-      return `work:${r.workId}`;
+      return `work:${r.workId}${scope}`;
     case "ops":
       return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}`;
     case "follow":
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     default:
-      return r.view;
+      return `${r.view}${scope}`;
   }
 }
 
@@ -375,10 +456,12 @@ export function useRouter() {
   }, []);
 
   const navigate = useCallback((r: Route) => {
-    const nextRoute: Route = r.view === "ops" && !isOpsEnabled()
+    const requestedRoute: Route = r.view === "ops" && !isOpsEnabled()
       ? { view: "inbox" }
       : r;
-    scrollMap.current[routeKey(routeFromPath())] = window.scrollY;
+    const currentRoute = routeFromPath();
+    const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
+    scrollMap.current[routeKey(currentRoute)] = window.scrollY;
     window.history.pushState(null, "", routePath(nextRoute));
     setRouteState(nextRoute);
     requestAnimationFrame(() => {

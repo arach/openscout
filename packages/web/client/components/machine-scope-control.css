@@ -1,0 +1,46 @@
+.machine-scope-bar {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--hud-ink) 8%, transparent);
+  background: color-mix(in srgb, var(--hud-surface) 94%, transparent);
+  color: var(--hud-ink);
+  flex: 0 0 auto;
+}
+
+.machine-scope-label {
+  font-size: 11px;
+  font-weight: 650;
+  color: color-mix(in srgb, var(--hud-ink) 58%, transparent);
+}
+
+.machine-scope-select {
+  min-width: 172px;
+  max-width: min(320px, 60vw);
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--hud-ink) 11%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--hud-bg) 76%, var(--hud-surface));
+  color: var(--hud-ink);
+  font: 600 12px/1 var(--hud-font-sans);
+  padding: 0 28px 0 9px;
+}
+
+.machine-scope-select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hud-accent) 65%, transparent);
+  outline-offset: 2px;
+}
+
+.scout-surface-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scout-surface-body > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}

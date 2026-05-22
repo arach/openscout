@@ -330,7 +330,14 @@ function Sparkline({ values, warn = false }: { values: number[]; warn?: boolean 
 }
 
 function machineLabel(agent: Agent): string {
-  return agent.transport ?? basename(agent.cwd) ?? basename(agent.projectRoot) ?? "local";
+  return agent.authorityNodeName
+    ?? agent.homeNodeName
+    ?? agent.authorityNodeId
+    ?? agent.homeNodeId
+    ?? agent.transport
+    ?? basename(agent.cwd)
+    ?? basename(agent.projectRoot)
+    ?? "local";
 }
 
 function teamLabel(agent: Agent): string {

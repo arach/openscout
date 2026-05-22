@@ -184,8 +184,26 @@ acknowledged", and "completed" as different states.
 Tailscale is a discovery and reachability option, not a required product mode.
 On the same Wi-Fi or LAN, brokers can communicate directly over ordinary HTTP if
 the remote broker is bound to a reachable address and the local broker knows
-that address through a seed or discovered node record. The current documented
-discovery paths are:
+that address through a seed or discovered node record. The product route ladder
+is:
+
+1. `solo`: same-machine loopback or Unix socket.
+2. `LAN`: same Wi-Fi or Ethernet, using `.local`, local DNS, or private IP.
+3. `tsnet`: Tailscale/tailnet reachability for phones, off-LAN machines, and
+   private fallback routing.
+4. `oscout.net`: Cloudflare-hosted OpenScout infrastructure for rendezvous,
+   relay, push wake, pairing, and fallback when direct routes are unavailable.
+
+These are route tiers, not mutually exclusive app modes. A node may advertise
+multiple endpoints at the same time, and route selection should prefer the
+closest, clearest boundary that works: `solo`, then `LAN`, then `tsnet`, then
+`oscout.net`. Same-network traffic should not hop through Tailscale or
+`oscout.net` when a LAN route is healthy. Tailscale should remain available for
+natural phone/off-LAN pickup, but it should not become the default path for
+nearby machines. `oscout.net` is OpenScout-owned but Cloudflare-hosted and less
+familiar than Tailscale, so the UI should treat it as the most mediated tier.
+
+The current documented discovery paths are:
 
 - Tailscale peer probing, when Tailscale is installed and running
 - manually configured seed URLs such as `OPENSCOUT_MESH_SEEDS=http://host:4080`
@@ -447,6 +465,7 @@ export interface NodeOperationalSummary {
   lastRouteCheckAt: number | null;
   brokerUrl: string | null;
   transports: Array<{
+    tier: "solo" | "LAN" | "tsnet" | "oscout.net";
     kind: "local" | "http" | "tailnet" | "iroh" | "cloudflare_tunnel" | "manual_seed" | "mobile_pairing";
     state: "ready" | "degraded" | "unreachable" | "unknown";
     label: string;
@@ -782,15 +801,110 @@ Then verify in the web UI on machine A:
 - disabling the remote broker changes the route state to stale or unreachable
   with recovery actions
 
-## Open Questions
+## Decision Trace
 
-- Should Fleet or Agents be the default destination after a successful mesh
-  discover, or should Home surface a "new machine joined" card first?
-- How much remote observe data should be available before a dedicated observe
-  bridge exists?
-- Should "request status" be a fixed ask template, a lightweight broker action,
-  or a normal composer preset?
-- Which remote wake operations are safe enough for v1, and which need a host
-  permission capture path first?
-- Should route capability summaries live in protocol records or only in web
-  read models during the first implementation?
+This section is the memory of the product discussion. It is intentionally not an
+open-question parking lot: when a choice is still unstable, resolve it in chat
+and update this trace with the current decision and why we made it.
+
+### Mesh Discovery Landing
+
+After a successful mesh discovery, Home should surface a short "new machine
+joined" memory card first, with primary actions to open the machine-scoped Fleet
+slice and Mesh diagnostics.
+
+Rationale:
+
+- Home is the operator's orientation surface and should explain that the network
+  changed.
+- Fleet is the default work surface once the operator decides to act.
+- Agents remains a drill-in/library surface, not the default post-discovery
+  destination.
+
+### Route Tier Trust Ladder
+
+Cross-machine reachability should use the route ladder `solo`, `LAN`, `tsnet`,
+then `oscout.net`. The ladder is ordered by understandable operator boundary,
+not just technical security. `solo` stays on the same machine. `LAN` stays on
+the nearby physical network. `tsnet` is private and useful for phones or
+off-LAN machines, but it depends on Tailscale identity and control-plane
+behavior. `oscout.net` is OpenScout-owned Cloudflare-hosted infrastructure for
+rendezvous, relay, push wake, pairing, and fallback, so it is the most mediated
+tier.
+
+Route tiers are not global product modes. A node can advertise multiple
+endpoints, and the broker should choose the first healthy endpoint in preference
+order. Same-network Mac-to-Mac traffic should not leave the LAN just because a
+tailnet URL exists. Tailscale remains available as a natural route for mobile
+and off-LAN reachability. `oscout.net` should be explicit in UI copy as an
+OpenScout relay/fallback path rather than the normal mesh path.
+
+Rationale:
+
+- The operator can understand and debug the nearest boundary first.
+- Local traffic should stay inside local boundaries whenever a direct route is
+  healthy.
+- Tailscale is valuable for phones and roaming machines without making it the
+  canonical route for nearby peers.
+- `oscout.net` is ours, but Cloudflare-hosted and less familiar than Tailscale,
+  so it should be treated as the least-default tier.
+
+### Remote Observe Before A Bridge
+
+Before a dedicated observe bridge exists, remote observe should be limited to
+broker-owned summaries and explicitly advertised observed material. It may show
+agent state, active work, last activity, recent Scout messages, route status,
+and linked observed artifacts when the remote node advertises them, but it must
+not promise live transcript parity or import raw external harness transcripts as
+Scout messages.
+
+Rationale:
+
+- The broker can coordinate Scout-owned records safely today.
+- External transcripts remain harness-owned source material.
+- A dedicated observe bridge can later add live remote detail behind explicit
+  capability gates.
+
+### Request Status
+
+Request status should start as a normal ask composer preset with structured
+routing context, not a separate broker primitive.
+
+Rationale:
+
+- The desired outcome is a reply, so the ask/invocation lifecycle already fits.
+- A preset gives the UI a consistent button without inventing another delivery
+  path.
+- If usage proves common enough, the broker can later add a thin action alias
+  that still creates a normal invocation.
+
+### Remote Wake V1
+
+V1 remote wake should be limited to capability-advertised, broker-mediated wake
+attempts for already registered remote agents. It should report accepted,
+peer-handoff, target-acknowledged, failed, stale, or unsupported states. Process
+control, terminal takeover, host file actions, and anything requiring new host
+permission should wait for an explicit host permission capture path.
+
+Rationale:
+
+- Wake is operationally useful only when the remote node says it supports it.
+- Permission-sensitive operations need an auditable human path on the authority
+  machine.
+- A failed or unsupported wake should still produce useful route diagnostics.
+
+### Route Capability Summaries
+
+For the first implementation, route capability summaries should live in web read
+models derived from protocol records and broker snapshots. The UI should render
+capabilities as read-model facts, while the protocol keeps durable primitives:
+agents, nodes, endpoints, deliveries, invocations, flights, conversations, and
+work items. Promote a capability summary into protocol only after more than one
+client or transport needs the same persisted contract.
+
+Rationale:
+
+- Read models let the UI iterate quickly without hardening premature protocol
+  shape.
+- Protocol records stay focused on durable coordination facts.
+- Promotion remains available once the capability vocabulary stabilizes.
