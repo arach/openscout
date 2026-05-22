@@ -321,6 +321,45 @@
   line-height: 1.5;
 }
 
+/* ── Channel context ── */
+
+.ctx-panel--channel {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 16%, transparent), transparent 160px),
+    transparent;
+}
+
+.ctx-panel-channel-summary {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.ctx-panel-channel-summary .ctx-panel-section-label {
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.ctx-panel-channel-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 74%, var(--surface));
+}
+
+.ctx-panel-channel-item {
+  align-items: flex-start;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+.ctx-panel-channel-item .ctx-panel-body {
+  gap: 2px;
+}
+
 .ctx-panel-roster-button {
   margin: 8px;
   padding: 8px 12px;

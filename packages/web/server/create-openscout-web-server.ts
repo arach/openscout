@@ -2605,6 +2605,7 @@ export async function createOpenScoutWebServer(
   });
   const handleListWork = (c: Context) => {
     const agentId = c.req.query("agentId");
+    const conversationId = c.req.query("conversationId");
     const activeOnly = c.req.query("active") !== "false";
     const rawLimit = Number(c.req.query("limit"));
     const limit = Number.isFinite(rawLimit)
@@ -2613,6 +2614,7 @@ export async function createOpenScoutWebServer(
     return c.json(
       queryWorkItems({
         agentId: agentId || undefined,
+        conversationId: conversationId || undefined,
         activeOnly,
         limit,
       }),

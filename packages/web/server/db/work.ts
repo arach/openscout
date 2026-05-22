@@ -629,14 +629,19 @@ export function queryInferredWorkTimelineFlights(
 
 export function queryWorkItems(opts?: {
   agentId?: string;
+  conversationId?: string;
   activeOnly?: boolean;
   limit?: number;
 }): WebWorkItem[] {
   const operatorIds = configuredOperatorActorIds();
   const operatorClause = sqlPlaceholders(operatorIds.length);
+  const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
   const where = sqlJoinClauses([
     "cr.kind = 'work_item'",
     opts?.activeOnly !== false ? `cr.state IN ${ACTIVE_WORK_STATES_SQL}` : null,
+    conversationIds.length > 0
+      ? `cr.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
+      : null,
     opts?.agentId ? "(cr.owner_id = ? OR cr.next_move_owner_id = ?)" : null,
   ]);
 
@@ -756,6 +761,9 @@ export function queryWorkItems(opts?: {
 
   const limit = opts?.limit ?? 50;
   const params: Array<string | number> = [...operatorIds];
+  if (conversationIds.length > 0) {
+    params.push(...conversationIds);
+  }
   if (opts?.agentId) {
     params.push(opts.agentId, opts.agentId);
   }
