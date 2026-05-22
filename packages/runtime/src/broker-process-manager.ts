@@ -56,6 +56,17 @@ export type BrokerHealthSnapshot = {
     nodes: number;
     actors: number;
     agents: number;
+    agentRecords?: number;
+    rawAgentRecords?: number;
+    configuredAgents?: number;
+    scoutManagedAgents?: number;
+    currentAgentRegistrations?: number;
+    localAgentRegistrations?: number;
+    remoteAgentRegistrations?: number;
+    staleAgentRegistrations?: number;
+    retiredAgentRegistrations?: number;
+    oneTimeAgentCards?: number;
+    persistentAgentCards?: number;
     conversations: number;
     messages: number;
     flights: number;
@@ -634,6 +645,17 @@ async function fetchHealthSnapshot(config: BrokerServiceConfig): Promise<BrokerH
             nodes: payload.counts.nodes ?? 0,
             actors: payload.counts.actors ?? 0,
             agents: payload.counts.agents ?? 0,
+            agentRecords: payload.counts.agentRecords,
+            rawAgentRecords: payload.counts.rawAgentRecords,
+            configuredAgents: payload.counts.configuredAgents,
+            scoutManagedAgents: payload.counts.scoutManagedAgents,
+            currentAgentRegistrations: payload.counts.currentAgentRegistrations,
+            localAgentRegistrations: payload.counts.localAgentRegistrations,
+            remoteAgentRegistrations: payload.counts.remoteAgentRegistrations,
+            staleAgentRegistrations: payload.counts.staleAgentRegistrations,
+            retiredAgentRegistrations: payload.counts.retiredAgentRegistrations,
+            oneTimeAgentCards: payload.counts.oneTimeAgentCards,
+            persistentAgentCards: payload.counts.persistentAgentCards,
             conversations: payload.counts.conversations ?? 0,
             messages: payload.counts.messages ?? 0,
             flights: payload.counts.flights ?? 0,

@@ -86,6 +86,7 @@ import {
   parseScoutPermissionProfile,
 } from "./permission-policy.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
+import { resolveOperatorHandle } from "./user-config.js";
 
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
@@ -499,6 +500,86 @@ export function buildLocalAgentSystemPromptTemplate(): string {
     "",
     "{{protocol_prompt}}",
   ].join("\n");
+}
+
+function normalizeOperatorHandleSegment(value: string | undefined): string {
+  return normalizeAgentSelectorSegment(value?.trim().replace(/^@+/, "") ?? "") || "operator";
+}
+
+export function resolveOperatorAugmentAgentName(): string {
+  return `${normalizeOperatorHandleSegment(resolveOperatorHandle())}-ai`;
+}
+
+function operatorAugmentAgentNameCandidates(): Set<string> {
+  return new Set([
+    resolveOperatorAugmentAgentName(),
+    "operator-ai",
+  ]);
+}
+
+export function buildOperatorAugmentSystemPromptTemplate(input: {
+  operatorHandle?: string;
+  augmentHandle?: string;
+} = {}): string {
+  const operatorHandle = normalizeOperatorHandleSegment(input.operatorHandle ?? resolveOperatorHandle());
+  const augmentHandle = normalizeOperatorHandleSegment(input.augmentHandle ?? `${operatorHandle}-ai`);
+  const humanLabel = `@${operatorHandle}`;
+  const augmentLabel = `@${augmentHandle}`;
+
+  return [
+    "{{base_prompt}}",
+    "",
+    `You are the augmented counterpart to the human Scout operator ${humanLabel}.`,
+    `${humanLabel} is the human. ${augmentLabel} is the AI-augmented looper with a human in the loop.`,
+    `Do not impersonate ${humanLabel}. Speak and act as ${augmentLabel}, and involve ${humanLabel} only when human judgment or approval is the real next dependency.`,
+    "",
+    "Operating loop:",
+    "  - Keep long-running conversations in the same DM or invocation thread whenever possible.",
+    "  - Maintain continuity across turns: track the goal, decisions made, open questions, blockers, and promised follow-ups.",
+    "  - For efforts that span many turns, many files, or more than one working session, create or update a durable note/checkpoint when you have write access, then point to it briefly.",
+    "  - Prefer continuing from a concise recap over resetting context. If context is aging, summarize the useful state and keep moving.",
+    `  - Be explicit about the next responsible owner: ${augmentLabel}, ${humanLabel}, or another named agent.`,
+    "",
+    `When to invoke ${humanLabel}:`,
+    "  - Approval is needed for destructive, irreversible, public, financial, security-sensitive, credential, privacy, or cross-project priority decisions.",
+    `  - The task depends on taste, intent, product direction, personal context, or a choice only ${humanLabel} can make.`,
+    "  - You are blocked after a reasonable local attempt and the unblock request can be stated as a short concrete question.",
+    "  - A result is materially uncertain and acting without human input could waste meaningful time or create cleanup work.",
+    "  - You need permission to interrupt, wake, or redirect other people or agents outside the current work venue.",
+    "",
+    `How to invoke ${humanLabel}:`,
+    "  - Keep the ask concise: context, the decision needed, the default you recommend, and the consequence of no answer.",
+    "  - Use the same DM/thread when it exists. Do not broadcast human-loop requests.",
+    `  - If a reply is required before work can proceed, say that ${humanLabel} owns the next move and stop claiming progress.`,
+    "  - If work can continue safely, state the assumption and continue without waiting.",
+    "",
+    `Do not invoke ${humanLabel} for:`,
+    "  - Routine status updates, obvious implementation details, command outputs, local orientation, or reversible low-risk cleanup.",
+    "  - Ambiguity that you can resolve by reading the repo, checking Scout state, or asking the correct specialist agent.",
+    "",
+    "{{project_context}}",
+    "",
+    "{{collaboration_prompt}}",
+    "",
+    "{{protocol_prompt}}",
+  ].join("\n");
+}
+
+function operatorAugmentDefaultsForDefinitionId(definitionId: string): {
+  displayName: string;
+  systemPrompt: string;
+} | null {
+  const normalizedDefinitionId = normalizeAgentSelectorSegment(definitionId);
+  if (!normalizedDefinitionId || !operatorAugmentAgentNameCandidates().has(normalizedDefinitionId)) {
+    return null;
+  }
+
+  return {
+    displayName: titleCaseLocalAgentName(normalizedDefinitionId),
+    systemPrompt: buildOperatorAugmentSystemPromptTemplate({
+      augmentHandle: normalizedDefinitionId,
+    }),
+  };
 }
 
 export function renderLocalAgentSystemPromptTemplate(
@@ -3373,7 +3454,11 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       : "";
     const definitionId = requestedDefinitionId || configDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
     const configDisplayName = coldProjectConfig?.agent?.displayName?.trim() || "";
-    const effectiveDisplayName = input.displayName || configDisplayName || titleCaseLocalAgentName(definitionId);
+    const operatorAugmentDefaults = operatorAugmentDefaultsForDefinitionId(definitionId);
+    const effectiveDisplayName = input.displayName
+      || operatorAugmentDefaults?.displayName
+      || configDisplayName
+      || titleCaseLocalAgentName(definitionId);
     const instance = buildRelayAgentInstance(definitionId, projectRoot);
     const configDefaultHarness = coldProjectConfig?.agent?.runtime?.defaultHarness;
     const effectiveHarness = normalizeManagedHarness(preferredHarness ?? configDefaultHarness, "claude");
@@ -3402,6 +3487,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       projectConfigPath: coldProjectConfigPath,
       source: "manual",
       startedAt: nowSeconds(),
+      ...(operatorAugmentDefaults ? { systemPrompt: operatorAugmentDefaults.systemPrompt } : {}),
       launchArgs,
       defaultHarness: effectiveHarness,
       ...(cardLifecycle ? { card: cardLifecycle } : {}),
@@ -3457,15 +3543,17 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       preferredHarness ? undefined : matchingOverride.runtime?.transport,
       nextHarness,
     );
+    const operatorAugmentDefaults = operatorAugmentDefaultsForDefinitionId(requestedDefinitionId);
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId: requestedDefinitionId,
-      displayName: input.displayName || titleCaseLocalAgentName(requestedDefinitionId),
+      displayName: input.displayName || operatorAugmentDefaults?.displayName || titleCaseLocalAgentName(requestedDefinitionId),
       projectName: matchingOverride.projectName ?? basename(matchingProjectRoot),
       projectRoot: matchingProjectRoot,
       projectConfigPath: null,
       source: "manual",
       startedAt: matchingOverride.startedAt ?? nowSeconds(),
+      ...(operatorAugmentDefaults ? { systemPrompt: operatorAugmentDefaults.systemPrompt } : {}),
       launchArgs: nextHarness === nextDefaultHarness
         ? nextLaunchArgs
         : matchingOverride.launchArgs,
@@ -3493,7 +3581,13 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     await writeRelayAgentOverrides(overrides);
     targetAgentId = instance.id;
   } else {
-    if (input.model || input.reasoningEffort || requestedPermissionProfile || cardLifecycle) {
+    const operatorAugmentDefaults = operatorAugmentDefaultsForDefinitionId(
+      matchingOverride.definitionId ?? requestedDefinitionId,
+    );
+    const shouldApplyOperatorAugmentPrompt = Boolean(
+      operatorAugmentDefaults && !matchingOverride.systemPrompt?.trim(),
+    );
+    if (input.model || input.reasoningEffort || requestedPermissionProfile || cardLifecycle || shouldApplyOperatorAugmentPrompt) {
       const existingHarness = normalizeManagedHarness(
         preferredHarness ?? matchingOverride.defaultHarness ?? matchingOverride.runtime?.harness,
         "claude",
@@ -3510,6 +3604,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       overrides[matchingAgentId!] = {
         ...matchingOverride,
         ...(cardLifecycle ? { card: cardLifecycle } : {}),
+        ...(shouldApplyOperatorAugmentPrompt ? { systemPrompt: operatorAugmentDefaults!.systemPrompt } : {}),
         launchArgs: existingHarness === defaultHarnessForOverride(matchingOverride, existingHarness)
           ? nextLaunchArgs
           : matchingOverride.launchArgs,

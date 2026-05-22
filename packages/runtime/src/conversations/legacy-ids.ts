@@ -17,7 +17,7 @@
  *     compat window closes.
  */
 
-import { resolveOperatorName } from "../user-config.js";
+import { resolveOperatorHandle, resolveOperatorName } from "../user-config.js";
 
 /**
  * Derive the canonical direct conversation ID for an operator↔agent chat.
@@ -28,7 +28,8 @@ export function conversationIdForAgent(agentId: string): string {
 
 export function configuredOperatorActorIds(): string[] {
   const operatorName = resolveOperatorName().trim() || "operator";
-  return Array.from(new Set(["operator", operatorName]));
+  const operatorHandle = resolveOperatorHandle().trim() || operatorName;
+  return Array.from(new Set(["operator", operatorName, operatorHandle]));
 }
 
 export function buildDirectConversationId(operatorId: string, agentId: string): string {

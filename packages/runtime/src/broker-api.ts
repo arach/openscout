@@ -37,7 +37,19 @@ export type ScoutBrokerHealthPayload = {
   counts: {
     nodes: number;
     actors: number;
+    /** Operator-facing top-level agent count. Raw storage count is `agentRecords`. */
     agents: number;
+    agentRecords?: number;
+    rawAgentRecords?: number;
+    configuredAgents?: number;
+    scoutManagedAgents?: number;
+    currentAgentRegistrations?: number;
+    localAgentRegistrations?: number;
+    remoteAgentRegistrations?: number;
+    staleAgentRegistrations?: number;
+    retiredAgentRegistrations?: number;
+    oneTimeAgentCards?: number;
+    persistentAgentCards?: number;
     conversations: number;
     messages: number;
     flights: number;

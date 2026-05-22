@@ -2,17 +2,19 @@
 
 Scout stores per-user configuration in `~/.openscout/user.json`. This config is shared between the CLI and the web UI.
 
-## Your Operator Name
+## Your Operator Name And Handle
 
-Scout keeps a human/operator name in `~/.openscout/user.json`. This is the
-fallback identity Scout uses when it needs a person-level sender rather than a
-project- or agent-scoped sender. You can set a custom name that will be used
-everywhere Scout needs that operator identity.
+Scout keeps a human/operator name and optional handle in
+`~/.openscout/user.json`. The name is the fallback sender identity Scout uses
+when it needs a person-level sender rather than a project- or agent-scoped
+sender. The handle is the human-facing alias, without requiring the leading
+`@` in config.
 
 ### Set via CLI
 
 ```bash
-scout config set name arach
+scout config set name Alice
+scout config set handle @alice
 ```
 
 ### Set via Web UI
@@ -23,17 +25,21 @@ Open Settings → Identity → type your name → Save.
 
 ```bash
 scout config
-# name: arach
+# name: Alice
+# handle: @alice
 
 scout config get name
-# arach
+# Alice
+
+scout config get handle
+# alice
 ```
 
 ### Reset to default
 
 ```bash
 scout config set name
-# Name reset to default: arach (falls back to $USER)
+# Name reset to default: <your $USER>
 ```
 
 ## Operator Name Resolution Order
@@ -46,6 +52,37 @@ Scout resolves your operator name in this order:
 4. `"operator"` (hardcoded fallback)
 
 The first non-empty value wins.
+
+## Operator Handle Resolution Order
+
+Scout resolves your operator handle in this order:
+
+1. `~/.openscout/user.json` → `handle` field, with leading `@` removed
+2. `OPENSCOUT_OPERATOR_HANDLE` environment variable
+3. `~/.openscout/user.json` → `name` field
+4. `OPENSCOUT_OPERATOR_NAME` environment variable
+5. `$USER` environment variable
+6. `"operator"` (hardcoded fallback)
+
+The handle is used for human-facing aliases and compatibility with direct DM
+ids during the structural conversation-id transition.
+
+## Operator Augment Agent
+
+Scout can create a long-lived AI counterpart for the human operator. Start an
+agent named after your operator handle plus `-ai`:
+
+```bash
+scout up "$HOME" --name "$(scout config get handle)-ai" --harness codex --model gpt-5.5
+```
+
+For a handle of `@alice`, this creates `@alice-ai`. The generated system prompt
+keeps the stock Scout routing contract and adds the human-in-the-loop rules:
+the augment keeps longer-running conversations in the same venue, maintains
+continuity, and invokes the human operator only for concrete decisions,
+approvals, or unblock questions.
+Use a project root instead of `$HOME` when the augment should be scoped to one
+codebase.
 
 ## Default Collaboration Sender
 
@@ -88,7 +125,8 @@ scout send --as premotion.master.mini --to arc "deploy complete"
 
 ```json
 {
-  "name": "arach"
+  "name": "Alice",
+  "handle": "@alice"
 }
 ```
 
