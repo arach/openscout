@@ -19,22 +19,104 @@ const CARD_GUTTER = 8;
 const agentCache = new Map<string, { agent: Agent | null; fetchedAt: number }>();
 const CACHE_TTL_MS = 10_000;
 
-function lookupAgent(identity: AgentIdentity, agents: Agent[]): Agent | null {
-  if (identity.definitionId) {
-    const byId = agents.find((a) => a.id === identity.definitionId);
-    if (byId) return byId;
+function normalizedIdentityValue(value: string | null | undefined): string | null {
+  const trimmed = value?.trim().replace(/^@+/, "").toLowerCase();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+function agentIdentityValues(agent: Agent): Set<string> {
+  const values = new Set<string>();
+  const add = (value: string | null | undefined) => {
+    const normalized = normalizedIdentityValue(value);
+    if (normalized) values.add(normalized);
+  };
+
+  add(agent.id);
+  add(agent.handle);
+  add(agent.name);
+  add(agent.selector);
+  add(agent.defaultSelector);
+  add(agent.definitionId);
+
+  if (agent.definitionId && agent.workspaceQualifier) {
+    add(`${agent.definitionId}.${agent.workspaceQualifier}`);
   }
-  const handle = identity.label.replace(/^@/, "").toLowerCase();
-  return (
-    agents.find((a) => (a.handle ?? "").toLowerCase() === handle) ??
-    agents.find((a) => a.name.toLowerCase() === handle) ??
-    null
-  );
+  if (agent.definitionId && agent.workspaceQualifier && agent.nodeQualifier) {
+    add(`${agent.definitionId}.${agent.workspaceQualifier}.${agent.nodeQualifier}`);
+    add(`${agent.definitionId}.${agent.workspaceQualifier}.node:${agent.nodeQualifier}`);
+  }
+  if (agent.definitionId && agent.nodeQualifier) {
+    add(`${agent.definitionId}.node:${agent.nodeQualifier}`);
+  }
+
+  return values;
+}
+
+function agentMatchesIdentity(agent: Agent, identity: AgentIdentity): boolean {
+  const label = normalizedIdentityValue(identity.label);
+  const raw = normalizedIdentityValue(identity.raw);
+  const values = agentIdentityValues(agent);
+  if ((label && values.has(label)) || (raw && values.has(raw))) {
+    return true;
+  }
+
+  if (identity.definitionId && normalizedIdentityValue(agent.definitionId) !== normalizedIdentityValue(identity.definitionId)) {
+    return false;
+  }
+  if (identity.workspaceQualifier && normalizedIdentityValue(agent.workspaceQualifier) !== normalizedIdentityValue(identity.workspaceQualifier)) {
+    return false;
+  }
+  if (identity.nodeQualifier && normalizedIdentityValue(agent.nodeQualifier) !== normalizedIdentityValue(identity.nodeQualifier)) {
+    return false;
+  }
+  if (identity.harness && normalizedIdentityValue(agent.harness) !== normalizedIdentityValue(identity.harness)) {
+    return false;
+  }
+  if (identity.model && normalizedIdentityValue(agent.model) !== normalizedIdentityValue(identity.model)) {
+    return false;
+  }
+
+  return Boolean(identity.definitionId);
+}
+
+function agentIdentityRank(agent: Agent, identity: AgentIdentity): number {
+  const label = normalizedIdentityValue(identity.label);
+  const raw = normalizedIdentityValue(identity.raw);
+  const values = agentIdentityValues(agent);
+  const exact = (label && values.has(label)) || (raw && values.has(raw)) ? 1000 : 0;
+  const specificity = [
+    identity.workspaceQualifier,
+    identity.nodeQualifier,
+    identity.harness,
+    identity.model,
+    identity.profile,
+  ].filter(Boolean).length * 100;
+  const state = normalizeAgentState(agent.state);
+  const stateRank = state === "working" ? 30 : state === "available" ? 20 : 0;
+  return exact + specificity + stateRank + Math.min(agent.updatedAt ?? 0, 9_999_999_999) / 1_000_000_000;
+}
+
+function candidateFetchId(identity: AgentIdentity): string | null {
+  const raw = normalizedIdentityValue(identity.raw);
+  if (raw && raw.split(".").length >= 3) {
+    return raw;
+  }
+  return null;
+}
+
+function lookupAgent(identity: AgentIdentity, agents: Agent[]): Agent | null {
+  const matches = agents
+    .filter((agent) => agentMatchesIdentity(agent, identity))
+    .sort((left, right) => agentIdentityRank(right, identity) - agentIdentityRank(left, identity));
+  if (matches[0]) {
+    return matches[0];
+  }
+  return null;
 }
 
 async function fetchAgent(identity: AgentIdentity, agents: Agent[]): Promise<Agent | null> {
   const seed = lookupAgent(identity, agents);
-  const id = seed?.id ?? identity.definitionId;
+  const id = seed?.id ?? candidateFetchId(identity);
   const cacheKey = id ?? identity.label;
   const cached = agentCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {

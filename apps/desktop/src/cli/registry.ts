@@ -35,7 +35,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "restart", summary: "Restart configured local agents" },
   { name: "menu", summary: "Launch the OpenScout macOS menu bar app" },
   { name: "vantage", summary: "Build a Hudson Vantage terminal canvas plan" },
-  { name: "config", summary: "View or set user config (name, etc.)" },
+  { name: "config", summary: "View or set user config (name, handle, etc.)" },
   { name: "mesh", summary: "Mesh status and diagnostics" },
   { name: "pair", summary: "Pair a companion device via QR" },
   { name: "server", summary: "Run the Scout web UI (Bun; see: scout server start/open)" },

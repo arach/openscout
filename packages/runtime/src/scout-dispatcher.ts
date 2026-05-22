@@ -93,25 +93,6 @@ function metadataStringValue(metadata: Record<string, unknown> | undefined, key:
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function replacementForStaleAgent(
-  snapshot: RuntimeSnapshot,
-  agent: AgentDefinition,
-  helpers: Pick<DispatcherHelpers, "isStale">,
-): AgentDefinition | undefined {
-  if (!helpers.isStale(agent)) {
-    return undefined;
-  }
-  const replacementAgentId = metadataStringValue(agent.metadata, "replacedByAgentId");
-  if (!replacementAgentId || replacementAgentId === agent.id) {
-    return undefined;
-  }
-  const replacement = snapshot.agents[replacementAgentId];
-  if (!replacement || helpers.isStale(replacement)) {
-    return undefined;
-  }
-  return replacement;
-}
-
 function isReservedProductIdentity(definitionId: string): boolean {
   return definitionId === SCOUT_DISPATCHER_AGENT_ID
     || definitionId === OPENSCOUT_COORDINATOR_AGENT_ID;
@@ -218,11 +199,7 @@ export function resolveAgentLabel(
     if (fallbackDiagnosis.kind === "resolved") {
       return {
         kind: "resolved",
-        agent: replacementForStaleAgent(
-          snapshot,
-          fallbackDiagnosis.match.agent,
-          options.helpers,
-        ) ?? fallbackDiagnosis.match.agent,
+        agent: fallbackDiagnosis.match.agent,
       };
     }
     if (fallbackDiagnosis.kind === "ambiguous") {
@@ -339,7 +316,7 @@ function resolveSessionTarget(
     .filter((endpoint) => endpointMatchesSessionId(endpoint, sessionId))
     .map((endpoint) => snapshot.agents[endpoint.agentId])
     .filter((agent): agent is AgentDefinition => Boolean(agent))
-    .map((agent) => replacementForStaleAgent(snapshot, agent, options.helpers) ?? agent);
+    .map((agent) => agent);
   const unique = [...new Map(candidates.map((agent) => [agent.id, agent])).values()];
   if (unique.length === 0) {
     return { kind: "unknown", label: `session:${sessionId}` };
@@ -377,12 +354,6 @@ export function resolveBrokerRouteTarget(
 
   if (directId) {
     const agent = snapshot.agents[directId];
-    if (agent) {
-      const replacement = replacementForStaleAgent(snapshot, agent, options.helpers);
-      if (replacement) {
-        return { kind: "resolved", agent: replacement };
-      }
-    }
     if (agent && (policy?.allowStaleDirectId ?? true)) {
       return { kind: "resolved", agent };
     }

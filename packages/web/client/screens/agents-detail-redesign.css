@@ -549,6 +549,32 @@
   opacity: 1;
 }
 
+.s-agent-profile-hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.s-agent-code-value {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.s-agent-profile-hero-tags .s-agent-code-value {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--muted);
+}
+
 .s-agent-casefile-actions,
 .s-agent-profile-hero-actions {
   display: flex;

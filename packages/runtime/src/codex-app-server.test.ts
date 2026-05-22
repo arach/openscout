@@ -10,6 +10,7 @@ import {
   ensureCodexAppServerAgentOnline,
   getCodexAppServerAgentSnapshot,
   invokeCodexAppServerAgent,
+  isCodexAppServerExitError,
   normalizeCodexAppServerLaunchArgs,
   readCodexAppServerReasoningEffortFromLaunchArgs,
   resolveCodexExecutableCandidates,
@@ -289,6 +290,105 @@ for await (const line of rl) {
 
   if (method === "turn/interrupt") {
     console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  console.log(JSON.stringify({ id, result: {} }));
+}
+`, "utf8");
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
+
+function writeHangingFakeCodexExecutable(baseDirectory: string): string {
+  const executablePath = join(baseDirectory, "fake-codex-hanging");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+setInterval(() => {}, 1_000);
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  if (method === "thread/resume") {
+    const threadId = String(params.threadId ?? "thread-unknown");
+    const cwd = typeof params.cwd === "string" ? params.cwd : null;
+    const thread = { id: threadId, path: \`/tmp/\${threadId}.jsonl\`, cwd };
+    console.log(JSON.stringify({ id, result: { thread } }));
+    console.log(JSON.stringify({ method: "thread/started", params: { thread } }));
+    continue;
+  }
+
+  if (method === "turn/start") {
+    const threadId = String(params.threadId ?? "thread-unknown");
+    console.log(JSON.stringify({ id, result: { turn: { id: "turn-hanging" } } }));
+    console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: "turn-hanging", status: "inProgress", items: [] } } }));
+    continue;
+  }
+
+  console.log(JSON.stringify({ id, result: {} }));
+}
+`, "utf8");
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
+
+function writeSigtermOnTurnFakeCodexExecutable(baseDirectory: string): string {
+  const executablePath = join(baseDirectory, "fake-codex-sigterm-on-turn");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+let activeThreadId = "thread-unknown";
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  if (method === "thread/resume") {
+    activeThreadId = String(params.threadId ?? "thread-unknown");
+    const cwd = typeof params.cwd === "string" ? params.cwd : null;
+    const thread = { id: activeThreadId, path: \`/tmp/\${activeThreadId}.jsonl\`, cwd };
+    console.log(JSON.stringify({ id, result: { thread } }));
+    console.log(JSON.stringify({ method: "thread/started", params: { thread } }));
+    continue;
+  }
+
+  if (method === "turn/start") {
+    activeThreadId = String(params.threadId ?? activeThreadId);
+    console.log(JSON.stringify({ id, result: { turn: { id: "turn-sigterm" } } }));
+    console.log(JSON.stringify({ method: "turn/started", params: { threadId: activeThreadId, turn: { id: "turn-sigterm", status: "inProgress", items: [] } } }));
+    setTimeout(() => {
+      process.kill(process.pid, "SIGTERM");
+    }, 10);
     continue;
   }
 
@@ -1054,6 +1154,125 @@ describe("ensureCodexAppServerAgentOnline", () => {
     expect(argv).toContain("sandbox_workspace_write.enabled=true");
     expect(argv).not.toContain("--model");
     expect(argv).not.toContain("--reasoning-effort");
+
+    await shutdownCodexAppServerAgent(options);
+  });
+
+  test("logs OpenScout-initiated SIGTERM shutdowns as proactive stops", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-proactive-shutdown-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "runtime");
+    const logsDirectory = join(tempRoot, "logs");
+    process.env.OPENSCOUT_CODEX_BIN = writeHangingFakeCodexExecutable(tempRoot);
+
+    const options = {
+      agentName: "codex-proactive-shutdown",
+      sessionId: "attached-codex-proactive-shutdown",
+      cwd: process.cwd(),
+      systemPrompt: "Resume the existing session without changing its identity or prior context.",
+      runtimeDirectory,
+      logsDirectory,
+      threadId: "thread-proactive-shutdown-1",
+      requireExistingThread: true,
+      launchArgs: [],
+    } as const;
+
+    await ensureCodexAppServerAgentOnline(options);
+    await shutdownCodexAppServerAgent(options, {
+      reason: "OpenScout test requested shutdown",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const stderr = readFileSync(join(logsDirectory, "stderr.log"), "utf8");
+    expect(stderr).toContain(
+      "[openscout] Codex app-server stopped for codex-proactive-shutdown: OpenScout test requested shutdown (SIGTERM)",
+    );
+    expect(stderr).not.toContain("Codex app-server exited for codex-proactive-shutdown");
+  });
+
+  test("classifies OpenScout shutdowns during active turns as proactive", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-active-shutdown-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "runtime");
+    const logsDirectory = join(tempRoot, "logs");
+    process.env.OPENSCOUT_CODEX_BIN = writeHangingFakeCodexExecutable(tempRoot);
+
+    const options = {
+      agentName: "codex-active-shutdown",
+      sessionId: "attached-codex-active-shutdown",
+      cwd: process.cwd(),
+      systemPrompt: "Resume the existing session without changing its identity or prior context.",
+      runtimeDirectory,
+      logsDirectory,
+      threadId: "thread-active-shutdown-1",
+      requireExistingThread: true,
+      launchArgs: [],
+    } as const;
+
+    await ensureCodexAppServerAgentOnline(options);
+    const activeTurn = invokeCodexAppServerAgent({
+      ...options,
+      prompt: "keep working",
+      timeoutMs: 5_000,
+    }).then(
+      () => undefined,
+      (error) => error as unknown,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await shutdownCodexAppServerAgent(options, {
+      reason: "OpenScout test stopped an active turn",
+    });
+
+    const thrown = await activeTurn;
+
+    expect(isCodexAppServerExitError(thrown)).toBe(true);
+    expect((thrown as { exitKind?: string }).exitKind).toBe("proactive_shutdown");
+    expect((thrown as { noteworthy?: boolean }).noteworthy).toBe(true);
+    expect((thrown as Error).message).toBe(
+      "Codex app-server session for codex-active-shutdown was stopped by OpenScout: OpenScout test stopped an active turn.",
+    );
+  });
+
+  test("classifies unexpected SIGTERM exits as noteworthy interruptions", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-external-sigterm-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "runtime");
+    const logsDirectory = join(tempRoot, "logs");
+    process.env.OPENSCOUT_CODEX_BIN = writeSigtermOnTurnFakeCodexExecutable(tempRoot);
+
+    const options = {
+      agentName: "codex-external-sigterm",
+      sessionId: "attached-codex-external-sigterm",
+      cwd: process.cwd(),
+      systemPrompt: "Resume the existing session without changing its identity or prior context.",
+      runtimeDirectory,
+      logsDirectory,
+      threadId: "thread-external-sigterm-1",
+      requireExistingThread: true,
+      launchArgs: [],
+    } as const;
+
+    let thrown: unknown;
+    try {
+      await invokeCodexAppServerAgent({
+        ...options,
+        prompt: "trigger sigterm",
+        timeoutMs: 5_000,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(isCodexAppServerExitError(thrown)).toBe(true);
+    expect((thrown as { exitKind?: string }).exitKind).toBe("external_sigterm");
+    expect((thrown as { noteworthy?: boolean }).noteworthy).toBe(true);
+    expect((thrown as Error).message).toBe(
+      "Codex app-server for codex-external-sigterm was interrupted by SIGTERM.",
+    );
+
+    const stderr = readFileSync(join(logsDirectory, "stderr.log"), "utf8");
+    expect(stderr).toContain("Codex app-server for codex-external-sigterm was interrupted by SIGTERM.");
+    expect(stderr).not.toContain("Codex app-server exited for codex-external-sigterm (SIGTERM)");
 
     await shutdownCodexAppServerAgent(options);
   });

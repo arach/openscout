@@ -151,6 +151,10 @@ export type WorkMaterialContentResult =
   | { ok: true; content: WorkMaterialContent }
   | { ok: false; status: number; error: string };
 
+export type WorkMaterialRawResult =
+  | { ok: true; realPath: string; mediaType: string; sizeBytes: number }
+  | { ok: false; status: number; error: string };
+
 type GitFileStatus = {
   path: string;
   status: WorkMaterialStatus;
@@ -250,6 +254,12 @@ function materialAbsolutePath(material: WorkMaterial, root: string): string {
 
 function materialMediaType(path: string): string {
   const lower = path.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".avif")) return "image/avif";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
   if (lower.endsWith(".md") || lower.endsWith(".mdx")) return "text/markdown";
   if (lower.endsWith(".json") || lower.endsWith(".jsonc")) return "application/json";
   if (lower.endsWith(".ts") || lower.endsWith(".tsx")) return "text/typescript";
@@ -1071,6 +1081,70 @@ export async function buildWorkMaterialsInventory(
     totals: totals(materials, agents, sessions),
     limitations: state.limitations,
   };
+}
+
+async function resolveTrustedMaterialPath(
+  work: WebWorkDetail,
+  materialId: string,
+): Promise<
+  | { ok: true; material: WorkMaterial; realPath: string }
+  | { ok: false; status: number; error: string }
+> {
+  const trimmedId = materialId.trim();
+  if (!trimmedId) {
+    return { ok: false, status: 400, error: "materialId is required" };
+  }
+
+  const inventory = await buildWorkMaterialsInventory(work);
+  const material = inventory.materials.find((candidate) => candidate.id === trimmedId);
+  if (!material) {
+    return { ok: false, status: 404, error: "material not found" };
+  }
+  if (material.status === "deleted") {
+    return { ok: false, status: 410, error: "material was deleted" };
+  }
+
+  const root = trustedMaterialRoot(material);
+  if (!root) {
+    return { ok: false, status: 404, error: "material does not have a trusted local root" };
+  }
+
+  const absolutePath = materialAbsolutePath(material, root);
+  try {
+    const realPath = realpathSync(absolutePath);
+    const realRoot = realpathSync(root);
+    if (!pathInsideRoot(realPath, realRoot)) {
+      return { ok: false, status: 403, error: "material path is outside its trusted root" };
+    }
+    const stat = statSync(realPath);
+    if (!stat.isFile()) {
+      return { ok: false, status: 415, error: "material is not a file" };
+    }
+    return { ok: true, material, realPath };
+  } catch {
+    return { ok: false, status: 404, error: "material could not be read" };
+  }
+}
+
+export async function readWorkMaterialRaw(
+  work: WebWorkDetail,
+  materialId: string,
+): Promise<WorkMaterialRawResult> {
+  const resolved = await resolveTrustedMaterialPath(work, materialId);
+  if (!resolved.ok) {
+    return resolved;
+  }
+  try {
+    const stat = statSync(resolved.realPath);
+    return {
+      ok: true,
+      realPath: resolved.realPath,
+      mediaType: materialMediaType(resolved.realPath),
+      sizeBytes: stat.size,
+    };
+  } catch {
+    return { ok: false, status: 404, error: "material could not be read" };
+  }
 }
 
 export async function readWorkMaterialContent(

@@ -22,6 +22,10 @@ import type { WebAgent } from "./types/web.ts";
 
 type AgentQueryRow = {
   id: string;
+  definition_id: string;
+  node_qualifier: string | null;
+  workspace_qualifier: string | null;
+  selector: string | null;
   name: string;
   handle: string | null;
   actor_created_at: number | null;
@@ -55,6 +59,10 @@ export function queryAgents(limit = 500): WebAgent[] {
     .prepare(
       `SELECT
          a.id,
+         a.definition_id,
+         a.node_qualifier,
+         a.workspace_qualifier,
+         a.selector,
          ac.display_name AS name,
          ac.handle,
          ${actorCreatedAtExpression} AS actor_created_at,
@@ -101,6 +109,10 @@ export function queryAgentById(agentId: string): WebAgent | null {
     .prepare(
       `SELECT
          a.id,
+         a.definition_id,
+         a.node_qualifier,
+         a.workspace_qualifier,
+         a.selector,
          ac.display_name AS name,
          ac.handle,
          ${actorCreatedAtExpression} AS actor_created_at,
@@ -152,6 +164,7 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
 
     return {
       id: r.id,
+      definitionId: r.definition_id,
       name: r.name,
       handle: r.handle,
       agentClass: r.agent_class,
@@ -162,7 +175,10 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       updatedAt: r.updated_at,
       createdAt: r.actor_created_at,
       transport: r.transport,
-      selector: r.default_selector,
+      selector: r.selector ?? metadataString(meta, "selector") ?? null,
+      defaultSelector: r.default_selector ?? metadataString(meta, "defaultSelector") ?? null,
+      nodeQualifier: r.node_qualifier ?? metadataString(meta, "nodeQualifier") ?? null,
+      workspaceQualifier: r.workspace_qualifier ?? metadataString(meta, "workspaceQualifier") ?? null,
       wakePolicy: r.wake_policy,
       capabilities,
       project: (meta.project as string) ?? null,
@@ -179,6 +195,9 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       ownerId: r.owner_id,
       ownerName: r.owner_name,
       ownerHandle: r.owner_handle,
+      staleLocalRegistration: meta.staleLocalRegistration === true,
+      retiredFromFleet: meta.retiredFromFleet === true,
+      replacedByAgentId: metadataString(meta, "replacedByAgentId") ?? null,
     };
   });
 }

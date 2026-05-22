@@ -50,6 +50,10 @@ import {
   queryRuns,
 } from "./db-queries.ts";
 import {
+  configuredOperatorActorIds,
+  parseDirectConversationId,
+} from "./db/internal/conversation-ids.ts";
+import {
   appendScoutCollaborationEvent,
   appendScoutUnblockRequestEvent,
   askScoutQuestion,
@@ -122,7 +126,11 @@ import {
   createRangerCredentialStore,
 } from "./ranger-credentials.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
-import { buildWorkMaterialsInventory, readWorkMaterialContent } from "./work-materials.ts";
+import {
+  buildWorkMaterialsInventory,
+  readWorkMaterialContent,
+  readWorkMaterialRaw,
+} from "./work-materials.ts";
 import {
   defaultHeuristicsResponse,
   globalHeuristicsFile,
@@ -645,7 +653,11 @@ function inferDirectTargetAgentId(
   senderId: string,
 ): string | null {
   if (session?.kind === "direct") {
-    const operatorCandidates = new Set([senderId.trim(), "operator"]);
+    const operatorCandidates = new Set([
+      senderId.trim(),
+      "operator",
+      ...configuredOperatorActorIds(),
+    ]);
     if (session.agentId) {
       const participants = session.participantIds.filter(
         (participantId) => participantId.trim().length > 0,
@@ -688,9 +700,11 @@ function inferDirectTargetAgentId(
     }
   }
 
-  if (conversationId?.startsWith("dm.operator.")) {
-    const legacyAgentId = conversationId.slice("dm.operator.".length);
-    return legacyAgentId || null;
+  const parsedDirectConversation = conversationId
+    ? parseDirectConversationId(conversationId)
+    : null;
+  if (parsedDirectConversation) {
+    return parsedDirectConversation.agentId || null;
   }
 
   return null;
@@ -1317,18 +1331,20 @@ async function buildOperatorAttentionState(currentDirectory: string) {
   }
 
   for (const ask of fleet.recentCompleted.filter((item) => item.status === "failed")) {
+    const noteworthy = ask.attention === "badge";
+    const noteworthyTitle = ask.statusLabel === "Stopped" ? "Ask stopped" : "Ask interrupted";
     items.push({
       id: `ask:${ask.invocationId}`,
       kind: "ask",
-      title: "Ask failed",
+      title: noteworthy ? noteworthyTitle : "Ask failed",
       summary: compactAttentionSummary(ask.summary ?? ask.task),
       detail: ask.task,
       agentId: ask.agentId,
       agentName: ask.agentName,
       conversationId: ask.conversationId,
       updatedAt: ask.updatedAt,
-      severity: "critical",
-      sourceLabel: "Ask delivery",
+      severity: noteworthy ? "warning" : "critical",
+      sourceLabel: noteworthy ? "Ask notice" : "Ask delivery",
       actions: [
         ...(ask.conversationId
           ? [{ kind: "open" as const, label: "Open thread", route: { view: "conversation", conversationId: ask.conversationId } }]
@@ -2662,11 +2678,36 @@ export async function createOpenScoutWebServer(
     }
     return c.json(result.content);
   };
+  const handleWorkMaterialRaw = async (c: Context) => {
+    const workId = c.req.param("id");
+    const materialId = c.req.query("materialId");
+    if (!workId) {
+      return c.json({ error: "id is required" }, 400);
+    }
+    if (!materialId) {
+      return c.json({ error: "materialId is required" }, 400);
+    }
+    const detail = queryWorkItemById(workId);
+    if (!detail) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const result = await readWorkMaterialRaw(detail, materialId);
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status as 400 | 403 | 404 | 410 | 415);
+    }
+    return new Response(Bun.file(result.realPath), {
+      headers: {
+        "content-type": result.mediaType,
+        "cache-control": "private, max-age=60",
+      },
+    });
+  };
   app.get("/api/work", handleListWork);
   app.get("/api/tasks", handleListWork);
   app.get("/api/work/:id", handleWorkDetail);
   app.get("/api/work/:id/inventory", handleWorkInventory);
   app.get("/api/work/:id/material", handleWorkMaterialContent);
+  app.get("/api/work/:id/material/raw", handleWorkMaterialRaw);
   app.get("/api/tasks/:id", handleWorkDetail);
   app.get("/api/runs", (c) => {
     const agentId = c.req.query("agentId");

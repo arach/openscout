@@ -4,6 +4,7 @@ import type {
   ConversationKind,
   MessageRecord,
 } from "@openscout/protocol";
+import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
 
 import {
   loadScoutBrokerContext,
@@ -45,12 +46,57 @@ function normalizeTimestamp(value: number | null | undefined): number | null {
   return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
 }
 
+function normalizeMetadataTimestamp(value: unknown): number {
+  const numeric = typeof value === "number"
+    ? value
+    : typeof value === "string"
+      ? Number(value)
+      : Number.NaN;
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return 0;
+  }
+  return numeric > 10_000_000_000 ? Math.floor(numeric / 1000) : Math.floor(numeric);
+}
+
+function endpointStateRank(endpoint: AgentEndpoint): number {
+  switch (endpoint.state) {
+    case "active": return 5;
+    case "waiting": return 4;
+    case "idle": return 3;
+    default: return 0;
+  }
+}
+
+function endpointActivity(endpoint: AgentEndpoint): number {
+  return Math.max(
+    normalizeMetadataTimestamp(endpoint.metadata?.lastCompletedAt),
+    normalizeMetadataTimestamp(endpoint.metadata?.lastStartedAt),
+    normalizeMetadataTimestamp(endpoint.metadata?.lastFailedAt),
+    normalizeMetadataTimestamp(endpoint.metadata?.staleAt),
+    normalizeMetadataTimestamp(endpoint.metadata?.startedAt),
+  );
+}
+
+function endpointStartedAt(endpoint: AgentEndpoint): number {
+  return Math.max(
+    normalizeMetadataTimestamp(endpoint.metadata?.lastStartedAt),
+    normalizeMetadataTimestamp(endpoint.metadata?.startedAt),
+  );
+}
+
 function metadataString(
   metadata: Record<string, unknown> | undefined,
   key: string,
 ): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function metadataBoolean(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): boolean {
+  return metadata?.[key] === true;
 }
 
 function titleCaseToken(value: string): string {
@@ -89,7 +135,14 @@ function latestMessageByConversation(snapshot: ScoutBrokerSnapshot): Map<string,
 }
 
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
-  return Object.values(snapshot.endpoints).find((endpoint) => endpoint.agentId === agentId) ?? null;
+  return Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpoint.agentId === agentId)
+    .sort((left, right) =>
+      endpointStateRank(right) - endpointStateRank(left)
+      || endpointStartedAt(right) - endpointStartedAt(left)
+      || endpointActivity(right) - endpointActivity(left)
+      || right.id.localeCompare(left.id)
+    )[0] ?? null;
 }
 
 function agentDisplayName(snapshot: ScoutBrokerSnapshot, agentId: string): string {
@@ -107,7 +160,14 @@ function directConversationAgent(
   snapshot: ScoutBrokerSnapshot,
   participantIds: string[],
 ): { agentId: string | null; agent: AgentDefinition | null; endpoint: AgentEndpoint | null } {
-  const agentId = participantIds.find((participantId) => participantId !== "operator") ?? null;
+  const operatorActorIds = new Set(configuredOperatorActorIds());
+  const agentId =
+    participantIds.find((participantId) =>
+      !operatorActorIds.has(participantId) && Boolean(snapshot.agents[participantId])
+    )
+    ?? participantIds.find((participantId) => Boolean(snapshot.agents[participantId]))
+    ?? participantIds.find((participantId) => !operatorActorIds.has(participantId))
+    ?? null;
   const agent = agentId ? snapshot.agents[agentId] ?? null : null;
   const endpoint = agentId ? endpointForAgent(snapshot, agentId) : null;
   return { agentId, agent, endpoint };
@@ -155,7 +215,12 @@ export async function getScoutConversations(
 
       if (conversation.kind === "direct") {
         const { agentId, agent, endpoint } = directConversationAgent(snapshot, conversation.participantIds);
-        if (!agentId || !agent || !endpoint || endpoint.state === "offline" || messageCount === 0) {
+        if (
+          !agentId
+          || !agent
+          || metadataBoolean(agent.metadata, "retiredFromFleet")
+          || messageCount === 0
+        ) {
           return [];
         }
         const title = agentDisplayName(snapshot, agentId);
@@ -168,16 +233,16 @@ export async function getScoutConversations(
           authorityNodeName: snapshot.nodes?.[conversation.authorityNodeId]?.name ?? null,
           agentId,
           agentName: title,
-          harness: endpoint.harness ?? null,
+          harness: endpoint?.harness ?? null,
           currentBranch:
-            metadataString(endpoint.metadata, "branch")
-            ?? metadataString(endpoint.metadata, "workspaceQualifier")
+            metadataString(endpoint?.metadata, "branch")
+            ?? metadataString(endpoint?.metadata, "workspaceQualifier")
             ?? metadataString(agent.metadata, "branch")
             ?? metadataString(agent.metadata, "workspaceQualifier"),
           preview: latestMessage?.body ?? null,
           messageCount,
           lastMessageAt: normalizeTimestamp(latestMessage?.createdAt),
-          workspaceRoot: endpoint.projectRoot ?? endpoint.cwd ?? null,
+          workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
         }];
       }
 

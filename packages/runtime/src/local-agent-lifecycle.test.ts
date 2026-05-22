@@ -23,6 +23,7 @@ import {
   writeRelayAgentOverrides,
   type OpenScoutProjectConfig,
 } from "./setup.js";
+import { configuredOperatorActorIds } from "./conversations/legacy-ids.js";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -30,6 +31,7 @@ const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
 const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
 const originalSkipUserProjectHints = process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const testDirectories = new Set<string>();
 
 afterEach(() => {
@@ -59,6 +61,11 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = originalSkipUserProjectHints;
   }
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
 
   for (const directory of testDirectories) {
     rmSync(directory, { recursive: true, force: true });
@@ -72,6 +79,7 @@ function useIsolatedOpenScoutHome(): string {
   process.env.HOME = home;
   process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
   process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+  process.env.OPENSCOUT_HOME = join(home, ".openscout");
   process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
   process.env.OPENSCOUT_NODE_QUALIFIER = "test-node";
   process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
@@ -641,6 +649,83 @@ describe("local agent lifecycle", () => {
       definitionId: "ranger",
       projectConfigPath: manifestPath,
     });
+  });
+
+  test("applies the generic operator augment prompt to the configured handle-ai agent", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "home");
+
+    mkdirSync(join(home, ".openscout"), { recursive: true });
+    writeFileSync(
+      join(home, ".openscout", "user.json"),
+      `${JSON.stringify({ name: "Scout Human", handle: "@pilot" }, null, 2)}\n`,
+      "utf8",
+    );
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "pilot-ai",
+      harness: "codex",
+      model: "gpt-5.5",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status.definitionId).toBe("pilot-ai");
+    expect(override?.systemPrompt).toContain("human Scout operator @pilot");
+    expect(override?.systemPrompt).toContain("@pilot-ai is the AI-augmented looper");
+    expect(override?.systemPrompt).toContain("When to invoke @pilot:");
+    expect(override?.systemPrompt).not.toContain("@arach");
+    expect(configuredOperatorActorIds()).toEqual(["operator", "Scout Human", "pilot"]);
+  });
+
+  test("applies the operator augment prompt when forking from an existing same-root agent", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "home");
+
+    mkdirSync(join(home, ".openscout"), { recursive: true });
+    writeFileSync(
+      join(home, ".openscout", "user.json"),
+      `${JSON.stringify({ name: "Scout Human", handle: "@pilot" }, null, 2)}\n`,
+      "utf8",
+    );
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    await writeRelayAgentOverrides({
+      "home.test-node": {
+        agentId: "home.test-node",
+        definitionId: "home",
+        displayName: "Home",
+        projectName: "Home",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-home-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "operator-ai",
+      harness: "codex",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status.definitionId).toBe("operator-ai");
+    expect(override?.systemPrompt).toContain("human Scout operator @pilot");
+    expect(override?.systemPrompt).toContain("@operator-ai is the AI-augmented looper");
+    expect(overrides["home.test-node"]?.systemPrompt).toBeUndefined();
   });
 
   test("prunes expired and overflowing one-time agent cards", async () => {

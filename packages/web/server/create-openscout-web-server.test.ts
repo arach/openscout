@@ -849,6 +849,41 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
 
+  test("routes configured-operator direct DM tells through sendScoutDirectMessage", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "arach";
+    querySessionByIdImpl = () => ({
+      kind: "direct",
+      agentId: "agent-1",
+      participantIds: ["arach", "agent-1"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Status update",
+        conversationId: "dm.arach.agent-1",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutDirectMessageCalls).toEqual([
+      {
+        agentId: "agent-1",
+        body: "Status update",
+        currentDirectory: "/tmp/openscout",
+        source: "scout-web",
+      },
+    ]);
+    expect(sendScoutConversationMessageCalls).toHaveLength(0);
+    expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
   test("preserves sends from observed agent-to-agent conversations", async () => {
     querySessionByIdImpl = () => ({
       kind: "direct",
@@ -1528,9 +1563,10 @@ describe("createOpenScoutWebServer", () => {
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0].authorization).toBe("Bearer sk-test");
     expect(fetchCalls[0].body).toMatchObject({
-      instructions: expect.stringContaining("One-minute brief mode"),
+      instructions: expect.stringContaining("Brief output mode (SCO-037 v1)"),
     });
     expect(JSON.stringify(fetchCalls[0].body)).toContain("currentRoute");
+    expect(JSON.stringify(fetchCalls[0].body)).toContain("Prepare a one-minute OpenScout control-plane brief");
     expect(JSON.stringify(fetchCalls[0].body)).toContain("180 seconds");
     expect(askScoutQuestionCalls).toHaveLength(0);
   });
@@ -1590,8 +1626,8 @@ describe("createOpenScoutWebServer", () => {
     expect(JSON.stringify(fetchCalls[0])).toContain("what deserves the operator's next 30 seconds");
     expect(JSON.stringify(fetchCalls[0])).toContain("subtle signal could fall through the cracks");
     expect(JSON.stringify(fetchCalls[0])).toContain("stale or hidden obligations");
-    expect(JSON.stringify(fetchCalls[0])).toContain("include observations");
-    expect(JSON.stringify(fetchCalls[0])).toContain("References are clickable targets");
+    expect(JSON.stringify(fetchCalls[0])).toContain("Each finding paragraph is one distinct observation");
+    expect(JSON.stringify(fetchCalls[0])).toContain("clickable references must be grounded in concrete IDs");
     expect(JSON.stringify(fetchCalls[0])).toContain("briefingEvidence.agentLogMessages");
     expect(JSON.stringify(fetchCalls[0])).toContain("Bad pattern: inventory counter sentence.");
     expect(JSON.stringify(fetchCalls[0])).toContain("Never copy the examples or schema placeholders.");
