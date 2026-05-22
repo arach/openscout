@@ -2256,6 +2256,43 @@ describe("web db query work items", () => {
     }
   });
 
+  test("filters work rows by conversation", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertConversation({
+        id: "conv-work-2",
+        kind: "channel",
+        title: "Second channel",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-1", "operator"],
+      });
+      store.recordCollaborationRecord({
+        id: "work-conversation-2",
+        kind: "work_item",
+        title: "Conversation scoped work",
+        createdById: "operator",
+        ownerId: "agent-1",
+        nextMoveOwnerId: "agent-1",
+        conversationId: "conv-work-2",
+        state: "working",
+        acceptanceState: "none",
+        requestedById: "operator",
+        createdAt: 140,
+        updatedAt: 140,
+      });
+
+      expect(queryWorkItems({ conversationId: "conv-work-2" }).map((item) => item.id))
+        .toEqual(["work-conversation-2"]);
+      expect(queryWorkItems({ conversationId: "conv-1" }).map((item) => item.id))
+        .toEqual(["work-1", "work-1-child"]);
+    } finally {
+      store.close();
+    }
+  });
+
   test("operator dismissal silences derived work attention until the record changes", () => {
     const store = createSeededStore();
 
