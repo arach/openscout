@@ -641,6 +641,7 @@ export type ObserveSessionMeta = {
   adapterType?: string;
   model?: string;
   cwd?: string;
+  sessionStart?: number;
   turnCount?: number;
   externalSessionId?: string;
   threadId?: string;

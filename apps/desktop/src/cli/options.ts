@@ -54,6 +54,7 @@ export type ScoutWatchCommandOptions = ContextRootOptions & {
 export type ScoutChannelCommandOptions = ContextRootOptions & {
   channel?: string;
   latest?: number;
+  markRead: boolean;
 };
 
 export type ScoutInboxCommandOptions = ContextRootOptions & {
@@ -818,6 +819,7 @@ export function parseChannelCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let channel: string | undefined;
   let latest: number | undefined;
+  let markRead = false;
 
   for (let index = 0; index < parsed.args.length; index += 1) {
     const current = parsed.args[index] ?? "";
@@ -837,6 +839,10 @@ export function parseChannelCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--mark-read" || current === "--read" || current === "--clear") {
+      markRead = true;
+      continue;
+    }
     if (!current.startsWith("-") && !channel) {
       channel = current;
       continue;
@@ -844,8 +850,12 @@ export function parseChannelCommandOptions(
     unexpectedArgs("channel", args);
   }
 
-  if (channel && !latest) {
-    throw new ScoutCliError("channel name is only valid with --latest");
+  if (latest && markRead) {
+    throw new ScoutCliError("provide either --latest or --mark-read, not both");
+  }
+
+  if (channel && !latest && !markRead) {
+    throw new ScoutCliError("channel name is only valid with --latest or --mark-read");
   }
 
   return {
@@ -853,6 +863,7 @@ export function parseChannelCommandOptions(
     args: parsed.args,
     channel,
     latest,
+    markRead,
   };
 }
 

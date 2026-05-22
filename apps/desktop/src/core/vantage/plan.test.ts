@@ -78,6 +78,7 @@ describe("buildScoutVantagePlan", () => {
     expect(plan.createdAt).toBe("2026-05-17T12:00:00.000Z");
     expect(plan.manifest.kind).toBe(HUDSON_VANTAGE_SETUP_KIND);
     expect(plan.manifest.schemaVersion).toBe(HUDSON_VANTAGE_SCHEMA_VERSION);
+    expect(plan.manifest.workspaceID).toBe("openscout-project");
     expect(plan.manifest.selectedAgentIds).toEqual([]);
     expect(plan.manifest.selectedNativeSessionIds).toEqual([]);
     expect(plan.manifest.broker).toEqual({

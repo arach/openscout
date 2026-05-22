@@ -20,6 +20,7 @@ import {
   type AgentState,
   type ConversationBinding,
   type ConversationDefinition,
+  type ConversationReadCursor,
   BUILT_IN_AGENT_DEFINITION_IDS,
   type ControlEvent,
   type CollaborationAcceptanceState,
@@ -88,6 +89,7 @@ export type ScoutBrokerAgentRecord = AgentDefinition;
 export type ScoutBrokerEndpointRecord = AgentEndpoint;
 export type ScoutBrokerConversationRecord = ConversationDefinition;
 export type ScoutBrokerMessageRecord = MessageRecord;
+export type ScoutBrokerReadCursorRecord = ConversationReadCursor;
 export type ScoutBrokerNodeRecord = NodeDefinition;
 export type ScoutBrokerFlightRecord = FlightRecord;
 export type ScoutBrokerInvocationRecord = InvocationRequest;
@@ -4274,6 +4276,39 @@ export async function readScoutBrokerFeed(
   } catch {
     return null;
   }
+}
+
+export async function markScoutConversationRead(
+  options: {
+    channel?: string;
+    conversationId?: string;
+    actorId?: string;
+    readerNodeId?: string;
+    lastReadMessageId?: string;
+    lastReadSeq?: number;
+    lastReadAt?: number;
+    metadata?: Record<string, unknown>;
+    baseUrl?: string;
+  } = {},
+): Promise<{
+  ok: true;
+  cursor: ScoutBrokerReadCursorRecord;
+  acknowledgedDeliveries: number;
+}> {
+  const broker = await requireScoutBrokerContext(options.baseUrl);
+  const conversationId = options.conversationId ?? scoutConversationIdForChannel(options.channel);
+  return brokerPostJson(
+    broker.baseUrl,
+    `/v1/conversations/${encodeURIComponent(conversationId)}/read-cursors`,
+    {
+      actorId: options.actorId,
+      readerNodeId: options.readerNodeId ?? broker.node.id,
+      lastReadMessageId: options.lastReadMessageId,
+      lastReadSeq: options.lastReadSeq,
+      lastReadAt: options.lastReadAt,
+      metadata: options.metadata,
+    },
+  );
 }
 
 export type ScoutActivityItem = {

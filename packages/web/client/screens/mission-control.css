@@ -37,12 +37,21 @@
   color: var(--green);
 }
 
+.s-mission-bar-live--idle {
+  color: var(--dim);
+}
+
 .s-mission-bar-live-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--green);
   animation: s-ops-pulse 1.6s ease-in-out infinite;
+}
+
+.s-mission-bar-live--idle .s-mission-bar-live-dot {
+  background: var(--dim);
+  animation: none;
 }
 
 .s-mission-controls {
@@ -280,6 +289,14 @@
   color: var(--dim);
   pointer-events: none;
   white-space: nowrap;
+}
+
+.s-mission-group-label--active {
+  color: var(--green);
+}
+
+.s-mission-group-label--recent {
+  color: var(--accent);
 }
 
 /* ── Observation tile ── */
