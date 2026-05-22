@@ -1,6 +1,8 @@
 import { type ReactNode, useMemo, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
+import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
+import { routeMachineId } from "../../lib/router.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import type { Agent, FleetAsk, Route } from "../../lib/types.ts";
@@ -179,6 +181,11 @@ function ScoutAgentsLeftPanel() {
     DEFAULT_STATE_FILTERS,
   );
   const asksByAgent = useFleetActiveAsks();
+  const machineId = routeMachineId(route);
+  const scopedAgents = useMemo(
+    () => filterAgentsByMachineScope(agents, machineId),
+    [agents, machineId],
+  );
 
   const normalizedQuery = normalizeQuery(query);
   const searchActive = normalizedQuery.length > 0;
@@ -194,14 +201,14 @@ function ScoutAgentsLeftPanel() {
 
   const filteredAgents = useMemo(
     () =>
-      agents.filter((agent) => {
+      scopedAgents.filter((agent) => {
         const s = normalizeAgentState(agent.state);
         const token: FleetStateToken =
           s === "working" || s === "available" ? s : "offline";
         if (!stateFilters.has(token)) return false;
         return agentMatchesQuery(agent, normalizedQuery);
       }),
-    [agents, normalizedQuery, stateFilters],
+    [normalizedQuery, scopedAgents, stateFilters],
   );
 
   const groups = useMemo(() => buildGroups(filteredAgents), [filteredAgents]);
@@ -244,8 +251,10 @@ function ScoutAgentsLeftPanel() {
       </div>
       <div style={{ flex: 1, overflow: "auto" }}>
 
-      {agents.length === 0 ? (
-        <div className="s-left-roster-empty">No agents registered</div>
+      {scopedAgents.length === 0 ? (
+        <div className="s-left-roster-empty">
+          {machineId ? "No agents on this machine" : "No agents registered"}
+        </div>
       ) : filteredAgents.length === 0 ? (
         <div className="s-left-roster-empty">
           No agents match this session or agent search.

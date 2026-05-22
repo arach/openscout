@@ -2,14 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
+import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
+import { routeMachineId } from "../lib/router.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
 import { MeshCanvas } from "./MeshCanvas.tsx";
 import { AgentTree } from "../components/AgentTree.tsx";
 import { useLocalAgents } from "../lib/local-agents.ts";
+import { useScout } from "../scout/Provider.tsx";
 import {
   useMeshViewStore,
   setMeshViewMode,
   setMeshSnapshot,
+  setMeshSelection,
   setMeshDensity,
   setMeshQuery,
   setMeshStateFilter,
@@ -164,10 +168,21 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
 
   const { mode, density, query, stateFilter, meshSnapshot: mesh } = useMeshViewStore();
   const { agents } = useLocalAgents();
+  const { route } = useScout();
+  const machineId = routeMachineId(route);
+  const scopedAgents = useMemo(
+    () => filterAgentsByMachineScope(agents, machineId, mesh?.localNode?.id),
+    [agents, machineId, mesh?.localNode?.id],
+  );
   const meshRef = useRef<MeshStatus | null>(null);
   const requestIdRef = useRef(0);
 
   useEffect(() => { meshRef.current = mesh; }, [mesh]);
+  useEffect(() => {
+    if (machineId) {
+      setMeshSelection(machineId, "node");
+    }
+  }, [machineId]);
 
   const load = useCallback(async (loadMode: "initial" | "background" | "manual" = "initial") => {
     const requestId = ++requestIdRef.current;
@@ -194,13 +209,13 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
 
   const filteredAgents = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return agents.filter((a) => {
+    return scopedAgents.filter((a) => {
       if (stateFilter !== "all" && normalizeAgentState(a.state) !== stateFilter) return false;
       if (!needle) return true;
       const hay = `${a.name ?? ""} ${a.handle ?? ""} ${a.harness ?? ""} ${a.project ?? ""} ${a.branch ?? ""}`.toLowerCase();
       return hay.includes(needle);
     });
-  }, [agents, query, stateFilter]);
+  }, [query, scopedAgents, stateFilter]);
 
   const hudProps = {
     mode,
@@ -219,7 +234,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
   if (mode === "map") {
     return (
       <div className="mesh-map-canvas">
-        {mesh && <MeshCanvas mesh={mesh} agents={agents} />}
+        {mesh && <MeshCanvas mesh={mesh} agents={filteredAgents} />}
 
         {loading && !mesh && (
           <div className="mesh-canvas-center">
@@ -278,8 +293,8 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
           </div>
           <AgentTree
             agents={filteredAgents}
-            emptyTitle={agents.length === 0 ? "No agents registered" : "No agents match your filter"}
-            emptyBody={agents.length === 0
+            emptyTitle={scopedAgents.length === 0 ? (machineId ? "No agents on this machine" : "No agents registered") : "No agents match your filter"}
+            emptyBody={scopedAgents.length === 0
               ? "Agents connected to this broker will appear here."
               : "Try clearing the search or switching the state pill back to All."}
           />

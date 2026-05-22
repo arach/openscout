@@ -25,6 +25,10 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
     const state = normalizeAgentState(agent.state);
     const cwd = homify(agent.cwd) ?? homify(agent.projectRoot);
     const name = agent.handle ?? agent.name;
+    const machine = agent.authorityNodeName
+      ?? agent.homeNodeName
+      ?? agent.authorityNodeId
+      ?? agent.homeNodeId;
     const stateLabel =
       state === "working" ? "Working" : state === "available" ? "Available" : "Offline";
 
@@ -57,6 +61,12 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
           {cwd && (
             <Field label="cwd">
               <code className="agent-card-mono">{cwd}</code>
+            </Field>
+          )}
+
+          {machine && (
+            <Field label="machine">
+              <span className="agent-card-mono">{machine}</span>
             </Field>
           )}
 

@@ -21,6 +21,8 @@ export type ScoutConversationSummary = {
   kind: string;
   title: string;
   participantIds: string[];
+  authorityNodeId: string | null;
+  authorityNodeName: string | null;
   agentId: string | null;
   agentName: string | null;
   harness: string | null;
@@ -162,6 +164,8 @@ export async function getScoutConversations(
           kind: conversation.kind,
           title,
           participantIds: [...conversation.participantIds],
+          authorityNodeId: conversation.authorityNodeId ?? null,
+          authorityNodeName: snapshot.nodes?.[conversation.authorityNodeId]?.name ?? null,
           agentId,
           agentName: title,
           harness: endpoint.harness ?? null,
@@ -195,6 +199,8 @@ export async function getScoutConversations(
         kind: conversation.kind,
         title: conversation.title,
         participantIds: [...conversation.participantIds],
+        authorityNodeId: conversation.authorityNodeId ?? null,
+        authorityNodeName: snapshot.nodes?.[conversation.authorityNodeId]?.name ?? null,
         agentId: null,
         agentName: null,
         harness: null,

@@ -782,15 +782,82 @@ Then verify in the web UI on machine A:
 - disabling the remote broker changes the route state to stale or unreachable
   with recovery actions
 
-## Open Questions
+## Decision Trace
 
-- Should Fleet or Agents be the default destination after a successful mesh
-  discover, or should Home surface a "new machine joined" card first?
-- How much remote observe data should be available before a dedicated observe
-  bridge exists?
-- Should "request status" be a fixed ask template, a lightweight broker action,
-  or a normal composer preset?
-- Which remote wake operations are safe enough for v1, and which need a host
-  permission capture path first?
-- Should route capability summaries live in protocol records or only in web
-  read models during the first implementation?
+This section is the memory of the product discussion. It is intentionally not an
+open-question parking lot: when a choice is still unstable, resolve it in chat
+and update this trace with the current decision and why we made it.
+
+### Mesh Discovery Landing
+
+After a successful mesh discovery, Home should surface a short "new machine
+joined" memory card first, with primary actions to open the machine-scoped Fleet
+slice and Mesh diagnostics.
+
+Rationale:
+
+- Home is the operator's orientation surface and should explain that the network
+  changed.
+- Fleet is the default work surface once the operator decides to act.
+- Agents remains a drill-in/library surface, not the default post-discovery
+  destination.
+
+### Remote Observe Before A Bridge
+
+Before a dedicated observe bridge exists, remote observe should be limited to
+broker-owned summaries and explicitly advertised observed material. It may show
+agent state, active work, last activity, recent Scout messages, route status,
+and linked observed artifacts when the remote node advertises them, but it must
+not promise live transcript parity or import raw external harness transcripts as
+Scout messages.
+
+Rationale:
+
+- The broker can coordinate Scout-owned records safely today.
+- External transcripts remain harness-owned source material.
+- A dedicated observe bridge can later add live remote detail behind explicit
+  capability gates.
+
+### Request Status
+
+Request status should start as a normal ask composer preset with structured
+routing context, not a separate broker primitive.
+
+Rationale:
+
+- The desired outcome is a reply, so the ask/invocation lifecycle already fits.
+- A preset gives the UI a consistent button without inventing another delivery
+  path.
+- If usage proves common enough, the broker can later add a thin action alias
+  that still creates a normal invocation.
+
+### Remote Wake V1
+
+V1 remote wake should be limited to capability-advertised, broker-mediated wake
+attempts for already registered remote agents. It should report accepted,
+peer-handoff, target-acknowledged, failed, stale, or unsupported states. Process
+control, terminal takeover, host file actions, and anything requiring new host
+permission should wait for an explicit host permission capture path.
+
+Rationale:
+
+- Wake is operationally useful only when the remote node says it supports it.
+- Permission-sensitive operations need an auditable human path on the authority
+  machine.
+- A failed or unsupported wake should still produce useful route diagnostics.
+
+### Route Capability Summaries
+
+For the first implementation, route capability summaries should live in web read
+models derived from protocol records and broker snapshots. The UI should render
+capabilities as read-model facts, while the protocol keeps durable primitives:
+agents, nodes, endpoints, deliveries, invocations, flights, conversations, and
+work items. Promote a capability summary into protocol only after more than one
+client or transport needs the same persisted contract.
+
+Rationale:
+
+- Read models let the UI iterate quickly without hardening premature protocol
+  shape.
+- Protocol records stay focused on durable coordination facts.
+- Promotion remains available once the capability vocabulary stabilizes.

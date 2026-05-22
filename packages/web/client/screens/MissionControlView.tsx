@@ -1495,7 +1495,7 @@ function FocusProfileTab({ agent }: { agent: Agent }) {
     ["CWD", agent.cwd || agent.projectRoot || "—"],
     ["AGENT", agent.agentClass || "—"],
     ["ROLE", agent.role || agent.transport || "—"],
-    ["HOME", agent.homeNodeName ?? agent.homeNodeId ?? "—"],
+    ["MACHINE", agent.authorityNodeName ?? agent.homeNodeName ?? agent.authorityNodeId ?? agent.homeNodeId ?? "—"],
     ["OWNER", agent.ownerHandle ?? agent.ownerName ?? agent.ownerId ?? "—"],
     ["SPAWNED", agent.createdAt ? timeAgo(agent.createdAt) : "—"],
     ["STATE", agentStateLabel(agent.state)],

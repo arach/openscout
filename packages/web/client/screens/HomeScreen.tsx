@@ -25,7 +25,12 @@ import {
 } from "../lib/home-brief-player.ts";
 import { usePersistentString } from "../lib/persistent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
-import { conversationForAgent } from "../lib/router.ts";
+import { conversationForAgent, routeMachineId } from "../lib/router.ts";
+import {
+  filterAgentsByMachineScope,
+  filterFleetByMachineScope,
+  machineScopedAgentIds,
+} from "../lib/machine-scope.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import type {
   Agent,
@@ -207,7 +212,16 @@ export function HomeScreen({
 }: {
   navigate: (r: Route) => void;
 }) {
-  const { agents, onboarding, reload } = useScout();
+  const { agents: allAgents, onboarding, reload, route } = useScout();
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(allAgents, machineId),
+    [allAgents, machineId],
+  );
+  const agents = useMemo(
+    () => filterAgentsByMachineScope(allAgents, machineId),
+    [allAgents, machineId],
+  );
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [attention, setAttention] = useState<OperatorAttentionState | null>(null);
   const [heartrate, setHeartrate] = useState<HeartrateBucketView[]>([]);
@@ -228,6 +242,11 @@ export function HomeScreen({
   useEffect(() => {
     fleetRef.current = fleet;
   }, [fleet]);
+
+  const scopedFleet = useMemo(
+    () => filterFleetByMachineScope(fleet, scopedAgentIds),
+    [fleet, scopedAgentIds],
+  );
 
   const load = useCallback(async (mode: LoadMode = "initial") => {
     const requestId = ++requestIdRef.current;
@@ -398,23 +417,23 @@ export function HomeScreen({
 
   const needsYouAsks = useMemo(
     () =>
-      [...(fleet?.activeAsks ?? []), ...(fleet?.recentCompleted ?? [])].filter(
+      [...(scopedFleet?.activeAsks ?? []), ...(scopedFleet?.recentCompleted ?? [])].filter(
         (a) => a.status === "needs_attention" || a.status === "failed",
       ),
-    [fleet],
+    [scopedFleet],
   );
   const movingAsks = useMemo(
     () =>
-      (fleet?.activeAsks ?? []).filter(
+      (scopedFleet?.activeAsks ?? []).filter(
         (a) => a.status === "queued" || a.status === "working",
       ),
-    [fleet],
+    [scopedFleet],
   );
   const freshMovingAsks = useMemo(
     () => movingAsks.filter((ask) => isFreshMovingTimestamp(ask.updatedAt, nowMs)),
     [movingAsks, nowMs],
   );
-  const needsYouItems = useMemo(() => fleet?.needsAttention ?? [], [fleet]);
+  const needsYouItems = useMemo(() => scopedFleet?.needsAttention ?? [], [scopedFleet]);
   const activeAskByAgent = useMemo(() => {
     const byAgent = new Map<string, FleetAsk>();
     for (const ask of freshMovingAsks) {
@@ -509,8 +528,15 @@ export function HomeScreen({
   );
 
   const totalNeedsYou = needsYouAsks.length + needsYouItems.length;
-  const attentionItems = attention?.items ?? [];
-  const totalOperatorQueue = attention?.totals.all ?? totalNeedsYou;
+  const attentionItems = useMemo(
+    () => scopedAgentIds
+      ? (attention?.items ?? []).filter((item) => item.agentId && scopedAgentIds.has(item.agentId))
+      : attention?.items ?? [],
+    [attention?.items, scopedAgentIds],
+  );
+  const totalOperatorQueue = machineId
+    ? totalNeedsYou + attentionItems.length
+    : attention?.totals.all ?? totalNeedsYou;
   const oldestNeedsTs = useMemo(() => {
     const stamps = [
       ...needsYouAsks.map((a) => a.updatedAt),
@@ -524,11 +550,11 @@ export function HomeScreen({
 
   const sinceMs = nowMs - lookbackMs;
   const liveActivity = useMemo<FleetActivity[]>(() => {
-    const items = fleet?.activity ?? [];
+    const items = scopedFleet?.activity ?? [];
     return items.filter(
       (item) => (normalizeTimestampMs(item.ts) ?? 0) >= sinceMs,
     );
-  }, [fleet?.activity, sinceMs]);
+  }, [scopedFleet?.activity, sinceMs]);
 
   const now = new Date();
   const greeting = greetingFor(now.getHours());
@@ -543,7 +569,7 @@ export function HomeScreen({
   const observedActiveActors = useMemo<FleetActivity[]>(() => {
     const ACTIVE_WINDOW_MS = 10 * 60_000;
     const cutoff = nowMs - ACTIVE_WINDOW_MS;
-    const items = fleet?.activity ?? [];
+    const items = scopedFleet?.activity ?? [];
     const managedNames = new Set(agents.map((a) => a.name.toLowerCase()));
     const managedIds = new Set(agents.map((a) => a.id));
     const interestingKinds = new Set([
@@ -573,7 +599,7 @@ export function HomeScreen({
     return [...byActor.values()].sort((a, b) =>
       compareTimestampsDesc(a.ts, b.ts),
     );
-  }, [fleet?.activity, nowMs, agents, operatorName]);
+  }, [scopedFleet?.activity, nowMs, agents, operatorName]);
 
   const fleetBriefExpiresAtMs = normalizeTimestampMs(fleetBrief?.expiresAt);
   const fleetBriefIsFresh =

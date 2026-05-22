@@ -16,7 +16,14 @@ const RAIL_REFRESH_EVENTS = new Set([
 function machineLabel(agent: Agent): string {
   const fromCwd = basename(agent.cwd);
   const fromProjectRoot = basename(agent.projectRoot);
-  return agent.transport ?? fromCwd ?? fromProjectRoot ?? "local";
+  return agent.authorityNodeName
+    ?? agent.homeNodeName
+    ?? agent.authorityNodeId
+    ?? agent.homeNodeId
+    ?? agent.transport
+    ?? fromCwd
+    ?? fromProjectRoot
+    ?? "local";
 }
 
 function teamLabel(agent: Agent): string {
