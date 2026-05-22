@@ -184,8 +184,26 @@ acknowledged", and "completed" as different states.
 Tailscale is a discovery and reachability option, not a required product mode.
 On the same Wi-Fi or LAN, brokers can communicate directly over ordinary HTTP if
 the remote broker is bound to a reachable address and the local broker knows
-that address through a seed or discovered node record. The current documented
-discovery paths are:
+that address through a seed or discovered node record. The product route ladder
+is:
+
+1. `solo`: same-machine loopback or Unix socket.
+2. `LAN`: same Wi-Fi or Ethernet, using `.local`, local DNS, or private IP.
+3. `tsnet`: Tailscale/tailnet reachability for phones, off-LAN machines, and
+   private fallback routing.
+4. `oscout.net`: Cloudflare-hosted OpenScout infrastructure for rendezvous,
+   relay, push wake, pairing, and fallback when direct routes are unavailable.
+
+These are route tiers, not mutually exclusive app modes. A node may advertise
+multiple endpoints at the same time, and route selection should prefer the
+closest, clearest boundary that works: `solo`, then `LAN`, then `tsnet`, then
+`oscout.net`. Same-network traffic should not hop through Tailscale or
+`oscout.net` when a LAN route is healthy. Tailscale should remain available for
+natural phone/off-LAN pickup, but it should not become the default path for
+nearby machines. `oscout.net` is OpenScout-owned but Cloudflare-hosted and less
+familiar than Tailscale, so the UI should treat it as the most mediated tier.
+
+The current documented discovery paths are:
 
 - Tailscale peer probing, when Tailscale is installed and running
 - manually configured seed URLs such as `OPENSCOUT_MESH_SEEDS=http://host:4080`
@@ -447,6 +465,7 @@ export interface NodeOperationalSummary {
   lastRouteCheckAt: number | null;
   brokerUrl: string | null;
   transports: Array<{
+    tier: "solo" | "LAN" | "tsnet" | "oscout.net";
     kind: "local" | "http" | "tailnet" | "iroh" | "cloudflare_tunnel" | "manual_seed" | "mobile_pairing";
     state: "ready" | "degraded" | "unreachable" | "unknown";
     label: string;
@@ -801,6 +820,34 @@ Rationale:
 - Fleet is the default work surface once the operator decides to act.
 - Agents remains a drill-in/library surface, not the default post-discovery
   destination.
+
+### Route Tier Trust Ladder
+
+Cross-machine reachability should use the route ladder `solo`, `LAN`, `tsnet`,
+then `oscout.net`. The ladder is ordered by understandable operator boundary,
+not just technical security. `solo` stays on the same machine. `LAN` stays on
+the nearby physical network. `tsnet` is private and useful for phones or
+off-LAN machines, but it depends on Tailscale identity and control-plane
+behavior. `oscout.net` is OpenScout-owned Cloudflare-hosted infrastructure for
+rendezvous, relay, push wake, pairing, and fallback, so it is the most mediated
+tier.
+
+Route tiers are not global product modes. A node can advertise multiple
+endpoints, and the broker should choose the first healthy endpoint in preference
+order. Same-network Mac-to-Mac traffic should not leave the LAN just because a
+tailnet URL exists. Tailscale remains available as a natural route for mobile
+and off-LAN reachability. `oscout.net` should be explicit in UI copy as an
+OpenScout relay/fallback path rather than the normal mesh path.
+
+Rationale:
+
+- The operator can understand and debug the nearest boundary first.
+- Local traffic should stay inside local boundaries whenever a direct route is
+  healthy.
+- Tailscale is valuable for phones and roaming machines without making it the
+  canonical route for nearby peers.
+- `oscout.net` is ours, but Cloudflare-hosted and less familiar than Tailscale,
+  so it should be treated as the least-default tier.
 
 ### Remote Observe Before A Bridge
 
