@@ -25,12 +25,18 @@ export type MissionVisibleAgent = {
   source: "scout" | "native";
 };
 
+export type MissionCanvasFocusRequest = {
+  id: string;
+  serial: number;
+};
+
 type MissionControlState = {
   activityFilter: MissionActivityFilter;
   sourceFilter: MissionSourceFilter;
   recentWindowMs: MissionRecentWindow;
   query: string;
   focusedId: string | null;
+  canvasFocusRequest: MissionCanvasFocusRequest | null;
   visibleAgents: MissionVisibleAgent[];
   selectedIds: string[];
 };
@@ -41,11 +47,13 @@ let _state: MissionControlState = {
   recentWindowMs: MISSION_RECENT_WINDOWS[1].value,
   query: "",
   focusedId: null,
+  canvasFocusRequest: null,
   visibleAgents: [],
   selectedIds: [],
 };
 
 const _listeners = new Set<() => void>();
+let _canvasFocusSerial = 0;
 
 function _notify() {
   for (const fn of _listeners) fn();
@@ -78,6 +86,21 @@ export function setMissionQuery(query: string): void {
 export function setMissionFocusedId(focusedId: string | null): void {
   if (_state.focusedId === focusedId) return;
   _state = { ..._state, focusedId };
+  _notify();
+}
+
+export function requestMissionCanvasFocus(id: string): void {
+  _canvasFocusSerial += 1;
+  _state = {
+    ..._state,
+    canvasFocusRequest: { id, serial: _canvasFocusSerial },
+  };
+  _notify();
+}
+
+export function clearMissionCanvasFocusRequest(serial: number): void {
+  if (_state.canvasFocusRequest?.serial !== serial) return;
+  _state = { ..._state, canvasFocusRequest: null };
   _notify();
 }
 

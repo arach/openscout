@@ -105,6 +105,7 @@ describe("createScoutMcpServer", () => {
       "whoami",
       "messages_inbox",
       "messages_channel",
+      "broker_feed",
       "current_reply_context",
       "messages_reply",
       "session_attach_current",
@@ -129,6 +130,8 @@ describe("createScoutMcpServer", () => {
       .toContain("instead of curling broker HTTP endpoints");
     expect(result.tools.find((tool) => tool.name === "messages_channel")?.description)
       .toContain("instead of curling broker HTTP endpoints");
+    expect(result.tools.find((tool) => tool.name === "broker_feed")?.description)
+      .toContain("native broker view");
     expect(result.tools.find((tool) => tool.name === "messages_reply")?.description)
       .toContain("active ScoutReplyContext");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)
@@ -357,6 +360,107 @@ describe("createScoutMcpServer", () => {
     expect(structured.messages[0]).toMatchObject({
       id: "msg-channel",
       body: "latest channel",
+    });
+  });
+
+  test("reads native broker feed through the broker dependency", async () => {
+    let receivedInput:
+      | {
+        agentId: string;
+        since?: number | null;
+        limit?: number;
+        includeAcknowledged?: boolean;
+        baseUrl?: string;
+      }
+      | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async (senderId, currentDirectory) =>
+        `${senderId ?? "operator"}@${currentDirectory}`,
+      readBrokerFeed: async (input) => {
+        receivedInput = input;
+        return {
+          agentId: input.agentId,
+          generatedAt: 1_000,
+          since: input.since ?? null,
+          limit: input.limit ?? 80,
+          cursor: 900,
+          status: {
+            agentId: input.agentId,
+            displayName: "Hudson",
+            found: true,
+            endpoints: [],
+            activeFlightIds: ["flight-1"],
+            pendingDeliveryIds: ["delivery-1"],
+            errorCount: 1,
+            warningCount: 0,
+            lastError: "dispatch stalled",
+            lastActivityAt: 900,
+          },
+          counts: {
+            items: 1,
+            messages: 0,
+            statuses: 0,
+            invocations: 0,
+            flights: 1,
+            deliveries: 0,
+            deliveryAttempts: 0,
+            dispatches: 0,
+            unblockRequests: 0,
+            errors: 1,
+            warnings: 0,
+          },
+          items: [
+            {
+              id: "flight:flight-1",
+              kind: "flight",
+              severity: "error",
+              at: 900,
+              title: "Flight failed",
+              summary: "dispatch stalled",
+              agentId: input.agentId,
+              targetAgentId: input.agentId,
+              invocationId: "inv-1",
+              flightId: "flight-1",
+              status: "failed",
+              source: "snapshot",
+            },
+          ],
+        };
+      },
+    });
+
+    const result = await client.callTool({
+      name: "broker_feed",
+      arguments: {
+        currentDirectory: "/tmp/project",
+        senderId: "hudson.main.mini",
+        since: 500,
+        limit: 5,
+        includeAcknowledged: true,
+      },
+    });
+
+    expect(receivedInput).toMatchObject({
+      agentId: "hudson.main.mini@/tmp/project",
+      since: 500,
+      limit: 5,
+      includeAcknowledged: true,
+      baseUrl: "http://broker.test",
+    });
+    const content = result.content as Array<{ text?: string }> | undefined;
+    expect(content?.[0]?.text).toContain("Broker feed for hudson.main.mini@/tmp/project");
+    expect(content?.[0]?.text).toContain("dispatch stalled");
+    const structured = result.structuredContent as {
+      found: boolean;
+      counts: { errors: number };
+      items: Array<{ kind: string; severity: string; summary: string }>;
+    };
+    expect(structured.found).toBe(true);
+    expect(structured.counts.errors).toBe(1);
+    expect(structured.items[0]).toMatchObject({
+      kind: "flight",
+      severity: "error",
+      summary: "dispatch stalled",
     });
   });
 

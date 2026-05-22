@@ -12,11 +12,12 @@ import {
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
-  buildTmuxPromptSubmitKeys,
+  buildTmuxDispatchStrategy,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
+  tmuxPaneTailContainsPromptFragment,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
 
@@ -43,7 +44,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Projects root: /Users/arach/dev");
     expect(prompt).toContain(`${scoutCli} inbox --as shaper --latest 20 --json`);
     expect(prompt).toContain(`${scoutCli} channel <name> --latest 20 --json`);
-    expect(prompt).toContain(`${scoutCli} send --as shaper "@<agent> your message"`);
+    expect(prompt).toContain(`${scoutCli} send --to <agent> --as shaper "your message"`);
     expect(prompt).toContain(`${scoutCli} ask --to <agent> --as shaper "your request"`);
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
@@ -167,7 +168,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Use the Scout CLI for broker reads and writes");
     expect(prompt).toContain("bun relay inbox --as shaper --latest 20 --json");
     expect(prompt).toContain("bun relay channel <name> --latest 20 --json");
-    expect(prompt).toContain('bun relay send --as shaper "@<agent> your message"');
+    expect(prompt).toContain('bun relay send --to <agent> --as shaper "your message"');
     expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("Do not curl broker HTTP endpoints to read messages");
     expect(prompt).toContain("Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue");
@@ -192,6 +193,8 @@ describe("local agent prompts", () => {
         context: {
           file: "ShaperProvider.tsx",
         },
+        conversationId: "dm.operator.shaper",
+        messageId: "msg-request-1",
         ensureAwake: true,
         stream: false,
         createdAt: 1,
@@ -202,7 +205,9 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Task: Find the session restore race.");
     expect(prompt).toContain('Context: {"file":"ShaperProvider.tsx"}');
     expect(prompt).toContain(`${scoutCli} latest --agent shaper --limit 20`);
-    expect(prompt).toContain(`${scoutCli} send --as shaper "[ask:flt-1] @hudson <your response>"`);
+    expect(prompt).toContain("Reply in the existing thread, not by addressing @hudson.");
+    expect(prompt).toContain(`${scoutCli} send --as shaper --ref msg-request-1 "[ask:flt-1] <your response>"`);
+    expect(prompt).not.toContain("@hudson <your response>");
   });
 
   test("wake nudge delivers direct messages without reply marker instructions", () => {
@@ -259,8 +264,8 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Inline replies are still valid");
     expect(prompt).toContain("ScoutReplyContext:");
     expect(prompt).toContain("<summary>Scout routing context</summary>");
-    expect(prompt).toContain("First, immediately publish a short broker-visible acknowledgement in the same conversation");
-    expect(prompt).toContain("are only for acknowledgement, progress, or delegation");
+    expect(prompt).toContain("Do not publish a separate acknowledgement or progress update through Scout for this request.");
+    expect(prompt).toContain("Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.");
     expect(prompt).toContain('"mode": "broker_reply"');
     expect(prompt).toContain('"fromAgentId": "operator"');
     expect(prompt).toContain('"toAgentId": "ranger"');
@@ -268,7 +273,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain('"messageId": "msg-moi5w7kt-1hjg5e"');
     expect(prompt).toContain('"replyToMessageId": "msg-moi5w7kt-1hjg5e"');
     expect(prompt).toContain('"replyPath": "final_response"');
-    expect(prompt).not.toContain("> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.");
+    expect(prompt).not.toContain("First, immediately publish a short broker-visible acknowledgement");
     expect(prompt).not.toContain("[scout] @operator asks @ranger");
     expect(prompt).not.toContain("meta: from=operator to=ranger action=consult");
     expect(prompt).not.toContain("ref: convo=dm.operator.ranger.main.mini msg=msg-moi5w7kt-1hjg5e");
@@ -371,9 +376,56 @@ describe("local agent prompts", () => {
       .toBe('exec bash "/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"');
   });
 
-  test("tmux prompt submission leaves Claude Code insert mode before Enter", () => {
-    expect(buildTmuxPromptSubmitKeys()).toEqual(["C-[", "Enter"]);
-    expect(buildTmuxPromptSubmitKeys("pi")).toEqual(["Enter"]);
+  test("tmux dispatch strategy sends a single Enter and relies on verification + retry", () => {
+    // Leading Escape (C-[) was dropped because newer Claude Code builds bind it to
+    // composer state actions and can swallow the Enter that follows.
+    const prompt = "noop prompt body";
+    expect(buildTmuxDispatchStrategy("claude", prompt).submit).toEqual(["Enter"]);
+    expect(buildTmuxDispatchStrategy("pi", prompt).submit).toEqual(["Enter"]);
+    expect(buildTmuxDispatchStrategy("claude", prompt).pre).toBeUndefined();
+  });
+
+  test("tmux pane tail detection flags prompts that are still parked in the composer", () => {
+    const prompt =
+      "New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.";
+    const stuckTail = [
+      "╭──────────────────────────────────────────────────────────────────╮",
+      "│ > New broker ask from operator. Task: please refactor the        │",
+      "│   dispatch path so it submits the prompt.                        │",
+      "╰──────────────────────────────────────────────────────────────────╯",
+    ].join("\n");
+    const submittedTail = [
+      "● Reading file…",
+      "  src/dispatch.ts",
+      "╭──────────────────────────────────────────────────────────────────╮",
+      "│ >                                                                │",
+      "╰──────────────────────────────────────────────────────────────────╯",
+    ].join("\n");
+    expect(tmuxPaneTailContainsPromptFragment(stuckTail, prompt)).toBe(true);
+    expect(tmuxPaneTailContainsPromptFragment(submittedTail, prompt)).toBe(false);
+    expect(tmuxPaneTailContainsPromptFragment("", prompt)).toBe(false);
+  });
+
+  test("tmux dispatch strategy verifier reports submission via the pane tail", () => {
+    const prompt =
+      "New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.";
+    const strategy = buildTmuxDispatchStrategy("claude", prompt);
+    const stuckTail = [
+      "╭──────────────────────────────────────────────────────────────────╮",
+      "│ > New broker ask from operator. Task: please refactor the        │",
+      "│   dispatch path so it submits the prompt.                        │",
+      "╰──────────────────────────────────────────────────────────────────╯",
+    ].join("\n");
+    const submittedTail = [
+      "● Reading file…",
+      "  src/dispatch.ts",
+      "╭──────────────────────────────────────────────────────────────────╮",
+      "│ >                                                                │",
+      "╰──────────────────────────────────────────────────────────────────╯",
+    ].join("\n");
+    // verify(paneTail) === true means "submitted" (prompt absent from tail).
+    expect(strategy.verify(stuckTail)).toBe(false);
+    expect(strategy.verify(submittedTail)).toBe(true);
   });
 
   test("claude runtime launch args preapprove Scout MCP coordination tools", () => {

@@ -16,7 +16,8 @@ const FILE_PATH_PATTERN =
 export type Block =
   | { kind: "paragraph"; lines: InlineToken[][] }
   | { kind: "list"; items: InlineToken[][] }
-  | { kind: "code"; body: string };
+  | { kind: "code"; body: string }
+  | { kind: "heading"; level: 1 | 2 | 3; tokens: InlineToken[] };
 
 export function parseRangerMarkdown(input: string): Block[] {
   const lines = input.replace(/\r\n?/g, "\n").split("\n");
@@ -43,6 +44,14 @@ export function parseRangerMarkdown(input: string): Block[] {
       continue;
     }
 
+    const headingMatch = line.match(/^(#{1,3})\s+(.*\S)\s*$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length as 1 | 2 | 3;
+      blocks.push({ kind: "heading", level, tokens: parseInline(headingMatch[2]) });
+      i += 1;
+      continue;
+    }
+
     if (isBulletLine(line)) {
       const items: InlineToken[][] = [];
       while (i < lines.length && isBulletLine(lines[i])) {
@@ -54,7 +63,13 @@ export function parseRangerMarkdown(input: string): Block[] {
     }
 
     const paragraphLines: InlineToken[][] = [];
-    while (i < lines.length && lines[i].trim() !== "" && !lines[i].startsWith("```") && !isBulletLine(lines[i])) {
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !lines[i].startsWith("```") &&
+      !isBulletLine(lines[i]) &&
+      !/^#{1,3}\s+\S/.test(lines[i])
+    ) {
       paragraphLines.push(parseInline(lines[i]));
       i += 1;
     }
@@ -196,6 +211,8 @@ function blockToPlainText(block: Block): string {
       return block.items.map((item) => inlineToPlainText(item)).join(". ");
     case "code":
       return block.body.trim();
+    case "heading":
+      return inlineToPlainText(block.tokens);
   }
 }
 
@@ -246,6 +263,28 @@ function BlockNode({ block }: { block: Block }) {
           {block.body}
         </pre>
       );
+    case "heading": {
+      const baseClass = "font-mono text-[var(--scout-chrome-ink-strong)] mt-2 first:mt-0";
+      if (block.level === 1) {
+        return (
+          <h2 className={`${baseClass} text-[13px] font-bold uppercase tracking-[0.12em]`}>
+            <InlineNodes tokens={block.tokens} />
+          </h2>
+        );
+      }
+      if (block.level === 2) {
+        return (
+          <h3 className={`${baseClass} text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--scout-chrome-ink)]`}>
+            <InlineNodes tokens={block.tokens} />
+          </h3>
+        );
+      }
+      return (
+        <h4 className={`${baseClass} text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--scout-chrome-ink-faint)]`}>
+          <InlineNodes tokens={block.tokens} />
+        </h4>
+      );
+    }
   }
 }
 

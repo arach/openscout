@@ -18,6 +18,7 @@ import { statusOnHover } from "../lib/page-status.ts";
 import {
   MISSION_RECENT_WINDOWS,
   missionAgentMatchesQuery,
+  clearMissionCanvasFocusRequest,
   setMissionActivityFilter,
   setMissionFocusedId,
   setMissionQuery,
@@ -58,10 +59,17 @@ const GROUP_GAP_X = 48;
 const GROUP_GAP_Y = 36;
 const GROUP_LABEL_H = 28;
 const CANVAS_PAD = 40;
+const FOCUS_TILE_MARGIN = 72;
+const MIN_FOCUS_ZOOM = 0.35;
+const MAX_FOCUS_ZOOM = 1.15;
 
 const MINIMAP_FALLBACK_W = 244;
 const MINIMAP_MAX_H = 160;
 const ACTIVE_EVENT_WINDOW_MS = 2 * 60_000;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
 
 /* ── Viewport persistence ── */
 
@@ -392,7 +400,14 @@ export function MissionControlView({
   agents: Agent[];
 }) {
   const mc = useMissionControlStore();
-  const { activityFilter, sourceFilter, recentWindowMs, query, focusedId } = mc;
+  const {
+    activityFilter,
+    sourceFilter,
+    recentWindowMs,
+    query,
+    focusedId,
+    canvasFocusRequest,
+  } = mc;
   const setActivityFilter = setMissionActivityFilter;
   const setSourceFilter = setMissionSourceFilter;
   const setRecentWindowMs = setMissionRecentWindow;
@@ -622,10 +637,13 @@ export function MissionControlView({
   const layout = useMemo(() => computeLayout(canvasSubjects), [canvasSubjects]);
 
   const animTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [canvasFocusHighlightId, setCanvasFocusHighlightId] = useState<string | null>(null);
+  const consumedCanvasFocusSerialRef = useRef<number | null>(null);
 
   const triggerEntry = useCallback((useSaved = true) => {
     if (layout.canvasW === 0 || vpSize.w === 0) return;
     animTimers.current.forEach(clearTimeout);
+    setCanvasFocusHighlightId(null);
 
     const fitZoom = Math.min(1, vpSize.w / layout.canvasW, vpSize.h / layout.canvasH);
     const overviewZoom = Math.max(0.15, Math.min(1, fitZoom * 0.92));
@@ -655,6 +673,7 @@ export function MissionControlView({
   const fitAll = useCallback(() => {
     if (layout.canvasW === 0 || vpSize.w === 0) return;
     animTimers.current.forEach(clearTimeout);
+    setCanvasFocusHighlightId(null);
 
     const fitZoom = Math.min(1, vpSize.w / layout.canvasW, vpSize.h / layout.canvasH);
     const overviewZoom = Math.max(0.15, Math.min(1, fitZoom * 0.92));
@@ -773,6 +792,8 @@ export function MissionControlView({
     (point: { x: number; y: number }) => {
       const vp = viewportRef.current;
       if (!vp) return;
+      animTimers.current.forEach(clearTimeout);
+      setCanvasFocusHighlightId(null);
       setPan({
         x: vp.clientWidth / 2 - point.x * zoom,
         y: vp.clientHeight / 2 - point.y * zoom,
@@ -788,6 +809,42 @@ export function MissionControlView({
     }
     return map;
   }, [layout]);
+
+  const focusCanvasSubject = useCallback((id: string): boolean => {
+    const pos = tilePositions[id];
+    if (!pos || vpSize.w === 0 || vpSize.h === 0) return false;
+
+    animTimers.current.forEach(clearTimeout);
+    const horizontalZoom = (vpSize.w - FOCUS_TILE_MARGIN * 2) / TILE_W;
+    const verticalZoom = (vpSize.h - FOCUS_TILE_MARGIN * 2) / TILE_H;
+    const nextZoom = clamp(
+      Math.min(horizontalZoom, verticalZoom),
+      MIN_FOCUS_ZOOM,
+      MAX_FOCUS_ZOOM,
+    );
+    const nextPan = {
+      x: vpSize.w / 2 - (pos.x + TILE_W / 2) * nextZoom,
+      y: vpSize.h / 2 - (pos.y + TILE_H / 2) * nextZoom,
+    };
+
+    setIsTransitioning(true);
+    setZoom(nextZoom);
+    setPan(nextPan);
+    setCanvasFocusHighlightId(id);
+
+    const settle = setTimeout(() => setIsTransitioning(false), 650);
+    const clearHighlight = setTimeout(() => setCanvasFocusHighlightId(null), 1800);
+    animTimers.current = [settle, clearHighlight];
+    return true;
+  }, [tilePositions, vpSize]);
+
+  useEffect(() => {
+    if (!canvasFocusRequest) return;
+    if (consumedCanvasFocusSerialRef.current === canvasFocusRequest.serial) return;
+    if (!focusCanvasSubject(canvasFocusRequest.id)) return;
+    consumedCanvasFocusSerialRef.current = canvasFocusRequest.serial;
+    clearMissionCanvasFocusRequest(canvasFocusRequest.serial);
+  }, [canvasFocusRequest, focusCanvasSubject]);
 
   const activeCount =
     visibleAgents.filter((agent) => activityByAgent.get(agent.id)?.current).length +
@@ -1030,6 +1087,7 @@ export function MissionControlView({
                   x={pos.x}
                   y={pos.y}
                   selected={isSelected}
+                  canvasFocused={canvasFocusHighlightId === agent.id}
                   onToggleSelected={() => toggleMissionSelected(agent.id)}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey || e.shiftKey) {
@@ -1053,6 +1111,7 @@ export function MissionControlView({
                   x={pos.x}
                   y={pos.y}
                   selected={isSelected}
+                  canvasFocused={canvasFocusHighlightId === session.id}
                   onToggleSelected={() => toggleMissionSelected(session.id)}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey || e.shiftKey) {
@@ -1116,6 +1175,7 @@ function ObserveTile({
   x,
   y,
   selected = false,
+  canvasFocused = false,
   onToggleSelected,
   onClick,
 }: {
@@ -1124,6 +1184,7 @@ function ObserveTile({
   x: number;
   y: number;
   selected?: boolean;
+  canvasFocused?: boolean;
   onToggleSelected: () => void;
   onClick: (e: ReactMouseEvent) => void;
 }) {
@@ -1156,7 +1217,13 @@ function ObserveTile({
 
   return (
     <div
-      className={`s-mission-tile${state === "working" ? " s-mission-tile--working" : ""}${hasAsk ? " s-mission-tile--asking" : ""}${selected ? " s-mission-tile--selected" : ""}`}
+      className={[
+        "s-mission-tile",
+        state === "working" ? "s-mission-tile--working" : null,
+        hasAsk ? "s-mission-tile--asking" : null,
+        selected ? "s-mission-tile--selected" : null,
+        canvasFocused ? "s-mission-tile--canvas-focused" : null,
+      ].filter(Boolean).join(" ")}
       style={{ left: x, top: y, height: TILE_H }}
       onClick={(e) => { e.stopPropagation(); onClick(e); }}
       onPointerEnter={hoverHandlers.onPointerEnter}

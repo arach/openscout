@@ -9,6 +9,7 @@ describe("renderMcpCommandHelp", () => {
     expect(help).toContain("whoami");
     expect(help).toContain("messages_inbox");
     expect(help).toContain("messages_channel");
+    expect(help).toContain("broker_feed");
     expect(help).toContain("session_attach_current");
     expect(help).toContain("agents_start");
     expect(help).toContain("agents_search");

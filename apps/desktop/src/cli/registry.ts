@@ -38,7 +38,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "config", summary: "View or set user config (name, etc.)" },
   { name: "mesh", summary: "Mesh status and diagnostics" },
   { name: "pair", summary: "Pair a companion device via QR" },
-  { name: "server", summary: "Run the Scout web UI (Bun; see: scout server start / control-plane start)" },
+  { name: "server", summary: "Run the Scout web UI (Bun; see: scout server start/open)" },
   { name: "tui", summary: "Terminal monitor dashboard" },
   { name: "init", summary: "Write ~/.openscout/config.json with broker/web/pairing ports" },
 ];

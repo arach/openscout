@@ -2,6 +2,7 @@ import { request as httpRequest } from "node:http";
 
 import type {
   ActorIdentity,
+  AgentBrokerFeed,
   AgentDefinition,
   AgentEndpoint,
   CollaborationEvent,
@@ -62,6 +63,13 @@ export type ScoutBrokerMessageQuery = {
   limit?: number;
 };
 
+export type ScoutBrokerAgentFeedQuery = {
+  agentId: string;
+  since?: number | null;
+  limit?: number;
+  includeAcknowledged?: boolean;
+};
+
 export type ScoutBrokerActivityQuery = {
   agentId?: string;
   actorId?: string;
@@ -113,6 +121,9 @@ export type ActiveScoutBrokerService = {
   readMessages?: (
     query: ScoutBrokerMessageQuery,
   ) => Promise<MessageRecord[]>;
+  readAgentBrokerFeed?: (
+    query: ScoutBrokerAgentFeedQuery,
+  ) => Promise<AgentBrokerFeed>;
   readActivity?: (query: ScoutBrokerActivityQuery) => Promise<unknown>;
   readCollaborationRecords?: (
     query: ScoutBrokerCollaborationRecordQuery,
@@ -531,6 +542,23 @@ export async function maybeReadJsonFromActiveScoutBrokerService<T>(
       inboxOnly: url.searchParams.get("inboxOnly") === "1",
       since: parsePositiveInt(url.searchParams.get("since")) ?? null,
       limit: parseLimit(url.searchParams.get("limit")),
+    }) as T);
+  }
+
+  if (url.pathname === "/v1/broker/messages") {
+    if (!service.readAgentBrokerFeed) {
+      return unhandled();
+    }
+    const agentId = trimOrUndefined(url.searchParams.get("agentId"));
+    if (!agentId) {
+      return unhandled();
+    }
+    return handled(await service.readAgentBrokerFeed({
+      agentId,
+      since: parsePositiveInt(url.searchParams.get("since")) ?? null,
+      limit: parseLimit(url.searchParams.get("limit")),
+      includeAcknowledged: url.searchParams.get("includeAcknowledged") === "1"
+        || url.searchParams.get("includeAcknowledged") === "true",
     }) as T);
   }
 

@@ -1,9 +1,18 @@
 {
   "name": "@openscout/scout",
-  "version": "0.2.66",
+  "version": "0.2.68",
   "description": "Public Scout package that installs the `scout` command and bundled local runtime",
   "license": "UNLICENSED",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arach/openscout.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/arach/openscout/issues"
+  },
+  "homepage": "https://github.com/arach/openscout#readme",
   "bin": {
     "scout": "./bin/scout.mjs"
   },
@@ -17,7 +26,7 @@
   },
   "scripts": {
     "build": "npm --prefix ../protocol run build && npm --prefix ../runtime run build && node ./scripts/build.mjs",
-    "dev": "bun ../../apps/desktop/bin/scout.ts",
+    "dev": "bun ./src/main.ts",
     "test:happy": "node --test test/*.test.mjs",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpack": "node ../../scripts/restore-publish-manifest.mjs .",

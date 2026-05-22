@@ -85,6 +85,7 @@ import {
   type SessionAttentionItem,
 } from "@openscout/runtime";
 import {
+  emitBroadcast,
   snapshotRecentBroadcasts,
   subscribeBroadcast,
 } from "./core/broadcast/service.ts";
@@ -132,6 +133,7 @@ import {
 } from "./material-heuristics.ts";
 import {
   collectTrustedRoots,
+  mediaTypeFor,
   readFilePreview,
   resolveTrustedPath,
 } from "./file-preview.ts";
@@ -310,6 +312,7 @@ function persistBriefing(
       observations,
       snapshot: capture.snapshot,
       call: capture.call,
+      markdown: brief.markdown ?? null,
     });
   } catch (err) {
     console.warn(
@@ -2113,7 +2116,7 @@ export async function createOpenScoutWebServer(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ranger assistant failed";
       const status = error instanceof RangerAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
   app.post("/api/ranger/actions/ask", async (c) => {
@@ -2179,11 +2182,18 @@ export async function createOpenScoutWebServer(
         onCaptured: (cap) => { captured = cap; },
       });
       if (captured) persistBriefing("tour", brief, captured);
+      emitBroadcast({
+        tier: "info",
+        text: `Brief · ${brief.title}`,
+        ruleId: "ranger.brief",
+        key: "ranger.brief",
+        agent: "ranger",
+      });
       return c.json(brief);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ranger brief failed";
       const status = error instanceof RangerAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
   app.get("/api/briefings", (c) => {
@@ -2215,6 +2225,32 @@ export async function createOpenScoutWebServer(
       return c.json({ error: result.error }, result.status as 400 | 403 | 404 | 415 | 500);
     }
     return c.json(result.content);
+  });
+
+  app.get("/api/file/raw", (c) => {
+    const requestedPath = c.req.query("path");
+    if (!requestedPath) {
+      return c.json({ error: "missing path" }, 400);
+    }
+    const roots = collectTrustedRoots({ currentDirectory });
+    const resolved = resolveTrustedPath({ requestedPath, roots });
+    if (!resolved.ok) {
+      return c.json({ error: resolved.error }, resolved.status as 400 | 403 | 404);
+    }
+    try {
+      if (!statSync(resolved.realPath).isFile()) {
+        return c.json({ error: "path is not a file" }, 415);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "could not read file";
+      return c.json({ error: message }, 500);
+    }
+    return new Response(Bun.file(resolved.realPath), {
+      headers: {
+        "content-type": mediaTypeFor(resolved.realPath),
+        "cache-control": "private, max-age=60",
+      },
+    });
   });
 
   app.post("/api/file/reveal", async (c) => {
@@ -2516,7 +2552,7 @@ export async function createOpenScoutWebServer(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Fleet brief failed";
       const status = error instanceof RangerAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503);
+      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
   app.get("/api/fleet", (c) =>
@@ -3345,9 +3381,26 @@ export async function createOpenScoutWebServer(
     return c.json(snapshot);
   });
 
-  app.get("/api/tail/recent", (c) => {
+  app.get("/api/tail/recent", async (c) => {
     const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;
-    return c.json({ events: snapshotRecentEvents(limitParam) });
+    const bufferedEvents = snapshotRecentEvents(limitParam);
+    if (c.req.query("transcripts") !== "true") {
+      return c.json({ events: bufferedEvents });
+    }
+    const transcriptEvents = await readRecentTranscriptEvents(limitParam, {
+      perTranscriptLineLimit: Math.min(200, Math.max(50, limitParam)),
+    });
+    const eventsById = new Map<string, (typeof bufferedEvents)[number]>();
+    for (const event of transcriptEvents) {
+      eventsById.set(event.id, event);
+    }
+    for (const event of bufferedEvents) {
+      eventsById.set(event.id, event);
+    }
+    const events = [...eventsById.values()]
+      .sort((left, right) => right.ts - left.ts)
+      .slice(0, limitParam);
+    return c.json({ events });
   });
 
   // /api/tail/stream removed — clients now subscribe to broker tail.events

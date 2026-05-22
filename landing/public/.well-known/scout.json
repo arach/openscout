@@ -148,6 +148,13 @@
         "repository": "https://github.com/arach/codex-scout",
         "page": "https://arach.github.io/codex-scout/",
         "install": "/plugin marketplace add arach/codex-scout"
+      },
+      {
+        "host": "Cursor",
+        "name": "Cursor Scout",
+        "repository": "https://github.com/arach/cursor-scout",
+        "page": "https://arach.github.io/cursor-scout/",
+        "install": "bun run install:global"
       }
     ]
   }

@@ -1,6 +1,12 @@
-# Scout Architecture Plan
+# Historical Scout Desktop Plan
 
-`apps/desktop` is the new canonical Scout implementation.
+This file records the old `apps/desktop` consolidation plan. It is no longer
+the active architecture direction.
+
+Current direction: migrate shared behavior out of `apps/desktop` into
+package-owned boundaries, keep current web work in `packages/web`, keep native
+macOS shell behavior in `apps/macos`, and reduce this tree to compatibility
+shims before removing it.
 
 ## Layout
 
@@ -40,16 +46,20 @@ apps/desktop/
 
 ## Ownership Rules
 
-- `src/cli` owns argv parsing, command registration, help, and exit behavior.
-- `src/core` owns typed product behavior and cross-domain flows.
+- `src/cli` temporarily owns argv parsing, command registration, help, and exit
+  behavior until that implementation moves to `packages/cli`.
+- `src/core` temporarily owns typed product behavior and cross-domain flows
+  until reusable services move to `packages/runtime` or another package
+  boundary.
 - `src/ui` owns rendering for terminal, monitor, and formatted output.
-- `src/app` owns desktop host integration and shell wiring.
+- `src/app` is old desktop/local-host integration. Native-specific behavior
+  should move to `apps/macos`; shared behavior should move to packages.
 - `src/shared` stays low-level and should not absorb product logic.
 
 ## Donor Strategy
 
-- Use legacy repo modules only as donor code; Scout owns the new runtime path.
-- Port capabilities upward into `apps/desktop/src` instead of extending old CLI routers.
+- Treat this tree as donor/transitional code, not the long-term runtime path.
+- Port capabilities out of `apps/desktop/src` instead of extending it.
 - Prefer moving reusable behavior into typed services before exposing it as a Scout command.
 
 ## Current Port Status

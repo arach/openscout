@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.65",
+  "version": "0.2.68",
   "private": true,
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
@@ -22,6 +22,11 @@
       "types": "./src/local-agents.ts",
       "bun": "./src/local-agents.ts",
       "default": "./dist/local-agents.js"
+    },
+    "./control-plane-agents": {
+      "types": "./src/control-plane-agents.ts",
+      "bun": "./src/control-plane-agents.ts",
+      "default": "./dist/control-plane-agents.js"
     },
     "./local-agent-template": {
       "types": "./src/local-agent-template.ts",

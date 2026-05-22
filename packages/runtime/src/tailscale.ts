@@ -111,7 +111,11 @@ async function readStatusJsonFromFile(filePath: string): Promise<TailscaleStatus
 async function readStatusJson(): Promise<TailscaleStatusJson | null> {
   const fixturePath = process.env.OPENSCOUT_TAILSCALE_STATUS_JSON;
   if (fixturePath) {
-    return readStatusJsonFromFile(fixturePath);
+    try {
+      return await readStatusJsonFromFile(fixturePath);
+    } catch {
+      return null;
+    }
   }
 
   try {

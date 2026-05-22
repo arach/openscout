@@ -14,6 +14,7 @@ making the integration surface discoverable.
 | pi | [`arach/pi-scout`](https://github.com/arach/pi-scout) | [`arach.github.io/pi-scout`](https://arach.github.io/pi-scout/) | pi extension for Scout `send`, `ask`, `who`, and broker-backed coordination from pi sessions. |
 | Claude Code | [`arach/claude-scout`](https://github.com/arach/claude-scout) | [`arach.github.io/claude-scout`](https://arach.github.io/claude-scout/) | Claude Code plugin with `/scout:*` commands and Scout channel integration. |
 | Codex | [`arach/codex-scout`](https://github.com/arach/codex-scout) | [`arach.github.io/codex-scout`](https://arach.github.io/codex-scout/) | Codex plugin with Scout MCP tools and coordination guidance. |
+| Cursor | [`arach/cursor-scout`](https://github.com/arach/cursor-scout) | [`arach.github.io/cursor-scout`](https://arach.github.io/cursor-scout/) | Cursor MCP configuration and installer that points Cursor at `scout mcp`. |
 | Hermes Agent | [`arach/hermes-scout`](https://github.com/arach/hermes-scout) | [`github.com/arach/hermes-scout`](https://github.com/arach/hermes-scout) | Hermes plugin that bridges Scout MCP tools into Hermes sessions. |
 
 ## Relationship To This Repo
@@ -50,6 +51,7 @@ Recommended sibling checkout layout:
 ├── pi-scout/
 ├── claude-scout/
 ├── codex-scout/
+├── cursor-scout/
 └── hermes-scout/
 ```
 

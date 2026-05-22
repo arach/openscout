@@ -4,127 +4,77 @@ afterEach(() => {
   mock.restore();
 });
 
-describe("createScoutAgentCard", () => {
-  test("registers a card without forcing the creating process to own the live session", async () => {
-    const actualLocalAgents = await import("@openscout/runtime/local-agents");
-    const actualBrokerService = await import("../broker/service.ts");
-    const startLocalAgent = mock(async (_input: unknown) => ({
-      agentId: "meshreview-opus.main.mini",
-      definitionId: "meshreview-opus",
-      projectName: "Openscout",
-      projectRoot: "/tmp/openscout",
-      sessionId: "relay-openscout-claude",
-      startedAt: 123,
-      harness: "claude",
-      transport: "claude_stream_json",
-      isOnline: false,
-      source: "manual",
-    }));
-    const registerScoutLocalAgentBinding = mock(async () => ({
-      brokerRegistered: true,
-      binding: {
-        actor: {
-          id: "meshreview-opus.main.mini",
-          kind: "agent",
-          displayName: "Mesh Review Opus",
-          handle: "meshreview-opus",
-          labels: [],
-          metadata: {},
-        },
-        agent: {
-          id: "meshreview-opus.main.mini",
-          kind: "agent",
-          definitionId: "meshreview-opus",
-          selector: "@meshreview-opus.main.node:mini",
-          defaultSelector: "@meshreview-opus",
-          displayName: "Mesh Review Opus",
-          handle: "meshreview-opus",
-          labels: [],
-          metadata: {},
-          agentClass: "general",
-          capabilities: ["chat", "invoke", "deliver"],
-          wakePolicy: "on_demand",
-          homeNodeId: "node-1",
-          authorityNodeId: "node-1",
-          advertiseScope: "local",
-        },
-        endpoint: {
-          id: "endpoint.meshreview-opus",
-          agentId: "meshreview-opus.main.mini",
-          nodeId: "node-1",
-          harness: "claude",
-          transport: "claude_stream_json",
-          state: "waiting",
-          cwd: "/tmp/openscout",
-          projectRoot: "/tmp/openscout",
-          sessionId: "relay-openscout-claude",
-          metadata: {},
-        },
-      },
-    }));
-    const buildScoutAgentCard = mock((_binding, _options) => ({
-      id: "meshreview-opus.main.mini",
-      agentId: "meshreview-opus.main.mini",
-      definitionId: "meshreview-opus",
-      displayName: "Mesh Review Opus",
-      handle: "meshreview-opus",
-      projectRoot: "/tmp/openscout",
-      currentDirectory: "/tmp/openscout",
-      harness: "claude",
-      transport: "claude_stream_json",
+describe("agent service wiring", () => {
+  test("uses the shared runtime agent service with desktop broker dependencies", async () => {
+    const fixtureCard = {
+      id: "alpha.test-node",
+      agentId: "alpha.test-node",
+      definitionId: "alpha",
+      displayName: "Alpha Agent",
+      handle: "alpha",
+      projectRoot: "/tmp/alpha",
+      currentDirectory: "/tmp/alpha",
+      harness: "codex" as const,
+      transport: "codex_app_server" as const,
       createdAt: 123,
-      brokerRegistered: true,
+      brokerRegistered: false,
       returnAddress: {
-        actorId: "meshreview-opus.main.mini",
-        handle: "meshreview-opus",
+        actorId: "alpha.test-node",
+        handle: "alpha",
       },
       metadata: {},
+    };
+    const createScoutAgentCard = mock(async (_input: unknown) => fixtureCard);
+    const createScoutAgentService = mock((_deps: unknown) => ({
+      createScoutAgentCard,
+      downAllScoutAgents: mock(async () => []),
+      downScoutAgent: mock(async () => null),
+      loadScoutAgentStatuses: mock(async () => []),
+      retireScoutAgentCard: mock(async () => null),
+      restartScoutAgents: mock(async () => []),
+      updateScoutAgentCard: mock(async () => null),
+      upScoutAgent: mock(async (_input: unknown) => {
+        throw new Error("unexpected up");
+      }),
     }));
+    const loadScoutBrokerContext = mock(async () => null);
+    const openScoutPeerSession = mock(async () => {
+      throw new Error("unexpected peer session");
+    });
+    const registerScoutLocalAgentBinding = mock(async () => null);
+    const retireScoutLocalAgentBinding = mock(async () => false);
 
-    mock.module("@openscout/runtime/local-agents", () => ({
-      ...actualLocalAgents,
-      startLocalAgent,
-    }));
-    mock.module("@openscout/runtime/scout-agent-cards", () => ({
-      buildScoutAgentCard,
+    mock.module("@openscout/runtime/control-plane-agents", () => ({
+      createScoutAgentService,
     }));
     mock.module("../broker/service.ts", () => ({
-      ...actualBrokerService,
-      loadScoutBrokerContext: mock(async () => ({
-        baseUrl: "http://127.0.0.1:65535",
-        node: { id: "node-1" },
-        snapshot: {},
-      })),
-      openScoutPeerSession: mock(async () => {
-        throw new Error("unexpected peer session");
-      }),
+      loadScoutBrokerContext,
+      openScoutPeerSession,
+      parseScoutLocalHarness: (value?: string) => value,
       registerScoutLocalAgentBinding,
+      retireScoutLocalAgentBinding,
+      resolveScoutAgentName: (value?: string) => value ?? "operator",
     }));
 
-    const { createScoutAgentCard } = await import("./service.ts");
-    await createScoutAgentCard({
-      projectPath: "/tmp/openscout",
-      agentName: "meshreview-opus",
-      displayName: "Mesh Review Opus",
-      harness: "claude",
-      model: "opus",
-      reasoningEffort: "high",
-      currentDirectory: "/tmp/openscout",
+    const { createScoutAgentCard: wiredCreateScoutAgentCard } = await import("./service.ts");
+    const card = await wiredCreateScoutAgentCard({
+      projectPath: "/tmp/alpha",
+      currentDirectory: "/tmp/alpha",
     });
 
-    expect(startLocalAgent.mock.calls).toEqual([
+    expect(card.agentId).toBe("alpha.test-node");
+    expect(createScoutAgentService.mock.calls).toHaveLength(1);
+    expect(createScoutAgentService.mock.calls[0]?.[0]).toEqual({
+      loadScoutBrokerContext,
+      openScoutPeerSession,
+      registerScoutLocalAgentBinding,
+      retireScoutLocalAgentBinding,
+    });
+    expect(createScoutAgentCard.mock.calls).toEqual([
       [{
-        projectPath: "/tmp/openscout",
-        agentName: "meshreview-opus",
-        displayName: "Mesh Review Opus",
-        harness: "claude",
-        model: "opus",
-        reasoningEffort: "high",
-        currentDirectory: "/tmp/openscout",
-        ensureOnline: false,
+        projectPath: "/tmp/alpha",
+        currentDirectory: "/tmp/alpha",
       }],
     ]);
-    expect(registerScoutLocalAgentBinding).toHaveBeenCalledTimes(1);
-    expect(buildScoutAgentCard).toHaveBeenCalledTimes(1);
   });
 });

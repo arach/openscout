@@ -34,6 +34,7 @@ import {
   loadScoutFlight,
   loadScoutBrokerContext,
   loadScoutMessages,
+  readScoutBrokerFeed,
   readScoutLabelFeed,
   readScoutLabelBrief,
   resolveScoutBrokerUrl,
@@ -46,6 +47,7 @@ import {
   waitForScoutFlight,
   type ScoutAskByIdResult,
   type ScoutAskResult,
+  type ScoutAgentBrokerFeed,
   type ScoutFlightRecord,
   type ScoutLabelBrief,
   type ScoutLabelFeed,
@@ -325,6 +327,13 @@ type ScoutMcpDependencies = {
     limit?: number;
     baseUrl?: string;
   }) => Promise<ScoutBrokerMessageRecord[]>;
+  readBrokerFeed: (input: {
+    agentId: string;
+    since?: number | null;
+    limit?: number;
+    includeAcknowledged?: boolean;
+    baseUrl?: string;
+  }) => Promise<ScoutAgentBrokerFeed | null>;
   searchAgents: (input: {
     query?: string;
     currentDirectory: string;
@@ -755,6 +764,97 @@ const messagesChannelResultSchema = z.object({
   limit: z.number(),
   since: z.number().nullable(),
   messages: z.array(brokerMessageSchema),
+});
+
+const brokerFeedRecordSchema = z.record(z.string(), z.unknown());
+
+const brokerFeedItemSchema = z.object({
+  id: z.string(),
+  kind: z.enum([
+    "message",
+    "status",
+    "invocation",
+    "flight",
+    "delivery",
+    "delivery_attempt",
+    "dispatch",
+    "unblock_request",
+  ]),
+  severity: z.enum(["info", "status", "warning", "error"]),
+  at: z.number(),
+  title: z.string(),
+  summary: z.string(),
+  agentId: z.string().optional(),
+  actorId: z.string().optional(),
+  targetAgentId: z.string().optional(),
+  conversationId: z.string().optional(),
+  messageId: z.string().optional(),
+  invocationId: z.string().optional(),
+  flightId: z.string().optional(),
+  deliveryId: z.string().optional(),
+  dispatchId: z.string().optional(),
+  unblockRequestId: z.string().optional(),
+  status: z.string().optional(),
+  reason: z.string().optional(),
+  source: z.enum(["activity", "snapshot", "delivery", "dispatch", "unblock_request"]),
+  message: brokerFeedRecordSchema.optional(),
+  invocation: brokerFeedRecordSchema.optional(),
+  flight: brokerFeedRecordSchema.optional(),
+  delivery: brokerFeedRecordSchema.optional(),
+  deliveryAttempt: brokerFeedRecordSchema.optional(),
+  dispatch: brokerFeedRecordSchema.optional(),
+  unblockRequest: brokerFeedRecordSchema.optional(),
+  metadata: brokerFeedRecordSchema.optional(),
+}).catchall(z.unknown());
+
+const brokerFeedSchema = z.object({
+  currentDirectory: z.string(),
+  brokerUrl: z.string(),
+  found: z.boolean(),
+  agentId: z.string(),
+  generatedAt: z.number(),
+  since: z.number().nullable(),
+  limit: z.number(),
+  cursor: z.number().nullable(),
+  status: z.object({
+    agentId: z.string(),
+    displayName: z.string().optional(),
+    found: z.boolean(),
+    agentState: z.string().optional(),
+    endpoints: z.array(z.object({
+      id: z.string(),
+      nodeId: z.string(),
+      harness: z.string(),
+      transport: z.string(),
+      state: z.string(),
+      sessionId: z.string().optional(),
+      projectRoot: z.string().optional(),
+      cwd: z.string().optional(),
+      lastError: z.string().optional(),
+      lastFailureStage: z.string().optional(),
+      updatedAt: z.number().optional(),
+    }).catchall(z.unknown())),
+    activeFlightIds: z.array(z.string()),
+    pendingDeliveryIds: z.array(z.string()),
+    errorCount: z.number(),
+    warningCount: z.number(),
+    lastError: z.string().optional(),
+    lastActivityAt: z.number().optional(),
+  }).catchall(z.unknown()),
+  counts: z.object({
+    items: z.number(),
+    messages: z.number(),
+    statuses: z.number(),
+    invocations: z.number(),
+    flights: z.number(),
+    deliveries: z.number(),
+    deliveryAttempts: z.number(),
+    dispatches: z.number(),
+    unblockRequests: z.number(),
+    errors: z.number(),
+    warnings: z.number(),
+  }),
+  items: z.array(brokerFeedItemSchema),
 });
 
 const searchResultSchema = z.object({
@@ -1432,6 +1532,17 @@ function renderMcpLabelFeedSummary(feed: ScoutLabelFeed & { found: boolean }): s
     ? ` Latest: ${latest.kind} from ${latest.actorId ?? "unknown"} - ${latest.summary}`
     : " No events yet.";
   return `Label ${feed.label}; ${feed.counts.events} events; cursor ${feed.cursor ?? "none"}.${latestText}`;
+}
+
+function renderMcpBrokerFeedSummary(feed: ScoutAgentBrokerFeed & { found: boolean }): string {
+  if (!feed.found) {
+    return `Broker feed for ${feed.agentId} is unavailable.`;
+  }
+  const latest = feed.items[0];
+  const latestText = latest
+    ? ` Latest: ${latest.kind} ${latest.severity} - ${latest.summary}`
+    : " No broker events yet.";
+  return `Broker feed for ${feed.agentId}; ${feed.counts.items} items; ${feed.counts.errors} errors; ${feed.counts.warnings} warnings; cursor ${feed.cursor ?? "none"}.${latestText}`;
 }
 
 function resolveCurrentCodexThreadId(env: NodeJS.ProcessEnv): string {
@@ -2330,6 +2441,7 @@ function defaultScoutMcpDependencies(
     resolveBrokerUrl: () =>
       env.OPENSCOUT_BROKER_URL?.trim() || resolveScoutBrokerUrl(),
     loadMessages: (input) => loadScoutMessages(input),
+    readBrokerFeed: (input) => readScoutBrokerFeed(input),
     searchAgents: ({ query, currentDirectory, limit }) =>
       searchScoutAgentsForMcp({ query, currentDirectory, limit }),
     resolveAgent: ({ label, currentDirectory }) =>
@@ -2667,6 +2779,101 @@ export function createScoutMcpServer(options: {
       };
       return {
         content: createTextContent(structuredContent),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "broker_feed",
+    {
+      title: "Read Agent Broker Feed",
+      description:
+        "Fetch a native broker view of messages, status, delivery, dispatch, unblock, and error records for one agent. Use this instead of stitching together messages, flights, deliveries, and broker errors by hand.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        senderId: z.string().optional(),
+        agentId: z.string().optional(),
+        since: z.number().optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        includeAcknowledged: z.boolean().optional(),
+      }),
+      outputSchema: brokerFeedSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ currentDirectory, senderId, agentId, since, limit, includeAcknowledged }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const resolvedAgentId = agentId?.trim()
+        || await resolveMcpSenderId(
+          deps,
+          senderId,
+          resolvedCurrentDirectory,
+          env,
+        );
+      const brokerUrl = deps.resolveBrokerUrl();
+      const resolvedLimit = limit ?? 80;
+      const feed = await deps.readBrokerFeed({
+        agentId: resolvedAgentId,
+        since: since ?? null,
+        limit: resolvedLimit,
+        includeAcknowledged: includeAcknowledged ?? false,
+        baseUrl: brokerUrl,
+      });
+      if (!feed) {
+        const empty = {
+          currentDirectory: resolvedCurrentDirectory,
+          brokerUrl,
+          found: false,
+          agentId: resolvedAgentId,
+          generatedAt: Date.now(),
+          since: since ?? null,
+          limit: resolvedLimit,
+          cursor: null,
+          status: {
+            agentId: resolvedAgentId,
+            found: false,
+            endpoints: [],
+            activeFlightIds: [],
+            pendingDeliveryIds: [],
+            errorCount: 0,
+            warningCount: 0,
+          },
+          counts: {
+            items: 0,
+            messages: 0,
+            statuses: 0,
+            invocations: 0,
+            flights: 0,
+            deliveries: 0,
+            deliveryAttempts: 0,
+            dispatches: 0,
+            unblockRequests: 0,
+            errors: 0,
+            warnings: 0,
+          },
+          items: [],
+        };
+        return {
+          content: createPlainTextContent(`Scout broker is not reachable; broker feed for ${resolvedAgentId} is unavailable.`),
+          structuredContent: empty,
+        };
+      }
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        brokerUrl,
+        found: feed.status.found,
+        ...feed,
+      };
+      return {
+        content: createPlainTextContent(renderMcpBrokerFeedSummary(structuredContent)),
         structuredContent,
       };
     },

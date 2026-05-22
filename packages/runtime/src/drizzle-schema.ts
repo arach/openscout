@@ -51,6 +51,11 @@ export const briefingsTable = sqliteTable("briefings", {
   observationsJson: text("observations_json").notNull(),
   snapshotJson: text("snapshot_json").notNull(),
   callJson: text("call_json").notNull(),
+  /**
+   * Canonical markdown body (SCO-037 step 3). Nullable for backward
+   * compatibility with rows persisted before the markdown pipeline.
+   */
+  markdown: text("markdown"),
   createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
 }, (table) => [
   index("idx_briefings_created_at").on(table.createdAt),

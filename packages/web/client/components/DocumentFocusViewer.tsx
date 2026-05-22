@@ -14,6 +14,8 @@ export type DocumentFocusViewerAction = {
   icon?: ReactNode;
   onClick: () => void;
   title?: string;
+  disabled?: boolean;
+  hideLabel?: boolean;
 };
 
 export function DocumentFocusViewer({
@@ -30,6 +32,7 @@ export function DocumentFocusViewer({
   state,
   error,
   notice,
+  body,
   onClose,
 }: {
   open?: boolean;
@@ -45,6 +48,7 @@ export function DocumentFocusViewer({
   state?: string | null;
   error?: string | null;
   notice?: string | null;
+  body?: ReactNode;
   onClose?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
@@ -126,6 +130,7 @@ export function DocumentFocusViewer({
 
   const resolvedTitle = title ?? document?.title ?? "Document";
   const resolvedMode = mode ?? (document?.kind === "markdown" ? "preview" : "read");
+  const canFocus = focusable && Boolean(document || body);
 
   return (
     <div
@@ -171,15 +176,17 @@ export function DocumentFocusViewer({
               <button
                 key={action.label}
                 type="button"
-                className="s-doc-focus-viewer-action"
+                className={`s-doc-focus-viewer-action${action.hideLabel ? " s-doc-focus-viewer-action-icon" : ""}`}
                 onClick={action.onClick}
                 title={action.title ?? action.label}
+                disabled={action.disabled}
+                aria-label={action.hideLabel ? action.label : undefined}
               >
                 {action.icon}
-                <span>{action.label}</span>
+                {!action.hideLabel && <span>{action.label}</span>}
               </button>
             ))}
-            {focusable && document && (
+            {canFocus && (
               <button
                 type="button"
                 className="s-doc-focus-viewer-close"
@@ -205,13 +212,16 @@ export function DocumentFocusViewer({
             )}
           </div>
         </div>
-        {state && !error && !document && (
+        {state && !error && !document && !body && (
           <div className="s-doc-focus-viewer-state">{state}</div>
         )}
         {error && (
           <div className="s-doc-focus-viewer-state s-doc-focus-viewer-error">{error}</div>
         )}
-        {!error && document && (
+        {!error && body && (
+          <div className="s-doc-focus-viewer-body">{body}</div>
+        )}
+        {!error && !body && document && (
           <TextDocumentSurface
             document={document}
             mode={resolvedMode}

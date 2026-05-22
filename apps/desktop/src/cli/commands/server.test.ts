@@ -15,7 +15,7 @@ describe("server command helpers", () => {
     expect(renderServerCommandHelp()).toContain("scout server open [options]");
     expect(renderServerCommandHelp()).toContain("scout server caddyfile [options]");
     expect(renderServerCommandHelp()).toContain("scout server edge [options]");
-    expect(renderServerCommandHelp()).toContain("scout server control-plane open [options]");
+    expect(renderServerCommandHelp()).toContain("deprecated alias for `scout server open`");
     expect(renderServerCommandHelp()).toContain("--host <h>");
     expect(renderServerCommandHelp()).toContain("--local-name NAME");
     expect(renderServerCommandHelp()).toContain("--public-origin URL");

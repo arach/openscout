@@ -4,6 +4,7 @@ import { basename, join, resolve } from "node:path";
 import {
   buildScoutReturnAddress as buildScoutReturnAddressRecord,
   type ActorIdentity,
+  type AgentBrokerFeed,
   type AgentDefinition,
   type AgentEndpoint,
   diagnoseAgentIdentity,
@@ -65,6 +66,7 @@ import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import {
   openAiAudioSpeechUrl,
+  scoutBrokerMessagesPath,
   scoutBrokerInvocationPath,
   scoutBrokerInvocationStreamPath,
   scoutBrokerMessagesListPath,
@@ -92,6 +94,7 @@ export type ScoutBrokerInvocationRecord = InvocationRequest;
 export type ScoutBrokerConversationBindingRecord = ConversationBinding;
 export type ScoutBrokerCollaborationRecord = CollaborationRecord;
 export type ScoutBrokerSnapshot = RuntimeRegistrySnapshot;
+export type ScoutAgentBrokerFeed = AgentBrokerFeed;
 
 export type ScoutBrokerContext = {
   baseUrl: string;
@@ -2105,6 +2108,55 @@ export async function registerScoutLocalAgentBinding(input: {
     binding,
     brokerRegistered: Boolean(broker),
   };
+}
+
+export async function retireScoutLocalAgentBinding(input: {
+  agentId: string;
+  broker?: ScoutBrokerContext | null;
+}): Promise<boolean> {
+  const broker = input.broker ?? await loadScoutBrokerContext();
+  if (!broker) {
+    return false;
+  }
+
+  const retiredAt = Date.now();
+  let retired = false;
+  const agent = broker.snapshot.agents[input.agentId];
+  if (agent) {
+    const nextAgent: ScoutBrokerAgentRecord = {
+      ...agent,
+      metadata: {
+        ...(agent.metadata ?? {}),
+        retiredFromFleet: true,
+        retiredAt,
+      },
+    };
+    await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.agents, nextAgent);
+    broker.snapshot.agents[input.agentId] = nextAgent;
+    retired = true;
+  }
+
+  for (const endpoint of Object.values(broker.snapshot.endpoints)) {
+    if (endpoint.agentId !== input.agentId) {
+      continue;
+    }
+    const nextEndpoint: ScoutBrokerEndpointRecord = {
+      ...endpoint,
+      state: "offline",
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        retiredFromFleet: true,
+        retiredAt,
+        lastError: "local agent card retired",
+        lastFailedAt: retiredAt,
+      },
+    };
+    await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.endpoints, nextEndpoint);
+    broker.snapshot.endpoints[endpoint.id] = nextEndpoint;
+    retired = true;
+  }
+
+  return retired;
 }
 
 async function resolveConversationActorId(
@@ -4180,6 +4232,48 @@ export async function loadScoutMessages(
     options.baseUrl ?? resolveScoutBrokerUrl(),
     scoutBrokerMessagesListPath(search),
   );
+}
+
+export async function readScoutBrokerFeed(
+  options: {
+    agentId: string;
+    since?: number | null;
+    limit?: number;
+    includeAcknowledged?: boolean;
+    baseUrl?: string;
+  },
+): Promise<ScoutAgentBrokerFeed | null> {
+  const agentId = options.agentId.trim();
+  if (!agentId) {
+    return null;
+  }
+  const search = new URLSearchParams();
+  search.set("agentId", agentId);
+  if (
+    typeof options.since === "number" &&
+    Number.isFinite(options.since) &&
+    options.since > 0
+  ) {
+    search.set("since", String(options.since));
+  }
+  if (
+    typeof options.limit === "number" &&
+    Number.isFinite(options.limit) &&
+    options.limit > 0
+  ) {
+    search.set("limit", String(options.limit));
+  }
+  if (options.includeAcknowledged) {
+    search.set("includeAcknowledged", "1");
+  }
+  try {
+    return await brokerReadJson<ScoutAgentBrokerFeed>(
+      options.baseUrl ?? resolveScoutBrokerUrl(),
+      scoutBrokerMessagesPath(search),
+    );
+  } catch {
+    return null;
+  }
 }
 
 export type ScoutActivityItem = {

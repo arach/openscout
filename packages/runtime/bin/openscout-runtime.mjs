@@ -63,7 +63,27 @@ function runEntrypoint(entry, entryArgs) {
   process.exit(result.status ?? 0);
 }
 
+function canRunTypeScriptSource() {
+  return typeof globalThis.Bun !== "undefined";
+}
+
+function shouldPreferSourceEntry() {
+  const preference = process.env.OPENSCOUT_RUNTIME_ENTRYPOINT?.trim().toLowerCase();
+  if (preference === "source" || preference === "src") {
+    return true;
+  }
+  if (preference === "dist") {
+    return false;
+  }
+  return process.env.OPENSCOUT_BROKER_SERVICE_MODE?.trim().toLowerCase() === "dev";
+}
+
 const distEntry = distMain[command];
+const sourceEntry = sourceMain[command];
+if (canRunTypeScriptSource() && shouldPreferSourceEntry() && existsSync(sourceEntry)) {
+  runEntrypoint(sourceEntry, args);
+}
+
 if (existsSync(distEntry)) {
   runEntrypoint(distEntry, args);
 } else {

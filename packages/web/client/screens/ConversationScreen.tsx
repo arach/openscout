@@ -10,11 +10,26 @@ import {
   minimalAgentHandle,
 } from "../lib/agent-labels.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
-import { timeAgo } from "../lib/time.ts";
+import {
+  compareTimestampsAsc,
+  compareTimestampsDesc,
+  formatAbsoluteTimestamp,
+  normalizeTimestampMs,
+  timeAgo,
+} from "../lib/time.ts";
 import { isSameCalendarDay, formatThreadDayLabel } from "../lib/thread-days.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
-import { conversationShortLabel, isGroupConversation } from "../lib/conversations.ts";
+import {
+  TERMINAL_CONVERSATION_FLIGHT_STATES,
+  conversationShortLabel,
+  isActiveConversationFlight,
+  isGroupConversation,
+  isStaleConversationWorkingTurn,
+  isStaleConversationWorkingTurnAnswered,
+  shouldClearConversationWorkingStateForAgentMessage,
+  shouldShowConversationWorkingTurn,
+} from "../lib/conversations.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import {
@@ -46,7 +61,6 @@ import type {
 import "./conversation-screen.css";
 import "./ops-screen.css";
 
-const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
 const KIND_LABELS: Record<string, string> = {
   direct: "Direct message",
   channel: "Channel",
@@ -178,16 +192,10 @@ type ComposeAction = "tell" | "ask" | "steer";
 type ConversationPresence = {
   label: string;
   detail: string;
-  tone: "idle" | "pending" | "working" | "offline";
+  tone: "idle" | "pending" | "working" | "stale" | "offline";
   showStrip: boolean;
   showTyping: boolean;
 };
-
-function normalizeTimestampMs(value: number | null | undefined): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
-    return null;
-  return value < 1e12 ? value * 1000 : value;
-}
 
 function pathLeaf(path: string | null | undefined): string | null {
   if (!path) return null;
@@ -209,15 +217,6 @@ function deriveDisplayTitle(session: SessionEntry): string {
   return session.title.replace(/\s*<>\s*/g, " · ");
 }
 
-function formatAbsoluteTimestamp(value: number | null | undefined): string {
-  const normalized = normalizeTimestampMs(value);
-  if (normalized === null) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(normalized);
-}
-
 function messageClassLabel(kind: string): string | null {
   switch (kind) {
     case "status":
@@ -232,21 +231,17 @@ function messageClassLabel(kind: string): string | null {
 }
 
 function sortMessages(messages: Message[]): Message[] {
-  return [...messages].sort(
-    (left, right) =>
-      (normalizeTimestampMs(left.createdAt) ?? 0) -
-      (normalizeTimestampMs(right.createdAt) ?? 0),
+  return [...messages].sort((left, right) =>
+    compareTimestampsAsc(left.createdAt, right.createdAt),
   );
 }
 
 function selectCurrentFlight(flights: Flight[]): Flight | null {
   return (
     flights
-      .filter((flight) => !TERMINAL_FLIGHT_STATES.has(flight.state))
-      .sort(
-        (left, right) =>
-          (normalizeTimestampMs(right.startedAt) ?? 0) -
-          (normalizeTimestampMs(left.startedAt) ?? 0),
+      .filter(isActiveConversationFlight)
+      .sort((left, right) =>
+        compareTimestampsDesc(left.startedAt, right.startedAt),
       )[0] ?? null
   );
 }
@@ -322,9 +317,20 @@ function describePresence(input: {
   sending: boolean;
   currentFlight: Flight | null;
   showWorkingTurn: boolean;
+  workingTurnIsGone: boolean;
+  workingTurnIsStale: boolean;
+  nowMs: number;
 }): ConversationPresence {
-  const { agentName, agentState, sending, currentFlight, showWorkingTurn } =
-    input;
+  const {
+    agentName,
+    agentState,
+    sending,
+    currentFlight,
+    showWorkingTurn,
+    workingTurnIsGone,
+    workingTurnIsStale,
+    nowMs,
+  } = input;
 
   if (sending && !currentFlight) {
     return {
@@ -333,6 +339,22 @@ function describePresence(input: {
       tone: "pending",
       showStrip: true,
       showTyping: false,
+    };
+  }
+
+  if (currentFlight && showWorkingTurn && workingTurnIsStale) {
+    const staleAge = timeAgo(currentFlight.startedAt, nowMs);
+    const staleDetail = staleAge
+      ? `No update from ${agentName} for ${staleAge}.`
+      : `No recent update from ${agentName}.`;
+    return {
+      label: workingTurnIsGone ? "Gone" : "Stale",
+      detail: workingTurnIsGone
+        ? `${staleDetail} Agent is offline.`
+        : staleDetail,
+      tone: "stale",
+      showStrip: true,
+      showTyping: true,
     };
   }
 
@@ -404,6 +426,8 @@ function presenceColor(
       return "var(--accent)";
     case "working":
       return "var(--green)";
+    case "stale":
+      return "var(--amber)";
     case "offline":
       return "var(--dim)";
     default:
@@ -440,6 +464,24 @@ function StopIcon() {
       aria-hidden="true"
     >
       <rect x="4" y="4" width="16" height="16" rx="2" />
+    </svg>
+  );
+}
+
+function DismissIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M4 4l8 8" />
+      <path d="M12 4l-8 8" />
     </svg>
   );
 }
@@ -492,14 +534,14 @@ function deriveParticipantActivity(
     (f) =>
       f.agentId === agent.id &&
       f.conversationId === conversationId &&
-      !TERMINAL_FLIGHT_STATES.has(f.state),
+      isActiveConversationFlight(f),
   );
   if (hasFlight) {
     const flight = flights.find(
       (f) =>
         f.agentId === agent.id &&
         f.conversationId === conversationId &&
-        !TERMINAL_FLIGHT_STATES.has(f.state),
+        isActiveConversationFlight(f),
     );
     if (flight?.state === "running") return "running tool";
     if (flight?.state === "waiting") return "thinking";
@@ -825,6 +867,9 @@ export function ConversationScreen({
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
+  const [dismissedWorkingTurnIds, setDismissedWorkingTurnIds] = useState<
+    Set<string>
+  >(new Set());
   const [allFlights, setAllFlights] = useState<Flight[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -964,6 +1009,15 @@ export function ConversationScreen({
   useEffect(() => {
     currentFlightRef.current = currentFlight;
   }, [currentFlight]);
+
+  const dismissWorkingTurn = useCallback(() => {
+    if (!currentFlight?.id) return;
+    setDismissedWorkingTurnIds((previous) => {
+      const next = new Set(previous);
+      next.add(currentFlight.id);
+      return next;
+    });
+  }, [currentFlight?.id]);
 
   const [draft, setDraft] = useState(() => initialDraft ?? "");
   const [sending, setSending] = useState(false);
@@ -1169,17 +1223,37 @@ export function ConversationScreen({
     }
   }, [awaitingResponseSince, lastAgentReplyAt]);
 
-  const showWorkingTurn = useMemo(() => {
-    if (!currentFlight || TERMINAL_FLIGHT_STATES.has(currentFlight.state))
-      return false;
-    const flightStartedAt =
-      normalizeTimestampMs(currentFlight.startedAt) ??
-      awaitingResponseSince ??
-      Date.now();
-    return flightStartedAt >= (lastAgentReplyAt ?? 0);
-  }, [awaitingResponseSince, currentFlight, lastAgentReplyAt]);
-  const hasOutstandingReply =
+  const rawShowWorkingTurn = useMemo(() => {
+    return shouldShowConversationWorkingTurn(currentFlight);
+  }, [currentFlight]);
+  const currentNowMs = Date.now();
+  const currentFlightIsStale = isStaleConversationWorkingTurn(
+    currentFlight,
+    currentNowMs,
+  );
+  const staleWorkingTurnHasNewerReply =
+    isStaleConversationWorkingTurnAnswered(
+      currentFlight,
+      lastAgentReplyAt,
+      currentNowMs,
+    );
+  const workingTurnDismissed = currentFlight
+    ? dismissedWorkingTurnIds.has(currentFlight.id)
+    : false;
+  const showWorkingTurn =
+    rawShowWorkingTurn &&
+    !staleWorkingTurnHasNewerReply &&
+    !workingTurnDismissed;
+  const workingTurnIsStale = showWorkingTurn && currentFlightIsStale;
+  const workingTurnIsGone =
+    workingTurnIsStale &&
+    normalizeAgentState(agent?.state ?? null) === "offline";
+  const shouldPollOutstandingTurn =
     sending || awaitingResponseSince !== null || showWorkingTurn;
+  const hasOutstandingReply =
+    sending ||
+    awaitingResponseSince !== null ||
+    (showWorkingTurn && !workingTurnIsStale);
 
   const agentName = minimalAgentDisplayName({
     name: agent?.name,
@@ -1195,9 +1269,61 @@ export function ConversationScreen({
         sending,
         currentFlight,
         showWorkingTurn,
+        workingTurnIsGone,
+        workingTurnIsStale,
+        nowMs: currentNowMs,
       }),
-    [agent?.state, agentName, currentFlight, sending, showWorkingTurn],
+    [
+      agent?.state,
+      agentName,
+      currentFlight,
+      currentNowMs,
+      sending,
+      showWorkingTurn,
+      workingTurnIsGone,
+      workingTurnIsStale,
+    ],
   );
+  const hasStaleWorkingTurnPresence = presence.tone === "stale";
+  const workingTurnBadgeLabel = hasStaleWorkingTurnPresence
+    ? presence.label
+    : "Live";
+  const presenceLineLabel = hasStaleWorkingTurnPresence
+    ? presence.detail
+    : `${agentName} is ${presence.label.toLowerCase()}...`;
+  const workingTurnCardClassName = [
+    "s-thread-msg-card",
+    "s-thread-msg-working-card",
+    "s-thread-msg-card--avatar-row",
+    hasStaleWorkingTurnPresence ? "s-thread-msg-working-card--stale" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const workingTurnKindClassName = [
+    "s-thread-msg-kind",
+    hasStaleWorkingTurnPresence ? "s-thread-msg-kind--stale" : null,
+    workingTurnIsGone ? "s-thread-msg-kind--gone" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const staleIndicatorClassName = [
+    "s-thread-stale-indicator",
+    workingTurnIsGone ? "s-thread-stale-indicator--gone" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const presenceLineClassName = [
+    "s-thread-presence-line",
+    hasStaleWorkingTurnPresence ? "s-thread-presence-line--stale" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const presenceStripClassName = [
+    "s-thread-presence-strip",
+    hasStaleWorkingTurnPresence ? "s-thread-presence-strip--stale" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
   const kindLabel = sessionMeta?.kind
     ? (KIND_LABELS[sessionMeta.kind] ?? sessionMeta.kind)
@@ -1285,13 +1411,14 @@ export function ConversationScreen({
               normalizeTimestampMs(message.createdAt) ?? Date.now();
             setAwaitingResponseSince((current) => {
               if (current === null || messageAt < current) return current;
+              if (isActiveConversationFlight(currentFlightRef.current))
+                return current;
               return null;
             });
             setCurrentFlight((current) => {
-              if (!current) return current;
-              const flightStartedAt =
-                normalizeTimestampMs(current.startedAt) ?? 0;
-              return messageAt >= flightStartedAt ? null : current;
+              return shouldClearConversationWorkingStateForAgentMessage(current)
+                ? null
+                : current;
             });
           }
           return;
@@ -1322,10 +1449,11 @@ export function ConversationScreen({
             currentFlightRef.current?.id === flight.id;
           if (!isTracked) return;
 
-          if (TERMINAL_FLIGHT_STATES.has(flight.state)) {
+          if (TERMINAL_CONVERSATION_FLIGHT_STATES.has(flight.state)) {
             setCurrentFlight((current) =>
               current?.id === flight.id ? null : current,
             );
+            setAwaitingResponseSince(null);
             void load();
             return;
           }
@@ -1350,7 +1478,7 @@ export function ConversationScreen({
   );
 
   useEffect(() => {
-    if (!hasOutstandingReply) {
+    if (!shouldPollOutstandingTurn) {
       return;
     }
 
@@ -1358,7 +1486,7 @@ export function ConversationScreen({
       void load();
     }, 5000);
     return () => clearInterval(timer);
-  }, [hasOutstandingReply, load]);
+  }, [shouldPollOutstandingTurn, load]);
 
   useEffect(() => {
     const refreshIfVisible = () => {
@@ -2179,7 +2307,7 @@ export function ConversationScreen({
           {presence.showTyping && (
             <div className="s-thread-feed-block">
               <div className="s-thread-msg" aria-live="polite">
-                <div className="s-thread-msg-card s-thread-msg-working-card s-thread-msg-card--avatar-row">
+                <div className={workingTurnCardClassName}>
                   <div
                     className="s-ops-avatar s-thread-msg-avatar"
                     style={{
@@ -2193,7 +2321,9 @@ export function ConversationScreen({
                     <div className="s-thread-msg-header">
                       <div className="s-thread-msg-meta">
                         <span className="s-thread-msg-actor">{agentName}</span>
-                        <span className="s-thread-msg-kind">Live</span>
+                        <span className={workingTurnKindClassName}>
+                          {workingTurnBadgeLabel}
+                        </span>
                       </div>
                       <span
                         className="s-thread-msg-time"
@@ -2207,16 +2337,34 @@ export function ConversationScreen({
                           ? timeAgo(currentFlight.startedAt)
                           : "now"}
                       </span>
+                      {hasStaleWorkingTurnPresence && (
+                        <button
+                          type="button"
+                          className="s-thread-msg-dismiss"
+                          aria-label="Dismiss stale turn"
+                          title="Dismiss stale turn"
+                          onClick={dismissWorkingTurn}
+                        >
+                          <DismissIcon />
+                        </button>
+                      )}
                     </div>
                     <div className="s-thread-msg-working-body">
-                      <span
-                        className="s-thread-typing-indicator"
-                        aria-hidden="true"
-                      >
-                        <span className="s-thread-typing-dot" />
-                        <span className="s-thread-typing-dot" />
-                        <span className="s-thread-typing-dot" />
-                      </span>
+                      {hasStaleWorkingTurnPresence ? (
+                        <span
+                          className={staleIndicatorClassName}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <span
+                          className="s-thread-typing-indicator"
+                          aria-hidden="true"
+                        >
+                          <span className="s-thread-typing-dot" />
+                          <span className="s-thread-typing-dot" />
+                          <span className="s-thread-typing-dot" />
+                        </span>
+                      )}
                       <span className="s-thread-msg-working-copy">
                         {presence.detail}
                       </span>
@@ -2231,7 +2379,7 @@ export function ConversationScreen({
         </div>
 
         {presence.showTyping && (
-          <div className="s-thread-presence-line">
+          <div className={presenceLineClassName}>
             <div className="s-thread-presence-line-avatars">
               <div
                 className="s-ops-avatar"
@@ -2244,9 +2392,9 @@ export function ConversationScreen({
               </div>
             </div>
             <span className="s-thread-presence-line-label">
-              {agentName} is {presence.label.toLowerCase()}...
+              {presenceLineLabel}
             </span>
-            <div className="s-thread-presence-strip" />
+            <div className={presenceStripClassName} />
           </div>
         )}
 

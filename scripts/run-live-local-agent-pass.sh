@@ -168,7 +168,7 @@ export OPENSCOUT_BROKER_PORT="$BROKER_PORT"
 export OPENSCOUT_SKIP_USER_PROJECT_HINTS="${OPENSCOUT_SKIP_USER_PROJECT_HINTS:-1}"
 
 BROKER_URL="http://${OPENSCOUT_BROKER_HOST}:${OPENSCOUT_BROKER_PORT}"
-SCOUT_CMD=("$BUN_BIN" "$ROOT_DIR/apps/desktop/bin/scout.ts")
+SCOUT_CMD=("$BUN_BIN" "$ROOT_DIR/packages/cli/src/main.ts")
 BROKER_CMD=("$BUN_BIN" "$ROOT_DIR/packages/runtime/dist/broker-daemon.js")
 
 BROKER_PID=""

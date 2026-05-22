@@ -8,8 +8,8 @@ can be discovered, addressed, observed, and composed without each surface
 inventing its own state model.
 
 This repository is the active OpenScout product codebase. It contains the local
-broker/runtime, shared protocol, public CLI, desktop and mobile surfaces, docs,
-and release tooling.
+broker/runtime, shared protocol, public CLI, web, native, and mobile surfaces,
+docs, and release tooling.
 
 Current posture: high-trust local developer pilots. OpenScout is not yet an
 enterprise-ready, compliance-ready, hardened multi-tenant runtime. Start with
@@ -21,13 +21,14 @@ trust, mesh, or license claims.
 | Area | Path | Start here |
 | --- | --- | --- |
 | App surfaces | [`apps`](./apps) | [`apps/README.md`](./apps/README.md) |
-| Desktop app, CLI, and app services | [`apps/desktop`](./apps/desktop) | [`apps/desktop/README.md`](./apps/desktop/README.md) |
+| Native macOS menu app | [`apps/macos`](./apps/macos) | [`apps/macos/README.md`](./apps/macos/README.md) |
+| Transitional desktop/CLI source | [`apps/desktop`](./apps/desktop) | [`apps/desktop/README.md`](./apps/desktop/README.md) |
 | iOS app | [`apps/ios`](./apps/ios) | [`apps/ios/README.md`](./apps/ios/README.md) |
 | Shared packages | [`packages`](./packages) | [`packages/README.md`](./packages/README.md) |
 | Broker/runtime | [`packages/runtime`](./packages/runtime) | [`packages/runtime/README.md`](./packages/runtime/README.md) |
 | Shared protocol | [`packages/protocol`](./packages/protocol) | [`packages/protocol/README.md`](./packages/protocol/README.md) |
 | Public CLI package | [`packages/cli`](./packages/cli) | [`packages/cli/README.md`](./packages/cli/README.md) |
-| Web UI package | [`packages/web`](./packages/web) | [`packages/web/README.md`](./packages/web/README.md) |
+| Web package/bundle | [`packages/web`](./packages/web) | [`packages/web/README.md`](./packages/web/README.md) |
 | Product docs | [`docs`](./docs) | [`docs/README.md`](./docs/README.md) |
 | Landing/docs site | [`landing`](./landing) | [`landing/README.md`](./landing/README.md) |
 
@@ -66,9 +67,10 @@ OpenScout is not just "chat between terminals." The product bet is that agent co
 
 At the repo level, Scout is organized around one product path:
 
-- `apps/desktop` and `apps/ios` own the human-facing surfaces
+- `packages/web`, `apps/macos`, and `apps/ios` own the current human-facing surfaces
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
 - `packages/cli` is the public npm package; the other packages stay as private internal boundaries
+- `apps/desktop` is transitional source for CLI/core pieces that have not yet moved to package-owned homes
 - host-specific integrations are documented in [`docs/integrations.md`](./docs/integrations.md);
   separate repos are linked rather than vendored unless the integration needs
   to build with OpenScout internals
@@ -106,18 +108,18 @@ What success looks like after setup:
 
 - `scout doctor` exits cleanly and reports the broker as reachable
 - the support directory exists under `~/Library/Application Support/OpenScout`
-- `scout --help` works and `bun run dev` starts the desktop shell without repeating setup prompts
+- `scout --help` works and `bun run dev` starts the local web UI without repeating setup prompts
 
-## Run The Desktop App
+## Run The Local Web App
 
-The main desktop loop now runs directly from the repo root:
+The main local web loop now runs directly from the repo root:
 
 ```bash
 bun install
 bun run dev
 ```
 
-That starts the desktop web shell and local control-plane services from `apps/desktop`.
+That starts the current OpenScout web UI and local web server from `packages/web`.
 
 To install the CLI globally from this repo:
 

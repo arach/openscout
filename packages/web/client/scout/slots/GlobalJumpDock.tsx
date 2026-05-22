@@ -90,8 +90,8 @@ export function GlobalJumpDock() {
 const JUMPS: { id: string; label: string; icon: ReactNode; route: Route }[] = [
   { id: "sessions", label: "Sessions", icon: <MessageSquare size={13} strokeWidth={1.6} />, route: { view: "sessions" } },
   { id: "tail", label: "Tail", icon: <ScrollText size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "tail" } },
-  { id: "mission", label: "Mission", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" } },
-  { id: "activity", label: "Activity", icon: <Activity size={13} strokeWidth={1.6} />, route: { view: "activity" } },
+  { id: "control", label: "Control", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" } },
+  { id: "fleet", label: "Fleet", icon: <Activity size={13} strokeWidth={1.6} />, route: { view: "fleet" } },
   { id: "broker", label: "Broker", icon: <GitBranch size={13} strokeWidth={1.6} />, route: { view: "broker" } },
 ];
 

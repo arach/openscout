@@ -5,8 +5,8 @@ import { normalizeAgentState } from "../../lib/agent-state.ts";
 import {
   MISSION_RECENT_WINDOWS,
   clearMissionSelection,
+  requestMissionCanvasFocus,
   setMissionActivityFilter,
-  setMissionFocusedId,
   setMissionQuery,
   setMissionRecentWindow,
   setMissionSourceFilter,
@@ -168,7 +168,7 @@ export function ScoutMissionControlLeftPanel() {
                     toggleExpand(agent.id);
                   }
                 }}
-                onFocusOnCanvas={() => setMissionFocusedId(agent.id)}
+                onFocusOnCanvas={() => requestMissionCanvasFocus(agent.id)}
                 onOpen={() => navigate({ view: "agents", agentId: agent.id })}
               />
             );

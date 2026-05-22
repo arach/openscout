@@ -18,6 +18,8 @@ import type {
 } from "@openscout/protocol";
 import { BUILT_IN_AGENT_DEFINITION_IDS, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
+import { DispatchStalledError } from "./dispatch-stalled.js";
+
 import {
   answerClaudeStreamJsonQuestion,
   ensureClaudeStreamJsonAgentOnline,
@@ -122,6 +124,13 @@ export type LocalAgentConfigState = {
   capabilities: AgentCapability[];
   applyMode: "restart";
   templateHint: string;
+};
+
+export type UpdateLocalAgentCardInput = {
+  harness?: AgentHarness | string;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  permissionProfile?: ScoutPermissionProfile | string | null;
 };
 
 export type LocalAgentContextPolicy = {
@@ -413,7 +422,7 @@ function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTempla
     "Relay protocol:",
     `  - Read direct/addressed messages with: ${context.relayCommand} inbox --as ${context.agentId} --latest 20 --json`,
     `  - Read shared/channel context with: ${context.relayCommand} channel <name> --latest 20 --json`,
-    `  - Tell one agent with: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
+    `  - Tell one agent with: ${context.relayCommand} send --to <agent> --as ${context.agentId} "your message"`,
     `  - Ask one agent and stay attached with: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "",
     "Rules:",
@@ -442,7 +451,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - Do not shell out to send the final answer through relay yourself",
     `  - If you need recent direct/addressed messages, inspect them with: ${context.relayCommand} inbox --as ${context.agentId} --latest 20 --json`,
     `  - If you need recent channel context, inspect it with: ${context.relayCommand} channel <name> --latest 20 --json`,
-    `  - If you need to tell one agent something, use: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
+    `  - If you need to tell one agent something, use: ${context.relayCommand} send --to <agent> --as ${context.agentId} "your message"`,
     `  - If you need another agent to do work, use: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "  - Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue",
     "  - Keep one-to-one handoffs in a DM: do not pin a channel when the request is for exactly one agent",
@@ -756,6 +765,7 @@ export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
   "mcp__scout__whoami",
   "mcp__scout__messages_inbox",
   "mcp__scout__messages_channel",
+  "mcp__scout__broker_feed",
   "mcp__scout__agents_search",
   "mcp__scout__agents_resolve",
   "mcp__scout__messages_reply",
@@ -1383,6 +1393,47 @@ export async function getLocalAgentConfig(agentId: string): Promise<LocalAgentCo
   return buildLocalAgentConfigState(agentId, record);
 }
 
+function defaultLocalAgentSessionId(agentId: string, harness: AgentHarness): string {
+  return normalizeTmuxSessionName(undefined, `${agentId}-${harness}`);
+}
+
+export async function updateLocalAgentCard(
+  agentId: string,
+  input: UpdateLocalAgentCardInput,
+): Promise<LocalAgentConfigState | null> {
+  const existing = await getLocalAgentConfig(agentId);
+  if (!existing) {
+    return null;
+  }
+
+  const nextHarness = input.harness
+    ? normalizeLocalAgentHarness(input.harness)
+    : existing.runtime.harness;
+  const harnessChanged = nextHarness !== existing.runtime.harness;
+  const model = input.model === undefined
+    ? harnessChanged ? null : undefined
+    : input.model;
+
+  return updateLocalAgentConfig(agentId, {
+    runtime: {
+      cwd: existing.runtime.cwd,
+      harness: nextHarness,
+      transport: harnessChanged
+        ? normalizeLocalAgentTransport(undefined, nextHarness)
+        : existing.runtime.transport,
+      sessionId: harnessChanged
+        ? defaultLocalAgentSessionId(agentId, nextHarness)
+        : existing.runtime.sessionId,
+    },
+    systemPrompt: existing.systemPrompt,
+    launchArgs: harnessChanged ? [] : existing.launchArgs,
+    model,
+    reasoningEffort: input.reasoningEffort,
+    permissionProfile: input.permissionProfile,
+    capabilities: existing.capabilities,
+  });
+}
+
 export async function getLocalAgentSessionSnapshot(agentId: string): Promise<SessionState | null> {
   const record = await resolveConfiguredLocalAgentRecord(agentId);
   if (!record) {
@@ -1519,6 +1570,7 @@ export async function updateLocalAgentConfig(
     systemPrompt: string;
     launchArgs: string[];
     model?: string | null;
+    reasoningEffort?: string | null;
     permissionProfile?: ScoutPermissionProfile | string | null;
     capabilities: string[];
   },
@@ -1541,11 +1593,21 @@ export async function updateLocalAgentConfig(
     input.runtime.transport ?? record.transport,
     nextHarness,
   );
-  const nextLaunchArgs = setLaunchModelForHarness(
+  let nextLaunchArgs = setLaunchModelForHarness(
     nextHarness,
     input.launchArgs,
     input.model,
   );
+  if (input.reasoningEffort !== undefined) {
+    const stripped = stripLaunchReasoningEffortForHarness(nextHarness, nextLaunchArgs);
+    const requestedReasoningEffort = normalizeRequestedReasoningEffort(input.reasoningEffort ?? undefined);
+    nextLaunchArgs = requestedReasoningEffort
+      ? [
+          ...stripped,
+          ...buildLaunchArgsForRequestedReasoningEffort(nextHarness, requestedReasoningEffort),
+        ]
+      : stripped;
+  }
   const nextPermissionProfile = input.permissionProfile === undefined
     ? record.permissionProfile
     : input.permissionProfile === null
@@ -1578,6 +1640,27 @@ export async function updateLocalAgentConfig(
   registry[agentId] = nextRecord;
   await writeLocalAgentRegistry(registry);
   return buildLocalAgentConfigState(agentId, nextRecord);
+}
+
+export async function retireLocalAgent(agentId: string): Promise<ScoutLocalAgentStatus | null> {
+  const overrides = await readRelayAgentOverrides();
+  const override = overrides[agentId];
+  if (!override) {
+    return null;
+  }
+
+  const record = localAgentRecordFromRelayAgentOverride(agentId, override);
+  const status = localAgentStatusFromRecord(agentId, record, localAgentStatusSource(agentId, overrides));
+
+  await stopLocalAgent(agentId).catch(() => null);
+  const nextOverrides = { ...overrides };
+  delete nextOverrides[agentId];
+  await writeRelayAgentOverrides(nextOverrides);
+
+  return {
+    ...status,
+    isOnline: false,
+  };
 }
 
 function buildCodexAgentSessionOptions(
@@ -1968,17 +2051,21 @@ export function buildScoutReplyContext(agentName: string, invocation: Invocation
 }
 
 function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string[] {
+  const replyInstruction = context?.replyPath === "mcp_reply"
+    ? [
+        "> First, immediately publish a short broker-visible acknowledgement in the same conversation.",
+        "> Use the provided Scout reply tool for progress acknowledgement and the final answer; do not create a new send/ask.",
+        "> Call `messages_reply` or `scout_reply` for the initial acknowledgement, then again for the final reply intended for the requester.",
+      ]
+    : [
+        "> Do not publish a separate acknowledgement or progress update through Scout for this request.",
+        "> Your final assistant message will be delivered back through the Scout broker.",
+        "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.",
+      ];
   const header = [
     "<!-- SCOUT BROKER REPLY MODE -->",
     "> **Reply mode:** You are answering a Scout ask.",
-    "> First, immediately publish a short broker-visible acknowledgement in the same conversation, e.g. that you received the ask and are working on it now.",
-    "> Use `messages_reply` / `scout_reply` for that acknowledgement when available; if only the Scout CLI is available, use the same DM/conversation route rather than a new ask.",
-    context?.replyPath === "mcp_reply"
-      ? "> Use the provided Scout reply tool for progress acknowledgement and the final answer; do not create a new send/ask."
-      : "> Your final assistant message will be delivered back through the Scout broker.",
-    context?.replyPath === "mcp_reply"
-      ? "> Call `messages_reply` or `scout_reply` for the initial acknowledgement, then again for the final reply intended for the requester."
-      : "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` for the final answer; those are only for acknowledgement, progress, or delegation.",
+    ...replyInstruction,
     "> Only use Scout tools if you need to ask or delegate to another agent.",
     "",
     "<!-- SCOUT ARTIFACT GUIDANCE -->",
@@ -2089,7 +2176,11 @@ export function buildLocalAgentNudge(agentName: string, invocation: InvocationRe
   }
 
   parts.push(`Read recent context if needed: ${relayCommand} latest --agent ${agentName} --limit 20.`);
-  parts.push(`Reply with: ${relayCommand} send --as ${agentName} "[ask:${flightId}] @${invocation.requesterId} <your response>"`);
+  if (invocation.messageId) {
+    parts.push(`Reply in the existing thread, not by addressing @${invocation.requesterId}. Prefer the Scout reply tool when available; if using the CLI, use: ${relayCommand} send --as ${agentName} --ref ${invocation.messageId} "[ask:${flightId}] <your response>"`);
+  } else {
+    parts.push(`Reply in the existing broker-visible thread. Prefer the Scout reply tool when available; do not guess an @operator route.`);
+  }
   return parts.join(" ");
 }
 
@@ -2108,12 +2199,61 @@ async function sendLocalAgentPrompt(agentName: string, record: LocalAgentRecord,
     return;
   }
 
-  sendTmuxPrompt(record.tmuxSession, prompt, buildTmuxPromptSubmitKeys(harness));
+  await sendTmuxPrompt(record.tmuxSession, prompt, buildTmuxDispatchStrategy(harness, prompt));
 }
 
-export function sendTmuxPrompt(sessionName: string, prompt: string, submitKeys = buildTmuxPromptSubmitKeys()): void {
+const TMUX_PASTE_DRAIN_MS = 150;
+const TMUX_VERIFY_FIRST_SAMPLE_MS = 250;
+const TMUX_VERIFY_SECOND_SAMPLE_MS = 750;
+const TMUX_VERIFY_RETRY_SAMPLE_MS = 400;
+const TMUX_CAPTURE_TAIL_LINES = 6;
+
+export interface TmuxPromptDispatchResult {
+  submitted: boolean;
+  retries: number;
+}
+
+/**
+ * Per-harness recipe for delivering a prompt over tmux. `pre` runs before the
+ * paste (e.g. to clear a stale composer); `submit` is the post-paste chord;
+ * `verify` inspects a tail of the pane and returns true if the prompt appears
+ * to have been submitted (composer cleared).
+ */
+export interface TmuxDispatchStrategy {
+  pre?: string[];
+  submit: string[];
+  verify: (paneTail: string) => boolean;
+}
+
+export function buildTmuxDispatchStrategy(harness: AgentHarness, prompt: string): TmuxDispatchStrategy {
+  // Default verifier: the prompt is considered submitted iff its content no longer
+  // shows up in the tail of the pane. Per-harness branches override this when a
+  // more reliable signal exists (e.g. a composer prompt marker).
+  const promptAbsentFromTail = (paneTail: string) =>
+    !tmuxPaneTailContainsPromptFragment(paneTail, prompt);
+
+  if (harness === "pi") {
+    return { submit: ["Enter"], verify: promptAbsentFromTail };
+  }
+  // Claude (and any future TUI harness without an explicit override). C-[ was
+  // historically prepended to "leave insert mode", but newer Claude Code builds
+  // bind Escape to composer state actions (close suggestion, cancel pending tool)
+  // and can silently swallow the Enter that follows.
+  return { submit: ["Enter"], verify: promptAbsentFromTail };
+}
+
+export async function sendTmuxPrompt(
+  sessionName: string,
+  prompt: string,
+  strategy?: TmuxDispatchStrategy,
+): Promise<TmuxPromptDispatchResult> {
+  const effectiveStrategy = strategy ?? buildTmuxDispatchStrategy("claude", prompt);
   const bufferName = `openscout-prompt-${randomUUID()}`;
+  let bufferOwned = true;
   try {
+    if (effectiveStrategy.pre && effectiveStrategy.pre.length > 0) {
+      execFileSync("tmux", ["send-keys", "-t", sessionName, ...effectiveStrategy.pre], { stdio: "pipe" });
+    }
     execFileSync("tmux", ["load-buffer", "-b", bufferName, "-"], {
       stdio: "pipe",
       input: prompt,
@@ -2121,22 +2261,95 @@ export function sendTmuxPrompt(sessionName: string, prompt: string, submitKeys =
     execFileSync("tmux", ["paste-buffer", "-d", "-b", bufferName, "-t", sessionName], {
       stdio: "pipe",
     });
-    execFileSync("tmux", ["send-keys", "-t", sessionName, ...submitKeys], { stdio: "pipe" });
+    // paste-buffer -d deletes the buffer after consumption; no manual cleanup needed.
+    bufferOwned = false;
+
+    // Let the target PTY drain the bracketed paste before the submit chord lands —
+    // without this gap, the submit keys can race the paste tail and get swallowed.
+    await tmuxDispatchSleep(TMUX_PASTE_DRAIN_MS);
+    execFileSync("tmux", ["send-keys", "-t", sessionName, ...effectiveStrategy.submit], { stdio: "pipe" });
+
+    // Sample twice: a fast probe at ~250ms catches the common-case clear; a
+    // slower probe at ~1s catches harnesses that take a beat to flush the
+    // composer after submit (e.g. while showing a "thinking…" placeholder).
+    if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_FIRST_SAMPLE_MS)) {
+      return { submitted: true, retries: 0 };
+    }
+    if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_SECOND_SAMPLE_MS)) {
+      return { submitted: true, retries: 0 };
+    }
+
+    // Still stuck — retry with a bare Enter. Covers the case where the submit chord
+    // landed while the harness was in a transient state (popup, suggestion menu)
+    // that absorbed it.
+    execFileSync("tmux", ["send-keys", "-t", sessionName, "Enter"], { stdio: "pipe" });
+    if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_RETRY_SAMPLE_MS)) {
+      return { submitted: true, retries: 1 };
+    }
+
+    throw new DispatchStalledError({
+      sessionName,
+      paneTail: captureTmuxPaneTail(sessionName, TMUX_CAPTURE_TAIL_LINES).slice(0, 2_000),
+      retries: 1,
+    });
   } catch (error) {
-    try {
-      execFileSync("tmux", ["delete-buffer", "-b", bufferName], { stdio: "pipe" });
-    } catch {
-      // Ignore cleanup failures after a tmux delivery error.
+    if (bufferOwned) {
+      try {
+        execFileSync("tmux", ["delete-buffer", "-b", bufferName], { stdio: "pipe" });
+      } catch {
+        // Ignore cleanup failures after a tmux delivery error.
+      }
     }
     throw error;
   }
 }
 
-export function buildTmuxPromptSubmitKeys(harness: AgentHarness = "claude"): string[] {
-  if (harness === "pi") {
-    return ["Enter"];
+function tmuxDispatchSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function dispatchVerifiedAfter(
+  sessionName: string,
+  strategy: TmuxDispatchStrategy,
+  delayMs: number,
+): Promise<boolean> {
+  await tmuxDispatchSleep(delayMs);
+  const paneTail = captureTmuxPaneTail(sessionName, TMUX_CAPTURE_TAIL_LINES);
+  if (!paneTail) {
+    // Capture failed (session gone, tmux unavailable). Treat as verified to avoid
+    // throwing a spurious stall — the broker's normal error paths will surface any
+    // real session loss.
+    return true;
   }
-  return ["C-[", "Enter"];
+  return strategy.verify(paneTail);
+}
+
+function captureTmuxPaneTail(sessionName: string, lines: number): string {
+  try {
+    return execFileSync(
+      "tmux",
+      ["capture-pane", "-p", "-t", sessionName, "-S", `-${lines}`, "-E", "-"],
+      { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
+    );
+  } catch {
+    return "";
+  }
+}
+
+export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: string): boolean {
+  const normalizedTail = paneTail.replace(/\s+/g, " ").trim();
+  if (!normalizedTail) return false;
+  const normalizedPrompt = prompt.replace(/\s+/g, " ").trim();
+  if (normalizedPrompt.length < 24) {
+    return normalizedPrompt.length > 0 && normalizedTail.includes(normalizedPrompt);
+  }
+  const midpoint = Math.floor(normalizedPrompt.length / 2);
+  const windows = [
+    normalizedPrompt.slice(0, 40),
+    normalizedPrompt.slice(Math.max(0, midpoint - 20), midpoint + 20),
+    normalizedPrompt.slice(Math.max(0, normalizedPrompt.length - 40)),
+  ];
+  return windows.some((w) => w.length >= 24 && normalizedTail.includes(w));
 }
 
 function shellQuoteArguments(args: string[]): string {

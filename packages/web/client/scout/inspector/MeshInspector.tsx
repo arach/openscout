@@ -54,14 +54,30 @@ async function pollMeshStatus(
   predicate: (mesh: MeshStatus) => boolean,
   options: { attempts: number; intervalMs: number },
 ): Promise<MeshStatus> {
-  let latest = await api<MeshStatus>("/api/mesh");
-  setMeshSnapshot(latest);
-  for (let attempt = 0; attempt < options.attempts && !predicate(latest); attempt += 1) {
-    await delay(options.intervalMs);
-    latest = await api<MeshStatus>("/api/mesh");
-    setMeshSnapshot(latest);
+  let latest: MeshStatus | null = null;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= options.attempts; attempt += 1) {
+    try {
+      latest = await api<MeshStatus>("/api/mesh");
+      setMeshSnapshot(latest);
+      if (predicate(latest)) {
+        return latest;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < options.attempts) {
+      await delay(options.intervalMs);
+    }
   }
-  return latest;
+
+  if (latest) {
+    return latest;
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Mesh status is temporarily unavailable.");
 }
 
 function firstActionableIssue(mesh: MeshStatus): string | null {

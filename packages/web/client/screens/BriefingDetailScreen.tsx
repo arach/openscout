@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { api } from "../lib/api.ts";
+import { RangerMarkdown } from "../lib/ranger-markdown.tsx";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { Route } from "../lib/types.ts";
 import "./system-surfaces-redesign.css";
@@ -20,6 +21,8 @@ type BriefingDetail = {
   observations: ObservationItem[];
   snapshot: SnapshotBody | null;
   call: CallBody | null;
+  /** SCO-037: canonical markdown body. Null for rows persisted before the markdown pipeline. */
+  markdown: string | null;
   createdAt: number;
 };
 
@@ -30,6 +33,14 @@ type BriefBody = {
   recommendation: string;
   steps: BriefStep[];
   actions: BriefAction[];
+  presented?: PresentedBody | null;
+};
+
+type PresentedBody = {
+  sentences: string[];
+  voiceSpec: { targetWords: number; persona: string };
+  model: string;
+  responseId: string | null;
 };
 
 type BriefStep = {
@@ -71,6 +82,26 @@ type CallBody = {
   systemPrompt: string;
   operatorRequest: string;
   responseId: string | null;
+  telemetry?: CallTelemetry | null;
+  presenter?: PresenterTelemetry | null;
+};
+
+type CallTelemetry = {
+  elapsedMs: number;
+  usage: TokenUsage | null;
+};
+
+type TokenUsage = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+};
+
+type PresenterTelemetry = CallTelemetry & {
+  model: string;
+  responseId: string | null;
+  skipped: "rate-guard" | "error" | null;
+  errorMessage?: string;
 };
 
 const KIND_LABEL: Record<BriefingKind, string> = {
@@ -154,6 +185,13 @@ export function BriefingDetailScreen({
         ) : null}
       </header>
 
+      {detail.markdown ? (
+        <MarkdownLayer markdown={detail.markdown} />
+      ) : null}
+      {detail.brief?.presented ? (
+        <PresentedLayer presented={detail.brief.presented} />
+      ) : null}
+      <TelemetryLayer call={detail.call} />
       <BriefLayer brief={detail.brief} navigate={navigate} />
       <ObservationsLayer
         observations={detail.observations}
@@ -161,6 +199,103 @@ export function BriefingDetailScreen({
       />
       <SnapshotLayer snapshot={detail.snapshot} call={detail.call} />
     </div>
+  );
+}
+
+function MarkdownLayer({ markdown }: { markdown: string }) {
+  return (
+    <section className="briefing-layer briefing-layer-markdown">
+      <LayerHead eyebrow="Layer 0" title="Brief (markdown)" />
+      <div className="briefing-markdown">
+        <RangerMarkdown text={markdown} />
+      </div>
+    </section>
+  );
+}
+
+function TelemetryLayer({ call }: { call: CallBody | null }) {
+  if (!call || (!call.telemetry && !call.presenter)) return null;
+  return (
+    <section className="briefing-layer briefing-layer-telemetry">
+      <LayerHead eyebrow="Telemetry" title="Calls & usage" />
+      <dl className="briefing-telemetry">
+        <CallTelemetryRow
+          label="Analyst"
+          model={call.model}
+          responseId={call.responseId}
+          telemetry={call.telemetry ?? null}
+        />
+        {call.presenter ? (
+          <CallTelemetryRow
+            label="Presenter"
+            model={call.presenter.model}
+            responseId={call.presenter.responseId}
+            telemetry={call.presenter}
+            note={
+              call.presenter.skipped === "rate-guard"
+                ? "skipped — rate-guard hit"
+                : call.presenter.skipped === "error"
+                  ? `failed — ${call.presenter.errorMessage ?? "unknown"}`
+                  : null
+            }
+          />
+        ) : null}
+      </dl>
+    </section>
+  );
+}
+
+function CallTelemetryRow({
+  label,
+  model,
+  responseId,
+  telemetry,
+  note,
+}: {
+  label: string;
+  model: string;
+  responseId: string | null;
+  telemetry: CallTelemetry | null;
+  note?: string | null;
+}) {
+  const usage = telemetry?.usage ?? null;
+  return (
+    <div className="briefing-telemetry-row">
+      <div className="briefing-telemetry-row-head">
+        <span className="briefing-telemetry-label">{label}</span>
+        <span className="briefing-telemetry-model">{model}</span>
+        {note ? <span className="briefing-telemetry-note">{note}</span> : null}
+      </div>
+      <div className="briefing-telemetry-stats">
+        <span>{telemetry && telemetry.elapsedMs > 0 ? `${(telemetry.elapsedMs / 1000).toFixed(2)}s` : "—"}</span>
+        <span>in {usage?.inputTokens ?? "—"}</span>
+        <span>out {usage?.outputTokens ?? "—"}</span>
+        <span>total {usage?.totalTokens ?? "—"}</span>
+        {responseId ? <span className="briefing-telemetry-response">{responseId}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function PresentedLayer({ presented }: { presented: PresentedBody }) {
+  return (
+    <section className="briefing-layer briefing-layer-presented">
+      <LayerHead
+        eyebrow="Spoken"
+        title={`Presented as · ${presented.voiceSpec.persona}, ~${presented.voiceSpec.targetWords} words`}
+      />
+      <ol className="briefing-presented-sentences">
+        {presented.sentences.map((sentence, idx) => (
+          <li key={idx} className="briefing-presented-sentence">
+            {sentence}
+          </li>
+        ))}
+      </ol>
+      <div className="briefing-presented-meta">
+        model: {presented.model}
+        {presented.responseId ? ` · response: ${presented.responseId}` : ""}
+      </div>
+    </section>
   );
 }
 

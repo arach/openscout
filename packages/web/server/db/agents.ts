@@ -9,12 +9,13 @@
 
 import { db } from "./internal/db.ts";
 import { conversationIdForAgent } from "./internal/conversation-ids.ts";
-import { metadataString, normalizeTimestampMs } from "./internal/parse.ts";
+import { metadataString } from "./internal/parse.ts";
 import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "./internal/paths.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
   activeAgentMetadataPredicate,
   queryExecutingAgentIds,
+  sqlTimestampMsExpression,
   summarizeAgentState,
 } from "./internal/sql-helpers.ts";
 import type { WebAgent } from "./types/web.ts";
@@ -46,13 +47,15 @@ type AgentQueryRow = {
 
 export function queryAgents(limit = 500): WebAgent[] {
   const executingAgentIds = queryExecutingAgentIds();
+  const actorCreatedAtExpression = sqlTimestampMsExpression("ac.created_at");
+  const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
   const rows = db()
     .prepare(
       `SELECT
          a.id,
          ac.display_name AS name,
          ac.handle,
-         ac.created_at AS actor_created_at,
+         ${actorCreatedAtExpression} AS actor_created_at,
          a.agent_class,
          a.default_selector,
          a.wake_policy,
@@ -70,14 +73,14 @@ export function queryAgents(limit = 500): WebAgent[] {
          ep.cwd,
          ep.session_id,
          ep.metadata_json AS endpoint_metadata_json,
-         ep.updated_at
+         ${endpointUpdatedAtExpression} AS updated_at
        FROM agents a
        JOIN actors ac ON ac.id = a.id
        LEFT JOIN nodes hn ON hn.id = a.home_node_id
        LEFT JOIN actors oa ON oa.id = a.owner_id
        ${LATEST_AGENT_ENDPOINT_JOIN}
        WHERE ${activeAgentMetadataPredicate("a")}
-       ORDER BY COALESCE(ep.updated_at, 0) DESC, ac.display_name ASC
+       ORDER BY COALESCE(${endpointUpdatedAtExpression}, 0) DESC, ac.display_name ASC
        LIMIT ?`,
     )
     .all(limit) as AgentQueryRow[];
@@ -87,13 +90,15 @@ export function queryAgents(limit = 500): WebAgent[] {
 
 export function queryAgentById(agentId: string): WebAgent | null {
   const executingAgentIds = queryExecutingAgentIds();
+  const actorCreatedAtExpression = sqlTimestampMsExpression("ac.created_at");
+  const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
   const row = db()
     .prepare(
       `SELECT
          a.id,
          ac.display_name AS name,
          ac.handle,
-         ac.created_at AS actor_created_at,
+         ${actorCreatedAtExpression} AS actor_created_at,
          a.agent_class,
          a.default_selector,
          a.wake_policy,
@@ -111,7 +116,7 @@ export function queryAgentById(agentId: string): WebAgent | null {
          ep.cwd,
          ep.session_id,
          ep.metadata_json AS endpoint_metadata_json,
-         ep.updated_at
+         ${endpointUpdatedAtExpression} AS updated_at
        FROM agents a
        JOIN actors ac ON ac.id = a.id
        LEFT JOIN nodes hn ON hn.id = a.home_node_id
@@ -146,8 +151,8 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       state: summarizeAgentState(r.state, executingAgentIds.has(r.id), r.wake_policy),
       projectRoot: compact(r.project_root),
       cwd: compact(r.cwd),
-      updatedAt: normalizeTimestampMs(r.updated_at),
-      createdAt: normalizeTimestampMs(r.actor_created_at),
+      updatedAt: r.updated_at,
+      createdAt: r.actor_created_at,
       transport: r.transport,
       selector: r.default_selector,
       wakePolicy: r.wake_policy,

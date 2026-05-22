@@ -59,7 +59,7 @@ export function renderServerCommandHelp(): string {
     "  scout server caddyfile [options]",
     "  scout server edge [options]",
     "  scout server trust [options]",
-    "  scout server control-plane open [options]  # legacy alias",
+    "  scout server control-plane open [options]  # deprecated alias for `scout server open`",
     "",
     "Subcommands:",
     "  start              Start the Scout web UI server.",

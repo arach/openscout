@@ -1,7 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import "./ctx-panel.css";
 import "./base-left-rail.css";
-import { Activity, Compass, GitBranch, ScrollText } from "lucide-react";
 import { isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -89,8 +88,6 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
           )
         }
       />
-
-      <JumpOffsSection navigate={navigate} />
     </div>
   );
 }
@@ -211,53 +208,6 @@ function NeedsAttentionSection({
         })
       )}
     </section>
-  );
-}
-
-function JumpOffsSection({ navigate }: { navigate: (route: Route) => void }) {
-  return (
-    <section className="ctx-panel-section base-rail-section base-rail-section--jumps">
-      <SectionLabel title="Jump to" />
-      <div className="base-rail-jumps">
-        <JumpButton
-          icon={<ScrollText size={13} strokeWidth={1.6} />}
-          label="Tail"
-          onClick={() => navigate({ view: "ops", mode: "tail" })}
-        />
-        <JumpButton
-          icon={<Compass size={13} strokeWidth={1.6} />}
-          label="Mission"
-          onClick={() => navigate({ view: "ops", mode: "mission" })}
-        />
-        <JumpButton
-          icon={<GitBranch size={13} strokeWidth={1.6} />}
-          label="Broker"
-          onClick={() => navigate({ view: "broker" })}
-        />
-        <JumpButton
-          icon={<Activity size={13} strokeWidth={1.6} />}
-          label="Activity"
-          onClick={() => navigate({ view: "activity" })}
-        />
-      </div>
-    </section>
-  );
-}
-
-function JumpButton({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className="base-rail-jump" onClick={onClick}>
-      <span className="base-rail-jump-icon">{icon}</span>
-      <span className="base-rail-jump-label">{label}</span>
-    </button>
   );
 }
 

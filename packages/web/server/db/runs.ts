@@ -35,11 +35,12 @@ import { resolveHarnessSessionId } from "./internal/paths.ts";
 import {
   ACTIVE_FLIGHT_MAX_AGE_MS,
   ACTIVE_FLIGHT_STATES_SQL,
-  EPOCH_MILLISECONDS_FLOOR,
   isFreshActiveTimestamp,
   sqlJoinClauses,
   sqlPlaceholders,
   sqlStringList,
+  sqlTimestampMsCoalesceExpression,
+  sqlTimestampMsExpression,
   sqlWhereClause,
 } from "./internal/sql-helpers.ts";
 import { queryWorkItemById } from "./work.ts";
@@ -236,14 +237,9 @@ function sqlRunWorkIdClause(): string {
 }
 
 function optionalRunBoundary(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value !== "string" || value.trim() === "") {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return typeof value === "number" || typeof value === "string"
+    ? coerceNumber(value)
+    : null;
 }
 
 export function queryRuns(opts?: {
@@ -263,7 +259,10 @@ export function queryRuns(opts?: {
   const requestedWorkId = opts?.collaborationRecordId ?? opts?.workId;
   const runStateExpression = sqlRunStateExpression();
   const runSourceExpression = sqlRunSourceExpression();
-  const runUpdatedAtExpression = `COALESCE(f.completed_at, f.started_at, inv.created_at)`;
+  const runUpdatedAtExpression = sqlTimestampMsExpression("COALESCE(f.completed_at, f.started_at, inv.created_at)");
+  const invocationCreatedAtExpression = sqlTimestampMsExpression("inv.created_at");
+  const flightStartedAtExpression = sqlTimestampMsExpression("f.started_at");
+  const flightCompletedAtExpression = sqlTimestampMsExpression("f.completed_at");
   const explicitActiveFilter = opts?.active;
   const activeOnly = explicitActiveFilter ?? (opts?.state ? false : true);
   const before = optionalRunBoundary(opts?.before ?? opts?.cursor);
@@ -278,7 +277,7 @@ export function queryRuns(opts?: {
     opts?.source ? `${runSourceExpression} = ?` : null,
     activeOnly
       ? `${runStateExpression} IN ${ACTIVE_RUN_STATES_SQL}
-        AND (${runUpdatedAtExpression} < ${EPOCH_MILLISECONDS_FLOOR} OR ${runUpdatedAtExpression} >= ?)`
+        AND ${runUpdatedAtExpression} >= ?`
       : null,
     before !== null ? `${runUpdatedAtExpression} < ?` : null,
     after !== null ? `${runUpdatedAtExpression} > ?` : null,
@@ -327,7 +326,7 @@ export function queryRuns(opts?: {
        inv.stream,
        inv.timeout_ms,
        inv.metadata_json AS invocation_metadata_json,
-       inv.created_at AS invocation_created_at,
+       ${invocationCreatedAtExpression} AS invocation_created_at,
        ac.display_name AS agent_name,
        f.id AS flight_id,
        f.invocation_id AS flight_invocation_id,
@@ -338,20 +337,20 @@ export function queryRuns(opts?: {
        f.output AS flight_output,
        f.error AS flight_error,
        f.metadata_json AS flight_metadata_json,
-       f.started_at,
-       f.completed_at
+       ${flightStartedAtExpression} AS started_at,
+       ${flightCompletedAtExpression} AS completed_at
      FROM invocations inv
      LEFT JOIN flights f ON f.id = (
        SELECT f2.id
        FROM flights f2
        WHERE f2.invocation_id = inv.id
-       ORDER BY COALESCE(f2.completed_at, f2.started_at, 0) DESC, f2.id DESC
+       ORDER BY ${sqlTimestampMsCoalesceExpression("COALESCE(f2.completed_at, f2.started_at)")} DESC, f2.id DESC
        LIMIT 1
      )
      LEFT JOIN actors ac ON ac.id = inv.target_agent_id
      LEFT JOIN collaboration_records cr ON cr.id = inv.collaboration_record_id
      ${sqlWhereClause([where])}
-     ORDER BY ${runUpdatedAtExpression} DESC, inv.created_at DESC, COALESCE(f.id, inv.id) ASC
+     ORDER BY ${runUpdatedAtExpression} DESC, ${invocationCreatedAtExpression} DESC, COALESCE(f.id, inv.id) ASC
      LIMIT ?`,
   ).all(...params) as RunQueryRow[];
 
@@ -386,9 +385,12 @@ export function queryFlights(opts?: {
   activeOnly?: boolean;
 }): WebFlight[] {
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
+  const flightActiveAtExpression = sqlTimestampMsExpression("COALESCE(f.started_at, inv.created_at)");
+  const flightStartedAtExpression = sqlTimestampMsExpression("f.started_at");
+  const flightCompletedAtExpression = sqlTimestampMsExpression("f.completed_at");
   const where = sqlJoinClauses([
     opts?.activeOnly ? `f.state IN ${ACTIVE_FLIGHT_STATES_SQL}` : null,
-    opts?.activeOnly ? `(COALESCE(f.started_at, inv.created_at, 0) < ${EPOCH_MILLISECONDS_FLOOR} OR COALESCE(f.started_at, inv.created_at, 0) >= ?)` : null,
+    opts?.activeOnly ? `${flightActiveAtExpression} >= ?` : null,
     opts?.agentId ? `f.target_agent_id = ?` : null,
     conversationIds.length > 0
       ? `inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
@@ -405,17 +407,17 @@ export function queryFlights(opts?: {
     inv.collaboration_record_id,
     f.state,
     f.summary,
-    f.started_at,
-    f.completed_at
+    ${flightStartedAtExpression} AS started_at,
+    ${flightCompletedAtExpression} AS completed_at
   FROM flights f
   JOIN invocations inv ON inv.id = f.invocation_id
   LEFT JOIN actors ac ON ac.id = f.target_agent_id
   ${sqlWhereClause([where])}
-  ORDER BY f.started_at DESC NULLS LAST
+  ORDER BY COALESCE(${flightStartedAtExpression}, ${sqlTimestampMsExpression("inv.created_at")}, 0) DESC
   LIMIT 100`;
 
-  const params: string[] = [];
-  if (opts?.activeOnly) params.push(String(Date.now() - ACTIVE_FLIGHT_MAX_AGE_MS));
+  const params: Array<string | number> = [];
+  if (opts?.activeOnly) params.push(Date.now() - ACTIVE_FLIGHT_MAX_AGE_MS);
   if (opts?.agentId) params.push(opts.agentId);
   if (conversationIds.length > 0) params.push(...conversationIds);
   if (opts?.collaborationRecordId) params.push(opts.collaborationRecordId);
@@ -459,8 +461,8 @@ export function queryFlightRecordById(id: string): FlightRecord | null {
        output,
        error,
        metadata_json,
-       started_at,
-       completed_at
+       ${sqlTimestampMsExpression("started_at")} AS started_at,
+       ${sqlTimestampMsExpression("completed_at")} AS completed_at
      FROM flights
      WHERE id = ?
      LIMIT 1`,
@@ -491,8 +493,8 @@ export function queryFlightRecordById(id: string): FlightRecord | null {
     ...(row.summary ? { summary: row.summary } : {}),
     ...(row.output ? { output: row.output } : {}),
     ...(row.error ? { error: row.error } : {}),
-    ...(row.started_at ? { startedAt: row.started_at } : {}),
-    ...(row.completed_at ? { completedAt: row.completed_at } : {}),
+    ...(row.started_at !== null ? { startedAt: row.started_at } : {}),
+    ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
     metadata: parseJson<Record<string, unknown>>(row.metadata_json, {}),
   };
 }
@@ -521,7 +523,7 @@ export function queryFollowTarget(opts: {
            SELECT f2.id
            FROM flights f2
            WHERE f2.invocation_id = inv.id
-           ORDER BY COALESCE(f2.completed_at, f2.started_at, 0) DESC
+           ORDER BY ${sqlTimestampMsCoalesceExpression("COALESCE(f2.completed_at, f2.started_at)")} DESC
            LIMIT 1
          )`;
     const where = target.flightId ? "f.id = ?" : "inv.id = ?";
@@ -542,7 +544,7 @@ export function queryFollowTarget(opts: {
          SELECT ep2.id
          FROM agent_endpoints ep2
          WHERE ep2.agent_id = inv.target_agent_id
-         ORDER BY ep2.updated_at DESC
+         ORDER BY ${sqlTimestampMsCoalesceExpression("ep2.updated_at")} DESC
          LIMIT 1
        )
        WHERE ${where}

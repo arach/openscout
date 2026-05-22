@@ -11,6 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export npm_config_cache="${npm_config_cache:-${TMPDIR:-/tmp}/openscout-npm-cache}"
+NPM_TAG="${NPM_TAG:-latest}"
 mkdir -p "$npm_config_cache"
 
 # Load .env files if present (kept for local overrides; primary store is the keychain)
@@ -20,15 +21,23 @@ mkdir -p "$npm_config_cache"
 DRY_RUN=false
 if [[ "${1:-}" == "--dry-run" ]]; then
   DRY_RUN=true
-  echo "Dry run — skipping publish."
+  echo "Dry run — skipping publish and npm dist-tag update."
 else
   if [[ -z "${NPM_TOKEN:-}" ]] && command -v secret >/dev/null 2>&1; then
     NPM_TOKEN="$(secret get OPENSCOUT_NPM_TOKEN 2>/dev/null || true)"
   fi
-  [[ -z "${NPM_TOKEN:-}" ]] && { echo "ERROR: NPM_TOKEN is not set (try: secret set OPENSCOUT_NPM_TOKEN)"; exit 1; }
-  NPMRC=$(mktemp)
-  echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$NPMRC"
-  trap 'rm -f "$NPMRC"' EXIT
+  NPM_ARGS=()
+  if [[ -n "${NPM_TOKEN:-}" ]]; then
+    NPMRC=$(mktemp)
+    echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$NPMRC"
+    NPM_ARGS=(--userconfig "$NPMRC")
+    trap 'rm -f "$NPMRC"' EXIT
+  elif [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    echo "No NPM_TOKEN set; relying on npm trusted publishing/OIDC."
+  else
+    echo "ERROR: NPM_TOKEN is not set (try: secret set OPENSCOUT_NPM_TOKEN)"
+    exit 1
+  fi
 fi
 
 publish() {
@@ -40,15 +49,28 @@ publish() {
   version=$(node -p "require('./$dir/package.json').version")
 
   echo ""
-  echo "Publishing ${name}@${version}…"
+  echo "Publishing ${name}@${version} with dist-tag ${NPM_TAG}…"
 
   if $DRY_RUN; then
-    echo "  (dry run — skipped)"
+    echo "  (dry run — would publish with --tag ${NPM_TAG})"
     return
   fi
 
-  (cd "$dir" && npm publish --access public --userconfig "$NPMRC")
-  echo "  ✓ $name@$version"
+  (cd "$dir" && npm publish --access public --tag "$NPM_TAG" "${NPM_ARGS[@]}")
+
+  published_tag=$(npm view "$name" "dist-tags.$NPM_TAG" "${NPM_ARGS[@]}" 2>/dev/null || true)
+  if [[ "$published_tag" != "$version" ]]; then
+    echo "  dist-tag ${NPM_TAG} points at ${published_tag:-nothing}; updating…"
+    npm dist-tag add "${name}@${version}" "$NPM_TAG" "${NPM_ARGS[@]}"
+    published_tag=$(npm view "$name" "dist-tags.$NPM_TAG" "${NPM_ARGS[@]}" 2>/dev/null || true)
+  fi
+
+  [[ "$published_tag" == "$version" ]] || {
+    echo "ERROR: npm dist-tag ${NPM_TAG} is ${published_tag:-unset}, expected ${version}"
+    exit 1
+  }
+
+  echo "  ✓ $name@$version (${NPM_TAG})"
 }
 
 # ── Build ──────────────────────────────────────────────────────────────────────
@@ -78,4 +100,8 @@ node scripts/check-packed-manifests.mjs
 publish cli
 
 echo ""
-echo "✓ Public npm package published."
+if $DRY_RUN; then
+  echo "✓ Public npm package build verified."
+else
+  echo "✓ Public npm package published."
+fi

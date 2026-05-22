@@ -179,6 +179,28 @@ export function snapshotRecentBroadcasts(limit = 50): Broadcast[] {
   return broadcastHistory.slice(-limit);
 }
 
+export function emitBroadcast(input: {
+  tier: Broadcast["tier"];
+  text: string;
+  ruleId: string;
+  key: string;
+  agent?: string;
+  project?: string;
+}): Broadcast {
+  const broadcast: Broadcast = {
+    id: `${input.ruleId}:${input.key}:${Date.now()}`,
+    tier: input.tier,
+    text: input.text,
+    agent: input.agent,
+    project: input.project,
+    ts: Date.now(),
+    ruleId: input.ruleId,
+    key: input.key,
+  };
+  dispatch(broadcast);
+  return broadcast;
+}
+
 /* ── Test seams ──────────────────────────────────────────────────────── */
 
 export function __resetBroadcastForTests(): void {

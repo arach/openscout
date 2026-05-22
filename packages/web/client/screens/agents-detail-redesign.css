@@ -623,6 +623,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.s-work-casefile-layout-main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .s-agent-casefile-main,
 .s-agent-casefile-side,
 .s-work-casefile-main,
@@ -688,6 +692,29 @@
 .s-work-fact-card-body {
   display: flex;
   flex-direction: column;
+}
+
+.s-work-side-fact-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.s-work-side-fact-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.s-work-side-fact-group + .s-work-side-fact-group {
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.s-work-side-fact-group-title {
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dim);
 }
 
 .s-agent-meta-row,
@@ -901,8 +928,15 @@
 
 .s-work-material-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) repeat(2, minmax(0, 0.85fr));
+  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
   gap: 10px;
+}
+
+.s-work-material-evidence-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 .s-work-material-card {
@@ -918,6 +952,19 @@
 
 .s-work-material-card-primary {
   background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
+.s-work-material-card-docs {
+  min-height: 120px;
+}
+
+.s-work-material-card-code {
+  min-height: 150px;
+}
+
+.s-work-material-evidence-stack-single,
+.s-work-material-evidence-stack-single .s-work-material-card-code {
+  min-height: 100%;
 }
 
 .s-work-material-head {
@@ -1054,6 +1101,40 @@
 .s-work-material-link-active {
   border-color: color-mix(in srgb, var(--accent) 42%, transparent);
   color: var(--ink);
+}
+
+.s-work-tail-section {
+  align-self: start;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.s-work-casefile-side-lower {
+  align-self: start;
+}
+
+.s-work-tail-heading {
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.s-work-tail-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.s-work-tail-title svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.s-work-tail-frame {
+  height: min(42vh, 420px);
+  min-height: 280px;
+  margin: 0 -16px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  background: var(--bg);
 }
 
 .s-work-material-viewer {
@@ -1259,6 +1340,27 @@
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--dim);
+}
+
+.s-work-timeline-side {
+  gap: 7px;
+}
+
+.s-work-timeline-side .s-work-timeline-entry {
+  padding: 9px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.s-work-timeline-side .s-work-timeline-entry:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.s-work-timeline-side .s-work-timeline-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .s-work-action-list {
@@ -1682,6 +1784,16 @@
   .s-work-fact-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .s-work-tail-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .s-work-tail-frame {
+    height: 320px;
+    min-height: 260px;
   }
 
   .s-agent-meta-value,

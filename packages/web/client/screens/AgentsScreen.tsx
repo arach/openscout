@@ -1,25 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useListArrowNav } from "../lib/keyboard-nav.ts";
 import { WorkList } from "../components/WorkList.tsx";
-import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
-import { formatLabel } from "../lib/text.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
+import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import type {
   AgentTab,
   Agent,
   AgentObservePayload,
+  FleetAsk,
   FleetState,
   LocalAgentContextState,
   Message,
@@ -31,6 +30,7 @@ import type {
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import { SessionObserve } from "./SessionObserve.tsx";
 import "./agents-screen.css";
+import "./ops-atop.css";
 import "./ops-screen.css";
 
 
@@ -72,6 +72,241 @@ function directSessionMaps(sessions: SessionEntry[]): {
   }
   return { conversationByAgentId, sessionByAgentId };
 }
+
+type AgentInventoryStatus = "working" | "available" | "offline";
+
+type AgentInventoryRow = {
+  agent: Agent;
+  status: AgentInventoryStatus;
+  stateLabel: string;
+  project: string;
+  branch: string;
+  harness: string;
+  session: SessionEntry | null;
+  activeTask: string | null;
+  activeAskCount: number;
+  lastActivityAt: number | null;
+};
+
+type AgentInventoryColumnKey =
+  | "status"
+  | "agent"
+  | "project"
+  | "task"
+  | "harness"
+  | "branch"
+  | "active"
+  | "session"
+  | "last";
+
+const AGENT_STATUS_RANK: Record<AgentInventoryStatus, number> = {
+  working: 0,
+  available: 1,
+  offline: 2,
+};
+
+function basename(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const cleaned = path.replace(/\/+$/, "");
+  const idx = cleaned.lastIndexOf("/");
+  return idx >= 0 ? cleaned.slice(idx + 1) : cleaned;
+}
+
+function classPart(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "unknown";
+}
+
+function harnessChipClass(harness: string): string {
+  return `s-atop-chip s-atop-chip--harness s-atop-chip--harness-${classPart(harness)}`;
+}
+
+function shortSessionId(value: string | null | undefined): string {
+  if (!value) return "—";
+  const compact = value.replace(/^session[_:-]?/i, "");
+  return compact.length > 10 ? compact.slice(0, 8) : compact;
+}
+
+function activeTaskFromAsks(asks: FleetAsk[]): string | null {
+  if (asks.length === 0) return null;
+  const statusRank: Record<FleetAsk["status"], number> = {
+    working: 0,
+    needs_attention: 1,
+    queued: 2,
+    failed: 3,
+    completed: 4,
+  };
+  const top = [...asks].sort((a, b) => {
+    const ranked = statusRank[a.status] - statusRank[b.status];
+    if (ranked !== 0) return ranked;
+    return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+  })[0];
+  return (top.summary ?? top.task ?? top.statusLabel ?? "").trim() || null;
+}
+
+function rowForAgentInventory(
+  agent: Agent,
+  session: SessionEntry | null,
+  activeAsks: FleetAsk[],
+): AgentInventoryRow {
+  const status = normalizeAgentState(agent.state) as AgentInventoryStatus;
+  const project = agent.project ?? basename(agent.projectRoot) ?? "Unscoped";
+  const branch = agent.branch ?? "—";
+  const harness = formatLabel(agent.harness) ?? formatLabel(agent.agentClass) ?? "agent";
+  return {
+    agent,
+    status,
+    stateLabel: agentStateLabel(agent.state),
+    project,
+    branch,
+    harness,
+    session,
+    activeTask: activeTaskFromAsks(activeAsks),
+    activeAskCount: activeAsks.length,
+    lastActivityAt: Math.max(
+      0,
+      session?.lastMessageAt ?? 0,
+      agent.updatedAt ?? 0,
+    ) || null,
+  };
+}
+
+function AgentInventoryStatusCell({ row }: { row: AgentInventoryRow }) {
+  return (
+    <span className={`s-agents-inventory-status s-agents-inventory-status--${row.status}`}>
+      <span className="s-agents-inventory-status-dot" />
+      {row.stateLabel.toLowerCase()}
+    </span>
+  );
+}
+
+function AgentInventoryAgentCell({ row }: { row: AgentInventoryRow }) {
+  return (
+    <span className="s-agents-inventory-agent-cell">
+      <span className="s-agents-inventory-agent-name">{row.agent.name}</span>
+      <span className="s-agents-inventory-agent-id">
+        {row.agent.handle ? `@${row.agent.handle}` : row.agent.id}
+      </span>
+    </span>
+  );
+}
+
+function AgentInventoryTaskCell({ row }: { row: AgentInventoryRow }) {
+  const preview = row.activeTask ?? row.session?.preview ?? row.stateLabel;
+  return (
+    <span
+      className={`s-agents-inventory-task${row.activeTask ? "" : " s-agents-inventory-task--dim"}`}
+      title={preview}
+    >
+      {preview}
+    </span>
+  );
+}
+
+const AGENT_INVENTORY_COLUMNS: DataTableColumn<AgentInventoryRow, AgentInventoryColumnKey>[] = [
+  {
+    key: "status",
+    label: "Status",
+    cls: "s-agents-inventory-col-status",
+    kind: "text",
+    defaultWidth: 108,
+    minWidth: 82,
+    sortValue: (row) => AGENT_STATUS_RANK[row.status],
+    render: (row) => <AgentInventoryStatusCell row={row} />,
+  },
+  {
+    key: "agent",
+    label: "Agent",
+    cls: "s-agents-inventory-col-agent",
+    kind: "text",
+    defaultWidth: 230,
+    minWidth: 150,
+    sortValue: (row) => row.agent.name.toLowerCase(),
+    render: (row) => <AgentInventoryAgentCell row={row} />,
+  },
+  {
+    key: "project",
+    label: "Project",
+    cls: "s-atop-col-project",
+    kind: "text",
+    defaultWidth: 176,
+    minWidth: 96,
+    maxWidth: 420,
+    sortValue: (row) => row.project.toLowerCase(),
+    render: (row) => <span title={row.agent.projectRoot ?? undefined}>{row.project}</span>,
+  },
+  {
+    key: "task",
+    label: "Current signal",
+    cls: "s-agents-inventory-col-task",
+    kind: "text",
+    defaultWidth: 340,
+    minWidth: 160,
+    maxWidth: 640,
+    sortValue: (row) => (row.activeTask ?? row.session?.preview ?? "").toLowerCase() || null,
+    render: (row) => <AgentInventoryTaskCell row={row} />,
+  },
+  {
+    key: "harness",
+    label: "Harness",
+    cls: "s-agents-inventory-col-harness",
+    kind: "text",
+    defaultWidth: 104,
+    minWidth: 76,
+    sortValue: (row) => row.harness.toLowerCase(),
+    render: (row) => (
+      <span className={harnessChipClass(row.harness)}>{row.harness}</span>
+    ),
+  },
+  {
+    key: "branch",
+    label: "Branch",
+    cls: "s-agents-inventory-col-branch",
+    kind: "text",
+    defaultWidth: 132,
+    minWidth: 82,
+    maxWidth: 260,
+    sortValue: (row) => row.branch === "—" ? null : row.branch.toLowerCase(),
+    render: (row) => <span title={row.agent.branch ?? undefined}>{row.branch}</span>,
+  },
+  {
+    key: "active",
+    label: "Active",
+    cls: "s-atop-col-num",
+    kind: "number",
+    defaultWidth: 70,
+    minWidth: 58,
+    sortValue: (row) => row.activeAskCount,
+    render: (row) => (
+      <span className={row.activeAskCount > 0 ? "s-atop-col-num s-atop-col-num--green" : "s-atop-col-num s-atop-col-num--dim"}>
+        {row.activeAskCount || "—"}
+      </span>
+    ),
+  },
+  {
+    key: "session",
+    label: "Session",
+    cls: "s-agents-inventory-col-session",
+    kind: "text",
+    defaultWidth: 96,
+    minWidth: 74,
+    sortValue: (row) => row.session?.lastMessageAt ?? null,
+    render: (row) => (
+      <span title={row.session?.id ?? row.agent.harnessSessionId ?? undefined}>
+        {shortSessionId(row.session?.id ?? row.agent.harnessSessionId)}
+      </span>
+    ),
+  },
+  {
+    key: "last",
+    label: "Last",
+    cls: "s-atop-col-last",
+    kind: "time",
+    defaultWidth: 82,
+    minWidth: 64,
+    sortValue: (row) => row.lastActivityAt,
+    render: (row) => row.lastActivityAt ? timeAgo(row.lastActivityAt) : "—",
+  },
+];
 
 function resolveSelectedAgent(agents: Agent[], selectedAgentId?: string): Agent | null {
   if (!selectedAgentId) return null;
@@ -164,39 +399,53 @@ function contextLoadPercent(context: LocalAgentContextState): number {
   const turnRatio = context.policy.maxTurns > 0
     ? context.turnCount / context.policy.maxTurns
     : 0;
-  const ageRatio = context.sessionAgeMs !== null && context.policy.maxAgeMs > 0
-    ? context.sessionAgeMs / context.policy.maxAgeMs
-    : 0;
-  return Math.max(0, Math.min(100, Math.round(Math.max(turnRatio, ageRatio) * 100)));
+  return Math.max(0, Math.min(100, Math.round(turnRatio * 100)));
 }
 
-function contextStateLabel(state: LocalAgentContextState["state"]): string {
-  switch (state) {
-    case "stale":
-      return "Stale";
-    case "aging":
-      return "Aging";
-    default:
-      return "Fresh";
+function contextTurnLabel(context: LocalAgentContextState): string {
+  if (context.policy.maxTurns <= 0) {
+    return `${context.turnCount} turn${context.turnCount === 1 ? "" : "s"}`;
   }
+  return `${context.turnCount} / ${context.policy.maxTurns} turns`;
+}
+
+function formatContextLastActivity(
+  lastActivityAt: number | null,
+  sessionAgeMs: number | null,
+): string {
+  if (lastActivityAt) {
+    const age = timeAgo(lastActivityAt);
+    return age === "now" ? "last activity now" : `last activity ${age} ago`;
+  }
+  if (sessionAgeMs !== null) {
+    return `session ${formatContextAge(sessionAgeMs)}`;
+  }
+  return "last activity unknown";
 }
 
 function ContextFacet({
   context,
+  lastActivityAt,
   resetting,
   onReset,
 }: {
   context: LocalAgentContextState;
+  lastActivityAt: number | null;
   resetting: boolean;
   onReset: () => void;
 }) {
   const percent = contextLoadPercent(context);
+  const turns = contextTurnLabel(context);
+  const lastActivity = formatContextLastActivity(
+    lastActivityAt,
+    context.sessionAgeMs,
+  );
   const resetDisabled = resetting || context.currentTurnActive;
   return (
-    <div className={`s-profile-facet s-profile-context s-profile-context--${context.state}`}>
+    <div className="s-profile-facet s-profile-context">
       <div className="s-profile-facet-label">Context</div>
       <div className="s-profile-context-head">
-        <span className="s-profile-context-state">{contextStateLabel(context.state)}</span>
+        <span className="s-profile-context-metric">{percent}% used</span>
         <button
           type="button"
           className="s-profile-facet-action"
@@ -210,8 +459,8 @@ function ContextFacet({
       <div className="s-profile-context-gauge" aria-label={`Context load ${percent}%`}>
         <div className="s-profile-context-gauge-fill" style={{ width: `${percent}%` }} />
       </div>
-      <div className="s-profile-facet-detail" title={context.reason ?? undefined}>
-        {context.turnCount}/{context.policy.maxTurns} turns / {formatContextAge(context.sessionAgeMs)}
+      <div className="s-profile-facet-detail" title={`${turns} · ${lastActivity}`}>
+        {turns} · {lastActivity}
       </div>
     </div>
   );
@@ -241,73 +490,70 @@ function AgentActivityFeed({
   }, [fleet, agent.id]);
 
   if (agentActivity.length === 0 && agentCompletedAsks.length === 0) {
-    return (
-      <div className="s-profile-activity-empty">
-        <div className="s-profile-activity-empty-title">Quiet for now</div>
-        <div className="s-profile-activity-empty-detail">
-          Activity will appear here as this agent works, receives asks, and
-          completes tasks.
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="s-profile-activity-feed">
-      {agentCompletedAsks.map((ask) => (
-        <div
-          key={ask.invocationId}
-          className="s-profile-activity-row"
-          onClick={() => {
-            if (ask.conversationId) {
-              navigate({
-                view: "agents",
-                agentId: agent.id,
-                conversationId: ask.conversationId,
-              });
-            }
-          }}
-        >
-          <div className="s-profile-activity-dot s-profile-activity-dot--done" />
-          <div className="s-profile-activity-body">
-            <div className="s-profile-activity-title">
-              {ask.summary ?? ask.task}
+    <>
+      <SectionRule label="Activity" />
+      <div className="s-profile-work">
+        <div className="s-profile-activity-feed">
+          {agentCompletedAsks.map((ask) => (
+            <div
+              key={ask.invocationId}
+              className="s-profile-activity-row"
+              onClick={() => {
+                if (ask.conversationId) {
+                  navigate({
+                    view: "agents",
+                    agentId: agent.id,
+                    conversationId: ask.conversationId,
+                  });
+                }
+              }}
+            >
+              <div className="s-profile-activity-dot s-profile-activity-dot--done" />
+              <div className="s-profile-activity-body">
+                <div className="s-profile-activity-title">
+                  {ask.summary ?? ask.task}
+                </div>
+                <div className="s-profile-activity-meta">
+                  {ask.status === "completed" ? "completed" : ask.status}
+                  {ask.completedAt && ` · ${timeAgo(ask.completedAt)}`}
+                </div>
+              </div>
             </div>
-            <div className="s-profile-activity-meta">
-              {ask.status === "completed" ? "completed" : ask.status}
-              {ask.completedAt && ` · ${timeAgo(ask.completedAt)}`}
+          ))}
+          {agentActivity.map((item) => (
+            <div
+              key={item.id}
+              className="s-profile-activity-row"
+              onClick={() => {
+                if (item.conversationId) {
+                  navigate({
+                    view: "agents",
+                    agentId: agent.id,
+                    conversationId: item.conversationId,
+                  });
+                }
+              }}
+            >
+              <div className="s-profile-activity-dot" />
+              <div className="s-profile-activity-body">
+                <div className="s-profile-activity-title">
+                  {item.title ?? item.summary ?? item.kind}
+                </div>
+                <div className="s-profile-activity-meta">
+                  {item.kind.replace(/_/g, " ")}
+                  {item.actorName && ` · ${item.actorName}`}
+                  {` · ${timeAgo(item.ts)}`}
+                </div>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
-      ))}
-      {agentActivity.map((item) => (
-        <div
-          key={item.id}
-          className="s-profile-activity-row"
-          onClick={() => {
-            if (item.conversationId) {
-              navigate({
-                view: "agents",
-                agentId: agent.id,
-                conversationId: item.conversationId,
-              });
-            }
-          }}
-        >
-          <div className="s-profile-activity-dot" />
-          <div className="s-profile-activity-body">
-            <div className="s-profile-activity-title">
-              {item.title ?? item.summary ?? item.kind}
-            </div>
-            <div className="s-profile-activity-meta">
-              {item.kind.replace(/_/g, " ")}
-              {item.actorName && ` · ${item.actorName}`}
-              {` · ${timeAgo(item.ts)}`}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -425,10 +671,11 @@ function AgentDetailWithRail({
   const [dismissingWorkId, setDismissingWorkId] = useState<string | null>(null);
   const state = normalizeAgentState(agent.state);
   const showContextMenu = useContextMenu();
+  const { route } = useScout();
 
   const load = useCallback(async () => {
     const [workResult, fleetResult] = await Promise.allSettled([
-      api<WorkItem[]>(`/api/work?agentId=${encodeURIComponent(agent.id)}`),
+      api<WorkItem[]>(`/api/work?agentId=${encodeURIComponent(agent.id)}&active=false&limit=12`),
       api<FleetState>("/api/fleet"),
     ]);
     if (workResult.status === "fulfilled") setWork(workResult.value);
@@ -578,7 +825,9 @@ function AgentDetailWithRail({
     (w) => w.state === "working" || w.state === "review",
   );
   const activeWork = work.filter(
-    (w) => w.state === "working" || w.state === "review" || w.state === "waiting",
+    (w) =>
+      (w.state === "working" || w.state === "review" || w.state === "waiting") &&
+      w.id !== currentWork?.id,
   );
   const recentDone = work.filter((w) => w.state === "done").slice(0, 5);
 
@@ -598,6 +847,13 @@ function AgentDetailWithRail({
     : currentWork?.currentPhase === "working"
       ? 50
       : 20;
+  const currentWorkAgeMs = currentWork ? Date.now() - currentWork.lastMeaningfulAt : 0;
+  const currentWorkIsStale = currentWorkAgeMs > 30 * 60_000;
+  const currentTaskStatus = currentWork
+    ? currentWorkIsStale
+      ? `stale · ${timeAgo(currentWork.lastMeaningfulAt)}`
+      : `${taskProgress}% · live`
+    : "";
 
   const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
     { key: "profile", label: "Profile" },
@@ -632,12 +888,14 @@ function AgentDetailWithRail({
 
   return (
     <div className={`s-profile-center${activeTab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
-      <BackToPicker
-        slot="agents"
-        fallback={{ view: "agents" }}
-        navigate={navigate}
-        className="s-profile-back-position"
-      />
+      <div className="s-profile-return-row">
+        <BackToPicker
+          slot="agents"
+          fallback={{ view: "agents" }}
+          navigate={navigate}
+          className="s-profile-back-position"
+        />
+      </div>
 
 
       {activeTab === "profile" ? (
@@ -785,6 +1043,7 @@ function AgentDetailWithRail({
               {contextState && (
                 <ContextFacet
                   context={contextState}
+                  lastActivityAt={agent.updatedAt ?? null}
                   resetting={resettingContext}
                   onReset={() => void resetAgentContext()}
                 />
@@ -795,7 +1054,7 @@ function AgentDetailWithRail({
             <>
               <SectionRule
                 label="Current task"
-                right={`${taskProgress}% · live`}
+                right={currentTaskStatus}
               />
               <div className="s-profile-task">
                 <div className="s-profile-task-title">{currentWork.title}</div>
@@ -819,6 +1078,36 @@ function AgentDetailWithRail({
                 <div className="s-profile-task-meta">
                   <span>{currentWork.currentPhase}</span>
                   <span>{timeAgo(currentWork.lastMeaningfulAt)}</span>
+                </div>
+                <div className="s-profile-task-controls" aria-label="Current task actions">
+                  <button
+                    type="button"
+                    className="s-profile-task-btn s-profile-task-btn--primary"
+                    onClick={() =>
+                      openContent(
+                        navigate,
+                        { view: "work", workId: currentWork.id },
+                        { returnTo: route },
+                      )}
+                  >
+                    Open work
+                  </button>
+                  <button
+                    type="button"
+                    className="s-profile-task-btn"
+                    onClick={() => navigateToTab("observe")}
+                  >
+                    Observe
+                  </button>
+                  {conversationId && (
+                    <button
+                      type="button"
+                      className="s-profile-task-btn"
+                      onClick={() => navigateToTab("message")}
+                    >
+                      Message
+                    </button>
+                  )}
                 </div>
               </div>
             </>
@@ -858,14 +1147,11 @@ function AgentDetailWithRail({
             </>
           )}
 
-          <SectionRule label="Activity" />
-          <div className="s-profile-work">
-            <AgentActivityFeed
-              agent={agent}
-              fleet={fleet}
-              navigate={navigate}
-            />
-          </div>
+          <AgentActivityFeed
+            agent={agent}
+            fleet={fleet}
+            navigate={navigate}
+          />
 
           <SignalFeed
             messages={messages}
@@ -922,10 +1208,15 @@ export function AgentsScreen({
 }) {
   const { agents } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
+  const [fleet, setFleet] = useState<FleetState | null>(null);
 
   const load = useCallback(async () => {
-    const result = await api<SessionEntry[]>("/api/conversations").catch(() => null);
-    if (result) setSessions(result);
+    const [sessionsResult, fleetResult] = await Promise.allSettled([
+      api<SessionEntry[]>("/api/conversations"),
+      api<FleetState>("/api/fleet"),
+    ]);
+    if (sessionsResult.status === "fulfilled") setSessions(sessionsResult.value);
+    if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
   }, []);
 
   useEffect(() => {
@@ -989,6 +1280,7 @@ export function AgentsScreen({
   return (
     <AgentsLibrary
       agents={agents}
+      fleet={fleet}
       sessionByAgentId={sessionByAgentId}
       conversationByAgentId={conversationByAgentId}
       navigate={navigate}
@@ -996,442 +1288,268 @@ export function AgentsScreen({
   );
 }
 
-type BranchTab = {
-  name: string;
-  agents: Agent[];
-  online: number;
-  kind: "active" | "idle" | "unmonitored";
-};
-
-type RepoCard = {
-  key: string;
-  name: string;
-  path: string | null;
-  branches: BranchTab[];
-  totalAgents: number;
-  totalOnline: number;
-  lastActivityAt: number | null;
-};
-
-const NO_BRANCH_KEY = "—";
-
-function buildRepoCards(agents: Agent[]): RepoCard[] {
-  const byProject = new Map<string, Agent[]>();
-  for (const agent of agents) {
-    const key = agent.project ?? "Unscoped";
-    const list = byProject.get(key) ?? [];
-    list.push(agent);
-    byProject.set(key, list);
-  }
-
-  const cards: RepoCard[] = [];
-  for (const [name, repoAgents] of byProject) {
-    const path = repoAgents.find((a) => a.projectRoot)?.projectRoot ?? null;
-
-    const byBranch = new Map<string, Agent[]>();
-    for (const agent of repoAgents) {
-      const branchKey = agent.branch ?? NO_BRANCH_KEY;
-      const list = byBranch.get(branchKey) ?? [];
-      list.push(agent);
-      byBranch.set(branchKey, list);
-    }
-
-    const branches: BranchTab[] = Array.from(byBranch.entries()).map(
-      ([branchName, list]) => {
-        const online = list.filter(isOnline).length;
-        return {
-          name: branchName,
-          agents: list,
-          online,
-          kind: online > 0 ? "active" : "idle",
-        };
-      },
-    );
-
-    const PRIMARY_BRANCHES = new Set(["main", "master", "trunk"]);
-    branches.sort((a, b) => {
-      const aPrimary = PRIMARY_BRANCHES.has(a.name);
-      const bPrimary = PRIMARY_BRANCHES.has(b.name);
-      if (aPrimary !== bPrimary) return aPrimary ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-
-    for (const tab of branches) {
-      tab.agents.sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    const lastActivityAt = repoAgents.reduce<number | null>((acc, agent) => {
-      const t = agent.updatedAt;
-      if (!t) return acc;
-      return acc === null || t > acc ? t : acc;
-    }, null);
-
-    cards.push({
-      key: name,
-      name,
-      path,
-      branches,
-      totalAgents: repoAgents.length,
-      totalOnline: repoAgents.filter(isOnline).length,
-      lastActivityAt,
-    });
-  }
-
-  cards.sort((a, b) => a.name.localeCompare(b.name));
-
-  return cards;
-}
-
 function AgentsLibrary({
   agents,
+  fleet,
   sessionByAgentId,
   conversationByAgentId,
   navigate,
 }: {
   agents: Agent[];
+  fleet: FleetState | null;
   sessionByAgentId: Map<string, SessionEntry>;
   conversationByAgentId: Map<string, string>;
   navigate: (r: Route) => void;
 }) {
-  const repos = useMemo(() => buildRepoCards(agents), [agents]);
-  const onlineTotal = agents.filter(isOnline).length;
-  const [viewMode, setViewMode] = useState<AgentViewMode>("cards");
+  const [query, setQuery] = useState("");
+  const [harnessFilter, setHarnessFilter] = useState<Set<string>>(() => new Set());
+  const [statusFilter, setStatusFilter] = useState<Set<AgentInventoryStatus>>(() => new Set());
+  const [sort, setSort] = useState<{ key: AgentInventoryColumnKey; dir: 1 | -1 }>({
+    key: "status",
+    dir: 1,
+  });
 
-  return (
-    <div className="s-agents-library">
-      <header className="s-agents-library-head">
-        <div className="s-agents-library-title-row">
-          <h2 className="s-agents-library-title">Agents</h2>
-          <span className="s-agents-library-count">
-            {onlineTotal} online · {agents.length} total · {repos.length}{" "}
-            {repos.length === 1 ? "repo" : "repos"}
-          </span>
-        </div>
-        <div className="s-agents-library-view" role="tablist" aria-label="Agent view">
-          {(["pills", "rows", "cards"] as AgentViewMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              role="tab"
-              aria-selected={viewMode === mode}
-              className="s-agents-library-view-btn"
-              data-active={viewMode === mode ? "true" : undefined}
-              onClick={() => setViewMode(mode)}
-            >
-              {mode}
-            </button>
-          ))}
-        </div>
-      </header>
+  const activeAsksByAgent = useMemo(() => {
+    const byAgent = new Map<string, FleetAsk[]>();
+    for (const ask of fleet?.activeAsks ?? []) {
+      const list = byAgent.get(ask.agentId) ?? [];
+      list.push(ask);
+      byAgent.set(ask.agentId, list);
+    }
+    return byAgent;
+  }, [fleet?.activeAsks]);
 
-      <div className="s-agents-library-repos">
-        <div className="s-agents-library-topology">
-          <ObservedTopologyPanel
-            title="Codex / Claude Code families"
-            size="full"
-            showEmpty={agents.length === 0}
-          />
-        </div>
-        {agents.length === 0 && (
-          <div className="s-profile-empty s-agents-library-empty">
-            <h2 className="s-profile-empty-title">No Scout agents yet</h2>
-            <p className="s-profile-empty-copy">
-              Internal harness families can still appear above when Codex or Claude Code delegates inside a session.
-            </p>
-          </div>
-        )}
-        {repos.map((repo) => (
-          <RepoCardView
-            key={repo.key}
-            repo={repo}
-            sessionByAgentId={sessionByAgentId}
-            conversationByAgentId={conversationByAgentId}
-            navigate={navigate}
-            viewMode={viewMode}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-type AgentViewMode = "log" | "rows" | "cards";
-
-function RepoCardView({
-  repo,
-  sessionByAgentId,
-  conversationByAgentId,
-  navigate,
-  viewMode,
-}: {
-  repo: RepoCard;
-  sessionByAgentId: Map<string, SessionEntry>;
-  conversationByAgentId: Map<string, string>;
-  navigate: (r: Route) => void;
-  viewMode: AgentViewMode;
-}) {
-  const [selected, setSelected] = useState<string>(
-    () => repo.branches[0]?.name ?? NO_BRANCH_KEY,
+  const rows = useMemo(
+    () =>
+      agents.map((agent) =>
+        rowForAgentInventory(
+          agent,
+          sessionByAgentId.get(agent.id) ?? null,
+          activeAsksByAgent.get(agent.id) ?? [],
+        ),
+      ),
+    [activeAsksByAgent, agents, sessionByAgentId],
   );
 
-  const activeTab =
-    repo.branches.find((b) => b.name === selected) ?? repo.branches[0];
+  const summary = useMemo(() => {
+    const projects = new Set(rows.map((row) => row.project));
+    return {
+      total: rows.length,
+      online: rows.filter((row) => row.status !== "offline").length,
+      working: rows.filter((row) => row.status === "working").length,
+      available: rows.filter((row) => row.status === "available").length,
+      offline: rows.filter((row) => row.status === "offline").length,
+      projects: projects.size,
+    };
+  }, [rows]);
 
-  return (
-    <section className="s-repo-card">
-      <header className="s-repo-card-head">
-        <div className="s-repo-card-identity">
-          <h3 className="s-repo-card-name">{repo.name}</h3>
-          {repo.path && <span className="s-repo-card-path">{repo.path}</span>}
-        </div>
-        <div className="s-repo-card-meta">
-          {repo.lastActivityAt && (
-            <span>{timeAgo(repo.lastActivityAt)}</span>
-          )}
-        </div>
-      </header>
+  const harnessOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of rows) counts.set(row.harness, (counts.get(row.harness) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [rows]);
 
-      <div className="s-repo-card-tabs" role="tablist" aria-label="Branches">
-        {repo.branches.map((tab) => (
-          <button
-            key={tab.name}
-            type="button"
-            role="tab"
-            aria-selected={activeTab?.name === tab.name}
-            className="s-repo-card-tab"
-            data-kind={tab.kind}
-            data-active={activeTab?.name === tab.name ? "true" : undefined}
-            onClick={() => setSelected(tab.name)}
-          >
-            <span className="s-repo-card-tab-name">{tab.name}</span>
-            {tab.kind === "unmonitored" ? (
-              <span className="s-repo-card-tab-glyph" aria-hidden="true">
-                +
-              </span>
-            ) : (
-              <span className="s-repo-card-tab-count">
-                {tab.online > 0
-                  ? `${tab.online}/${tab.agents.length}`
-                  : `${tab.agents.length}`}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+  const statusOptions = useMemo(() => {
+    const present = new Set(rows.map((row) => row.status));
+    return (["working", "available", "offline"] as AgentInventoryStatus[])
+      .filter((status) => present.has(status));
+  }, [rows]);
 
-      <div className="s-repo-card-body">
-        {activeTab && activeTab.agents.length > 0 ? (
-          <AgentList
-            agents={activeTab.agents}
-            sessionByAgentId={sessionByAgentId}
-            conversationByAgentId={conversationByAgentId}
-            navigate={navigate}
-            viewMode={viewMode}
-          />
-        ) : (
-          <div className="s-repo-card-empty">
-            No agent on <strong>{activeTab?.name}</strong>. Spawn one to start.
-          </div>
-        )}
-      </div>
-    </section>
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (harnessFilter.size > 0 && !harnessFilter.has(row.harness)) return false;
+      if (statusFilter.size > 0 && !statusFilter.has(row.status)) return false;
+      if (!q) return true;
+      const hay = [
+        row.agent.name,
+        row.agent.handle,
+        row.agent.id,
+        row.project,
+        row.branch,
+        row.harness,
+        row.activeTask,
+        row.session?.preview,
+      ].filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }, [harnessFilter, query, rows, statusFilter]);
+
+  const secondarySort = useMemo(
+    () => (sort.key === "status"
+      ? undefined
+      : (a: AgentInventoryRow, b: AgentInventoryRow) =>
+        AGENT_STATUS_RANK[a.status] - AGENT_STATUS_RANK[b.status]),
+    [sort.key],
   );
-}
 
-function isOnline(agent: Agent): boolean {
-  return normalizeAgentState(agent.state) !== "offline";
-}
-
-function AgentList({
-  agents,
-  sessionByAgentId,
-  conversationByAgentId,
-  navigate,
-  viewMode,
-}: {
-  agents: Agent[];
-  sessionByAgentId: Map<string, SessionEntry>;
-  conversationByAgentId: Map<string, string>;
-  navigate: (r: Route) => void;
-  viewMode: AgentViewMode;
-}) {
-  const onClickFor = (agent: Agent) => () => {
-    const conversationId = conversationByAgentId.get(agent.id);
+  const openAgent = (row: AgentInventoryRow) => {
+    const conversationId = conversationByAgentId.get(row.agent.id);
     navigate({
       view: "agents",
-      agentId: agent.id,
+      agentId: row.agent.id,
       ...(conversationId ? { conversationId } : {}),
     });
   };
 
-  const onListKeyDown = useListArrowNav();
+  const toggleHarness = (harness: string) => {
+    setHarnessFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(harness)) next.delete(harness);
+      else next.add(harness);
+      return next;
+    });
+  };
 
-  if (viewMode === "rows") {
-    return (
-      <div className="s-agent-rows" onKeyDown={onListKeyDown}>
-        {agents.map((agent) => (
-          <AgentRow
-            key={agent.id}
-            agent={agent}
-            session={sessionByAgentId.get(agent.id) ?? null}
-            onClick={onClickFor(agent)}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  if (viewMode === "cards") {
-    return (
-      <div className="s-agent-grid" onKeyDown={onListKeyDown}>
-        {agents.map((agent) => (
-          <AgentCard
-            key={agent.id}
-            agent={agent}
-            session={sessionByAgentId.get(agent.id) ?? null}
-            onClick={onClickFor(agent)}
-          />
-        ))}
-      </div>
-    );
-  }
+  const toggleStatus = (status: AgentInventoryStatus) => {
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  };
 
   return (
-    <div className="s-agent-log" onKeyDown={onListKeyDown}>
-      {agents.map((agent) => (
-        <AgentLogLine
-          key={agent.id}
-          agent={agent}
-          session={sessionByAgentId.get(agent.id) ?? null}
-          onClick={onClickFor(agent)}
-        />
-      ))}
-    </div>
-  );
-}
-
-function AgentRow({
-  agent,
-  session,
-  onClick,
-}: {
-  agent: Agent;
-  session: SessionEntry | null;
-  onClick: () => void;
-}) {
-  const display = normalizeAgentState(agent.state);
-  const stateLabel = agentStateLabel(agent.state);
-  const lastActivityAt =
-    session?.lastMessageAt ?? agent.updatedAt ?? null;
-  const preview = session?.preview ?? null;
-  const harness = formatLabel(agent.harness);
-
-  return (
-    <button
-      type="button"
-      className="s-agent-row"
-      data-state={display}
-      onClick={onClick}
-      title={stateLabel}
-    >
-      <span className="s-agent-row-name">{agent.name}</span>
-      <span className="s-agent-row-preview">
-        {preview ?? <span className="s-agent-row-preview-quiet">{stateLabel.toLowerCase()}</span>}
-      </span>
-      {harness && <span className="s-agent-row-harness">{harness}</span>}
-      {lastActivityAt && (
-        <span className="s-agent-row-time">{timeAgo(lastActivityAt)}</span>
-      )}
-    </button>
-  );
-}
-
-function AgentCard({
-  agent,
-  session,
-  onClick,
-}: {
-  agent: Agent;
-  session: SessionEntry | null;
-  onClick: () => void;
-}) {
-  const display = normalizeAgentState(agent.state);
-  const stateLabel = agentStateLabel(agent.state);
-  const lastActivityAt =
-    session?.lastMessageAt ?? agent.updatedAt ?? null;
-  const preview = session?.preview ?? null;
-  const topology = [agent.harness, agent.branch, agent.agentClass]
-    .map(formatLabel)
-    .filter((part): part is string => Boolean(part));
-
-  return (
-    <button
-      type="button"
-      className="s-agent-card"
-      data-state={display}
-      onClick={onClick}
-      title={stateLabel}
-    >
-      <div className="s-agent-card-row">
-        <span className="s-agent-card-name">{agent.name}</span>
-        {lastActivityAt && (
-          <span className="s-agent-card-time">{timeAgo(lastActivityAt)}</span>
-        )}
-      </div>
-      <div className="s-agent-card-preview">
-        {preview ?? (
-          <span className="s-agent-card-preview-quiet">{stateLabel}</span>
-        )}
-      </div>
-      {topology.length > 0 && (
-        <div className="s-agent-card-topo">
-          {topology.map((part, idx) => (
-            <span key={`${part}-${idx}`} className="s-agent-card-topo-chip">
-              {part}
-            </span>
-          ))}
+    <div className="s-agents-library s-agents-library--inventory">
+      <div className="s-agents-inventory">
+        <div className="s-atop-summary">
+          <div className="s-atop-summary-cell s-atop-summary-cell--primary">
+            <div className="s-atop-summary-num">
+              <strong>{summary.online}</strong>
+              <span className="s-atop-summary-of">/ {summary.total}</span>
+            </div>
+            <span className="s-atop-summary-lbl">active</span>
+          </div>
+          <div className="s-atop-summary-cell">
+            <div className="s-atop-summary-num">
+              <strong>{summary.working}</strong>
+            </div>
+            <span className="s-atop-summary-lbl">working</span>
+          </div>
+          <div className="s-atop-summary-cell">
+            <div className="s-atop-summary-num">
+              <strong>{summary.available}</strong>
+            </div>
+            <span className="s-atop-summary-lbl">available</span>
+          </div>
+          <div className="s-atop-summary-cell s-atop-summary-cell--breakdown">
+            <span className="s-atop-summary-lbl">harness</span>
+            <div className="s-atop-summary-row">
+              {harnessOptions.length === 0 ? (
+                <span className="s-atop-chip s-atop-chip--mute">none</span>
+              ) : harnessOptions.slice(0, 6).map(([harness, count]) => (
+                <span key={harness} className={harnessChipClass(harness)}>
+                  {harness} {count}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="s-atop-summary-spacer" />
+          <div className="s-atop-summary-cell s-atop-summary-cell--rate">
+            <div className="s-atop-summary-num">
+              <strong>{summary.projects}</strong>
+            </div>
+            <span className="s-atop-summary-lbl">projects</span>
+          </div>
         </div>
-      )}
-    </button>
-  );
-}
 
-function AgentLogLine({
-  agent,
-  session,
-  onClick,
-}: {
-  agent: Agent;
-  session: SessionEntry | null;
-  onClick: () => void;
-}) {
-  const display = normalizeAgentState(agent.state);
-  const stateLabel = agentStateLabel(agent.state);
-  const lastActivityAt =
-    session?.lastMessageAt ?? agent.updatedAt ?? null;
-  const preview = session?.preview ?? null;
-  const harness = formatLabel(agent.harness);
-  const tooltipParts = [
-    `${agent.name} · ${stateLabel}`,
-    harness ? `harness: ${harness}` : null,
-    preview ? `preview: ${preview}` : null,
-  ].filter(Boolean);
+        <div className="s-atop-fbar">
+          <div className="s-atop-search">
+            <span className="s-atop-search-prompt">▸</span>
+            <input
+              className="s-atop-search-input"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="filter agents · project · branch · task"
+            />
+            <span className="s-atop-search-kbd">/</span>
+          </div>
+          {harnessOptions.length > 0 && (
+            <>
+              <span className="s-atop-fbar-label">harness</span>
+              {harnessOptions.map(([harness, count]) => {
+                const on = harnessFilter.has(harness);
+                return (
+                  <button
+                    key={harness}
+                    type="button"
+                    className={`s-atop-pill s-atop-pill--harness${on ? " s-atop-pill--on" : ""}`}
+                    onClick={() => toggleHarness(harness)}
+                  >
+                    {harness}
+                    <span className="s-atop-pill-ct">{count}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+          {statusOptions.length > 0 && (
+            <>
+              <span className="s-atop-fbar-label">status</span>
+              {statusOptions.map((status) => {
+                const on = statusFilter.has(status);
+                const count = rows.filter((row) => row.status === status).length;
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    className={`s-atop-pill s-agents-inventory-pill--status-${status}${on ? " s-atop-pill--on" : ""}`}
+                    onClick={() => toggleStatus(status)}
+                  >
+                    {status}
+                    <span className="s-atop-pill-ct">{count}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+          <div className="s-atop-fbar-spacer" />
+          {(harnessFilter.size > 0 || statusFilter.size > 0 || query) && (
+            <button
+              type="button"
+              className="s-atop-pill"
+              onClick={() => {
+                setQuery("");
+                setHarnessFilter(new Set());
+                setStatusFilter(new Set());
+              }}
+            >
+              clear
+            </button>
+          )}
+        </div>
 
-  return (
-    <button
-      type="button"
-      className="s-agent-log-row"
-      data-state={display}
-      onClick={onClick}
-      title={tooltipParts.join("\n")}
-    >
-      <span className="s-agent-log-time">
-        {lastActivityAt ? timeAgo(lastActivityAt) : "—"}
-      </span>
-      <span className="s-agent-log-name">{agent.name}</span>
-      <span className="s-agent-log-msg">
-        {preview ?? <span className="s-agent-log-msg-quiet">{stateLabel.toLowerCase()}</span>}
-      </span>
-    </button>
+        <DataTable
+          rows={filteredRows}
+          columns={AGENT_INVENTORY_COLUMNS}
+          rowId={(row) => row.agent.id}
+          storageKey="openscout.agents.inventory.cols"
+          sort={sort}
+          onSortChange={setSort}
+          secondarySort={secondarySort}
+          onRowClick={openAgent}
+          rowClassName={(row) => `s-agents-inventory-row s-agents-inventory-row--${row.status}`}
+          empty={{
+            title: agents.length === 0 ? "no agents registered" : "no agents match",
+            body: agents.length === 0
+              ? "Start or register an agent to populate the inventory."
+              : "Adjust filters to widen the current slice.",
+          }}
+          density="compact"
+          className="s-atop-data-table s-agents-inventory-table"
+          ariaLabel="Agents inventory"
+        />
+
+        <div className="s-atop-keys">
+          <span className="s-atop-keys-count">
+            <strong>{filteredRows.length}</strong> / {rows.length} agents
+          </span>
+          <span className="s-atop-keys-spacer" />
+          <span>{summary.offline} offline</span>
+          <span>{summary.projects} project{summary.projects === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+    </div>
   );
 }
