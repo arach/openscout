@@ -2445,7 +2445,7 @@ const TMUX_PASTE_DRAIN_MS = 150;
 const TMUX_VERIFY_FIRST_SAMPLE_MS = 250;
 const TMUX_VERIFY_SECOND_SAMPLE_MS = 750;
 const TMUX_VERIFY_RETRY_SAMPLE_MS = 400;
-const TMUX_CAPTURE_TAIL_LINES = 6;
+const TMUX_CAPTURE_TAIL_LINES = 20;
 
 export interface TmuxPromptDispatchResult {
   submitted: boolean;
@@ -2576,7 +2576,19 @@ function captureTmuxPaneTail(sessionName: string, lines: number): string {
 }
 
 export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: string): boolean {
-  const normalizedTail = paneTail.replace(/\s+/g, " ").trim();
+  const cleanedTail = stripTerminalControlSequences(paneTail);
+  const composerText = extractActiveTmuxComposerText(cleanedTail);
+  if (composerText !== null) {
+    return textContainsPromptFragment(composerText, prompt);
+  }
+  if (tmuxPaneTailShowsHarnessActivity(cleanedTail)) {
+    return false;
+  }
+  return textContainsPromptFragment(cleanedTail, prompt);
+}
+
+function textContainsPromptFragment(haystack: string, prompt: string): boolean {
+  const normalizedTail = haystack.replace(/\s+/g, " ").trim();
   if (!normalizedTail) return false;
   const normalizedPrompt = prompt.replace(/\s+/g, " ").trim();
   if (normalizedPrompt.length < 24) {
@@ -2589,6 +2601,85 @@ export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: str
     normalizedPrompt.slice(Math.max(0, normalizedPrompt.length - 40)),
   ];
   return windows.some((w) => w.length >= 24 && normalizedTail.includes(w));
+}
+
+function stripTerminalControlSequences(value: string): string {
+  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+}
+
+function extractActiveTmuxComposerText(paneTail: string): string | null {
+  const lines = paneTail.split(/\r?\n/);
+  const inlineComposerIndex = findLastIndex(lines, (line) => /^\s*[❯›]\s*/.test(line));
+  if (inlineComposerIndex >= 0) {
+    return collectInlineComposerText(lines, inlineComposerIndex);
+  }
+
+  const boxedComposerIndex = findLastIndex(lines, (line) => /^\s*[│┃]\s*[>❯]\s*/.test(line));
+  if (boxedComposerIndex >= 0) {
+    return collectBoxedComposerText(lines, boxedComposerIndex);
+  }
+
+  return null;
+}
+
+function findLastIndex<T>(items: readonly T[], predicate: (item: T) => boolean): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (predicate(items[index]!)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function collectInlineComposerText(lines: readonly string[], startIndex: number): string {
+  const collected = [lines[startIndex]!.replace(/^\s*[❯›]\s*/, "")];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (isTmuxComposerBoundary(line)) {
+      break;
+    }
+    collected.push(line);
+  }
+  return collected.join(" ").trim();
+}
+
+function collectBoxedComposerText(lines: readonly string[], startIndex: number): string {
+  const collected: string[] = [];
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (index > startIndex && isTmuxComposerBoundary(line)) {
+      break;
+    }
+    if (!/^\s*[│┃]/.test(line)) {
+      if (isTmuxComposerBoundary(line)) {
+        break;
+      }
+      collected.push(line);
+      continue;
+    }
+    const content = line
+      .replace(/^\s*[│┃]\s*/, "")
+      .replace(/\s*[│┃]\s*$/, "")
+      .replace(index === startIndex ? /^[>❯]\s*/ : /^/, "");
+    collected.push(content);
+  }
+  return collected.join(" ").trim();
+}
+
+function isTmuxComposerBoundary(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (/^[─━═╭╮╰╯┌┐└┘╔╗╚╝╟╢╠╣╪╫╬╩╦╤╧╌╍╎╏\s]+$/.test(trimmed)) {
+    return true;
+  }
+  return /^--\s*(?:INSERT|NORMAL)\s*--/.test(trimmed)
+    || /^(?:Opus|Sonnet|Haiku|Claude|Codex|GPT)\b/.test(trimmed);
+}
+
+function tmuxPaneTailShowsHarnessActivity(paneTail: string): boolean {
+  return /(?:^|\n)\s*(?:[⏺●✽✢✻⎿]|Bash\(|Read\(|Edit\(|Write\(|Grep\(|Glob\(|TodoWrite\()/.test(paneTail);
 }
 
 function shellQuoteArguments(args: string[]): string {

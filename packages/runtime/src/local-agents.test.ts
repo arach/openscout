@@ -428,6 +428,26 @@ describe("local agent prompts", () => {
     expect(strategy.verify(submittedTail)).toBe(true);
   });
 
+  test("tmux pane tail detection ignores submitted prompt text in Claude transcript", () => {
+    const prompt =
+      "New broker ask from operator. Task: please inspect OpenScout's agent/session/project semantics and recommend root-cause fixes.";
+    const submittedTail = [
+      "  New broker ask from operator. Task: please inspect OpenScout's",
+      "  agent/session/project semantics and recommend root-cause fixes.",
+      "",
+      "⏺ Read(/Users/arach/dev/openscout/packages/runtime/src/broker-core-service.ts · lines 785-814)",
+      "  ⎿  Read 30 lines",
+      "",
+      "───────────────────────────── agent-taxonomy-generalist.main.mini-relay-agent ──",
+      "❯ ",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Sonnet 4.6 │ ⎇ main │ ~/dev/openscout",
+      "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
+    ].join("\n");
+
+    expect(tmuxPaneTailContainsPromptFragment(submittedTail, prompt)).toBe(false);
+  });
+
   test("claude runtime launch args preapprove Scout MCP coordination tools", () => {
     const args = normalizeClaudeRuntimeLaunchArgs(["--model", "sonnet"]);
 
