@@ -862,9 +862,31 @@
 }
 
 .s-now-card-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--green);
+}
+
+.s-now-card-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: s-fleet-live-pulse 1.6s ease-in-out infinite;
+}
+
+.s-now-card-live--observed .s-now-card-live-dot {
+  background: transparent;
+  border: 1px solid currentColor;
+  animation-duration: 2.4s;
+}
+
+@keyframes s-fleet-live-pulse {
+  0%, 100% { opacity: 1;    transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.78); }
 }
 
 .s-now-card-task {
@@ -896,7 +918,32 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.s-now-card-ticker-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   flex: 1;
+}
+
+.s-now-card-ticker-dots span {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.25;
+  animation: s-fleet-ticker-dot 1.4s ease-in-out infinite;
+}
+
+.s-now-card-ticker-dots span:nth-child(2) { animation-delay: 0.18s; }
+.s-now-card-ticker-dots span:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes s-fleet-ticker-dot {
+  0%, 100% { opacity: 0.2; }
+  50%      { opacity: 0.95; }
 }
 
 .s-now-card-cursor {
