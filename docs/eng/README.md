@@ -60,6 +60,7 @@ implementation specs.
 - [sco-042-harness-event-normalization-and-replay-boundary.md](./sco-042-harness-event-normalization-and-replay-boundary.md)
 - [sco-043-execution-environment-contracts.md](./sco-043-execution-environment-contracts.md)
 - [sco-044-operator-attention-policy-and-progress-monitoring.md](./sco-044-operator-attention-policy-and-progress-monitoring.md)
+- [sco-046-cross-machine-agent-ui-spec.md](./sco-046-cross-machine-agent-ui-spec.md)
 
 ## Operations
 

@@ -15,7 +15,9 @@ import {
 import { createRuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 
 import {
+  askScoutAgentById,
   askScoutQuestion,
+  askScoutSessionById,
   buildScoutLabelBrief,
   buildScoutLabelFeed,
   loadScoutBrokerContext,
@@ -700,6 +702,231 @@ describe("scoutAskHandler", () => {
       agentId: "talkie.main",
     });
     expect(captured.delivery?.targetAgentId).toBe("talkie.main");
+  }, 15000);
+
+  test("posts exact ask-by-id deliveries with a session-pinned return address", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev", "openscout");
+    mkdirSync(workspaceRoot, { recursive: true });
+
+    const captured = {
+      delivery: null as {
+        caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
+        target?: { kind?: string; agentId?: string };
+        targetAgentId?: string;
+        targetLabel?: string;
+        replyToSessionId?: string;
+        execution?: { session?: string };
+        messageMetadata?: Record<string, unknown>;
+        invocationMetadata?: Record<string, unknown>;
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = (await request.json()) as NonNullable<
+          typeof captured.delivery
+        >;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.hudson",
+            kind: "direct",
+            title: "Hudson",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "hudson.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.hudson",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Review this.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "hudson.main",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "hudson.main",
+            state: "waking",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await askScoutAgentById({
+      senderId: "operator",
+      targetAgentId: "hudson.main",
+      body: "Review this.",
+      replyToSessionId: "codex-thread-123",
+      currentDirectory: workspaceRoot,
+      source: "scout-mcp",
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.flight?.id).toBe("flt-1");
+    expect(captured.delivery?.caller).toMatchObject({
+      actorId: "operator",
+      nodeId: "node-1",
+      currentDirectory: workspaceRoot,
+    });
+    expect(captured.delivery?.target).toEqual({
+      kind: "agent_id",
+      agentId: "hudson.main",
+    });
+    expect(captured.delivery?.targetAgentId).toBe("hudson.main");
+    expect(captured.delivery?.targetLabel).toBe("hudson.main");
+    expect(captured.delivery?.replyToSessionId).toBe("codex-thread-123");
+    expect(captured.delivery?.execution).toEqual({ session: "new" });
+    expect(captured.delivery?.messageMetadata?.replyToSessionId).toBe(
+      "codex-thread-123",
+    );
+    expect(captured.delivery?.invocationMetadata?.replyToSessionId).toBe(
+      "codex-thread-123",
+    );
+  }, 15000);
+
+  test("posts exact ask-by-session deliveries that continue existing context", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev", "openscout");
+    mkdirSync(workspaceRoot, { recursive: true });
+
+    const captured = {
+      delivery: null as {
+        target?: { kind?: string; sessionId?: string };
+        targetSessionId?: string;
+        targetLabel?: string;
+        execution?: { session?: string; targetSessionId?: string };
+        messageMetadata?: Record<string, unknown>;
+        invocationMetadata?: Record<string, unknown>;
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = (await request.json()) as NonNullable<
+          typeof captured.delivery
+        >;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.hudson",
+            kind: "direct",
+            title: "Hudson",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "hudson.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.hudson",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Continue this review.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "hudson.main",
+          targetSessionId: "codex-thread-target",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "hudson.main",
+            state: "running",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await askScoutSessionById({
+      senderId: "operator",
+      targetSessionId: "codex-thread-target",
+      body: "Continue this review.",
+      currentDirectory: workspaceRoot,
+      source: "scout-mcp",
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.flight?.id).toBe("flt-1");
+    expect(captured.delivery?.target).toEqual({
+      kind: "session_id",
+      sessionId: "codex-thread-target",
+    });
+    expect(captured.delivery?.targetSessionId).toBe("codex-thread-target");
+    expect(captured.delivery?.targetLabel).toBe("session:codex-thread-target");
+    expect(captured.delivery?.execution).toEqual({
+      session: "existing",
+      targetSessionId: "codex-thread-target",
+    });
+    expect(captured.delivery?.messageMetadata?.targetSessionId).toBe(
+      "codex-thread-target",
+    );
+    expect(captured.delivery?.invocationMetadata?.targetSessionId).toBe(
+      "codex-thread-target",
+    );
   }, 15000);
 
   test("routes project path asks through broker project resolution", async () => {

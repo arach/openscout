@@ -45,6 +45,15 @@ export interface ScoutReturnAddress {
   metadata?: MetadataMap;
 }
 
+export interface ScoutAgentCardLifecycle {
+  kind: "persistent" | "one_time";
+  createdAt?: number;
+  createdById?: ScoutId;
+  expiresAt?: number;
+  maxUses?: number;
+  inboxConversationId?: ScoutId;
+}
+
 /**
  * Scout's local discovery and routing card for one addressable agent target.
  *
@@ -81,6 +90,7 @@ export interface ScoutAgentCard {
   createdById?: ScoutId;
   brokerRegistered: boolean;
   inboxConversationId?: ScoutId;
+  lifecycle?: ScoutAgentCardLifecycle;
   returnAddress: ScoutReturnAddress;
   metadata?: MetadataMap;
 }

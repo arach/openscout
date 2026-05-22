@@ -15,6 +15,15 @@ export interface RelayReturnAddress {
     metadata?: MetadataMap;
 }
 
+export interface RelayAgentCardLifecycle {
+    kind: "persistent" | "one_time";
+    createdAt?: number;
+    createdById?: ScoutId;
+    expiresAt?: number;
+    maxUses?: number;
+    inboxConversationId?: ScoutId;
+}
+
 export interface RelayAgentCard {
     id: ScoutId;
     agentId: ScoutId;
@@ -34,6 +43,7 @@ export interface RelayAgentCard {
     createdById?: ScoutId;
     brokerRegistered: boolean;
     inboxConversationId?: ScoutId;
+    lifecycle?: RelayAgentCardLifecycle;
     returnAddress: RelayReturnAddress;
     metadata?: MetadataMap;
 }

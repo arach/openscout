@@ -29,6 +29,7 @@ import {
 import {
   askScoutAgentById,
   askScoutQuestion,
+  askScoutSessionById,
   attachScoutManagedLocalSession,
   listScoutAgents,
   loadScoutFlight,
@@ -122,7 +123,7 @@ export type ScoutMcpAgentPickerFieldMeta = {
     currentDirectory: { fromToolArgument: "currentDirectory" };
   };
   resultPath: ["structuredContent", "candidates"];
-  valueField: "label" | "agentId";
+  valueField: "label" | "agentId" | "sessionId";
   labelField: "label";
   descriptionField: "displayName";
   badgeFields: ["harness", "model", "workspace", "node"];
@@ -148,7 +149,7 @@ type ScoutFollowIds = {
   invocationId: string | null;
   conversationId: string | null;
   workId: string | null;
-  sessionId: string | null;
+  sessionId?: string | null;
   targetAgentId: string | null;
 };
 
@@ -200,7 +201,7 @@ const scoutAgentAvatarMeta: ScoutMcpAgentAvatarMeta = {
 // MCP standardizes dynamic completion directly on tool arguments.
 function createAgentPickerFieldMeta(input: {
   selection: "single" | "multiple";
-  valueField: "label" | "agentId";
+  valueField: "label" | "agentId" | "sessionId";
   resolveTool?: "agents_resolve";
 }): ScoutMcpAgentPickerFieldMeta {
   return {
@@ -265,6 +266,11 @@ const targetAgentIdInputSchema = z
   .describe("Exact Scout agent id when already known, such as talkie.master.mini")
   .optional();
 
+const targetSessionIdInputSchema = z
+  .string()
+  .describe("Exact Scout session id to continue, such as a CODEX_THREAD_ID or attached runtime session id")
+  .optional();
+
 const mentionAgentIdsInputSchema = z
   .array(z.string())
   .describe("Exact Scout agent ids to target directly when you already know them")
@@ -287,6 +293,7 @@ export type ScoutMcpAgentCandidate = {
   node: string | null;
   projectRoot: string | null;
   transport: string | null;
+  sessionId?: string | null;
 };
 
 export type ScoutMcpResolveResult = {
@@ -311,6 +318,7 @@ type InternalAgentDirectoryEntry = {
   node: string | null;
   projectRoot: string | null;
   transport: string | null;
+  sessionId: string | null;
 };
 
 type ScoutMcpDependencies = {
@@ -355,6 +363,8 @@ type ScoutMcpDependencies = {
     permissionProfile?: string;
     currentDirectory: string;
     createdById?: string;
+    oneTimeUse?: boolean;
+    ttlMs?: number;
   }) => Promise<ScoutAgentCard>;
   startAgent: (input: {
     projectPath: string;
@@ -411,6 +421,7 @@ type ScoutMcpDependencies = {
     channel?: string;
     shouldSpeak?: boolean;
     labels?: string[];
+    replyToSessionId?: string;
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutAskResult>;
@@ -422,6 +433,19 @@ type ScoutMcpDependencies = {
     channel?: string;
     shouldSpeak?: boolean;
     labels?: string[];
+    replyToSessionId?: string;
+    currentDirectory: string;
+    source?: string;
+  }) => Promise<ScoutAskByIdResult>;
+  askSessionById: (input: {
+    senderId: string;
+    targetSessionId: string;
+    body: string;
+    workItem?: ScoutWorkItemInput;
+    channel?: string;
+    shouldSpeak?: boolean;
+    labels?: string[];
+    replyToSessionId?: string;
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutAskByIdResult>;
@@ -663,6 +687,7 @@ const agentCandidateSchema = z.object({
   node: z.string().nullable(),
   projectRoot: z.string().nullable(),
   transport: z.string().nullable(),
+  sessionId: z.string().nullable().optional(),
 });
 
 const scoutReturnAddressSchema = z.object({
@@ -677,6 +702,15 @@ const scoutReturnAddressSchema = z.object({
   projectRoot: z.string().optional(),
   sessionId: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const scoutAgentCardLifecycleSchema = z.object({
+  kind: z.enum(["persistent", "one_time"]),
+  createdAt: z.number().optional(),
+  createdById: z.string().optional(),
+  expiresAt: z.number().optional(),
+  maxUses: z.number().optional(),
+  inboxConversationId: z.string().optional(),
 });
 
 const scoutAgentCardSchema = z.object({
@@ -698,6 +732,7 @@ const scoutAgentCardSchema = z.object({
   createdById: z.string().optional(),
   brokerRegistered: z.boolean(),
   inboxConversationId: z.string().optional(),
+  lifecycle: scoutAgentCardLifecycleSchema.optional(),
   returnAddress: scoutReturnAddressSchema,
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -1019,7 +1054,9 @@ const askResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
   targetAgentId: z.string().nullable(),
+  targetSessionId: z.string().nullable().optional(),
   targetLabel: z.string().nullable(),
+  replyToSessionId: z.string().nullable().optional(),
   usedBroker: z.boolean(),
   awaited: z.boolean(),
   waitStatus: z.enum(["not_requested", "acknowledged", "completed", "terminal", "timeout"]).optional(),
@@ -1328,6 +1365,13 @@ function resolveAskReplyMode(input: {
   return input.awaitReply ? "inline" : "none";
 }
 
+function resolveMcpReplyToSessionId(
+  explicitSessionId: string | undefined,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  return explicitSessionId?.trim() || env.CODEX_THREAD_ID?.trim() || undefined;
+}
+
 function workUrlFor(
   workItem: ScoutTrackedWorkItem | null | undefined,
   env: NodeJS.ProcessEnv,
@@ -1389,6 +1433,7 @@ function buildScoutFollowArtifacts(
     flight: ScoutFlightRecord | null;
     conversationId: string | null;
     workItem: ScoutTrackedWorkItem | null;
+    targetSessionId?: string | null;
     targetAgentId: string | null;
   },
   env: NodeJS.ProcessEnv,
@@ -1398,7 +1443,7 @@ function buildScoutFollowArtifacts(
     invocationId: input.flight?.invocationId ?? null,
     conversationId: input.conversationId,
     workId: input.workItem?.id ?? null,
-    sessionId: null,
+    sessionId: input.targetSessionId ?? null,
     targetAgentId: input.targetAgentId ?? input.flight?.targetAgentId ?? null,
   };
   const origin = resolveScoutWebOrigin(env);
@@ -2038,6 +2083,7 @@ function choosePreferredEndpoint(
     transport?: string;
     projectRoot?: string;
     cwd?: string;
+    sessionId?: string;
     metadata?: Record<string, unknown>;
   }>,
 ) {
@@ -2110,6 +2156,7 @@ function decorateAgentLabels(
       node: entry.node,
       projectRoot: entry.projectRoot,
       transport: entry.transport,
+      sessionId: entry.sessionId,
     };
   });
 }
@@ -2264,6 +2311,7 @@ async function loadScoutAgentDirectory(
       node: entry.node ?? existing.node,
       projectRoot: entry.projectRoot ?? existing.projectRoot,
       transport: entry.transport ?? existing.transport,
+      sessionId: entry.sessionId ?? existing.sessionId,
       state:
         rankState(entry.state) >= rankState(existing.state)
           ? entry.state
@@ -2301,6 +2349,7 @@ async function loadScoutAgentDirectory(
       node: discovered.instance.nodeQualifier || null,
       projectRoot: discovered.projectRoot,
       transport: discovered.runtime.transport ?? null,
+      sessionId: null,
     });
   }
 
@@ -2341,6 +2390,7 @@ async function loadScoutAgentDirectory(
         preferredEndpoint?.projectRoot ?? preferredEndpoint?.cwd,
       ),
       transport: normalizedStringOrNull(preferredEndpoint?.transport),
+      sessionId: normalizedStringOrNull(preferredEndpoint?.sessionId),
     });
   }
 
@@ -2506,6 +2556,8 @@ function defaultScoutMcpDependencies(
       permissionProfile,
       currentDirectory,
       createdById,
+      oneTimeUse,
+      ttlMs,
     }) =>
       createScoutAgentCard({
         projectPath,
@@ -2517,6 +2569,8 @@ function defaultScoutMcpDependencies(
         permissionProfile,
         currentDirectory,
         createdById,
+        oneTimeUse,
+        ttlMs,
       }),
     startAgent: ({
       projectPath,
@@ -2619,6 +2673,7 @@ function defaultScoutMcpDependencies(
       channel,
       shouldSpeak,
       labels,
+      replyToSessionId,
       currentDirectory,
       source,
     }) =>
@@ -2630,6 +2685,7 @@ function defaultScoutMcpDependencies(
         channel,
         shouldSpeak,
         labels,
+        replyToSessionId,
         currentDirectory,
         source,
       }),
@@ -2641,6 +2697,7 @@ function defaultScoutMcpDependencies(
       channel,
       shouldSpeak,
       labels,
+      replyToSessionId,
       currentDirectory,
       source,
     }) =>
@@ -2652,6 +2709,31 @@ function defaultScoutMcpDependencies(
         channel,
         shouldSpeak,
         labels,
+        replyToSessionId,
+        currentDirectory,
+        source,
+      }),
+    askSessionById: ({
+      senderId,
+      targetSessionId,
+      body,
+      workItem,
+      channel,
+      shouldSpeak,
+      labels,
+      replyToSessionId,
+      currentDirectory,
+      source,
+    }) =>
+      askScoutSessionById({
+        senderId,
+        targetSessionId,
+        body,
+        workItem,
+        channel,
+        shouldSpeak,
+        labels,
+        replyToSessionId,
         currentDirectory,
         source,
       }),
@@ -3116,7 +3198,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Create Scout Agent Card",
       description:
-        "Create a dedicated Scout agent card with a reply-ready return address. Use this when another agent should get back to you on a fresh project-scoped inbox or worktree-scoped alias. One target stays private by default; group coordination still requires an explicit channel elsewhere.",
+        "Create a Scout agent card with a reply-ready return address. Agent-created cards default to one-time use so short-lived review/probe identities do not crowd the system; pass oneTimeUse=false for a persistent card. One target stays private by default; group coordination still requires an explicit channel elsewhere.",
       inputSchema: z.object({
         projectPath: z.string().optional(),
         currentDirectory: z.string().optional(),
@@ -3127,6 +3209,8 @@ export function createScoutMcpServer(options: {
         model: z.string().optional(),
         reasoningEffort: z.string().optional(),
         permissionProfile: z.string().optional(),
+        oneTimeUse: z.boolean().optional(),
+        ttlSeconds: z.number().positive().optional(),
       }),
       outputSchema: cardCreateResultSchema,
       annotations: {
@@ -3146,6 +3230,8 @@ export function createScoutMcpServer(options: {
       model,
       reasoningEffort,
       permissionProfile,
+      oneTimeUse,
+      ttlSeconds,
     }) => {
       const resolvedCurrentDirectory = resolveToolCurrentDirectory(
         currentDirectory,
@@ -3167,6 +3253,8 @@ export function createScoutMcpServer(options: {
         permissionProfile: permissionProfile?.trim() || undefined,
         currentDirectory: resolvedCurrentDirectory,
         createdById: resolvedSenderId,
+        oneTimeUse: oneTimeUse ?? true,
+        ttlMs: ttlSeconds === undefined ? undefined : Math.round(ttlSeconds * 1000),
       });
       const structuredContent = {
         currentDirectory: resolvedCurrentDirectory,
@@ -3365,6 +3453,7 @@ export function createScoutMcpServer(options: {
           .min(1)
           .optional()
           .describe("Agent id, label, sibling, specialist, or recent collaborator."),
+        targetSessionId: targetSessionIdInputSchema,
         projectPath: z
           .string()
           .min(1)
@@ -3373,6 +3462,12 @@ export function createScoutMcpServer(options: {
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
+        replyToSessionId: z
+          .string()
+          .optional()
+          .describe(
+            "Optional requester session that should receive the eventual reply. When omitted, Codex MCP uses the current CODEX_THREAD_ID when available.",
+          ),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
         workspace: z.enum(["same", "new_worktree"]).optional(),
         session: z.enum(["reuse", "new"]).optional(),
@@ -3395,10 +3490,12 @@ export function createScoutMcpServer(options: {
     },
     async ({
       to,
+      targetSessionId,
       projectPath,
       body,
       currentDirectory,
       senderId,
+      replyToSessionId,
       harness,
       workspace,
       session,
@@ -3414,7 +3511,12 @@ export function createScoutMcpServer(options: {
         resolvedCurrentDirectory,
         env,
       );
-      const targetTo = to?.trim();
+      const resolvedReplyToSessionId = resolveMcpReplyToSessionId(
+        replyToSessionId,
+        env,
+      );
+      const targetSession = targetSessionId?.trim();
+      const targetTo = targetSession ? `session:${targetSession}` : to?.trim();
       const targetProjectPath = projectPath?.trim();
       let structuredContent = targetTo && targetProjectPath
         ? {
@@ -3432,9 +3534,10 @@ export function createScoutMcpServer(options: {
               ? { projectPath: targetProjectPath }
               : { to: targetTo ?? "" }),
             body,
-            harness,
-            workspace,
-            session,
+            ...(harness ? { harness } : {}),
+            ...(workspace ? { workspace } : {}),
+            ...(session ? { session } : {}),
+            ...(resolvedReplyToSessionId ? { replyToSessionId: resolvedReplyToSessionId } : {}),
             currentDirectory: resolvedCurrentDirectory,
             source: "scout-mcp",
           });
@@ -3808,14 +3911,21 @@ export function createScoutMcpServer(options: {
     {
       title: "Create Scout Invocation",
       description:
-        "Low-level broker-backed invocation handoff. For normal agent-to-agent work, use ask. Use this only when you need exact invocation controls such as targetAgentId, workItem, or replyMode. Pass targetLabel or targetAgentId as routing fields; one target without a channel becomes a DM and the body remains payload text. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. replyMode='inline' returns once the invocation is acknowledged or already complete; use invocations_wait for a longer follow-up poll. replyMode='notify' returns immediately and emits notifications/scout/reply later; replyMode='none' returns the durable receipt only. awaitReply is kept as a boolean alias for replyMode='inline'.",
+        "Low-level broker-backed invocation handoff. For normal agent-to-agent work, use ask. Use this only when you need exact invocation controls such as targetSessionId, targetAgentId, workItem, or replyMode. Pass targetSessionId to continue a specific live session; omit it to let the broker create or choose a fresh lightweight session for the target. Pass targetLabel or targetAgentId as routing fields when you do not have a session id. replyMode='inline' returns once the invocation is acknowledged or already complete; use invocations_wait for a longer follow-up poll. replyMode='notify' returns immediately and emits notifications/scout/reply later; replyMode='none' returns the durable receipt only. awaitReply is kept as a boolean alias for replyMode='inline'.",
       inputSchema: z
         .object({
           body: z.string().min(1),
           currentDirectory: z.string().optional(),
           senderId: z.string().optional(),
+          targetSessionId: targetSessionIdInputSchema,
           targetAgentId: targetAgentIdInputSchema,
           targetLabel: targetLabelInputSchema,
+          replyToSessionId: z
+            .string()
+            .describe(
+              "Optional requester session that should receive the eventual reply. When omitted, Codex MCP uses the current CODEX_THREAD_ID when available.",
+            )
+            .optional(),
           labels: z.array(z.string()).optional(),
           workItem: workItemInputSchema.optional(),
           channel: z.string().optional(),
@@ -3834,10 +3944,10 @@ export function createScoutMcpServer(options: {
         })
         .refine(
           (value) =>
-            Boolean(value.targetAgentId?.trim() || value.targetLabel?.trim()),
+            Boolean(value.targetSessionId?.trim() || value.targetAgentId?.trim() || value.targetLabel?.trim()),
           {
-            message: "Provide either targetAgentId or targetLabel.",
-            path: ["targetAgentId"],
+            message: "Provide targetSessionId, targetAgentId, or targetLabel.",
+            path: ["targetSessionId"],
           },
         ),
       outputSchema: askResultSchema,
@@ -3848,6 +3958,10 @@ export function createScoutMcpServer(options: {
         openWorldHint: false,
       },
       _meta: createToolUiMeta({
+        targetSessionId: createAgentPickerFieldMeta({
+          selection: "single",
+          valueField: "sessionId",
+        }),
         targetAgentId: createAgentPickerFieldMeta({
           selection: "single",
           valueField: "agentId",
@@ -3863,8 +3977,10 @@ export function createScoutMcpServer(options: {
       body,
       currentDirectory,
       senderId,
+      targetSessionId,
       targetAgentId,
       targetLabel,
+      replyToSessionId,
       labels,
       workItem,
       channel,
@@ -3885,6 +4001,122 @@ export function createScoutMcpServer(options: {
       );
       const resolvedReplyMode = resolveAskReplyMode({ awaitReply, replyMode });
       const shouldAwait = resolvedReplyMode === "inline";
+      const resolvedReplyToSessionId = resolveMcpReplyToSessionId(
+        replyToSessionId,
+        env,
+      );
+
+      if (targetSessionId?.trim()) {
+        const trimmedTargetSessionId = targetSessionId.trim();
+        const result = await deps.askSessionById({
+          senderId: resolvedSenderId,
+          targetSessionId: trimmedTargetSessionId,
+          body,
+          workItem,
+          channel,
+          shouldSpeak,
+          labels,
+          replyToSessionId: resolvedReplyToSessionId,
+          currentDirectory: resolvedCurrentDirectory,
+          source: "scout-mcp",
+        });
+        const waitResult = shouldAwait
+          ? await waitForFlightForMcp({
+              deps,
+              brokerUrl: deps.resolveBrokerUrl(),
+              flight: result.flight ?? null,
+              timeoutSeconds,
+            })
+          : { flight: null, waitStatus: "not_requested" as const };
+        const completedFlight = waitResult.flight;
+        const trackedWorkItem = result.workItem ?? null;
+        const notificationScheduled =
+          resolvedReplyMode === "notify" && Boolean(result.flight);
+        const followArtifacts = buildScoutFollowArtifacts(
+          {
+            flight: completedFlight ?? result.flight ?? null,
+            conversationId: result.conversationId ?? null,
+            workItem: trackedWorkItem,
+            targetSessionId: trimmedTargetSessionId,
+            targetAgentId: result.flight?.targetAgentId ?? null,
+          },
+          env,
+        );
+        if (resolvedReplyMode === "notify" && result.flight) {
+          scheduleScoutReplyNotification({
+            server,
+            deps,
+            brokerUrl: deps.resolveBrokerUrl(),
+            flight: result.flight,
+            timeoutSeconds,
+            context: {
+              currentDirectory: resolvedCurrentDirectory,
+              senderId: resolvedSenderId,
+              targetAgentId: result.flight.targetAgentId ?? null,
+              targetLabel: null,
+              conversationId: result.conversationId ?? null,
+              messageId: result.messageId ?? null,
+              flightId: result.flight.id,
+              workItem: trackedWorkItem,
+              workId: trackedWorkItem?.id ?? null,
+              workUrl: workUrlFor(trackedWorkItem, env),
+              ids: followArtifacts.ids,
+              links: followArtifacts.links,
+              followUrl: followArtifacts.followUrl,
+            },
+          });
+        }
+        const unresolvedTargetId = result.unresolvedTargetId ?? null;
+        const structuredContent = {
+          currentDirectory: resolvedCurrentDirectory,
+          senderId: resolvedSenderId,
+          targetAgentId: result.flight?.targetAgentId ?? null,
+          targetSessionId: trimmedTargetSessionId,
+          targetLabel: null,
+          replyToSessionId: resolvedReplyToSessionId ?? null,
+          usedBroker: result.usedBroker,
+          awaited: shouldAwait,
+          waitStatus: waitResult.waitStatus,
+          replyMode: resolvedReplyMode,
+          delivery: notificationScheduled
+            ? "mcp_notification" as const
+            : shouldAwait
+              ? "inline" as const
+              : "none" as const,
+          notification: resolvedReplyMode === "notify"
+            ? {
+                method: "notifications/scout/reply" as const,
+                status: notificationScheduled ? "scheduled" as const : "not_scheduled" as const,
+              }
+            : null,
+          conversationId: result.conversationId ?? null,
+          messageId: result.messageId ?? null,
+          flight: completedFlight ?? result.flight ?? null,
+          flightId: completedFlight?.id ?? result.flight?.id ?? null,
+          output:
+            waitResult.waitStatus === "completed" || waitResult.waitStatus === "terminal"
+              ? completedFlight?.output ?? completedFlight?.summary ?? null
+              : null,
+          unresolvedTargetId,
+          unresolvedTargetLabel: null,
+          workItem: trackedWorkItem,
+          workId: trackedWorkItem?.id ?? null,
+          workUrl: workUrlFor(trackedWorkItem, env),
+          ids: followArtifacts.ids,
+          links: followArtifacts.links,
+          followUrl: followArtifacts.followUrl,
+          targetDiagnostic:
+            result.targetDiagnostic ??
+            buildExactTargetIdsDiagnostic(unresolvedTargetId ? [unresolvedTargetId] : []),
+          startSuggestion: null,
+        };
+        return {
+          content: createPlainTextContent(
+            renderMcpAskSummary(structuredContent),
+          ),
+          structuredContent,
+        };
+      }
 
       if (targetAgentId?.trim()) {
         const result = await deps.askAgentById({
@@ -3895,6 +4127,7 @@ export function createScoutMcpServer(options: {
           channel,
           shouldSpeak,
           labels,
+          replyToSessionId: resolvedReplyToSessionId,
           currentDirectory: resolvedCurrentDirectory,
           source: "scout-mcp",
         });
@@ -3948,7 +4181,9 @@ export function createScoutMcpServer(options: {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
           targetAgentId: targetAgentId.trim(),
+          targetSessionId: null,
           targetLabel: null,
+          replyToSessionId: resolvedReplyToSessionId ?? null,
           usedBroker: result.usedBroker,
           awaited: shouldAwait,
           waitStatus: waitResult.waitStatus,
@@ -4003,7 +4238,9 @@ export function createScoutMcpServer(options: {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
           targetAgentId: null,
+          targetSessionId: null,
           targetLabel: targetLabel!.trim(),
+          replyToSessionId: resolvedReplyToSessionId ?? null,
           usedBroker: true,
           awaited: shouldAwait,
           waitStatus: "not_requested" as const,
@@ -4034,13 +4271,14 @@ export function createScoutMcpServer(options: {
       const result = await deps.askQuestion({
         senderId: resolvedSenderId,
         targetLabel: targetLabel!.trim(),
-          body,
-          workItem,
-          channel,
-          shouldSpeak,
-          labels,
-          currentDirectory: resolvedCurrentDirectory,
-          source: "scout-mcp",
+        body,
+        workItem,
+        channel,
+        shouldSpeak,
+        labels,
+        replyToSessionId: resolvedReplyToSessionId,
+        currentDirectory: resolvedCurrentDirectory,
+        source: "scout-mcp",
       });
       const waitResult = shouldAwait
         ? await waitForFlightForMcp({
@@ -4098,7 +4336,9 @@ export function createScoutMcpServer(options: {
         currentDirectory: resolvedCurrentDirectory,
         senderId: resolvedSenderId,
         targetAgentId: result.flight?.targetAgentId ?? null,
+        targetSessionId: null,
         targetLabel: targetLabel!.trim(),
+        replyToSessionId: resolvedReplyToSessionId ?? null,
         usedBroker: result.usedBroker,
         awaited: shouldAwait,
         waitStatus: waitResult.waitStatus,

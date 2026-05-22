@@ -72,6 +72,17 @@ Session invariants:
   reverse, unless an explicit adapter exists
 - `card create` creates identity and return-address metadata; it does not imply
   a running session unless a command explicitly starts one
+- short-lived agent-created cards should be one-time reply addresses by
+  default, with expiry and cleanup metadata, instead of permanent directory
+  identities
+- exact session asks should route work by `targetSessionId` to continue context;
+  asks without a target session may route by agent/project and create the
+  lightest usable fresh session/card
+- project-path asks do not require a caller-created card first; if no card
+  resolves for that project, the broker can create a one-time card as part of
+  accepting the work
+- when the sender needs a concrete live reply destination, carry
+  `replyToSessionId` rather than minting another card
 - `up` / wake behavior must resolve to start or attach semantics and report the
   chosen session id
 - incompatible, missing, or failed sessions must produce specific diagnostics

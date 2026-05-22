@@ -28,6 +28,7 @@ type ScoutAskCommandBase = {
     metadata?: Record<string, unknown>;
   };
   labels?: string[];
+  replyToSessionId?: string;
   channel?: string;
   shouldSpeak?: boolean;
   currentDirectory?: string;

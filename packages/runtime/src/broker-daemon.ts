@@ -106,8 +106,11 @@ import {
   isLocalAgentSessionAlive,
   invokeLocalAgentEndpoint,
   loadRegisteredLocalAgentBindings,
+  pruneOneTimeLocalAgentCards,
+  retireConsumedOneTimeLocalAgentCards,
   shutdownLocalSessionEndpoint,
   shouldDisableGeneratedCodexEndpoint,
+  startLocalAgent,
 } from "./local-agents.js";
 import {
   upsertScoutAgentCardFromInput,
@@ -256,6 +259,7 @@ const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 const localAgentSyncIntervalMs = Number.parseInt(process.env.OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS ?? "5000", 10);
 let registeredLocalAgentsRegistrySignature: string | null = null;
 let registeredLocalAgentsSyncInFlight: Promise<void> | null = null;
+const DEFAULT_IMPLICIT_PROJECT_CARD_TTL_MS = 24 * 60 * 60 * 1000;
 
 ensureOpenScoutCleanSlateSync();
 
@@ -2231,6 +2235,7 @@ function buildBrokerReturnAddressForActor(
   options: {
     conversationId?: string;
     replyToMessageId?: string;
+    sessionId?: string;
   } = {},
 ) {
   const agent = snapshot.agents[actorId];
@@ -2249,7 +2254,7 @@ function buildBrokerReturnAddressForActor(
     replyToMessageId: options.replyToMessageId,
     nodeId: endpoint?.nodeId || agent?.authorityNodeId || agent?.homeNodeId,
     projectRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? metadataStringValue(agent?.metadata, "projectRoot") ?? undefined,
-    sessionId: endpoint?.sessionId,
+    sessionId: options.sessionId ?? endpoint?.sessionId,
   });
 }
 
@@ -3679,6 +3684,33 @@ async function maybeForwardFlightToAuthority(flight: FlightRecord): Promise<void
   await brokerPostJson<{ ok: boolean }>(authority.authorityNode.brokerUrl!, "/v1/flights", flight);
 }
 
+async function retireConsumedOneTimeCardsForMessage(message: MessageRecord): Promise<void> {
+  if (message.class !== "agent" || message.actorId === systemActor.id) {
+    return;
+  }
+  const conversation = runtime.conversation(message.conversationId);
+  if (!conversation || conversation.kind !== "direct") {
+    return;
+  }
+  const retired = await retireConsumedOneTimeLocalAgentCards({
+    conversationId: conversation.id,
+    actorId: message.actorId,
+    participantIds: conversation.participantIds,
+  }).catch((error) => {
+    console.warn(`[openscout-runtime] one-time card cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  });
+  if (retired.length === 0) {
+    return;
+  }
+  console.log(
+    `[openscout-runtime] retired ${retired.length} consumed one-time card${retired.length === 1 ? "" : "s"}`,
+  );
+  await syncRegisteredLocalAgentsIfChanged("one-time card consumed").catch((error) => {
+    console.warn(`[openscout-runtime] one-time card broker sync failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
+}
+
 async function postConversationMessage(
   message: MessageRecord,
 ): Promise<{
@@ -3705,6 +3737,7 @@ async function postConversationMessage(
   });
   await forwardPeerBrokerDeliveries(message, deliveries);
   await applyProjectedEntries(entries);
+  await retireConsumedOneTimeCardsForMessage(message);
   return { ok: true, message, deliveries };
 }
 
@@ -3778,11 +3811,27 @@ function existingBrokerReplyForInvocation(
   return replies[0] ?? null;
 }
 
-function activeLocalEndpointForAgent(agentId: string, harness?: AgentEndpoint["harness"]): AgentEndpoint | undefined {
+function endpointMatchesTargetSession(endpoint: AgentEndpoint, sessionId: string): boolean {
+  return endpoint.sessionId?.trim() === sessionId || endpoint.id === sessionId;
+}
+
+function invocationTargetSessionId(invocation: InvocationRequest): string | undefined {
+  return invocation.execution?.targetSessionId?.trim()
+    || metadataStringValue(invocation.metadata, "targetSessionId")
+    || undefined;
+}
+
+function activeLocalEndpointForAgent(
+  agentId: string,
+  harness?: AgentEndpoint["harness"],
+  targetSessionId?: string,
+): AgentEndpoint | undefined {
   const candidates = runtime.endpointsForAgent(agentId, {
     nodeId,
     harness,
-  });
+  }).filter((endpoint) =>
+    targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true
+  );
   return candidates.find((endpoint) => (
     endpoint.transport === "pairing_bridge"
       ? endpoint.state !== "offline"
@@ -3828,8 +3877,13 @@ function onlineConversationNotifyTargets(
 
 async function resolveLocalEndpointForInvocation(invocation: InvocationRequest): Promise<AgentEndpoint | undefined> {
   const requestedHarness = invocation.execution?.harness;
+  const targetSessionId = invocationTargetSessionId(invocation);
   const sessionPreference = invocation.execution?.session ?? "new";
-  const existing = activeLocalEndpointForAgent(invocation.targetAgentId, requestedHarness);
+  const existing = activeLocalEndpointForAgent(
+    invocation.targetAgentId,
+    requestedHarness,
+    targetSessionId,
+  );
   if (existing && (sessionPreference !== "new" || existing.transport === "pairing_bridge")) {
     return existing;
   }
@@ -3837,7 +3891,10 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
   const staleEndpoints = runtime.endpointsForAgent(invocation.targetAgentId, {
     nodeId,
     harness: requestedHarness,
-  }).filter((endpoint) => endpoint.id !== existing?.id);
+  }).filter((endpoint) =>
+    endpoint.id !== existing?.id
+    && (targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true)
+  );
 
   for (const endpoint of staleEndpoints) {
     await persistEndpoint({
@@ -3858,6 +3915,10 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
   }
 
   if (sessionPreference === "existing") {
+    return undefined;
+  }
+
+  if (targetSessionId) {
     return undefined;
   }
 
@@ -3917,6 +3978,7 @@ async function executeLocalInvocation(
   const previousEndpoint = activeLocalEndpointForAgent(
     invocation.targetAgentId,
     invocation.execution?.harness,
+    invocationTargetSessionId(invocation),
   );
 
   try {
@@ -4603,7 +4665,7 @@ async function handleInvocationRequest(
   payload: InvocationRequest & BrokerRouteTargetInput,
 ) {
   await syncRegisteredLocalAgentsIfChanged("invocation");
-  const resolved = resolveInvocationTarget(payload);
+  const resolved = await resolveInvocationTarget(payload);
   if (resolved.kind !== "resolved") {
     const envelope = buildDispatchEnvelope(
       resolved,
@@ -6032,14 +6094,86 @@ function resolveBrokerDeliveryTarget(
   });
 }
 
-function resolveInvocationTarget(
+function projectPathRouteTarget(input: BrokerRouteTargetInput): string | undefined {
+  return input.target?.kind === "project_path"
+    ? input.target.projectPath.trim() || undefined
+    : undefined;
+}
+
+function implicitProjectAgentName(projectPath: string): string {
+  const base = normalizeAgentSelectorSegment(basename(projectPath)) || "agent";
+  return `${base}-card-${createRuntimeId("one").slice(-8)}`;
+}
+
+async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
+  input: BrokerRouteTargetInput & { execution?: InvocationRequest["execution"] },
+  options: {
+    requesterId?: string;
+    currentDirectory?: string;
+    reason: string;
+  },
+): Promise<InvocationResolution> {
+  const resolved = resolveBrokerDeliveryTarget(input);
+  if (resolved.kind !== "unknown") {
+    return resolved;
+  }
+
+  const projectPath = projectPathRouteTarget(input);
+  if (!projectPath) {
+    return resolved;
+  }
+
+  const createdAt = Date.now();
+  const requesterId = options.requesterId?.trim();
+  const status = await startLocalAgent({
+    projectPath,
+    agentName: implicitProjectAgentName(projectPath),
+    currentDirectory: options.currentDirectory ?? projectPath,
+    harness: input.execution?.harness,
+    ensureOnline: false,
+    card: {
+      kind: "one_time",
+      createdAt,
+      ...(requesterId ? { createdById: requesterId } : {}),
+      expiresAt: createdAt + DEFAULT_IMPLICIT_PROJECT_CARD_TTL_MS,
+      maxUses: 1,
+    },
+  }).catch((error) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`could not create an agent card for project ${projectPath}: ${detail}`);
+  });
+
+  await pruneOneTimeLocalAgentCards({
+    ...(requesterId ? { createdById: requesterId } : {}),
+    projectRoot: status.projectRoot,
+    excludeAgentIds: [status.agentId],
+  }).catch((error) => {
+    console.warn(`[openscout-runtime] implicit project card cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
+
+  await syncRegisteredLocalAgentsIfChanged(options.reason);
+  const agent = runtime.snapshot().agents[status.agentId];
+  if (agent && !isStaleLocalAgent(agent)) {
+    return { kind: "resolved", agent };
+  }
+
+  return resolveBrokerDeliveryTarget(input);
+}
+
+async function resolveInvocationTarget(
   payload: InvocationRequest & BrokerRouteTargetInput,
-): InvocationResolution {
-  return resolveBrokerDeliveryTarget({
+): Promise<InvocationResolution> {
+  return resolveBrokerDeliveryTargetWithImplicitProjectCard({
     target: payload.target,
     targetAgentId: payload.targetAgentId,
+    targetSessionId: payload.targetSessionId,
     targetLabel: payload.targetLabel,
     routePolicy: payload.routePolicy,
+    execution: payload.execution,
+  }, {
+    requesterId: payload.requesterId,
+    currentDirectory: projectPathRouteTarget(payload),
+    reason: "implicit project invocation card",
   });
 }
 
@@ -6077,6 +6211,7 @@ function buildDeliveryReceipt(input: {
   requesterId: string;
   requesterNodeId: string;
   targetAgentId?: string;
+  targetSessionId?: string;
   targetLabel: string;
   bindingRef?: string;
   conversationId: string;
@@ -6089,6 +6224,7 @@ function buildDeliveryReceipt(input: {
     requesterId: input.requesterId,
     requesterNodeId: input.requesterNodeId,
     targetAgentId: input.targetAgentId,
+    targetSessionId: input.targetSessionId,
     targetLabel: input.targetLabel,
     ...(input.bindingRef ? { bindingRef: input.bindingRef } : {}),
     conversationId: input.conversationId,
@@ -6549,13 +6685,26 @@ async function acceptBrokerDelivery(
   const { requesterId, requesterNodeId } = callerContextForDelivery(payload);
   const askedLabel = askedLabelForRouteTarget(payload);
   const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
+  const targetSessionId =
+    payload.target?.kind === "session_id"
+      ? payload.target.sessionId.trim()
+      : payload.targetSessionId?.trim()
+      || metadataStringValue(payload.invocationMetadata, "targetSessionId")
+      || metadataStringValue(payload.messageMetadata, "targetSessionId")
+      || undefined;
+  const replyToSessionId =
+    payload.replyToSessionId?.trim()
+    || metadataStringValue(payload.invocationMetadata, "replyToSessionId")
+    || metadataStringValue(payload.messageMetadata, "replyToSessionId")
+    || undefined;
   const labels = normalizeScoutLabels(payload.labels);
   const typedChannelTarget = payload.target?.kind === "channel" || payload.target?.kind === "broadcast";
   const hasAgentTarget = Boolean(
     payload.target?.kind === "agent_id"
       || payload.target?.kind === "agent_label"
+      || payload.target?.kind === "session_id"
       || payload.target?.kind === "project_path",
-  ) || (!payload.target && Boolean(payload.targetAgentId?.trim() || payload.targetLabel?.trim()));
+  ) || (!payload.target && Boolean(payload.targetSessionId?.trim() || payload.targetAgentId?.trim() || payload.targetLabel?.trim()));
 
   const messageRef = messageRefCandidateForRouteTarget(payload);
   const replyTarget = messageRef ? resolveBrokerMessageRef(runtime.snapshot(), messageRef) : null;
@@ -6594,6 +6743,7 @@ async function acceptBrokerDelivery(
           returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
             conversationId: conversation.id,
             replyToMessageId: messageId,
+            sessionId: replyToSessionId,
           }),
         },
       };
@@ -6656,6 +6806,7 @@ async function acceptBrokerDelivery(
         returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
           conversationId: conversation.id,
           replyToMessageId: messageId,
+          sessionId: replyToSessionId,
         }),
       },
     };
@@ -6718,6 +6869,7 @@ async function acceptBrokerDelivery(
         returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
           conversationId: conversation.id,
           replyToMessageId: messageId,
+          sessionId: replyToSessionId,
         }),
       },
     };
@@ -6786,6 +6938,7 @@ async function acceptBrokerDelivery(
         returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
           conversationId: conversation.id,
           replyToMessageId: messageId,
+          sessionId: replyToSessionId,
         }),
       },
     };
@@ -6808,7 +6961,14 @@ async function acceptBrokerDelivery(
     };
   }
 
-  const resolved = resolveBrokerDeliveryTarget(payload);
+  const resolved = await resolveBrokerDeliveryTargetWithImplicitProjectCard({
+    ...payload,
+    execution: payload.execution,
+  }, {
+    requesterId,
+    currentDirectory: projectPathRouteTarget(payload),
+    reason: "implicit project delivery card",
+  });
 
   if (resolved.kind !== "resolved") {
     const { record } = await recordScoutDispatchDurably(
@@ -6912,6 +7072,7 @@ async function acceptBrokerDelivery(
     metadata: {
       ...(payload.messageMetadata ?? {}),
       ...(labels.length ? { labels } : {}),
+      ...(targetSessionId ? { targetSessionId } : {}),
       relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       relayTargetIds: [resolved.agent.id],
@@ -6920,6 +7081,7 @@ async function acceptBrokerDelivery(
       returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
         conversationId: conversation.id,
         replyToMessageId: messageId,
+        sessionId: replyToSessionId,
       }),
     },
   };
@@ -6938,6 +7100,7 @@ async function acceptBrokerDelivery(
       requesterId,
       requesterNodeId,
       targetAgentId: resolved.agent.id,
+      targetSessionId,
       targetLabel,
       conversationId: conversation.id,
       messageId,
@@ -6950,6 +7113,7 @@ async function acceptBrokerDelivery(
       conversation,
       message,
       targetAgentId: resolved.agent.id,
+      ...(targetSessionId ? { targetSessionId } : {}),
       ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),
     };
   }
@@ -6959,9 +7123,14 @@ async function acceptBrokerDelivery(
       ? { source: payload.messageMetadata.source }
       : {}),
     ...(payload.invocationMetadata ?? {}),
+    ...(targetSessionId ? { targetSessionId } : {}),
     ...(payload.intent === "tell" && payload.invocationMetadata?.sourceIntent === undefined
       ? { sourceIntent: "direct_message" }
       : {}),
+  };
+  const invocationExecution = {
+    ...(payload.execution ?? (payload.intent === "tell" ? { session: "any" as const } : {})),
+    ...(targetSessionId ? { session: "existing" as const, targetSessionId } : {}),
   };
   const invocation: InvocationRequest = {
     id: createRuntimeId("inv"),
@@ -6973,7 +7142,7 @@ async function acceptBrokerDelivery(
     ...(collaborationRecordId ? { collaborationRecordId } : {}),
     conversationId: conversation.id,
     messageId,
-    execution: payload.execution ?? (payload.intent === "tell" ? { session: "any" } : undefined),
+    ...(Object.keys(invocationExecution).length > 0 ? { execution: invocationExecution } : {}),
     ensureAwake: payload.ensureAwake ?? true,
     stream: false,
     createdAt,
@@ -6981,12 +7150,14 @@ async function acceptBrokerDelivery(
     metadata: {
       ...invocationMetadata,
       ...(labels.length ? { labels } : {}),
+      ...(targetSessionId ? { targetSessionId } : {}),
       relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       ...(collaborationRecordId ? { collaborationRecordId, workId: collaborationRecordId } : {}),
       returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
         conversationId: conversation.id,
         replyToMessageId: messageId,
+        sessionId: replyToSessionId,
       }),
     },
   };
@@ -7005,6 +7176,7 @@ async function acceptBrokerDelivery(
       requesterId,
       requesterNodeId,
       targetAgentId: resolved.agent.id,
+      targetSessionId,
       targetLabel,
       bindingRef,
       conversationId: conversation.id,
@@ -7014,6 +7186,7 @@ async function acceptBrokerDelivery(
     conversation,
     message,
     targetAgentId: resolved.agent.id,
+    ...(targetSessionId ? { targetSessionId } : {}),
     bindingRef,
     flight,
     ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),

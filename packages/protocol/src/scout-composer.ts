@@ -101,6 +101,9 @@ function parsePrefixedRouteTarget(prefix: string, rawValue: string): ScoutRouteT
   if (prefix === "id" || prefix === "agent-id" || prefix === "agent_id") {
     return { kind: "agent_id", agentId: value, value: `id:${value}` };
   }
+  if (prefix === "session" || prefix === "session-id" || prefix === "session_id" || prefix === "s") {
+    return { kind: "session_id", sessionId: value, value: `session:${value}` };
+  }
   if (prefix === "channel" || prefix === "chan" || prefix === "ch") {
     return { kind: "channel", channel: value, value: `channel:${value}` };
   }

@@ -2,6 +2,7 @@ import {
   buildScoutReturnAddress,
   type AgentEndpoint,
   type ScoutAgentCard,
+  type ScoutAgentCardLifecycle,
   type ScoutAgentProvider,
   type ScoutAgentSkill,
   type ScoutSecurityScheme,
@@ -59,6 +60,7 @@ export function buildScoutAgentCard(
     brokerRegistered?: boolean;
     inboxConversationId?: string;
     replyToMessageId?: string;
+    lifecycle?: ScoutAgentCardLifecycle;
   } = {},
 ): ScoutAgentCard {
   const projectRoot = binding.endpoint.projectRoot
@@ -88,6 +90,8 @@ export function buildScoutAgentCard(
     "securitySchemes",
   ) as Record<string, ScoutSecurityScheme> | undefined;
   const securityRequirements = metadataStringMatrix(binding.agent.metadata, "securityRequirements");
+  const lifecycle = options.lifecycle
+    ?? (metadataRecord(binding.agent.metadata, "cardLifecycle") as ScoutAgentCardLifecycle | undefined);
 
   return {
     id: binding.agent.id,
@@ -118,6 +122,7 @@ export function buildScoutAgentCard(
     ...(options.createdById?.trim() ? { createdById: options.createdById.trim() } : {}),
     brokerRegistered: options.brokerRegistered ?? false,
     ...(options.inboxConversationId?.trim() ? { inboxConversationId: options.inboxConversationId.trim() } : {}),
+    ...(lifecycle ? { lifecycle } : {}),
     returnAddress: buildScoutReturnAddress({
       actorId: binding.agent.id,
       handle,
@@ -136,6 +141,7 @@ export function buildScoutAgentCard(
       endpointId: binding.endpoint.id,
       wakePolicy: binding.agent.wakePolicy,
       ...(model ? { model } : {}),
+      ...(lifecycle ? { cardLifecycle: lifecycle } : {}),
     },
   };
 }

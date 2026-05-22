@@ -863,6 +863,7 @@ describe("createScoutMcpServer", () => {
       harness: "claude",
       workspace: "new_worktree",
       session: "new",
+      replyToSessionId: "019ddb1b-test-thread",
       currentDirectory: "/tmp/openscout-test",
       source: "scout-mcp",
     });
@@ -911,6 +912,7 @@ describe("createScoutMcpServer", () => {
       senderId: "operator.main",
       projectPath: "/tmp/talkie",
       body: "How did you handle auth?",
+      replyToSessionId: "019ddb1b-test-thread",
       currentDirectory: "/tmp/openscout-test",
       source: "scout-mcp",
     });
@@ -927,6 +929,7 @@ describe("createScoutMcpServer", () => {
 
   test("creates a reply-ready card from the current sender and directory", async () => {
     let receivedModel: string | undefined;
+    let receivedOneTimeUse: boolean | undefined;
     const { client } = await connectTestServer({
       resolveSenderId: async () => "scout.main.mini",
       resolveBrokerUrl: () => "http://broker.test",
@@ -942,8 +945,10 @@ describe("createScoutMcpServer", () => {
         createdById,
         agentName,
         model,
+        oneTimeUse,
       }) => {
         receivedModel = model;
+        receivedOneTimeUse = oneTimeUse;
         return {
         id: "scout-codex-reply.main.mini",
         agentId: "scout-codex-reply.main.mini",
@@ -1019,6 +1024,7 @@ describe("createScoutMcpServer", () => {
       "dm.scout-codex-reply.main.mini.scout.main.mini",
     );
     expect(receivedModel).toBe("gpt-5.4-mini");
+    expect(receivedOneTimeUse).toBe(true);
   });
 
   test("starts a concrete local agent session for precise routing", async () => {
@@ -1083,6 +1089,15 @@ describe("createScoutMcpServer", () => {
   });
 
   test("acknowledges explicit ask-by-id flights without a completion wait", async () => {
+    let receivedAsk:
+      | {
+          senderId: string;
+          targetAgentId: string;
+          replyToSessionId?: string;
+          currentDirectory: string;
+          source?: string;
+        }
+      | undefined;
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator",
       resolveBrokerUrl: () => "http://broker.test",
@@ -1103,29 +1118,44 @@ describe("createScoutMcpServer", () => {
         unresolvedTargetIds: [],
       }),
       askQuestion: async () => ({ usedBroker: true }),
-      askAgentById: async () => ({
-        usedBroker: true,
-        conversationId: "dm.operator.hudson",
-        messageId: "msg-1",
-        workItem: {
-          id: "work-1",
-          title: "Review the auth module",
-          summary: "Tracked work",
-          state: "working",
-          acceptanceState: "pending",
-          ownerId: "hudson.main",
-          nextMoveOwnerId: "hudson.main",
+      askAgentById: async ({
+        senderId,
+        targetAgentId,
+        replyToSessionId,
+        currentDirectory,
+        source,
+      }) => {
+        receivedAsk = {
+          senderId,
+          targetAgentId,
+          replyToSessionId,
+          currentDirectory,
+          source,
+        };
+        return {
+          usedBroker: true,
           conversationId: "dm.operator.hudson",
-          priority: "high",
-        },
-        flight: {
-          id: "flight-1",
-          invocationId: "inv-1",
-          requesterId: "operator",
-          targetAgentId: "hudson.main",
-          state: "running",
-        },
-      }),
+          messageId: "msg-1",
+          workItem: {
+            id: "work-1",
+            title: "Review the auth module",
+            summary: "Tracked work",
+            state: "working",
+            acceptanceState: "pending",
+            ownerId: "hudson.main",
+            nextMoveOwnerId: "hudson.main",
+            conversationId: "dm.operator.hudson",
+            priority: "high",
+          },
+          flight: {
+            id: "flight-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "hudson.main",
+            state: "running",
+          },
+        };
+      },
       waitForFlight: async () => {
         throw new Error("invocations_ask should not wait for completion");
       },
@@ -1141,6 +1171,7 @@ describe("createScoutMcpServer", () => {
       arguments: {
         body: "Review the auth module",
         targetAgentId: "hudson.main",
+        replyToSessionId: "codex-thread-explicit",
         awaitReply: true,
       },
     });
@@ -1152,20 +1183,118 @@ describe("createScoutMcpServer", () => {
       flight: { state: string } | null;
       flightId: string | null;
       targetAgentId: string | null;
+      replyToSessionId: string | null;
       workId: string | null;
       workUrl: string | null;
     };
 
+    expect(receivedAsk).toEqual({
+      senderId: "operator",
+      targetAgentId: "hudson.main",
+      replyToSessionId: "codex-thread-explicit",
+      currentDirectory: "/tmp/openscout-test",
+      source: "scout-mcp",
+    });
     expect(structured.awaited).toBe(true);
     expect(structured.waitStatus).toBe("acknowledged");
     expect(structured.output).toBe(null);
     expect(structured.flight?.state).toBe("running");
     expect(structured.flightId).toBe("flight-1");
     expect(structured.targetAgentId).toBe("hudson.main");
+    expect(structured.replyToSessionId).toBe("codex-thread-explicit");
     expect(structured.workId).toBe("work-1");
     expect(structured.workUrl).toBe("http://scout.test/work/work-1");
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]?.text).toContain("Ask acknowledged running; use invocations_wait with flightId=flight-1.");
+  });
+
+  test("continues a specific target session without asking for a new one", async () => {
+    let receivedAsk:
+      | {
+          targetSessionId: string;
+          replyToSessionId?: string;
+          currentDirectory: string;
+        }
+      | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => {
+        throw new Error("session target should not use askAgentById");
+      },
+      askSessionById: async ({
+        targetSessionId,
+        replyToSessionId,
+        currentDirectory,
+      }) => {
+        receivedAsk = { targetSessionId, replyToSessionId, currentDirectory };
+        return {
+          usedBroker: true,
+          conversationId: "dm.operator.hudson",
+          messageId: "msg-1",
+          flight: {
+            id: "flight-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "hudson.main",
+            state: "running",
+          },
+        };
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+    }, {
+      OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
+    });
+
+    const result = await client.callTool({
+      name: "invocations_ask",
+      arguments: {
+        body: "Keep going in this session.",
+        targetSessionId: "codex-thread-target",
+        replyMode: "none",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      targetAgentId: string | null;
+      targetSessionId: string | null;
+      ids: { sessionId: string | null };
+      followUrl: string | null;
+    };
+
+    expect(receivedAsk).toEqual({
+      targetSessionId: "codex-thread-target",
+      replyToSessionId: "019ddb1b-test-thread",
+      currentDirectory: "/tmp/openscout-test",
+    });
+    expect(structured.targetAgentId).toBe("hudson.main");
+    expect(structured.targetSessionId).toBe("codex-thread-target");
+    expect(structured.ids.sessionId).toBe("codex-thread-target");
+    expect(structured.followUrl).toBe(
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&sessionId=codex-thread-target&targetAgentId=hudson.main",
+    );
   });
 
   test("schedules MCP reply notifications for notify-mode asks", async () => {

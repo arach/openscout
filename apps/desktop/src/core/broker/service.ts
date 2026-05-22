@@ -613,6 +613,7 @@ function buildScoutReturnAddress(
   options: {
     conversationId?: string;
     replyToMessageId?: string;
+    sessionId?: string;
   } = {},
 ): ScoutReturnAddress {
   const agent = snapshot.agents[actorId];
@@ -642,7 +643,7 @@ function buildScoutReturnAddress(
     replyToMessageId: options.replyToMessageId,
     nodeId: endpoint?.nodeId || agent?.authorityNodeId || agent?.homeNodeId,
     projectRoot,
-    sessionId: endpoint?.sessionId,
+    sessionId: options.sessionId ?? endpoint?.sessionId,
   });
 }
 
@@ -3572,6 +3573,7 @@ export async function askScoutAgentById(input: {
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
+  replyToSessionId?: string;
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskByIdResult> {
@@ -3592,6 +3594,57 @@ export async function askScoutAgentById(input: {
     workspace: input.workspace,
     senderContext: input.senderContext,
     labels: input.labels,
+    replyToSessionId: input.replyToSessionId,
+    currentDirectory: input.currentDirectory,
+    source: input.source ?? "scout-mcp",
+  });
+  return {
+    usedBroker: result.usedBroker,
+    flight: result.flight,
+    conversationId: result.conversationId,
+    messageId: result.messageId,
+    workItem: result.workItem,
+    unresolvedTargetId: result.unresolvedTarget,
+    targetDiagnostic: result.targetDiagnostic,
+  };
+}
+
+export async function askScoutSessionById(input: {
+  senderId: string;
+  targetSessionId: string;
+  body: string;
+  workItem?: ScoutWorkItemInput;
+  channel?: string;
+  shouldSpeak?: boolean;
+  createdAtMs?: number;
+  executionHarness?: AgentHarness;
+  workspace?: ScoutAskWorkspace;
+  senderContext?: ScoutAskSenderContext;
+  labels?: string[];
+  replyToSessionId?: string;
+  currentDirectory?: string;
+  source?: string;
+}): Promise<ScoutAskByIdResult> {
+  const targetSessionId = input.targetSessionId.trim();
+  const result = await deliverScoutAsk({
+    senderId: input.senderId,
+    target: {
+      kind: "session_id",
+      sessionId: targetSessionId,
+    },
+    targetLabel: `session:${targetSessionId}`,
+    targetSessionId,
+    body: input.body,
+    workItem: input.workItem,
+    channel: input.channel,
+    shouldSpeak: input.shouldSpeak,
+    createdAtMs: input.createdAtMs,
+    executionHarness: input.executionHarness,
+    executionSession: "existing",
+    workspace: input.workspace,
+    senderContext: input.senderContext,
+    labels: input.labels,
+    replyToSessionId: input.replyToSessionId,
     currentDirectory: input.currentDirectory,
     source: input.source ?? "scout-mcp",
   });
@@ -3612,6 +3665,8 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
       return target.agentId.trim();
     case "agent_label":
       return target.label.trim();
+    case "session_id":
+      return `session:${target.sessionId.trim()}`;
     case "binding_ref":
       return `ref:${target.ref.trim()}`;
     case "project_path":
@@ -3627,10 +3682,16 @@ function directAgentIdForAskTarget(target: ScoutRouteTarget): string | undefined
   return target.kind === "agent_id" ? target.agentId.trim() : undefined;
 }
 
+function directSessionIdForAskTarget(target: ScoutRouteTarget): string | undefined {
+  return target.kind === "session_id" ? target.sessionId.trim() : undefined;
+}
+
 function defaultAskExecutionSession(
   target: ScoutRouteTarget,
 ): "new" | "existing" {
-  return target.kind === "binding_ref" ? "existing" : "new";
+  return target.kind === "binding_ref" || target.kind === "session_id"
+    ? "existing"
+    : "new";
 }
 
 export async function deliverScoutAsk(input: {
@@ -3647,6 +3708,8 @@ export async function deliverScoutAsk(input: {
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
+  targetSessionId?: string;
+  replyToSessionId?: string;
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskResult> {
@@ -3671,6 +3734,8 @@ export async function deliverScoutAsk(input: {
     return { usedBroker: true, unresolvedTarget: renderedTarget };
   }
   const labels = normalizeWorkItemLabels(input.labels);
+  const targetSessionId =
+    directSessionIdForAskTarget(input.target) ?? input.targetSessionId?.trim();
   const workRecordId = input.workItem ? buildScoutEntityId("work", createdAtMs) : undefined;
   const deliveryWorkItem = input.workItem && workRecordId
     ? { id: workRecordId, ...input.workItem }
@@ -3682,6 +3747,15 @@ export async function deliverScoutAsk(input: {
     workspace: input.workspace,
     labels,
   });
+  const replyToSessionId = input.replyToSessionId?.trim();
+  const deliveryMetadata =
+    targetSessionId || replyToSessionId
+      ? {
+          ...askMetadata,
+          ...(targetSessionId ? { targetSessionId } : {}),
+          ...(replyToSessionId ? { replyToSessionId } : {}),
+        }
+      : askMetadata;
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     caller: {
       actorId: senderId,
@@ -3691,7 +3765,9 @@ export async function deliverScoutAsk(input: {
     },
     target: input.target,
     ...(targetAgentId ? { targetAgentId } : {}),
+    ...(targetSessionId ? { targetSessionId } : {}),
     targetLabel: renderedTarget,
+    ...(replyToSessionId ? { replyToSessionId } : {}),
     body: input.body.trim(),
     intent: "consult",
     channel: input.channel,
@@ -3703,12 +3779,13 @@ export async function deliverScoutAsk(input: {
     ...(deliveryWorkItem ? { collaborationRecordId: workRecordId, workItem: deliveryWorkItem } : {}),
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      ...(targetSessionId ? { targetSessionId } : {}),
       session: input.executionSession ?? defaultAskExecutionSession(input.target),
     },
     ensureAwake: true,
     ...(labels ? { labels } : {}),
-    messageMetadata: askMetadata,
-    invocationMetadata: askMetadata,
+    messageMetadata: deliveryMetadata,
+    invocationMetadata: deliveryMetadata,
   });
   if (delivery.kind !== "delivery") {
     return {
@@ -3757,6 +3834,8 @@ export async function askScoutQuestion(input: {
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
+  targetSessionId?: string;
+  replyToSessionId?: string;
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskResult> {
@@ -3780,6 +3859,8 @@ export async function askScoutQuestion(input: {
     workspace: input.workspace,
     senderContext: input.senderContext,
     labels: input.labels,
+    targetSessionId: input.targetSessionId,
+    replyToSessionId: input.replyToSessionId,
     currentDirectory: input.currentDirectory,
     source: input.source ?? "scout-cli",
   });
