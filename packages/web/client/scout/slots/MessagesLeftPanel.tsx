@@ -166,6 +166,10 @@ export function ScoutMessagesLeftPanel() {
 
   const onSelect = (s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
+    if (isGroupConversation(s) && route.view === "channels") {
+      navigate({ view: "channels", channelId: s.id });
+      return;
+    }
     navigate({
       view: "messages",
       conversationId: s.id,

@@ -182,6 +182,8 @@ type EventInvocationRecord = {
 };
 
 type SendResult = {
+  conversationId?: string;
+  messageId?: string;
   flight?: EventFlightRecord | null;
 };
 
@@ -282,12 +284,43 @@ function readScoutDispatch(message: Message): ScoutDispatchRecord | null {
 
 function isOperatorMessage(message: Message, operatorName: string): boolean {
   if (message.class === "operator") return true;
+  if (message.actorId === "operator") return true;
   const actor = message.actorName?.toLowerCase() ?? "";
   return (
     actor === operatorName.toLowerCase() ||
     actor === "operator" ||
     actor === "you"
   );
+}
+
+function readMessageReturnAddressActorId(message: Message): string | null {
+  const returnAddress = message.metadata?.["returnAddress"];
+  if (!returnAddress || typeof returnAddress !== "object") return null;
+  const actorId = (returnAddress as { actorId?: unknown }).actorId;
+  return typeof actorId === "string" && actorId.trim().length > 0
+    ? actorId.trim()
+    : null;
+}
+
+function resolveMessageAgent(
+  message: Message,
+  agents: Agent[],
+  fallbackAgentId: string | null | undefined,
+): Agent | null {
+  const actorId = message.actorId ?? readMessageReturnAddressActorId(message);
+  if (actorId) {
+    const exact = agents.find((agent) => agent.id === actorId);
+    if (exact) return exact;
+  }
+
+  if (fallbackAgentId) {
+    const fallback = agents.find((agent) => agent.id === fallbackAgentId);
+    if (fallback) return fallback;
+  }
+
+  if (!message.actorName) return null;
+  const named = agents.filter((agent) => agent.name === message.actorName);
+  return named.length === 1 ? named[0]! : null;
 }
 
 function latestAgentMessageAt(
@@ -1395,6 +1428,7 @@ export function ConversationScreen({
           const nextMessage: Message = {
             id: message.id,
             conversationId: message.conversationId,
+            actorId: message.actorId,
             actorName: isAgentMessage ? agentName : operatorName,
             body: message.body,
             createdAt: message.createdAt,
@@ -1564,6 +1598,7 @@ export function ConversationScreen({
     const optimisticMessage: Message = {
       id: `optimistic-${optimisticCreatedAt}`,
       conversationId,
+      actorId: "operator",
       actorName: operatorName,
       body: trimmed,
       createdAt: optimisticCreatedAt,
@@ -1583,6 +1618,15 @@ export function ConversationScreen({
           body: JSON.stringify({ body: trimmed, conversationId }),
         },
       );
+      const routedConversationId = result.conversationId?.trim();
+      if (routedConversationId && routedConversationId !== conversationId) {
+        setMessages((previous) =>
+          previous.filter((message) => message.id !== optimisticMessage.id),
+        );
+        setAwaitingResponseSince(null);
+        navigate({ view: "conversation", conversationId: routedConversationId });
+        return;
+      }
       if (result.flight) {
         trackedInvocationIdsRef.current.add(result.flight.invocationId);
         setCurrentFlight(
@@ -2126,8 +2170,8 @@ export function ConversationScreen({
                 );
               const absoluteTime = formatAbsoluteTimestamp(message.createdAt);
               const messageAgent =
-                !isYou && message.actorName
-                  ? scopedAgents.find((a) => a.name === message.actorName) ?? null
+                !isYou
+                  ? resolveMessageAgent(message, scopedAgents, agentId)
                   : null;
               const actorHandle = isYou
                 ? operatorName.toLowerCase()

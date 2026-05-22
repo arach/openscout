@@ -30,6 +30,7 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
       `SELECT
          m.id,
          m.conversation_id,
+         m.actor_id,
          ac.display_name AS actor_name,
          m.body,
          ${messageCreatedAtExpression} AS created_at,
@@ -46,6 +47,7 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
     .all(...conversationIds, limit) as Array<{
     id: string;
     conversation_id: string;
+    actor_id: string;
     actor_name: string;
     body: string;
     created_at: number;
@@ -63,6 +65,7 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
     return {
       id: r.id,
       conversationId: r.conversation_id,
+      actorId: r.actor_id,
       actorName: r.actor_name,
       body: r.body,
       createdAt: r.created_at,

@@ -1,8 +1,9 @@
-import { Activity, BookOpen, Code2, ExternalLink, FileText, MessageSquare } from "lucide-react";
+import { Activity, BookOpen, Code2, ExternalLink, FileText, FolderTree, MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { DocumentFocusViewer, type DocumentFocusKind } from "../components/DocumentFocusViewer.tsx";
 import { StatusPill } from "../components/StatusPill.tsx";
 import { createTextDocument } from "../components/TextDocumentSurface.tsx";
+import { WorkFilesViewer } from "./WorkFilesViewer.tsx";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { api } from "../lib/api.ts";
 import {
@@ -189,6 +190,8 @@ function WorkMaterials({
   const [materialContent, setMaterialContent] = useState<WorkMaterialContent | null>(null);
   const [materialError, setMaterialError] = useState<string | null>(null);
   const [loadingMaterialId, setLoadingMaterialId] = useState<string | null>(null);
+  const [filesViewerOpen, setFilesViewerOpen] = useState(false);
+  const [filesInitialKind, setFilesInitialKind] = useState<"all" | "plan" | "doc" | "code">("all");
 
   const openMaterial = useCallback((materialId: string) => {
     setBriefOpen(false);
@@ -198,6 +201,13 @@ function WorkMaterials({
   const openBrief = useCallback(() => {
     setSelectedMaterialId(null);
     setBriefOpen(true);
+  }, []);
+
+  const openFiles = useCallback((kind: "all" | "plan" | "doc" | "code") => {
+    setBriefOpen(false);
+    setSelectedMaterialId(null);
+    setFilesInitialKind(kind);
+    setFilesViewerOpen(true);
   }, []);
 
   useEffect(() => {
@@ -275,16 +285,28 @@ function WorkMaterials({
             selectedId={selectedMaterialId}
             onOpen={openMaterial}
           />
-          {briefSummary && (
-            <button
-              type="button"
-              className={`s-work-material-link${briefOpen ? " s-work-material-link-active" : ""}`}
-              onClick={openBrief}
-            >
-              <FileText aria-hidden="true" size={13} strokeWidth={1.8} />
-              View ask
-            </button>
-          )}
+          <div className="s-work-material-card-actions">
+            {briefSummary && (
+              <button
+                type="button"
+                className={`s-work-material-link${briefOpen ? " s-work-material-link-active" : ""}`}
+                onClick={openBrief}
+              >
+                <FileText aria-hidden="true" size={13} strokeWidth={1.8} />
+                View ask
+              </button>
+            )}
+            {planMaterials.length > 3 && (
+              <button
+                type="button"
+                className="s-work-material-link"
+                onClick={() => openFiles("plan")}
+              >
+                <FolderTree aria-hidden="true" size={13} strokeWidth={1.8} />
+                View all {planMaterials.length}
+              </button>
+            )}
+          </div>
         </article>
 
         <div className={`s-work-material-evidence-stack${hasDocMaterials ? "" : " s-work-material-evidence-stack-single"}`}>
@@ -305,6 +327,18 @@ function WorkMaterials({
                 selectedId={selectedMaterialId}
                 onOpen={openMaterial}
               />
+              {docMaterials.length > 3 && (
+                <div className="s-work-material-card-actions">
+                  <button
+                    type="button"
+                    className="s-work-material-link"
+                    onClick={() => openFiles("doc")}
+                  >
+                    <FolderTree aria-hidden="true" size={13} strokeWidth={1.8} />
+                    View all {docMaterials.length}
+                  </button>
+                </div>
+              )}
             </article>
           )}
 
@@ -326,6 +360,18 @@ function WorkMaterials({
               selectedId={selectedMaterialId}
               onOpen={openMaterial}
             />
+            {codeMaterials.length > 5 && (
+              <div className="s-work-material-card-actions">
+                <button
+                  type="button"
+                  className="s-work-material-link"
+                  onClick={() => openFiles("code")}
+                >
+                  <FolderTree aria-hidden="true" size={13} strokeWidth={1.8} />
+                  View all {codeMaterials.length}
+                </button>
+              </div>
+            )}
           </article>
         </div>
       </div>
@@ -343,6 +389,14 @@ function WorkMaterials({
         loading={Boolean(loadingMaterialId)}
         error={materialError}
         onClose={() => setSelectedMaterialId(null)}
+      />
+      <WorkFilesViewer
+        workId={detail.id}
+        workTitle={detail.title}
+        materials={viewableMaterials}
+        open={filesViewerOpen}
+        initialKind={filesInitialKind}
+        onClose={() => setFilesViewerOpen(false)}
       />
       {inventory.limitations.length > 0 && (
         <div className="s-work-inventory-note">{inventory.limitations[0]}</div>
