@@ -926,6 +926,7 @@ describe("createOpenScoutWebServer", () => {
             manifest: {
               kind: "hudson.vantage.setup",
               schemaVersion: 1,
+              workspaceID: "openscout-openscout",
               source: "openscout",
               generatedAt: "2026-05-17T00:00:00.000Z",
               currentDirectory: "/tmp/openscout",

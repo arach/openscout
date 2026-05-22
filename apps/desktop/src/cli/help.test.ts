@@ -14,6 +14,10 @@ describe("renderScoutHelp", () => {
     expect(help).toContain("File-backed input:");
     expect(help).toContain("--prompt-file");
     expect(help).toContain("--message-file");
+    expect(help).toContain("Project targets:");
+    expect(help).toContain("scout ask --project ../talkie");
+    expect(help).toContain("no agent id needed");
+    expect(help).toContain("quote >> in shells");
     expect(help).toContain("MCP parity:");
     expect(help).toContain("scout card create");
   });

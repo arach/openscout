@@ -58,10 +58,18 @@ export type ScoutVantagePlan = ScoutVantagePlanEnvelope;
 export type HudsonVantageSetupManifest = {
   kind: typeof HUDSON_VANTAGE_SETUP_KIND;
   schemaVersion: typeof HUDSON_VANTAGE_SCHEMA_VERSION;
+  workspaceID: string;
   source: "openscout";
+  handoffId?: string;
+  handoffPath?: string;
+  setupPath?: string;
   generatedAt: string;
   currentDirectory: string;
   broker: ScoutVantageBrokerSummary | null;
+  presentation?: HudsonVantageSetupPresentation;
+  style?: HudsonVantageSetupStyle;
+  viewport?: { fit?: boolean };
+  layout?: HudsonVantageSetupSurfaceLayout;
   focus: ScoutVantageFocus | null;
   selectedAgentIds: string[];
   selectedNativeSessionIds: string[];
@@ -69,6 +77,31 @@ export type HudsonVantageSetupManifest = {
   focused: string | null;
   focusedNodeId: string | null;
   nodes: ScoutVantageNode[];
+};
+
+export type HudsonVantageSetupPresentation = {
+  title?: string;
+  subtitle?: string;
+  badge?: string;
+  cobrand?: string;
+  productName?: string;
+  hostName?: string;
+  theme?: string;
+  accent?: string;
+};
+
+export type HudsonVantageSetupStyle = {
+  preset?: string;
+  canvasGridMode?: "dots" | "lines" | "none";
+  canvasGridStep?: number;
+  focusPadding?: number;
+};
+
+export type HudsonVantageSetupSurfaceLayout = {
+  canvasTool?: "select" | "hand";
+  navigationFilter?: string;
+  minimapCollapsed?: boolean;
+  inspectorCollapsed?: boolean;
 };
 
 export type ScoutVantageFocus = {
@@ -381,10 +414,34 @@ export function buildScoutVantagePlan(input: ScoutVantagePlanInput): ScoutVantag
     manifest: {
       kind: HUDSON_VANTAGE_SETUP_KIND,
       schemaVersion: HUDSON_VANTAGE_SCHEMA_VERSION,
+      workspaceID: workspaceIdFor(input.currentDirectory),
       source: "openscout",
       generatedAt,
       currentDirectory: input.currentDirectory,
       broker: buildBrokerSummary(input.broker?.baseUrl ?? null, brokerNode, brokerSnapshot),
+      presentation: {
+        title: "Scout Vantage",
+        subtitle: "local runtime handoff",
+        badge: "runtime",
+        cobrand: "OpenScout",
+        productName: "Scout",
+        hostName: "Hudson Vantage",
+        theme: "jade",
+        accent: "cyan",
+      },
+      style: {
+        preset: "jade",
+        canvasGridMode: "dots",
+        canvasGridStep: 18,
+        focusPadding: 12,
+      },
+      viewport: { fit: true },
+      layout: {
+        canvasTool: "select",
+        navigationFilter: "all",
+        minimapCollapsed: false,
+        inspectorCollapsed: false,
+      },
       focus: focusAgentId
         ? { agentId: focusAgentId }
         : focusNativeSessionId ? { nativeSessionId: focusNativeSessionId } : null,
@@ -626,6 +683,14 @@ function tmuxTargetKey(target: Pick<EndpointTmuxTarget, "sessionName" | "paneTar
 
 function stableNodeId(kind: "endpoint" | "tmux" | "native", value: string): string {
   return `vantage.${kind}.${slugify(value)}.${fnv1a(value)}`;
+}
+
+function workspaceIdFor(currentDirectory: string): string {
+  const lastSegment = currentDirectory
+    .split(/[\\/]+/g)
+    .filter(Boolean)
+    .at(-1) ?? "workspace";
+  return `openscout-${slugify(lastSegment)}`;
 }
 
 function slugify(value: string): string {

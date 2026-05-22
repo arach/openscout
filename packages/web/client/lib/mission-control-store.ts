@@ -2,6 +2,8 @@ import { useSyncExternalStore } from "react";
 
 export type MissionActivityFilter = "all" | "active" | "recent";
 export type MissionSourceFilter = "all" | "scout" | "native";
+export type MissionGroupMode = "activity" | "workspace";
+export type MissionActivityState = "active" | "recent" | "idle";
 
 export const MISSION_RECENT_WINDOWS = [
   { label: "15m", value: 15 * 60_000 },
@@ -23,6 +25,8 @@ export type MissionVisibleAgent = {
   agentClass: string;
   updatedAt: number | null;
   source: "scout" | "native";
+  activity: MissionActivityState;
+  lastActiveAt: number | null;
 };
 
 export type MissionCanvasFocusRequest = {
@@ -34,6 +38,7 @@ type MissionControlState = {
   activityFilter: MissionActivityFilter;
   sourceFilter: MissionSourceFilter;
   recentWindowMs: MissionRecentWindow;
+  groupMode: MissionGroupMode;
   query: string;
   focusedId: string | null;
   canvasFocusRequest: MissionCanvasFocusRequest | null;
@@ -45,6 +50,7 @@ let _state: MissionControlState = {
   activityFilter: "all",
   sourceFilter: "all",
   recentWindowMs: MISSION_RECENT_WINDOWS[1].value,
+  groupMode: "activity",
   query: "",
   focusedId: null,
   canvasFocusRequest: null,
@@ -74,6 +80,12 @@ export function setMissionSourceFilter(sourceFilter: MissionSourceFilter): void 
 export function setMissionRecentWindow(recentWindowMs: MissionRecentWindow): void {
   if (_state.recentWindowMs === recentWindowMs) return;
   _state = { ..._state, recentWindowMs };
+  _notify();
+}
+
+export function setMissionGroupMode(groupMode: MissionGroupMode): void {
+  if (_state.groupMode === groupMode) return;
+  _state = { ..._state, groupMode };
   _notify();
 }
 
@@ -113,6 +125,8 @@ function visibleAgentsEqual(a: MissionVisibleAgent[], b: MissionVisibleAgent[]):
     if (x.id !== y.id) return false;
     if (x.state !== y.state) return false;
     if (x.updatedAt !== y.updatedAt) return false;
+    if (x.activity !== y.activity) return false;
+    if (x.lastActiveAt !== y.lastActiveAt) return false;
   }
   return true;
 }

@@ -1,6 +1,6 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -79,13 +79,18 @@ export async function createOpenScoutVantageHandoff(
     source: "scout-web",
   });
   const openUrl = buildVantageOpenUrl({ handoffId, handoffPath });
+  const emptyPlanError = plan.manifest.nodes.length === 0
+    ? emptyVantagePlanMessage(plan)
+    : null;
   const launch = input.launch === false
     ? { attempted: false, ok: false, error: null }
-    : await launchVantageOpenUrl(openUrl, {
-      handoffId,
-      setupPath,
-      currentDirectory: input.currentDirectory,
-    });
+    : emptyPlanError
+      ? { attempted: false, ok: false, error: emptyPlanError }
+      : await launchVantageOpenUrl(openUrl, {
+        handoffId,
+        setupPath,
+        currentDirectory: input.currentDirectory,
+      });
 
   return {
     ok: true,
@@ -126,6 +131,19 @@ function uniqueIds(values: readonly string[]): string[] {
     ids.push(id);
   }
   return ids;
+}
+
+function emptyVantagePlanMessage(plan: ScoutVantagePlan): string {
+  const selectedAgentCount = plan.manifest.selectedAgentIds?.length ?? 0;
+  const selectedNativeCount = plan.manifest.selectedNativeSessionIds?.length ?? 0;
+  const selectionCount = selectedAgentCount + selectedNativeCount;
+  const diagnostic = plan.diagnostics.find((candidate) => candidate.severity === "warning")
+    ?? plan.diagnostics[0];
+  const reason = diagnostic ? ` ${diagnostic.message}` : "";
+  if (selectionCount > 0) {
+    return `No Vantage windows matched the selected Scout surface${selectionCount === 1 ? "" : "s"}.${reason}`;
+  }
+  return `No Vantage windows could be built from the current Scout state.${reason}`;
 }
 
 function readTmuxSessions(): TmuxSession[] {
@@ -217,6 +235,11 @@ function writeVantageHandoffFiles(input: {
   mkdirSync(handoffDirectory, { recursive: true });
   const handoffPath = join(handoffDirectory, `${input.handoffId}.json`);
   const setupPath = join(handoffDirectory, `${input.handoffId}.setup.json`);
+  stampVantageManifest(input.plan, {
+    handoffId: input.handoffId,
+    handoffPath,
+    setupPath,
+  });
   writeFileSync(
     handoffPath,
     `${JSON.stringify({
@@ -235,6 +258,37 @@ function writeVantageHandoffFiles(input: {
   );
   writeFileSync(setupPath, `${JSON.stringify(input.plan.manifest, null, 2)}\n`, "utf8");
   return { handoffPath, setupPath };
+}
+
+function stampVantageManifest(
+  plan: ScoutVantagePlan,
+  input: { handoffId: string; handoffPath: string; setupPath: string },
+): void {
+  const shortId = input.handoffId.replace(/^handoff-/, "").slice(0, 18);
+  const nodeCount = plan.manifest.nodes.length;
+  const selectedAgentCount = plan.manifest.selectedAgentIds?.length ?? 0;
+  const selectedNativeCount = plan.manifest.selectedNativeSessionIds?.length ?? 0;
+  const selectionCount = selectedAgentCount + selectedNativeCount;
+  const selectionLabel = selectionCount > 0
+    ? `${selectionCount} selected surface${selectionCount === 1 ? "" : "s"}`
+    : "all attachable surfaces";
+  const nodeLabel = `${nodeCount} node${nodeCount === 1 ? "" : "s"}`;
+  const linkLabel = `${plan.manifest.workspaceID} · ${shortId}`;
+
+  plan.manifest.handoffId = input.handoffId;
+  plan.manifest.handoffPath = input.handoffPath;
+  plan.manifest.setupPath = input.setupPath;
+  plan.manifest.presentation = {
+    ...(plan.manifest.presentation ?? {}),
+    title: plan.manifest.presentation?.title ?? "Scout Vantage",
+    subtitle: `${linkLabel} · ${nodeLabel} · ${selectionLabel}`,
+    badge: nodeCount > 0 ? `handoff ${shortId}` : "no nodes",
+    cobrand: "OpenScout",
+    productName: "Scout",
+    hostName: "Hudson Vantage",
+    theme: plan.manifest.presentation?.theme ?? "jade",
+    accent: plan.manifest.presentation?.accent ?? "cyan",
+  };
 }
 
 function buildVantageOpenUrl(input: { handoffId: string; handoffPath: string }): string {
@@ -311,6 +365,10 @@ function launchHudsonTerminiCanvas(input: {
   }
 
   try {
+    if (isHudsonTerminiCanvasRunning()) {
+      queueHudsonTerminiCanvasSetup(input);
+      return { ok: true };
+    }
     const statePath = join(dirname(input.setupPath), `${input.handoffId}.state.json`);
     const child = spawn(
       "/usr/bin/xcrun",
@@ -335,6 +393,37 @@ function launchHudsonTerminiCanvas(input: {
         error instanceof Error ? error.message : String(error)
       }`,
     };
+  }
+}
+
+function queueHudsonTerminiCanvasSetup(input: { handoffId: string; setupPath: string }): void {
+  const controlPath = process.env.TERMINI_CANVAS_CONTROL_FILE
+    || "/tmp/termini-canvas-control.jsonl";
+  const command = {
+    apiVersion: "v0",
+    kind: "hudson.vantage.command",
+    id: `openscout-${input.handoffId}`,
+    action: "setup",
+    manifestPath: input.setupPath,
+    createIfMissing: true,
+    removeMissing: true,
+    fit: true,
+    includeViewport: true,
+    includeMetrics: true,
+    includeStyle: true,
+  };
+  mkdirSync(dirname(controlPath), { recursive: true });
+  appendFileSync(controlPath, `${JSON.stringify(command)}\n`, "utf8");
+}
+
+function isHudsonTerminiCanvasRunning(): boolean {
+  try {
+    execFileSync("/usr/bin/pgrep", ["-f", "[T]erminiCanvas"], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 

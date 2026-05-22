@@ -208,6 +208,7 @@ function AgentRow({
         <SpecLine label="MODEL" value={[agent.harness, agent.model].filter(Boolean).join("/") || "—"} />
         <SpecLine label="AT" value={[agent.project, agent.branch].filter(Boolean).join("/") || "—"} />
         <SpecLine label="STATE" value={state} />
+        <SpecLine label="ACTIVITY" value={agent.activity} />
         <SpecLine label="SOURCE" value={agent.source} />
       </dl>
       <div className="ml-detail-actions">
@@ -223,7 +224,7 @@ function AgentRow({
   return (
     <RailRow
       name={agent.handle ?? agent.name}
-      meta={agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
+      meta={agent.lastActiveAt ? timeAgo(agent.lastActiveAt) : agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
       tone={state}
       caret={isExpanded ? "open" : "closed"}
       selected={isSelected}
