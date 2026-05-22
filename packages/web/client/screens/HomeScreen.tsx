@@ -67,6 +67,27 @@ type FleetHomeBrief = {
   preparedAt: number;
   expiresAt: number;
   ttlMs: number;
+  sourceBriefId?: string;
+};
+
+type BriefingKind = "fleet-home" | "tour";
+
+type BriefingSummary = {
+  id: string;
+  kind: BriefingKind;
+  title: string;
+  summary: string;
+  recommendation: string | null;
+  preparedAt: number;
+  ttlMs: number;
+  observationCount: number;
+  hasMarkdown: boolean;
+  createdAt: number;
+};
+
+const BRIEFING_KIND_LABEL: Record<BriefingKind, string> = {
+  "fleet-home": "fleet",
+  tour: "tour",
 };
 
 type StaleMotionItem = {
@@ -229,6 +250,8 @@ export function HomeScreen({
   const [heartrateBucketLabel, setHeartrateBucketLabel] = useState("3h buckets");
   const [serviceGauges, setServiceGauges] = useState<ServiceGauge[]>([]);
   const [fleetBrief, setFleetBrief] = useState<FleetHomeBrief | null>(null);
+  const [latestBriefing, setLatestBriefing] = useState<BriefingSummary | null>(null);
+  const [briefArchiveLoaded, setBriefArchiveLoaded] = useState(false);
   const [briefRefreshing, setBriefRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -334,26 +357,39 @@ export function HomeScreen({
     };
   }, []);
 
+  const fetchLatestBriefing = useCallback(async () => {
+    try {
+      const result = await api<{ briefings: BriefingSummary[] }>("/api/briefings?limit=1");
+      setLatestBriefing(result.briefings[0] ?? null);
+      setBriefArchiveLoaded(true);
+    } catch {
+      setBriefArchiveLoaded(true);
+      // Silent: the archive is a fallback for the live generated brief.
+    }
+  }, []);
+
   const fetchFleetBrief = useCallback(async (force = false) => {
     if (force) setBriefRefreshing(true);
     try {
       const path = force ? "/api/fleet/brief?refresh=1" : "/api/fleet/brief";
       const result = await api<FleetHomeBrief>(path);
       setFleetBrief(result);
+      void fetchLatestBriefing();
     } catch {
       // Silent: the generated brief is additive; the computed status line remains available.
     } finally {
       if (force) setBriefRefreshing(false);
     }
-  }, []);
+  }, [fetchLatestBriefing]);
 
   const briefPlayer = useHomeBriefPlayerState();
 
   useEffect(() => {
+    void fetchLatestBriefing();
     void fetchFleetBrief();
     const id = setInterval(() => void fetchFleetBrief(), FLEET_BRIEF_REFRESH_MS);
     return () => clearInterval(id);
-  }, [fetchFleetBrief]);
+  }, [fetchFleetBrief, fetchLatestBriefing]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -555,6 +591,11 @@ export function HomeScreen({
       (item) => (normalizeTimestampMs(item.ts) ?? 0) >= sinceMs,
     );
   }, [scopedFleet?.activity, sinceMs]);
+  const liveActivityEmptyText = scopedFleet
+    ? `Quiet — no activity in the last ${formatLookback(lookbackMs)}.`
+    : loading || refreshing
+      ? "Loading activity…"
+      : "Activity snapshot unavailable.";
 
   const now = new Date();
   const greeting = greetingFor(now.getHours());
@@ -707,19 +748,33 @@ export function HomeScreen({
       });
     }
 
+    const briefArchiveRoute: Route = latestBriefing
+      ? { view: "briefings", briefingId: latestBriefing.id }
+      : fleetBrief?.sourceBriefId
+        ? { view: "briefings", briefingId: fleetBrief.sourceBriefId }
+        : { view: "briefings" };
+    const briefMemoryValue = fleetBrief
+      ? `prepared ${timeAgo(fleetBrief.preparedAt)} · expires ${formatTimeUntil(fleetBrief.expiresAt, nowMs)}`
+      : latestBriefing
+        ? `latest ${BRIEFING_KIND_LABEL[latestBriefing.kind]} prepared ${timeAgo(latestBriefing.preparedAt)} · archived`
+        : briefArchiveLoaded
+          ? "no generated brief loaded yet"
+          : "checking brief archive...";
+
     signals.push({
       id: "brief-memory",
       label: "brief memory",
-      value: fleetBrief
-        ? `prepared ${timeAgo(fleetBrief.preparedAt)} · expires ${formatTimeUntil(fleetBrief.expiresAt, nowMs)}`
-        : "no generated brief loaded yet",
-      tone: fleetBriefIsFresh ? "dim" : "warn",
+      value: briefMemoryValue,
+      tone: fleetBriefIsFresh || latestBriefing || !briefArchiveLoaded ? "dim" : "warn",
+      route: briefArchiveRoute,
     });
 
     return signals;
   }, [
     fleetBrief,
     fleetBriefIsFresh,
+    briefArchiveLoaded,
+    latestBriefing,
     movingAsksWithoutActiveAgent.length,
     nowMs,
     observedActiveActors.length,
@@ -911,7 +966,7 @@ export function HomeScreen({
           />
           {liveActivity.length === 0 ? (
             <div className="s-mc-empty">
-              Quiet — no activity in the last {formatLookback(lookbackMs)}.
+              {liveActivityEmptyText}
             </div>
           ) : (
             <div className="s-mc-stream s-fleet-live-stream">

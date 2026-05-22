@@ -22,6 +22,7 @@ import {
   isStaleActiveFlight,
   sqlJoinClauses,
   sqlPlaceholders,
+  sqlTimestampMsExpression,
   sqlWhereClause,
   staleFlightActivityPredicate,
   summarizeAgentState,
@@ -70,6 +71,8 @@ type FleetAskRow = {
   started_at: number | null;
   completed_at: number | null;
   flight_dismissed_at: number | string | null;
+  failure_stage: string | null;
+  failure_severity: string | null;
   recovered_after_failure_at: number | string | null;
   status_kind: string | null;
   status_title: string | null;
@@ -128,6 +131,7 @@ export function queryFleetActivity(opts?: {
 }): WebFleetActivity[] {
   const filters: string[] = [];
   const params: Array<string | number> = [];
+  const activityTsExpression = sqlTimestampMsExpression("ai.ts");
 
   if (opts?.agentId) {
     filters.push(`(
@@ -155,7 +159,7 @@ export function queryFleetActivity(opts?: {
   const sql = `SELECT
     ai.id,
     ai.kind,
-    ai.ts,
+    ${activityTsExpression} AS ts,
     ac.display_name AS actor_name,
     ai.title,
     ai.summary,
@@ -176,7 +180,7 @@ export function queryFleetActivity(opts?: {
     staleFlightActivityPredicate("ai"),
     scopedFilters ? `(${scopedFilters})` : null,
   ])}
-  ORDER BY ai.ts DESC
+  ORDER BY ${activityTsExpression} DESC
   LIMIT ?`;
 
   const rows = db().prepare(sql).all(...params, opts?.limit ?? 80) as Array<FleetActivityRow>;
@@ -225,6 +229,8 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
        f.started_at,
        f.completed_at,
        json_extract(f.metadata_json, '$.operatorAttentionDismissedAt') AS flight_dismissed_at,
+       json_extract(f.metadata_json, '$.failureStage') AS failure_stage,
+       json_extract(f.metadata_json, '$.failureSeverity') AS failure_severity,
        (
          SELECT MAX(COALESCE(recovery_f.completed_at, recovery_f.started_at, 0))
          FROM flights recovery_f
@@ -304,6 +310,8 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
   const hasFlight = typeof row.flight_id === "string" && row.flight_id.length > 0;
   const replied = row.status_kind === "ask_replied";
   const failed = row.flight_state === "failed" || row.status_kind === "ask_failed";
+  const noteworthyFailure = failed && row.failure_severity === "noteworthy";
+  const stoppedFailure = noteworthyFailure && row.failure_stage === "codex_app_server_proactive_shutdown";
   const staleActiveFlight = hasFlight
     && row.flight_state !== null
     && !TERMINAL_FLIGHT_STATES.has(row.flight_state)
@@ -353,14 +361,22 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     collaborationRecordId: row.collaboration_record_id,
     task: row.task,
     status,
-    statusLabel: status === "working" && replied ? "Acknowledged" : fleetStatusLabel(status),
+    statusLabel: status === "working" && replied
+      ? "Acknowledged"
+      : status === "failed" && noteworthyFailure
+        ? stoppedFailure
+          ? "Stopped"
+          : "Interrupted"
+        : fleetStatusLabel(status),
     acknowledgedAt: status === "working" && replied
       ? normalizeTimestampMs(row.status_ts)
       : null,
     attention: status === "needs_attention"
       ? "badge"
       : status === "failed" && !failedDismissed && !recoveredDeliveryFailure
-        ? "interrupt"
+        ? noteworthyFailure
+          ? "badge"
+          : "interrupt"
         : "silent",
     agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
     harness: row.harness,

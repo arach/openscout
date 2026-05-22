@@ -652,10 +652,22 @@ describe("web db timestamp normalization", () => {
         policy: "durable",
         createdAt: recentSeconds,
       });
+      store.recordMessage({
+        id: "msg-normalized-old-ms",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "Older millisecond timestamp message.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: recentMs - 24 * 60 * 60_000,
+      });
 
       const messages = queryRecentMessages(10, { conversationId: "conv-1" });
       const session = querySessionById("conv-1");
       const activity = queryActivity(20);
+      const fleet = queryFleet({ limit: 10, activityLimit: 1 });
       const mobileDetail = queryMobileAgentDetail("agent-1");
 
       expect(messages[0]).toMatchObject({
@@ -667,6 +679,10 @@ describe("web db timestamp normalization", () => {
       expect(session?.lastMessageAt).toBe(recentSeconds * 1000);
       expect(activity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
         .toBe(recentSeconds * 1000);
+      expect(fleet.activity[0]).toMatchObject({
+        id: "activity:message:msg-normalized-seconds",
+        ts: recentSeconds * 1000,
+      });
       expect(mobileDetail?.lastActiveAt).toBe(recentSeconds * 1000);
       expect(mobileDetail?.recentActivity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
         .toBe(recentSeconds * 1000);
@@ -1966,6 +1982,87 @@ describe("web db query fleet", () => {
         attention: "interrupt",
         summary: "Task failed for this specific invocation.",
         updatedAt: now - 57_000,
+      }));
+    } finally {
+      store.close();
+    }
+  });
+
+  test("projects noteworthy SIGTERM ask interruptions without interrupt-level attention", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.recordInvocation({
+        id: "inv-noteworthy-sigterm",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Review the current spec",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 20_000,
+      });
+      store.recordFlight({
+        id: "flight-noteworthy-sigterm",
+        invocationId: "inv-noteworthy-sigterm",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        summary: "Agent One was interrupted by a local Codex app-server SIGTERM.",
+        startedAt: now - 19_000,
+        completedAt: now - 18_000,
+        metadata: {
+          failureStage: "codex_app_server_sigterm",
+          failureSeverity: "noteworthy",
+          noteworthy: true,
+        },
+      });
+      store.recordInvocation({
+        id: "inv-proactive-stop",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Active turn stopped by OpenScout",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 16_000,
+      });
+      store.recordFlight({
+        id: "flight-proactive-stop",
+        invocationId: "inv-proactive-stop",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        summary: "Agent One was stopped by OpenScout before it could reply.",
+        startedAt: now - 15_000,
+        completedAt: now - 14_000,
+        metadata: {
+          failureStage: "codex_app_server_proactive_shutdown",
+          failureSeverity: "noteworthy",
+          noteworthy: true,
+        },
+      });
+
+      const fleet = queryFleet({ limit: 10, activityLimit: 20 });
+
+      expect(fleet.recentCompleted).toContainEqual(expect.objectContaining({
+        invocationId: "inv-noteworthy-sigterm",
+        status: "failed",
+        statusLabel: "Interrupted",
+        attention: "badge",
+        summary: "Agent One was interrupted by a local Codex app-server SIGTERM.",
+      }));
+      expect(fleet.recentCompleted).toContainEqual(expect.objectContaining({
+        invocationId: "inv-proactive-stop",
+        status: "failed",
+        statusLabel: "Stopped",
+        attention: "badge",
+        summary: "Agent One was stopped by OpenScout before it could reply.",
       }));
     } finally {
       store.close();
