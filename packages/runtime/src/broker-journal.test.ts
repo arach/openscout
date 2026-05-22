@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type {
   ActorIdentity,
   AgentDefinition,
+  DurableAction,
   FlightRecord,
   InvocationRequest,
   MessageRecord,
@@ -116,6 +117,21 @@ function sampleUnblockRequest(): UnblockRequestRecord {
   };
 }
 
+function sampleDurableAction(input: Partial<DurableAction> = {}): DurableAction {
+  return {
+    id: "action-1",
+    kind: "message_delivery",
+    subjectId: "delivery-1",
+    authorityCellId: "node-1",
+    state: "pending",
+    idempotencyKey: "delivery-1:create",
+    leaseGeneration: 0,
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_000_000,
+    ...input,
+  };
+}
+
 describe("FileBackedBrokerJournal", () => {
   test("skips redundant entity upserts on append", async () => {
     const { journal, journalPath } = createJournal();
@@ -220,5 +236,31 @@ describe("FileBackedBrokerJournal", () => {
       sourceRef: "permission:req-1",
     }));
     expect(journal.listUnblockRequestEvents({ requestId: "unblock-1" })).toHaveLength(1);
+  });
+
+  test("looks up durable actions by idempotency key after replay", async () => {
+    const { journal, journalPath } = createJournal();
+
+    writeFileSync(
+      journalPath,
+      JSON.stringify({
+        kind: "durable.action.record",
+        action: sampleDurableAction(),
+      }) + "\n",
+      "utf8",
+    );
+
+    await journal.load();
+
+    expect(journal.getDurableActionByIdempotencyKey({
+      authorityCellId: "node-1",
+      kind: "message_delivery",
+      idempotencyKey: "delivery-1:create",
+    })?.id).toBe("action-1");
+    expect(journal.getDurableActionByIdempotencyKey({
+      authorityCellId: "node-other",
+      kind: "message_delivery",
+      idempotencyKey: "delivery-1:create",
+    })).toBeNull();
   });
 });

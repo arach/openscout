@@ -30,6 +30,7 @@ import {
   type CollaborationRecord,
   type CollaborationWaitingOn,
   type MessageRecord,
+  type ScoutInvocationLifecycle,
   type ScoutDeliverResponse,
   type ScoutDispatchRecord,
   type WakePolicy,
@@ -68,6 +69,7 @@ import {
   openAiAudioSpeechUrl,
   scoutBrokerMessagesPath,
   scoutBrokerInvocationPath,
+  scoutBrokerInvocationLifecyclePath,
   scoutBrokerInvocationStreamPath,
   scoutBrokerMessagesListPath,
   scoutBrokerPaths,
@@ -253,6 +255,8 @@ export type ScoutFlightRecord = {
   labels?: string[];
   metadata?: Record<string, unknown>;
 };
+
+export type ScoutInvocationLifecycleRecord = ScoutInvocationLifecycle;
 
 export type ScoutLabelBriefFlight = {
   id: string;
@@ -3810,6 +3814,26 @@ export async function loadScoutInvocationSnapshot(
     return null;
   }
   return snapshot;
+}
+
+export async function loadScoutInvocationLifecycle(
+  baseUrl: string,
+  invocationId: string,
+): Promise<ScoutInvocationLifecycleRecord | null> {
+  try {
+    return await brokerReadJson<ScoutInvocationLifecycleRecord | null>(
+      baseUrl,
+      scoutBrokerInvocationLifecyclePath(invocationId),
+    );
+  } catch (error) {
+    if (
+      error instanceof Error
+      && error.message.includes(`${scoutBrokerInvocationLifecyclePath(invocationId)} returned 404`)
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function resolveScoutWaitReference(

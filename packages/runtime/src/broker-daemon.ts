@@ -5164,6 +5164,20 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  const invocationLifecycleMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/invocations\/([^/]+)\/lifecycle$/)
+    : null;
+  if (invocationLifecycleMatch) {
+    const invocationId = decodeURIComponent(invocationLifecycleMatch[1] ?? "");
+    const lifecycle = await brokerService.readInvocationLifecycle?.({ invocationId });
+    if (!lifecycle) {
+      notFound(response);
+      return;
+    }
+    json(response, 200, lifecycle);
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/v1/mesh/nodes") {
     json(response, 200, runtime.snapshot().nodes);
     return;

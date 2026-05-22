@@ -1328,6 +1328,20 @@ describe("broker daemon comms layer", () => {
       targetAgentId: "ghost",
       state: "waking",
     }));
+
+    const lifecycle = await getJson<{
+      invocationId: string;
+      flightId: string;
+      state: string;
+      targetAgentId: string;
+    }>(secondHarness.baseUrl, "/v1/invocations/inv-restart-1/lifecycle");
+
+    expect(lifecycle).toEqual(expect.objectContaining({
+      invocationId: "inv-restart-1",
+      targetAgentId: "ghost",
+      state: "dispatching",
+    }));
+    expect(lifecycle.flightId).toBe(snapshot.flight?.id);
   }, 20_000);
 
   test("accepts broker-owned delivery for a known wakeable target", async () => {

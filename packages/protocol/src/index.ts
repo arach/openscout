@@ -13,6 +13,7 @@ export * from "./unblock-requests.js";
 export * from "./messages.js";
 export * from "./read-receipts.js";
 export * from "./invocations.js";
+export * from "./lifecycle.js";
 export * from "./agent-runs.js";
 export * from "./agent-broker-feed.js";
 export * from "./durable-actions.js";

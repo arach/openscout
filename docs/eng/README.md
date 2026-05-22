@@ -54,10 +54,16 @@ implementation specs.
 - [sco-035-ranger-chip-unification.md](./sco-035-ranger-chip-unification.md)
 - [sco-036-agent-state-vocabulary.md](./sco-036-agent-state-vocabulary.md)
 - [sco-037-ranger-brief-pipeline.md](./sco-037-ranger-brief-pipeline.md)
+- [sco-039-durable-invocation-and-delivery-lifecycle.md](./sco-039-durable-invocation-and-delivery-lifecycle.md)
+- [sco-040-capability-registry-and-tool-boundaries.md](./sco-040-capability-registry-and-tool-boundaries.md)
+- [sco-041-extension-packs-and-project-overlays.md](./sco-041-extension-packs-and-project-overlays.md)
+- [sco-042-harness-event-normalization-and-replay-boundary.md](./sco-042-harness-event-normalization-and-replay-boundary.md)
+- [sco-043-execution-environment-contracts.md](./sco-043-execution-environment-contracts.md)
+- [sco-044-operator-attention-policy-and-progress-monitoring.md](./sco-044-operator-attention-policy-and-progress-monitoring.md)
 
 ## Operations
 
-- [releasing.md](./releasing.md) — npm package and macOS DMG release flow
+- [releasing.md](./releasing.md) - npm package and macOS DMG release flow
 
 ## Research Notes
 

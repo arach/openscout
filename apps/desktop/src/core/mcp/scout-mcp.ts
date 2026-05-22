@@ -32,6 +32,7 @@ import {
   attachScoutManagedLocalSession,
   listScoutAgents,
   loadScoutFlight,
+  loadScoutInvocationLifecycle,
   loadScoutBrokerContext,
   loadScoutMessages,
   readScoutBrokerFeed,
@@ -49,6 +50,7 @@ import {
   type ScoutAskResult,
   type ScoutAgentBrokerFeed,
   type ScoutFlightRecord,
+  type ScoutInvocationLifecycleRecord,
   type ScoutLabelBrief,
   type ScoutLabelFeed,
   type ScoutBrokerMessageRecord,
@@ -438,6 +440,10 @@ type ScoutMcpDependencies = {
     baseUrl: string,
     flightId: string,
   ) => Promise<ScoutFlightRecord | null>;
+  getInvocationLifecycle?: (
+    baseUrl: string,
+    invocationId: string,
+  ) => Promise<ScoutInvocationLifecycleRecord | null>;
   readLabelBrief: (
     label: string,
     baseUrl: string,
@@ -463,6 +469,27 @@ const flightSchema = z.object({
   labels: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
+
+const invocationLifecycleSchema = z.object({
+  invocationId: z.string(),
+  flightId: z.string().optional(),
+  state: z.string(),
+  targetAgentId: z.string().optional(),
+  targetEndpointId: z.string().optional(),
+  peerNodeId: z.string().optional(),
+  peerFlightId: z.string().optional(),
+  workId: z.string().optional(),
+  actionId: z.string().optional(),
+  idempotencyKey: z.string().optional(),
+  acknowledgedAt: z.number().optional(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
+  expiresAt: z.number().optional(),
+  lastProgressAt: z.number().optional(),
+  terminal: z.object({}).catchall(z.unknown()).optional(),
+  deliveries: z.array(z.object({}).catchall(z.unknown())).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).catchall(z.unknown());
 
 const labelBriefFlightSchema = z.object({
   id: z.string(),
@@ -1056,6 +1083,7 @@ const invocationLookupResultSchema = z.object({
   waitStatus: z.enum(["not_requested", "completed", "terminal", "timeout"]).optional(),
   terminal: z.boolean(),
   flight: flightSchema.nullable(),
+  lifecycle: invocationLifecycleSchema.nullable().optional(),
   output: z.string().nullable(),
   error: z.string().nullable(),
   ids: followIdsSchema.optional(),
@@ -1410,6 +1438,20 @@ type ScoutMcpFlightWaitStatus =
   | "terminal"
   | "timeout";
 
+async function loadInvocationLifecycleForFlight(input: {
+  deps: ScoutMcpDependencies;
+  brokerUrl: string;
+  flight: ScoutFlightRecord | null;
+}): Promise<ScoutInvocationLifecycleRecord | null> {
+  if (!input.flight?.invocationId || !input.deps.getInvocationLifecycle) {
+    return null;
+  }
+  return await input.deps.getInvocationLifecycle(
+    input.brokerUrl,
+    input.flight.invocationId,
+  );
+}
+
 function isAcknowledgedFlightState(state: string | null | undefined): boolean {
   return state === "running" || state === "waiting";
 }
@@ -1452,6 +1494,7 @@ function buildInvocationLookupContent(input: {
   currentDirectory: string;
   flightId: string;
   flight: ScoutFlightRecord | null;
+  lifecycle?: ScoutInvocationLifecycleRecord | null;
   waitStatus?: "not_requested" | "completed" | "terminal" | "timeout";
   env: NodeJS.ProcessEnv;
 }) {
@@ -1460,11 +1503,12 @@ function buildInvocationLookupContent(input: {
       flight: input.flight,
       conversationId: null,
       workItem: null,
-      targetAgentId: input.flight?.targetAgentId ?? null,
+      targetAgentId: input.lifecycle?.targetAgentId ?? input.flight?.targetAgentId ?? null,
     },
     input.env,
   );
-  const terminal = isTerminalFlightState(input.flight?.state);
+  const terminal = isTerminalFlightState(input.flight?.state)
+    || Boolean(input.lifecycle?.terminal);
   return {
     currentDirectory: input.currentDirectory,
     flightId: input.flightId,
@@ -1472,8 +1516,14 @@ function buildInvocationLookupContent(input: {
     waitStatus: input.waitStatus,
     terminal,
     flight: input.flight,
-    output: input.flight?.output ?? input.flight?.summary ?? null,
-    error: input.flight?.error ?? null,
+    lifecycle: input.lifecycle ?? null,
+    output: input.flight?.output
+      ?? input.flight?.summary
+      ?? input.lifecycle?.terminal?.summary
+      ?? null,
+    error: input.flight?.error
+      ?? input.lifecycle?.terminal?.errorClass
+      ?? null,
     ids: followArtifacts.ids,
     links: followArtifacts.links,
     followUrl: followArtifacts.followUrl,
@@ -2609,6 +2659,8 @@ function defaultScoutMcpDependencies(
     waitForFlight: (baseUrl, flightId, options) =>
       waitForScoutFlight(baseUrl, flightId, options),
     getFlight: (baseUrl, flightId) => loadScoutFlight(baseUrl, flightId),
+    getInvocationLifecycle: (baseUrl, invocationId) =>
+      loadScoutInvocationLifecycle(baseUrl, invocationId),
     readLabelBrief: (label, baseUrl) => readScoutLabelBrief(label, baseUrl),
     readLabelFeed: (label, baseUrl, options) =>
       readScoutLabelFeed(label, options, baseUrl),
@@ -4115,11 +4167,18 @@ export function createScoutMcpServer(options: {
         options.defaultCurrentDirectory,
       );
       const trimmedFlightId = flightId.trim();
-      const flight = await deps.getFlight(deps.resolveBrokerUrl(), trimmedFlightId);
+      const brokerUrl = deps.resolveBrokerUrl();
+      const flight = await deps.getFlight(brokerUrl, trimmedFlightId);
+      const lifecycle = await loadInvocationLifecycleForFlight({
+        deps,
+        brokerUrl,
+        flight,
+      });
       const structuredContent = buildInvocationLookupContent({
         currentDirectory: resolvedCurrentDirectory,
         flightId: trimmedFlightId,
         flight,
+        lifecycle,
         waitStatus: "not_requested",
         env,
       });
@@ -4157,18 +4216,19 @@ export function createScoutMcpServer(options: {
         options.defaultCurrentDirectory,
       );
       const trimmedFlightId = flightId.trim();
+      const brokerUrl = deps.resolveBrokerUrl();
       let flight: ScoutFlightRecord | null = null;
       let waitStatus: "completed" | "terminal" | "timeout" = "timeout";
 
       try {
         flight = await deps.waitForFlight(
-          deps.resolveBrokerUrl(),
+          brokerUrl,
           trimmedFlightId,
           { timeoutSeconds },
         );
         waitStatus = "completed";
       } catch (error) {
-        flight = await deps.getFlight(deps.resolveBrokerUrl(), trimmedFlightId);
+        flight = await deps.getFlight(brokerUrl, trimmedFlightId);
         if (isTerminalFlightState(flight?.state)) {
           waitStatus = "terminal";
         } else if (
@@ -4178,11 +4238,17 @@ export function createScoutMcpServer(options: {
           throw error;
         }
       }
+      const lifecycle = await loadInvocationLifecycleForFlight({
+        deps,
+        brokerUrl,
+        flight,
+      });
 
       const structuredContent = buildInvocationLookupContent({
         currentDirectory: resolvedCurrentDirectory,
         flightId: trimmedFlightId,
         flight,
+        lifecycle,
         waitStatus,
         env,
       });

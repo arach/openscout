@@ -36,6 +36,7 @@ import type {
   ScoutBrokerUnblockRequestEventQuery,
   ScoutBrokerUnblockRequestQuery,
 } from "./broker-api.js";
+import { readInvocationLifecycle as readInvocationLifecycleModel } from "./invocation-lifecycle-read-model.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import type { ActivityItem } from "./sqlite-store.js";
@@ -824,6 +825,12 @@ export function createBrokerCoreService(
       listBrokerUnblockRequestEvents(deps.journal, query),
     readAgentBrokerFeed: async (query) =>
       await readAgentBrokerFeed(deps, query),
+    readInvocationLifecycle: async (query) =>
+      readInvocationLifecycleModel({
+        snapshot: deps.runtime.snapshot(),
+        journal: deps.journal,
+        invocationId: query.invocationId,
+      }),
     readThreadEvents: async (query) =>
       await deps.threadEvents.replay({
         conversationId: query.conversationId,
