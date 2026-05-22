@@ -131,6 +131,7 @@ import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
 import { isRequesterWaitTimeoutError } from "./requester-timeout.js";
 import { isDispatchStalledError } from "./dispatch-stalled.js";
+import { isCodexAppServerExitError } from "./codex-app-server.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   requestScoutBrokerJson,
@@ -1893,9 +1894,8 @@ function isReconciledStaleFlightActivityItem(item: {
     && item.summary.startsWith("Stale running flight reconciled:");
 }
 
-function isStaleLocalAgent(agent: AgentDefinition | undefined): boolean {
-  return agent?.metadata?.staleLocalRegistration === true
-    || agent?.metadata?.retiredFromFleet === true;
+function isRetiredLocalAgent(agent: AgentDefinition | undefined): boolean {
+  return agent?.metadata?.retiredFromFleet === true;
 }
 
 function isStaleLocalEndpoint(snapshot: ReturnType<typeof runtime.snapshot>, endpoint: AgentEndpoint | null): boolean {
@@ -1903,7 +1903,7 @@ function isStaleLocalEndpoint(snapshot: ReturnType<typeof runtime.snapshot>, end
     return true;
   }
 
-  return isStaleLocalAgent(snapshot.agents[endpoint.agentId]);
+  return isRetiredLocalAgent(snapshot.agents[endpoint.agentId]);
 }
 
 function homeEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, agentId: string): AgentEndpoint | null {
@@ -2280,19 +2280,6 @@ function describeUnavailableDeliveryTarget(
     };
   }
 
-  if (agent.metadata?.staleLocalRegistration === true) {
-    return {
-      agentId: agent.id,
-      displayName: agent.displayName ?? agent.id,
-      reason: "stale_registration",
-      detail: `${agent.displayName ?? agent.id} has a stale registration and needs operator follow-up before the broker can route to it again.`,
-      wakePolicy: agent.wakePolicy,
-      endpointState: endpoint?.state === "offline" ? "offline" : "unknown",
-      transport: endpoint?.transport ?? null,
-      projectRoot,
-    };
-  }
-
   if (agent.authorityNodeId && agent.authorityNodeId !== nodeId) {
     return describeRemoteAuthorityIssue(agent, snapshot.nodes[agent.authorityNodeId]);
   }
@@ -2403,7 +2390,7 @@ function summarizeHomeAgent(endpoint: AgentEndpoint | null): {
 async function brokerHomePayload() {
   const snapshot = runtime.snapshot();
   const agents = Object.values(snapshot.agents)
-    .filter((agent) => !isStaleLocalAgent(agent))
+    .filter((agent) => !isRetiredLocalAgent(agent))
     .map((agent) => {
       const endpoint = homeEndpointForAgent(snapshot, agent.id);
       const status = summarizeHomeAgent(endpoint);
@@ -2488,11 +2475,8 @@ function staleWorkingFlightReason(
   }
 
   const agent = snapshot.agents[flight.targetAgentId];
-  if (isStaleLocalAgent(agent)) {
-    const replacementAgentId = metadataStringValue(agent?.metadata, "replacedByAgentId");
-    return replacementAgentId
-      ? `target agent ${flight.targetAgentId} was marked stale and replaced by ${replacementAgentId}`
-      : `target agent ${flight.targetAgentId} was marked stale`;
+  if (isRetiredLocalAgent(agent)) {
+    return `target agent ${flight.targetAgentId} was retired from the fleet`;
   }
 
   const endpoint = latestEndpointForAgent(snapshot, flight.targetAgentId);
@@ -2624,7 +2608,7 @@ function uniqueManagedAgentSelector(
   for (let counter = 2; counter <= 101; counter += 1) {
     const resolution = resolveAgentLabel(snapshot, candidate, {
       preferLocalNodeId: nodeId,
-      helpers: { isStale: isStaleLocalAgent },
+      helpers: { isStale: isRetiredLocalAgent },
     });
 
     if (resolution.kind === "unknown") {
@@ -2918,7 +2902,7 @@ function resolveManagedSessionAttachTarget(
   const directAgentId = input.agentId?.trim();
   if (directAgentId) {
     const agent = snapshot.agents[directAgentId];
-    if (!agent || isStaleLocalAgent(agent)) {
+    if (!agent || isRetiredLocalAgent(agent)) {
       throw new Error(`unknown Scout agent ${directAgentId}`);
     }
     if (agent.authorityNodeId !== nodeId) {
@@ -2934,7 +2918,7 @@ function resolveManagedSessionAttachTarget(
 
   const resolution = resolveAgentLabel(snapshot, selector, {
     preferLocalNodeId: nodeId,
-    helpers: { isStale: isStaleLocalAgent },
+    helpers: { isStale: isRetiredLocalAgent },
   });
 
   switch (resolution.kind) {
@@ -2983,6 +2967,19 @@ function staleLocalAgentReplacementId(
   return null;
 }
 
+function clearStaleLocalEndpointMetadata(metadata: AgentEndpoint["metadata"]): AgentEndpoint["metadata"] {
+  const {
+    staleLocalRegistration,
+    staleAt,
+    replacedByAgentId,
+    ...rest
+  } = metadata ?? {};
+  void staleLocalRegistration;
+  void staleAt;
+  void replacedByAgentId;
+  return rest;
+}
+
 async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<typeof loadRegisteredLocalAgentBindings>>): Promise<void> {
   const activeAgentIds = new Set(bindings.map((binding) => binding.agent.id));
   const activeAgentIdsByDefinition = bindings.reduce((map, binding) => {
@@ -3008,6 +3005,15 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
     if (agent?.authorityNodeId && agent.authorityNodeId !== nodeId) {
       continue;
     }
+    if (isLocalAgentEndpointAlive(endpoint)) {
+      if (endpoint.metadata?.staleLocalRegistration === true) {
+        await persistEndpoint({
+          ...endpoint,
+          metadata: clearStaleLocalEndpointMetadata(endpoint.metadata),
+        });
+      }
+      continue;
+    }
     const replacementAgentId = staleLocalAgentReplacementId(
       typeof agent?.definitionId === "string" ? agent.definitionId : null,
       activeAgentIdsByDefinition,
@@ -3030,34 +3036,6 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
       },
     });
     console.log(`[openscout-runtime] archived stale local endpoint ${endpoint.id}`);
-  }
-
-  for (const agent of Object.values(snapshot.agents)) {
-    if (activeAgentIds.has(agent.id) || !isGeneratedLocalAgentMetadata(agent.metadata)) {
-      continue;
-    }
-    if (agent.authorityNodeId && agent.authorityNodeId !== nodeId) {
-      continue;
-    }
-
-    const replacementAgentId = staleLocalAgentReplacementId(agent.definitionId, activeAgentIdsByDefinition);
-    const nextMetadata = {
-      ...(agent.metadata ?? {}),
-      staleLocalRegistration: true,
-      staleAt,
-      replacedByAgentId: replacementAgentId ?? agent.metadata?.replacedByAgentId,
-    };
-
-    if (agent.metadata?.staleLocalRegistration === true && nextMetadata.replacedByAgentId === agent.metadata?.replacedByAgentId) {
-      continue;
-    }
-
-    const nextAgent = {
-      ...agent,
-      metadata: nextMetadata,
-    };
-    await upsertAgentDurably(nextAgent);
-    console.log(`[openscout-runtime] archived stale local agent ${agent.id}`);
   }
 }
 
@@ -4308,6 +4286,48 @@ async function executeLocalInvocation(
       });
 
       await postInvocationStatusMessage(invocation, stalledFlight);
+      return;
+    }
+
+    if (isCodexAppServerExitError(error) && error.noteworthy) {
+      const interruptedAt = Date.now();
+      const failureStage = error.exitKind === "proactive_shutdown"
+        ? "codex_app_server_proactive_shutdown"
+        : "codex_app_server_sigterm";
+      const summary = error.exitKind === "proactive_shutdown"
+        ? `${agent.displayName} was stopped by OpenScout before it could reply.`
+        : `${agent.displayName} was interrupted by a local Codex app-server SIGTERM.`;
+      const interruptedFlight = {
+        ...runningFlight,
+        state: "failed" as const,
+        summary,
+        error: undefined,
+        completedAt: interruptedAt,
+        metadata: {
+          ...(runningFlight.metadata ?? {}),
+          failureStage,
+          failureSeverity: "noteworthy",
+          noteworthy: true,
+          exitKind: error.exitKind,
+          exitSignal: error.signal,
+          exitCode: error.exitCode,
+          ...(error.reason ? { shutdownReason: error.reason } : {}),
+        },
+      };
+      await persistFlight(interruptedFlight);
+
+      await persistEndpoint({
+        ...runningEndpoint,
+        state: "offline",
+        metadata: {
+          ...(runningEndpoint.metadata ?? {}),
+          lastNotice: message,
+          lastInterruptedAt: interruptedAt,
+          lastInterruptionStage: failureStage,
+        },
+      });
+
+      await postInvocationStatusMessage(invocation, interruptedFlight);
       return;
     }
 
@@ -6159,7 +6179,7 @@ function resolveBrokerDeliveryTarget(
 ): InvocationResolution {
   return resolveBrokerRouteTarget(runtime.snapshot(), input, {
     preferLocalNodeId: nodeId,
-    helpers: { isStale: isStaleLocalAgent },
+    helpers: { isStale: isRetiredLocalAgent },
   });
 }
 
@@ -6222,7 +6242,7 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
 
   await syncRegisteredLocalAgentsIfChanged(options.reason);
   const agent = runtime.snapshot().agents[status.agentId];
-  if (agent && !isStaleLocalAgent(agent)) {
+  if (agent && !isRetiredLocalAgent(agent)) {
     return { kind: "resolved", agent };
   }
 

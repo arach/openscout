@@ -1065,6 +1065,9 @@ async function ensureTargetRelayAgentRegistered(
   currentDirectory: string,
 ): Promise<boolean> {
   const existingAgent = snapshot.agents[agentId];
+  if (existingAgent && metadataBoolean(existingAgent.metadata, "retiredFromFleet")) {
+    return false;
+  }
   if (existingAgent && !metadataBoolean(existingAgent.metadata, "staleLocalRegistration")) {
     return true;
   }
@@ -1074,7 +1077,7 @@ async function ensureTargetRelayAgentRegistered(
     syncLegacyMirror: true,
   });
   if (!configured) {
-    return false;
+    return Boolean(existingAgent);
   }
 
   const binding = await inferLocalAgentBinding(configured.agentId, nodeId);

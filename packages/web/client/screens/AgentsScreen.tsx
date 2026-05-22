@@ -52,6 +52,14 @@ function formatLabel(value: string | null | undefined): string | null {
   return cleaned;
 }
 
+function handleLabel(agent: Agent): string | null {
+  return agent.handle ? `@${agent.handle.replace(/^@+/, "")}` : null;
+}
+
+function primaryAgentSelector(agent: Agent): string | null {
+  return agent.selector ?? agent.defaultSelector ?? handleLabel(agent);
+}
+
 function directSessionMaps(sessions: SessionEntry[]): {
   conversationByAgentId: Map<string, string>;
   sessionByAgentId: Map<string, SessionEntry>;
@@ -66,12 +74,30 @@ function directSessionMaps(sessions: SessionEntry[]): {
   const conversationByAgentId = new Map<string, string>();
   const sessionByAgentId = new Map<string, SessionEntry>();
   for (const session of directSessions) {
-    if (!conversationByAgentId.has(session.agentId)) {
+    const current = sessionByAgentId.get(session.agentId);
+    if (!current || shouldPreferDirectSession(session, current)) {
       conversationByAgentId.set(session.agentId, session.id);
       sessionByAgentId.set(session.agentId, session);
     }
   }
   return { conversationByAgentId, sessionByAgentId };
+}
+
+function shouldPreferDirectSession(candidate: SessionEntry & { agentId: string }, existing: SessionEntry): boolean {
+  const canonicalConversationId = conversationForAgent(candidate.agentId);
+  const candidateIsCanonical = candidate.id === canonicalConversationId;
+  const existingIsCanonical = existing.id === canonicalConversationId;
+  if (candidateIsCanonical !== existingIsCanonical) return candidateIsCanonical;
+
+  const candidateIsOperatorDm = candidate.id.startsWith(`dm.operator.`);
+  const existingIsOperatorDm = existing.id.startsWith(`dm.operator.`);
+  if (candidateIsOperatorDm !== existingIsOperatorDm) return candidateIsOperatorDm;
+
+  const candidateLastAt = candidate.lastMessageAt ?? 0;
+  const existingLastAt = existing.lastMessageAt ?? 0;
+  if (candidateLastAt !== existingLastAt) return candidateLastAt > existingLastAt;
+
+  return candidate.id < existing.id;
 }
 
 type AgentInventoryStatus = "working" | "available" | "offline";
@@ -312,15 +338,26 @@ const AGENT_INVENTORY_COLUMNS: DataTableColumn<AgentInventoryRow, AgentInventory
 function resolveSelectedAgent(agents: Agent[], selectedAgentId?: string): Agent | null {
   if (!selectedAgentId) return null;
 
-  const exact = agents.find((a) => a.id === selectedAgentId);
+  const normalized = selectedAgentId.trim().replace(/^@+/, "");
+  if (!normalized) return null;
+
+  const exact = agents.find((a) => a.id === normalized);
   if (exact) return exact;
 
-  const handle = selectedAgentId.split(".")[0];
-  if (!handle) return null;
+  const segments = normalized.split(".").filter(Boolean);
+  if (segments.length >= 3) return null;
 
-  return [...agents]
-    .filter((a) => a.handle === handle || a.id.startsWith(`${handle}.`))
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
+  const candidates = agents.filter((agent) =>
+    agent.handle === normalized ||
+    agent.selector === `@${normalized}` ||
+    agent.defaultSelector === `@${normalized}` ||
+    agent.id.startsWith(`${normalized}.`)
+  );
+  const uniqueCandidates = Array.from(
+    new Map(candidates.map((agent) => [agent.id, agent])).values(),
+  );
+
+  return uniqueCandidates.length === 1 ? uniqueCandidates[0]! : null;
 }
 
 
@@ -841,6 +878,17 @@ function AgentDetailWithRail({
   const machineDetail = agent.authorityNodeId && agent.homeNodeId && agent.authorityNodeId !== agent.homeNodeId
     ? `home ${agent.homeNodeName ?? agent.homeNodeId}`
     : null;
+  const selectorLabel = primaryAgentSelector(agent);
+  const authorityLabel = agent.authorityNodeName && agent.authorityNodeId
+    ? `${agent.authorityNodeName} (${agent.authorityNodeId})`
+    : agent.authorityNodeName ?? agent.authorityNodeId;
+  const homeLabel = agent.homeNodeName && agent.homeNodeId
+    ? `${agent.homeNodeName} (${agent.homeNodeId})`
+    : agent.homeNodeName ?? agent.homeNodeId;
+  const qualifierParts = [
+    agent.workspaceQualifier ? `workspace ${agent.workspaceQualifier}` : null,
+    agent.nodeQualifier ? `node ${agent.nodeQualifier}` : null,
+  ].filter(Boolean);
   const eyebrowParts = [roleLabel, harnessLabel]
     .filter(Boolean)
     .filter((v, i, arr) => arr.indexOf(v) === i);
@@ -939,6 +987,20 @@ function AgentDetailWithRail({
                   navigator.clipboard.writeText(`@${agent.handle}`),
               });
             }
+            if (agent.selector) {
+              items.push({
+                kind: "action",
+                label: "Copy Selector",
+                onSelect: () => navigator.clipboard.writeText(agent.selector ?? ""),
+              });
+            }
+            if (agent.defaultSelector && agent.defaultSelector !== agent.selector) {
+              items.push({
+                kind: "action",
+                label: "Copy Default Selector",
+                onSelect: () => navigator.clipboard.writeText(agent.defaultSelector ?? ""),
+              });
+            }
             showContextMenu(e, items);
           }}
         >
@@ -988,7 +1050,19 @@ function AgentDetailWithRail({
                       &mdash; {timeAgo(agent.updatedAt)}
                     </span>
                   )}
+                  {agent.staleLocalRegistration && (
+                    <span className="s-profile-identity-state-detail">
+                      stale hint
+                    </span>
+                  )}
                 </span>
+              </div>
+              <div className="s-profile-identity-qualified">
+                <span>{agent.id}</span>
+                {selectorLabel && <span>{selectorLabel}</span>}
+                {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
+                  <span>{agent.defaultSelector}</span>
+                )}
               </div>
             </div>
             {renderTabs()}
@@ -1002,8 +1076,39 @@ function AgentDetailWithRail({
 
       {activeTab === "profile" && (
         <div className="s-profile-tab-content">
-          {(machineLabel || agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
+          {(agent.id || selectorLabel || machineLabel || agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
             <div className="s-profile-facets">
+              <div className="s-profile-facet s-profile-facet--identity">
+                <div className="s-profile-facet-label">Agent ID</div>
+                <div className="s-profile-facet-value s-profile-facet-value--mono">{agent.id}</div>
+                <div className="s-profile-facet-detail">
+                  definition {agent.definitionId}
+                </div>
+              </div>
+              {selectorLabel && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Selector</div>
+                  <div className="s-profile-facet-value s-profile-facet-value--mono">{selectorLabel}</div>
+                  {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
+                    <div className="s-profile-facet-detail">
+                      default {agent.defaultSelector}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(qualifierParts.length > 0 || authorityLabel || homeLabel) && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Authority</div>
+                  <div className="s-profile-facet-value">{authorityLabel ?? machineLabel ?? "local"}</div>
+                  <div className="s-profile-facet-detail">
+                    {qualifierParts.length > 0
+                      ? qualifierParts.join(" · ")
+                      : homeLabel && homeLabel !== authorityLabel
+                        ? `home ${homeLabel}`
+                        : "qualified route"}
+                  </div>
+                </div>
+              )}
               {machineLabel && (
                 <div className="s-profile-facet">
                   <div className="s-profile-facet-label">Machine</div>

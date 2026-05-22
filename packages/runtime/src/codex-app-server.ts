@@ -331,6 +331,90 @@ type ActiveTurn = {
   }>;
 };
 
+export type CodexAppServerExitKind =
+  | "proactive_shutdown"
+  | "external_sigterm"
+  | "unexpected_exit";
+
+export class CodexAppServerExitError extends Error {
+  readonly code = "CODEX_APP_SERVER_EXIT";
+
+  readonly exitKind: CodexAppServerExitKind;
+
+  readonly agentName: string;
+
+  readonly exitCode: number | null;
+
+  readonly signal: NodeJS.Signals | null;
+
+  readonly reason: string | null;
+
+  readonly noteworthy: boolean;
+
+  constructor(input: {
+    agentName: string;
+    exitKind?: CodexAppServerExitKind;
+    exitCode: number | null;
+    signal: NodeJS.Signals | null;
+    reason?: string | null;
+  }) {
+    const exitKind: CodexAppServerExitKind = input.exitKind ?? (input.signal === "SIGTERM"
+      ? "external_sigterm"
+      : "unexpected_exit");
+    super(codexAppServerExitMessage({
+      ...input,
+      exitKind,
+    }));
+    this.name = "CodexAppServerExitError";
+    this.exitKind = exitKind;
+    this.agentName = input.agentName;
+    this.exitCode = input.exitCode;
+    this.signal = input.signal;
+    this.reason = input.reason ?? null;
+    this.noteworthy = exitKind !== "unexpected_exit";
+  }
+}
+
+export function isCodexAppServerExitError(error: unknown): error is CodexAppServerExitError {
+  return error instanceof CodexAppServerExitError
+    || Boolean(
+      error
+        && typeof error === "object"
+        && (error as { code?: unknown }).code === "CODEX_APP_SERVER_EXIT",
+    );
+}
+
+function codexAppServerExitMessage(input: {
+  agentName: string;
+  exitKind: CodexAppServerExitKind;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  reason?: string | null;
+}): string {
+  if (input.exitKind === "proactive_shutdown") {
+    return `Codex app-server session for ${input.agentName} was stopped by OpenScout`
+      + (input.reason ? `: ${input.reason}` : "")
+      + ".";
+  }
+
+  if (input.exitKind === "external_sigterm") {
+    return `Codex app-server for ${input.agentName} was interrupted by SIGTERM.`;
+  }
+
+  return `Codex app-server exited for ${input.agentName}`
+    + (input.exitCode !== null ? ` with code ${input.exitCode}` : "")
+    + (input.signal ? ` (${input.signal})` : "");
+}
+
+export type CodexAppServerShutdownOptions = {
+  resetThread?: boolean;
+  reason?: string;
+};
+
+type ProactiveCodexAppServerShutdown = {
+  reason: string;
+};
+
 export type CodexSessionSnapshotOptions = Pick<
   SessionRequestOptions,
   "agentName" | "sessionId" | "cwd"
@@ -1577,6 +1661,8 @@ class CodexAppServerSession {
 
   private threadPath: string | null = null;
 
+  private proactiveShutdown: ProactiveCodexAppServerShutdown | null = null;
+
   private lastConfigSignature: string;
 
   constructor(private options: SessionRequestOptions) {
@@ -1729,15 +1815,27 @@ class CodexAppServerSession {
     });
   }
 
-  async shutdown(options: { resetThread?: boolean } = {}): Promise<void> {
+  async shutdown(options: CodexAppServerShutdownOptions = {}): Promise<void> {
+    this.proactiveShutdown = {
+      reason: options.reason
+        ?? (options.resetThread ? "OpenScout reset the app-server session" : "OpenScout stopped the app-server session"),
+    };
+    const stoppedError = new CodexAppServerExitError({
+      agentName: this.options.agentName,
+      exitKind: "proactive_shutdown",
+      exitCode: null,
+      signal: null,
+      reason: this.proactiveShutdown.reason,
+    });
+
     const activeTurn = this.activeTurn;
     this.activeTurn = null;
     if (activeTurn) {
-      activeTurn.reject(new Error(`Codex app-server session for ${this.options.agentName} was shut down.`));
+      activeTurn.reject(stoppedError);
     }
 
     for (const pending of this.pendingRequests.values()) {
-      pending.reject(new Error(`Codex app-server session for ${this.options.agentName} was shut down.`));
+      pending.reject(stoppedError);
     }
     this.pendingRequests.clear();
 
@@ -1749,7 +1847,7 @@ class CodexAppServerSession {
     if (child && child.exitCode === null && !child.killed) {
       child.kill("SIGTERM");
       await new Promise((resolve) => setTimeout(resolve, 250));
-      if (child.exitCode === null && !child.killed) {
+      if (child.exitCode === null && child.signalCode === null) {
         child.kill("SIGKILL");
       }
     }
@@ -1804,6 +1902,7 @@ class CodexAppServerSession {
     await mkdir(this.options.runtimeDirectory, { recursive: true });
     await mkdir(this.options.logsDirectory, { recursive: true });
     await writeFile(join(this.options.runtimeDirectory, "prompt.txt"), this.options.systemPrompt);
+    this.proactiveShutdown = null;
 
     const codexExecutable = resolveCodexExecutable();
     const launchArgs = normalizeCodexAppServerLaunchArgs(this.options.launchArgs);
@@ -1843,13 +1942,17 @@ class CodexAppServerSession {
       this.failSession(new Error(`Codex app-server failed for ${this.options.agentName}: ${errorMessage(error)}`));
     });
     child.once("exit", (code, signal) => {
-      this.failSession(
-        new Error(
-          `Codex app-server exited for ${this.options.agentName}`
-          + (code !== null ? ` with code ${code}` : "")
-          + (signal ? ` (${signal})` : ""),
-        ),
-      );
+      const proactiveShutdown = this.proactiveShutdown;
+      if (proactiveShutdown) {
+        this.handleProactiveProcessExit(child, proactiveShutdown, code, signal);
+        return;
+      }
+
+      this.failSession(new CodexAppServerExitError({
+        agentName: this.options.agentName,
+        exitCode: code,
+        signal,
+      }));
     });
 
     await this.request("initialize", {
@@ -2247,6 +2350,30 @@ class CodexAppServerSession {
     void this.persistState();
   }
 
+  private handleProactiveProcessExit(
+    child: ChildProcessWithoutNullStreams,
+    shutdown: ProactiveCodexAppServerShutdown,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    if (this.process === child) {
+      this.process = null;
+    }
+    this.proactiveShutdown = null;
+    this.starting = null;
+
+    const exitDetail = [
+      code !== null ? `code ${code}` : null,
+      signal,
+    ].filter(Boolean).join(", ");
+    const detail = exitDetail ? ` (${exitDetail})` : "";
+    void appendFile(
+      this.stderrLogPath,
+      `[openscout] Codex app-server stopped for ${this.options.agentName}: ${shutdown.reason}${detail}\n`,
+    ).catch(() => undefined);
+    void this.persistState();
+  }
+
   private async persistThreadId(): Promise<void> {
     if (!this.threadId) {
       await rm(this.threadIdPath, { force: true });
@@ -2324,7 +2451,10 @@ function getOrCreateSession(options: SessionRequestOptions): CodexAppServerSessi
       return existing;
     }
 
-    void existing.shutdown({ resetThread: true });
+    void existing.shutdown({
+      resetThread: true,
+      reason: "OpenScout replaced the app-server session after its launch options changed",
+    });
     sessions.delete(key);
   }
 
@@ -2417,7 +2547,7 @@ export async function getCodexAppServerAgentSnapshot(
 
 export async function shutdownCodexAppServerAgent(
   options: SessionRequestOptions,
-  shutdownOptions: { resetThread?: boolean } = {},
+  shutdownOptions: CodexAppServerShutdownOptions = {},
 ): Promise<void> {
   const key = sessionKey(options);
   const session = sessions.get(key);

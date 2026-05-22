@@ -2363,8 +2363,8 @@ describe("broker daemon comms layer", () => {
         nodeId: harness.nodeId,
       },
       target: {
-        kind: "agent_label",
-        label: "@ranger",
+        kind: "agent_id",
+        agentId: "ranger.test-node",
       },
       body: "trigger registry sync",
       intent: "tell",
@@ -2374,24 +2374,21 @@ describe("broker daemon comms layer", () => {
     const reconciled = await waitFor(
       () => getJson<{
         agents: Record<string, { metadata?: Record<string, unknown> }>;
+        endpoints: Record<string, { agentId: string; metadata?: Record<string, unknown> }>;
         flights: Record<string, { state: string; error?: string; metadata?: Record<string, unknown> }>;
       }>(harness.baseUrl, "/v1/snapshot"),
-      (snapshot) => snapshot.flights[flightId]?.state === "failed",
+      (snapshot) => Boolean(snapshot.agents["ranger.test-node"]),
     );
 
-    expect(reconciled.agents["ranger.main.mini"]?.metadata).toMatchObject({
-      staleLocalRegistration: true,
-      replacedByAgentId: "ranger.test-node",
-    });
+    expect(reconciled.agents["ranger.main.mini"]?.metadata?.staleLocalRegistration).not.toBe(true);
+    expect(Object.values(reconciled.endpoints).some((endpoint) => (
+      endpoint.agentId === "ranger.main.mini"
+      && endpoint.metadata?.staleLocalRegistration === true
+    ))).toBe(false);
     expect(reconciled.flights[flightId]).toMatchObject({
-      state: "failed",
-      metadata: {
-        reconciledStaleFlight: true,
-      },
+      state: "queued",
     });
-    expect(reconciled.flights[flightId]?.error).toContain(
-      "replaced by ranger.test-node",
-    );
+    expect(reconciled.flights[flightId]?.metadata?.reconciledStaleFlight).not.toBe(true);
   }, 15_000);
 
   test("accepts broker-owned channel tells without caller-side route preflight", async () => {
@@ -2680,7 +2677,7 @@ describe("broker daemon comms layer", () => {
     expect(body.question?.target?.reason).toBe("manual_wake_required");
   }, 15_000);
 
-  test("returns a broker question for stale direct targets", async () => {
+  test("accepts stale direct targets as wakeable deliveries", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -2720,30 +2717,22 @@ describe("broker daemon comms layer", () => {
       }),
     });
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(202);
     const body = response.body as {
       kind: string;
       accepted: boolean;
-      question?: {
-        kind: string;
-        askedLabel: string;
-        target?: {
-          agentId: string;
-          reason: string;
-          detail: string;
-        };
-      };
+      targetAgentId?: string;
+      conversation?: { id: string };
+      flight?: { targetAgentId?: string };
     };
-    expect(body.kind).toBe("question");
-    expect(body.accepted).toBe(false);
-    expect(body.question?.kind).toBe("unavailable");
-    expect(body.question?.askedLabel).toBe("ranger.main.mini");
-    expect(body.question?.target?.agentId).toBe("ranger.main.mini");
-    expect(body.question?.target?.reason).toBe("stale_registration");
-    expect(body.question?.target?.detail).toContain("stale registration");
+    expect(body.kind).toBe("delivery");
+    expect(body.accepted).toBe(true);
+    expect(body.targetAgentId).toBe("ranger.main.mini");
+    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
   }, 15_000);
 
-  test("routes stale direct targets to their current replacement", async () => {
+  test("keeps stale direct targets on the requested agent when replacement metadata exists", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -2815,12 +2804,12 @@ describe("broker daemon comms layer", () => {
     };
     expect(body.kind).toBe("delivery");
     expect(body.accepted).toBe(true);
-    expect(body.targetAgentId).toBe("ranger.codex-vox-getting-started.mini");
-    expect(body.conversation?.id).toBe("dm.operator.ranger.codex-vox-getting-started.mini");
-    expect(body.flight?.targetAgentId).toBe("ranger.codex-vox-getting-started.mini");
+    expect(body.targetAgentId).toBe("ranger.main.mini");
+    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
   }, 15_000);
 
-  test("returns a broker question for stale label-only targets", async () => {
+  test("accepts stale label-only targets as wakeable deliveries", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -2859,27 +2848,19 @@ describe("broker daemon comms layer", () => {
       }),
     });
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(202);
     const body = response.body as {
       kind: string;
       accepted: boolean;
-      question?: {
-        kind: string;
-        askedLabel: string;
-        target?: {
-          agentId: string;
-          reason: string;
-          detail: string;
-        };
-      };
+      targetAgentId?: string;
+      conversation?: { id: string };
+      flight?: { targetAgentId?: string };
     };
-    expect(body.kind).toBe("question");
-    expect(body.accepted).toBe(false);
-    expect(body.question?.kind).toBe("unavailable");
-    expect(body.question?.askedLabel).toBe("@ranger");
-    expect(body.question?.target?.agentId).toBe("ranger.main.mini");
-    expect(body.question?.target?.reason).toBe("stale_registration");
-    expect(body.question?.target?.detail).toContain("stale registration");
+    expect(body.kind).toBe("delivery");
+    expect(body.accepted).toBe(true);
+    expect(body.targetAgentId).toBe("ranger.main.mini");
+    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
   }, 15_000);
 
   test("returns a broker question for stale peer authority targets", async () => {

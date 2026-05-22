@@ -406,10 +406,33 @@
   color: var(--dim);
 }
 
+.s-profile-identity-qualified {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  max-width: min(780px, 100%);
+}
+
+.s-profile-identity-qualified span {
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* ── Facets row ── */
 
 .s-profile-facets {
   display: flex;
+  flex-wrap: wrap;
   gap: 1px;
   margin-bottom: 28px;
   border-radius: 10px;
@@ -419,10 +442,14 @@
 }
 
 .s-profile-facet {
-  flex: 1;
+  flex: 1 1 220px;
   min-width: 0;
   padding: 16px 20px;
   background: var(--bg);
+}
+
+.s-profile-facet--identity {
+  flex-basis: 280px;
 }
 
 .s-profile-facet-label {
@@ -461,6 +488,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .s-profile-facet-action {

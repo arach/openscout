@@ -33,6 +33,10 @@ function CapabilityTokens({ values }: { values: string[] }) {
   );
 }
 
+function CodeValue({ value }: { value: string }) {
+  return <span className="s-agent-code-value">{value}</span>;
+}
+
 function ProfileCard({
   title,
   items,
@@ -139,12 +143,39 @@ export function AgentInfoScreen({
   }
 
   const shortHandle = minimalAgentHandle(agent);
+  const displayHandle = agent.handle ? `@${agent.handle.replace(/^@+/, "")}` : null;
+  const primarySelector = agent.selector ?? agent.defaultSelector ?? displayHandle;
+  const nodeLabel = agent.authorityNodeName
+    ? `${agent.authorityNodeName} (${agent.authorityNodeId ?? "unknown"})`
+    : agent.authorityNodeId;
+  const homeNodeLabel = agent.homeNodeName
+    ? `${agent.homeNodeName} (${agent.homeNodeId ?? "unknown"})`
+    : agent.homeNodeId;
   const identityItems: ProfileField[] = [
-    { label: "System ID", value: agent.id },
+    { label: "Fully qualified ID", value: <CodeValue value={agent.id} /> },
+    { label: "Definition", value: <CodeValue value={agent.definitionId} /> },
+    ...(displayHandle ? [{ label: "Handle", value: <CodeValue value={displayHandle} /> }] : []),
+    ...(agent.selector ? [{ label: "Selector", value: <CodeValue value={agent.selector} /> }] : []),
+    ...(agent.defaultSelector && agent.defaultSelector !== agent.selector
+      ? [{ label: "Default selector", value: <CodeValue value={agent.defaultSelector} /> }]
+      : []),
+    ...(agent.workspaceQualifier
+      ? [{ label: "Workspace qualifier", value: <CodeValue value={agent.workspaceQualifier} /> }]
+      : []),
+    ...(agent.nodeQualifier ? [{ label: "Node qualifier", value: <CodeValue value={agent.nodeQualifier} /> }] : []),
     { label: "Class", value: formatLabel(agent.agentClass) ?? "—" },
     ...(agent.role ? [{ label: "Role", value: agent.role }] : []),
-    ...(agent.selector && agent.selector !== shortHandle
-      ? [{ label: "Selector", value: agent.selector }]
+    ...(agent.staleLocalRegistration
+      ? [{ label: "Registration", value: agent.replacedByAgentId ? `Stale hint, superseded by ${agent.replacedByAgentId}` : "Stale hint" }]
+      : []),
+    ...(agent.retiredFromFleet ? [{ label: "Fleet state", value: "Retired" }] : []),
+  ];
+  const topologyItems: ProfileField[] = [
+    ...(nodeLabel ? [{ label: "Authority node", value: <CodeValue value={nodeLabel} /> }] : []),
+    ...(homeNodeLabel ? [{ label: "Home node", value: <CodeValue value={homeNodeLabel} /> }] : []),
+    ...(agent.ownerId ? [{ label: "Owner", value: agent.ownerName ? `${agent.ownerName} (${agent.ownerId})` : agent.ownerId }] : []),
+    ...(agent.conversationId
+      ? [{ label: "Direct conversation", value: <CodeValue value={agent.conversationId} /> }]
       : []),
   ];
   const workspaceItems: ProfileField[] = [
@@ -201,14 +232,26 @@ export function AgentInfoScreen({
             <div className="s-agent-profile-hero-copy">
               <div className="s-agent-casefile-title-meta">
                 <span className="s-agent-casefile-record">
-                  {shortHandle ?? compactAgentId(agent.id) ?? agent.id}
+                  {primarySelector ?? shortHandle ?? compactAgentId(agent.id) ?? agent.id}
                 </span>
                 <span className={`s-agent-state-chip s-agent-state-chip-${normalizeAgentState(agent.state)}`}>
                   <span className="s-dot" style={{ background: stateColor(agent.state) }} />
                   {agentStateLabel(agent.state)}
                 </span>
+                {agent.staleLocalRegistration && (
+                  <span className="s-agent-state-chip s-agent-state-chip-offline">
+                    Stale hint
+                  </span>
+                )}
               </div>
               <h1 className="s-agent-profile-hero-title">{agent.name}</h1>
+              <div className="s-agent-profile-hero-tags">
+                <CodeValue value={agent.id} />
+                {agent.selector && <CodeValue value={agent.selector} />}
+                {agent.defaultSelector && agent.defaultSelector !== agent.selector && (
+                  <CodeValue value={agent.defaultSelector} />
+                )}
+              </div>
               <p className="s-agent-profile-hero-context">
                 {session?.title
                   ? `Conversation: ${session.title}.`
@@ -233,6 +276,10 @@ export function AgentInfoScreen({
         <ProfileCard
           title="Identity"
           items={identityItems}
+        />
+        <ProfileCard
+          title="Topology"
+          items={topologyItems}
         />
         <ProfileCard
           title="Workspace"
