@@ -844,6 +844,26 @@ describe("SQLiteControlPlaneStore", () => {
       });
       expect(duplicate.duplicate).toBe(true);
       expect(duplicate.action.id).toBe("action-1");
+      expect(store.getDurableActionByIdempotencyKey({
+        authorityCellId: "node-1",
+        kind: "message_delivery",
+        idempotencyKey: "delivery-1:create",
+      })?.id).toBe("action-1");
+      expect(store.getDurableActionByIdempotencyKey({
+        authorityCellId: "node-other",
+        kind: "message_delivery",
+        idempotencyKey: "delivery-1:create",
+      })).toBeNull();
+      expect(store.getDurableActionByIdempotencyKey({
+        authorityCellId: "node-1",
+        kind: "ask",
+        idempotencyKey: "delivery-1:create",
+      })).toBeNull();
+      expect(store.getDurableActionByIdempotencyKey({
+        authorityCellId: "node-1",
+        kind: "message_delivery",
+        idempotencyKey: "delivery-other:create",
+      })).toBeNull();
 
       const claimed = store.claimDurableAction({
         actionId: "action-1",

@@ -10,6 +10,7 @@ import type {
   MessageRecord,
   ScoutDeliverRequest,
   ScoutDeliverResponse,
+  ScoutInvocationLifecycle,
 } from "@openscout/protocol";
 
 import {
@@ -46,6 +47,7 @@ describe("active broker service helpers", () => {
     let feedQuery:
       | { agentId: string; limit?: number; since?: number | null; includeAcknowledged?: boolean }
       | undefined;
+    let lifecycleQuery: { invocationId: string } | undefined;
 
     const service: ActiveScoutBrokerService = {
       baseUrl: "http://broker.test",
@@ -106,6 +108,13 @@ describe("active broker service helpers", () => {
           items: [],
         };
       },
+      readInvocationLifecycle: async (query) => {
+        lifecycleQuery = query;
+        return {
+          invocationId: query.invocationId,
+          state: "completed",
+        } satisfies ScoutInvocationLifecycle;
+      },
       executeCommand: async () => ({ ok: true }),
     };
 
@@ -124,6 +133,10 @@ describe("active broker service helpers", () => {
     const feed = await maybeReadJsonFromActiveScoutBrokerService<{
       agentId: string;
     }>("http://broker.test", "/v1/broker/messages?agentId=agent-1&limit=5&since=50&includeAcknowledged=1");
+    const lifecycle = await maybeReadJsonFromActiveScoutBrokerService<ScoutInvocationLifecycle>(
+      "http://broker.test",
+      "/v1/invocations/inv-1/lifecycle",
+    );
     const miss = await maybeReadJsonFromActiveScoutBrokerService(
       "http://elsewhere.test",
       "/health",
@@ -154,6 +167,14 @@ describe("active broker service helpers", () => {
       limit: 5,
       includeAcknowledged: true,
     });
+    expect(lifecycle).toEqual({
+      handled: true,
+      value: {
+        invocationId: "inv-1",
+        state: "completed",
+      },
+    });
+    expect(lifecycleQuery).toEqual({ invocationId: "inv-1" });
     expect(miss).toEqual({ handled: false });
   });
 

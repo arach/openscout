@@ -1328,6 +1328,20 @@ describe("broker daemon comms layer", () => {
       targetAgentId: "ghost",
       state: "waking",
     }));
+
+    const lifecycle = await getJson<{
+      invocationId: string;
+      flightId: string;
+      state: string;
+      targetAgentId: string;
+    }>(secondHarness.baseUrl, "/v1/invocations/inv-restart-1/lifecycle");
+
+    expect(lifecycle).toEqual(expect.objectContaining({
+      invocationId: "inv-restart-1",
+      targetAgentId: "ghost",
+      state: "dispatching",
+    }));
+    expect(lifecycle.flightId).toBe(snapshot.flight?.id);
   }, 20_000);
 
   test("accepts broker-owned delivery for a known wakeable target", async () => {
@@ -1457,7 +1471,12 @@ describe("broker daemon comms layer", () => {
       kind: string;
       accepted: boolean;
       conversation?: { id: string; kind: string };
-      message?: { id: string; conversationId: string; actorId: string };
+      message?: {
+        id: string;
+        conversationId: string;
+        actorId: string;
+        metadata?: { returnAddress?: { sessionId?: string } };
+      };
     }>(harness.baseUrl, "/v1/deliver", {
       id: "deliver-operator-request",
       caller: {
@@ -1471,12 +1490,16 @@ describe("broker daemon comms layer", () => {
       body: "please review the rail",
       intent: "tell",
       ensureAwake: false,
+      replyToSessionId: "codex-thread-123",
       createdAt: Date.now(),
     });
 
     expect(request.kind).toBe("delivery");
     expect(request.accepted).toBe(true);
     expect(request.message?.actorId).toBe("operator");
+    expect(request.message?.metadata?.returnAddress?.sessionId).toBe(
+      "codex-thread-123",
+    );
 
     const refReply = await postJson<{
       kind: string;
@@ -1999,6 +2022,174 @@ describe("broker daemon comms layer", () => {
     expect(legacyAlias.accepted).toBe(true);
     expect(legacyAlias.targetAgentId).toBe("scout");
     expect(legacyAlias.receipt?.targetLabel).toBe("Scout");
+  }, 15_000);
+
+  test("routes exact session asks to the session owner and preserves existing-session execution", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "reviewer.main",
+      kind: "agent",
+      definitionId: "reviewer",
+      displayName: "Reviewer",
+      handle: "reviewer",
+      labels: ["test"],
+      selector: "@reviewer",
+      defaultSelector: "@reviewer",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-reviewer-main",
+      agentId: "reviewer.main",
+      nodeId: harness.nodeId,
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "active",
+      sessionId: "codex-thread-reviewer",
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      targetSessionId?: string;
+      receipt?: {
+        targetAgentId?: string;
+        targetSessionId?: string;
+        flightId?: string;
+      };
+      message?: {
+        metadata?: {
+          targetSessionId?: string;
+        };
+      };
+      flight?: {
+        id: string;
+        targetAgentId: string;
+        metadata?: Record<string, unknown>;
+      };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-session-target",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "session_id",
+        sessionId: "codex-thread-reviewer",
+      },
+      body: "continue the review in the same context",
+      intent: "consult",
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toBe("reviewer.main");
+    expect(response.targetSessionId).toBe("codex-thread-reviewer");
+    expect(response.receipt?.targetAgentId).toBe("reviewer.main");
+    expect(response.receipt?.targetSessionId).toBe("codex-thread-reviewer");
+    expect(response.message?.metadata?.targetSessionId).toBe("codex-thread-reviewer");
+
+    const snapshot = await getJson<{
+      invocations: Record<string, {
+        execution?: { session?: string; targetSessionId?: string };
+        metadata?: Record<string, unknown>;
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const invocation = Object.values(snapshot.invocations).find(
+      (value) => value.metadata?.targetSessionId === "codex-thread-reviewer",
+    );
+    expect(invocation?.execution).toMatchObject({
+      session: "existing",
+      targetSessionId: "codex-thread-reviewer",
+    });
+  }, 15_000);
+
+  test("auto-provisions a one-time card for project-target deliveries", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "implicit-project");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+      flight?: { targetAgentId: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-auto-card",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Review this project without a pre-created card.",
+      intent: "consult",
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId?.startsWith("implicit-project-card-")).toBe(true);
+    expect(response.targetAgentId?.endsWith(".test-node")).toBe(true);
+    expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+
+    const snapshot = await getJson<{
+      agents: Record<string, {
+        metadata?: {
+          projectRoot?: string;
+          cardLifecycle?: {
+            kind?: string;
+            createdById?: string;
+            expiresAt?: number;
+            maxUses?: number;
+          };
+        };
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const agent = snapshot.agents[response.targetAgentId!];
+    expect(agent?.metadata?.projectRoot).toBe(projectRoot);
+    expect(agent?.metadata?.cardLifecycle).toEqual(expect.objectContaining({
+      kind: "one_time",
+      createdById: "operator",
+      maxUses: 1,
+    }));
+    expect(agent?.metadata?.cardLifecycle?.expiresAt).toBeGreaterThan(Date.now());
+
+    const registry = JSON.parse(
+      readFileSync(join(supportDirectory, "relay-agents.json"), "utf8"),
+    ) as {
+      agents: Record<string, { card?: { kind?: string; createdById?: string; maxUses?: number } }>;
+    };
+    expect(registry.agents[response.targetAgentId!]?.card).toEqual(expect.objectContaining({
+      kind: "one_time",
+      createdById: "operator",
+      maxUses: 1,
+    }));
   }, 15_000);
 
   test("refreshes registered local agents before resolving broker-owned delivery", async () => {

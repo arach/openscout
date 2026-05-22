@@ -7,7 +7,9 @@ import {
   getLocalAgentConfig,
   inferLocalAgentBinding,
   listLocalAgents,
+  pruneOneTimeLocalAgentCards,
   retireLocalAgent,
+  retireConsumedOneTimeLocalAgentCards,
   resolveLocalAgentByName,
   resolveLocalAgentIdentity,
   startLocalAgent,
@@ -639,5 +641,190 @@ describe("local agent lifecycle", () => {
       definitionId: "ranger",
       projectConfigPath: manifestPath,
     });
+  });
+
+  test("prunes expired and overflowing one-time agent cards", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "review-old.test-node": {
+        agentId: "review-old.test-node",
+        definitionId: "review-old",
+        displayName: "Review Old",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 1_000,
+          createdById: "operator",
+          expiresAt: 2_000,
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-old-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+      "review-overflow.test-node": {
+        agentId: "review-overflow.test-node",
+        definitionId: "review-overflow",
+        displayName: "Review Overflow",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 3_000,
+          createdById: "operator",
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-overflow-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+      "review-new.test-node": {
+        agentId: "review-new.test-node",
+        definitionId: "review-new",
+        displayName: "Review New",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 9_000,
+          createdById: "operator",
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-new-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+      "ranger.test-node": {
+        agentId: "ranger.test-node",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "ranger-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const result = await pruneOneTimeLocalAgentCards({
+      now: 10_000,
+      maxAgeMs: 100_000,
+      maxCount: 1,
+      createdById: "operator",
+      projectRoot,
+    });
+
+    expect(result.retired.map((agent) => agent.definitionId).sort()).toEqual([
+      "review-old",
+      "review-overflow",
+    ]);
+    expect(result.remaining).toBe(1);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "ranger.test-node",
+      "review-new.test-node",
+    ]);
+  });
+
+  test("retires a one-time card after its direct conversation is used by the peer", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "review-reply.test-node": {
+        agentId: "review-reply.test-node",
+        definitionId: "review-reply",
+        displayName: "Review Reply",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 1_000,
+          createdById: "operator",
+          inboxConversationId: "dm.operator.review-reply.test-node",
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-reply-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+      "target.test-node": {
+        agentId: "target.test-node",
+        definitionId: "target",
+        displayName: "Target",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "target-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    expect(
+      await retireConsumedOneTimeLocalAgentCards({
+        conversationId: "dm.operator.review-reply.test-node",
+        actorId: "operator",
+        participantIds: ["operator", "review-reply.test-node"],
+      }),
+    ).toEqual([]);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "review-reply.test-node",
+      "target.test-node",
+    ]);
+
+    expect(
+      await retireConsumedOneTimeLocalAgentCards({
+        conversationId: "dm.operator.review-reply.test-node",
+        actorId: "review-reply.test-node",
+        participantIds: ["operator", "review-reply.test-node"],
+      }),
+    ).toEqual([]);
+
+    const retired = await retireConsumedOneTimeLocalAgentCards({
+      conversationId: "dm.review-reply.test-node.target.test-node",
+      actorId: "target.test-node",
+      participantIds: ["review-reply.test-node", "target.test-node"],
+    });
+
+    expect(retired.map((agent) => agent.definitionId)).toEqual(["review-reply"]);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual(["target.test-node"]);
   });
 });

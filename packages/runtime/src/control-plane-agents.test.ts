@@ -13,13 +13,18 @@ afterEach(() => {
   }
 });
 
-function makeBinding() {
+function makeBinding(overrides: {
+  agentId?: string;
+  definitionId?: string;
+} = {}) {
+  const agentId = overrides.agentId ?? "alpha.test-node";
+  const definitionId = overrides.definitionId ?? "alpha";
   return {
     actor: {
-      id: "alpha.test-node",
+      id: agentId,
       kind: "agent" as const,
       displayName: "Alpha Agent",
-      handle: "alpha",
+      handle: definitionId,
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         project: "Alpha",
@@ -27,21 +32,21 @@ function makeBinding() {
       },
     },
     agent: {
-      id: "alpha.test-node",
+      id: agentId,
       kind: "agent" as const,
-      definitionId: "alpha",
+      definitionId,
       nodeQualifier: "test-node",
       workspaceQualifier: "",
-      selector: "@alpha",
-      defaultSelector: "@alpha",
+      selector: `@${definitionId}`,
+      defaultSelector: `@${definitionId}`,
       displayName: "Alpha Agent",
-      handle: "alpha",
+      handle: definitionId,
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         project: "Alpha",
         projectRoot: "/tmp/alpha",
-        selector: "@alpha",
-        defaultSelector: "@alpha",
+        selector: `@${definitionId}`,
+        defaultSelector: `@${definitionId}`,
       },
       agentClass: "general" as const,
       capabilities: ["chat", "invoke", "deliver"] as const,
@@ -52,7 +57,7 @@ function makeBinding() {
     },
     endpoint: {
       id: "endpoint.alpha.node-1",
-      agentId: "alpha.test-node",
+      agentId,
       nodeId: "node-1",
       harness: "codex" as const,
       transport: "codex_app_server" as const,
@@ -240,6 +245,96 @@ describe("createScoutAgentService", () => {
       [binding.agent.id, "node-fallback"],
     ]);
     expect(openScoutPeerSession.mock.calls).toHaveLength(0);
+  });
+
+  test("createScoutAgentCard can create a one-time reply address and clean older cards", async () => {
+    const binding = makeBinding({
+      agentId: "alpha-reply-a1b2c3d4.test-node",
+      definitionId: "alpha-reply-a1b2c3d4",
+    });
+    const status = makeStatus(binding);
+    const broker = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {},
+    };
+    const startLocalAgent = mock(async () => status);
+    const updateLocalAgentCardLifecycle = mock(async (_agentId: string, lifecycle: Record<string, unknown>) => lifecycle);
+    const pruneOneTimeLocalAgentCards = mock(async () => ({
+      inspected: 2,
+      remaining: 1,
+      retired: [makeStatus(makeBinding({
+        agentId: "alpha-reply-old.test-node",
+        definitionId: "alpha-reply-old",
+      }))],
+    }));
+    const retireScoutLocalAgentBinding = mock(async () => true);
+    const service = createScoutAgentService({
+      loadScoutBrokerContext: mock(async () => broker),
+      openScoutPeerSession: mock(async () => ({
+        sourceId: "operator",
+        conversation: {
+          id: "conv-alpha-reply",
+        },
+      })),
+      registerScoutLocalAgentBinding: mock(async () => ({
+        binding,
+        brokerRegistered: true,
+      })),
+      retireScoutLocalAgentBinding,
+      localAgents: {
+        listLocalAgents: mock(async () => []),
+        pruneOneTimeLocalAgentCards,
+        restartAllLocalAgents: mock(async () => []),
+        startLocalAgent,
+        stopAllLocalAgents: mock(async () => []),
+        stopLocalAgent: mock(async () => null),
+        updateLocalAgentCardLifecycle,
+        inferLocalAgentBinding: mock(async () => {
+          throw new Error("unexpected fallback binding lookup");
+        }),
+      },
+    });
+
+    const card = await service.createScoutAgentCard({
+      projectPath: "/tmp/alpha",
+      currentDirectory: "/tmp/alpha",
+      agentName: "alpha-reply",
+      createdById: "operator",
+      oneTimeUse: true,
+      ttlMs: 60_000,
+    });
+
+    expect(card.lifecycle).toMatchObject({
+      kind: "one_time",
+      createdById: "operator",
+      inboxConversationId: "conv-alpha-reply",
+      maxUses: 1,
+    });
+    expect(startLocalAgent.mock.calls[0]?.[0]).toMatchObject({
+      projectPath: "/tmp/alpha",
+      currentDirectory: "/tmp/alpha",
+      ensureOnline: false,
+      card: {
+        kind: "one_time",
+        createdById: "operator",
+        maxUses: 1,
+      },
+    });
+    const generatedName = startLocalAgent.mock.calls[0]?.[0]?.agentName;
+    expect(generatedName?.startsWith("alpha-reply-card-")).toBe(true);
+    expect(generatedName).not.toBe("alpha-reply");
+    expect(updateLocalAgentCardLifecycle.mock.calls[0]?.[1]).toMatchObject({
+      inboxConversationId: "conv-alpha-reply",
+    });
+    expect(pruneOneTimeLocalAgentCards.mock.calls[0]?.[0]).toMatchObject({
+      createdById: "operator",
+      projectRoot: "/tmp/alpha",
+      excludeAgentIds: [binding.agent.id],
+    });
+    expect(retireScoutLocalAgentBinding.mock.calls).toEqual([
+      [{ agentId: "alpha-reply-old.test-node", broker }],
+    ]);
   });
 
   test("updateScoutAgentCard updates local config, restarts, and resyncs broker", async () => {

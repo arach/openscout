@@ -87,6 +87,7 @@ export type ScoutCardCreateCommandOptions = ContextRootOptions & {
   permissionProfile?: string;
   requesterId: string | null;
   noInput?: boolean;
+  oneTimeUse?: boolean;
 };
 
 export type ScoutTuiCommandOptions = ContextRootOptions & {
@@ -279,6 +280,15 @@ function parseComposerRoutedBody(
     return {
       targetLabel: `ref:${target.ref}`,
       targetRef: target.ref,
+      message: parsed.body,
+    };
+  }
+  if (target.kind === "session_id") {
+    if (commandName === "send") {
+      throw new ScoutCliError("send route operator must target an agent label, ref, channel, or broadcast");
+    }
+    return {
+      targetLabel: `session:${target.sessionId}`,
       message: parsed.body,
     };
   }
@@ -1033,6 +1043,7 @@ export function parseCardCreateCommandOptions(
   let permissionProfile: string | undefined;
   let requesterId: string | null = null;
   let noInput = false;
+  let oneTimeUse = false;
 
   for (let index = 0; index < parsed.args.length; index += 1) {
     const current = parsed.args[index] ?? "";
@@ -1097,6 +1108,10 @@ export function parseCardCreateCommandOptions(
       noInput = true;
       continue;
     }
+    if (current === "--one-time") {
+      oneTimeUse = true;
+      continue;
+    }
     if (current.startsWith("--")) {
       unexpectedArgs("card create", args);
     }
@@ -1118,6 +1133,7 @@ export function parseCardCreateCommandOptions(
     permissionProfile,
     requesterId,
     noInput,
+    oneTimeUse,
   };
 }
 

@@ -200,8 +200,10 @@ export function createScoutControlPlaneServer(
     const body = (await c.req.json()) as {
       senderId?: string;
       body: string;
+      targetSessionId?: string;
       targetAgentId?: string;
       targetLabel?: string;
+      replyToSessionId?: string;
       channel?: string;
       shouldSpeak?: boolean;
       workItem?: {
@@ -223,9 +225,10 @@ export function createScoutControlPlaneServer(
         metadata?: Record<string, unknown>;
       };
     };
-    const { senderId, targetAgentId, targetLabel, channel, shouldSpeak } = body;
+    const { senderId, targetSessionId, targetAgentId, targetLabel, channel, shouldSpeak } = body;
     const messageBody = body.body;
     const workItem = body.workItem ?? body.task;
+    const replyToSessionId = body.replyToSessionId?.trim();
 
     if (!messageBody?.trim()) {
       return c.json({ error: "body is required" }, 400);
@@ -233,8 +236,8 @@ export function createScoutControlPlaneServer(
     if (!workItem?.title?.trim()) {
       return c.json({ error: "workItem.title is required" }, 400);
     }
-    if (!targetAgentId?.trim() && !targetLabel?.trim()) {
-      return c.json({ error: "targetAgentId or targetLabel is required" }, 400);
+    if (!targetSessionId?.trim() && !targetAgentId?.trim() && !targetLabel?.trim()) {
+      return c.json({ error: "targetSessionId, targetAgentId, or targetLabel is required" }, 400);
     }
 
     const resolvedSenderId = await resolveScoutSenderId(
@@ -242,7 +245,21 @@ export function createScoutControlPlaneServer(
       currentDirectory,
     );
 
-    const result = targetAgentId?.trim()
+    const result = targetSessionId?.trim()
+      ? await askScoutQuestion({
+          senderId: resolvedSenderId,
+          targetLabel: `session:${targetSessionId.trim()}`,
+          target: { kind: "session_id", sessionId: targetSessionId.trim() },
+          targetSessionId: targetSessionId.trim(),
+          body: messageBody.trim(),
+          workItem,
+          channel,
+          shouldSpeak,
+          replyToSessionId,
+          currentDirectory,
+          source: "scout-control-plane",
+        })
+      : targetAgentId?.trim()
       ? await askScoutAgentById({
           senderId: resolvedSenderId,
           targetAgentId: targetAgentId.trim(),
@@ -250,6 +267,7 @@ export function createScoutControlPlaneServer(
           workItem,
           channel,
           shouldSpeak,
+          replyToSessionId,
           currentDirectory,
           source: "scout-control-plane",
         })
@@ -260,6 +278,7 @@ export function createScoutControlPlaneServer(
           workItem,
           channel,
           shouldSpeak,
+          replyToSessionId,
           currentDirectory,
         });
 

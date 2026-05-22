@@ -363,6 +363,23 @@ export class FileBackedBrokerJournal {
     return this.state.durableActions.get(actionId) ?? null;
   }
 
+  getDurableActionByIdempotencyKey(input: {
+    authorityCellId: string;
+    kind: DurableAction["kind"];
+    idempotencyKey: string;
+  }): DurableAction | null {
+    for (const action of this.state.durableActions.values()) {
+      if (
+        action.authorityCellId === input.authorityCellId
+        && action.kind === input.kind
+        && action.idempotencyKey === input.idempotencyKey
+      ) {
+        return action;
+      }
+    }
+    return null;
+  }
+
   private async rewriteEntries(entries: BrokerJournalEntry[]): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
     const payload = entries.length > 0

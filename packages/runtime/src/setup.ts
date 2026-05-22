@@ -232,6 +232,14 @@ export type RelayAgentOverride = {
   capabilities?: AgentCapability[];
   defaultHarness?: AgentHarness;
   harnessProfiles?: Partial<Record<ManagedAgentHarness, RelayHarnessProfileInput>>;
+  card?: {
+    kind: "persistent" | "one_time";
+    createdAt?: number;
+    createdById?: string;
+    expiresAt?: number;
+    maxUses?: number;
+    inboxConversationId?: string;
+  };
   runtime?: {
     cwd?: string;
     harness?: AgentHarness;
@@ -240,6 +248,8 @@ export type RelayAgentOverride = {
     wakePolicy?: "on_demand";
   };
 };
+
+export type RelayAgentCardLifecycle = NonNullable<RelayAgentOverride["card"]>;
 
 export type ResolvedRelayAgentConfig = {
   agentId: string;
