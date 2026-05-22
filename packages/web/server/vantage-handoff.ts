@@ -412,6 +412,7 @@ function queueHudsonTerminiCanvasSetup(input: { handoffId: string; setupPath: st
     includeMetrics: true,
     includeStyle: true,
   };
+  mkdirSync(dirname(controlPath), { recursive: true });
   appendFileSync(controlPath, `${JSON.stringify(command)}\n`, "utf8");
 }
 
