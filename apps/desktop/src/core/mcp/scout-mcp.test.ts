@@ -47,6 +47,7 @@ async function connectTestServer(
       ...process.env,
       OPENSCOUT_BROKER_URL: "http://broker.test",
       CODEX_THREAD_ID: "019ddb1b-test-thread",
+      OPENSCOUT_EXPOSE_DEPRECATED_INVOCATIONS_ASK: "1",
       ...envOverrides,
     },
     dependencies,
@@ -98,6 +99,8 @@ describe("createScoutMcpServer", () => {
       waitForFlight: async () => {
         throw new Error("not used");
       },
+    }, {
+      OPENSCOUT_EXPOSE_DEPRECATED_INVOCATIONS_ASK: "",
     });
 
     const result = await client.listTools();
@@ -115,7 +118,6 @@ describe("createScoutMcpServer", () => {
       "agents_resolve",
       "ask",
       "messages_send",
-      "invocations_ask",
       "invocations_get",
       "invocations_wait",
       "labels_brief",
@@ -125,7 +127,7 @@ describe("createScoutMcpServer", () => {
     expect(result.tools.find((tool) => tool.name === "whoami")?.description)
       .toContain("Use this when host or workspace context is unclear");
     expect(result.tools.find((tool) => tool.name === "messages_send")?.description)
-      .toContain("For agent-to-agent work, use ask instead.");
+      .toContain("For new agent-to-agent work, use ask instead.");
     expect(result.tools.find((tool) => tool.name === "messages_inbox")?.description)
       .toContain("instead of curling broker HTTP endpoints");
     expect(result.tools.find((tool) => tool.name === "messages_channel")?.description)
@@ -133,7 +135,7 @@ describe("createScoutMcpServer", () => {
     expect(result.tools.find((tool) => tool.name === "broker_feed")?.description)
       .toContain("native broker view");
     expect(result.tools.find((tool) => tool.name === "messages_reply")?.description)
-      .toContain("active ScoutReplyContext");
+      .toContain("current ScoutReplyContext");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)
       .toContain("progress, waiting, review, and done transitions");
     expect(result.tools.find((tool) => tool.name === "labels_brief")?.description)
@@ -596,7 +598,7 @@ describe("createScoutMcpServer", () => {
     expect(result.content).toEqual([
       {
         type: "text",
-        text: "No active Scout broker reply context. Use messages_send for a new message, or pass conversationId and replyToMessageId explicitly.",
+        text: "No active Scout broker reply context. Use messages_send for a new message, use ask for a new request, or pass conversationId and replyToMessageId explicitly.",
       },
     ]);
     expect(result.structuredContent).toMatchObject({
@@ -688,7 +690,7 @@ describe("createScoutMcpServer", () => {
           };
         }
       | undefined;
-    const askTool = result.tools.find((tool) => tool.name === "invocations_ask") as
+    const askTool = result.tools.find((tool) => tool.name === "ask") as
       | {
           _meta?: Record<string, unknown>;
           inputSchema?: {
@@ -726,13 +728,7 @@ describe("createScoutMcpServer", () => {
     expect(askTool?._meta).toMatchObject({
       [SCOUT_MCP_UI_META_KEY]: {
         fields: {
-          targetAgentId: {
-            kind: "agent-picker",
-            selection: "single",
-            sourceTool: "agents_search",
-            valueField: "agentId",
-          },
-          targetLabel: {
+          to: {
             kind: "agent-picker",
             selection: "single",
             sourceTool: "agents_search",
@@ -743,10 +739,13 @@ describe("createScoutMcpServer", () => {
       },
     });
     expect(sendTool?.inputSchema?.properties?.targetLabel?.description).toBe(
-      "Scout agent handle to contact, such as @talkie or @talkie#codex?5.5",
+      "Scout agent handle to contact, such as @talkie. Treat harness/model/profile as instance constraints, not the base agent identity.",
     );
-    expect(askTool?.inputSchema?.properties?.targetAgentId?.description).toBe(
-      "Exact Scout agent id when already known, such as talkie.master.mini",
+    expect(askTool?.inputSchema?.properties?.to?.description).toContain(
+      "Agent id, label",
+    );
+    expect(askTool?.inputSchema?.properties?.projectPath?.description).toContain(
+      "when you do not have a specific agent in mind",
     );
   });
 
@@ -870,6 +869,7 @@ describe("createScoutMcpServer", () => {
     expect(result.structuredContent).toEqual({
       ok: true,
       state: "queued",
+      delivery: "none",
       ids: {
         targetAgentId: "talkie.main",
         invocationId: "inv-1",
@@ -882,7 +882,7 @@ describe("createScoutMcpServer", () => {
     );
   });
 
-  test("ask can target a project path without an agent label", async () => {
+  test("ask resolves a project path without an agent label", async () => {
     let receivedAsk: ScoutAskCommand | undefined;
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator.main",
@@ -903,14 +903,14 @@ describe("createScoutMcpServer", () => {
     const result = await client.callTool({
       name: "ask",
       arguments: {
-        projectPath: "/tmp/talkie",
+        projectPath: "talkie",
         body: "How did you handle auth?",
       },
     });
 
     expect(receivedAsk).toEqual({
       senderId: "operator.main",
-      projectPath: "/tmp/talkie",
+      projectPath: "/tmp/openscout-test/talkie",
       body: "How did you handle auth?",
       replyToSessionId: "019ddb1b-test-thread",
       currentDirectory: "/tmp/openscout-test",
@@ -923,6 +923,188 @@ describe("createScoutMcpServer", () => {
         targetAgentId: "talkie.main",
         invocationId: "inv-1",
         flightId: "flt-1",
+      },
+    });
+  });
+
+  test("ask schedules MCP reply notifications in notify mode", async () => {
+    let receivedWaitOptions: unknown;
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator.main",
+      resolveBrokerUrl: () => "http://broker.test",
+      scoutAskHandler: async () => ({
+        ok: true,
+        state: "queued",
+        ids: {
+          targetAgentId: "talkie.main",
+          conversationId: "dm.operator.talkie",
+          messageId: "msg-1",
+          invocationId: "inv-1",
+          flightId: "flight-1",
+        },
+      }),
+      getFlight: async () => ({
+        id: "flight-1",
+        invocationId: "inv-1",
+        requesterId: "operator.main",
+        targetAgentId: "talkie.main",
+        state: "running",
+      }),
+      waitForFlight: async (_baseUrl, _flightId, options) => {
+        receivedWaitOptions = options;
+        return {
+          id: "flight-1",
+          invocationId: "inv-1",
+          requesterId: "operator.main",
+          targetAgentId: "talkie.main",
+          state: "completed",
+          output: "talkie replied",
+        };
+      },
+    });
+
+    const notificationPromise = new Promise<{
+      params: {
+        status: string;
+        flightId: string;
+        output: string | null;
+        targetAgentId: string | null;
+      };
+    }>((resolve) => {
+      client.setNotificationHandler(
+        z.object({
+          method: z.literal("notifications/scout/reply"),
+          params: z
+            .object({
+              status: z.string(),
+              flightId: z.string(),
+              output: z.string().nullable(),
+              targetAgentId: z.string().nullable(),
+            })
+            .catchall(z.unknown()),
+        }),
+        (notification) => resolve(notification),
+      );
+    });
+
+    const result = await client.callTool({
+      name: "ask",
+      arguments: {
+        to: "talkie",
+        body: "Review this.",
+        replyMode: "notify",
+        timeoutSeconds: 1,
+      },
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      state: "queued",
+      delivery: "mcp_notification",
+      notification: {
+        method: "notifications/scout/reply",
+        status: "scheduled",
+      },
+      ids: {
+        targetAgentId: "talkie.main",
+        flightId: "flight-1",
+      },
+    });
+
+    const notification = await notificationPromise;
+    expect(notification.params.status).toBe("completed");
+    expect(notification.params.flightId).toBe("flight-1");
+    expect(notification.params.output).toBe("talkie replied");
+    expect(notification.params.targetAgentId).toBe("talkie.main");
+    expect(receivedWaitOptions).toBeUndefined();
+  });
+
+  test("ask reports notify delivery even when notification scheduling cannot start", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator.main",
+      resolveBrokerUrl: () => "http://broker.test",
+      scoutAskHandler: async () => ({
+        ok: true,
+        state: "queued",
+        ids: {
+          targetAgentId: "talkie.main",
+          conversationId: "dm.operator.talkie",
+          messageId: "msg-1",
+          invocationId: "inv-1",
+          flightId: "flight-1",
+        },
+      }),
+      getFlight: async () => {
+        throw new Error("flight temporarily unavailable");
+      },
+      waitForFlight: async () => {
+        throw new Error("notify mode should not inline wait");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "ask",
+      arguments: {
+        to: "talkie",
+        body: "Review this.",
+        wait: true,
+        replyMode: "notify",
+      },
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      state: "queued",
+      delivery: "mcp_notification",
+      notification: {
+        method: "notifications/scout/reply",
+        status: "not_scheduled",
+      },
+      ids: {
+        targetAgentId: "talkie.main",
+        flightId: "flight-1",
+      },
+    });
+  });
+
+  test("ask reports inline delivery when the caller waits", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator.main",
+      resolveBrokerUrl: () => "http://broker.test",
+      scoutAskHandler: async () => ({
+        ok: true,
+        state: "queued",
+        ids: {
+          targetAgentId: "talkie.main",
+          invocationId: "inv-1",
+          flightId: "flight-1",
+        },
+      }),
+      waitForFlight: async () => ({
+        id: "flight-1",
+        invocationId: "inv-1",
+        requesterId: "operator.main",
+        targetAgentId: "talkie.main",
+        state: "completed",
+      }),
+    });
+
+    const result = await client.callTool({
+      name: "ask",
+      arguments: {
+        to: "talkie",
+        body: "Review this.",
+        wait: true,
+      },
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      state: "completed",
+      delivery: "inline",
+      ids: {
+        targetAgentId: "talkie.main",
+        flightId: "flight-1",
       },
     });
   });
@@ -1418,7 +1600,7 @@ describe("createScoutMcpServer", () => {
     expect(notification.params.links?.follow).toBe(notification.params.followUrl);
   });
 
-  test("inline ask by exact target returns follow-up guidance on timeout", async () => {
+  test("inline ask by exact target returns follow-up guidance when the caller wait elapses", async () => {
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator",
       resolveBrokerUrl: () => "http://broker.test",
@@ -1500,7 +1682,7 @@ describe("createScoutMcpServer", () => {
     );
   });
 
-  test("inline ask by target label returns follow-up guidance on timeout", async () => {
+  test("inline ask by target label returns follow-up guidance when the caller wait elapses", async () => {
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator",
       resolveBrokerUrl: () => "http://broker.test",
@@ -1667,7 +1849,7 @@ describe("createScoutMcpServer", () => {
     expect(content?.[0]?.text).toContain("Flight flight-1 is running.");
   });
 
-  test("bounded wait returns the latest flight state on timeout", async () => {
+  test("bounded wait returns the latest flight state when the caller wait elapses", async () => {
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator",
       resolveBrokerUrl: () => "http://broker.test",
@@ -1742,7 +1924,7 @@ describe("createScoutMcpServer", () => {
 
     expect(structured.found).toBe(true);
     expect(structured.terminal).toBe(false);
-    expect(structured.waitStatus).toBe("timeout");
+    expect(structured.waitStatus).toBe("pending");
     expect(structured.output).toBe("Still working");
     expect(structured.flight?.state).toBe("running");
     expect(structured.lifecycle?.deliveries?.[0]?.state).toBe("dead_lettered");

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
+import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { actorColor } from "../lib/colors.ts";
 import {
@@ -338,13 +339,13 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                   const sel = window.getSelection()?.toString().trim();
                   const items: MenuItem[] = [];
                   if (sel) {
-                    items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => navigator.clipboard.writeText(sel) });
+                    items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => { void copyTextToClipboard(sel); } });
                     items.push({ kind: "separator" });
                   }
                   const text = item.title ?? item.summary ?? "";
-                  if (text) items.push({ kind: "action", label: "Copy Details", onSelect: () => navigator.clipboard.writeText(text) });
-                  if (item.actorName) items.push({ kind: "action", label: "Copy Actor", onSelect: () => navigator.clipboard.writeText(item.actorName!) });
-                  items.push({ kind: "action", label: "Copy Event ID", onSelect: () => navigator.clipboard.writeText(item.id) });
+                  if (text) items.push({ kind: "action", label: "Copy Details", onSelect: () => { void copyTextToClipboard(text); } });
+                  if (item.actorName) items.push({ kind: "action", label: "Copy Actor", onSelect: () => { void copyTextToClipboard(item.actorName!); } });
+                  items.push({ kind: "action", label: "Copy Event ID", onSelect: () => { void copyTextToClipboard(item.id); } });
                   if (jumps.length > 0) {
                     items.push({ kind: "separator" });
                     for (const jump of jumps) {

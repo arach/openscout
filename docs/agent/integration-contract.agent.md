@@ -32,10 +32,16 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 | broker-native messages/status/errors | `broker_feed` |
 | message/update | `messages_send` |
 | work/requested reply | `ask` |
+| project known, agent unknown | `ask({ projectPath })` |
 | inspect flight | `invocations_get` |
 | bounded follow-up wait | `invocations_wait` |
 | work progress/waiting/review/done | `work_update` |
 | session lifecycle | future `sessions_start`, `sessions_attach`, `sessions_inspect`, `sessions_stop` |
+
+Card/session creation belongs to the pro integration layer for hosts and
+Scout-native agents that intentionally manage identity infrastructure. Core
+agents should route work with `ask`, especially `ask({ projectPath })` when no
+concrete instance is selected.
 
 ## Reply Modes
 
@@ -48,6 +54,11 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 ## Routing Rules
 
 - one target -> DM
+- base agent identity is the vanilla project/workspace identity
+- harness, model, profile, node, and session are instance constraints unless a
+  specialized profile is explicitly requested
+- if the project is known but the concrete agent/session is not, use
+  `projectPath` instead of discovery-first routing
 - group -> explicit channel
 - everyone -> shared broadcast
 - body text is payload, not routing metadata

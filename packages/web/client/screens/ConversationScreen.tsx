@@ -52,6 +52,7 @@ import { useScout } from "../scout/Provider.tsx";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
+import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import type {
@@ -1693,28 +1694,35 @@ export function ConversationScreen({
           kind: "action",
           label: "Copy Selection",
           shortcut: "⌘C",
-          onSelect: () => navigator.clipboard.writeText(sel),
+          onSelect: () => {
+            void copyTextToClipboard(sel);
+          },
         });
         items.push({ kind: "separator" });
       }
       items.push({
         kind: "action",
         label: "Copy Message",
-        onSelect: () => navigator.clipboard.writeText(message.body),
+        onSelect: () => {
+          void copyTextToClipboard(message.body);
+        },
       });
       if (message.actorName && !isOperatorMessage(message, operatorName)) {
         items.push({
           kind: "action",
           label: "Copy Agent ID",
-          onSelect: () =>
-            navigator.clipboard.writeText(message.actorName ?? ""),
+          onSelect: () => {
+            void copyTextToClipboard(message.actorName ?? "");
+          },
         });
       }
       items.push({ kind: "separator" });
       items.push({
         kind: "action",
         label: "Copy Message ID",
-        onSelect: () => navigator.clipboard.writeText(message.id),
+        onSelect: () => {
+          void copyTextToClipboard(message.id);
+        },
       });
       showContextMenu(event, items);
     },
@@ -1822,20 +1830,26 @@ export function ConversationScreen({
               {
                 kind: "action",
                 label: "Copy Title",
-                onSelect: () => navigator.clipboard.writeText(threadTitle),
+                onSelect: () => {
+                  void copyTextToClipboard(threadTitle);
+                },
               },
             ];
             if (agentId) {
               items.push({
                 kind: "action",
                 label: "Copy Agent ID",
-                onSelect: () => navigator.clipboard.writeText(agentId),
+                onSelect: () => {
+                  void copyTextToClipboard(agentId);
+                },
               });
             }
             items.push({
               kind: "action",
               label: "Copy Conversation ID",
-              onSelect: () => navigator.clipboard.writeText(conversationId),
+              onSelect: () => {
+                void copyTextToClipboard(conversationId);
+              },
             });
             showContextMenu(e, items);
           }}

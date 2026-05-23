@@ -32,6 +32,7 @@
     "test:e2e": "bun run check && bun run test:scenarios && bun run test:e2e:agents",
     "test:e2e:agents": "bun run --cwd packages/runtime test:e2e:local-agent-pass",
     "test:live:agents": "bun run --cwd packages/runtime test:live:local-agent-pass",
+    "cursor:transport-spike": "bun scripts/cursor-transport-spike.mjs",
     "pi:minimax": "bash scripts/pi-minimax-headless.sh",
     "pi:minimax:up": "bun scripts/pi-minimax-up.mjs",
     "pi:minimax:restart": "bun scripts/pi-minimax-up.mjs --restart",

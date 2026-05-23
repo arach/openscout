@@ -71,6 +71,11 @@ export type ScoutAskReceipt = {
     workId?: string;
     bindingRef?: string;
   };
+  delivery?: "none" | "inline" | "mcp_notification";
+  notification?: {
+    method: "notifications/scout/reply";
+    status: "scheduled" | "not_scheduled";
+  };
   next?: ScoutAskNextCall;
   error?: ScoutAskError;
 };

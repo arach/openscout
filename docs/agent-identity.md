@@ -4,7 +4,36 @@ This doc explains how Scout turns a human-friendly handle like `@hudson` into on
 
 Every agent Scout can address has a name. When there is only one matching agent on one machine, the name is simple — `@arc` or `@hudson`. But agents multiply. The same project might run on two machines. The same workspace might have a main branch and a feature branch, each with its own agent. A project might use Claude for one task and Codex for another.
 
-The identity grammar exists to keep every target unambiguously addressable while still letting humans type the shortest useful name.
+The identity grammar exists to keep every target unambiguously addressable while still letting humans type the shortest useful name. The default target is the base project/workspace identity. Harness, model, node, and session details describe the concrete instance Scout routes to; they are not a different base agent unless the caller intentionally chooses a specialized profile.
+
+## Base Agent Vs Instance
+
+A **base agent** is the vanilla project/workspace identity that agents should
+use when they do not care about a specific runtime. In practice this is the
+thing represented by a project path, such as `../talkie`, or by a short handle,
+such as `@talkie`.
+
+An **agent instance** is the concrete attachment Scout routes to for that base
+identity: a Claude or Codex harness, a model choice, a machine/node, and
+possibly a sticky session/thread. Asking for a specific instance should refine
+the route, not create the impression that `talkie#codex` and `talkie#claude`
+are separate base agents.
+
+Default rule: if the project is known but the exact agent/session is not, use
+project routing and let Scout pick or create the concrete instance:
+
+```bash
+scout ask --project ../talkie "Review this."
+```
+
+```ts
+ask({ projectPath: "../talkie", body: "Review this." })
+```
+
+Specialized profiles may become first-class over time. For example,
+`@scout.profile:investigator` could name a profile with a dedicated tool set
+and instructions. That is a specialization layered onto the project identity,
+not the default routing model.
 
 ## Three Layers
 
@@ -24,10 +53,10 @@ An agent identity combines up to six dimensions:
 |---|---|---|
 | `definitionId` | The base project or workspace | `arc`, `hudson` |
 | `workspaceQualifier` | A non-default worktree or branch | `super-refactor`, `main` |
-| `profile` | A capability or persona preset | `dev`, `dev-browser` |
-| `harness` | The execution backend | `claude`, `codex` |
-| `model` | The model family or concrete model | `sonnet`, `gpt-5-5` |
-| `node` | The machine or host | `mini`, `macbook` |
+| `profile` | Optional specialization/persona, not the default route | `dev`, `investigator` |
+| `harness` | Instance execution backend | `claude`, `codex` |
+| `model` | Instance model family or concrete model | `sonnet`, `gpt-5-5` |
+| `node` | Instance machine or host | `mini`, `macbook` |
 
 The canonical form strings them together with dots:
 
@@ -46,9 +75,9 @@ From shortest to most qualified:
 | `@arc` | The only `arc` agent currently online |
 | `@arc.main` | The `arc` agent on the `main` branch |
 | `@arc.super-refactor` | The `arc` agent on a feature worktree |
-| `@arc.main.harness:claude` | Specifically the Claude-backed `arc` on main |
-| `@lattices#codex?5.5` | Shorthand for Codex-backed `lattices` on a 5.5 model |
-| `@lattices#claude?sonnet` | Shorthand for Claude-backed `lattices` on Sonnet |
+| `@arc.main.harness:claude` | The Claude instance of `arc` on main |
+| `@lattices#codex?5.5` | Compatibility shorthand for the Codex instance of `lattices` on a 5.5 model |
+| `@lattices#claude?sonnet` | Compatibility shorthand for the Claude instance of `lattices` on Sonnet |
 | `@arc.super-refactor.harness:claude.node:mini` | Fully qualified: project, branch, harness, machine |
 
 ## Parsing and Normalization

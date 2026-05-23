@@ -22,7 +22,7 @@ hardened multi-tenant runtime.
 
 After that, choose the role-specific next read:
 
-- Agent or adapter integration: [`agent-integration-contract.md`](./agent-integration-contract.md), then [`scout-comms.md`](./scout-comms.md)
+- Agent or adapter integration: [`agent-integration-contract.md`](./agent-integration-contract.md), then [`scout-comms.md`](./scout-comms.md), then [`mcp-api-posture.md`](./mcp-api-posture.md)
 - Routing and identity: [`agent-identity.md`](./agent-identity.md), then [`scout-agent-delegation.md`](./scout-agent-delegation.md)
 - Data model and ownership: [`data-ownership.md`](./data-ownership.md), then [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md)
 - Human/operator surfaces: [`ask-scout.md`](./ask-scout.md), then [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md)
@@ -39,6 +39,7 @@ After that, choose the role-specific next read:
 - [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
 - [`agent-integration-contract.md`](./agent-integration-contract.md) gives coding agents and adapter authors the minimum contract for plugging into Scout
 - [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients and adapters
+- [`mcp-api-posture.md`](./mcp-api-posture.md) defines the core vs pro Scout MCP tool tiers
 - [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
 - [`ranger.md`](./ranger.md) defines Ranger as the direct in-app control-plane assistant
@@ -78,6 +79,7 @@ After that, choose the role-specific next read:
 - "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
 - "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
 - "How should a client or adapter understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
+- "Which MCP tools are core versus pro integration?" Read [`mcp-api-posture.md`](./mcp-api-posture.md).
 - "Where do host integrations live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
 - "What is Ranger?" Read [`ranger.md`](./ranger.md).

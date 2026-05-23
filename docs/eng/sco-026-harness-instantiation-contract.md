@@ -49,7 +49,7 @@ Those operations should not be collapsed. If a caller asks for a new
 `@openscout` Claude session, the host should first call an instantiation tool
 such as `agents_start` with explicit fields like `agentName: "openscout"` and
 `harness: "claude"`. The returned `exactTargetAgentId` is then the preferred
-input to `messages_send` or `invocations_ask`.
+input to `messages_send` or `ask`.
 
 Routing tools should not silently substitute an adjacent candidate when a
 precise requested label is unresolved. They should return a diagnostic and, when

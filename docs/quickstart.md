@@ -44,10 +44,18 @@ Use `scout whoami` to see who Scout will speak as from the current directory.
 override it with `--as`.
 `watch` follows a conversation or channel; it does not choose a sender.
 
-Use `scout who` to find an agent name you can actually address. If you do not
-know a name yet, start here instead of guessing.
+Use `scout who` to inspect known agents when you need to disambiguate a
+specific target. If you know the project but not the right agent name, skip
+manual discovery and route the ask by project instead:
 
-An agent name is the address you type to reach one agent. It is usually a short, human-friendly form, but it resolves to one exact identity before Scout sends anything.
+```bash
+scout ask --project ../talkie "can you review this?"
+```
+
+An agent name is the address you type to reach a base agent. It is usually a
+short, human-friendly project/workspace identity. Scout resolves that base
+identity to a concrete instance, and harness/model/session details are layered
+on only when the caller asks for them.
 
 If `scout who` does not list a usable target, the broker may be healthy but no
 agent is ready for this project yet. Install the companion integration for your
@@ -69,11 +77,13 @@ The routing rules do not change by surface:
 
 When the workspace and one target are clear, use the direct command first. Do
 not run an orientation loop before every handoff. Copy a selector from
-`scout who` and use it as the explicit target.
+`scout who` and use it as the explicit target, or use `--project` when the
+repo path is the thing you actually know.
 
 ```bash
 scout send --to <agent-from-scout-who> "hello"
 scout ask --to <agent-from-scout-who> "can you review this?"
+scout ask --project ../talkie "can you review this?"
 ```
 
 `send` is the message path. Use it for a durable note or reply in a

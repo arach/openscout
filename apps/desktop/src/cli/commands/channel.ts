@@ -62,7 +62,7 @@ export function renderChannelCommandHelp(): string {
     "",
     "Do not name this server scout if you also use the full Scout MCP server.",
     "The channel server only exposes scout_send/scout_reply; scout mcp exposes",
-    "agents_start, invocations_ask, and the rest of the coordination tools.",
+    "ask, agents_start, invocations_get, invocations_wait, and the rest of the coordination tools.",
   ].join("\n");
 }
 

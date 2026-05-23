@@ -17,7 +17,8 @@ Tools exposed today:
 - `agents_search`: searches broker and discovered setup inventory when a target is unknown or ambiguous.
 - `agents_resolve`: resolves an exact handle or returns ambiguity data when a host needs to pin one target.
 - `messages_send`: posts a broker-backed tell/status/reply with explicit target fields or channel.
-- `invocations_ask`: creates a broker-backed consult/work handoff with explicit target fields.
+- `ask`: creates a broker-backed consult/work handoff with `to`, `projectPath`, or `targetSessionId`.
+- `invocations_get` / `invocations_wait`: observe broker flight records created by asks.
 - `work_update`: updates durable work item state.
 - `card_create`: creates a project-scoped reply-ready agent card.
 
@@ -35,7 +36,7 @@ broker delivery planner, but `mentionAgentIds` and body-mention compatibility
 paths still carry some legacy client-side planning. The broker-owned routing
 spec tracks collapsing those fallbacks into `/v1/deliver`.
 
-`invocations_ask` defaults to non-blocking behavior. It now accepts
+`ask` defaults to non-blocking behavior. It accepts
 `replyMode: "none" | "inline" | "notify"`, with `awaitReply: true` retained as a
 compatibility alias for `replyMode: "inline"`.
 
@@ -187,13 +188,18 @@ Inline waiting requires all of the following:
 - a broker flight exists
 - the target can be invoked or queued
 - the caller is willing to keep the MCP tool call open
-- the timeout is acceptable for the host and user
+- the caller wait budget is acceptable for the host and user
 
-Scout supports acknowledgement waits today through `invocations_ask.awaitReply`.
+Scout supports acknowledgement waits today through `ask` with `wait: true` or
+`replyMode: "inline"`.
 This is simple and useful when the caller must know the target started, but it
 should not be used as the completion delivery path for long-running work,
 human-in-the-loop states, host timeouts, or cases where the caller can continue
 doing other work.
+
+Elapsed wait budgets are caller protection, not protocol outcomes. Broker
+flights stay pending until durable completion, failure, cancellation, or an
+explicit operator action changes them.
 
 Callback-style notification requires a live addressable receiver. Current
 partial mechanisms are:
@@ -225,7 +231,7 @@ Durable broker delivery only. The tool returns `conversationId`, `messageId`,
 
 Use for:
 
-- default `invocations_ask`
+- default `ask`
 - long-running work
 - CLI-only or unknown harnesses
 - unsupported callback targets
@@ -284,11 +290,11 @@ Fallback: downgrade to `none` and return durable ids plus a
    exposes broad capabilities such as `chat`, `invoke`, `deliver`, and `execute`.
    Reply delivery needs finer-grained runtime/session capabilities.
 
-2. Extend `invocations_ask` with a first-class reply mode. **Implemented for the
+2. Extend `ask` with a first-class reply mode. **Implemented for the
    main MCP server.**
 
    `replyMode` is now available as `"none" | "inline" | "notify"`.
-   `awaitReply` remains a compatibility alias for `"inline"`. The notify path
+   `wait: true` is a compatibility alias for `"inline"`. The notify path
    schedules `notifications/scout/reply` and returns callback metadata in
    structured content.
 
@@ -329,7 +335,7 @@ Fallback: downgrade to `none` and return durable ids plus a
 - Host notification APIs are not uniform across MCP-capable harnesses.
 - A generic MCP notification path may exist technically but still be ignored by
   a given host UI.
-- Inline waits can hide slow or queued work behind host timeouts.
+- Inline waits can hide slow or queued work behind host wait budgets.
 - Prompt-only callback instructions can produce false positives, missing tags,
   or replies in the wrong conversation.
 - If Scout lets each harness invent reply semantics, broker history and UI
@@ -355,8 +361,8 @@ Fallback: downgrade to `none` and return durable ids plus a
 
 ## Tests To Add
 
-- `scout-mcp` unit test: `invocations_ask` maps `replyMode: "inline"` to
-  acknowledgement waiting and preserves `awaitReply` compatibility.
+- `scout-mcp` unit test: `ask` maps `replyMode: "inline"` to
+  acknowledgement waiting and preserves `wait` compatibility.
 - `scout-mcp` unit test: `replyMode: "notify"` emits
   `notifications/scout/reply` when the background flight completes. **Added.**
 - `scout-mcp` unit test: `replyMode: "notify"` downgrades to `none` with a

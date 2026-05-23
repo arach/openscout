@@ -17,13 +17,17 @@ We need a contract for: when does an open ask become stale, who marks it stale, 
 
 ### D1. Who declares an `ask_opened` dead?
 
-**Option A — Broker-side timeout.** Broker tracks `ask_opened` events and emits `ask_failed { reason: "timeout" }` after N minutes of no reply. Single source of truth; clients render whatever the broker says.
+**Option A — Broker-side timeout.** Rejected. Broker-side elapsed time should
+not emit `ask_failed { reason: "timeout" }`; a slow or disconnected ask is not
+therefore failed.
 
 **Option B — Client-side staleness.** Each client locally marks asks "stale" after N minutes from `tsMs` and renders them with a warning treatment. Broker remains agnostic; the underlying agent state may still be "waiting".
 
-**Option C — Both.** Client-side staleness for fast UX feedback (e.g. 2 min), broker-side timeout as the authoritative kill (e.g. 30 min). Client downgrades from "asked" → "stale" → (when broker fires) "failed".
+**Option C — Both.** Rejected for the same reason. Client-side staleness can be
+helpful UX, but broker-side timeout must not become the authoritative kill.
 
-**Recommendation:** **C**, but staged. Ship B first (cheap, no broker work, immediately fixes the visual hang) and add A later if/when retry becomes a thing.
+**Recommendation:** **B**. Ship client-side staleness only. The UI can protect
+the operator from stuck-looking rows without changing broker truth.
 
 ### D2. Should there be a `retryAsk(askId)` RPC?
 
@@ -37,11 +41,11 @@ We need a contract for: when does an open ask become stale, who marks it stale, 
 
 ### D3. What does the iOS client surface?
 
-Given recommendations C+A:
+Given recommendations B+A:
 
 - `ask_opened` younger than 2 min: orange "Asked" (today's behavior).
 - `ask_opened` older than 2 min, no transition: orange "Asked · stale" with subdued styling — the row picks up a context menu item "Mark as failed" that locally marks it dismissed (no server-side mutation).
-- `ask_failed` (broker-emitted, including future broker-timeout reason): red row with context menu "Copy details", "Open session", "Dismiss" (already shipped under Task #4).
+- `ask_failed` (broker-emitted for real delivery or execution failure): red row with context menu "Copy details", "Open session", "Dismiss" (already shipped under Task #4).
 
 Stale styling avoids lying to the user about state we don't actually know — the agent might still answer after 5 minutes — while giving the user a way out.
 
@@ -55,7 +59,7 @@ Stale styling avoids lying to the user about state we don't actually know — th
 
 - iOS: in `ActivityFeedView` (after Task #4 lands), compute `isStale(item)` for `ask_opened` rows using `Date().timeIntervalSince1970 - item.tsMs/1000 > 120`.
 - Render stale rows with `.opacity(0.6)` and append " · stale" to the kind label.
-- Context menu on stale rows gets a "Mark as failed" item (alias for Dismiss in v1; future-proof name for when broker-side timeouts ship).
+- Context menu on stale rows gets a "Dismiss locally" item.
 - No broker work. No new RPCs.
 
 ## Out of scope

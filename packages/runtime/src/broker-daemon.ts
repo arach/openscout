@@ -901,14 +901,54 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
       stdio: ["ignore", logFd, logFd],
     },
   );
-  child.once("exit", () => {
-    if (webServerProcess === child) {
-      webServerProcess = null;
+  child.once("exit", (code, signal) => {
+    if (webServerProcess !== child) {
+      // Either we already replaced this handle, or shutdown nulled it intentionally.
+      return;
     }
+    webServerProcess = null;
+    if (shuttingDown) {
+      return;
+    }
+    // Track failures within a sliding window so a broken entrypoint doesn't
+    // produce an infinite respawn loop. Linear backoff escalates the delay
+    // with each consecutive failure; we pause auto-respawn entirely once we
+    // exceed the threshold and require an operator to call `scout server start`.
+    const now = Date.now();
+    while (webRespawnFailures.length > 0 && now - webRespawnFailures[0]! > WEB_RESPAWN_FAILURE_WINDOW_MS) {
+      webRespawnFailures.shift();
+    }
+    webRespawnFailures.push(now);
+    if (webRespawnFailures.length > WEB_RESPAWN_MAX_FAILURES) {
+      console.error(
+        `[openscout-runtime] Scout web server has exited ${webRespawnFailures.length} times within ${WEB_RESPAWN_FAILURE_WINDOW_MS / 1000}s — pausing auto-respawn. Use 'scout server start' to retry.`,
+      );
+      webRespawnFailures.length = 0;
+      return;
+    }
+    const delay = Math.min(
+      WEB_RESPAWN_BASE_DELAY_MS * webRespawnFailures.length,
+      WEB_RESPAWN_MAX_DELAY_MS,
+    );
+    console.warn(
+      `[openscout-runtime] Scout web server exited unexpectedly (code=${code}, signal=${signal}) — respawning in ${delay}ms (failure ${webRespawnFailures.length}/${WEB_RESPAWN_MAX_FAILURES})`,
+    );
+    setTimeout(() => {
+      if (shuttingDown) return;
+      startWebServerIfNeeded(context).catch((error) => {
+        console.error("[openscout-runtime] web server respawn failed:", error);
+      });
+    }, delay).unref?.();
   });
   child.unref();
   return child;
 }
+
+const WEB_RESPAWN_BASE_DELAY_MS = 1_000;
+const WEB_RESPAWN_MAX_DELAY_MS = 30_000;
+const WEB_RESPAWN_MAX_FAILURES = 5;
+const WEB_RESPAWN_FAILURE_WINDOW_MS = 60_000;
+const webRespawnFailures: number[] = [];
 
 async function webSupervisorStatus(error: string | null = null): Promise<WebSupervisorStatus> {
   const running = await isWebServerHealthy();
@@ -1280,6 +1320,14 @@ async function recordFlightDurably(flight: FlightRecord): Promise<void> {
 }
 
 const terminalDeliveryStatuses = new Set<DeliveryStatus>(["completed", "failed", "cancelled"]);
+const staleReconcileableDeliveryStatuses = new Set<DeliveryStatus>([
+  "accepted",
+  "deferred",
+  "leased",
+  "pending",
+  "running",
+  "sent",
+]);
 
 function deliveryStatusForFlight(flight: FlightRecord): DeliveryStatus | null {
   if (flight.state === "running" || flight.state === "waiting") {
@@ -1330,6 +1378,58 @@ async function reconcileMessageDeliveriesForFlight(
       leaseOwner: null,
       leaseExpiresAt: null,
     });
+  }
+}
+
+function staleLocalDeliveryReason(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  delivery: DeliveryIntent,
+): string | null {
+  if (delivery.targetKind !== "agent" || !staleReconcileableDeliveryStatuses.has(delivery.status)) {
+    return null;
+  }
+
+  const endpoints = Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpoint.agentId === delivery.targetId);
+  if (endpoints.length === 0) {
+    return null;
+  }
+  if (endpoints.some((endpoint) => staleLocalEndpointReason(endpoint) === null)) {
+    return null;
+  }
+
+  const staleEndpoints = endpoints
+    .filter((endpoint) => staleLocalEndpointReason(endpoint) !== null)
+    .sort((left, right) => endpointStartedAt(right) - endpointStartedAt(left));
+  const transportMatch = staleEndpoints.find((endpoint) => endpoint.transport === delivery.transport);
+  return staleLocalEndpointReason(transportMatch ?? staleEndpoints[0] ?? null);
+}
+
+async function reconcileStaleLocalDeliveries(): Promise<void> {
+  const snapshot = runtime.snapshot();
+  const now = Date.now();
+
+  for (const delivery of journal.listDeliveries({ limit: 5000 })) {
+    const reason = staleLocalDeliveryReason(snapshot, delivery);
+    if (!reason) {
+      continue;
+    }
+
+    await updateDeliveryStatusDurably({
+      deliveryId: delivery.id,
+      status: "failed",
+      metadata: {
+        failureReason: "agent_offline",
+        failureDetail: `Stale local delivery reconciled: ${reason}`,
+        staleLocalRegistration: true,
+        reconciledStaleDelivery: true,
+        reconciledReason: reason,
+        reconciledAt: now,
+      },
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
+    console.warn(`[openscout-runtime] reconciled stale local delivery ${delivery.id}: ${reason}`);
   }
 }
 
@@ -1883,6 +1983,62 @@ function latestEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, a
     Math.max(endpointTerminalAt(right), endpointStartedAt(right))
     - Math.max(endpointTerminalAt(left), endpointStartedAt(left))
   ))[0] ?? null;
+}
+
+function staleLocalEndpointReason(endpoint: AgentEndpoint | null): string | null {
+  if (!endpoint || endpoint.metadata?.staleLocalRegistration !== true) {
+    return null;
+  }
+
+  const replacementAgentId = endpoint.metadata.replacedByAgentId;
+  const replacement = typeof replacementAgentId === "string" && replacementAgentId.trim().length > 0
+    ? `; replacement agent is ${replacementAgentId.trim()}`
+    : "";
+  return `endpoint ${endpoint.id} is a stale local registration superseded by current setup${replacement}`;
+}
+
+function flightDispatchEndpointId(flight: FlightRecord): string | null {
+  const dispatchAck = flight.metadata?.dispatchAck;
+  if (!dispatchAck || typeof dispatchAck !== "object" || Array.isArray(dispatchAck)) {
+    return null;
+  }
+
+  const endpointId = (dispatchAck as Record<string, unknown>).endpointId;
+  return typeof endpointId === "string" && endpointId.trim().length > 0
+    ? endpointId.trim()
+    : null;
+}
+
+function endpointForFlight(snapshot: ReturnType<typeof runtime.snapshot>, flight: FlightRecord): AgentEndpoint | null {
+  const dispatchedEndpointId = flightDispatchEndpointId(flight);
+  if (dispatchedEndpointId) {
+    const endpoint = snapshot.endpoints[dispatchedEndpointId];
+    if (endpoint?.agentId === flight.targetAgentId) {
+      return endpoint;
+    }
+    return null;
+  }
+
+  return latestEndpointForAgent(snapshot, flight.targetAgentId);
+}
+
+function flightDispatchEndpointUnavailableReason(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  flight: FlightRecord,
+): string | null {
+  const dispatchedEndpointId = flightDispatchEndpointId(flight);
+  if (!dispatchedEndpointId) {
+    return null;
+  }
+
+  const endpoint = snapshot.endpoints[dispatchedEndpointId];
+  if (!endpoint) {
+    return `dispatched endpoint ${dispatchedEndpointId} is no longer registered`;
+  }
+  if (endpoint.agentId !== flight.targetAgentId) {
+    return `dispatched endpoint ${dispatchedEndpointId} no longer belongs to target agent ${flight.targetAgentId}`;
+  }
+  return null;
 }
 
 function isReconciledStaleFlightActivityItem(item: {
@@ -2460,6 +2616,9 @@ function staleWorkingFlightReason(
   if (!isWorkingFlightState(flight.state)) {
     return null;
   }
+  if (activeInvocationTasks.has(flight.invocationId)) {
+    return null;
+  }
 
   const startedAt = flightTimestamp(flight);
   const newerTerminalFlight = Object.values(snapshot.flights)
@@ -2479,9 +2638,19 @@ function staleWorkingFlightReason(
     return `target agent ${flight.targetAgentId} was retired from the fleet`;
   }
 
-  const endpoint = latestEndpointForAgent(snapshot, flight.targetAgentId);
+  const dispatchEndpointReason = flightDispatchEndpointUnavailableReason(snapshot, flight);
+  if (dispatchEndpointReason) {
+    return dispatchEndpointReason;
+  }
+
+  const endpoint = endpointForFlight(snapshot, flight);
   if (!endpoint) {
     return null;
+  }
+
+  const staleEndpointReason = staleLocalEndpointReason(endpoint);
+  if (staleEndpointReason) {
+    return staleEndpointReason;
   }
 
   const terminalAt = endpointTerminalAt(endpoint);
@@ -3058,6 +3227,7 @@ async function syncRegisteredLocalAgents(): Promise<void> {
 
   await archiveStaleRegisteredLocalAgents(bindings);
   await reconcileStaleWorkingFlights();
+  await reconcileStaleLocalDeliveries();
 
   const snapshot = runtime.snapshot();
   for (const endpoint of Object.values(snapshot.endpoints)) {
@@ -3783,6 +3953,7 @@ async function postConversationMessage(
   });
   await forwardPeerBrokerDeliveries(message, deliveries);
   await applyProjectedEntries(entries);
+  await reconcileStaleLocalDeliveries();
   await retireConsumedOneTimeCardsForMessage(message);
   return { ok: true, message, deliveries };
 }
@@ -3875,9 +4046,12 @@ function activeLocalEndpointForAgent(
   const candidates = runtime.endpointsForAgent(agentId, {
     nodeId,
     harness,
-  }).filter((endpoint) =>
-    targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true
-  );
+  }).filter((endpoint) => {
+    if (endpoint.metadata?.staleLocalRegistration === true) {
+      return false;
+    }
+    return targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true;
+  });
   return candidates.find((endpoint) => (
     endpoint.transport === "pairing_bridge"
       ? endpoint.state !== "offline"
@@ -3941,6 +4115,12 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     endpoint.id !== existing?.id
     && (targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true)
   );
+  const staleLocalReason = staleEndpoints
+    .map((endpoint) => staleLocalEndpointReason(endpoint))
+    .find((reason): reason is string => Boolean(reason));
+  if (staleLocalReason) {
+    throw new Error(staleLocalReason);
+  }
 
   for (const endpoint of staleEndpoints) {
     await persistEndpoint({
@@ -4048,6 +4228,27 @@ async function executeLocalInvocation(
   }
 
   if (!agent || !endpoint) {
+    const staleEndpointReason = staleLocalEndpointReason(
+      latestEndpointForAgent(runtime.snapshot(), invocation.targetAgentId),
+    );
+    if (staleEndpointReason) {
+      const failedFlight = {
+        ...initialFlight,
+        state: "failed" as const,
+        summary: `${agent?.displayName ?? invocation.targetAgentId} could not be prepared.`,
+        error: `Endpoint resolution failed before execution: ${staleEndpointReason}`,
+        completedAt: Date.now(),
+        metadata: {
+          ...(initialFlight.metadata ?? {}),
+          failureStage: "endpoint_resolution",
+          staleLocalRegistration: true,
+        },
+      };
+      await persistFlight(failedFlight);
+      await postInvocationStatusMessage(invocation, failedFlight);
+      return;
+    }
+
     const queuedFlight = {
       ...initialFlight,
       state: "queued" as const,
@@ -4711,6 +4912,7 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       });
       const mesh = await forwardPeerBrokerDeliveries(command.message, deliveries);
       await applyProjectedEntries(entries);
+      await reconcileStaleLocalDeliveries();
       console.log(
         `[openscout-runtime] message ${command.message.id} posted by ${command.message.actorId} to ${command.message.conversationId} with ${deliveries.length} deliveries`,
       );
@@ -7378,6 +7580,9 @@ setTimeout(() => {
   });
   reconcileStaleWorkingFlights().catch((error) => {
     console.error("[openscout-runtime] stale flight reconciliation failed:", error);
+  });
+  reconcileStaleLocalDeliveries().catch((error) => {
+    console.error("[openscout-runtime] stale delivery reconciliation failed:", error);
   });
 }, 0).unref();
 

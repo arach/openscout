@@ -31,6 +31,7 @@ finalized; package manifests currently use `UNLICENSED`.
 - [`docs/integrations.md`](./docs/integrations.md) — companion host package map
 - [`docs/runtime-sessions.md`](./docs/runtime-sessions.md) — agent/session/endpoint semantics for harness lifecycle
 - [`docs/scout-comms.md`](./docs/scout-comms.md) — client-facing comms workflows, records, routing rules, and contact-line grammar
+- [`docs/mcp-api-posture.md`](./docs/mcp-api-posture.md) — core vs pro Scout MCP tool tiers
 - [`docs/data-ownership.md`](./docs/data-ownership.md) — Scout-owned records vs observed harness material
 - [`docs/agent-integration-contract.md`](./docs/agent-integration-contract.md) — minimum contract for agents and adapters
 - [`docs/agent-identity.md`](./docs/agent-identity.md) — address grammar and resolution
@@ -54,9 +55,14 @@ finalized; package manifests currently use `UNLICENSED`.
 - First-run order: `scout --help`, `scout setup`, `scout doctor`, `scout whoami`, `scout who`, then `scout send --to <agent-from-scout-who> ...`.
 - Use `scout send` / `messages_send` for durable messages and update receipts.
 - Use `ask` through MCP, or `scout ask` through the CLI, for agent-to-agent
-  work. `invocations_ask` is a lower-level invocation compatibility surface.
-- `ask` accepts either `to` for an agent-like target or `projectPath` for a
-  project-root target that the broker resolves to a concrete agent.
+  work. `ask` is the creation API; invocation and flight records are side
+  effects observed with `invocations_get` and `invocations_wait`.
+- If you do not have a specific agent/session in mind, pass `projectPath` to
+  MCP `ask` or use `scout ask --project <path>`; the broker resolves or creates
+  the concrete agent instance for that project.
+- Treat the base agent identity as the vanilla project/workspace identity.
+  Harness, model, profile, node, and session details are instance constraints
+  layered onto that identity only when the caller needs them.
 - Use session semantics for harness lifecycle: cards are identities, sessions are concrete Claude/Codex runtimes, endpoints attach agents to sessions.
 - Use explicit target fields; do not hide routing in message body text.
 - If a host-side approval prompt is stuck, use the host UI or a host integration
