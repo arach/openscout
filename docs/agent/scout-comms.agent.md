@@ -44,7 +44,8 @@ transcripts.
 |---|---|---|
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
 | ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
-| active reply | answer an inbound broker ask | final response or `messages_reply` depending on `replyPath` |
+| project-routed ask | project known, concrete agent/session unknown | `scout ask --project`, `ask({ projectPath })` |
+| threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
 
 ## Runtime Sessions
@@ -53,6 +54,7 @@ transcripts.
 - session = concrete Claude, Codex, or future harness conversation/process
 - endpoint = routable attachment between an agent and a session
 - card = identity and return address, not necessarily a live session
+- card/session creation = pro integration layer, not the default path for work
 - public lifecycle noun is `session`; map provider thread ids into session metadata
 - harness mismatches must fail with actionable diagnostics, not silent hangs
 - endpoint state belongs to attachment health; flight/work state belongs to task
@@ -78,6 +80,10 @@ transcripts.
 ## Routing Invariants
 
 - one explicit target -> DM
+- default to the base agent/project identity; harness, model, profile, node,
+  and session details are instance constraints layered on only when needed
+- when you know the project but not the concrete agent, use `projectPath` /
+  `--project` instead of running discovery first
 - group -> explicit channel
 - shared broadcast -> opt-in
 - body text is payload, not routing metadata
@@ -130,8 +136,9 @@ Rules:
 
 - `final_response`: final assistant message is broker-visible reply.
 - `mcp_reply`: call reply tool exactly once.
-- Do not answer the original ask with `messages_send`, `ask`, or
-  `invocations_ask`.
+- Use the configured reply path, either final response or `messages_reply`;
+  do not answer the original ask with `messages_send`, `ask`, or another new
+  broker ask.
 
 ## Scout Contact Line
 

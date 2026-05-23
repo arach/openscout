@@ -38,7 +38,8 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 - Group coordination requires an explicit channel.
 - Shared broadcast is opt-in.
 - Use `scout send` or `messages_send` for tell/update.
-- Use `scout ask` or `invocations_ask` for owned work or requested replies.
+- Use `scout ask` or MCP `ask` for owned work or requested replies.
+- Use `invocations_get` / `invocations_wait` only to observe flights created by asks.
 - Use `replyMode: "notify"` for longer-running agent work that should return quickly and report back later.
 
 ## Must-Read Docs

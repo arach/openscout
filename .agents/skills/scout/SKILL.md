@@ -15,9 +15,11 @@ receipt:
 ```bash
 scout send --to x "msg"    # durable message/update; returns ids
 scout ask --to x "msg"     # invocation for requested reply/work; returns ids + lifecycle
+scout ask --project ../x "msg" # project known; concrete agent/session chosen by Scout
 ```
 
 When the workspace is known and there is one intended recipient, use that direct path first. Do not run `whoami`, `who`, or `latest` unless the sender is unclear, the target is ambiguous, or the command fails.
+When the project is known but the concrete agent is not, use `scout ask --project <path>` instead of discovering an agent name first.
 
 Scout can answer four questions when the route is not already obvious:
 
@@ -48,6 +50,7 @@ When the workspace is known and there is one intended recipient, do not burn ext
 
 - CLI message/update: `scout send --to x "msg"`
 - CLI invocation: `scout ask --to x "msg"`
+- CLI project-routed invocation: `scout ask --project ../x "msg"`
 - Known offline / on-demand agents are supposed to wake on first delivery. Do not ask the operator to bring up a known target just to send the first message.
 
 The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, or `workId`. Use those handles for follow-up. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
@@ -93,10 +96,11 @@ The semantics do not change by host. Only the verbs change:
 | Inspect broker-native messages/status/errors | `scout latest` | `broker_feed` | use when delivery, dispatch, unblock, or flight status matters |
 | Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | use when direct routing is ambiguous |
 | Message / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
-| Invocation / requested reply | `scout ask --to x "msg"` | `invocations_ask` with explicit target fields | one target -> DM |
+| Invocation / requested reply | `scout ask --to x "msg"` | `ask` with `to` | one target -> DM |
+| Project-routed invocation | `scout ask --project ../x "msg"` | `ask` with `projectPath` | use when the project is known but no concrete agent/session is selected |
 | Progress / waiting / review / done | same DM, plus work handle when available | `work_update` | stay in the same DM or channel |
-| Fresh reply-ready identity | `scout card create` | `card_create` | identity and return address, not necessarily a live session |
-| Harness session lifecycle | `scout session ...` / `scout up` alias | `sessions_*` once available | start/attach/inspect concrete sessions |
+| Fresh reply-ready identity | `scout card create` | `card_create` | pro integration layer; identity and return address, not normal work routing |
+| Harness session lifecycle | `scout session ...` / `scout up` alias | `sessions_*` once available | pro integration layer; start/attach/inspect concrete sessions |
 | Everybody on this broker | `scout broadcast` | `messages_send` with `channel="shared"` | shared broadcast only |
 
 Do not invent a second routing model for Claude, Codex, the CLI, MCP, or the UI. The same rules apply everywhere:
@@ -206,17 +210,19 @@ Default behavior for direct broker-invoked asks:
 
 - your final assistant response is the broker-visible reply
 - do not call `messages_reply`, `scout_reply`, `scout send`,
-  `messages_send`, or `invocations_ask` to answer the requester
+  `messages_send`, or `ask` to answer the requester
 - only use Scout tools if you need to ask or delegate to another agent while solving the request
 - return only the reply intended for the requester
 
 If the active reply context says `replyPath: mcp_reply`, use the provided
 reply tool (for example `messages_reply` or `scout_reply`) instead of relying
-on final-response capture. A visible conversation/message reference alone is
-not an MCP reply context; direct broker-invoked asks still rely on final
-assistant response capture. If there is no active reply context, use normal
-Scout routing: `messages_send`/`scout send` for messages and updates, and
-`invocations_ask`/`scout ask` for invocations and requested replies.
+on final-response capture. `messages_reply` is a normal threaded message in
+the existing conversation; it should not create a fresh ask or owned-work
+lifecycle. A visible conversation/message reference alone is not an MCP reply
+context; direct broker-invoked asks still rely on final assistant response
+capture. If there is no active reply context, use normal Scout routing:
+`messages_send`/`scout send` for messages and updates, and `ask`/`scout ask`
+for new invocations and requested work.
 
 ## Send vs Ask
 
@@ -261,7 +267,12 @@ Command:
 
 ```bash
 scout ask --to x "msg"
+scout ask --project ../x "msg"
 ```
+
+Use `--project` when you know the codebase path but do not care which concrete
+agent/session handles it. Scout resolves or creates the right instance for that
+project.
 
 If your host has a background worker or subagent primitive, **run Ask there instead of blocking the parent**. The parent should keep working and surface the reply when the background task completes.
 
@@ -338,7 +349,8 @@ If the CLI reports multiple candidates, re-run with a typed qualifier. If the ro
 - Inspect the route: `scout who`, `scout latest`, or `scout server open`
 - Disambiguate with a typed qualifier: `@x.harness:codex`
 - Use the full FQN: `@x.host.x-main-abc123`
-- Create a fresh project-scoped identity when needed: `scout card create`
+- Pro integration only: create a fresh project-scoped identity when you are
+  intentionally managing return addresses: `scout card create`
 - Use `scout up` only when you are explicitly prewarming a target or registering one the broker truly does not know yet
 - Tell the user the route is ambiguous or the target is unknown; do not ask them to manually bring up a known target just to deliver a message
 
@@ -398,9 +410,12 @@ Use **Send** when the next sentence is effectively:
 
 When in doubt, use Ask.
 
-## Dedicated agent cards
+## Pro integration: dedicated agent cards
 
-Use `scout card create` when you need a project-scoped relay identity with its own inbox and return address.
+Use `scout card create` when you are intentionally managing Scout identity
+infrastructure and need a project-scoped relay identity with its own inbox and
+return address. This is not the default way to ask for work; use `scout ask`
+or MCP `ask` for that.
 
 Use it when:
 

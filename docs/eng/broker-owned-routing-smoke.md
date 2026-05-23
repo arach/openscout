@@ -12,7 +12,7 @@ These checks exercise the operator-facing contract:
   caller-side routing guess.
 - `scout card create` mints a reply-ready address with broker-owned sender,
   inbox, and return-address context.
-- MCP `card_create`, `messages_send`, and `invocations_ask` can resolve sender
+- MCP `card_create`, `messages_send`, and `ask` can resolve sender
   and workspace context inside the tool call. A caller should not need to call
   `whoami`, `who`, `agents_search`, or `agents_resolve` when it already has a
   usable target label or exact target id.
@@ -23,7 +23,7 @@ These checks exercise the operator-facing contract:
 `routes a direct ask by label without whoami or agents_resolve preflight`.
 
 The test deliberately makes `agents_search` and `agents_resolve` throw. It then
-calls `invocations_ask` with only `body`, `targetLabel`, and `replyMode: "none"`
+calls `ask` with only `body`, `to`, and `replyMode: "none"`
 and asserts that the tool:
 
 - resolves the default sender from the MCP server's default current directory
@@ -100,8 +100,8 @@ If testing from a Codex or Claude host with `scout mcp` connected, ask the host:
 
 ```text
 Use Scout MCP without whoami, who, agents_search, or agents_resolve preflight.
-Call card_create for /Users/arach/dev/openscout, then call invocations_ask with
-targetLabel "@route-smoke-claude", replyMode "none", and a short status body.
+Call card_create for /Users/arach/dev/openscout, then call ask with
+to "@route-smoke-claude", replyMode "none", and a short status body.
 Report the senderId, currentDirectory, conversationId, messageId, and flightId.
 ```
 

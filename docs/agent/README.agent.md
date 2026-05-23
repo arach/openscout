@@ -86,9 +86,19 @@ MCP tools.
 - Group coordination means explicit channel.
 - Shared broadcast is opt-in.
 - `send` / `messages_send` is a durable message/update with receipt ids.
+- `messages_reply` is the threaded message form for continuing an existing
+  conversation; it is not a new ask.
 - `ask` is the normal MCP primitive for agent-to-agent work. It returns a
   compact lifecycle receipt without requiring discovery preflight.
-- Cards describe identities and return addresses; sessions are concrete harness lifecycles.
+- If the project is known but the concrete agent/session is not, use
+  `ask({ projectPath })` or `scout ask --project <path>` and let the broker
+  resolve or create the right instance.
+- Treat the base agent identity as the vanilla project/workspace identity.
+  Harness, model, profile, node, and session details are instance constraints,
+  not separate base agents, unless a specialized profile is explicitly needed.
+- Cards describe identities and return addresses; sessions are concrete harness
+  lifecycles. Treat card/session creation as a pro integration layer, not the
+  normal path for agent-to-agent work.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
 - Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
 - Track token/coordination cost as metadata when available; do not import full harness transcripts.

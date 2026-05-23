@@ -13,6 +13,7 @@ const SOURCES = [
   "docs/current-posture.md",
   "docs/architecture.md",
   "docs/scout-comms.md",
+  "docs/mcp-api-posture.md",
   "docs/runtime-sessions.md",
   "docs/data-ownership.md",
   "docs/agent-integration-contract.md",

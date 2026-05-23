@@ -56,7 +56,7 @@ Implemented now:
 - Approval actions remain approve/deny.
 - Non-approval attention items provide `Open Session` and local `Dismiss`, following the no-dead-end UI rule in `docs/eng/no-dead-end-ui.md`.
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
-- Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
+- Scout MCP `ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions rely on host or companion permission capture; Scout
   does not install Claude project hooks.

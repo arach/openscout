@@ -1140,22 +1140,28 @@ async function markUnblockRequestTerminal(input: {
 function permissionSetupHint(detail: string): OperatorAttentionItem | null {
   const normalized = detail.toLowerCase();
   const mentionsPermission = /permission|approval|allow|blocked/.test(normalized);
-  const mentionsScoutMcpTool = /mcp__?scout__(invocations_ask|messages_reply)|mcp.*(invocations_ask|messages_reply)/.test(normalized);
+  const mentionsScoutMcpReply =
+    /\bmcp__?scout__messages_reply\b/.test(normalized) ||
+    /\bmcp\b.*\bmessages_reply\b/.test(normalized);
+  const mentionsScoutMcpAsk =
+    /\bmcp__?scout__ask\b/.test(normalized) ||
+    /\bmcp\b.*\bscout ask\b/.test(normalized);
+  const mentionsScoutMcpTool = mentionsScoutMcpReply || mentionsScoutMcpAsk;
   const mentionsScoutTool = /scout ask|allowedtools|allowlist/.test(normalized) || mentionsScoutMcpTool;
   if (!mentionsPermission || !mentionsScoutTool) {
     return null;
   }
 
-  const replyTool = /messages_reply/.test(normalized);
+  const replyTool = mentionsScoutMcpReply;
   const command = mentionsScoutMcpTool
-    ? `/allow ${replyTool ? "mcp__scout__messages_reply" : "mcp__scout__invocations_ask"}`
+    ? `/allow ${replyTool ? "mcp__scout__messages_reply" : "mcp__scout__ask"}`
     : `{ "allowedTools": ["Bash(scout:*)"] }`;
   const title = mentionsScoutMcpTool
     ? "Claude needs Scout MCP permission"
     : "Claude needs Scout CLI permission";
 
   return {
-    id: `config:${mentionsScoutMcpTool ? `mcp-scout-${replyTool ? "messages-reply" : "invocations-ask"}` : "scout-ask-cli"}`,
+    id: `config:${mentionsScoutMcpTool ? `mcp-scout-${replyTool ? "messages-reply" : "ask"}` : "scout-ask-cli"}`,
     kind: "configuration",
     title,
     summary: compactAttentionSummary(detail),

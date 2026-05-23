@@ -10,9 +10,9 @@ Accepted for implementation.
 
 ## Context
 
-Scout asks are durable broker flights. The MCP `invocations_ask` tool already
-returns `flightId`, `conversationId`, optional `workId`, and follow links when it
-does not wait inline.
+Scout asks are durable broker flights. The MCP `ask` tool returns `flightId`,
+`conversationId`, optional `workId`, and follow links when it does not wait
+inline.
 
 The problem is that completion retrieval must not be overloaded onto ask submission:
 
@@ -29,12 +29,14 @@ Long-running agent work should not require one open MCP request.
 
 Scout MCP asks should use a submit/observe/retrieve pattern.
 
-`invocations_ask` creates the flight and returns durable handles. Follow-up MCP
-tools read or briefly wait on that flight:
+`ask` creates the flight and returns durable handles. Follow-up MCP tools read
+or briefly wait on that flight:
 
 - `invocations_get({ flightId })` fetches the current broker flight state.
-- `invocations_wait({ flightId, timeoutSeconds })` performs a bounded wait and
-  returns the latest state instead of making ask submission block indefinitely.
+- `invocations_wait({ flightId, timeoutSeconds })` performs a caller-bounded
+  wait and returns the latest state instead of making ask submission block
+  indefinitely. The wait budget protects the caller connection; it does not
+  cancel the broker flight or define ask success.
 
 This preserves the existing broker model and keeps `replyMode: "inline"` as an
 acknowledgement path, not the recommended completion path for long tasks.
@@ -56,13 +58,13 @@ acknowledgement path, not the recommended completion path for long tasks.
 
 ## V1 API
 
-### `invocations_ask`
+### `ask`
 
 For long work, callers should use:
 
 ```json
 {
-  "targetLabel": "@hudson",
+  "to": "@hudson",
   "body": "Review the auth module.",
   "replyMode": "none"
 }
@@ -115,8 +117,9 @@ Performs a bounded wait:
 }
 ```
 
-If the flight is still running at timeout, the tool returns the latest flight
-state with `waitStatus: "timeout"` instead of failing the whole tool call.
+If the flight is still running when the caller wait budget elapses, the tool
+returns the latest flight state with `waitStatus: "pending"` instead of failing
+the whole tool call.
 
 ## Future Direction
 
@@ -133,8 +136,8 @@ flight state.
 
 ## Acceptance Criteria
 
-- `invocations_ask` still returns durable `flightId` data for non-inline asks.
+- `ask` still returns durable `flightId` data for non-inline asks.
 - `invocations_get` can fetch the latest state for a returned `flightId`.
-- `invocations_wait` is bounded and returns latest state on timeout.
+- `invocations_wait` is bounded and returns latest state when the caller wait budget elapses.
 - Inline ask remains available for acknowledgement and immediate completions.
 - Tests cover non-blocking get and bounded wait behavior.

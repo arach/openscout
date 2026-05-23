@@ -184,8 +184,8 @@ Define the read model first so every later integration has a stable target.
 ### Completion Criteria
 
 - Protocol tests cover state projection for local success, local failure,
-  waiting requester timeout, peer ack with later completion, peer retry, and
-  delivery failure.
+  requester wait-budget elapsed with later completion, peer ack with later
+  completion, peer retry, and delivery failure.
 - Existing package consumers compile without needing to adopt the new read
   model immediately.
 
@@ -216,7 +216,8 @@ Expose one durable status path for asks and outcome delivery.
 
 - A caller with only `invocationId` or `flightId` can read current lifecycle
   state after the original request has disconnected.
-- `invocations_wait` remains bounded and returns latest state on timeout.
+- `invocations_wait` remains caller-bounded and returns latest state when the
+  wait budget elapses.
 - Existing `flight` polling behavior remains compatible.
 
 ## Track 3: Ask Ledger Integration
@@ -240,8 +241,8 @@ changing the caller-facing ask API.
 - In `executeLocalInvocation`, start a durable attempt when the target endpoint
   acknowledges the task, heartbeat while long waits are active when practical,
   and transition the action on `waiting`, `completed`, `failed`, or `cancelled`.
-- Emit first-write-wins durable signals for terminal result, cancel, requester
-  timeout, and stale-owner rejection.
+- Emit first-write-wins durable signals for terminal result, cancel, explicit
+  requester cancellation, and stale-owner rejection.
 - Gate terminal `recordFlightDurably` writes behind the durable terminal signal.
   Non-terminal projection writes can remain direct during the compatibility
   period.

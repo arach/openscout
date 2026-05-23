@@ -15,9 +15,9 @@ ref: convo=... msg=...
 Return only the reply that should be delivered back through the broker.
 ```
 
-That prompt convention works, but the reply path is implicit: the host captures the final assistant message and delivers it back to the requester. Agents can miss that detail and may try to call `scout send`, `messages_send`, or `invocations_ask`, creating duplicate replies or replies in the wrong venue.
+That prompt convention works, but the reply path is implicit: the host captures the final assistant message and delivers it back to the requester. Agents can miss that detail and may try to call `scout send`, `messages_send`, or `ask`, creating duplicate replies or replies in the wrong venue.
 
-Scout also has MCP surfaces that expose `messages_send`, `invocations_ask`, and a separate channel-style `scout_reply` tool, but there is no single first-class concept that tells an agent: **this turn is an inbound Scout ask; answer in this reply context.**
+Scout also has MCP surfaces that expose `messages_send`, `ask`, and a separate channel-style `scout_reply` tool, but there is no single first-class concept that tells an agent: **this turn is an inbound Scout ask; answer in this reply context.**
 
 ## Problem
 
@@ -37,7 +37,7 @@ Scout also has MCP surfaces that expose `messages_send`, `invocations_ask`, and 
 
 ## Non-goals
 
-- Replacing `messages_send` or `invocations_ask`.
+- Replacing `messages_send` or `ask`.
 - Forcing all hosts to use MCP for final reply delivery.
 - Changing Scout routing semantics for ordinary sends/asks.
 - Solving every nested/multi-turn workflow in this proposal.
@@ -59,7 +59,7 @@ see it:
 
 > **Reply mode:** You are answering a Scout ask.
 > Your final assistant message will be delivered back through the Scout broker.
-> Do not call `scout send`, `messages_send`, or `invocations_ask` to answer this request.
+> Do not call `scout send`, `messages_send`, or `ask` to answer this request.
 > Only use Scout tools if you need to ask or delegate to another agent.
 ```
 
@@ -135,7 +135,7 @@ If the turn contains `SCOUT BROKER REPLY MODE`, `ScoutReplyContext`, or an activ
 
 Default rule:
 - your final assistant response is the broker-visible reply
-- do not call `scout send`, `messages_send`, or `invocations_ask` to answer the requester
+- do not call `scout send`, `messages_send`, or `ask` to answer the requester
 - use Scout tools only to delegate or ask another agent during the work
 - return only the reply intended for the requester
 

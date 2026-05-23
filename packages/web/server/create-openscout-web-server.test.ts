@@ -34,6 +34,7 @@ let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
 let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
+let queryBrokerDiagnosticsResult: Record<string, unknown> | null = null;
 
 let querySessionByIdImpl: (conversationId: string) => {
   kind: string;
@@ -67,15 +68,9 @@ let askScoutQuestionResult: unknown = {
   },
 };
 let scoutRelayConfigResult: Record<string, unknown> = {};
-mock.module("./db-queries.ts", () => ({
-  configureReadonlyDb: (db: { exec(sql: string): void }) => {
-    db.exec("PRAGMA busy_timeout = 250");
-    db.exec("PRAGMA query_only = ON");
-  },
-  queryAgentById: () => null,
-  queryAgents: () => [],
-  queryActivity: () => [],
-  queryBrokerDiagnostics: () => ({
+
+function makeBrokerDiagnostics(): Record<string, unknown> {
+  return {
     generatedAt: Date.now(),
     windowMs: 86_400_000,
     totals: {
@@ -96,7 +91,18 @@ mock.module("./db-queries.ts", () => ({
     failedQueries: [],
     failedDeliveries: [],
     dialogue: [],
-  }),
+  };
+}
+
+mock.module("./db-queries.ts", () => ({
+  configureReadonlyDb: (db: { exec(sql: string): void }) => {
+    db.exec("PRAGMA busy_timeout = 250");
+    db.exec("PRAGMA query_only = ON");
+  },
+  queryAgentById: () => null,
+  queryAgents: () => [],
+  queryActivity: () => [],
+  queryBrokerDiagnostics: () => queryBrokerDiagnosticsResult ?? makeBrokerDiagnostics(),
   queryAgentById: () => null,
   queryConversationDefinitionById: () => null,
   queryHeartrate: () => [],
@@ -387,6 +393,7 @@ beforeEach(() => {
   scoutBrokerContextResult = null;
   agentObservePayloadResult = null;
   sessionRefObservePayloadResult = null;
+  queryBrokerDiagnosticsResult = null;
   sendScoutMessageResult = {
     usedBroker: true,
     invokedTargets: [],
@@ -680,6 +687,81 @@ describe("createOpenScoutWebServer", () => {
       failedDeliveries: [],
       dialogue: [],
     });
+  });
+
+  test("suggests the current Scout MCP ask permission only for the current tool", async () => {
+    queryBrokerDiagnosticsResult = {
+      ...makeBrokerDiagnostics(),
+      totals: {
+        successfulDispatches: 0,
+        failedQueries: 0,
+        failedDeliveries: 2,
+        deliveryAttempts: 0,
+        failedDeliveryAttempts: 0,
+        dialogueMessages: 0,
+      },
+      failedDeliveries: [
+        {
+          id: "delivery:new-ask",
+          kind: "failed_delivery",
+          status: "failed",
+          ts: 1_700_000_000_000,
+          actorName: null,
+          target: "claude-review",
+          route: "mcp",
+          detail: "Claude blocked mcp__scout__ask until permission is allowed.",
+          conversationId: "dm.operator.claude-review",
+          messageId: "msg-1",
+          deliveryId: "delivery-1",
+          invocationId: "inv-1",
+          metadata: null,
+        },
+        {
+          id: "delivery:old-invocation-ask",
+          kind: "failed_delivery",
+          status: "failed",
+          ts: 1_700_000_000_001,
+          actorName: null,
+          target: "legacy-review",
+          route: "mcp",
+          detail: "Claude blocked mcp__scout__invocations_ask until permission is allowed.",
+          conversationId: "dm.operator.legacy-review",
+          messageId: "msg-2",
+          deliveryId: "delivery-2",
+          invocationId: "inv-2",
+          metadata: null,
+        },
+      ],
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      items: Array<{
+        id: string;
+        agentName: string | null;
+        actions: Array<{ kind: string; value?: string }>;
+      }>;
+    };
+    const askPermissionItems = body.items.filter((item) =>
+      item.id.startsWith("config:mcp-scout-ask:"),
+    );
+
+    expect(askPermissionItems).toHaveLength(1);
+    expect(askPermissionItems[0]?.agentName).toBe("claude-review");
+    expect(askPermissionItems[0]?.actions).toContainEqual(
+      expect.objectContaining({
+        kind: "copy",
+        value: "/allow mcp__scout__ask",
+      }),
+    );
+    expect(body.items.some((item) => item.agentName === "legacy-review")).toBe(false);
   });
 
   test("includes session attention in operator attention and dedupes pairing approvals", async () => {

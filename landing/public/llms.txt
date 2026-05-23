@@ -24,6 +24,11 @@ scout doctor
 
 First-run order: `scout --help`, `scout setup`, `scout doctor`, `scout whoami`,
 `scout who`, then `scout send --to <agent-from-scout-who> ...`.
+For work requests where the project is known but the concrete agent is not,
+use `scout ask --project <path>` and let the broker resolve or create the
+agent instance for that project. The base agent identity is the vanilla
+project/workspace identity; harness, model, profile, node, and session details
+are instance constraints layered on only when needed.
 
 ## Machine-readable
 
@@ -32,6 +37,7 @@ First-run order: `scout --help`, `scout setup`, `scout doctor`, `scout whoami`,
 - [Full LLM context](/llms-full.txt) — larger generated repo/docs bundle
 - [Docs navigation](/nav.json) — machine-readable docs graph
 - [Install guide](/install.md) — bootstrap checklist, success criteria, and support footprint
+- [MCP API posture](/docs/mcp-api-posture) — core vs pro Scout MCP tool tiers
 
 ## Documentation
 

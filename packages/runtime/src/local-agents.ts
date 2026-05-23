@@ -874,8 +874,8 @@ export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
   "mcp__scout__agents_search",
   "mcp__scout__agents_resolve",
   "mcp__scout__messages_reply",
+  "mcp__scout__ask",
   "mcp__scout__messages_send",
-  "mcp__scout__invocations_ask",
   "mcp__scout__invocations_get",
   "mcp__scout__invocations_wait",
   "mcp__scout__work_update",
@@ -2380,7 +2380,7 @@ function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string
     : [
         "> Do not publish a separate acknowledgement or progress update through Scout for this request.",
         "> Your final assistant message will be delivered back through the Scout broker.",
-        "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.",
+        "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `ask` to answer this request.",
       ];
   const header = [
     "<!-- SCOUT BROKER REPLY MODE -->",
@@ -2527,6 +2527,9 @@ const TMUX_VERIFY_FIRST_SAMPLE_MS = 250;
 const TMUX_VERIFY_SECOND_SAMPLE_MS = 750;
 const TMUX_VERIFY_RETRY_SAMPLE_MS = 400;
 const TMUX_CAPTURE_TAIL_LINES = 20;
+const TMUX_READY_TIMEOUT_MS = 20_000;
+const TMUX_READY_POLL_MS = 250;
+const TMUX_READY_TAIL_LINES = 80;
 
 export interface TmuxPromptDispatchResult {
   submitted: boolean;
@@ -2656,6 +2659,45 @@ function captureTmuxPaneTail(sessionName: string, lines: number): string {
   }
 }
 
+async function waitForTmuxHarnessReady(sessionName: string, harness: AgentHarness): Promise<void> {
+  if (harness !== "claude") {
+    return;
+  }
+
+  const deadline = Date.now() + TMUX_READY_TIMEOUT_MS;
+  let paneTail = "";
+  while (Date.now() < deadline) {
+    if (!isLocalAgentSessionAlive(sessionName)) {
+      throw new Error(`tmux session ${sessionName} exited before Claude Code was ready.`);
+    }
+
+    paneTail = captureTmuxPaneTail(sessionName, TMUX_READY_TAIL_LINES);
+    if (tmuxPaneTailShowsReadyComposer(paneTail)) {
+      return;
+    }
+
+    await tmuxDispatchSleep(TMUX_READY_POLL_MS);
+  }
+
+  const tail = stripTerminalControlSequences(paneTail).trim().split(/\r?\n/).slice(-20).join("\n").trim();
+  throw new Error(
+    `tmux session ${sessionName} did not show a ready Claude Code composer within ${TMUX_READY_TIMEOUT_MS}ms.`
+      + (tail ? `\nRecent pane tail:\n${tail}` : ""),
+  );
+}
+
+export function tmuxPaneTailShowsReadyComposer(paneTail: string): boolean {
+  const cleanedTail = stripTerminalControlSequences(paneTail);
+  const lines = cleanedTail.split(/\r?\n/);
+  const anchor = findActiveTmuxComposerAnchor(lines);
+  if (!anchor) {
+    return false;
+  }
+
+  const afterComposer = lines.slice(anchor.index + 1).join("\n");
+  return !tmuxPaneTailShowsHarnessActivity(afterComposer);
+}
+
 export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: string): boolean {
   const cleanedTail = stripTerminalControlSequences(paneTail);
   const composerText = extractActiveTmuxComposerText(cleanedTail);
@@ -2688,19 +2730,32 @@ function stripTerminalControlSequences(value: string): string {
   return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
 }
 
+type TmuxComposerAnchor = {
+  index: number;
+  kind: "inline" | "boxed";
+};
+
+function findActiveTmuxComposerAnchor(lines: readonly string[]): TmuxComposerAnchor | null {
+  const inlineComposerIndex = findLastIndex(lines, (line) => /^\s*[❯›]\s*/.test(line));
+  const boxedComposerIndex = findLastIndex(lines, (line) => /^\s*[│┃]\s*[>❯]\s*/.test(line));
+  if (inlineComposerIndex < 0 && boxedComposerIndex < 0) {
+    return null;
+  }
+  if (inlineComposerIndex > boxedComposerIndex) {
+    return { index: inlineComposerIndex, kind: "inline" };
+  }
+  return { index: boxedComposerIndex, kind: "boxed" };
+}
+
 function extractActiveTmuxComposerText(paneTail: string): string | null {
   const lines = paneTail.split(/\r?\n/);
-  const inlineComposerIndex = findLastIndex(lines, (line) => /^\s*[❯›]\s*/.test(line));
-  if (inlineComposerIndex >= 0) {
-    return collectInlineComposerText(lines, inlineComposerIndex);
+  const anchor = findActiveTmuxComposerAnchor(lines);
+  if (!anchor) {
+    return null;
   }
-
-  const boxedComposerIndex = findLastIndex(lines, (line) => /^\s*[│┃]\s*[>❯]\s*/.test(line));
-  if (boxedComposerIndex >= 0) {
-    return collectBoxedComposerText(lines, boxedComposerIndex);
-  }
-
-  return null;
+  return anchor.kind === "inline"
+    ? collectInlineComposerText(lines, anchor.index)
+    : collectBoxedComposerText(lines, anchor.index);
 }
 
 function findLastIndex<T>(items: readonly T[], predicate: (item: T) => boolean): number {
@@ -3128,6 +3183,13 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
         ? `Relay agent ${agentName} failed to stay online:\n${stderrTail}`
         : `Relay agent ${agentName} failed to stay online.`,
     );
+  }
+
+  try {
+    await waitForTmuxHarnessReady(normalizedRecord.tmuxSession, normalizeLocalAgentHarness(normalizedRecord.harness));
+  } catch (error) {
+    killAgentSession(normalizedRecord.tmuxSession);
+    throw error;
   }
 
   const registry = await readLocalAgentRegistry();

@@ -61,7 +61,7 @@ codex     →  broker (post reply)
 broker    →  operator (deliver reply via SSE)
 ```
 
-One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, records the target acknowledgement, and tracks the later completion as a flight. A flight is the broker's tracked record for an ask-style request, including timeout, retry, acknowledgement, and completion state.
+One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, records the target acknowledgement, and tracks the later completion as a flight. A flight is the broker's tracked record for an ask-style request, including retry, acknowledgement, and completion state. Caller wait budgets may stop a CLI or MCP call from waiting, but they do not cancel or fail the broker flight.
 
 ## Core Moving Parts
 
@@ -124,7 +124,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 
 3. **Route.** Messages with explicit target intent hit the broker, which resolves the name, finds the endpoint, and dispatches.
 
-4. **Invoke.** For ask-style interactions, the broker creates a flight record -- tracking the request-response lifecycle with timeout and retry semantics.
+4. **Invoke.** For ask-style interactions, the broker creates a flight record -- tracking the request-response lifecycle with acknowledgement, retry, and durable completion semantics.
 
 5. **Stop.** `scout down` terminates the local session and marks the endpoint offline.
 

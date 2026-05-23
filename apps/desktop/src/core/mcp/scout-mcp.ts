@@ -258,7 +258,7 @@ async function resolveMcpSenderId(
 
 const targetLabelInputSchema = z
   .string()
-  .describe("Scout agent handle to contact, such as @talkie or @talkie#codex?5.5")
+  .describe("Scout agent handle to contact, such as @talkie. Treat harness/model/profile as instance constraints, not the base agent identity.")
   .optional();
 
 const targetAgentIdInputSchema = z
@@ -269,6 +269,12 @@ const targetAgentIdInputSchema = z
 const targetSessionIdInputSchema = z
   .string()
   .describe("Exact Scout session id to continue, such as a CODEX_THREAD_ID or attached runtime session id")
+  .optional();
+
+const projectPathInputSchema = z
+  .string()
+  .min(1)
+  .describe("Project root to ask when you do not have a specific agent in mind; Scout resolves or creates the concrete agent instance.")
   .optional();
 
 const mentionAgentIdsInputSchema = z
@@ -1059,7 +1065,7 @@ const askResultSchema = z.object({
   replyToSessionId: z.string().nullable().optional(),
   usedBroker: z.boolean(),
   awaited: z.boolean(),
-  waitStatus: z.enum(["not_requested", "acknowledged", "completed", "terminal", "timeout"]).optional(),
+  waitStatus: z.enum(["not_requested", "acknowledged", "completed", "terminal", "pending"]).optional(),
   replyMode: z.enum(REPLY_MODE_VALUES).optional(),
   delivery: z.enum(REPLY_DELIVERY_VALUES).optional(),
   notification: z
@@ -1098,6 +1104,13 @@ const askReceiptSchema = z.object({
     workId: z.string().optional(),
     bindingRef: z.string().optional(),
   }),
+  delivery: z.enum(REPLY_DELIVERY_VALUES).optional(),
+  notification: z
+    .object({
+      method: z.literal("notifications/scout/reply"),
+      status: z.enum(["scheduled", "not_scheduled"]),
+    })
+    .optional(),
   next: z
     .object({
       tool: z.enum(["agents_resolve", "agents_search", "agents_start"]),
@@ -1117,7 +1130,7 @@ const invocationLookupResultSchema = z.object({
   currentDirectory: z.string(),
   flightId: z.string(),
   found: z.boolean(),
-  waitStatus: z.enum(["not_requested", "completed", "terminal", "timeout"]).optional(),
+  waitStatus: z.enum(["not_requested", "completed", "terminal", "pending"]).optional(),
   terminal: z.boolean(),
   flight: flightSchema.nullable(),
   lifecycle: invocationLifecycleSchema.nullable().optional(),
@@ -1320,7 +1333,7 @@ function renderMcpAskSummary(result: {
   ].filter(Boolean);
   const detailText = details.length > 0 ? `; ${details.join(", ")}` : "";
   const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
-  if (result.waitStatus === "timeout" && result.flightId) {
+  if (result.waitStatus === "pending" && result.flightId) {
     const state = result.flight?.state ? ` ${result.flight.state}` : "";
     return `Ask dispatch is still${state}; use invocations_wait with flightId=${result.flightId}.${followText}`;
   }
@@ -1344,7 +1357,14 @@ function renderMcpAskPrimitiveSummary(receipt: ScoutAskReceipt): string {
       : "";
     const flight = receipt.ids.flightId ? `; flight ${receipt.ids.flightId}` : "";
     const work = receipt.ids.workId ? `; work ${receipt.ids.workId}` : "";
-    return `Ask ${receipt.state}${target}${flight}${work}.`;
+    const delivery = receipt.delivery === "mcp_notification"
+      ? receipt.notification?.status === "scheduled"
+        ? " Reply will be delivered by MCP notification."
+        : receipt.ids.flightId
+        ? ` MCP notification was not scheduled; use invocations_wait with flightId=${receipt.ids.flightId}.`
+        : " MCP notification was not scheduled."
+      : "";
+    return `Ask ${receipt.state}${target}${flight}${work}.${delivery}`;
   }
   if (receipt.next) {
     return `Ask was not sent: ${receipt.next.reason}`;
@@ -1481,7 +1501,7 @@ type ScoutMcpFlightWaitStatus =
   | "acknowledged"
   | "completed"
   | "terminal"
-  | "timeout";
+  | "pending";
 
 async function loadInvocationLifecycleForFlight(input: {
   deps: ScoutMcpDependencies;
@@ -1528,7 +1548,7 @@ async function waitForFlightForMcp(input: {
       return { flight: latestFlight, waitStatus: "acknowledged" };
     }
     if (deadline !== null && Date.now() > deadline) {
-      return { flight: latestFlight, waitStatus: "timeout" };
+      return { flight: latestFlight, waitStatus: "pending" };
     }
     latestFlight = await input.deps.getFlight(input.brokerUrl, input.flight.id) ?? latestFlight;
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1540,7 +1560,7 @@ function buildInvocationLookupContent(input: {
   flightId: string;
   flight: ScoutFlightRecord | null;
   lifecycle?: ScoutInvocationLifecycleRecord | null;
-  waitStatus?: "not_requested" | "completed" | "terminal" | "timeout";
+  waitStatus?: "not_requested" | "completed" | "terminal" | "pending";
   env: NodeJS.ProcessEnv;
 }) {
   const followArtifacts = buildScoutFollowArtifacts(
@@ -1594,7 +1614,7 @@ function renderInvocationLookupSummary(result: {
     return result.error;
   }
   const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
-  if (result.waitStatus === "timeout") {
+  if (result.waitStatus === "pending") {
     return `Flight ${result.flightId} is still ${result.flight.state}.${followText}`;
   }
   return `Flight ${result.flightId} is ${result.flight.state}.${followText}`;
@@ -1665,7 +1685,6 @@ function scheduleScoutReplyNotification(input: {
   deps: ScoutMcpDependencies;
   brokerUrl: string;
   flight: ScoutFlightRecord;
-  timeoutSeconds?: number;
   context: Omit<
     ScoutReplyNotificationParams,
     "status" | "flight" | "output" | "error"
@@ -1676,7 +1695,6 @@ function scheduleScoutReplyNotification(input: {
       const completedFlight = await input.deps.waitForFlight(
         input.brokerUrl,
         input.flight.id,
-        { timeoutSeconds: input.timeoutSeconds },
       );
       await sendScoutReplyNotification(input.server, {
         ...input.context,
@@ -3048,7 +3066,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Reply to Scout Message",
       description:
-        "Reply to the active inbound Scout broker ask. If conversationId and replyToMessageId are omitted, this uses the active ScoutReplyContext. If there is no active context, use messages_send for a new message or pass both ids explicitly.",
+        "Reply in an existing Scout conversation/thread. This is a normal threaded conversation message, not a fresh ask or owned-work lifecycle. If conversationId and replyToMessageId are omitted, this uses the current ScoutReplyContext. If there is no active context, use messages_send for a new message or ask for a new request.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -3100,7 +3118,7 @@ export function createScoutMcpServer(options: {
         };
         return {
           content: createPlainTextContent(
-            "No active Scout broker reply context. Use messages_send for a new message, or pass conversationId and replyToMessageId explicitly.",
+            "No active Scout broker reply context. Use messages_send for a new message, use ask for a new request, or pass conversationId and replyToMessageId explicitly.",
           ),
           structuredContent,
         };
@@ -3406,7 +3424,7 @@ export function createScoutMcpServer(options: {
         label: z
           .string()
           .min(1)
-          .describe("Scout agent handle or selector, such as @talkie or @talkie#codex?5.5"),
+          .describe("Scout agent handle or selector, such as @talkie. Use harness/model/profile qualifiers only when you need a specific instance."),
         currentDirectory: z.string().optional(),
       }),
       outputSchema: resolveResultSchema,
@@ -3446,7 +3464,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask",
       description:
-        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the normal agent-to-agent ask primitive: pass who to ask in `to`, or pass `projectPath` when you know the project root and want Scout to choose the concrete agent. Scout resolves, routes, wakes when possible, and returns a compact receipt. Use discovery tools only when you need broker help rather than agent work.",
+        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the single broker front door for requested work: pass who to ask in `to`, pass `projectPath` when you know the project root and want Scout to choose/create the concrete instance, or pass `targetSessionId` to keep a sticky session. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait to observe flight records. Use discovery tools only when you need broker help rather than agent work.",
       inputSchema: z.object({
         to: z
           .string()
@@ -3454,11 +3472,7 @@ export function createScoutMcpServer(options: {
           .optional()
           .describe("Agent id, label, sibling, specialist, or recent collaborator."),
         targetSessionId: targetSessionIdInputSchema,
-        projectPath: z
-          .string()
-          .min(1)
-          .optional()
-          .describe("Project root to ask; Scout resolves the owning agent."),
+        projectPath: projectPathInputSchema,
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
@@ -3468,10 +3482,29 @@ export function createScoutMcpServer(options: {
           .describe(
             "Optional requester session that should receive the eventual reply. When omitted, Codex MCP uses the current CODEX_THREAD_ID when available.",
           ),
+        labels: z.array(z.string()).optional(),
+        workItem: workItemInputSchema.optional(),
+        channel: z.string().optional(),
+        shouldSpeak: z.boolean().optional(),
+        replyMode: z
+          .enum(REPLY_MODE_VALUES)
+          .describe(
+            "Reply delivery mode: 'none' returns durable ids only, 'inline' waits briefly, and 'notify' returns quickly then emits notifications/scout/reply later.",
+          )
+          .optional(),
+        timeoutSeconds: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Caller wait budget in seconds for inline waits only; it never cancels or fails the broker ask."),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
         workspace: z.enum(["same", "new_worktree"]).optional(),
         session: z.enum(["reuse", "new"]).optional(),
-        wait: z.boolean().optional(),
+        wait: z
+          .boolean()
+          .optional()
+          .describe("Compatibility alias for replyMode='inline'."),
       }),
       outputSchema: askReceiptSchema,
       annotations: {
@@ -3496,6 +3529,12 @@ export function createScoutMcpServer(options: {
       currentDirectory,
       senderId,
       replyToSessionId,
+      labels,
+      workItem,
+      channel,
+      shouldSpeak,
+      replyMode,
+      timeoutSeconds,
       harness,
       workspace,
       session,
@@ -3515,10 +3554,16 @@ export function createScoutMcpServer(options: {
         replyToSessionId,
         env,
       );
+      const resolvedReplyMode = resolveAskReplyMode({
+        awaitReply: wait,
+        replyMode,
+      });
       const targetSession = targetSessionId?.trim();
       const targetTo = targetSession ? `session:${targetSession}` : to?.trim();
-      const targetProjectPath = projectPath?.trim();
-      let structuredContent = targetTo && targetProjectPath
+      const targetProjectPath = projectPath?.trim()
+        ? resolve(resolvedCurrentDirectory, projectPath.trim())
+        : undefined;
+      let structuredContent: ScoutAskReceipt = targetTo && targetProjectPath
         ? {
             ok: false,
             state: "failed" as const,
@@ -3537,16 +3582,21 @@ export function createScoutMcpServer(options: {
             ...(harness ? { harness } : {}),
             ...(workspace ? { workspace } : {}),
             ...(session ? { session } : {}),
+            ...(workItem ? { workItem } : {}),
+            ...(labels ? { labels } : {}),
+            ...(channel ? { channel } : {}),
+            ...(shouldSpeak !== undefined ? { shouldSpeak } : {}),
             ...(resolvedReplyToSessionId ? { replyToSessionId: resolvedReplyToSessionId } : {}),
             currentDirectory: resolvedCurrentDirectory,
             source: "scout-mcp",
           });
 
-      if (wait && structuredContent.ids.flightId) {
+      if (resolvedReplyMode === "inline" && structuredContent.ids.flightId) {
         try {
           const flight = await deps.waitForFlight(
             deps.resolveBrokerUrl(),
             structuredContent.ids.flightId,
+            timeoutSeconds ? { timeoutSeconds } : undefined,
           );
           structuredContent = {
             ...structuredContent,
@@ -3566,6 +3616,70 @@ export function createScoutMcpServer(options: {
         } catch {
           // Keep the initial receipt; callers can follow by flight id.
         }
+      } else if (resolvedReplyMode === "notify" && structuredContent.ids.flightId) {
+        const flight = await deps.getFlight(
+          deps.resolveBrokerUrl(),
+          structuredContent.ids.flightId,
+        ).catch(() => null);
+        if (flight) {
+          const followArtifacts = buildScoutFollowArtifacts(
+            {
+              flight,
+              conversationId: structuredContent.ids.conversationId ?? null,
+              workItem: null,
+              targetAgentId: structuredContent.ids.targetAgentId ?? flight.targetAgentId ?? null,
+            },
+            env,
+          );
+          scheduleScoutReplyNotification({
+            server,
+            deps,
+            brokerUrl: deps.resolveBrokerUrl(),
+            flight,
+            context: {
+              currentDirectory: resolvedCurrentDirectory,
+              senderId: resolvedSenderId,
+              targetAgentId: structuredContent.ids.targetAgentId ?? flight.targetAgentId ?? null,
+              targetLabel: targetTo ?? targetProjectPath ?? null,
+              conversationId: structuredContent.ids.conversationId ?? null,
+              messageId: structuredContent.ids.messageId ?? null,
+              bindingRef: structuredContent.ids.bindingRef ? `ref:${structuredContent.ids.bindingRef}` : null,
+              flightId: flight.id,
+              workItem: null,
+              workId: structuredContent.ids.workId ?? null,
+              workUrl: null,
+              ids: followArtifacts.ids,
+              links: followArtifacts.links,
+              followUrl: followArtifacts.followUrl,
+            },
+          });
+          structuredContent = {
+            ...structuredContent,
+            delivery: "mcp_notification" as const,
+            notification: {
+              method: "notifications/scout/reply" as const,
+              status: "scheduled" as const,
+            },
+          };
+        }
+      }
+      if (structuredContent.ok && !structuredContent.delivery) {
+        structuredContent = {
+          ...structuredContent,
+          delivery: resolvedReplyMode === "notify"
+            ? "mcp_notification"
+            : resolvedReplyMode === "inline"
+              ? "inline"
+              : "none",
+          ...(resolvedReplyMode === "notify"
+            ? {
+                notification: {
+                  method: "notifications/scout/reply" as const,
+                  status: "not_scheduled" as const,
+                },
+              }
+            : {}),
+        };
       }
 
       return {
@@ -3582,7 +3696,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Targeted DMs are dispatched by the broker when the target can be reached; callers should not preflight wake/session mechanics. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For agent-to-agent work, use ask instead.",
+        "Post a broker-backed Scout message/update/reply. Use this for heads-up, threaded conversation, and status when no new owned-work lifecycle is needed. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Targeted DMs are dispatched by the broker when the target can be reached; callers should not preflight wake/session mechanics. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For new agent-to-agent work, use ask instead.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -3906,12 +4020,13 @@ export function createScoutMcpServer(options: {
     },
   );
 
+  if (env.OPENSCOUT_EXPOSE_DEPRECATED_INVOCATIONS_ASK === "1") {
   server.registerTool(
     "invocations_ask",
     {
-      title: "Create Scout Invocation",
+      title: "Deprecated Scout Invocation Ask",
       description:
-        "Low-level broker-backed invocation handoff. For normal agent-to-agent work, use ask. Use this only when you need exact invocation controls such as targetSessionId, targetAgentId, workItem, or replyMode. Pass targetSessionId to continue a specific live session; omit it to let the broker create or choose a fresh lightweight session for the target. Pass targetLabel or targetAgentId as routing fields when you do not have a session id. replyMode='inline' returns once the invocation is acknowledged or already complete; use invocations_wait for a longer follow-up poll. replyMode='notify' returns immediately and emits notifications/scout/reply later; replyMode='none' returns the durable receipt only. awaitReply is kept as a boolean alias for replyMode='inline'.",
+        "DEPRECATED compatibility surface. Do not use this as an agent front door; use ask to talk to the broker. Ask creates broker invocation and flight records as side effects, then use invocations_get or invocations_wait to observe those records. This tool is hidden unless OPENSCOUT_EXPOSE_DEPRECATED_INVOCATIONS_ASK=1 is set for an older client.",
       inputSchema: z
         .object({
           body: z.string().min(1),
@@ -3937,10 +4052,15 @@ export function createScoutMcpServer(options: {
           replyMode: z
             .enum(REPLY_MODE_VALUES)
             .describe(
-              "Reply delivery mode: 'inline' returns a quick acknowledgement or immediate completion, 'notify' returns immediately then emits notifications/scout/reply, and 'none' returns durable ids only. Inline acknowledgement waits default to 30 seconds unless timeoutSeconds is set.",
+              "Reply delivery mode: 'inline' returns a quick acknowledgement or immediate completion, 'notify' returns immediately then emits notifications/scout/reply, and 'none' returns durable ids only. Inline acknowledgement waits use timeoutSeconds only as a caller wait budget.",
             )
             .optional(),
-          timeoutSeconds: z.number().int().min(1).optional(),
+          timeoutSeconds: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe("Caller wait budget in seconds for inline waits only; it never cancels or fails the broker ask."),
         })
         .refine(
           (value) =>
@@ -4048,7 +4168,6 @@ export function createScoutMcpServer(options: {
             deps,
             brokerUrl: deps.resolveBrokerUrl(),
             flight: result.flight,
-            timeoutSeconds,
             context: {
               currentDirectory: resolvedCurrentDirectory,
               senderId: resolvedSenderId,
@@ -4158,7 +4277,6 @@ export function createScoutMcpServer(options: {
             deps,
             brokerUrl: deps.resolveBrokerUrl(),
             flight: result.flight,
-            timeoutSeconds,
             context: {
               currentDirectory: resolvedCurrentDirectory,
               senderId: resolvedSenderId,
@@ -4307,7 +4425,6 @@ export function createScoutMcpServer(options: {
           deps,
           brokerUrl: deps.resolveBrokerUrl(),
           flight: result.flight,
-          timeoutSeconds,
           context: {
             currentDirectory: resolvedCurrentDirectory,
             senderId: resolvedSenderId,
@@ -4382,6 +4499,7 @@ export function createScoutMcpServer(options: {
       };
     },
   );
+  }
 
   server.registerTool(
     "invocations_get",
@@ -4440,7 +4558,13 @@ export function createScoutMcpServer(options: {
       inputSchema: z.object({
         currentDirectory: z.string().optional(),
         flightId: z.string().min(1),
-        timeoutSeconds: z.number().int().min(1).max(300).default(30),
+        timeoutSeconds: z
+          .number()
+          .int()
+          .min(1)
+          .max(300)
+          .default(30)
+          .describe("Caller wait budget in seconds; elapsed time returns the latest state and does not cancel or fail the ask."),
       }),
       outputSchema: invocationLookupResultSchema,
       annotations: {
@@ -4458,7 +4582,7 @@ export function createScoutMcpServer(options: {
       const trimmedFlightId = flightId.trim();
       const brokerUrl = deps.resolveBrokerUrl();
       let flight: ScoutFlightRecord | null = null;
-      let waitStatus: "completed" | "terminal" | "timeout" = "timeout";
+      let waitStatus: "completed" | "terminal" | "pending" = "pending";
 
       try {
         flight = await deps.waitForFlight(
