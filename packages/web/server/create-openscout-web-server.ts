@@ -2614,6 +2614,7 @@ export async function createOpenScoutWebServer(
       queryFleet({
         limit: parseOptionalPositiveInt(c.req.query("limit")),
         activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
+        activityLookbackMs: parseOptionalPositiveInt(c.req.query("activityLookbackMs")),
       }),
     ),
   );

@@ -23,7 +23,7 @@ import {
   stopHomeBriefSpeech,
   useHomeBriefPlayerState,
 } from "../lib/home-brief-player.ts";
-import { usePersistentString } from "../lib/persistent-state.ts";
+import { usePersistentNumber, usePersistentString } from "../lib/persistent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { conversationForAgent, routeMachineId } from "../lib/router.ts";
 import {
@@ -43,14 +43,15 @@ import type {
   Route,
 } from "../lib/types.ts";
 
-type LookbackOption = { label: string; value: number };
+type LookbackOption = { label: string; value: number; activityLimit: number };
 
 const LOOKBACK_WINDOWS: LookbackOption[] = [
-  { label: "30m", value: 30 * 60_000 },
-  { label: "6h", value: 6 * 60 * 60_000 },
-  { label: "24h", value: 24 * 60 * 60_000 },
+  { label: "30m", value: 30 * 60_000, activityLimit: 80 },
+  { label: "6h", value: 6 * 60 * 60_000, activityLimit: 250 },
+  { label: "24h", value: 24 * 60 * 60_000, activityLimit: 800 },
 ];
-const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[1].value;
+const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[2].value;
+const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
 // Service-budget data (claude/codex/github usage) is expensive to compute
 // and doesn't change minute-to-minute. Refresh once an hour; the server
 // caches the same window. Easy to tune later if we want fresher numbers.
@@ -143,6 +144,50 @@ function formatLookback(ms: number): string {
   if (minutes < 60) return `${minutes}m`;
   const hours = minutes / 60;
   return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
+}
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "now";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+type ActivityShape = {
+  count: number;
+  lastAgoMs: number;
+  longestGapMs: number;
+};
+
+function computeActivityShape(
+  items: FleetActivity[],
+  lookbackMs: number,
+  nowMs: number,
+): ActivityShape | null {
+  if (items.length === 0) return null;
+  const stamps = items
+    .map((it) => normalizeTimestampMs(it.ts))
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => b - a);
+  if (stamps.length === 0) return null;
+  const newest = stamps[0]!;
+  const oldest = stamps[stamps.length - 1]!;
+  let longestGap = 0;
+  for (let i = 1; i < stamps.length; i++) {
+    longestGap = Math.max(longestGap, stamps[i - 1]! - stamps[i]!);
+  }
+  // Trailing silence: from window start to oldest visible event.
+  const windowStart = nowMs - lookbackMs;
+  longestGap = Math.max(longestGap, oldest - windowStart);
+  return {
+    count: items.length,
+    lastAgoMs: Math.max(0, nowMs - newest),
+    longestGapMs: Math.max(0, longestGap),
+  };
 }
 
 function formatTimeUntil(timestamp: number | null | undefined, nowMs: number): string {
@@ -271,6 +316,17 @@ export function HomeScreen({
     [fleet, scopedAgentIds],
   );
 
+  const [lookbackMs, setLookbackMs] = usePersistentNumber(
+    LOOKBACK_STORAGE_KEY,
+    DEFAULT_LOOKBACK_MS,
+  );
+  const lookbackOption = useMemo<LookbackOption>(
+    () =>
+      LOOKBACK_WINDOWS.find((opt) => opt.value === lookbackMs)
+        ?? LOOKBACK_WINDOWS[LOOKBACK_WINDOWS.length - 1]!,
+    [lookbackMs],
+  );
+
   const load = useCallback(async (mode: LoadMode = "initial") => {
     const requestId = ++requestIdRef.current;
     const hasSnapshot = fleetRef.current !== null;
@@ -282,9 +338,14 @@ export function HomeScreen({
       setRefreshing(true);
     }
 
+    const fleetQuery = new URLSearchParams({
+      activityLookbackMs: String(lookbackOption.value),
+      activityLimit: String(lookbackOption.activityLimit),
+    }).toString();
+
     const [fleetResult, attentionResult, heartrateResult, agentsResult] =
       await Promise.allSettled([
-        api<FleetState>("/api/fleet"),
+        api<FleetState>(`/api/fleet?${fleetQuery}`),
         api<OperatorAttentionState>("/api/operator-attention"),
         api<{
           windowLabel: string;
@@ -321,7 +382,7 @@ export function HomeScreen({
     }
     setLoading(false);
     setRefreshing(false);
-  }, [reload]);
+  }, [reload, lookbackOption]);
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimerRef.current) return;
@@ -422,7 +483,6 @@ export function HomeScreen({
     };
   }, [load]);
 
-  const [lookbackMs, setLookbackMs] = useState<number>(DEFAULT_LOOKBACK_MS);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [staleMotionInactiveRaw, setStaleMotionInactiveRaw] = usePersistentString(
     STALE_MOTION_INACTIVE_KEY,
@@ -591,25 +651,17 @@ export function HomeScreen({
       (item) => (normalizeTimestampMs(item.ts) ?? 0) >= sinceMs,
     );
   }, [scopedFleet?.activity, sinceMs]);
-  const recentActivity = scopedFleet?.activity ?? [];
-  const activityRows = liveActivity.length > 0 ? liveActivity : recentActivity;
-  const activityWindowFallback = liveActivity.length === 0 && recentActivity.length > 0;
-  const latestRecentActivityAge = timeAgo(recentActivity[0]?.ts, nowMs);
-  const activityWindowNote = activityWindowFallback
-    ? `No activity in the last ${formatLookback(lookbackMs)}. ${
-      latestRecentActivityAge
-        ? `Latest activity ${latestRecentActivityAge} ago.`
-        : "Latest activity is outside the window."
-    }`
-    : null;
-  const activitySectionLabel = activityWindowFallback
-    ? `Recent activity · ${activityRows.length}`
-    : `Live activity · ${liveActivity.length}`;
-  const activityEmptyText = scopedFleet
-    ? "No activity recorded yet."
-    : loading || refreshing
-      ? "Loading activity…"
-      : "Activity snapshot unavailable.";
+  const activityShape = useMemo(
+    () => computeActivityShape(liveActivity, lookbackMs, nowMs),
+    [liveActivity, lookbackMs, nowMs],
+  );
+  const activityCapReached = liveActivity.length >= lookbackOption.activityLimit;
+  const nextLookbackOption = useMemo<LookbackOption | null>(() => {
+    const idx = LOOKBACK_WINDOWS.findIndex((opt) => opt.value === lookbackMs);
+    return idx >= 0 && idx < LOOKBACK_WINDOWS.length - 1
+      ? LOOKBACK_WINDOWS[idx + 1]!
+      : null;
+  }, [lookbackMs]);
 
   const now = new Date();
   const greeting = greetingFor(now.getHours());
@@ -967,40 +1019,65 @@ export function HomeScreen({
           </div>
         )}
 
-        {/* ── Activity stream ────────────────────────────────────── */}
+        {/* ── Live activity (windowed) ───────────────────────────── */}
         <div className="s-fleet-section">
           <SectionRule
-            label={activitySectionLabel}
+            label={`Live activity · ${liveActivity.length}${activityCapReached ? "+" : ""}`}
             right={
               <LookbackPicker
                 value={lookbackMs}
                 onChange={setLookbackMs}
+                refreshing={refreshing && !loading}
               />
             }
           />
-          {activityRows.length === 0 ? (
-            <div className="s-mc-empty">
-              {activityEmptyText}
+          {activityShape && (
+            <div className="s-fleet-live-shape">
+              <span>last {formatDuration(activityShape.lastAgoMs)} ago</span>
+              <span>·</span>
+              <span>longest gap {formatDuration(activityShape.longestGapMs)}</span>
+              {activityCapReached && (
+                <>
+                  <span>·</span>
+                  <span style={{ color: "var(--amber)" }}>
+                    showing {Math.min(liveActivity.length, 30)} of {lookbackOption.activityLimit}+ (capped)
+                  </span>
+                </>
+              )}
+              {!activityCapReached && liveActivity.length > 30 && (
+                <>
+                  <span>·</span>
+                  <span>showing 30 of {liveActivity.length}</span>
+                </>
+              )}
             </div>
+          )}
+          {loading && liveActivity.length === 0 ? (
+            <ActivityStreamSkeleton />
+          ) : liveActivity.length === 0 ? (
+            <LiveActivityEmpty
+              lookbackMs={lookbackMs}
+              nextOption={nextLookbackOption}
+              onWiden={(opt) => setLookbackMs(opt.value)}
+              loadedAt={lastLoadedAt}
+              nowMs={nowMs}
+              error={error}
+              onRetry={() => void load("manual")}
+            />
           ) : (
-            <>
-              {activityWindowNote ? (
-                <div className="s-mc-empty">{activityWindowNote}</div>
-              ) : null}
-              <div className="s-mc-stream s-fleet-live-stream">
-                {activityRows.slice(0, 30).map((item) => (
-                  <ActivityRow
-                    key={item.id}
-                    item={item}
-                    nowMs={nowMs}
-                    onOpen={() => {
-                      const route = fleetActivityRoute(item);
-                      if (route) navigate(route);
-                    }}
-                  />
-                ))}
-              </div>
-            </>
+            <div className="s-mc-stream s-fleet-live-stream">
+              {liveActivity.slice(0, 30).map((item) => (
+                <ActivityRow
+                  key={item.id}
+                  item={item}
+                  nowMs={nowMs}
+                  onOpen={() => {
+                    const route = fleetActivityRoute(item);
+                    if (route) navigate(route);
+                  }}
+                />
+              ))}
+            </div>
           )}
         </div>
 
@@ -1665,13 +1742,18 @@ function StaleMotionRow({
 function LookbackPicker({
   value,
   onChange,
+  refreshing,
 }: {
   value: number;
   onChange: (next: number) => void;
+  refreshing?: boolean;
 }) {
   return (
     <div className="s-mc-window" role="group" aria-label="Lookback window">
-      <span className="s-mc-window-label">Lookback</span>
+      <span className="s-mc-window-label">
+        Lookback
+        {refreshing && <span className="s-mc-window-refreshing" aria-label="refreshing" />}
+      </span>
       <div className="s-mc-window-tabs">
         {LOOKBACK_WINDOWS.map((opt) => (
           <button
@@ -1684,6 +1766,74 @@ function LookbackPicker({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ActivityStreamSkeleton() {
+  return (
+    <div className="s-mc-stream s-fleet-live-stream s-fleet-live-stream--skeleton" aria-hidden="true">
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div key={i} className="s-fleet-live-skeleton-row">
+          <span className="s-fleet-live-skeleton-time" />
+          <span className="s-fleet-live-skeleton-actor" />
+          <span className="s-fleet-live-skeleton-text" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LiveActivityEmpty({
+  lookbackMs,
+  nextOption,
+  onWiden,
+  loadedAt,
+  nowMs,
+  error,
+  onRetry,
+}: {
+  lookbackMs: number;
+  nextOption: LookbackOption | null;
+  onWiden: (opt: LookbackOption) => void;
+  loadedAt: number | null;
+  nowMs: number;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="s-mc-empty s-fleet-live-empty">
+        <div className="s-fleet-live-empty-title">Couldn’t load activity.</div>
+        <div className="s-fleet-live-empty-detail">{error}</div>
+        <div className="s-fleet-live-empty-actions">
+          <button type="button" className="s-link-btn" onClick={onRetry}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+  const polledLabel = loadedAt
+    ? `Polled ${formatDuration(Math.max(0, nowMs - loadedAt))} ago.`
+    : "Polling…";
+  return (
+    <div className="s-mc-empty s-fleet-live-empty">
+      <div className="s-fleet-live-empty-title">
+        Quiet — no activity in the last {formatLookback(lookbackMs)}.
+      </div>
+      <div className="s-fleet-live-empty-detail">{polledLabel}</div>
+      {nextOption && (
+        <div className="s-fleet-live-empty-actions">
+          <button
+            type="button"
+            className="s-link-btn"
+            onClick={() => onWiden(nextOption)}
+          >
+            Widen to {nextOption.label} →
+          </button>
+        </div>
+      )}
     </div>
   );
 }
