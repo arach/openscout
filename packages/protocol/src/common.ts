@@ -69,7 +69,10 @@ export type DeliveryTransport =
   | "codex_exec"
   | "claude_resume"
   | "tmux"
-  | "cursor_exec";
+  | "cursor_exec"
+  | "cursor_cli_text"
+  | "cursor_cli_stream_json"
+  | "cursor_sdk_local";
 
 export type DeliveryReason =
   | "conversation_visibility"

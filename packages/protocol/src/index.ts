@@ -30,3 +30,4 @@ export * from "./transports.js";
 export * from "./events.js";
 export * from "./thread-events.js";
 export * from "./permission-policy.js";
+export * from "./cursor-transport.js";
