@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Archive, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
 import { api } from "../../lib/api.ts";
+import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
@@ -410,14 +411,18 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           kind: "action",
           label: "Copy selection",
           shortcut: "⌘C",
-          onSelect: () => navigator.clipboard.writeText(sel),
+          onSelect: () => {
+            void copyTextToClipboard(sel);
+          },
         });
         items.push({ kind: "separator" });
       }
       items.push({
         kind: "action",
         label: "Copy message",
-        onSelect: () => navigator.clipboard.writeText(text),
+        onSelect: () => {
+          void copyTextToClipboard(text);
+        },
       });
       if (paths.length > 0) {
         items.push({ kind: "separator" });
@@ -445,7 +450,9 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         items.push({
           kind: "action",
           label: paths.length === 1 ? "Copy path" : "Copy first path",
-          onSelect: () => navigator.clipboard.writeText(paths[0]),
+          onSelect: () => {
+            void copyTextToClipboard(paths[0]);
+          },
         });
       }
       items.push({ kind: "separator" });
@@ -2107,26 +2114,6 @@ function ChatBubble({
       )}
     </div>
   );
-}
-
-async function copyTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
 }
 
 function RangerIconButton({

@@ -27,11 +27,12 @@ import {
   ensureScoutLocalEdgeTrust,
   type ScoutLocalEdgeTrustReport,
 } from "../../core/setup/local-edge-dependencies.ts";
+import { resolveScoutBrokerUrl } from "../../core/broker/service.ts";
 import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 
 type ScoutServerMode = "openscout-web";
-type ScoutServerAction = "start" | "open" | "caddyfile" | "edge" | "trust";
+type ScoutServerAction = "start" | "restart" | "open" | "caddyfile" | "edge" | "trust";
 
 type ScoutServerHealth = {
   ok: true;
@@ -55,6 +56,7 @@ export function renderServerCommandHelp(): string {
     "",
     "Usage:",
     "  scout server start [options]",
+    "  scout server restart [options]",
     "  scout server open [options]",
     "  scout server caddyfile [options]",
     "  scout server edge [options]",
@@ -63,6 +65,7 @@ export function renderServerCommandHelp(): string {
     "",
     "Subcommands:",
     "  start              Start the Scout web UI server.",
+    "  restart            Restart the Scout web UI server via the broker supervisor.",
     "  open               Open the Scout web UI (starts server on demand if needed).",
     "  caddyfile          Print the local edge Caddyfile for scout.local.",
     "  edge               Publish local names and run the Caddy edge.",
@@ -328,6 +331,14 @@ function parseServerSelection(args: string[]): {
   if (args[0] === "start") {
     return {
       action: "start",
+      flagArgs: args.slice(1),
+      entry: resolveScoutControlPlaneWebServerEntry(),
+      mode: "openscout-web",
+    };
+  }
+  if (args[0] === "restart") {
+    return {
+      action: "restart",
       flagArgs: args.slice(1),
       entry: resolveScoutControlPlaneWebServerEntry(),
       mode: "openscout-web",
@@ -828,6 +839,13 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
     return;
   }
 
+  if (selection.action === "restart") {
+    const result = await restartScoutWebServer();
+    context.output.writeValue(result, renderServerRestartResult);
+    return;
+  }
+
+
   const bunExecutable = resolveBunExecutable(mergedEnv);
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -862,4 +880,105 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
       resolvePromise();
     });
   });
+}
+
+type ScoutServerSupervisorStatus = {
+  ok: boolean;
+  running: boolean;
+  starting: boolean;
+  webUrl: string | null;
+  port: number | null;
+  pid: number | null;
+  error?: string | null;
+};
+
+type ScoutServerRestartResult = {
+  webUrl: string | null;
+  port: number | null;
+  previousPid: number | null;
+  newPid: number | null;
+  drainMs: number;
+  totalMs: number;
+};
+
+async function fetchSupervisorStatus(): Promise<ScoutServerSupervisorStatus> {
+  const brokerUrl = resolveScoutBrokerUrl();
+  const response = await fetch(new URL("/v1/web/status", brokerUrl));
+  if (!response.ok) {
+    throw new ScoutCliError(`broker supervisor returned HTTP ${response.status}`);
+  }
+  return await response.json() as ScoutServerSupervisorStatus;
+}
+
+async function waitForSupervisor(
+  predicate: (status: ScoutServerSupervisorStatus) => boolean,
+  timeoutMs: number,
+  intervalMs = 150,
+): Promise<ScoutServerSupervisorStatus> {
+  const deadline = Date.now() + timeoutMs;
+  let last: ScoutServerSupervisorStatus | null = null;
+  while (Date.now() < deadline) {
+    last = await fetchSupervisorStatus().catch(() => last);
+    if (last && predicate(last)) return last;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  if (!last) {
+    throw new ScoutCliError("broker supervisor did not respond within the timeout");
+  }
+  return last;
+}
+
+async function restartScoutWebServer(): Promise<ScoutServerRestartResult> {
+  const started = Date.now();
+  const before = await fetchSupervisorStatus().catch(() => null);
+  if (!before || !before.pid) {
+    throw new ScoutCliError(
+      "Scout web server is not running under the broker supervisor — start it with `scout server start`.",
+    );
+  }
+  const previousPid = before.pid;
+
+  try {
+    process.kill(previousPid, "SIGTERM");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EPERM") {
+      throw new ScoutCliError(`not permitted to signal pid ${previousPid}`);
+    }
+    if (code === "ESRCH") {
+      // Already gone — let the broker bring it back.
+    } else {
+      throw error;
+    }
+  }
+
+  const drained = await waitForSupervisor(
+    (status) => status.pid === null || status.pid !== previousPid,
+    12_000,
+  );
+  const drainMs = Date.now() - started;
+
+  const respawned = drained.pid && drained.pid !== previousPid
+    ? drained
+    : await waitForSupervisor((status) => status.running && status.pid !== null && status.pid !== previousPid, 15_000);
+
+  return {
+    webUrl: respawned.webUrl,
+    port: respawned.port,
+    previousPid,
+    newPid: respawned.pid,
+    drainMs,
+    totalMs: Date.now() - started,
+  };
+}
+
+function renderServerRestartResult(value: ScoutServerRestartResult): string {
+  return [
+    `Restarted Scout web server`,
+    `  Previous PID: ${value.previousPid}`,
+    `  New PID:      ${value.newPid ?? "(unknown)"}`,
+    `  URL:          ${value.webUrl ?? "(unknown)"}`,
+    `  Drain:        ${value.drainMs}ms`,
+    `  Total:        ${value.totalMs}ms`,
+  ].join("\n");
 }

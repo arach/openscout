@@ -160,15 +160,33 @@ try {
   process.exit(1);
 }
 
-// Graceful shutdown
-const shutdown = () => {
-  console.log("\n[scout] Shutting down terminal relay...");
+// Graceful shutdown: stop accepting new connections, drain in-flight requests,
+// then exit. A second signal forces immediate exit.
+const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
+let shuttingDown = false;
+const shutdown = async (signal: NodeJS.Signals) => {
+  if (shuttingDown) {
+    console.log(`[scout] ${signal} received during shutdown — forcing exit.`);
+    process.exit(1);
+  }
+  shuttingDown = true;
+  console.log(`[scout] ${signal} received — draining (up to ${SHUTDOWN_DRAIN_TIMEOUT_MS}ms)...`);
+  const forceExit = setTimeout(() => {
+    console.error("[scout] Drain timeout exceeded — forcing exit.");
+    process.exit(1);
+  }, SHUTDOWN_DRAIN_TIMEOUT_MS);
+  forceExit.unref?.();
+  try {
+    await server.stop();
+  } catch (error) {
+    console.error("[scout] server.stop() failed:", error);
+  }
   terminalRelay?.shutdown();
-  server.stop();
+  clearTimeout(forceExit);
   process.exit(0);
 };
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", (signal) => { void shutdown(signal); });
+process.on("SIGTERM", (signal) => { void shutdown(signal); });
 
 console.log(`OpenScout Web -> http://${hostname}:${server.port}`);
 console.log(`OpenScout URL -> ${applicationServerIdentity.publicOrigin ?? `http://${applicationServerIdentity.advertisedHost}:${server.port}`}`);

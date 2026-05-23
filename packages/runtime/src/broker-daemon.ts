@@ -901,14 +901,30 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
       stdio: ["ignore", logFd, logFd],
     },
   );
-  child.once("exit", () => {
-    if (webServerProcess === child) {
-      webServerProcess = null;
+  child.once("exit", (code, signal) => {
+    if (webServerProcess !== child) {
+      // Either we already replaced this handle, or shutdown nulled it intentionally.
+      return;
     }
+    webServerProcess = null;
+    if (shuttingDown) {
+      return;
+    }
+    console.warn(
+      `[openscout-runtime] Scout web server exited unexpectedly (code=${code}, signal=${signal}) — respawning in ${WEB_RESPAWN_DELAY_MS}ms`,
+    );
+    setTimeout(() => {
+      if (shuttingDown) return;
+      startWebServerIfNeeded(context).catch((error) => {
+        console.error("[openscout-runtime] web server respawn failed:", error);
+      });
+    }, WEB_RESPAWN_DELAY_MS).unref?.();
   });
   child.unref();
   return child;
 }
+
+const WEB_RESPAWN_DELAY_MS = 1_000;
 
 async function webSupervisorStatus(error: string | null = null): Promise<WebSupervisorStatus> {
   const running = await isWebServerHealthy();

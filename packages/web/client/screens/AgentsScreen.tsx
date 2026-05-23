@@ -3,6 +3,7 @@ import { WorkList } from "../components/WorkList.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
+import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -965,40 +966,51 @@ function AgentDetailWithRail({
                 kind: "action",
                 label: "Copy Selection",
                 shortcut: "⌘C",
-                onSelect: () => navigator.clipboard.writeText(sel),
+                onSelect: () => {
+                  void copyTextToClipboard(sel);
+                },
               });
               items.push({ kind: "separator" });
             }
             items.push({
               kind: "action",
               label: "Copy Agent Name",
-              onSelect: () => navigator.clipboard.writeText(name),
+              onSelect: () => {
+                void copyTextToClipboard(name);
+              },
             });
             items.push({
               kind: "action",
               label: "Copy Agent ID",
-              onSelect: () => navigator.clipboard.writeText(agent.id),
+              onSelect: () => {
+                void copyTextToClipboard(agent.id);
+              },
             });
             if (agent.handle) {
               items.push({
                 kind: "action",
                 label: `Copy @${agent.handle}`,
-                onSelect: () =>
-                  navigator.clipboard.writeText(`@${agent.handle}`),
+                onSelect: () => {
+                  void copyTextToClipboard(`@${agent.handle}`);
+                },
               });
             }
             if (agent.selector) {
               items.push({
                 kind: "action",
                 label: "Copy Selector",
-                onSelect: () => navigator.clipboard.writeText(agent.selector ?? ""),
+                onSelect: () => {
+                  void copyTextToClipboard(agent.selector ?? "");
+                },
               });
             }
             if (agent.defaultSelector && agent.defaultSelector !== agent.selector) {
               items.push({
                 kind: "action",
                 label: "Copy Default Selector",
-                onSelect: () => navigator.clipboard.writeText(agent.defaultSelector ?? ""),
+                onSelect: () => {
+                  void copyTextToClipboard(agent.defaultSelector ?? "");
+                },
               });
             }
             showContextMenu(e, items);
