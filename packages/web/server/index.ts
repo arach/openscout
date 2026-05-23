@@ -160,7 +160,7 @@ try {
   process.exit(1);
 }
 
-// Graceful shutdown: stop accepting new connections, drain in-flight requests,
+// Graceful shutdown: terminate long-lived WS upstreams first, then drain HTTP,
 // then exit. A second signal forces immediate exit.
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 let shuttingDown = false;
@@ -176,12 +176,15 @@ const shutdown = async (signal: NodeJS.Signals) => {
     process.exit(1);
   }, SHUTDOWN_DRAIN_TIMEOUT_MS);
   forceExit.unref?.();
+  // Tear down the terminal relay first so its WebSocket upstreams (long-lived
+  // PTY/tmux sessions) close — otherwise server.stop() would wait the full
+  // drain window for those connections to finish on their own.
+  terminalRelay?.shutdown();
   try {
     await server.stop();
   } catch (error) {
     console.error("[scout] server.stop() failed:", error);
   }
-  terminalRelay?.shutdown();
   clearTimeout(forceExit);
   process.exit(0);
 };

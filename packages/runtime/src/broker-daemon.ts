@@ -910,21 +910,45 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
     if (shuttingDown) {
       return;
     }
+    // Track failures within a sliding window so a broken entrypoint doesn't
+    // produce an infinite respawn loop. Linear backoff escalates the delay
+    // with each consecutive failure; we pause auto-respawn entirely once we
+    // exceed the threshold and require an operator to call `scout server start`.
+    const now = Date.now();
+    while (webRespawnFailures.length > 0 && now - webRespawnFailures[0]! > WEB_RESPAWN_FAILURE_WINDOW_MS) {
+      webRespawnFailures.shift();
+    }
+    webRespawnFailures.push(now);
+    if (webRespawnFailures.length > WEB_RESPAWN_MAX_FAILURES) {
+      console.error(
+        `[openscout-runtime] Scout web server has exited ${webRespawnFailures.length} times within ${WEB_RESPAWN_FAILURE_WINDOW_MS / 1000}s — pausing auto-respawn. Use 'scout server start' to retry.`,
+      );
+      webRespawnFailures.length = 0;
+      return;
+    }
+    const delay = Math.min(
+      WEB_RESPAWN_BASE_DELAY_MS * webRespawnFailures.length,
+      WEB_RESPAWN_MAX_DELAY_MS,
+    );
     console.warn(
-      `[openscout-runtime] Scout web server exited unexpectedly (code=${code}, signal=${signal}) — respawning in ${WEB_RESPAWN_DELAY_MS}ms`,
+      `[openscout-runtime] Scout web server exited unexpectedly (code=${code}, signal=${signal}) — respawning in ${delay}ms (failure ${webRespawnFailures.length}/${WEB_RESPAWN_MAX_FAILURES})`,
     );
     setTimeout(() => {
       if (shuttingDown) return;
       startWebServerIfNeeded(context).catch((error) => {
         console.error("[openscout-runtime] web server respawn failed:", error);
       });
-    }, WEB_RESPAWN_DELAY_MS).unref?.();
+    }, delay).unref?.();
   });
   child.unref();
   return child;
 }
 
-const WEB_RESPAWN_DELAY_MS = 1_000;
+const WEB_RESPAWN_BASE_DELAY_MS = 1_000;
+const WEB_RESPAWN_MAX_DELAY_MS = 30_000;
+const WEB_RESPAWN_MAX_FAILURES = 5;
+const WEB_RESPAWN_FAILURE_WINDOW_MS = 60_000;
+const webRespawnFailures: number[] = [];
 
 async function webSupervisorStatus(error: string | null = null): Promise<WebSupervisorStatus> {
   const running = await isWebServerHealthy();
