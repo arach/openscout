@@ -41,6 +41,10 @@ export function resolveHarnessSessionId(
   endpointSessionId: string | null,
   metadata: Record<string, unknown> | undefined,
 ): string | null {
+  if (transport === "tmux") {
+    return metadataString(metadata, "tmuxSession") ?? endpointSessionId;
+  }
+
   if (transport === "pairing_bridge") {
     const attachedTransport = metadataString(metadata, "attachedTransport");
     if (attachedTransport === "codex_app_server") {

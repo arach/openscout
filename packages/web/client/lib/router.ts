@@ -281,7 +281,13 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return { view: "settings" };
   }
   if (parts[0] === "terminal") {
-    return { view: "terminal", ...(parts[1] ? { agentId: decodeURIComponent(parts[1]) } : {}) };
+    const modeParam = url.searchParams.get("mode");
+    const mode = modeParam === "observe" || modeParam === "takeover" ? modeParam : undefined;
+    return {
+      view: "terminal",
+      ...(parts[1] ? { agentId: decodeURIComponent(parts[1]) } : {}),
+      ...(mode ? { mode } : {}),
+    };
   }
   if (parts[0] === "ops") {
     if (!isOpsEnabledForUrl(url)) {
@@ -399,7 +405,10 @@ export function routePath(r: Route): string {
       return `/follow${search ? `?${search}` : ""}`;
     }
     case "terminal":
-      return r.agentId ? `/terminal/${encodeURIComponent(r.agentId)}` : "/terminal";
+      if (!r.mode) {
+        return r.agentId ? `/terminal/${encodeURIComponent(r.agentId)}` : "/terminal";
+      }
+      return `${r.agentId ? `/terminal/${encodeURIComponent(r.agentId)}` : "/terminal"}?mode=${r.mode}`;
   }
 }
 
@@ -432,6 +441,8 @@ function routeKey(r: Route): string {
       return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}`;
     case "follow":
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
+    case "terminal":
+      return `terminal:${r.agentId ?? ""}:${r.mode ?? "takeover"}`;
     default:
       return `${r.view}${scope}`;
   }

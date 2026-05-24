@@ -1038,7 +1038,7 @@ export type Route =
       sessionId?: string;
       targetAgentId?: string;
     }
-  | { view: "terminal"; agentId?: string };
+  | { view: "terminal"; agentId?: string; mode?: "observe" | "takeover" };
 
 export type AgentTab = "profile" | "observe" | "message";
 export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop";

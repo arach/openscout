@@ -1,7 +1,7 @@
 import "./terminal-screen.css";
 
 import { useTerminalRelay, TerminalRelay } from "@hudsonkit";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useScout } from "../scout/Provider.tsx";
 import { actorColor } from "../lib/colors.ts";
 import {
@@ -9,19 +9,79 @@ import {
   resolveScoutTerminalRelayUrl,
 } from "../lib/runtime-config.ts";
 import { createVantageHandoff, formatVantageLinkLabel } from "../lib/vantage.ts";
-import type { Route } from "../lib/types.ts";
+import type { Agent, Route } from "../lib/types.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
+
+function relayAgentForHarness(harness: string | null | undefined): "claude" | "pi" | undefined {
+  return harness === "pi" ? "pi" : undefined;
+}
+
+function agentTmuxTerminalSessionKey(agentId: string, tmuxSession: string): string {
+  return `scout-tmux-${agentId}-${tmuxSession}`;
+}
 
 export function TerminalScreen({
   agentId,
+  mode,
   navigate,
 }: {
   agentId?: string;
+  mode?: "observe" | "takeover";
   navigate: (r: Route) => void;
 }) {
   const { agents } = useScout();
   const agent = agentId ? agents.find((a) => a.id === agentId) : null;
+  if (agentId && !agent) {
+    return (
+      <div className="s-term">
+        <div className="s-term-bar">
+          <BackToPicker
+            slot="terminal"
+            fallback={{ view: "agents" }}
+            navigate={navigate}
+            className="s-term-back"
+          />
+          <span className="s-term-label">Terminal</span>
+          <div className="s-term-status">Resolving agent...</div>
+        </div>
+      </div>
+    );
+  }
+
+  const tmuxSession = agent?.transport === "tmux" ? agent.harnessSessionId : null;
+  const relayKey = agent && tmuxSession
+    ? `tmux:${agent.id}:${tmuxSession}`
+    : agentId
+      ? `takeover:${agentId}`
+      : "takeover";
+
+  return (
+    <TerminalRelayScreen
+      key={relayKey}
+      agentId={agentId}
+      agent={agent}
+      mode={mode}
+      navigate={navigate}
+    />
+  );
+}
+
+function TerminalRelayScreen({
+  agentId,
+  agent,
+  mode,
+  navigate,
+}: {
+  agentId?: string;
+  agent: Agent | null;
+  mode?: "observe" | "takeover";
+  navigate: (r: Route) => void;
+}) {
   const color = agent ? actorColor(agent.name) : "var(--accent)";
+  const tmuxSession = agent?.transport === "tmux" ? agent.harnessSessionId : null;
+  const readOnly = mode === "observe";
+  const cwd = agent?.cwd ?? agent?.projectRoot ?? undefined;
+  const relayAgent = relayAgentForHarness(agent?.harness);
   const [handoffState, setHandoffState] = useState<
     | { state: "idle" }
     | { state: "opening" }
@@ -35,8 +95,24 @@ export function TerminalScreen({
     url: relayUrl,
     healthUrl,
     autoConnect: true,
-    sessionKey: agentId ? `scout-takeover-${agentId}` : "scout-takeover",
+    sessionKey: agent && tmuxSession
+      ? agentTmuxTerminalSessionKey(agent.id, tmuxSession)
+      : agentId
+        ? `scout-takeover-${agentId}`
+        : "scout-takeover",
+    ...(tmuxSession ? { backend: "tmux" as const, tmuxSession } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(relayAgent ? { agent: relayAgent } : {}),
   });
+  const terminalRelay = useMemo(() => {
+    if (!readOnly) return relay;
+    return {
+      ...relay,
+      sendInput: () => {},
+      sendLine: () => {},
+      restart: () => {},
+    };
+  }, [readOnly, relay]);
 
   const openInVantage = () => {
     setHandoffState({ state: "opening" });
@@ -99,7 +175,30 @@ export function TerminalScreen({
             )}
           </div>
         )}
-        <span className="s-term-label">TAKEOVER</span>
+        <span className="s-term-label">
+          {tmuxSession ? (readOnly ? "TMUX OBSERVE" : "TMUX TAKEOVER") : "TAKEOVER"}
+        </span>
+        {tmuxSession && (
+          <span className="s-term-session" title={tmuxSession}>
+            {tmuxSession}
+          </span>
+        )}
+        {tmuxSession && (
+          <button
+            type="button"
+            className="s-term-vantage"
+            onClick={() =>
+              navigate({
+                view: "terminal",
+                agentId,
+                mode: readOnly ? "takeover" : "observe",
+              })
+            }
+            title={readOnly ? "Switch to interactive takeover" : "Switch to read-only terminal observe"}
+          >
+            {readOnly ? "Takeover" : "Observe"}
+          </button>
+        )}
         <button
           type="button"
           className="s-term-vantage"
@@ -128,10 +227,17 @@ export function TerminalScreen({
       </div>
       <div className="s-term-body">
         <TerminalRelay
-          relay={relay}
+          relay={terminalRelay}
           fontSize={13}
           quiet
           configItems={[
+            ...(tmuxSession
+              ? [
+                  { label: "backend", value: "tmux" },
+                  { label: "session", value: tmuxSession },
+                  { label: "mode", value: readOnly ? "read-only" : "takeover" },
+                ]
+              : []),
             { label: "ws", value: relayUrl },
             { label: "health", value: healthUrl },
           ]}

@@ -1127,6 +1127,33 @@ describe("web db query agents", () => {
     }
   });
 
+  test("surfaces tmux session ids for tmux-backed local agents", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertEndpoint({
+        id: "agent-1-tmux",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "tmux",
+        state: "idle",
+        sessionId: "relay-agent-1-claude",
+        projectRoot: "/tmp/agent-1-tmux",
+        metadata: {
+          tmuxSession: "relay-agent-1-claude",
+        },
+      });
+
+      const agent = queryAgents(10).find((entry) => entry.id === "agent-1");
+
+      expect(agent?.transport).toBe("tmux");
+      expect(agent?.harnessSessionId).toBe("relay-agent-1-claude");
+    } finally {
+      store.close();
+    }
+  });
+
   test("surfaces harness session ids and log paths on session summaries", () => {
     const store = createSeededStore();
 

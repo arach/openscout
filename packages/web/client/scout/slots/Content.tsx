@@ -116,7 +116,7 @@ function renderScreen(
     case "ops":
       return <OpsScreen navigate={navigate} mode={route.mode} tailQuery={route.tailQuery} />;
     case "terminal":
-      return <TerminalScreen agentId={route.agentId} navigate={navigate} />;
+      return <TerminalScreen agentId={route.agentId} mode={route.mode} navigate={navigate} />;
     case "work":
       return <WorkDetailScreen workId={route.workId} navigate={navigate} />;
     case "follow":

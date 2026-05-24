@@ -1,16 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { openAgent } from "../slots/openAgent.ts";
+import { openContent } from "../slots/openContent.ts";
 import {
   agentStateLabel,
   isAgentOnline,
   normalizeAgentState,
 } from "../../lib/agent-state.ts";
 import { actorColor, stateColor } from "../../lib/colors.ts";
-import { timeAgo } from "../../lib/time.ts";
+import { compareTimestampsDesc, timeAgo } from "../../lib/time.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
-import type { Agent, AgentObservePayload, FleetAsk, FleetState, ObserveData, Route } from "../../lib/types.ts";
+import { queueTakeover } from "../../lib/terminal-takeover.ts";
+import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
+import type {
+  Agent,
+  AgentObservePayload,
+  FleetAsk,
+  FleetState,
+  ObserveData,
+  Route,
+  SessionCatalogEntry,
+  SessionCatalogWithResume,
+} from "../../lib/types.ts";
 
 const GROUPED_NUMBER_FORMAT = new Intl.NumberFormat("en-US");
 const COMPACT_NUMBER_FORMAT = new Intl.NumberFormat("en-US", {
@@ -136,15 +148,25 @@ function AgentContextPanel({
 }) {
   const online = isAgentOnline(agent.state);
   const [fleet, setFleet] = useState<FleetState | null>(null);
+  const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
 
   const load = useCallback(async () => {
-    const result = await api<FleetState>("/api/fleet").catch(() => null);
-    if (result) setFleet(result);
-  }, []);
+    const [fleetResult, catalogResult] = await Promise.all([
+      api<FleetState>("/api/fleet").catch(() => null),
+      api<SessionCatalogWithResume>(
+        `/api/agents/${encodeURIComponent(agent.id)}/session-catalog`,
+      ).catch(() => null),
+    ]);
+    if (fleetResult) setFleet(fleetResult);
+    setSessionCatalog(catalogResult);
+  }, [agent.id]);
 
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    setSessionCatalog(null);
+  }, [agent.id]);
   useBrokerEvents(() => {
     void load();
   });
@@ -258,8 +280,206 @@ function AgentContextPanel({
           </div>
         </Section>
       )}
+
+      <RunningSessions
+        agent={agent}
+        catalog={sessionCatalog}
+        navigate={navigate}
+        returnTo={route}
+      />
     </div>
   );
+}
+
+function RunningSessions({
+  agent,
+  catalog,
+  navigate,
+  returnTo,
+}: {
+  agent: Agent;
+  catalog: SessionCatalogWithResume | null;
+  navigate: (r: Route) => void;
+  returnTo: Route;
+}) {
+  const showContextMenu = useContextMenu();
+  const activeSessionId = catalog?.activeSessionId
+    ?? (agent.transport === "tmux" ? agent.harnessSessionId : null);
+  const sessions = useMemo(
+    () => buildRunningSessions(agent, catalog, activeSessionId),
+    [agent, catalog, activeSessionId],
+  );
+  const running = sessions.filter((session) =>
+    session.id === activeSessionId || !session.endedAt
+  );
+  const visible = running.slice(0, 5);
+  if (visible.length === 0) return null;
+  const openTerminal = (mode: "observe" | "takeover") =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode }, { returnTo });
+  const runTakeover = () => {
+    if (agent.transport === "tmux") {
+      openTerminal("takeover");
+      return;
+    }
+    if (!catalog?.resumeCommand) return;
+    void queueTakeover({
+      command: catalog.resumeCommand,
+      cwd: catalog.resumeCwd,
+      agentId: agent.id,
+    }).then(() => openTerminal("takeover"));
+  };
+  const openSessionDetail = (sessionId: string) =>
+    openContent(navigate, { view: "sessions", sessionId }, { returnTo });
+  const sessionMenuItems = (
+    session: SessionCatalogEntry,
+    canObserveTerminal: boolean,
+    canTakeover: boolean,
+  ): MenuItem[] => {
+    const items: MenuItem[] = [];
+    if (canObserveTerminal) {
+      items.push({
+        kind: "action",
+        label: "Observe in terminal",
+        onSelect: () => openTerminal("observe"),
+      });
+    }
+    if (canTakeover) {
+      items.push({
+        kind: "action",
+        label: "Takeover terminal",
+        onSelect: runTakeover,
+      });
+    }
+    if (items.length > 0) {
+      items.push({ kind: "separator" });
+    }
+    items.push({
+      kind: "action",
+      label: "Open session detail",
+      onSelect: () => openSessionDetail(session.id),
+    });
+    items.push({
+      kind: "action",
+      label: "Open agent profile",
+      onSelect: () => openAgent(navigate, agent, { from: "inspector", returnTo }),
+    });
+    return items;
+  };
+
+  return (
+    <Section label={`Running sessions · ${running.length}`}>
+      <div className="flex flex-col gap-1.5">
+        {visible.map((session) => {
+          const active = session.id === activeSessionId;
+          const canObserveTerminal = active && agent.transport === "tmux";
+          const canTakeover = active && (agent.transport === "tmux" || Boolean(catalog?.resumeCommand));
+          const age = timeAgo(session.startedAt) || "recent";
+          const harnessLabel = session.transport ?? session.harness ?? agent.transport ?? agent.harness ?? "session";
+          const lowerMeta = active
+            ? age
+            : session.endedAt
+              ? `${timeAgo(session.endedAt) || age} ended`
+              : harnessLabel;
+          const menuItems = sessionMenuItems(session, canObserveTerminal, canTakeover);
+          return (
+            <div
+              key={session.id}
+              onContextMenu={(event) => showContextMenu(event, menuItems)}
+              className={`rounded border px-2 py-1.5 transition-colors ${
+                active
+                  ? "border-cyan-400/40 bg-cyan-400/[0.08]"
+                  : "border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)]"
+              }`}
+            >
+              <button
+                type="button"
+                title={canObserveTerminal
+                  ? `Observe tmux terminal ${session.id}`
+                  : `Open session ${session.id}`}
+                onClick={() =>
+                  canObserveTerminal
+                    ? openTerminal("observe")
+                    : openSessionDetail(session.id)
+                }
+                className="flex w-full items-center justify-between gap-2 bg-transparent p-0 text-left"
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {active && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
+                    )}
+                    <span className="truncate font-mono text-[10.5px] text-[var(--scout-chrome-ink)]">
+                      {shortSessionId(session.id)}
+                    </span>
+                    <span className="shrink-0 rounded-sm bg-[var(--scout-chrome-hover)] px-1 py-0.5 font-mono text-[8px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
+                      {harnessLabel}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 truncate font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                    {session.cwd ? pathLeaf(session.cwd) : "workspace"}
+                  </span>
+                </span>
+                <span className="flex shrink-0 flex-col items-end">
+                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-cyan-400/70">
+                    {active ? "active" : "running"}
+                  </span>
+                  <span className="mt-0.5 max-w-[78px] truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                    {lowerMeta}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                title="Session actions"
+                onClick={(event) => showContextMenu(event, menuItems)}
+                className="mt-1.5 h-5 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 font-mono text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)]"
+              >
+                ...
+              </button>
+            </div>
+          );
+        })}
+        {running.length > visible.length && (
+          <div className="px-1 pt-0.5 font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+            {running.length - visible.length} more running
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function buildRunningSessions(
+  agent: Agent,
+  catalog: SessionCatalogWithResume | null,
+  activeSessionId: string | null,
+): SessionCatalogEntry[] {
+  const sessions = [...(catalog?.sessions ?? [])];
+  if (
+    agent.transport === "tmux" &&
+    activeSessionId &&
+    !sessions.some((session) => session.id === activeSessionId)
+  ) {
+    sessions.unshift({
+      id: activeSessionId,
+      startedAt: agent.createdAt ?? agent.updatedAt ?? Date.now(),
+      cwd: agent.cwd ?? agent.projectRoot ?? ".",
+      ...(agent.harness ? { harness: agent.harness } : {}),
+      ...(agent.transport ? { transport: agent.transport } : {}),
+      model: agent.model,
+    });
+  }
+
+  return sessions.sort((a, b) => {
+    const left = a.endedAt ?? a.startedAt;
+    const right = b.endedAt ?? b.startedAt;
+    return compareTimestampsDesc(left, right);
+  });
+}
+
+function shortSessionId(value: string): string {
+  const compact = value.replace(/^session[_:-]?/i, "");
+  return compact.length > 10 ? compact.slice(0, 8) : compact;
 }
 
 function ObserveContext({ agentId }: { agentId: string }) {

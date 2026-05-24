@@ -12,6 +12,11 @@ mock.module("react/jsx-runtime", () => ReactJsxRuntime);
 mock.module("react/jsx-dev-runtime", () => ReactJsxDevRuntime);
 mock.module("react-dom/server", () => ReactDomServer);
 
+let terminalRelayProps: { relay?: { sendInput?: (value: string) => void; sendLine?: (value: string) => void; restart?: () => void } } | null = null;
+const baseRelaySendInput = mock((_value: string) => {});
+const baseRelaySendLine = mock((_value: string) => {});
+const baseRelayRestart = mock(() => {});
+
 const useTerminalRelayMock = mock(() => ({
   status: "disconnected" as const,
   sessionId: null,
@@ -20,22 +25,27 @@ const useTerminalRelayMock = mock(() => ({
   cwd: "~",
   setCwd: () => {},
   onData: () => {},
-  sendInput: () => {},
-  sendLine: () => {},
+  sendInput: baseRelaySendInput,
+  sendLine: baseRelaySendLine,
   resize: () => {},
   connect: () => {},
   disconnect: () => {},
-  restart: () => {},
+  restart: baseRelayRestart,
 }));
+
+let scoutAgents: unknown[] = [];
 
 mock.module("@hudsonkit", () => ({
   useTerminalRelay: useTerminalRelayMock,
-  TerminalRelay: () => createElement("div"),
+  TerminalRelay: (props: { relay?: unknown }) => {
+    terminalRelayProps = props as typeof terminalRelayProps;
+    return createElement("div");
+  },
 }));
 
 mock.module(new URL("./scout/Provider.tsx", import.meta.url).pathname, () => ({
   useScout: () => ({
-    agents: [],
+    agents: scoutAgents,
   }),
 }));
 
@@ -63,6 +73,8 @@ function installWindow(bootstrap?: {
 describe("terminal relay config", () => {
   test("ScoutTerminal auto-connects its relay", () => {
     useTerminalRelayMock.mockClear();
+    terminalRelayProps = null;
+    scoutAgents = [];
     installWindow();
 
     renderToStaticMarkup(createElement(ScoutTerminal));
@@ -79,6 +91,17 @@ describe("terminal relay config", () => {
 
   test("TerminalScreen auto-connects takeover sessions", () => {
     useTerminalRelayMock.mockClear();
+    terminalRelayProps = null;
+    scoutAgents = [{
+      id: "agent-1",
+      name: "Agent One",
+      handle: null,
+      transport: "bridge",
+      harness: "codex",
+      harnessSessionId: null,
+      cwd: "/tmp/agent-1",
+      projectRoot: "/tmp/agent-1",
+    }];
     installWindow({
       routes: {
         terminalRelayPath: "/ws/relay",
@@ -101,8 +124,76 @@ describe("terminal relay config", () => {
     );
   });
 
+  test("TerminalScreen attaches tmux-backed agents to their tmux session", () => {
+    useTerminalRelayMock.mockClear();
+    terminalRelayProps = null;
+    scoutAgents = [{
+      id: "agent-1",
+      name: "Agent One",
+      handle: null,
+      transport: "tmux",
+      harness: "claude",
+      harnessSessionId: "relay-agent-1-claude",
+      cwd: "/tmp/agent-1",
+      projectRoot: "/tmp/agent-1",
+    }];
+    installWindow();
+
+    renderToStaticMarkup(createElement(TerminalScreen, {
+      agentId: "agent-1",
+      navigate: () => {},
+    }));
+
+    expect(useTerminalRelayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autoConnect: true,
+        backend: "tmux",
+        healthUrl: "https://scout.test/ws/terminal/health",
+        sessionKey: "scout-tmux-agent-1-relay-agent-1-claude",
+        tmuxSession: "relay-agent-1-claude",
+        url: "wss://scout.test/ws/terminal",
+      }),
+    );
+  });
+
+  test("TerminalScreen makes tmux observe mode read-only", () => {
+    useTerminalRelayMock.mockClear();
+    baseRelaySendInput.mockClear();
+    baseRelaySendLine.mockClear();
+    baseRelayRestart.mockClear();
+    terminalRelayProps = null;
+    scoutAgents = [{
+      id: "agent-1",
+      name: "Agent One",
+      handle: null,
+      transport: "tmux",
+      harness: "claude",
+      harnessSessionId: "relay-agent-1-claude",
+      cwd: "/tmp/agent-1",
+      projectRoot: "/tmp/agent-1",
+    }];
+    installWindow();
+
+    renderToStaticMarkup(createElement(TerminalScreen, {
+      agentId: "agent-1",
+      mode: "observe",
+      navigate: () => {},
+    }));
+
+    expect(terminalRelayProps?.relay).toBeTruthy();
+    terminalRelayProps?.relay?.sendInput?.("whoami");
+    terminalRelayProps?.relay?.sendLine?.("whoami");
+    terminalRelayProps?.relay?.restart?.();
+
+    expect(baseRelaySendInput).not.toHaveBeenCalled();
+    expect(baseRelaySendLine).not.toHaveBeenCalled();
+    expect(baseRelayRestart).not.toHaveBeenCalled();
+  });
+
   test("SSR falls back to the default terminal relay path", () => {
     useTerminalRelayMock.mockClear();
+    terminalRelayProps = null;
+    scoutAgents = [];
     Reflect.deleteProperty(globalThis, "window");
 
     renderToStaticMarkup(createElement(ScoutTerminal));
