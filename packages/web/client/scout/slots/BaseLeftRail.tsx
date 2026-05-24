@@ -3,6 +3,12 @@ import "./ctx-panel.css";
 import "./base-left-rail.css";
 import { isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
+import {
+  filterAgentsByMachineScope,
+  filterFleetByMachineScope,
+  machineScopedAgentIds,
+} from "../../lib/machine-scope.ts";
+import { routeMachineId } from "../../lib/router.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
@@ -34,6 +40,19 @@ type BaseLeftRailProps = {
 export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
   const { agents, navigate, route } = useScout();
   const [fleet, setFleet] = useState<FleetState | null>(null);
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(agents, machineId),
+    [agents, machineId],
+  );
+  const scopedAgents = useMemo(
+    () => filterAgentsByMachineScope(agents, machineId),
+    [agents, machineId],
+  );
+  const scopedFleet = useMemo(
+    () => filterFleetByMachineScope(fleet, scopedAgentIds),
+    [fleet, scopedAgentIds],
+  );
 
   const load = useCallback(async () => {
     const data = await api<FleetState>("/api/fleet").catch(() => null);
@@ -50,14 +69,14 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
     }
   });
 
-  const recentAgents = useMemo(() => sortRecentAgents(agents).slice(0, RECENT_AGENTS_LIMIT), [agents]);
+  const recentAgents = useMemo(() => sortRecentAgents(scopedAgents).slice(0, RECENT_AGENTS_LIMIT), [scopedAgents]);
   const recentActivity = useMemo(
-    () => (fleet?.activity ?? []).slice(0, RECENT_ACTIVITY_LIMIT),
-    [fleet],
+    () => (scopedFleet?.activity ?? []).slice(0, RECENT_ACTIVITY_LIMIT),
+    [scopedFleet],
   );
   const needsAttention = useMemo(
-    () => (fleet?.needsAttention ?? []).slice(0, NEEDS_ATTENTION_LIMIT),
-    [fleet],
+    () => (scopedFleet?.needsAttention ?? []).slice(0, NEEDS_ATTENTION_LIMIT),
+    [scopedFleet],
   );
 
   return (
@@ -66,8 +85,8 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
 
       <RecentAgentsSection
         agents={recentAgents}
-        totalCount={agents.length}
-        onlineCount={agents.filter((a) => isAgentOnline(a.state)).length}
+        totalCount={scopedAgents.length}
+        onlineCount={scopedAgents.filter((a) => isAgentOnline(a.state)).length}
         onSelect={(agent) => openAgent(navigate, agent, { from: "base-rail", returnTo: route })}
         onSeeAll={() => navigate({ view: "agents" })}
       />

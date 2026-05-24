@@ -2,6 +2,7 @@
 
 export type Agent = {
   id: string;
+  definitionId: string;
   name: string;
   handle: string | null;
   agentClass: string;
@@ -13,6 +14,9 @@ export type Agent = {
   createdAt: number | null;
   transport: string | null;
   selector: string | null;
+  defaultSelector: string | null;
+  nodeQualifier: string | null;
+  workspaceQualifier: string | null;
   wakePolicy: string | null;
   capabilities: string[];
   project: string | null;
@@ -22,11 +26,16 @@ export type Agent = {
   harnessSessionId: string | null;
   harnessLogPath: string | null;
   conversationId: string;
+  authorityNodeId?: string | null;
+  authorityNodeName?: string | null;
   homeNodeId: string | null;
   homeNodeName: string | null;
   ownerId: string | null;
   ownerName: string | null;
   ownerHandle: string | null;
+  staleLocalRegistration: boolean;
+  retiredFromFleet: boolean;
+  replacedByAgentId: string | null;
 };
 
 export type ObservedHarnessTopology = {
@@ -206,6 +215,7 @@ export type AgentConfigurationState = {
 export type Message = {
   id: string;
   conversationId: string;
+  actorId?: string | null;
   actorName: string;
   body: string;
   createdAt: number;
@@ -583,6 +593,8 @@ export type SessionEntry = {
   kind: string;
   title: string;
   participantIds: string[];
+  authorityNodeId?: string | null;
+  authorityNodeName?: string | null;
   agentId: string | null;
   agentName: string | null;
   harness: string | null;
@@ -641,6 +653,7 @@ export type ObserveSessionMeta = {
   adapterType?: string;
   model?: string;
   cwd?: string;
+  sessionStart?: number;
   turnCount?: number;
   externalSessionId?: string;
   threadId?: string;
@@ -979,37 +992,40 @@ export type WorkDetail = WorkItem & {
 
 export type MessagesFilter = "all" | "dm" | "channel";
 export type MessagesSort = "recent" | "name" | "unread";
+export type MachineScopedRoute = {
+  machineId?: string;
+};
 
 export type Route =
-  | { view: "inbox" }
-  | {
+  | ({ view: "inbox" } & MachineScopedRoute)
+  | ({
       view: "conversation";
       conversationId: string;
       composeMode?: "tell" | "ask";
       composeDraft?: string;
-    }
+    } & MachineScopedRoute)
   | { view: "agent-info"; conversationId: string }
-  | {
+  | ({
       view: "agents";
       agentId?: string;
       conversationId?: string;
       tab?: AgentTab;
-    }
-  | { view: "fleet" }
-  | { view: "conversations" }
-  | {
+    } & MachineScopedRoute)
+  | ({ view: "fleet" } & MachineScopedRoute)
+  | ({ view: "conversations" } & MachineScopedRoute)
+  | ({
       view: "messages";
       conversationId?: string;
       filter?: MessagesFilter;
       sort?: MessagesSort;
-    }
-  | { view: "sessions"; sessionId?: string }
-  | { view: "channels"; channelId?: string }
-  | { view: "mesh" }
+    } & MachineScopedRoute)
+  | ({ view: "sessions"; sessionId?: string } & MachineScopedRoute)
+  | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
+  | ({ view: "mesh" } & MachineScopedRoute)
   | { view: "broker" }
   | { view: "briefings"; briefingId?: string }
-  | { view: "activity" }
-  | { view: "work"; workId: string }
+  | ({ view: "activity" } & MachineScopedRoute)
+  | ({ view: "work"; workId: string } & MachineScopedRoute)
   | { view: "settings"; section?: "agents"; agentId?: string }
   | { view: "ops"; mode?: OpsMode; tailQuery?: string }
   | {

@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.65",
+  "version": "0.2.68",
   "private": true,
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
@@ -178,6 +178,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@cursor/sdk": "1.0.13",
     "@types/node": "^22",
     "@types/ws": "^8.5.13",
     "drizzle-kit": "^0.31.10",

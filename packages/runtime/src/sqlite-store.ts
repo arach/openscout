@@ -2197,6 +2197,22 @@ export class SQLiteControlPlaneStore {
     return row ? durableActionFromRow(row) : null;
   }
 
+  getDurableActionByIdempotencyKey(input: {
+    authorityCellId: string;
+    kind: DurableAction["kind"];
+    idempotencyKey: string;
+  }): DurableAction | null {
+    const row = queryGet<DurableActionRow, [string, string, string]>(
+      this.readDb,
+      `SELECT * FROM durable_actions
+       WHERE authority_cell_id = ?1 AND kind = ?2 AND idempotency_key = ?3`,
+      input.authorityCellId,
+      input.kind,
+      input.idempotencyKey,
+    );
+    return row ? durableActionFromRow(row) : null;
+  }
+
   listDueDurableActions(input: {
     kind?: DurableAction["kind"];
     authorityCellId?: string;

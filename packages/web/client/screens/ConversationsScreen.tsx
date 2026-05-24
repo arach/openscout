@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../lib/api.ts";
+import {
+  filterSessionsByMachineScope,
+  machineScopedAgentIds,
+} from "../lib/machine-scope.ts";
+import { routeMachineId } from "../lib/router.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
@@ -52,11 +57,16 @@ export function ConversationsScreen({
 }: {
   navigate: (route: Route) => void;
 }) {
-  const { route } = useScout();
+  const { agents, route } = useScout();
   const [conversations, setConversations] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(agents, machineId),
+    [agents, machineId],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -86,8 +96,9 @@ export function ConversationsScreen({
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return conversations;
-    return conversations.filter((conversation) => [
+    const scoped = filterSessionsByMachineScope(conversations, scopedAgentIds, machineId);
+    if (!normalized) return scoped;
+    return scoped.filter((conversation) => [
       conversation.title,
       conversation.kind,
       conversation.agentName ?? "",
@@ -95,7 +106,7 @@ export function ConversationsScreen({
       conversation.workspaceRoot ?? "",
       ...conversation.participantIds,
     ].some((value) => value.toLowerCase().includes(normalized)));
-  }, [conversations, query]);
+  }, [conversations, scopedAgentIds, machineId, query]);
 
   const sections = useMemo<ConversationSection[]>(() => {
     const groups = new Map<string, ConversationEntry[]>();

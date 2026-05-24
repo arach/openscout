@@ -1328,6 +1328,20 @@ describe("broker daemon comms layer", () => {
       targetAgentId: "ghost",
       state: "waking",
     }));
+
+    const lifecycle = await getJson<{
+      invocationId: string;
+      flightId: string;
+      state: string;
+      targetAgentId: string;
+    }>(secondHarness.baseUrl, "/v1/invocations/inv-restart-1/lifecycle");
+
+    expect(lifecycle).toEqual(expect.objectContaining({
+      invocationId: "inv-restart-1",
+      targetAgentId: "ghost",
+      state: "dispatching",
+    }));
+    expect(lifecycle.flightId).toBe(snapshot.flight?.id);
   }, 20_000);
 
   test("accepts broker-owned delivery for a known wakeable target", async () => {
@@ -1457,7 +1471,12 @@ describe("broker daemon comms layer", () => {
       kind: string;
       accepted: boolean;
       conversation?: { id: string; kind: string };
-      message?: { id: string; conversationId: string; actorId: string };
+      message?: {
+        id: string;
+        conversationId: string;
+        actorId: string;
+        metadata?: { returnAddress?: { sessionId?: string } };
+      };
     }>(harness.baseUrl, "/v1/deliver", {
       id: "deliver-operator-request",
       caller: {
@@ -1471,12 +1490,16 @@ describe("broker daemon comms layer", () => {
       body: "please review the rail",
       intent: "tell",
       ensureAwake: false,
+      replyToSessionId: "codex-thread-123",
       createdAt: Date.now(),
     });
 
     expect(request.kind).toBe("delivery");
     expect(request.accepted).toBe(true);
     expect(request.message?.actorId).toBe("operator");
+    expect(request.message?.metadata?.returnAddress?.sessionId).toBe(
+      "codex-thread-123",
+    );
 
     const refReply = await postJson<{
       kind: string;
@@ -2001,6 +2024,174 @@ describe("broker daemon comms layer", () => {
     expect(legacyAlias.receipt?.targetLabel).toBe("Scout");
   }, 15_000);
 
+  test("routes exact session asks to the session owner and preserves existing-session execution", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "reviewer.main",
+      kind: "agent",
+      definitionId: "reviewer",
+      displayName: "Reviewer",
+      handle: "reviewer",
+      labels: ["test"],
+      selector: "@reviewer",
+      defaultSelector: "@reviewer",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-reviewer-main",
+      agentId: "reviewer.main",
+      nodeId: harness.nodeId,
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "active",
+      sessionId: "codex-thread-reviewer",
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      targetSessionId?: string;
+      receipt?: {
+        targetAgentId?: string;
+        targetSessionId?: string;
+        flightId?: string;
+      };
+      message?: {
+        metadata?: {
+          targetSessionId?: string;
+        };
+      };
+      flight?: {
+        id: string;
+        targetAgentId: string;
+        metadata?: Record<string, unknown>;
+      };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-session-target",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "session_id",
+        sessionId: "codex-thread-reviewer",
+      },
+      body: "continue the review in the same context",
+      intent: "consult",
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toBe("reviewer.main");
+    expect(response.targetSessionId).toBe("codex-thread-reviewer");
+    expect(response.receipt?.targetAgentId).toBe("reviewer.main");
+    expect(response.receipt?.targetSessionId).toBe("codex-thread-reviewer");
+    expect(response.message?.metadata?.targetSessionId).toBe("codex-thread-reviewer");
+
+    const snapshot = await getJson<{
+      invocations: Record<string, {
+        execution?: { session?: string; targetSessionId?: string };
+        metadata?: Record<string, unknown>;
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const invocation = Object.values(snapshot.invocations).find(
+      (value) => value.metadata?.targetSessionId === "codex-thread-reviewer",
+    );
+    expect(invocation?.execution).toMatchObject({
+      session: "existing",
+      targetSessionId: "codex-thread-reviewer",
+    });
+  }, 15_000);
+
+  test("auto-provisions a one-time card for project-target deliveries", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "implicit-project");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+      flight?: { targetAgentId: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-auto-card",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Review this project without a pre-created card.",
+      intent: "consult",
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId?.startsWith("implicit-project-card-")).toBe(true);
+    expect(response.targetAgentId?.endsWith(".test-node")).toBe(true);
+    expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+
+    const snapshot = await getJson<{
+      agents: Record<string, {
+        metadata?: {
+          projectRoot?: string;
+          cardLifecycle?: {
+            kind?: string;
+            createdById?: string;
+            expiresAt?: number;
+            maxUses?: number;
+          };
+        };
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const agent = snapshot.agents[response.targetAgentId!];
+    expect(agent?.metadata?.projectRoot).toBe(projectRoot);
+    expect(agent?.metadata?.cardLifecycle).toEqual(expect.objectContaining({
+      kind: "one_time",
+      createdById: "operator",
+      maxUses: 1,
+    }));
+    expect(agent?.metadata?.cardLifecycle?.expiresAt).toBeGreaterThan(Date.now());
+
+    const registry = JSON.parse(
+      readFileSync(join(supportDirectory, "relay-agents.json"), "utf8"),
+    ) as {
+      agents: Record<string, { card?: { kind?: string; createdById?: string; maxUses?: number } }>;
+    };
+    expect(registry.agents[response.targetAgentId!]?.card).toEqual(expect.objectContaining({
+      kind: "one_time",
+      createdById: "operator",
+      maxUses: 1,
+    }));
+  }, 15_000);
+
   test("refreshes registered local agents before resolving broker-owned delivery", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
@@ -2172,8 +2363,8 @@ describe("broker daemon comms layer", () => {
         nodeId: harness.nodeId,
       },
       target: {
-        kind: "agent_label",
-        label: "@ranger",
+        kind: "agent_id",
+        agentId: "ranger.test-node",
       },
       body: "trigger registry sync",
       intent: "tell",
@@ -2183,24 +2374,21 @@ describe("broker daemon comms layer", () => {
     const reconciled = await waitFor(
       () => getJson<{
         agents: Record<string, { metadata?: Record<string, unknown> }>;
+        endpoints: Record<string, { agentId: string; metadata?: Record<string, unknown> }>;
         flights: Record<string, { state: string; error?: string; metadata?: Record<string, unknown> }>;
       }>(harness.baseUrl, "/v1/snapshot"),
-      (snapshot) => snapshot.flights[flightId]?.state === "failed",
+      (snapshot) => Boolean(snapshot.agents["ranger.test-node"]),
     );
 
-    expect(reconciled.agents["ranger.main.mini"]?.metadata).toMatchObject({
-      staleLocalRegistration: true,
-      replacedByAgentId: "ranger.test-node",
-    });
+    expect(reconciled.agents["ranger.main.mini"]?.metadata?.staleLocalRegistration).not.toBe(true);
+    expect(Object.values(reconciled.endpoints).some((endpoint) => (
+      endpoint.agentId === "ranger.main.mini"
+      && endpoint.metadata?.staleLocalRegistration === true
+    ))).toBe(false);
     expect(reconciled.flights[flightId]).toMatchObject({
-      state: "failed",
-      metadata: {
-        reconciledStaleFlight: true,
-      },
+      state: "queued",
     });
-    expect(reconciled.flights[flightId]?.error).toContain(
-      "replaced by ranger.test-node",
-    );
+    expect(reconciled.flights[flightId]?.metadata?.reconciledStaleFlight).not.toBe(true);
   }, 15_000);
 
   test("accepts broker-owned channel tells without caller-side route preflight", async () => {
@@ -2489,7 +2677,7 @@ describe("broker daemon comms layer", () => {
     expect(body.question?.target?.reason).toBe("manual_wake_required");
   }, 15_000);
 
-  test("returns a broker question for stale direct targets", async () => {
+  test("accepts stale direct targets as wakeable deliveries", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -2529,30 +2717,22 @@ describe("broker daemon comms layer", () => {
       }),
     });
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(202);
     const body = response.body as {
       kind: string;
       accepted: boolean;
-      question?: {
-        kind: string;
-        askedLabel: string;
-        target?: {
-          agentId: string;
-          reason: string;
-          detail: string;
-        };
-      };
+      targetAgentId?: string;
+      conversation?: { id: string };
+      flight?: { targetAgentId?: string };
     };
-    expect(body.kind).toBe("question");
-    expect(body.accepted).toBe(false);
-    expect(body.question?.kind).toBe("unavailable");
-    expect(body.question?.askedLabel).toBe("ranger.main.mini");
-    expect(body.question?.target?.agentId).toBe("ranger.main.mini");
-    expect(body.question?.target?.reason).toBe("stale_registration");
-    expect(body.question?.target?.detail).toContain("stale registration");
+    expect(body.kind).toBe("delivery");
+    expect(body.accepted).toBe(true);
+    expect(body.targetAgentId).toBe("ranger.main.mini");
+    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
   }, 15_000);
 
-  test("routes stale direct targets to their current replacement", async () => {
+  test("keeps stale direct targets on the requested agent when replacement metadata exists", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -2624,12 +2804,12 @@ describe("broker daemon comms layer", () => {
     };
     expect(body.kind).toBe("delivery");
     expect(body.accepted).toBe(true);
-    expect(body.targetAgentId).toBe("ranger.codex-vox-getting-started.mini");
-    expect(body.conversation?.id).toBe("dm.operator.ranger.codex-vox-getting-started.mini");
-    expect(body.flight?.targetAgentId).toBe("ranger.codex-vox-getting-started.mini");
+    expect(body.targetAgentId).toBe("ranger.main.mini");
+    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
   }, 15_000);
 
-  test("returns a broker question for stale label-only targets", async () => {
+  test("accepts stale label-only targets as wakeable deliveries", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -2668,6 +2848,69 @@ describe("broker daemon comms layer", () => {
       }),
     });
 
+    expect(response.status).toBe(202);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      conversation?: { id: string };
+      flight?: { targetAgentId?: string };
+    };
+    expect(body.kind).toBe("delivery");
+    expect(body.accepted).toBe(true);
+    expect(body.targetAgentId).toBe("ranger.main.mini");
+    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
+  }, 15_000);
+
+  test("returns a broker question for stale peer authority targets", async () => {
+    const harness = await startBroker();
+    const stalePeerNodeId = "mini-peer";
+
+    await postJson(harness.baseUrl, "/v1/nodes", {
+      id: stalePeerNodeId,
+      meshId: "openscout",
+      name: "Mini Peer",
+      advertiseScope: "mesh",
+      brokerUrl: "http://100.64.0.2:65535",
+      registeredAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+      lastSeenAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+    });
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "arach.mini",
+      kind: "agent",
+      definitionId: "arach",
+      nodeQualifier: "mini",
+      selector: "@arach.node:mini",
+      defaultSelector: "@arach",
+      displayName: "Arach",
+      handle: "arach",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        projectRoot: "/Users/arach",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: stalePeerNodeId,
+      authorityNodeId: stalePeerNodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "deliver-test-stale-peer",
+        requesterId: "codex",
+        requesterNodeId: harness.nodeId,
+        targetLabel: "@arach",
+        body: "@arach local status update",
+        intent: "tell",
+        createdAt: Date.now(),
+      }),
+    });
+
     expect(response.status).toBe(409);
     const body = response.body as {
       kind: string;
@@ -2685,10 +2928,16 @@ describe("broker daemon comms layer", () => {
     expect(body.kind).toBe("question");
     expect(body.accepted).toBe(false);
     expect(body.question?.kind).toBe("unavailable");
-    expect(body.question?.askedLabel).toBe("@ranger");
-    expect(body.question?.target?.agentId).toBe("ranger.main.mini");
-    expect(body.question?.target?.reason).toBe("stale_registration");
-    expect(body.question?.target?.detail).toContain("stale registration");
+    expect(body.question?.askedLabel).toBe("@arach");
+    expect(body.question?.target?.agentId).toBe("arach.mini");
+    expect(body.question?.target?.reason).toBe("unknown");
+    expect(body.question?.target?.detail).toContain("peer is stale");
+
+    const snapshot = await getJson<{ flights: Record<string, unknown> }>(
+      harness.baseUrl,
+      "/v1/snapshot",
+    );
+    expect(Object.keys(snapshot.flights)).toHaveLength(0);
   }, 15_000);
 
   test("rejects unknown delivery targets explicitly", async () => {
@@ -3149,6 +3398,447 @@ describe("broker daemon comms layer", () => {
     expect(flight?.state).toBe("failed");
     expect(flight?.error).toContain("Stale running flight reconciled");
     expect(typeof flight?.completedAt).toBe("number");
+  }, 15_000);
+
+  test("does not reconcile a running flight from a dispatched endpoint because a sibling endpoint went offline", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const firstHarness = await startBroker({ controlHome });
+    await seedBasicConversation(firstHarness);
+
+    await postJson(firstHarness.baseUrl, "/v1/agents", {
+      id: "arc",
+      kind: "agent",
+      definitionId: "arc",
+      displayName: "Arc",
+      handle: "arc",
+      labels: ["test"],
+      selector: "@arc",
+      defaultSelector: "@arc",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: firstHarness.nodeId,
+      authorityNodeId: firstHarness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const startedAt = Date.now() - 60_000;
+    const failedAt = startedAt + 1_000;
+    await postJson(firstHarness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-arc-claude",
+      agentId: "arc",
+      nodeId: firstHarness.nodeId,
+      harness: "claude",
+      transport: "claude_stream_json",
+      state: "idle",
+      address: null,
+      sessionId: "relay-arc-claude",
+      pane: null,
+      cwd: "/tmp/arc",
+      projectRoot: "/tmp/arc",
+      metadata: { source: "test" },
+    });
+    await postJson(firstHarness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-arc-codex",
+      agentId: "arc",
+      nodeId: firstHarness.nodeId,
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "offline",
+      address: null,
+      sessionId: "relay-arc-codex",
+      pane: null,
+      cwd: "/tmp/arc",
+      projectRoot: "/tmp/arc",
+      metadata: {
+        source: "test",
+        lastError: "codex_app_server session unavailable: relay-arc-codex",
+        lastFailedAt: failedAt,
+      },
+    });
+
+    firstHarness.child.kill();
+    await firstHarness.child.exited.catch(() => {});
+    harnesses.delete(firstHarness);
+
+    appendFileSync(
+      join(controlHome, "broker-journal.jsonl"),
+      [
+        JSON.stringify({
+          kind: "invocation.record",
+          invocation: {
+            id: "inv-arc-claude",
+            requesterId: "operator",
+            requesterNodeId: firstHarness.nodeId,
+            targetAgentId: "arc",
+            action: "consult",
+            task: "are you there?",
+            conversationId: "channel.shared",
+            ensureAwake: true,
+            stream: false,
+            createdAt: startedAt,
+          },
+        }),
+        JSON.stringify({
+          kind: "flight.record",
+          flight: {
+            id: "flt-arc-claude",
+            invocationId: "inv-arc-claude",
+            requesterId: "operator",
+            targetAgentId: "arc",
+            state: "running",
+            summary: "Arc acknowledged via spawn.",
+            startedAt,
+            metadata: {
+              dispatchAck: {
+                strategy: "spawn",
+                endpointId: "endpoint-arc-claude",
+                transport: "claude_stream_json",
+                harness: "claude",
+                sessionId: "relay-arc-claude",
+                nodeId: firstHarness.nodeId,
+                acknowledgedAt: startedAt + 100,
+              },
+            },
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const secondHarness = await startBroker({ controlHome });
+    await Bun.sleep(300);
+    const snapshot = await getJson<{
+      flights: Record<string, { state: string; error?: string; completedAt?: number }>;
+    }>(secondHarness.baseUrl, "/v1/snapshot");
+    const flight = snapshot.flights["flt-arc-claude"];
+
+    expect(flight).toBeDefined();
+    expect(flight?.state).toBe("running");
+    expect(flight?.error).toBeUndefined();
+    expect(flight?.completedAt).toBeUndefined();
+  }, 15_000);
+
+  test("fails invocations targeting stale local endpoints instead of leaving them queued", async () => {
+    const harness = await startBroker({
+      env: {
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+      },
+    });
+    const staleAt = Date.now() - 5_000;
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ranger.main.test-node",
+      kind: "agent",
+      definitionId: "ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      selector: "@ranger.main.node:test-node",
+      defaultSelector: "@ranger",
+      metadata: {
+        source: "relay-agent-registry",
+        projectRoot: "/tmp/ranger",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-ranger-main",
+      agentId: "ranger.main.test-node",
+      nodeId: harness.nodeId,
+      harness: "claude",
+      transport: "claude_stream_json",
+      state: "offline",
+      address: null,
+      sessionId: "relay-ranger-claude",
+      pane: null,
+      cwd: "/tmp/ranger",
+      projectRoot: "/tmp/ranger",
+      metadata: {
+        source: "relay-agent-registry",
+        staleLocalRegistration: true,
+        staleAt,
+        replacedByAgentId: "ranger.feature.test-node",
+        lastError: "stale local agent registration superseded by current setup",
+        lastFailedAt: staleAt,
+      },
+    });
+
+    const accepted = await postJson<{
+      accepted: boolean;
+      flightId: string;
+      targetAgentId: string;
+    }>(harness.baseUrl, "/v1/invocations", {
+      id: "inv-ranger-stale",
+      requesterId: "operator",
+      requesterNodeId: harness.nodeId,
+      targetAgentId: "ranger.main.test-node",
+      action: "consult",
+      task: "wake up",
+      ensureAwake: true,
+      stream: false,
+      createdAt: Date.now(),
+    });
+
+    expect(accepted.accepted).toBe(true);
+    expect(accepted.targetAgentId).toBe("ranger.main.test-node");
+
+    const snapshot = await waitFor(
+      () => getJson<{
+        flights: Record<string, { state: string; error?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (value) => value.flights[accepted.flightId]?.state === "failed",
+    );
+    const flight = snapshot.flights[accepted.flightId];
+    expect(flight?.error).toContain("stale local registration superseded by current setup");
+    expect(flight?.error).toContain("replacement agent is ranger.feature.test-node");
+    expect(flight?.metadata?.failureStage).toBe("endpoint_resolution");
+  }, 15_000);
+
+  test("reconciles queued flights that already target stale local endpoints", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const firstHarness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+      },
+    });
+    const staleAt = Date.now() - 5_000;
+    const startedAt = staleAt + 1_000;
+
+    await postJson(firstHarness.baseUrl, "/v1/agents", {
+      id: "ranger.main.test-node",
+      kind: "agent",
+      definitionId: "ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      selector: "@ranger.main.node:test-node",
+      defaultSelector: "@ranger",
+      metadata: {
+        source: "relay-agent-registry",
+        projectRoot: "/tmp/ranger",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: firstHarness.nodeId,
+      authorityNodeId: firstHarness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(firstHarness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-ranger-main",
+      agentId: "ranger.main.test-node",
+      nodeId: firstHarness.nodeId,
+      harness: "claude",
+      transport: "claude_stream_json",
+      state: "offline",
+      address: null,
+      sessionId: "relay-ranger-claude",
+      pane: null,
+      cwd: "/tmp/ranger",
+      projectRoot: "/tmp/ranger",
+      metadata: {
+        source: "relay-agent-registry",
+        staleLocalRegistration: true,
+        staleAt,
+        replacedByAgentId: "ranger.feature.test-node",
+        lastError: "stale local agent registration superseded by current setup",
+        lastFailedAt: staleAt,
+      },
+    });
+
+    firstHarness.child.kill();
+    await firstHarness.child.exited.catch(() => {});
+    harnesses.delete(firstHarness);
+
+    appendFileSync(
+      join(controlHome, "broker-journal.jsonl"),
+      [
+        JSON.stringify({
+          kind: "invocation.record",
+          invocation: {
+            id: "inv-ranger-already-queued",
+            requesterId: "operator",
+            requesterNodeId: firstHarness.nodeId,
+            targetAgentId: "ranger.main.test-node",
+            action: "consult",
+            task: "wake up",
+            ensureAwake: true,
+            stream: false,
+            createdAt: startedAt,
+          },
+        }),
+        JSON.stringify({
+          kind: "flight.record",
+          flight: {
+            id: "flt-ranger-already-queued",
+            invocationId: "inv-ranger-already-queued",
+            requesterId: "operator",
+            targetAgentId: "ranger.main.test-node",
+            state: "queued",
+            summary: "Message stored for Ranger. Will deliver when online.",
+            startedAt,
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const secondHarness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+      },
+    });
+
+    const snapshot = await waitFor(
+      () => getJson<{
+        flights: Record<string, { state: string; error?: string; metadata?: Record<string, unknown> }>;
+      }>(secondHarness.baseUrl, "/v1/snapshot"),
+      (value) => value.flights["flt-ranger-already-queued"]?.state === "failed",
+    );
+    const flight = snapshot.flights["flt-ranger-already-queued"];
+    expect(flight?.error).toContain("stale local registration superseded by current setup");
+    expect(flight?.metadata?.reconciledStaleFlight).toBe(true);
+  }, 15_000);
+
+  test("reconciles pending message deliveries that target stale local endpoints", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const firstHarness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+      },
+    });
+    const staleAt = Date.now() - 5_000;
+    const messageCreatedAt = staleAt + 1_000;
+
+    await postJson(firstHarness.baseUrl, "/v1/actors", {
+      id: "operator",
+      kind: "person",
+      displayName: "Operator",
+      handle: "operator",
+      labels: ["test"],
+      metadata: { source: "test" },
+    });
+    await postJson(firstHarness.baseUrl, "/v1/agents", {
+      id: "ranger.main.test-node",
+      kind: "agent",
+      definitionId: "ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      selector: "@ranger.main.node:test-node",
+      defaultSelector: "@ranger",
+      metadata: {
+        source: "relay-agent-registry",
+        projectRoot: "/tmp/ranger",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: firstHarness.nodeId,
+      authorityNodeId: firstHarness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(firstHarness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-ranger-main",
+      agentId: "ranger.main.test-node",
+      nodeId: firstHarness.nodeId,
+      harness: "claude",
+      transport: "claude_stream_json",
+      state: "offline",
+      address: null,
+      sessionId: "relay-ranger-claude",
+      pane: null,
+      cwd: "/tmp/ranger",
+      projectRoot: "/tmp/ranger",
+      metadata: {
+        source: "relay-agent-registry",
+        staleLocalRegistration: true,
+        staleAt,
+        replacedByAgentId: "ranger.feature.test-node",
+        lastError: "stale local agent registration superseded by current setup",
+        lastFailedAt: staleAt,
+      },
+    });
+    await postJson(firstHarness.baseUrl, "/v1/conversations", {
+      id: "dm.operator.ranger.main.test-node",
+      kind: "direct",
+      title: "Ranger",
+      visibility: "private",
+      shareMode: "local",
+      authorityNodeId: firstHarness.nodeId,
+      participantIds: ["operator", "ranger.main.test-node"],
+      metadata: { surface: "test" },
+    });
+
+    firstHarness.child.kill();
+    await firstHarness.child.exited.catch(() => {});
+    harnesses.delete(firstHarness);
+
+    appendFileSync(
+      join(controlHome, "broker-journal.jsonl"),
+      [
+        JSON.stringify({
+          kind: "message.record",
+          message: {
+            id: "msg-ranger-stale-delivery",
+            conversationId: "dm.operator.ranger.main.test-node",
+            actorId: "operator",
+            originNodeId: firstHarness.nodeId,
+            class: "agent",
+            body: "wake up",
+            audience: {
+              notify: ["ranger.main.test-node"],
+              reason: "direct_message",
+            },
+            visibility: "private",
+            policy: "durable",
+            createdAt: messageCreatedAt,
+          },
+        }),
+        JSON.stringify({
+          kind: "deliveries.record",
+          deliveries: [
+            {
+              id: "del-msg-ranger-stale-delivery-ranger.main.test-node-direct_message-claude_stream_json",
+              messageId: "msg-ranger-stale-delivery",
+              targetId: "ranger.main.test-node",
+              targetNodeId: firstHarness.nodeId,
+              targetKind: "agent",
+              transport: "claude_stream_json",
+              reason: "direct_message",
+              policy: "durable",
+              status: "pending",
+            },
+          ],
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const secondHarness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+      },
+    });
+
+    const deliveries = await waitFor(
+      () => getJson<Array<{ status: string; metadata?: Record<string, unknown> }>>(
+        secondHarness.baseUrl,
+        "/v1/deliveries?messageId=msg-ranger-stale-delivery&targetId=ranger.main.test-node",
+      ),
+      (value) => value[0]?.status === "failed",
+    );
+    expect(deliveries[0]?.metadata?.failureReason).toBe("agent_offline");
+    expect(deliveries[0]?.metadata?.reconciledStaleDelivery).toBe(true);
+    expect(deliveries[0]?.metadata?.reconciledReason).toContain("replacement agent is ranger.feature.test-node");
   }, 15_000);
 
   test("reconciles replayed active endpoints for the same invocation after restart", async () => {

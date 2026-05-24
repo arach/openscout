@@ -45,4 +45,8 @@ export function scoutBrokerInvocationStreamPath(invocationId: string): string {
   return `${scoutBrokerInvocationPath(invocationId)}/stream`;
 }
 
+export function scoutBrokerInvocationLifecyclePath(invocationId: string): string {
+  return `${scoutBrokerInvocationPath(invocationId)}/lifecycle`;
+}
+
 export const openAiAudioSpeechUrl = "https://api.openai.com/v1/audio/speech" as const;

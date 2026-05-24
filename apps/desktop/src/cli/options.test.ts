@@ -365,6 +365,7 @@ describe("parseChannelCommandOptions", () => {
 
     expect(options.latest).toBe(10);
     expect(options.channel).toBeUndefined();
+    expect(options.markRead).toBe(false);
   });
 
   test("accepts a positional channel for latest messages", () => {
@@ -375,6 +376,36 @@ describe("parseChannelCommandOptions", () => {
 
     expect(options.channel).toBe("homepage-polish");
     expect(options.latest).toBe(3);
+    expect(options.markRead).toBe(false);
+  });
+
+  test("accepts a positional channel for mark-read mode", () => {
+    const options = parseChannelCommandOptions(
+      ["triage", "--mark-read"],
+      "/tmp/workspace",
+    );
+
+    expect(options.channel).toBe("triage");
+    expect(options.latest).toBeUndefined();
+    expect(options.markRead).toBe(true);
+  });
+
+  test("accepts clear as a mark-read alias", () => {
+    const options = parseChannelCommandOptions(
+      ["shared", "--clear"],
+      "/tmp/workspace",
+    );
+
+    expect(options.channel).toBe("shared");
+    expect(options.markRead).toBe(true);
+  });
+
+  test("rejects latest and mark-read together", () => {
+    expect(() =>
+      parseChannelCommandOptions(
+        ["triage", "--latest=3", "--mark-read"],
+        "/tmp/workspace",
+      )).toThrow("provide either --latest or --mark-read, not both");
   });
 
   test("rejects a channel name without latest mode", () => {
@@ -382,7 +413,7 @@ describe("parseChannelCommandOptions", () => {
       parseChannelCommandOptions(
         ["homepage-polish"],
         "/tmp/workspace",
-      )).toThrow("channel name is only valid with --latest");
+      )).toThrow("channel name is only valid with --latest or --mark-read");
   });
 });
 

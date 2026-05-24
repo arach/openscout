@@ -13,6 +13,12 @@ import { isSameCalendarDay, formatThreadDayLabel } from "../lib/thread-days.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
 import { saveLastViewed } from "../lib/sessionRead.ts";
 import { AgentPicker, AgentMentionTextarea } from "../lib/agent-autocomplete.tsx";
+import {
+  filterAgentsByMachineScope,
+  filterSessionsByMachineScope,
+  machineScopedAgentIds,
+} from "../lib/machine-scope.ts";
+import { routeMachineId } from "../lib/router.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import type { Agent, Message, Route, SessionEntry } from "../lib/types.ts";
@@ -23,6 +29,16 @@ import "./channel-screen.css";
 
 function sortMessages(msgs: Message[]): Message[] {
   return [...msgs].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function resolveMessageAgent(message: Message, agents: Agent[]): Agent | null {
+  if (message.actorId) {
+    const exact = agents.find((agent) => agent.id === message.actorId);
+    if (exact) return exact;
+  }
+  if (!message.actorName) return null;
+  const named = agents.filter((agent) => agent.name === message.actorName);
+  return named.length === 1 ? named[0]! : null;
 }
 
 /* ── Header members control ── */
@@ -287,6 +303,7 @@ function ChannelFeed({
     const optimistic: Message = {
       id: `optimistic-${Date.now()}`,
       conversationId: channelId,
+      actorId: "operator",
       actorName: operatorName,
       body: text,
       createdAt: Date.now(),
@@ -326,9 +343,7 @@ function ChannelFeed({
           const showDay = i === 0 || !isSameCalendarDay(messages[i - 1]?.createdAt, msg.createdAt);
           const showAvatar = i === 0 || messages[i - 1]?.actorName !== msg.actorName || showDay;
           const abs = fullTimestamp(msg.createdAt);
-          const msgAgent = !isYou && msg.actorName
-            ? agents.find((a) => a.name === msg.actorName) ?? null
-            : null;
+          const msgAgent = !isYou ? resolveMessageAgent(msg, agents) : null;
           const handle = isYou ? operatorName.toLowerCase() : (msgAgent?.handle ?? null);
           const color = actorColor(isYou ? operatorName : (msg.actorName ?? "?"));
 
@@ -494,13 +509,22 @@ export function ChannelsScreen({
   channelId?: string;
   navigate: (r: Route) => void;
 }) {
-  const { agents } = useScout();
+  const { agents, route } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [operatorName, setOperatorName] = useState("operator");
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(agents, machineId),
+    [agents, machineId],
+  );
+  const scopedAgents = useMemo(
+    () => filterAgentsByMachineScope(agents, machineId),
+    [agents, machineId],
+  );
 
   const channels = useMemo(
-    () => sessions.filter(isGroupConversation),
-    [sessions],
+    () => filterSessionsByMachineScope(sessions, scopedAgentIds, machineId).filter(isGroupConversation),
+    [sessions, scopedAgentIds, machineId],
   );
 
   const selectedChannel = channelId
@@ -539,7 +563,7 @@ export function ChannelsScreen({
             <div className="ch-center-header-right">
               <MembersHeaderControl
                 channel={selectedChannel}
-                agents={agents}
+                agents={scopedAgents}
               />
             </div>
           </div>
@@ -549,7 +573,7 @@ export function ChannelsScreen({
               key={channelId}
               channelId={channelId!}
               channelName={conversationDisplayTitle(selectedChannel)}
-              agents={agents}
+              agents={scopedAgents}
               operatorName={operatorName}
               onMessageCountChange={() => { /* noop — message count no longer surfaced */ }}
             />

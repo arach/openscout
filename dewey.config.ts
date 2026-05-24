@@ -16,7 +16,7 @@ export default {
       'Mesh means reachability and coordination across machines, not exactly-once delivery, global consensus, or transcript replication.',
       'All record types are defined in @openscout/protocol.',
       'The CLI command is `scout`, not `openscout`.',
-      'Use messages_send / scout send for tell/update and invocations_ask / scout ask for owned work or requested replies.',
+      'Use messages_send / scout send for tell/update and ask / scout ask for owned work or requested replies; when no concrete agent is known, route by projectPath / scout ask --project.',
     ],
     entryPoints: {
       'cli': 'apps/desktop/',

@@ -18,6 +18,11 @@ import {
 } from "../../lib/sessionRead.ts";
 import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import { useScout } from "../Provider.tsx";
+import {
+  filterSessionsByMachineScope,
+  machineScopedAgentIds,
+} from "../../lib/machine-scope.ts";
+import { routeMachineId } from "../../lib/router.ts";
 import { RailRow } from "./RailRow.tsx";
 import type { Agent, FleetAsk, MessagesFilter, MessagesSort, SessionEntry } from "../../lib/types.ts";
 
@@ -54,14 +59,22 @@ export function ScoutMessagesLeftPanel() {
   const [query, setQuery] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const asksByAgent = useFleetActiveAsks();
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(agents, machineId),
+    [agents, machineId],
+  );
 
   const agentById = useMemo(() => {
     const map = new Map<string, Agent>();
-    for (const agent of agents) {
+    const scopedAgents = scopedAgentIds
+      ? agents.filter((agent) => scopedAgentIds.has(agent.id))
+      : agents;
+    for (const agent of scopedAgents) {
       map.set(agent.id, agent);
     }
     return map;
-  }, [agents]);
+  }, [agents, scopedAgentIds]);
 
   const activeRouteFilter: MessagesFilter =
     route.view === "messages" && route.filter ? route.filter : "all";
@@ -92,7 +105,7 @@ export function ScoutMessagesLeftPanel() {
   });
 
   const filtered = useMemo(() => {
-    let list = sessions;
+    let list = filterSessionsByMachineScope(sessions, scopedAgentIds, machineId);
     if (activeRouteFilter === "dm") list = list.filter(isDirectConversation);
     else if (activeRouteFilter === "channel") list = list.filter(isGroupConversation);
 
@@ -131,7 +144,7 @@ export function ScoutMessagesLeftPanel() {
         break;
     }
     return sorted;
-  }, [sessions, activeRouteFilter, activeRouteSort, query, lastViewed]);
+  }, [sessions, scopedAgentIds, activeRouteFilter, activeRouteSort, query, lastViewed]);
 
   const setFilter = (filter: MessagesFilter) => {
     navigate({
@@ -153,6 +166,10 @@ export function ScoutMessagesLeftPanel() {
 
   const onSelect = (s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
+    if (isGroupConversation(s) && route.view === "channels") {
+      navigate({ view: "channels", channelId: s.id });
+      return;
+    }
     navigate({
       view: "messages",
       conversationId: s.id,

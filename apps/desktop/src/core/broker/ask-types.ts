@@ -28,6 +28,7 @@ type ScoutAskCommandBase = {
     metadata?: Record<string, unknown>;
   };
   labels?: string[];
+  replyToSessionId?: string;
   channel?: string;
   shouldSpeak?: boolean;
   currentDirectory?: string;
@@ -69,6 +70,11 @@ export type ScoutAskReceipt = {
     messageId?: string;
     workId?: string;
     bindingRef?: string;
+  };
+  delivery?: "none" | "inline" | "mcp_notification";
+  notification?: {
+    method: "notifications/scout/reply";
+    status: "scheduled" | "not_scheduled";
   };
   next?: ScoutAskNextCall;
   error?: ScoutAskError;

@@ -1,10 +1,16 @@
-import { Activity, BookOpen, Code2, ExternalLink, FileText, MessageSquare } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Activity, BookOpen, Code2, ExternalLink, FileText, FolderTree, MessageSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { DocumentFocusViewer, type DocumentFocusKind } from "../components/DocumentFocusViewer.tsx";
 import { StatusPill } from "../components/StatusPill.tsx";
 import { createTextDocument } from "../components/TextDocumentSurface.tsx";
+import { WorkFilesViewer } from "./WorkFilesViewer.tsx";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { api } from "../lib/api.ts";
+import {
+  filterWorkDetailByMachineScope,
+  machineScopedAgentIds,
+} from "../lib/machine-scope.ts";
+import { routeMachineId } from "../lib/router.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { workChildTone, workTone } from "../lib/status-tone.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -184,6 +190,8 @@ function WorkMaterials({
   const [materialContent, setMaterialContent] = useState<WorkMaterialContent | null>(null);
   const [materialError, setMaterialError] = useState<string | null>(null);
   const [loadingMaterialId, setLoadingMaterialId] = useState<string | null>(null);
+  const [filesViewerOpen, setFilesViewerOpen] = useState(false);
+  const [filesInitialKind, setFilesInitialKind] = useState<"all" | "plan" | "doc" | "code">("all");
 
   const openMaterial = useCallback((materialId: string) => {
     setBriefOpen(false);
@@ -193,6 +201,13 @@ function WorkMaterials({
   const openBrief = useCallback(() => {
     setSelectedMaterialId(null);
     setBriefOpen(true);
+  }, []);
+
+  const openFiles = useCallback((kind: "all" | "plan" | "doc" | "code") => {
+    setBriefOpen(false);
+    setSelectedMaterialId(null);
+    setFilesInitialKind(kind);
+    setFilesViewerOpen(true);
   }, []);
 
   useEffect(() => {
@@ -270,16 +285,28 @@ function WorkMaterials({
             selectedId={selectedMaterialId}
             onOpen={openMaterial}
           />
-          {briefSummary && (
-            <button
-              type="button"
-              className={`s-work-material-link${briefOpen ? " s-work-material-link-active" : ""}`}
-              onClick={openBrief}
-            >
-              <FileText aria-hidden="true" size={13} strokeWidth={1.8} />
-              View ask
-            </button>
-          )}
+          <div className="s-work-material-card-actions">
+            {briefSummary && (
+              <button
+                type="button"
+                className={`s-work-material-link${briefOpen ? " s-work-material-link-active" : ""}`}
+                onClick={openBrief}
+              >
+                <FileText aria-hidden="true" size={13} strokeWidth={1.8} />
+                View ask
+              </button>
+            )}
+            {planMaterials.length > 3 && (
+              <button
+                type="button"
+                className="s-work-material-link"
+                onClick={() => openFiles("plan")}
+              >
+                <FolderTree aria-hidden="true" size={13} strokeWidth={1.8} />
+                View all {planMaterials.length}
+              </button>
+            )}
+          </div>
         </article>
 
         <div className={`s-work-material-evidence-stack${hasDocMaterials ? "" : " s-work-material-evidence-stack-single"}`}>
@@ -300,6 +327,18 @@ function WorkMaterials({
                 selectedId={selectedMaterialId}
                 onOpen={openMaterial}
               />
+              {docMaterials.length > 3 && (
+                <div className="s-work-material-card-actions">
+                  <button
+                    type="button"
+                    className="s-work-material-link"
+                    onClick={() => openFiles("doc")}
+                  >
+                    <FolderTree aria-hidden="true" size={13} strokeWidth={1.8} />
+                    View all {docMaterials.length}
+                  </button>
+                </div>
+              )}
             </article>
           )}
 
@@ -321,6 +360,18 @@ function WorkMaterials({
               selectedId={selectedMaterialId}
               onOpen={openMaterial}
             />
+            {codeMaterials.length > 5 && (
+              <div className="s-work-material-card-actions">
+                <button
+                  type="button"
+                  className="s-work-material-link"
+                  onClick={() => openFiles("code")}
+                >
+                  <FolderTree aria-hidden="true" size={13} strokeWidth={1.8} />
+                  View all {codeMaterials.length}
+                </button>
+              </div>
+            )}
           </article>
         </div>
       </div>
@@ -338,6 +389,14 @@ function WorkMaterials({
         loading={Boolean(loadingMaterialId)}
         error={materialError}
         onClose={() => setSelectedMaterialId(null)}
+      />
+      <WorkFilesViewer
+        workId={detail.id}
+        workTitle={detail.title}
+        materials={viewableMaterials}
+        open={filesViewerOpen}
+        initialKind={filesInitialKind}
+        onClose={() => setFilesViewerOpen(false)}
       />
       {inventory.limitations.length > 0 && (
         <div className="s-work-inventory-note">{inventory.limitations[0]}</div>
@@ -698,7 +757,7 @@ export function WorkDetailScreen({
   workId: string;
   navigate: (r: Route) => void;
 }) {
-  const { route } = useScout();
+  const { agents, route } = useScout();
   const [detail, setDetail] = useState<WorkDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -724,6 +783,16 @@ export function WorkDetailScreen({
     void load();
   });
 
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(agents, machineId),
+    [agents, machineId],
+  );
+  const scopedDetail = useMemo(
+    () => (detail ? filterWorkDetailByMachineScope(detail, scopedAgentIds) : null),
+    [detail, scopedAgentIds],
+  );
+
   if (!loaded) {
     return (
       <div>
@@ -733,15 +802,19 @@ export function WorkDetailScreen({
     );
   }
 
-  if (!detail) {
+  if (!detail || !scopedDetail) {
     return (
       <div className="s-work-not-found">
         <BackToPicker slot="work" fallback={{ view: "inbox" }} navigate={navigate} />
         <div className="s-work-not-found-body">
           <div className="s-work-not-found-glyph" aria-hidden="true">&#x25A1;</div>
-          <h2 className="s-work-not-found-title">Work item not found</h2>
+          <h2 className="s-work-not-found-title">
+            {detail ? "Work item outside this machine scope" : "Work item not found"}
+          </h2>
           <p className="s-work-not-found-sub">
-            This work item may have been removed or does not exist on this broker.
+            {detail
+              ? "Clear the machine scope or switch machines to inspect this work item."
+              : "This work item may have been removed or does not exist on this broker."}
           </p>
           {error && (
             <p className="s-work-not-found-detail">{error}</p>
@@ -751,22 +824,23 @@ export function WorkDetailScreen({
     );
   }
 
-  const signal = signalLabel(detail.attention);
-  const ownerLabel = detail.ownerName ?? detail.ownerId ?? "Unassigned";
-  const nextMoveLabel = detail.nextMoveOwnerName ?? detail.nextMoveOwnerId ?? "—";
+  const visibleDetail = scopedDetail;
+  const signal = signalLabel(visibleDetail.attention);
+  const ownerLabel = visibleDetail.ownerName ?? visibleDetail.ownerId ?? "Unassigned";
+  const nextMoveLabel = visibleDetail.nextMoveOwnerName ?? visibleDetail.nextMoveOwnerId ?? "—";
   const actionCue = buildActionCue({
-    detail,
+    detail: visibleDetail,
     signal,
     ownerLabel,
     nextMoveLabel,
   });
-  const hasLowerContent = detail.activeFlights.length > 0 || detail.childWork.length > 0;
+  const hasLowerContent = visibleDetail.activeFlights.length > 0 || visibleDetail.childWork.length > 0;
 
   return (
     <div className="s-work-detail s-work-casefile">
       <div className="s-work-casefile-topbar">
         <BackToPicker slot="work" fallback={{ view: "inbox" }} navigate={navigate} />
-        <span className="s-work-casefile-record">Case {compactId(detail.id)}</span>
+        <span className="s-work-casefile-record">Case {compactId(visibleDetail.id)}</span>
       </div>
 
       {error && <p className="s-error">{error}</p>}
@@ -774,20 +848,20 @@ export function WorkDetailScreen({
       <section className="s-work-casefile-hero">
         <div className="s-work-casefile-hero-main">
           <div className="s-work-casefile-title-row">
-            <h1 className="s-work-casefile-title">{detail.title}</h1>
-            <StatusPill tone={workTone(detail)} variant="pill">{detail.currentPhase}</StatusPill>
+            <h1 className="s-work-casefile-title">{visibleDetail.title}</h1>
+            <StatusPill tone={workTone(visibleDetail)} variant="pill">{visibleDetail.currentPhase}</StatusPill>
           </div>
-          {detail.lastMeaningfulSummary && (
+          {visibleDetail.lastMeaningfulSummary && (
             <div className="s-work-casefile-summary">
-              {renderWithMentions(detail.lastMeaningfulSummary)}
+              {renderWithMentions(visibleDetail.lastMeaningfulSummary)}
             </div>
           )}
           <div className="s-work-casefile-meta">
-            <span>Updated {timeAgo(detail.updatedAt)}</span>
+            <span>Updated {timeAgo(visibleDetail.updatedAt)}</span>
             <span>{ownerLabel}</span>
-            <span>{stateLabel(detail.state)}</span>
+            <span>{stateLabel(visibleDetail.state)}</span>
             {signal && <span>{signal}</span>}
-            {detail.priority && <span>Priority {detail.priority}</span>}
+            {visibleDetail.priority && <span>Priority {visibleDetail.priority}</span>}
           </div>
         </div>
 
@@ -796,11 +870,11 @@ export function WorkDetailScreen({
           <div className="s-work-next-move-title">{actionCue.title}</div>
           <p className="s-work-next-move-copy">{actionCue.body}</p>
           <div className="s-work-next-move-actions">
-            {detail.conversationId && (
+            {visibleDetail.conversationId && (
               <WorkActionButton
                 primary
                 icon={<MessageSquare aria-hidden="true" size={14} strokeWidth={1.8} />}
-                onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}
+                onClick={() => openContent(navigate, { view: "conversation", conversationId: visibleDetail.conversationId! }, { returnTo: route })}
               >
                 Open thread
               </WorkActionButton>
@@ -811,20 +885,20 @@ export function WorkDetailScreen({
 
       <div className="s-work-casefile-layout s-work-casefile-layout-main">
         <div className="s-work-casefile-main s-work-casefile-main-materials">
-          <WorkMaterials detail={detail} navigate={navigate} />
+          <WorkMaterials detail={visibleDetail} navigate={navigate} />
         </div>
 
-        <WorkTailPanel detail={detail} navigate={navigate} />
+        <WorkTailPanel detail={visibleDetail} navigate={navigate} />
 
         {hasLowerContent && (
           <div className="s-work-casefile-main s-work-casefile-main-lower">
-            {detail.activeFlights.length > 0 && (
+            {visibleDetail.activeFlights.length > 0 && (
               <section className="s-work-casefile-section">
                 <div className="s-agent-section-heading">
                   <h2 className="s-agent-section-title">Flights</h2>
                 </div>
                 <div className="s-work-flight-list">
-                  {detail.activeFlights.map((flight) => (
+                  {visibleDetail.activeFlights.map((flight) => (
                     <button
                       key={flight.id}
                       type="button"
@@ -851,13 +925,13 @@ export function WorkDetailScreen({
               </section>
             )}
 
-            {detail.childWork.length > 0 && (
+            {visibleDetail.childWork.length > 0 && (
               <section className="s-work-casefile-section">
                 <div className="s-agent-section-heading">
                   <h2 className="s-agent-section-title">Child work</h2>
                 </div>
                 <div className="s-work-related-list">
-                  {detail.childWork.map((child) => (
+                  {visibleDetail.childWork.map((child) => (
                     <button
                       key={child.id}
                       type="button"

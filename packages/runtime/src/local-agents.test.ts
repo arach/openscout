@@ -18,6 +18,7 @@ import {
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
   tmuxPaneTailContainsPromptFragment,
+  tmuxPaneTailShowsReadyComposer,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
 
@@ -265,7 +266,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("ScoutReplyContext:");
     expect(prompt).toContain("<summary>Scout routing context</summary>");
     expect(prompt).toContain("Do not publish a separate acknowledgement or progress update through Scout for this request.");
-    expect(prompt).toContain("Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.");
+    expect(prompt).toContain("Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `ask` to answer this request.");
     expect(prompt).toContain('"mode": "broker_reply"');
     expect(prompt).toContain('"fromAgentId": "operator"');
     expect(prompt).toContain('"toAgentId": "ranger"');
@@ -406,6 +407,38 @@ describe("local agent prompts", () => {
     expect(tmuxPaneTailContainsPromptFragment("", prompt)).toBe(false);
   });
 
+  test("tmux ready detection waits for the Claude composer before dispatch", () => {
+    const bootingTail = [
+      "Claude Code v2.1.143",
+      "Opus 4.7 (1M context) with xhigh effort",
+      "~/dev/openscout",
+    ].join("\n");
+    const readyTail = [
+      " ▐▛███▜▌   Claude Code v2.1.143",
+      "▝▜█████▛▘  Opus 4.7 (1M context) with xhigh effort",
+      " openscout-relay-agent ",
+      "──",
+      "❯ Try \"edit broker-daemon.ts to...\"",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Opus 4.7 (1M context) │ main",
+      "  -- INSERT -- ⏵⏵ bypass permissions on",
+    ].join("\n");
+
+    expect(tmuxPaneTailShowsReadyComposer(bootingTail)).toBe(false);
+    expect(tmuxPaneTailShowsReadyComposer(readyTail)).toBe(true);
+  });
+
+  test("tmux ready detection does not confuse active harness output for a composer", () => {
+    const workingTail = [
+      "❯ New broker ask from operator. Task: inspect the dispatch path",
+      "",
+      "⏺ Read(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Read 40 lines",
+    ].join("\n");
+
+    expect(tmuxPaneTailShowsReadyComposer(workingTail)).toBe(false);
+  });
+
   test("tmux dispatch strategy verifier reports submission via the pane tail", () => {
     const prompt =
       "New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.";
@@ -426,6 +459,26 @@ describe("local agent prompts", () => {
     // verify(paneTail) === true means "submitted" (prompt absent from tail).
     expect(strategy.verify(stuckTail)).toBe(false);
     expect(strategy.verify(submittedTail)).toBe(true);
+  });
+
+  test("tmux pane tail detection ignores submitted prompt text in Claude transcript", () => {
+    const prompt =
+      "New broker ask from operator. Task: please inspect OpenScout's agent/session/project semantics and recommend root-cause fixes.";
+    const submittedTail = [
+      "  New broker ask from operator. Task: please inspect OpenScout's",
+      "  agent/session/project semantics and recommend root-cause fixes.",
+      "",
+      "⏺ Read(/Users/arach/dev/openscout/packages/runtime/src/broker-core-service.ts · lines 785-814)",
+      "  ⎿  Read 30 lines",
+      "",
+      "───────────────────────────── agent-taxonomy-generalist.main.mini-relay-agent ──",
+      "❯ ",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Sonnet 4.6 │ ⎇ main │ ~/dev/openscout",
+      "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
+    ].join("\n");
+
+    expect(tmuxPaneTailContainsPromptFragment(submittedTail, prompt)).toBe(false);
   });
 
   test("claude runtime launch args preapprove Scout MCP coordination tools", () => {

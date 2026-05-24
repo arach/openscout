@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
+import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { actorColor } from "../lib/colors.ts";
+import {
+  filterActivityByMachineScope,
+  machineScopedAgentIds,
+} from "../lib/machine-scope.ts";
+import { routeMachineId } from "../lib/router.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
+import { useScout } from "../scout/Provider.tsx";
 import type { ActivityItem, Route } from "../lib/types.ts";
 import "./system-surfaces-redesign.css";
 
@@ -84,6 +91,7 @@ function fallbackSummary(item: ActivityItem): string {
 }
 
 export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
+  const { agents, route } = useScout();
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,10 +103,25 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
   const requestIdRef = useRef(0);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showContextMenu = useContextMenu();
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(agents, machineId),
+    [agents, machineId],
+  );
+  const visibleActivity = useMemo(
+    () => filterActivityByMachineScope(activity, scopedAgentIds),
+    [activity, scopedAgentIds],
+  );
 
   useEffect(() => {
     activityRef.current = activity;
   }, [activity]);
+
+  useEffect(() => {
+    if (expandedId && !visibleActivity.some((item) => item.id === expandedId)) {
+      setExpandedId(null);
+    }
+  }, [expandedId, visibleActivity]);
 
   const load = useCallback(async (mode: "initial" | "background" | "manual" = "initial") => {
     const requestId = ++requestIdRef.current;
@@ -149,13 +172,13 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
   useBrokerEvents(scheduleRefresh);
 
   const metrics = useMemo(() => {
-    const actors = new Set(activity.map((item) => item.actorName ?? "system"));
-    const threads = new Set(activity.map((item) => item.conversationId).filter((value): value is string => Boolean(value)));
+    const actors = new Set(visibleActivity.map((item) => item.actorName ?? "system"));
+    const threads = new Set(visibleActivity.map((item) => item.conversationId).filter((value): value is string => Boolean(value)));
     return [
       {
         label: "Events",
-        value: `${activity.length}`,
-        detail: activity.length > 0 ? `Latest ${timeAgo(activity[0]!.ts)}` : "Waiting for records",
+        value: `${visibleActivity.length}`,
+        detail: visibleActivity.length > 0 ? `Latest ${timeAgo(visibleActivity[0]!.ts)}` : "Waiting for records",
       },
       {
         label: "Actors",
@@ -168,10 +191,10 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
         detail: threads.size > 0 ? "Conversation-linked records" : "No linked threads",
       },
     ];
-  }, [activity]);
+  }, [visibleActivity]);
 
-  const showInitialError = !loading && activity.length === 0 && Boolean(error);
-  const showEmpty = !loading && activity.length === 0 && !error;
+  const showInitialError = !loading && visibleActivity.length === 0 && Boolean(error);
+  const showEmpty = !loading && visibleActivity.length === 0 && !error;
 
   return (
     <div className="sys-surface-page">
@@ -186,7 +209,7 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
           <div className="sys-sync-note">
             {loading
               ? "Loading audit ledger..."
-              : error && activity.length > 0
+              : error && visibleActivity.length > 0
                 ? `Showing last confirmed snapshot from ${lastLoadedAt ? timeAgo(lastLoadedAt) : "earlier"}`
                 : lastLoadedAt
                   ? `Updated ${timeAgo(lastLoadedAt)}`
@@ -213,14 +236,14 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
         ))}
       </div>
 
-      {error && activity.length > 0 && (
+      {error && visibleActivity.length > 0 && (
         <div className="sys-banner sys-banner-warning">
           <strong>Refresh failed.</strong>
           <span>{error}</span>
         </div>
       )}
 
-      {loading && activity.length === 0 && (
+      {loading && visibleActivity.length === 0 && (
         <EmptyState
           title="Loading activity"
           body="Pulling the latest records from the broker database."
@@ -247,9 +270,9 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
         />
       )}
 
-      {activity.length > 0 && (
+      {visibleActivity.length > 0 && (
         <div className="sys-audit-list">
-          {activity.map((item) => {
+          {visibleActivity.map((item) => {
             const isExpanded = expandedId === item.id;
             const category = activityCategory(item.kind);
             const categoryMeta = AUDIT_CATEGORY_META[category];
@@ -316,13 +339,13 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                   const sel = window.getSelection()?.toString().trim();
                   const items: MenuItem[] = [];
                   if (sel) {
-                    items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => navigator.clipboard.writeText(sel) });
+                    items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => { void copyTextToClipboard(sel); } });
                     items.push({ kind: "separator" });
                   }
                   const text = item.title ?? item.summary ?? "";
-                  if (text) items.push({ kind: "action", label: "Copy Details", onSelect: () => navigator.clipboard.writeText(text) });
-                  if (item.actorName) items.push({ kind: "action", label: "Copy Actor", onSelect: () => navigator.clipboard.writeText(item.actorName!) });
-                  items.push({ kind: "action", label: "Copy Event ID", onSelect: () => navigator.clipboard.writeText(item.id) });
+                  if (text) items.push({ kind: "action", label: "Copy Details", onSelect: () => { void copyTextToClipboard(text); } });
+                  if (item.actorName) items.push({ kind: "action", label: "Copy Actor", onSelect: () => { void copyTextToClipboard(item.actorName!); } });
+                  items.push({ kind: "action", label: "Copy Event ID", onSelect: () => { void copyTextToClipboard(item.id); } });
                   if (jumps.length > 0) {
                     items.push({ kind: "separator" });
                     for (const jump of jumps) {

@@ -3,11 +3,13 @@ import { WorkList } from "../components/WorkList.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
+import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
-import { conversationForAgent } from "../lib/router.ts";
+import { conversationForAgent, routeMachineId } from "../lib/router.ts";
+import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
@@ -51,6 +53,14 @@ function formatLabel(value: string | null | undefined): string | null {
   return cleaned;
 }
 
+function handleLabel(agent: Agent): string | null {
+  return agent.handle ? `@${agent.handle.replace(/^@+/, "")}` : null;
+}
+
+function primaryAgentSelector(agent: Agent): string | null {
+  return agent.selector ?? agent.defaultSelector ?? handleLabel(agent);
+}
+
 function directSessionMaps(sessions: SessionEntry[]): {
   conversationByAgentId: Map<string, string>;
   sessionByAgentId: Map<string, SessionEntry>;
@@ -65,12 +75,30 @@ function directSessionMaps(sessions: SessionEntry[]): {
   const conversationByAgentId = new Map<string, string>();
   const sessionByAgentId = new Map<string, SessionEntry>();
   for (const session of directSessions) {
-    if (!conversationByAgentId.has(session.agentId)) {
+    const current = sessionByAgentId.get(session.agentId);
+    if (!current || shouldPreferDirectSession(session, current)) {
       conversationByAgentId.set(session.agentId, session.id);
       sessionByAgentId.set(session.agentId, session);
     }
   }
   return { conversationByAgentId, sessionByAgentId };
+}
+
+function shouldPreferDirectSession(candidate: SessionEntry & { agentId: string }, existing: SessionEntry): boolean {
+  const canonicalConversationId = conversationForAgent(candidate.agentId);
+  const candidateIsCanonical = candidate.id === canonicalConversationId;
+  const existingIsCanonical = existing.id === canonicalConversationId;
+  if (candidateIsCanonical !== existingIsCanonical) return candidateIsCanonical;
+
+  const candidateIsOperatorDm = candidate.id.startsWith(`dm.operator.`);
+  const existingIsOperatorDm = existing.id.startsWith(`dm.operator.`);
+  if (candidateIsOperatorDm !== existingIsOperatorDm) return candidateIsOperatorDm;
+
+  const candidateLastAt = candidate.lastMessageAt ?? 0;
+  const existingLastAt = existing.lastMessageAt ?? 0;
+  if (candidateLastAt !== existingLastAt) return candidateLastAt > existingLastAt;
+
+  return candidate.id < existing.id;
 }
 
 type AgentInventoryStatus = "working" | "available" | "offline";
@@ -311,15 +339,26 @@ const AGENT_INVENTORY_COLUMNS: DataTableColumn<AgentInventoryRow, AgentInventory
 function resolveSelectedAgent(agents: Agent[], selectedAgentId?: string): Agent | null {
   if (!selectedAgentId) return null;
 
-  const exact = agents.find((a) => a.id === selectedAgentId);
+  const normalized = selectedAgentId.trim().replace(/^@+/, "");
+  if (!normalized) return null;
+
+  const exact = agents.find((a) => a.id === normalized);
   if (exact) return exact;
 
-  const handle = selectedAgentId.split(".")[0];
-  if (!handle) return null;
+  const segments = normalized.split(".").filter(Boolean);
+  if (segments.length >= 3) return null;
 
-  return [...agents]
-    .filter((a) => a.handle === handle || a.id.startsWith(`${handle}.`))
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ?? null;
+  const candidates = agents.filter((agent) =>
+    agent.handle === normalized ||
+    agent.selector === `@${normalized}` ||
+    agent.defaultSelector === `@${normalized}` ||
+    agent.id.startsWith(`${normalized}.`)
+  );
+  const uniqueCandidates = Array.from(
+    new Map(candidates.map((agent) => [agent.id, agent])).values(),
+  );
+
+  return uniqueCandidates.length === 1 ? uniqueCandidates[0]! : null;
 }
 
 
@@ -833,6 +872,24 @@ function AgentDetailWithRail({
 
   const roleLabel = formatLabel(agent.role) ?? formatLabel(agent.agentClass);
   const harnessLabel = agent.harness;
+  const machineLabel = agent.authorityNodeName
+    ?? agent.homeNodeName
+    ?? agent.authorityNodeId
+    ?? agent.homeNodeId;
+  const machineDetail = agent.authorityNodeId && agent.homeNodeId && agent.authorityNodeId !== agent.homeNodeId
+    ? `home ${agent.homeNodeName ?? agent.homeNodeId}`
+    : null;
+  const selectorLabel = primaryAgentSelector(agent);
+  const authorityLabel = agent.authorityNodeName && agent.authorityNodeId
+    ? `${agent.authorityNodeName} (${agent.authorityNodeId})`
+    : agent.authorityNodeName ?? agent.authorityNodeId;
+  const homeLabel = agent.homeNodeName && agent.homeNodeId
+    ? `${agent.homeNodeName} (${agent.homeNodeId})`
+    : agent.homeNodeName ?? agent.homeNodeId;
+  const qualifierParts = [
+    agent.workspaceQualifier ? `workspace ${agent.workspaceQualifier}` : null,
+    agent.nodeQualifier ? `node ${agent.nodeQualifier}` : null,
+  ].filter(Boolean);
   const eyebrowParts = [roleLabel, harnessLabel]
     .filter(Boolean)
     .filter((v, i, arr) => arr.indexOf(v) === i);
@@ -909,26 +966,51 @@ function AgentDetailWithRail({
                 kind: "action",
                 label: "Copy Selection",
                 shortcut: "⌘C",
-                onSelect: () => navigator.clipboard.writeText(sel),
+                onSelect: () => {
+                  void copyTextToClipboard(sel);
+                },
               });
               items.push({ kind: "separator" });
             }
             items.push({
               kind: "action",
               label: "Copy Agent Name",
-              onSelect: () => navigator.clipboard.writeText(name),
+              onSelect: () => {
+                void copyTextToClipboard(name);
+              },
             });
             items.push({
               kind: "action",
               label: "Copy Agent ID",
-              onSelect: () => navigator.clipboard.writeText(agent.id),
+              onSelect: () => {
+                void copyTextToClipboard(agent.id);
+              },
             });
             if (agent.handle) {
               items.push({
                 kind: "action",
                 label: `Copy @${agent.handle}`,
-                onSelect: () =>
-                  navigator.clipboard.writeText(`@${agent.handle}`),
+                onSelect: () => {
+                  void copyTextToClipboard(`@${agent.handle}`);
+                },
+              });
+            }
+            if (agent.selector) {
+              items.push({
+                kind: "action",
+                label: "Copy Selector",
+                onSelect: () => {
+                  void copyTextToClipboard(agent.selector ?? "");
+                },
+              });
+            }
+            if (agent.defaultSelector && agent.defaultSelector !== agent.selector) {
+              items.push({
+                kind: "action",
+                label: "Copy Default Selector",
+                onSelect: () => {
+                  void copyTextToClipboard(agent.defaultSelector ?? "");
+                },
               });
             }
             showContextMenu(e, items);
@@ -980,7 +1062,19 @@ function AgentDetailWithRail({
                       &mdash; {timeAgo(agent.updatedAt)}
                     </span>
                   )}
+                  {agent.staleLocalRegistration && (
+                    <span className="s-profile-identity-state-detail">
+                      stale hint
+                    </span>
+                  )}
                 </span>
+              </div>
+              <div className="s-profile-identity-qualified">
+                <span>{agent.id}</span>
+                {selectorLabel && <span>{selectorLabel}</span>}
+                {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
+                  <span>{agent.defaultSelector}</span>
+                )}
               </div>
             </div>
             {renderTabs()}
@@ -994,8 +1088,48 @@ function AgentDetailWithRail({
 
       {activeTab === "profile" && (
         <div className="s-profile-tab-content">
-          {(agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
+          {(agent.id || selectorLabel || machineLabel || agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
             <div className="s-profile-facets">
+              <div className="s-profile-facet s-profile-facet--identity">
+                <div className="s-profile-facet-label">Agent ID</div>
+                <div className="s-profile-facet-value s-profile-facet-value--mono">{agent.id}</div>
+                <div className="s-profile-facet-detail">
+                  definition {agent.definitionId}
+                </div>
+              </div>
+              {selectorLabel && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Selector</div>
+                  <div className="s-profile-facet-value s-profile-facet-value--mono">{selectorLabel}</div>
+                  {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
+                    <div className="s-profile-facet-detail">
+                      default {agent.defaultSelector}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(qualifierParts.length > 0 || authorityLabel || homeLabel) && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Authority</div>
+                  <div className="s-profile-facet-value">{authorityLabel ?? machineLabel ?? "local"}</div>
+                  <div className="s-profile-facet-detail">
+                    {qualifierParts.length > 0
+                      ? qualifierParts.join(" · ")
+                      : homeLabel && homeLabel !== authorityLabel
+                        ? `home ${homeLabel}`
+                        : "qualified route"}
+                  </div>
+                </div>
+              )}
+              {machineLabel && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Machine</div>
+                  <div className="s-profile-facet-value">{machineLabel}</div>
+                  {machineDetail && (
+                    <div className="s-profile-facet-detail">{machineDetail}</div>
+                  )}
+                </div>
+              )}
               {agent.project && (
                 <div className="s-profile-facet">
                   <div className="s-profile-facet-label">Workspace</div>
@@ -1206,9 +1340,14 @@ export function AgentsScreen({
   conversationId?: string;
   tab?: AgentTab;
 }) {
-  const { agents } = useScout();
+  const { agents, route } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
+  const machineId = routeMachineId(route);
+  const scopedAgents = useMemo(
+    () => filterAgentsByMachineScope(agents, machineId),
+    [agents, machineId],
+  );
 
   const load = useCallback(async () => {
     const [sessionsResult, fleetResult] = await Promise.allSettled([
@@ -1226,7 +1365,7 @@ export function AgentsScreen({
     void load();
   });
 
-  const selectedAgent = resolveSelectedAgent(agents, selectedAgentId);
+  const selectedAgent = resolveSelectedAgent(scopedAgents, selectedAgentId);
   const selectedAgentWasAliased = Boolean(
     selectedAgentId && selectedAgent && selectedAgent.id !== selectedAgentId,
   );
@@ -1268,7 +1407,7 @@ export function AgentsScreen({
     return (
       <AgentDetailWithRail
         agent={selectedAgent}
-        allAgents={agents}
+        allAgents={scopedAgents}
         session={sessionByAgentId.get(selectedAgent.id) ?? null}
         conversationId={resolvedConversationId}
         navigate={navigate}
@@ -1279,7 +1418,7 @@ export function AgentsScreen({
 
   return (
     <AgentsLibrary
-      agents={agents}
+      agents={scopedAgents}
       fleet={fleet}
       sessionByAgentId={sessionByAgentId}
       conversationByAgentId={conversationByAgentId}

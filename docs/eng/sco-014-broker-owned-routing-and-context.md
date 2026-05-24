@@ -51,7 +51,7 @@ Landed:
 - Broker delivery generates missing delivery request IDs and timestamps.
 - `scout send --to <target>` is the preferred explicit tell path. In that path,
   body `@handles` remain payload text.
-- MCP explicit-target `messages_send` and `invocations_ask` return compact
+- MCP explicit-target `messages_send` and `ask` return compact
   visible text with full detail in `structuredContent`.
 - `@scout` and `@openscout` no longer get donated to a Ranger manifest agent.
   They are reserved until the product inbox is implemented.
@@ -401,8 +401,8 @@ There are two sender runtime paths and both must stay simple:
   context, but it must hand the broker structured route intent and compact
   caller context. It must not require `whoami`, `who`, search, or resolve
   preflight for routine sends.
-- MCP-backed hosts call `messages_send` or `invocations_ask` with
-  `targetLabel`, `targetAgentId`, or `channel`. The MCP server should establish
+- MCP-backed hosts call `messages_send` for tells/updates or `ask` for
+  work/replies with explicit routing fields. The MCP server should establish
   default session/workspace context and let `/v1/deliver` resolve the caller,
   route, wake behavior, and receipt.
 
@@ -467,9 +467,9 @@ CLI:
 
 MCP:
 
-- Explicit-target `messages_send` and `invocations_ask` call broker deliver
-  directly. `mentionAgentIds` and no-target body-mention paths are still legacy
-  client-planned paths.
+- Explicit-target `messages_send` and `ask` route through broker
+  delivery/planning directly. `mentionAgentIds` and no-target body-mention
+  paths are still legacy client-planned paths.
 - Visible `content` is compact receipt text.
 - Full details remain in `structuredContent`.
 - MCP server establishes default caller context once per server/session.

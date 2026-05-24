@@ -456,6 +456,324 @@
   font-size: 10px;
 }
 
+.s-work-files-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  height: 100%;
+  background: color-mix(in srgb, var(--bg) 96%, black);
+}
+
+.s-work-files-tree {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 64%, transparent);
+}
+
+.s-work-files-tree-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.s-work-files-tree-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.s-work-files-tree-filter:hover {
+  border-color: color-mix(in srgb, var(--doc-focus-accent) 34%, var(--border));
+  color: var(--ink);
+}
+
+.s-work-files-tree-filter-active {
+  border-color: color-mix(in srgb, var(--doc-focus-accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--doc-focus-accent) 14%, var(--surface));
+  color: var(--ink);
+}
+
+.s-work-files-tree-filter-count {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 80%, var(--border));
+  color: var(--muted);
+  font-size: 9px;
+  text-align: center;
+}
+
+.s-work-files-tree-filter-active .s-work-files-tree-filter-count {
+  background: color-mix(in srgb, var(--doc-focus-accent) 24%, transparent);
+  color: var(--ink);
+}
+
+.s-work-files-tree-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0 12px;
+}
+
+.s-work-files-tree-empty {
+  padding: 12px 14px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.s-work-files-tree-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.s-work-files-tree-row:hover {
+  background: color-mix(in srgb, var(--doc-focus-accent) 9%, transparent);
+}
+
+.s-work-files-tree-row:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.s-work-files-tree-row:disabled:hover {
+  background: transparent;
+}
+
+.s-work-files-tree-dir {
+  color: color-mix(in srgb, var(--ink) 85%, transparent);
+  font-weight: 600;
+}
+
+.s-work-files-tree-file-selected {
+  background: color-mix(in srgb, var(--doc-focus-accent) 16%, transparent);
+}
+
+.s-work-files-tree-file-selected:hover {
+  background: color-mix(in srgb, var(--doc-focus-accent) 22%, transparent);
+}
+
+.s-work-files-tree-chevron,
+.s-work-files-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+
+.s-work-files-tree-file .s-work-files-tree-icon {
+  color: color-mix(in srgb, var(--doc-focus-accent) 70%, var(--ink));
+}
+
+.s-work-files-tree-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.s-work-files-tree-status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.s-work-files-tree-status-added {
+  background: color-mix(in srgb, #6abf6a 30%, transparent);
+  color: #cbe9c8;
+}
+
+.s-work-files-tree-status-modified {
+  background: color-mix(in srgb, #d7b85f 30%, transparent);
+  color: #f3e2a8;
+}
+
+.s-work-files-tree-status-deleted {
+  background: color-mix(in srgb, #d27676 30%, transparent);
+  color: #f1c4c4;
+}
+
+.s-work-files-tree-status-renamed {
+  background: color-mix(in srgb, #67c7d8 30%, transparent);
+  color: #c6ecf2;
+}
+
+.s-work-files-tree-status-untracked {
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+  color: var(--muted);
+}
+
+.s-work-files-content {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 96%, black);
+}
+
+.s-work-files-content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--surface) 56%, transparent);
+}
+
+.s-work-files-breadcrumb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.s-work-files-breadcrumb-folder {
+  color: var(--dim);
+}
+
+.s-work-files-breadcrumb-name {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.s-work-files-content-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.s-work-files-content-meta span {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.s-work-files-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.s-work-files-pane .s-text-document-surface {
+  flex: 1;
+  min-height: 0;
+}
+
+.s-work-files-pane-image {
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 18px;
+  background:
+    repeating-conic-gradient(
+      color-mix(in srgb, var(--bg) 88%, white) 0% 25%,
+      color-mix(in srgb, var(--bg) 96%, black) 0% 50%
+    ) 0 0 / 18px 18px;
+}
+
+.s-work-files-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.32);
+}
+
+.s-work-files-pane-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.s-work-files-pane-error {
+  color: var(--warning);
+}
+
+.s-work-files-pane-notice {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.s-work-material-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .s-work-files-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 0.4fr) minmax(0, 1fr);
+  }
+
+  .s-work-files-tree {
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  }
+}
+
 @media (max-width: 760px) {
   .s-doc-focus-layer {
     inset: 44px 0 24px;

@@ -289,7 +289,7 @@ describe("resolveBrokerRouteTarget", () => {
     }
   });
 
-  test("redirects stale direct agent ids to their current replacement", () => {
+  test("keeps stale direct agent ids on the explicitly requested agent", () => {
     const snapshot = makeSnapshot([
       makeAgent({
         id: "ranger.main.mini",
@@ -317,7 +317,7 @@ describe("resolveBrokerRouteTarget", () => {
 
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
-      expect(result.agent.id).toBe("ranger.codex-vox-getting-started.mini");
+      expect(result.agent.id).toBe("ranger.main.mini");
     }
   });
 

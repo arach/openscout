@@ -1,9 +1,14 @@
+import { normalizeAgentSelectorSegment } from "@openscout/protocol";
 import type { AgentHarness, ScoutAgentCard, ScoutPermissionProfile } from "@openscout/protocol";
+import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 
 import {
   inferLocalAgentBinding,
   listLocalAgents,
+  pruneOneTimeLocalAgentCards,
   retireLocalAgent,
+  updateLocalAgentCardLifecycle,
   restartAllLocalAgents,
   restartLocalAgent,
   startLocalAgent,
@@ -29,6 +34,16 @@ export type CreateScoutAgentCardInput = {
   permissionProfile?: ScoutPermissionProfile | string;
   currentDirectory?: string;
   createdById?: string;
+  oneTimeUse?: boolean;
+  ttlMs?: number;
+};
+
+export type CleanupScoutAgentCardsInput = {
+  currentDirectory?: string;
+  createdById?: string;
+  projectRoot?: string;
+  maxAgeMs?: number;
+  maxCount?: number;
 };
 
 export type UpScoutAgentInput = {
@@ -89,9 +104,18 @@ export type ScoutAgentServiceDeps<TBroker extends ScoutAgentServiceBrokerContext
     stopAllLocalAgents?: typeof stopAllLocalAgents;
     stopLocalAgent?: typeof stopLocalAgent;
     updateLocalAgentCard?: typeof updateLocalAgentCard;
+    updateLocalAgentCardLifecycle?: typeof updateLocalAgentCardLifecycle;
+    pruneOneTimeLocalAgentCards?: typeof pruneOneTimeLocalAgentCards;
     inferLocalAgentBinding?: typeof inferLocalAgentBinding;
   };
 };
+
+const DEFAULT_ONE_TIME_SCOUT_AGENT_CARD_TTL_MS = 24 * 60 * 60 * 1000;
+
+function oneTimeAgentName(input: { agentName?: string; projectPath: string }): string {
+  const base = normalizeAgentSelectorSegment(input.agentName || basename(input.projectPath)) || "agent";
+  return `${base}-card-${randomUUID().slice(0, 8)}`;
+}
 
 export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerContext>(
   deps: ScoutAgentServiceDeps<TBroker>,
@@ -105,6 +129,8 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
     stopAllLocalAgents: deps.localAgents?.stopAllLocalAgents ?? stopAllLocalAgents,
     stopLocalAgent: deps.localAgents?.stopLocalAgent ?? stopLocalAgent,
     updateLocalAgentCard: deps.localAgents?.updateLocalAgentCard ?? updateLocalAgentCard,
+    updateLocalAgentCardLifecycle: deps.localAgents?.updateLocalAgentCardLifecycle ?? updateLocalAgentCardLifecycle,
+    pruneOneTimeLocalAgentCards: deps.localAgents?.pruneOneTimeLocalAgentCards ?? pruneOneTimeLocalAgentCards,
     inferLocalAgentBinding: deps.localAgents?.inferLocalAgentBinding ?? inferLocalAgentBinding,
   };
 
@@ -165,16 +191,44 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
       return localAgents.restartAllLocalAgents(input);
     },
 
+    async cleanupScoutAgentCards(input: CleanupScoutAgentCardsInput = {}) {
+      const broker = await deps.loadScoutBrokerContext().catch(() => null);
+      const result = await localAgents.pruneOneTimeLocalAgentCards(input);
+      await Promise.all(result.retired.map((status) =>
+        deps.retireScoutLocalAgentBinding?.({ agentId: status.agentId, broker }).catch(() => false),
+      ));
+      return result;
+    },
+
     async createScoutAgentCard(input: CreateScoutAgentCardInput): Promise<ScoutAgentCard> {
+      const createdAt = Date.now();
+      const oneTimeUse = input.oneTimeUse === true;
+      const createdById = input.createdById?.trim() || undefined;
+      const agentName = oneTimeUse
+        ? oneTimeAgentName({
+          agentName: input.agentName,
+          projectPath: input.projectPath,
+        })
+        : input.agentName;
+      const lifecycle = oneTimeUse
+        ? {
+          kind: "one_time" as const,
+          createdAt,
+          ...(createdById ? { createdById } : {}),
+          expiresAt: createdAt + Math.max(1, input.ttlMs ?? DEFAULT_ONE_TIME_SCOUT_AGENT_CARD_TTL_MS),
+          maxUses: 1,
+        }
+        : undefined;
       const status = await localAgents.startLocalAgent({
         projectPath: input.projectPath,
-        agentName: input.agentName,
+        agentName,
         displayName: input.displayName,
         harness: input.harness,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
         permissionProfile: input.permissionProfile,
         currentDirectory: input.currentDirectory,
+        ...(lifecycle ? { card: lifecycle } : {}),
         // Card creation should publish a routable identity, not make this
         // short-lived caller the owner of a long-running harness session.
         ensureOnline: false,
@@ -196,22 +250,44 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
       }
 
       let inboxConversationId: string | undefined;
-      let createdById = input.createdById?.trim() || undefined;
-      if (broker && createdById && createdById !== binding.agent.id) {
+      let resolvedCreatedById = createdById;
+      if (broker && resolvedCreatedById && resolvedCreatedById !== binding.agent.id) {
         const session = await deps.openScoutPeerSession({
-          sourceId: createdById,
+          sourceId: resolvedCreatedById,
           targetId: binding.agent.id,
           currentDirectory,
         });
         inboxConversationId = session.conversation.id;
-        createdById = session.sourceId;
+        resolvedCreatedById = session.sourceId;
+      }
+
+      const finalLifecycle = lifecycle
+        ? {
+          ...lifecycle,
+          ...(resolvedCreatedById ? { createdById: resolvedCreatedById } : {}),
+          ...(inboxConversationId ? { inboxConversationId } : {}),
+        }
+        : undefined;
+      if (finalLifecycle) {
+        await localAgents.updateLocalAgentCardLifecycle(status.agentId, finalLifecycle).catch(() => null);
+        const cleaned = await localAgents.pruneOneTimeLocalAgentCards({
+          createdById: finalLifecycle.createdById,
+          projectRoot: binding.endpoint.projectRoot ?? input.projectPath,
+          excludeAgentIds: [status.agentId],
+        }).catch(() => null);
+        if (cleaned?.retired.length) {
+          await Promise.all(cleaned.retired.map((retired) =>
+            deps.retireScoutLocalAgentBinding?.({ agentId: retired.agentId, broker }).catch(() => false),
+          ));
+        }
       }
 
       return buildScoutAgentCard(binding, {
         currentDirectory,
-        createdById,
+        createdById: resolvedCreatedById,
         brokerRegistered: syncResult?.brokerRegistered ?? false,
         inboxConversationId,
+        lifecycle: finalLifecycle,
       });
     },
   };

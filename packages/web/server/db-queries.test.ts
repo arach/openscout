@@ -653,10 +653,22 @@ describe("web db timestamp normalization", () => {
         policy: "durable",
         createdAt: recentSeconds,
       });
+      store.recordMessage({
+        id: "msg-normalized-old-ms",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "Older millisecond timestamp message.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: recentMs - 24 * 60 * 60_000,
+      });
 
       const messages = queryRecentMessages(10, { conversationId: "conv-1" });
       const session = querySessionById("conv-1");
       const activity = queryActivity(20);
+      const fleet = queryFleet({ limit: 10, activityLimit: 1 });
       const mobileDetail = queryMobileAgentDetail("agent-1");
       const mobileSessions = queryMobileSessions(10);
 
@@ -671,6 +683,10 @@ describe("web db timestamp normalization", () => {
         .toBe(recentSeconds * 1000);
       expect(activity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
         .toBe(recentSeconds * 1000);
+      expect(fleet.activity[0]).toMatchObject({
+        id: "activity:message:msg-normalized-seconds",
+        ts: recentSeconds * 1000,
+      });
       expect(mobileDetail?.lastActiveAt).toBe(recentSeconds * 1000);
       expect(mobileDetail?.recentActivity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
         .toBe(recentSeconds * 1000);
@@ -1976,6 +1992,87 @@ describe("web db query fleet", () => {
     }
   });
 
+  test("projects noteworthy SIGTERM ask interruptions without interrupt-level attention", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.recordInvocation({
+        id: "inv-noteworthy-sigterm",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Review the current spec",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 20_000,
+      });
+      store.recordFlight({
+        id: "flight-noteworthy-sigterm",
+        invocationId: "inv-noteworthy-sigterm",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        summary: "Agent One was interrupted by a local Codex app-server SIGTERM.",
+        startedAt: now - 19_000,
+        completedAt: now - 18_000,
+        metadata: {
+          failureStage: "codex_app_server_sigterm",
+          failureSeverity: "noteworthy",
+          noteworthy: true,
+        },
+      });
+      store.recordInvocation({
+        id: "inv-proactive-stop",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Active turn stopped by OpenScout",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 16_000,
+      });
+      store.recordFlight({
+        id: "flight-proactive-stop",
+        invocationId: "inv-proactive-stop",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        summary: "Agent One was stopped by OpenScout before it could reply.",
+        startedAt: now - 15_000,
+        completedAt: now - 14_000,
+        metadata: {
+          failureStage: "codex_app_server_proactive_shutdown",
+          failureSeverity: "noteworthy",
+          noteworthy: true,
+        },
+      });
+
+      const fleet = queryFleet({ limit: 10, activityLimit: 20 });
+
+      expect(fleet.recentCompleted).toContainEqual(expect.objectContaining({
+        invocationId: "inv-noteworthy-sigterm",
+        status: "failed",
+        statusLabel: "Interrupted",
+        attention: "badge",
+        summary: "Agent One was interrupted by a local Codex app-server SIGTERM.",
+      }));
+      expect(fleet.recentCompleted).toContainEqual(expect.objectContaining({
+        invocationId: "inv-proactive-stop",
+        status: "failed",
+        statusLabel: "Stopped",
+        attention: "badge",
+        summary: "Agent One was stopped by OpenScout before it could reply.",
+      }));
+    } finally {
+      store.close();
+    }
+  });
+
   test("keeps an acknowledged running ask active until the flight completes", () => {
     const store = createSeededStore();
     const now = Date.now();
@@ -2255,6 +2352,43 @@ describe("web db query work items", () => {
           lastMeaningfulSummary: "Child work",
         },
       ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("filters work rows by conversation", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertConversation({
+        id: "conv-work-2",
+        kind: "channel",
+        title: "Second channel",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-1", "operator"],
+      });
+      store.recordCollaborationRecord({
+        id: "work-conversation-2",
+        kind: "work_item",
+        title: "Conversation scoped work",
+        createdById: "operator",
+        ownerId: "agent-1",
+        nextMoveOwnerId: "agent-1",
+        conversationId: "conv-work-2",
+        state: "working",
+        acceptanceState: "none",
+        requestedById: "operator",
+        createdAt: 140,
+        updatedAt: 140,
+      });
+
+      expect(queryWorkItems({ conversationId: "conv-work-2" }).map((item) => item.id))
+        .toEqual(["work-conversation-2"]);
+      expect(queryWorkItems({ conversationId: "conv-1" }).map((item) => item.id))
+        .toEqual(["work-1", "work-1-child"]);
     } finally {
       store.close();
     }

@@ -2,6 +2,8 @@ import { useSyncExternalStore } from "react";
 
 export type MissionActivityFilter = "all" | "active" | "recent";
 export type MissionSourceFilter = "all" | "scout" | "native";
+export type MissionGroupMode = "activity" | "workspace";
+export type MissionActivityState = "active" | "recent" | "idle";
 
 export const MISSION_RECENT_WINDOWS = [
   { label: "15m", value: 15 * 60_000 },
@@ -23,14 +25,23 @@ export type MissionVisibleAgent = {
   agentClass: string;
   updatedAt: number | null;
   source: "scout" | "native";
+  activity: MissionActivityState;
+  lastActiveAt: number | null;
+};
+
+export type MissionCanvasFocusRequest = {
+  id: string;
+  serial: number;
 };
 
 type MissionControlState = {
   activityFilter: MissionActivityFilter;
   sourceFilter: MissionSourceFilter;
   recentWindowMs: MissionRecentWindow;
+  groupMode: MissionGroupMode;
   query: string;
   focusedId: string | null;
+  canvasFocusRequest: MissionCanvasFocusRequest | null;
   visibleAgents: MissionVisibleAgent[];
   selectedIds: string[];
 };
@@ -39,13 +50,16 @@ let _state: MissionControlState = {
   activityFilter: "all",
   sourceFilter: "all",
   recentWindowMs: MISSION_RECENT_WINDOWS[1].value,
+  groupMode: "activity",
   query: "",
   focusedId: null,
+  canvasFocusRequest: null,
   visibleAgents: [],
   selectedIds: [],
 };
 
 const _listeners = new Set<() => void>();
+let _canvasFocusSerial = 0;
 
 function _notify() {
   for (const fn of _listeners) fn();
@@ -69,6 +83,12 @@ export function setMissionRecentWindow(recentWindowMs: MissionRecentWindow): voi
   _notify();
 }
 
+export function setMissionGroupMode(groupMode: MissionGroupMode): void {
+  if (_state.groupMode === groupMode) return;
+  _state = { ..._state, groupMode };
+  _notify();
+}
+
 export function setMissionQuery(query: string): void {
   if (_state.query === query) return;
   _state = { ..._state, query };
@@ -81,6 +101,21 @@ export function setMissionFocusedId(focusedId: string | null): void {
   _notify();
 }
 
+export function requestMissionCanvasFocus(id: string): void {
+  _canvasFocusSerial += 1;
+  _state = {
+    ..._state,
+    canvasFocusRequest: { id, serial: _canvasFocusSerial },
+  };
+  _notify();
+}
+
+export function clearMissionCanvasFocusRequest(serial: number): void {
+  if (_state.canvasFocusRequest?.serial !== serial) return;
+  _state = { ..._state, canvasFocusRequest: null };
+  _notify();
+}
+
 function visibleAgentsEqual(a: MissionVisibleAgent[], b: MissionVisibleAgent[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
@@ -90,6 +125,8 @@ function visibleAgentsEqual(a: MissionVisibleAgent[], b: MissionVisibleAgent[]):
     if (x.id !== y.id) return false;
     if (x.state !== y.state) return false;
     if (x.updatedAt !== y.updatedAt) return false;
+    if (x.activity !== y.activity) return false;
+    if (x.lastActiveAt !== y.lastActiveAt) return false;
   }
   return true;
 }

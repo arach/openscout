@@ -11,6 +11,7 @@ import type { AgentSummaryState, WorkAttention } from "./common.ts";
 
 export type WebAgent = {
   id: string;
+  definitionId: string;
   name: string;
   handle: string | null;
   agentClass: string;
@@ -22,6 +23,9 @@ export type WebAgent = {
   createdAt: number | null;
   transport: string | null;
   selector: string | null;
+  defaultSelector: string | null;
+  nodeQualifier: string | null;
+  workspaceQualifier: string | null;
   wakePolicy: string | null;
   capabilities: string[];
   project: string | null;
@@ -31,11 +35,16 @@ export type WebAgent = {
   harnessSessionId: string | null;
   harnessLogPath: string | null;
   conversationId: string;
+  authorityNodeId: string | null;
+  authorityNodeName: string | null;
   homeNodeId: string | null;
   homeNodeName: string | null;
   ownerId: string | null;
   ownerName: string | null;
   ownerHandle: string | null;
+  staleLocalRegistration: boolean;
+  retiredFromFleet: boolean;
+  replacedByAgentId: string | null;
 };
 
 export type WebActivityItem = {
@@ -59,6 +68,7 @@ export type WebActivityItem = {
 export type WebMessage = {
   id: string;
   conversationId: string;
+  actorId: string;
   actorName: string;
   body: string;
   createdAt: number;

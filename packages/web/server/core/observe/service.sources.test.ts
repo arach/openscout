@@ -80,6 +80,7 @@ function makeTempDir(prefix: string): string {
 function makeAgent(overrides: Partial<WebAgent> = {}): WebAgent {
   return {
     id: "agent-1",
+    definitionId: "agent",
     name: "Agent One",
     handle: "agent.one",
     agentClass: "general",
@@ -90,6 +91,9 @@ function makeAgent(overrides: Partial<WebAgent> = {}): WebAgent {
     updatedAt: Date.now(),
     transport: "claude_stream_json",
     selector: null,
+    defaultSelector: null,
+    nodeQualifier: null,
+    workspaceQualifier: null,
     wakePolicy: null,
     capabilities: [],
     project: "openscout",
@@ -98,6 +102,16 @@ function makeAgent(overrides: Partial<WebAgent> = {}): WebAgent {
     harnessSessionId: "history-session",
     harnessLogPath: null,
     conversationId: "dm.operator.agent-1",
+    authorityNodeId: "node-1",
+    authorityNodeName: "node-1",
+    homeNodeId: "node-1",
+    homeNodeName: "node-1",
+    ownerId: null,
+    ownerName: null,
+    ownerHandle: null,
+    staleLocalRegistration: false,
+    retiredFromFleet: false,
+    replacedByAgentId: null,
     ...overrides,
   };
 }

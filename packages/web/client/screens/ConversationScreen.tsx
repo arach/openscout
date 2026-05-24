@@ -5,6 +5,11 @@ import type {
 } from "@openscout/protocol";
 import { api } from "../lib/api.ts";
 import {
+  filterAgentsByMachineScope,
+  filterSessionsByMachineScope,
+  machineScopedAgentIds,
+} from "../lib/machine-scope.ts";
+import {
   compactAgentId,
   minimalAgentDisplayName,
   minimalAgentHandle,
@@ -35,6 +40,7 @@ import { queueTakeover } from "../lib/terminal-takeover.ts";
 import {
   agentIdFromConversation,
   conversationForAgent,
+  routeMachineId,
 } from "../lib/router.ts";
 import {
   loadLastViewedMap,
@@ -46,6 +52,7 @@ import { useScout } from "../scout/Provider.tsx";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
+import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import type {
@@ -176,6 +183,8 @@ type EventInvocationRecord = {
 };
 
 type SendResult = {
+  conversationId?: string;
+  messageId?: string;
   flight?: EventFlightRecord | null;
 };
 
@@ -276,12 +285,43 @@ function readScoutDispatch(message: Message): ScoutDispatchRecord | null {
 
 function isOperatorMessage(message: Message, operatorName: string): boolean {
   if (message.class === "operator") return true;
+  if (message.actorId === "operator") return true;
   const actor = message.actorName?.toLowerCase() ?? "";
   return (
     actor === operatorName.toLowerCase() ||
     actor === "operator" ||
     actor === "you"
   );
+}
+
+function readMessageReturnAddressActorId(message: Message): string | null {
+  const returnAddress = message.metadata?.["returnAddress"];
+  if (!returnAddress || typeof returnAddress !== "object") return null;
+  const actorId = (returnAddress as { actorId?: unknown }).actorId;
+  return typeof actorId === "string" && actorId.trim().length > 0
+    ? actorId.trim()
+    : null;
+}
+
+function resolveMessageAgent(
+  message: Message,
+  agents: Agent[],
+  fallbackAgentId: string | null | undefined,
+): Agent | null {
+  const actorId = message.actorId ?? readMessageReturnAddressActorId(message);
+  if (actorId) {
+    const exact = agents.find((agent) => agent.id === actorId);
+    if (exact) return exact;
+  }
+
+  if (fallbackAgentId) {
+    const fallback = agents.find((agent) => agent.id === fallbackAgentId);
+    if (fallback) return fallback;
+  }
+
+  if (!message.actorName) return null;
+  const named = agents.filter((agent) => agent.name === message.actorName);
+  return named.length === 1 ? named[0]! : null;
 }
 
 function latestAgentMessageAt(
@@ -864,6 +904,15 @@ export function ConversationScreen({
   embedded?: boolean;
 }) {
   const { agents, route } = useScout();
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(agents, machineId),
+    [agents, machineId],
+  );
+  const scopedAgents = useMemo(
+    () => filterAgentsByMachineScope(agents, machineId),
+    [agents, machineId],
+  );
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
@@ -890,11 +939,15 @@ export function ConversationScreen({
   const isDm = sessionMeta?.kind === "direct" || legacyAgentId !== null;
   const agent = useMemo<Agent | null>(
     () =>
-      agentId ? (agents.find((item) => item.id === agentId) ?? null) : null,
-    [agents, agentId],
+      agentId ? (scopedAgents.find((item) => item.id === agentId) ?? null) : null,
+    [scopedAgents, agentId],
   );
 
   const [railSessions, setRailSessions] = useState<SessionEntry[]>([]);
+  const scopedRailSessions = useMemo(
+    () => filterSessionsByMachineScope(railSessions, scopedAgentIds, machineId),
+    [railSessions, scopedAgentIds, machineId],
+  );
   const [needsYouIds, setNeedsYouIds] = useState<Set<string>>(new Set());
   const [lastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
 
@@ -930,11 +983,11 @@ export function ConversationScreen({
   }, []);
 
   useEffect(() => {
-    const current = railSessions.find((session) => session.id === conversationId);
+    const current = scopedRailSessions.find((session) => session.id === conversationId);
     if (current && isGroupConversation(current)) {
       navigate({ view: "channels", channelId: conversationId });
     }
-  }, [conversationId, navigate, railSessions]);
+  }, [conversationId, navigate, scopedRailSessions]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -1070,7 +1123,7 @@ export function ConversationScreen({
   const mentionCandidates = useMemo<MentionCandidate[]>(() => {
     const seen = new Set<string>();
     const list: MentionCandidate[] = [];
-    for (const a of agents) {
+    for (const a of scopedAgents) {
       const handleRaw = a.handle?.trim().replace(/^@+/, "") ?? compactAgentId(a.id) ?? a.id;
       if (!handleRaw) continue;
       const key = handleRaw.toLowerCase();
@@ -1084,7 +1137,7 @@ export function ConversationScreen({
       });
     }
     return list.sort((a, b) => a.handle.localeCompare(b.handle));
-  }, [agents]);
+  }, [scopedAgents]);
 
   const filteredSlashCommands = useMemo(() => {
     if (!slashState.open) return [];
@@ -1376,6 +1429,7 @@ export function ConversationScreen({
           const nextMessage: Message = {
             id: message.id,
             conversationId: message.conversationId,
+            actorId: message.actorId,
             actorName: isAgentMessage ? agentName : operatorName,
             body: message.body,
             createdAt: message.createdAt,
@@ -1545,6 +1599,7 @@ export function ConversationScreen({
     const optimisticMessage: Message = {
       id: `optimistic-${optimisticCreatedAt}`,
       conversationId,
+      actorId: "operator",
       actorName: operatorName,
       body: trimmed,
       createdAt: optimisticCreatedAt,
@@ -1564,6 +1619,15 @@ export function ConversationScreen({
           body: JSON.stringify({ body: trimmed, conversationId }),
         },
       );
+      const routedConversationId = result.conversationId?.trim();
+      if (routedConversationId && routedConversationId !== conversationId) {
+        setMessages((previous) =>
+          previous.filter((message) => message.id !== optimisticMessage.id),
+        );
+        setAwaitingResponseSince(null);
+        navigate({ view: "conversation", conversationId: routedConversationId });
+        return;
+      }
       if (result.flight) {
         trackedInvocationIdsRef.current.add(result.flight.invocationId);
         setCurrentFlight(
@@ -1630,28 +1694,35 @@ export function ConversationScreen({
           kind: "action",
           label: "Copy Selection",
           shortcut: "⌘C",
-          onSelect: () => navigator.clipboard.writeText(sel),
+          onSelect: () => {
+            void copyTextToClipboard(sel);
+          },
         });
         items.push({ kind: "separator" });
       }
       items.push({
         kind: "action",
         label: "Copy Message",
-        onSelect: () => navigator.clipboard.writeText(message.body),
+        onSelect: () => {
+          void copyTextToClipboard(message.body);
+        },
       });
       if (message.actorName && !isOperatorMessage(message, operatorName)) {
         items.push({
           kind: "action",
           label: "Copy Agent ID",
-          onSelect: () =>
-            navigator.clipboard.writeText(message.actorName ?? ""),
+          onSelect: () => {
+            void copyTextToClipboard(message.actorName ?? "");
+          },
         });
       }
       items.push({ kind: "separator" });
       items.push({
         kind: "action",
         label: "Copy Message ID",
-        onSelect: () => navigator.clipboard.writeText(message.id),
+        onSelect: () => {
+          void copyTextToClipboard(message.id);
+        },
       });
       showContextMenu(event, items);
     },
@@ -1680,18 +1751,18 @@ export function ConversationScreen({
       .filter((id) => id !== "operator")
       .slice(0, 4)
       .map((id) => {
-        const a = agents.find((ag) => ag.id === id);
+        const a = scopedAgents.find((ag) => ag.id === id);
         return { id, name: a?.name ?? id };
       });
-  }, [sessionMeta, agents]);
+  }, [sessionMeta, scopedAgents]);
 
   const existingChannelSlugs = useMemo(() => {
-    const values = railSessions
+    const values = scopedRailSessions
       .filter((session) => session.kind === "channel" || session.id.startsWith("channel."))
       .map((session) => conversationShortLabel(session))
       .filter((slug) => slug.trim().length > 0);
     return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-  }, [railSessions]);
+  }, [scopedRailSessions]);
 
   const submitAddToChannel = useCallback(async () => {
     if (!agentId || !isDm) return;
@@ -1759,20 +1830,26 @@ export function ConversationScreen({
               {
                 kind: "action",
                 label: "Copy Title",
-                onSelect: () => navigator.clipboard.writeText(threadTitle),
+                onSelect: () => {
+                  void copyTextToClipboard(threadTitle);
+                },
               },
             ];
             if (agentId) {
               items.push({
                 kind: "action",
                 label: "Copy Agent ID",
-                onSelect: () => navigator.clipboard.writeText(agentId),
+                onSelect: () => {
+                  void copyTextToClipboard(agentId);
+                },
               });
             }
             items.push({
               kind: "action",
               label: "Copy Conversation ID",
-              onSelect: () => navigator.clipboard.writeText(conversationId),
+              onSelect: () => {
+                void copyTextToClipboard(conversationId);
+              },
             });
             showContextMenu(e, items);
           }}
@@ -2107,8 +2184,8 @@ export function ConversationScreen({
                 );
               const absoluteTime = formatAbsoluteTimestamp(message.createdAt);
               const messageAgent =
-                !isYou && message.actorName
-                  ? agents.find((a) => a.name === message.actorName) ?? null
+                !isYou
+                  ? resolveMessageAgent(message, scopedAgents, agentId)
                   : null;
               const actorHandle = isYou
                 ? operatorName.toLowerCase()

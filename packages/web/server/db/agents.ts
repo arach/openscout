@@ -22,6 +22,10 @@ import type { WebAgent } from "./types/web.ts";
 
 type AgentQueryRow = {
   id: string;
+  definition_id: string;
+  node_qualifier: string | null;
+  workspace_qualifier: string | null;
+  selector: string | null;
   name: string;
   handle: string | null;
   actor_created_at: number | null;
@@ -30,6 +34,8 @@ type AgentQueryRow = {
   wake_policy: string | null;
   capabilities_json: string | null;
   metadata_json: string | null;
+  authority_node_id: string | null;
+  authority_node_name: string | null;
   home_node_id: string | null;
   home_node_name: string | null;
   owner_id: string | null;
@@ -53,6 +59,10 @@ export function queryAgents(limit = 500): WebAgent[] {
     .prepare(
       `SELECT
          a.id,
+         a.definition_id,
+         a.node_qualifier,
+         a.workspace_qualifier,
+         a.selector,
          ac.display_name AS name,
          ac.handle,
          ${actorCreatedAtExpression} AS actor_created_at,
@@ -61,6 +71,8 @@ export function queryAgents(limit = 500): WebAgent[] {
          a.wake_policy,
          a.capabilities_json,
          a.metadata_json,
+         a.authority_node_id,
+         an.name AS authority_node_name,
          a.home_node_id,
          hn.name AS home_node_name,
          a.owner_id,
@@ -76,6 +88,7 @@ export function queryAgents(limit = 500): WebAgent[] {
          ${endpointUpdatedAtExpression} AS updated_at
        FROM agents a
        JOIN actors ac ON ac.id = a.id
+       LEFT JOIN nodes an ON an.id = a.authority_node_id
        LEFT JOIN nodes hn ON hn.id = a.home_node_id
        LEFT JOIN actors oa ON oa.id = a.owner_id
        ${LATEST_AGENT_ENDPOINT_JOIN}
@@ -96,6 +109,10 @@ export function queryAgentById(agentId: string): WebAgent | null {
     .prepare(
       `SELECT
          a.id,
+         a.definition_id,
+         a.node_qualifier,
+         a.workspace_qualifier,
+         a.selector,
          ac.display_name AS name,
          ac.handle,
          ${actorCreatedAtExpression} AS actor_created_at,
@@ -104,6 +121,8 @@ export function queryAgentById(agentId: string): WebAgent | null {
          a.wake_policy,
          a.capabilities_json,
          a.metadata_json,
+         a.authority_node_id,
+         an.name AS authority_node_name,
          a.home_node_id,
          hn.name AS home_node_name,
          a.owner_id,
@@ -119,6 +138,7 @@ export function queryAgentById(agentId: string): WebAgent | null {
          ${endpointUpdatedAtExpression} AS updated_at
        FROM agents a
        JOIN actors ac ON ac.id = a.id
+       LEFT JOIN nodes an ON an.id = a.authority_node_id
        LEFT JOIN nodes hn ON hn.id = a.home_node_id
        LEFT JOIN actors oa ON oa.id = a.owner_id
        ${LATEST_AGENT_ENDPOINT_JOIN}
@@ -144,6 +164,7 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
 
     return {
       id: r.id,
+      definitionId: r.definition_id,
       name: r.name,
       handle: r.handle,
       agentClass: r.agent_class,
@@ -154,7 +175,10 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       updatedAt: r.updated_at,
       createdAt: r.actor_created_at,
       transport: r.transport,
-      selector: r.default_selector,
+      selector: r.selector ?? metadataString(meta, "selector") ?? null,
+      defaultSelector: r.default_selector ?? metadataString(meta, "defaultSelector") ?? null,
+      nodeQualifier: r.node_qualifier ?? metadataString(meta, "nodeQualifier") ?? null,
+      workspaceQualifier: r.workspace_qualifier ?? metadataString(meta, "workspaceQualifier") ?? null,
       wakePolicy: r.wake_policy,
       capabilities,
       project: (meta.project as string) ?? null,
@@ -164,11 +188,16 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       harnessSessionId: resolveHarnessSessionId(r.transport, r.session_id, endpointMeta),
       harnessLogPath: resolveHarnessLogPath(r.id, r.transport, r.session_id, endpointMeta),
       conversationId: conversationIdForAgent(r.id),
+      authorityNodeId: r.authority_node_id,
+      authorityNodeName: r.authority_node_name,
       homeNodeId: r.home_node_id,
       homeNodeName: r.home_node_name,
       ownerId: r.owner_id,
       ownerName: r.owner_name,
       ownerHandle: r.owner_handle,
+      staleLocalRegistration: meta.staleLocalRegistration === true,
+      retiredFromFleet: meta.retiredFromFleet === true,
+      replacedByAgentId: metadataString(meta, "replacedByAgentId") ?? null,
     };
   });
 }

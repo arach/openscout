@@ -248,6 +248,43 @@ It should not silently bind `--harness codex` to a Claude session. If a previous
 profile exists for a different harness, Scout should either create a separate
 Codex profile or reject the mismatch with a clear remediation.
 
+Some cards are intentionally disposable. Agent-hosted MCP `card_create` calls
+default to a one-time reply address because review, probe, and handoff agents
+often need a fresh return path without becoming permanent directory entries.
+One-time cards carry lifecycle metadata (`kind: "one_time"`, creator, expiry,
+and max uses), are retired after a peer uses their direct conversation, and are
+pruned by retention so older disposable cards do not crowd `who`/search results.
+Manual CLI cards remain persistent unless created with `scout card create
+--one-time`; `scout card cleanup` retires expired or overflow one-time cards.
+When a caller asks a concrete `projectPath` and no card already resolves for
+that project, the broker may create the one-time card itself, accept the work
+against that generated identity, and prune older one-time cards for the same
+sender/project.
+
+## Ask Targets And Reply Sessions
+
+An ask has two different routes:
+
+- the work target, which is either a reusable `targetSessionId` or an agent/project target that can create a fresh session
+- the return target, which may be a concrete requester `sessionId`
+
+Use `targetSessionId` when the sender wants to keep building context in one
+existing harness session over many turns. Repeating the session id means
+"continue here"; omitting it means Scout may route by agent/project and create
+the lightest usable fresh session for the request.
+
+Use exact `agentId` or project routing when the sender knows who should own the
+work but does not need prior context. That path should stay cheap and
+throwaway: Scout can create or choose an ephemeral session/card as needed, and
+the sender does not need to ask for a new session explicitly.
+
+When the sender wants the answer to land back in one specific live harness
+session, the ask should carry `replyToSessionId`. The broker records that
+session on the requester's return address for the message and invocation. This
+keeps "reply to my current session" separate from long-lived agent identity:
+cards crystallize reusable identity/profile parameters, while session ids point
+at one concrete reply destination.
+
 ## Message And Work Semantics
 
 The old "tell means no reply needed" wording is too weak for agent experience.

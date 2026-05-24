@@ -1,6 +1,7 @@
 import {
   createScoutAgentService,
   type CreateScoutAgentCardInput,
+  type CleanupScoutAgentCardsInput,
   type ScoutAgentStatus,
   type UpdateScoutAgentCardInput,
   type UpScoutAgentInput,
@@ -22,12 +23,14 @@ const scoutAgentService = createScoutAgentService({
 
 export type {
   CreateScoutAgentCardInput,
+  CleanupScoutAgentCardsInput,
   ScoutAgentStatus,
   UpdateScoutAgentCardInput,
   UpScoutAgentInput,
 };
 
 export const {
+  cleanupScoutAgentCards,
   createScoutAgentCard,
   downAllScoutAgents,
   downScoutAgent,

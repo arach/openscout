@@ -50,3 +50,17 @@ export function resolveOperatorName(): string {
     || process.env.USER?.trim()
     || "operator";
 }
+
+function normalizeHandle(value: string | undefined): string {
+  return value?.trim().replace(/^@+/, "") ?? "";
+}
+
+export function resolveOperatorHandle(): string {
+  const config = loadUserConfig();
+  return normalizeHandle(config.handle)
+    || normalizeHandle(process.env.OPENSCOUT_OPERATOR_HANDLE)
+    || normalizeHandle(config.name)
+    || normalizeHandle(process.env.OPENSCOUT_OPERATOR_NAME)
+    || normalizeHandle(process.env.USER)
+    || "operator";
+}

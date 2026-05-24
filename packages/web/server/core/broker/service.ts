@@ -85,6 +85,17 @@ export type ScoutBrokerHealthState = {
     nodes: number;
     actors: number;
     agents: number;
+    agentRecords?: number;
+    rawAgentRecords?: number;
+    configuredAgents?: number;
+    scoutManagedAgents?: number;
+    currentAgentRegistrations?: number;
+    localAgentRegistrations?: number;
+    remoteAgentRegistrations?: number;
+    staleAgentRegistrations?: number;
+    retiredAgentRegistrations?: number;
+    oneTimeAgentCards?: number;
+    persistentAgentCards?: number;
     conversations: number;
     messages: number;
     flights: number;
@@ -438,11 +449,7 @@ function isSupersededBrokerAgent(snapshot: ScoutBrokerSnapshot, agentId: string)
   if (!agent) {
     return false;
   }
-  if (!metadataBoolean(agent.metadata, "staleLocalRegistration")) {
-    return false;
-  }
-  const replacementAgentId = metadataString(agent.metadata, "replacedByAgentId");
-  return Boolean(replacementAgentId && snapshot.agents[replacementAgentId]);
+  return metadataBoolean(agent.metadata, "retiredFromFleet");
 }
 
 async function brokerReadJson<T>(
@@ -559,6 +566,17 @@ export async function readScoutBrokerHealth(
         nodes?: number;
         actors?: number;
         agents?: number;
+        agentRecords?: number;
+        rawAgentRecords?: number;
+        configuredAgents?: number;
+        scoutManagedAgents?: number;
+        currentAgentRegistrations?: number;
+        localAgentRegistrations?: number;
+        remoteAgentRegistrations?: number;
+        staleAgentRegistrations?: number;
+        retiredAgentRegistrations?: number;
+        oneTimeAgentCards?: number;
+        persistentAgentCards?: number;
         conversations?: number;
         messages?: number;
         flights?: number;
@@ -576,6 +594,17 @@ export async function readScoutBrokerHealth(
             nodes: health.counts.nodes ?? 0,
             actors: health.counts.actors ?? 0,
             agents: health.counts.agents ?? 0,
+            agentRecords: health.counts.agentRecords,
+            rawAgentRecords: health.counts.rawAgentRecords,
+            configuredAgents: health.counts.configuredAgents,
+            scoutManagedAgents: health.counts.scoutManagedAgents,
+            currentAgentRegistrations: health.counts.currentAgentRegistrations,
+            localAgentRegistrations: health.counts.localAgentRegistrations,
+            remoteAgentRegistrations: health.counts.remoteAgentRegistrations,
+            staleAgentRegistrations: health.counts.staleAgentRegistrations,
+            retiredAgentRegistrations: health.counts.retiredAgentRegistrations,
+            oneTimeAgentCards: health.counts.oneTimeAgentCards,
+            persistentAgentCards: health.counts.persistentAgentCards,
             conversations: health.counts.conversations ?? 0,
             messages: health.counts.messages ?? 0,
             flights: health.counts.flights ?? 0,
@@ -1277,6 +1306,9 @@ async function ensureTargetRelayAgentRegistered(
   currentDirectory: string,
 ): Promise<boolean> {
   const existingAgent = snapshot.agents[agentId];
+  if (existingAgent && metadataBoolean(existingAgent.metadata, "retiredFromFleet")) {
+    return false;
+  }
   if (existingAgent && !metadataBoolean(existingAgent.metadata, "staleLocalRegistration")) {
     return true;
   }
@@ -1285,7 +1317,7 @@ async function ensureTargetRelayAgentRegistered(
     syncLegacyMirror: true,
   });
   if (!configured) {
-    return false;
+    return Boolean(existingAgent);
   }
 
   const binding = await inferLocalAgentBinding(configured.agentId, nodeId);

@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { AgentIdentity } from "@openscout/protocol";
-import { ArrowUpRight, MessageCircle, Send } from "lucide-react";
 
 import { api } from "../lib/api.ts";
-import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
-import { stateColor } from "../lib/colors.ts";
-import { conversationForAgent } from "../lib/router.ts";
+import { normalizeAgentState } from "../lib/agent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
 import type { Agent } from "../lib/types.ts";
+import { AgentDetailCard } from "./AgentDetailCard.tsx";
 
 const HOVER_INTENT_MS = 280;
 const HIDE_GRACE_MS = 120;
@@ -19,22 +17,104 @@ const CARD_GUTTER = 8;
 const agentCache = new Map<string, { agent: Agent | null; fetchedAt: number }>();
 const CACHE_TTL_MS = 10_000;
 
-function lookupAgent(identity: AgentIdentity, agents: Agent[]): Agent | null {
-  if (identity.definitionId) {
-    const byId = agents.find((a) => a.id === identity.definitionId);
-    if (byId) return byId;
+function normalizedIdentityValue(value: string | null | undefined): string | null {
+  const trimmed = value?.trim().replace(/^@+/, "").toLowerCase();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+function agentIdentityValues(agent: Agent): Set<string> {
+  const values = new Set<string>();
+  const add = (value: string | null | undefined) => {
+    const normalized = normalizedIdentityValue(value);
+    if (normalized) values.add(normalized);
+  };
+
+  add(agent.id);
+  add(agent.handle);
+  add(agent.name);
+  add(agent.selector);
+  add(agent.defaultSelector);
+  add(agent.definitionId);
+
+  if (agent.definitionId && agent.workspaceQualifier) {
+    add(`${agent.definitionId}.${agent.workspaceQualifier}`);
   }
-  const handle = identity.label.replace(/^@/, "").toLowerCase();
-  return (
-    agents.find((a) => (a.handle ?? "").toLowerCase() === handle) ??
-    agents.find((a) => a.name.toLowerCase() === handle) ??
-    null
-  );
+  if (agent.definitionId && agent.workspaceQualifier && agent.nodeQualifier) {
+    add(`${agent.definitionId}.${agent.workspaceQualifier}.${agent.nodeQualifier}`);
+    add(`${agent.definitionId}.${agent.workspaceQualifier}.node:${agent.nodeQualifier}`);
+  }
+  if (agent.definitionId && agent.nodeQualifier) {
+    add(`${agent.definitionId}.node:${agent.nodeQualifier}`);
+  }
+
+  return values;
+}
+
+function agentMatchesIdentity(agent: Agent, identity: AgentIdentity): boolean {
+  const label = normalizedIdentityValue(identity.label);
+  const raw = normalizedIdentityValue(identity.raw);
+  const values = agentIdentityValues(agent);
+  if ((label && values.has(label)) || (raw && values.has(raw))) {
+    return true;
+  }
+
+  if (identity.definitionId && normalizedIdentityValue(agent.definitionId) !== normalizedIdentityValue(identity.definitionId)) {
+    return false;
+  }
+  if (identity.workspaceQualifier && normalizedIdentityValue(agent.workspaceQualifier) !== normalizedIdentityValue(identity.workspaceQualifier)) {
+    return false;
+  }
+  if (identity.nodeQualifier && normalizedIdentityValue(agent.nodeQualifier) !== normalizedIdentityValue(identity.nodeQualifier)) {
+    return false;
+  }
+  if (identity.harness && normalizedIdentityValue(agent.harness) !== normalizedIdentityValue(identity.harness)) {
+    return false;
+  }
+  if (identity.model && normalizedIdentityValue(agent.model) !== normalizedIdentityValue(identity.model)) {
+    return false;
+  }
+
+  return Boolean(identity.definitionId);
+}
+
+function agentIdentityRank(agent: Agent, identity: AgentIdentity): number {
+  const label = normalizedIdentityValue(identity.label);
+  const raw = normalizedIdentityValue(identity.raw);
+  const values = agentIdentityValues(agent);
+  const exact = (label && values.has(label)) || (raw && values.has(raw)) ? 1000 : 0;
+  const specificity = [
+    identity.workspaceQualifier,
+    identity.nodeQualifier,
+    identity.harness,
+    identity.model,
+    identity.profile,
+  ].filter(Boolean).length * 100;
+  const state = normalizeAgentState(agent.state);
+  const stateRank = state === "working" ? 30 : state === "available" ? 20 : 0;
+  return exact + specificity + stateRank + Math.min(agent.updatedAt ?? 0, 9_999_999_999) / 1_000_000_000;
+}
+
+function candidateFetchId(identity: AgentIdentity): string | null {
+  const raw = normalizedIdentityValue(identity.raw);
+  if (raw && raw.split(".").length >= 3) {
+    return raw;
+  }
+  return null;
+}
+
+function lookupAgent(identity: AgentIdentity, agents: Agent[]): Agent | null {
+  const matches = agents
+    .filter((agent) => agentMatchesIdentity(agent, identity))
+    .sort((left, right) => agentIdentityRank(right, identity) - agentIdentityRank(left, identity));
+  if (matches[0]) {
+    return matches[0];
+  }
+  return null;
 }
 
 async function fetchAgent(identity: AgentIdentity, agents: Agent[]): Promise<Agent | null> {
   const seed = lookupAgent(identity, agents);
-  const id = seed?.id ?? identity.definitionId;
+  const id = seed?.id ?? candidateFetchId(identity);
   const cacheKey = id ?? identity.label;
   const cached = agentCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
@@ -52,21 +132,6 @@ async function fetchAgent(identity: AgentIdentity, agents: Agent[]): Promise<Age
     agentCache.set(cacheKey, { agent: seed, fetchedAt: Date.now() });
     return seed;
   }
-}
-
-function shortPath(value: string | null): string | null {
-  if (!value) return null;
-  const home = "/Users/";
-  if (value.startsWith(home)) {
-    const after = value.slice(home.length);
-    const slash = after.indexOf("/");
-    return slash >= 0 ? `~/${after.slice(slash + 1)}` : `~/${after}`;
-  }
-  return value;
-}
-
-function repoLabel(agent: Agent): string | null {
-  return agent.project ?? shortPath(agent.projectRoot ?? agent.cwd);
 }
 
 /** Position so the card sits above (or below) the trigger and stays in viewport. */
@@ -99,12 +164,10 @@ function findThemeRoot(node: Node | null): HTMLElement {
 function AgentHoverCardPopover({
   identity,
   triggerEl,
-  color,
   onRequestClose,
 }: {
   identity: AgentIdentity;
   triggerEl: HTMLElement;
-  color: string;
   onRequestClose: () => void;
 }) {
   const { agents, navigate } = useScout();
@@ -147,153 +210,56 @@ function AgentHoverCardPopover({
     return () => window.removeEventListener("keydown", onKey);
   }, [onRequestClose]);
 
-  const onCardEnter = () => { /* keep open */ };
-  const onCardLeave = () => onRequestClose();
-
-  const state = normalizeAgentState(agent?.state ?? null);
-  const stateLabel = agentStateLabel(agent?.state ?? null);
-  const stateDot = stateColor(agent?.state ?? null);
-  const stateBg = state === "working"
-    ? "color-mix(in srgb, var(--accent) 18%, transparent)"
-    : state === "available"
-      ? "color-mix(in srgb, " + stateDot + " 18%, transparent)"
-      : "color-mix(in srgb, var(--ink) 8%, transparent)";
-  const stateColorText = state === "offline" ? "var(--dim)" : stateDot;
-
-  const repo = agent ? repoLabel(agent) : null;
-  const branch = agent?.branch ?? null;
-  const harness = agent?.harness ?? null;
-  const model = agent?.model ?? null;
-
-  const openDm = () => {
+  const openAgentPage = useCallback(() => {
     if (!agent) return;
-    navigate({ view: "conversation", conversationId: conversationForAgent(agent.id) });
+    navigate({ view: "agents", agentId: agent.id });
     onRequestClose();
-  };
-  const openInFleet = () => {
-    if (!agent) return;
-    navigate({ view: "agent-info", conversationId: conversationForAgent(agent.id) });
-    onRequestClose();
-  };
-  const ping = () => {
-    if (!agent) return;
-    navigate({
-      view: "conversation",
-      conversationId: conversationForAgent(agent.id),
-      composeMode: "ask",
-    });
-    onRequestClose();
-  };
+  }, [agent, navigate, onRequestClose]);
 
   const transformOrigin = position.placement === "above" ? "bottom center" : "top center";
   const translate = position.placement === "above" ? "translateY(-100%)" : "";
   const cardStyle: CSSProperties = {
+    position: "fixed",
     top: position.top,
     left: position.left,
+    width: CARD_WIDTH,
     transform: translate,
     transformOrigin,
   };
 
+  if (agent) {
+    return createPortal(
+      <div
+        onMouseEnter={() => { /* keep open */ }}
+        onMouseLeave={onRequestClose}
+      >
+        <AgentDetailCard
+          ref={cardRef}
+          agent={agent}
+          pinned
+          onOpen={openAgentPage}
+          onClose={onRequestClose}
+          style={cardStyle}
+          className="agent-card--mention"
+        />
+      </div>,
+      themeRoot,
+    );
+  }
+
   return createPortal(
     <div
       ref={cardRef}
-      className="s-agent-hover-card"
+      className="agent-card agent-card--pinned agent-card--mention"
       role="dialog"
       aria-label={`${identity.label} snapshot`}
       style={cardStyle}
-      onMouseEnter={onCardEnter}
-      onMouseLeave={onCardLeave}
+      onMouseEnter={() => { /* keep open */ }}
+      onMouseLeave={onRequestClose}
     >
-      <div className="s-agent-hover-card-row">
-        <div className="s-agent-hover-card-avatar" style={{ background: color }}>
-          {(agent?.name?.[0] ?? identity.label[1] ?? "?").toUpperCase()}
-          <span className="s-agent-hover-card-dot" style={{ background: stateDot }} />
-        </div>
-        <div className="s-agent-hover-card-identity">
-          <span className="s-agent-hover-card-name">
-            {agent?.name ?? identity.label.replace(/^@/, "")}
-          </span>
-          <span className="s-agent-hover-card-handle">
-            {identity.label.startsWith("@") ? identity.label : `@${identity.label}`}
-          </span>
-        </div>
-        <span
-          className="s-agent-hover-card-state"
-          style={{ background: stateBg, color: stateColorText }}
-        >
-          {stateLabel}
-        </span>
+      <div style={{ fontSize: "12px", color: "var(--dim)", padding: "4px 2px" }}>
+        {loading ? "loading…" : <>No agent registered as <code>{identity.label}</code>.</>}
       </div>
-
-      {agent ? (
-        <>
-          {(repo || branch || harness || model) && (
-            <div className="s-agent-hover-card-where">
-              {repo && (
-                <span className="s-agent-hover-card-where-token">
-                  <span className="s-agent-hover-card-where-label">repo</span>
-                  <span className="s-agent-hover-card-where-value">{repo}</span>
-                </span>
-              )}
-              {branch && (
-                <span className="s-agent-hover-card-where-token">
-                  <span className="s-agent-hover-card-where-label">branch</span>
-                  <span className="s-agent-hover-card-where-value">{branch}</span>
-                </span>
-              )}
-              {harness && (
-                <span className="s-agent-hover-card-where-token">
-                  <span className="s-agent-hover-card-where-label">harness</span>
-                  <span className="s-agent-hover-card-where-value">{harness}</span>
-                </span>
-              )}
-              {model && (
-                <span className="s-agent-hover-card-where-token">
-                  <span className="s-agent-hover-card-where-label">model</span>
-                  <span className="s-agent-hover-card-where-value">{model}</span>
-                </span>
-              )}
-            </div>
-          )}
-          {agent.role && (
-            <div className="s-agent-hover-card-activity">{agent.role}</div>
-          )}
-          <div className="s-agent-hover-card-actions">
-            <button
-              type="button"
-              className="s-agent-hover-card-action s-agent-hover-card-action--primary"
-              onClick={openDm}
-            >
-              <MessageCircle size={12} strokeWidth={1.8} aria-hidden />
-              DM
-            </button>
-            <button
-              type="button"
-              className="s-agent-hover-card-action"
-              onClick={ping}
-              title="Open a fresh ask thread"
-            >
-              <Send size={12} strokeWidth={1.8} aria-hidden />
-              Ping
-            </button>
-            <button
-              type="button"
-              className="s-agent-hover-card-action"
-              onClick={openInFleet}
-              title="View this agent's detail"
-            >
-              <ArrowUpRight size={12} strokeWidth={1.8} aria-hidden />
-              Fleet
-            </button>
-          </div>
-        </>
-      ) : loading ? (
-        <div className="s-agent-hover-card-skeleton">loading…</div>
-      ) : (
-        <div className="s-agent-hover-card-empty">
-          No agent registered as <code>{identity.label}</code>.
-        </div>
-      )}
     </div>,
     themeRoot,
   );
@@ -383,7 +349,6 @@ export function AgentMention({
       {open && triggerRef.current && (
         <AgentHoverCardPopover
           identity={identity}
-          color={color}
           triggerEl={triggerRef.current}
           onRequestClose={() => {
             if (pinned) {

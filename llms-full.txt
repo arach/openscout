@@ -14,6 +14,7 @@ Current posture: OpenScout is for high-trust local developer pilots. It is not e
 - `docs/current-posture.md`
 - `docs/architecture.md`
 - `docs/scout-comms.md`
+- `docs/mcp-api-posture.md`
 - `docs/runtime-sessions.md`
 - `docs/data-ownership.md`
 - `docs/agent-integration-contract.md`
@@ -73,7 +74,8 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 - Group coordination requires an explicit channel.
 - Shared broadcast is opt-in.
 - Use `scout send` or `messages_send` for tell/update.
-- Use `scout ask` or `invocations_ask` for owned work or requested replies.
+- Use `scout ask` or MCP `ask` for owned work or requested replies.
+- Use `invocations_get` / `invocations_wait` only to observe flights created by asks.
 - Use `replyMode: "notify"` for longer-running agent work that should return quickly and report back later.
 
 ## Must-Read Docs
@@ -475,7 +477,7 @@ hardened multi-tenant runtime.
 
 After that, choose the role-specific next read:
 
-- Agent or adapter integration: [`agent-integration-contract.md`](./agent-integration-contract.md), then [`scout-comms.md`](./scout-comms.md)
+- Agent or adapter integration: [`agent-integration-contract.md`](./agent-integration-contract.md), then [`scout-comms.md`](./scout-comms.md), then [`mcp-api-posture.md`](./mcp-api-posture.md)
 - Routing and identity: [`agent-identity.md`](./agent-identity.md), then [`scout-agent-delegation.md`](./scout-agent-delegation.md)
 - Data model and ownership: [`data-ownership.md`](./data-ownership.md), then [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md)
 - Human/operator surfaces: [`ask-scout.md`](./ask-scout.md), then [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md)
@@ -492,6 +494,7 @@ After that, choose the role-specific next read:
 - [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
 - [`agent-integration-contract.md`](./agent-integration-contract.md) gives coding agents and adapter authors the minimum contract for plugging into Scout
 - [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients and adapters
+- [`mcp-api-posture.md`](./mcp-api-posture.md) defines the core vs pro Scout MCP tool tiers
 - [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
 - [`ranger.md`](./ranger.md) defines Ranger as the direct in-app control-plane assistant
@@ -531,6 +534,7 @@ After that, choose the role-specific next read:
 - "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
 - "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
 - "How should a client or adapter understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
+- "Which MCP tools are core versus pro integration?" Read [`mcp-api-posture.md`](./mcp-api-posture.md).
 - "Where do host integrations live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
 - "What is Ranger?" Read [`ranger.md`](./ranger.md).
@@ -598,10 +602,18 @@ Use `scout whoami` to see who Scout will speak as from the current directory.
 override it with `--as`.
 `watch` follows a conversation or channel; it does not choose a sender.
 
-Use `scout who` to find an agent name you can actually address. If you do not
-know a name yet, start here instead of guessing.
+Use `scout who` to inspect known agents when you need to disambiguate a
+specific target. If you know the project but not the right agent name, skip
+manual discovery and route the ask by project instead:
 
-An agent name is the address you type to reach one agent. It is usually a short, human-friendly form, but it resolves to one exact identity before Scout sends anything.
+```bash
+scout ask --project ../talkie "can you review this?"
+```
+
+An agent name is the address you type to reach a base agent. It is usually a
+short, human-friendly project/workspace identity. Scout resolves that base
+identity to a concrete instance, and harness/model/session details are layered
+on only when the caller asks for them.
 
 If `scout who` does not list a usable target, the broker may be healthy but no
 agent is ready for this project yet. Install the companion integration for your
@@ -623,11 +635,13 @@ The routing rules do not change by surface:
 
 When the workspace and one target are clear, use the direct command first. Do
 not run an orientation loop before every handoff. Copy a selector from
-`scout who` and use it as the explicit target.
+`scout who` and use it as the explicit target, or use `--project` when the
+repo path is the thing you actually know.
 
 ```bash
 scout send --to <agent-from-scout-who> "hello"
 scout ask --to <agent-from-scout-who> "can you review this?"
+scout ask --project ../talkie "can you review this?"
 ```
 
 `send` is the message path. Use it for a durable note or reply in a
@@ -881,7 +895,7 @@ codex     →  broker (post reply)
 broker    →  operator (deliver reply via SSE)
 ```
 
-One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, records the target acknowledgement, and tracks the later completion as a flight. A flight is the broker's tracked record for an ask-style request, including timeout, retry, acknowledgement, and completion state.
+One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, records the target acknowledgement, and tracks the later completion as a flight. A flight is the broker's tracked record for an ask-style request, including retry, acknowledgement, and completion state. Caller wait budgets may stop a CLI or MCP call from waiting, but they do not cancel or fail the broker flight.
 
 ## Core Moving Parts
 
@@ -944,7 +958,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 
 3. **Route.** Messages with explicit target intent hit the broker, which resolves the name, finds the endpoint, and dispatches.
 
-4. **Invoke.** For ask-style interactions, the broker creates a flight record -- tracking the request-response lifecycle with timeout and retry semantics.
+4. **Invoke.** For ask-style interactions, the broker creates a flight record -- tracking the request-response lifecycle with acknowledgement, retry, and durable completion semantics.
 
 5. **Stop.** `scout down` terminates the local session and marks the endpoint offline.
 
@@ -1065,9 +1079,13 @@ harness conversation/process/thread; an **endpoint** attaches an agent identity
 to one reachable session.
 
 Cards are identity and return-address records. They do not by themselves mean a
-harness session is alive. Commands that start or attach harnesses should use the
-public noun **session** and should fail loudly when a requested harness cannot
-be backed by a compatible session.
+harness session is alive. Treat card creation, registration, and explicit
+session attachment as a pro integration layer for hosts or Scout-native agents
+that intentionally manage identity infrastructure. Core agents should use
+`ask`, `send`, and `reply`; the broker can create or bind cards internally when
+needed. Commands that start or attach harnesses should use the public noun
+**session** and should fail loudly when a requested harness cannot be backed by
+a compatible session.
 
 Examples of the intended shape:
 
@@ -1115,6 +1133,11 @@ Expected client behavior:
 - require an explicit channel for group coordination
 - do not treat message delivery as fire-and-forget; keep the receipt available
 
+Quiet delivery should be an optional message/reply modifier, not a separate
+primitive. It should still write the durable conversation record while
+suppressing notify/wake side effects where target policy allows. `ask` should
+not grow a quiet variant because it creates ownership and lifecycle state.
+
 ### Ask / Requested Reply
 
 Use the ask path when the caller expects work, investigation, review, or an
@@ -1124,6 +1147,7 @@ Examples:
 
 ```bash
 scout ask --to hudson "Review the auth module and report risks."
+scout ask --project ../talkie "Review the auth module and report risks."
 ```
 
 MCP equivalent:
@@ -1133,11 +1157,19 @@ ask({
   to: "@hudson",
   body: "Review the auth module and report risks.",
 })
+
+ask({
+  projectPath: "../talkie",
+  body: "Review the auth module and report risks.",
+})
 ```
 
 Expected client behavior:
 
 - create or display a durable message for the ask
+- use `projectPath` / `--project` when the project is known but the concrete
+  agent or session is not; Scout resolves or creates the right project agent
+  instance
 - surface returned ids such as `flightId` and `workId`
 - treat the initial `ask` response as the broker receipt, not as the target
   agent's acknowledgement
@@ -1226,8 +1258,12 @@ Rules:
   the broker-visible reply
 - if `replyPath` is `mcp_reply`, use the provided reply tool for the initial
   acknowledgement and the final answer
-- do not use `messages_send`, `ask`, or `invocations_ask` for the final
-  answer to the original request
+- do not use `messages_send` or `ask` for the final answer to the original
+  request
+- `messages_reply` is a normal threaded message in the existing reply context;
+  it should not create a fresh ask or owned work lifecycle
+- quiet delivery is an optional message modifier/policy, not a distinct reply
+  mode
 - use Scout tools only to ask or delegate while solving the request
 
 ### Durable Work
@@ -1255,6 +1291,12 @@ Questions answer information. Work items carry ownership.
 ## Routing Rules
 
 - One explicit target means DM.
+- The default target should be the base agent or project identity. Harness,
+  model, profile, node, and session details are instance constraints, not a
+  different base agent, unless the caller explicitly asks for a specialized
+  profile.
+- If no concrete agent/session is known, route work by project path instead of
+  running discovery just to invent a target.
 - Group coordination requires an explicit channel.
 - Shared broadcast is opt-in.
 - Message body text is payload, not routing metadata.
@@ -1506,6 +1548,120 @@ When building a Scout client or plugin:
 - `docs/eng/sco-026-scout-comms-grammar-and-semantic-hints.md`
 
 <!-- END docs/scout-comms.md -->
+
+---
+
+## docs/mcp-api-posture.md
+
+<!-- BEGIN docs/mcp-api-posture.md -->
+
+# Scout MCP API Posture
+
+Status: current v0 product guidance. This is not a frozen public API contract.
+
+Scout's MCP surface should feel like one broker API, not a pile of internal
+record constructors. Agents should be able to ask for work, send updates, and
+reply durably without understanding cards, sessions, invocations, or delivery
+planning first.
+
+## Core Agent API
+
+These are the tools normal agents should learn first:
+
+| Tool | Purpose |
+| --- | --- |
+| `whoami` | Identify the current broker actor and working-directory context. |
+| `ask` | Request work, investigation, review, or a reply. This is the only work-creation front door. |
+| `messages_send` | Send a durable tell/update when no owned work or reply is expected. |
+| `messages_reply` | Send a normal threaded reply in an existing Scout reply context. |
+| `work_update` | Update progress, waiting, review, done, or cancellation for an existing work item. |
+
+`ask` may create message, invocation, flight, delivery, card, session, and work
+records as side effects. Those records are broker-owned implementation details
+unless the caller is explicitly observing or managing them.
+
+Timeout-style fields on MCP tools are caller wait budgets only. They protect a
+tool call or host connection from staying open indefinitely; they do not cancel
+broker work, mark a flight failed, or define protocol completion.
+
+When the caller knows the project but not the concrete agent, use
+`ask({ projectPath })`. The broker resolves or creates the concrete instance for
+that project. Do not make the caller run discovery just to invent a target.
+
+`messages_reply` is the threaded-message form of `messages_send`. It should
+preserve the ask conversation instead of creating a fresh ask. Quiet or
+send-without-notification behavior belongs as an optional message modifier or
+agent/session policy, not as a separate reply primitive. Use `ask` only when
+there is a new request or ownership lifecycle.
+
+Implementation target: reply delivery should route through the same broker
+delivery planner as normal messages so threaded replies can notify or wake
+according to target policy. A direct message write that only records history is
+too quiet for actionable follow-ups.
+
+## Quiet Delivery
+
+Message and reply quieting should be a shared optional delivery modifier, not a
+separate message kind and not a different reply primitive. Quiet delivery still
+writes the durable conversation record, but suppresses notify/wake side effects
+where the target policy permits it. `ask` should not have a quiet variant:
+asking creates a lifecycle.
+
+## Observation Handlers
+
+These tools observe records created by `ask`; they do not create work:
+
+| Tool | Purpose |
+| --- | --- |
+| `invocations_get` | Fetch the current state for a known ask flight. |
+| `invocations_wait` | Wait briefly for a known ask flight to change or finish. |
+| `broker_feed` | Inspect broker-native messages, delivery, dispatch, unblock, and error records. |
+
+`invocations_ask` is not an agent-facing front door. An ask creates invocations
+as a side effect; invocation records then have observation handlers.
+
+## Routing Helpers
+
+Routing helpers are optional. They are useful when the broker reports ambiguity
+or when a user is inspecting available agents, but they are not mandatory
+preflight steps:
+
+| Tool | Purpose |
+| --- | --- |
+| `agents_search` | Search likely targets for a human or advanced integration. |
+| `agents_resolve` | Resolve one ambiguous label into one concrete target. |
+
+Prefer direct `ask`, `messages_send`, or `messages_reply` calls with explicit
+fields. Message body text remains payload, not routing metadata.
+
+## Pro Integration API
+
+Some agents and host integrations know Scout deeply enough to manage identity
+and runtime infrastructure directly. These tools belong to that pro integration
+layer:
+
+| Tool | Purpose |
+| --- | --- |
+| `card_create` | Create a reply-ready identity/return-address record. |
+| `agents_start` | Start or create a concrete local agent session. |
+| `session_attach_current` | Attach the current host session to Scout. |
+
+These are real and useful tools, but they should not be the default way to talk
+to another agent. Core agents should use `ask({ projectPath })` and let the
+broker create or bind cards and sessions when needed.
+
+## Identity Model
+
+The base agent identity is the vanilla project/workspace identity. Harness,
+model, profile, node, and session details are constraints on a concrete
+instance of that identity.
+
+Specialized profiles may become more important over time, such as a project
+agent with an investigator profile and a dedicated tool set. That is an
+advanced specialization layered onto the base project identity, not the normal
+routing path.
+
+<!-- END docs/mcp-api-posture.md -->
 
 ---
 
@@ -1763,6 +1919,43 @@ It should not silently bind `--harness codex` to a Claude session. If a previous
 profile exists for a different harness, Scout should either create a separate
 Codex profile or reject the mismatch with a clear remediation.
 
+Some cards are intentionally disposable. Agent-hosted MCP `card_create` calls
+default to a one-time reply address because review, probe, and handoff agents
+often need a fresh return path without becoming permanent directory entries.
+One-time cards carry lifecycle metadata (`kind: "one_time"`, creator, expiry,
+and max uses), are retired after a peer uses their direct conversation, and are
+pruned by retention so older disposable cards do not crowd `who`/search results.
+Manual CLI cards remain persistent unless created with `scout card create
+--one-time`; `scout card cleanup` retires expired or overflow one-time cards.
+When a caller asks a concrete `projectPath` and no card already resolves for
+that project, the broker may create the one-time card itself, accept the work
+against that generated identity, and prune older one-time cards for the same
+sender/project.
+
+## Ask Targets And Reply Sessions
+
+An ask has two different routes:
+
+- the work target, which is either a reusable `targetSessionId` or an agent/project target that can create a fresh session
+- the return target, which may be a concrete requester `sessionId`
+
+Use `targetSessionId` when the sender wants to keep building context in one
+existing harness session over many turns. Repeating the session id means
+"continue here"; omitting it means Scout may route by agent/project and create
+the lightest usable fresh session for the request.
+
+Use exact `agentId` or project routing when the sender knows who should own the
+work but does not need prior context. That path should stay cheap and
+throwaway: Scout can create or choose an ephemeral session/card as needed, and
+the sender does not need to ask for a new session explicitly.
+
+When the sender wants the answer to land back in one specific live harness
+session, the ask should carry `replyToSessionId`. The broker records that
+session on the requester's return address for the message and invocation. This
+keeps "reply to my current session" separate from long-lived agent identity:
+cards crystallize reusable identity/profile parameters, while session ids point
+at one concrete reply destination.
+
 ## Message And Work Semantics
 
 The old "tell means no reply needed" wording is too weak for agent experience.
@@ -1983,6 +2176,17 @@ Session invariants:
   reverse, unless an explicit adapter exists
 - `card create` creates identity and return-address metadata; it does not imply
   a running session unless a command explicitly starts one
+- short-lived agent-created cards should be one-time reply addresses by
+  default, with expiry and cleanup metadata, instead of permanent directory
+  identities
+- exact session asks should route work by `targetSessionId` to continue context;
+  asks without a target session may route by agent/project and create the
+  lightest usable fresh session/card
+- project-path asks do not require a caller-created card first; if no card
+  resolves for that project, the broker can create a one-time card as part of
+  accepting the work
+- when the sender needs a concrete live reply destination, carry
+  `replyToSessionId` rather than minting another card
 - `up` / wake behavior must resolve to start or attach semantics and report the
   chosen session id
 - incompatible, missing, or failed sessions must produce specific diagnostics
@@ -2051,9 +2255,21 @@ Agents connected through Scout's MCP server should prefer:
 - future `sessions_*` tools for explicit harness session start, attach, inspect,
   and stop operations
 
-Use `ask` first. It returns a compact receipt and lets Scout resolve, route,
-and wake the target when possible. Use lower-level invocation tools only when a
-caller needs their extra reply-mode controls.
+Use `ask` for requested work. It returns a compact receipt and lets Scout resolve, route,
+and wake the target when possible. If the caller knows the project but not the
+concrete agent/session, pass `projectPath` instead of forcing a discovery loop.
+Invocation and flight records are created as side effects of the ask; use
+`invocations_get` and `invocations_wait` only to observe those records.
+
+Base identity is the vanilla project/workspace identity. Harness, model,
+profile, node, and session values describe a concrete instance or attachment
+constraint on that identity; they should not be treated as new base agents
+unless the caller is intentionally selecting a specialized profile.
+
+Card creation, explicit registration, and session attachment belong to the pro
+integration layer. They are appropriate for hosts and Scout-native agents that
+need to manage durable return addresses or sticky sessions directly, but they
+are not the default way to ask another agent for work.
 
 ## Collaboration Semantics
 
@@ -2245,7 +2461,36 @@ This doc explains how Scout turns a human-friendly handle like `@hudson` into on
 
 Every agent Scout can address has a name. When there is only one matching agent on one machine, the name is simple — `@arc` or `@hudson`. But agents multiply. The same project might run on two machines. The same workspace might have a main branch and a feature branch, each with its own agent. A project might use Claude for one task and Codex for another.
 
-The identity grammar exists to keep every target unambiguously addressable while still letting humans type the shortest useful name.
+The identity grammar exists to keep every target unambiguously addressable while still letting humans type the shortest useful name. The default target is the base project/workspace identity. Harness, model, node, and session details describe the concrete instance Scout routes to; they are not a different base agent unless the caller intentionally chooses a specialized profile.
+
+## Base Agent Vs Instance
+
+A **base agent** is the vanilla project/workspace identity that agents should
+use when they do not care about a specific runtime. In practice this is the
+thing represented by a project path, such as `../talkie`, or by a short handle,
+such as `@talkie`.
+
+An **agent instance** is the concrete attachment Scout routes to for that base
+identity: a Claude or Codex harness, a model choice, a machine/node, and
+possibly a sticky session/thread. Asking for a specific instance should refine
+the route, not create the impression that `talkie#codex` and `talkie#claude`
+are separate base agents.
+
+Default rule: if the project is known but the exact agent/session is not, use
+project routing and let Scout pick or create the concrete instance:
+
+```bash
+scout ask --project ../talkie "Review this."
+```
+
+```ts
+ask({ projectPath: "../talkie", body: "Review this." })
+```
+
+Specialized profiles may become first-class over time. For example,
+`@scout.profile:investigator` could name a profile with a dedicated tool set
+and instructions. That is a specialization layered onto the project identity,
+not the default routing model.
 
 ## Three Layers
 
@@ -2265,10 +2510,10 @@ An agent identity combines up to six dimensions:
 |---|---|---|
 | `definitionId` | The base project or workspace | `arc`, `hudson` |
 | `workspaceQualifier` | A non-default worktree or branch | `super-refactor`, `main` |
-| `profile` | A capability or persona preset | `dev`, `dev-browser` |
-| `harness` | The execution backend | `claude`, `codex` |
-| `model` | The model family or concrete model | `sonnet`, `gpt-5-5` |
-| `node` | The machine or host | `mini`, `macbook` |
+| `profile` | Optional specialization/persona, not the default route | `dev`, `investigator` |
+| `harness` | Instance execution backend | `claude`, `codex` |
+| `model` | Instance model family or concrete model | `sonnet`, `gpt-5-5` |
+| `node` | Instance machine or host | `mini`, `macbook` |
 
 The canonical form strings them together with dots:
 
@@ -2287,9 +2532,9 @@ From shortest to most qualified:
 | `@arc` | The only `arc` agent currently online |
 | `@arc.main` | The `arc` agent on the `main` branch |
 | `@arc.super-refactor` | The `arc` agent on a feature worktree |
-| `@arc.main.harness:claude` | Specifically the Claude-backed `arc` on main |
-| `@lattices#codex?5.5` | Shorthand for Codex-backed `lattices` on a 5.5 model |
-| `@lattices#claude?sonnet` | Shorthand for Claude-backed `lattices` on Sonnet |
+| `@arc.main.harness:claude` | The Claude instance of `arc` on main |
+| `@lattices#codex?5.5` | Compatibility shorthand for the Codex instance of `lattices` on a 5.5 model |
+| `@lattices#claude?sonnet` | Compatibility shorthand for the Claude instance of `lattices` on Sonnet |
 | `@arc.super-refactor.harness:claude.node:mini` | Fully qualified: project, branch, harness, machine |
 
 ## Parsing and Normalization
@@ -2551,7 +2796,7 @@ Implemented now:
 - Approval actions remain approve/deny.
 - Non-approval attention items provide `Open Session` and local `Dismiss`, following the no-dead-end UI rule in `docs/eng/no-dead-end-ui.md`.
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
-- Scout MCP `invocations_ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
+- Scout MCP `ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions rely on host or companion permission capture; Scout
   does not install Claude project hooks.
@@ -2811,9 +3056,19 @@ MCP tools.
 - Group coordination means explicit channel.
 - Shared broadcast is opt-in.
 - `send` / `messages_send` is a durable message/update with receipt ids.
+- `messages_reply` is the threaded message form for continuing an existing
+  conversation; it is not a new ask.
 - `ask` is the normal MCP primitive for agent-to-agent work. It returns a
   compact lifecycle receipt without requiring discovery preflight.
-- Cards describe identities and return addresses; sessions are concrete harness lifecycles.
+- If the project is known but the concrete agent/session is not, use
+  `ask({ projectPath })` or `scout ask --project <path>` and let the broker
+  resolve or create the right instance.
+- Treat the base agent identity as the vanilla project/workspace identity.
+  Harness, model, profile, node, and session details are instance constraints,
+  not separate base agents, unless a specialized profile is explicitly needed.
+- Cards describe identities and return addresses; sessions are concrete harness
+  lifecycles. Treat card/session creation as a pro integration layer, not the
+  normal path for agent-to-agent work.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
 - Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
 - Track token/coordination cost as metadata when available; do not import full harness transcripts.
@@ -2941,7 +3196,8 @@ transcripts.
 |---|---|---|
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
 | ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
-| active reply | answer an inbound broker ask | final response or `messages_reply` depending on `replyPath` |
+| project-routed ask | project known, concrete agent/session unknown | `scout ask --project`, `ask({ projectPath })` |
+| threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
 
 ## Runtime Sessions
@@ -2950,6 +3206,7 @@ transcripts.
 - session = concrete Claude, Codex, or future harness conversation/process
 - endpoint = routable attachment between an agent and a session
 - card = identity and return address, not necessarily a live session
+- card/session creation = pro integration layer, not the default path for work
 - public lifecycle noun is `session`; map provider thread ids into session metadata
 - harness mismatches must fail with actionable diagnostics, not silent hangs
 - endpoint state belongs to attachment health; flight/work state belongs to task
@@ -2975,6 +3232,10 @@ transcripts.
 ## Routing Invariants
 
 - one explicit target -> DM
+- default to the base agent/project identity; harness, model, profile, node,
+  and session details are instance constraints layered on only when needed
+- when you know the project but not the concrete agent, use `projectPath` /
+  `--project` instead of running discovery first
 - group -> explicit channel
 - shared broadcast -> opt-in
 - body text is payload, not routing metadata
@@ -3027,8 +3288,9 @@ Rules:
 
 - `final_response`: final assistant message is broker-visible reply.
 - `mcp_reply`: call reply tool exactly once.
-- Do not answer the original ask with `messages_send`, `ask`, or
-  `invocations_ask`.
+- Use the configured reply path, either final response or `messages_reply`;
+  do not answer the original ask with `messages_send`, `ask`, or another new
+  broker ask.
 
 ## Scout Contact Line
 
@@ -3143,10 +3405,16 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 | broker-native messages/status/errors | `broker_feed` |
 | message/update | `messages_send` |
 | work/requested reply | `ask` |
+| project known, agent unknown | `ask({ projectPath })` |
 | inspect flight | `invocations_get` |
 | bounded follow-up wait | `invocations_wait` |
 | work progress/waiting/review/done | `work_update` |
 | session lifecycle | future `sessions_start`, `sessions_attach`, `sessions_inspect`, `sessions_stop` |
+
+Card/session creation belongs to the pro integration layer for hosts and
+Scout-native agents that intentionally manage identity infrastructure. Core
+agents should route work with `ask`, especially `ask({ projectPath })` when no
+concrete instance is selected.
 
 ## Reply Modes
 
@@ -3159,6 +3427,11 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 ## Routing Rules
 
 - one target -> DM
+- base agent identity is the vanilla project/workspace identity
+- harness, model, profile, node, and session are instance constraints unless a
+  specialized profile is explicitly requested
+- if the project is known but the concrete agent/session is not, use
+  `projectPath` instead of discovery-first routing
 - group -> explicit channel
 - everyone -> shared broadcast
 - body text is payload, not routing metadata

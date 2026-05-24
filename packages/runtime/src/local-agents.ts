@@ -57,6 +57,7 @@ import {
   type RelayHarnessProfile,
   type RelayHarnessProfileInput,
   type RelayHarnessProfiles,
+  type RelayAgentCardLifecycle,
   type RelayRuntimeTransport,
   writeRelayAgentOverrides,
   type RelayAgentOverride,
@@ -85,6 +86,7 @@ import {
   parseScoutPermissionProfile,
 } from "./permission-policy.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
+import { resolveOperatorHandle } from "./user-config.js";
 
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
@@ -105,6 +107,7 @@ type LocalAgentRecord = {
   capabilities?: AgentCapability[];
   launchArgs?: string[];
   permissionProfile?: ScoutPermissionProfile;
+  card?: RelayAgentCardLifecycle;
 };
 
 export type LocalAgentConfigState = {
@@ -189,6 +192,26 @@ export type StartLocalAgentInput = {
   cwdOverride?: string;
   /** When false, only register/update the agent identity without warming a live session. */
   ensureOnline?: boolean;
+  card?: LocalAgentCardLifecycleInput;
+};
+
+export type LocalAgentCardLifecycleInput = Partial<RelayAgentCardLifecycle> & {
+  kind?: RelayAgentCardLifecycle["kind"];
+};
+
+export type PruneOneTimeLocalAgentCardsInput = {
+  now?: number;
+  maxAgeMs?: number;
+  maxCount?: number;
+  createdById?: string;
+  projectRoot?: string;
+  excludeAgentIds?: string[];
+};
+
+export type PruneOneTimeLocalAgentCardsResult = {
+  inspected: number;
+  remaining: number;
+  retired: ScoutLocalAgentStatus[];
 };
 
 interface BrokerSnapshotMessage {
@@ -203,6 +226,8 @@ interface BrokerSnapshot {
 
 const DEFAULT_LOCAL_AGENT_CAPABILITIES: AgentCapability[] = ["chat", "invoke", "deliver"];
 const DEFAULT_LOCAL_AGENT_HARNESS: AgentHarness = "claude";
+const DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_RETAIN = 24;
 
 function resolveRelayHub(): string {
   return resolveOpenScoutSupportPaths().relayHubDirectory;
@@ -475,6 +500,86 @@ export function buildLocalAgentSystemPromptTemplate(): string {
     "",
     "{{protocol_prompt}}",
   ].join("\n");
+}
+
+function normalizeOperatorHandleSegment(value: string | undefined): string {
+  return normalizeAgentSelectorSegment(value?.trim().replace(/^@+/, "") ?? "") || "operator";
+}
+
+export function resolveOperatorAugmentAgentName(): string {
+  return `${normalizeOperatorHandleSegment(resolveOperatorHandle())}-ai`;
+}
+
+function operatorAugmentAgentNameCandidates(): Set<string> {
+  return new Set([
+    resolveOperatorAugmentAgentName(),
+    "operator-ai",
+  ]);
+}
+
+export function buildOperatorAugmentSystemPromptTemplate(input: {
+  operatorHandle?: string;
+  augmentHandle?: string;
+} = {}): string {
+  const operatorHandle = normalizeOperatorHandleSegment(input.operatorHandle ?? resolveOperatorHandle());
+  const augmentHandle = normalizeOperatorHandleSegment(input.augmentHandle ?? `${operatorHandle}-ai`);
+  const humanLabel = `@${operatorHandle}`;
+  const augmentLabel = `@${augmentHandle}`;
+
+  return [
+    "{{base_prompt}}",
+    "",
+    `You are the augmented counterpart to the human Scout operator ${humanLabel}.`,
+    `${humanLabel} is the human. ${augmentLabel} is the AI-augmented looper with a human in the loop.`,
+    `Do not impersonate ${humanLabel}. Speak and act as ${augmentLabel}, and involve ${humanLabel} only when human judgment or approval is the real next dependency.`,
+    "",
+    "Operating loop:",
+    "  - Keep long-running conversations in the same DM or invocation thread whenever possible.",
+    "  - Maintain continuity across turns: track the goal, decisions made, open questions, blockers, and promised follow-ups.",
+    "  - For efforts that span many turns, many files, or more than one working session, create or update a durable note/checkpoint when you have write access, then point to it briefly.",
+    "  - Prefer continuing from a concise recap over resetting context. If context is aging, summarize the useful state and keep moving.",
+    `  - Be explicit about the next responsible owner: ${augmentLabel}, ${humanLabel}, or another named agent.`,
+    "",
+    `When to invoke ${humanLabel}:`,
+    "  - Approval is needed for destructive, irreversible, public, financial, security-sensitive, credential, privacy, or cross-project priority decisions.",
+    `  - The task depends on taste, intent, product direction, personal context, or a choice only ${humanLabel} can make.`,
+    "  - You are blocked after a reasonable local attempt and the unblock request can be stated as a short concrete question.",
+    "  - A result is materially uncertain and acting without human input could waste meaningful time or create cleanup work.",
+    "  - You need permission to interrupt, wake, or redirect other people or agents outside the current work venue.",
+    "",
+    `How to invoke ${humanLabel}:`,
+    "  - Keep the ask concise: context, the decision needed, the default you recommend, and the consequence of no answer.",
+    "  - Use the same DM/thread when it exists. Do not broadcast human-loop requests.",
+    `  - If a reply is required before work can proceed, say that ${humanLabel} owns the next move and stop claiming progress.`,
+    "  - If work can continue safely, state the assumption and continue without waiting.",
+    "",
+    `Do not invoke ${humanLabel} for:`,
+    "  - Routine status updates, obvious implementation details, command outputs, local orientation, or reversible low-risk cleanup.",
+    "  - Ambiguity that you can resolve by reading the repo, checking Scout state, or asking the correct specialist agent.",
+    "",
+    "{{project_context}}",
+    "",
+    "{{collaboration_prompt}}",
+    "",
+    "{{protocol_prompt}}",
+  ].join("\n");
+}
+
+function operatorAugmentDefaultsForDefinitionId(definitionId: string): {
+  displayName: string;
+  systemPrompt: string;
+} | null {
+  const normalizedDefinitionId = normalizeAgentSelectorSegment(definitionId);
+  if (!normalizedDefinitionId || !operatorAugmentAgentNameCandidates().has(normalizedDefinitionId)) {
+    return null;
+  }
+
+  return {
+    displayName: titleCaseLocalAgentName(normalizedDefinitionId),
+    systemPrompt: buildOperatorAugmentSystemPromptTemplate({
+      augmentHandle: normalizedDefinitionId,
+    }),
+  };
 }
 
 export function renderLocalAgentSystemPromptTemplate(
@@ -769,8 +874,8 @@ export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
   "mcp__scout__agents_search",
   "mcp__scout__agents_resolve",
   "mcp__scout__messages_reply",
+  "mcp__scout__ask",
   "mcp__scout__messages_send",
-  "mcp__scout__invocations_ask",
   "mcp__scout__invocations_get",
   "mcp__scout__invocations_wait",
   "mcp__scout__work_update",
@@ -1201,6 +1306,45 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
   };
 }
 
+function normalizeCardTimestamp(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined;
+}
+
+function normalizeLocalAgentCardLifecycle(
+  value: LocalAgentCardLifecycleInput | RelayAgentCardLifecycle | undefined,
+  now = Date.now(),
+): RelayAgentCardLifecycle | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const kind = value.kind === "one_time"
+    ? "one_time"
+    : value.kind === "persistent"
+      ? "persistent"
+      : undefined;
+  if (!kind) {
+    return undefined;
+  }
+  const createdAt = normalizeCardTimestamp(value.createdAt) ?? now;
+  const expiresAt = normalizeCardTimestamp(value.expiresAt);
+  const maxUses = typeof value.maxUses === "number" && Number.isFinite(value.maxUses) && value.maxUses > 0
+    ? Math.floor(value.maxUses)
+    : undefined;
+  const createdById = value.createdById?.trim();
+  const inboxConversationId = value.inboxConversationId?.trim();
+
+  return {
+    kind,
+    createdAt,
+    ...(createdById ? { createdById } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+    ...(maxUses ? { maxUses } : {}),
+    ...(inboxConversationId ? { inboxConversationId } : {}),
+  };
+}
+
 function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): LocalAgentRecord {
   const cwd = normalizeProjectPath(record.cwd || process.cwd());
   const projectRoot = normalizeProjectPath(record.projectRoot || cwd);
@@ -1231,6 +1375,7 @@ function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): L
     launchArgs: activeProfile?.launchArgs ?? normalizeLaunchArgsForHarness(harness, record.launchArgs),
     permissionProfile: activeProfile?.permissionProfile ?? record.permissionProfile,
     registrationSource: record.registrationSource,
+    card: normalizeLocalAgentCardLifecycle(record.card),
   };
 }
 
@@ -1303,6 +1448,7 @@ function localAgentRecordFromRelayAgentOverride(
     transport: normalizeLocalAgentTransport(override.runtime?.transport, normalizeLocalAgentHarness(override.runtime?.harness)),
     capabilities: override.capabilities,
     launchArgs: override.launchArgs,
+    card: override.card,
   });
 }
 
@@ -1332,6 +1478,7 @@ function relayAgentOverrideFromLocalAgentRecord(
     capabilities: normalizeLocalAgentCapabilities(normalizedRecord.capabilities),
     defaultHarness: normalizeManagedHarness(normalizedRecord.defaultHarness, "claude"),
     harnessProfiles: normalizedRecord.harnessProfiles,
+    ...(normalizedRecord.card ? { card: normalizedRecord.card } : {}),
     runtime: {
       cwd: normalizeProjectPath(normalizedRecord.cwd),
       harness: normalizeLocalAgentHarness(normalizedRecord.harness),
@@ -1640,6 +1787,179 @@ export async function updateLocalAgentConfig(
   registry[agentId] = nextRecord;
   await writeLocalAgentRegistry(registry);
   return buildLocalAgentConfigState(agentId, nextRecord);
+}
+
+export async function updateLocalAgentCardLifecycle(
+  agentId: string,
+  input: LocalAgentCardLifecycleInput,
+): Promise<RelayAgentCardLifecycle | null> {
+  const overrides = await readRelayAgentOverrides();
+  const override = overrides[agentId];
+  if (!override) {
+    return null;
+  }
+
+  const lifecycle = normalizeLocalAgentCardLifecycle({
+    ...(override.card ?? {}),
+    ...input,
+  });
+  if (!lifecycle) {
+    return null;
+  }
+
+  overrides[agentId] = {
+    ...override,
+    card: lifecycle,
+  };
+  await writeRelayAgentOverrides(overrides);
+  return lifecycle;
+}
+
+function oneTimeCardCreatedAt(lifecycle: RelayAgentCardLifecycle): number {
+  return normalizeCardTimestamp(lifecycle.createdAt) ?? 0;
+}
+
+function shouldPruneOneTimeCard(
+  lifecycle: RelayAgentCardLifecycle,
+  now: number,
+  maxAgeMs: number,
+): boolean {
+  if (lifecycle.kind !== "one_time") {
+    return false;
+  }
+  if (lifecycle.expiresAt !== undefined && lifecycle.expiresAt <= now) {
+    return true;
+  }
+  const createdAt = oneTimeCardCreatedAt(lifecycle);
+  return createdAt > 0 && createdAt + maxAgeMs <= now;
+}
+
+function oneTimeCardMatchesScope(
+  agentId: string,
+  override: RelayAgentOverride,
+  input: PruneOneTimeLocalAgentCardsInput,
+): boolean {
+  if (BUILT_IN_AGENT_DEFINITION_IDS.has(agentId)) {
+    return false;
+  }
+  const lifecycle = normalizeLocalAgentCardLifecycle(override.card);
+  if (lifecycle?.kind !== "one_time") {
+    return false;
+  }
+  if (input.createdById?.trim() && lifecycle.createdById !== input.createdById.trim()) {
+    return false;
+  }
+  if (input.projectRoot?.trim()) {
+    const scopedRoot = normalizeProjectPath(input.projectRoot);
+    const cardRoot = normalizeProjectPath(override.projectRoot || override.runtime?.cwd || ".");
+    if (cardRoot !== scopedRoot) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function retireLocalAgentOverrides(
+  overrides: Record<string, RelayAgentOverride>,
+  agentIds: Set<string>,
+): Promise<ScoutLocalAgentStatus[]> {
+  const retired: ScoutLocalAgentStatus[] = [];
+  for (const agentId of agentIds) {
+    const override = overrides[agentId];
+    if (!override) {
+      continue;
+    }
+    const record = localAgentRecordFromRelayAgentOverride(agentId, override);
+    const status = localAgentStatusFromRecord(agentId, record, localAgentStatusSource(agentId, overrides));
+    await stopLocalAgent(agentId).catch(() => null);
+    retired.push({
+      ...status,
+      isOnline: false,
+    });
+    delete overrides[agentId];
+  }
+  if (retired.length > 0) {
+    await writeRelayAgentOverrides(overrides);
+  }
+  return retired;
+}
+
+export async function pruneOneTimeLocalAgentCards(
+  input: PruneOneTimeLocalAgentCardsInput = {},
+): Promise<PruneOneTimeLocalAgentCardsResult> {
+  const now = input.now ?? Date.now();
+  const maxAgeMs = Math.max(0, input.maxAgeMs ?? DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_TTL_MS);
+  const maxCount = Math.max(0, input.maxCount ?? DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_RETAIN);
+  const excluded = new Set(input.excludeAgentIds ?? []);
+  const overrides = await readRelayAgentOverrides();
+  const candidates = Object.entries(overrides)
+    .filter(([agentId, override]) => !excluded.has(agentId) && oneTimeCardMatchesScope(agentId, override, input))
+    .map(([agentId, override]) => ({
+      agentId,
+      override,
+      lifecycle: normalizeLocalAgentCardLifecycle(override.card)!,
+    }))
+    .sort((left, right) =>
+      oneTimeCardCreatedAt(right.lifecycle) - oneTimeCardCreatedAt(left.lifecycle)
+      || left.agentId.localeCompare(right.agentId),
+    );
+
+  const retireIds = new Set<string>();
+  for (const candidate of candidates) {
+    if (shouldPruneOneTimeCard(candidate.lifecycle, now, maxAgeMs)) {
+      retireIds.add(candidate.agentId);
+    }
+  }
+
+  const retained = candidates.filter((candidate) => !retireIds.has(candidate.agentId));
+  for (const candidate of retained.slice(maxCount)) {
+    retireIds.add(candidate.agentId);
+  }
+
+  const retired = await retireLocalAgentOverrides({ ...overrides }, retireIds);
+  return {
+    inspected: candidates.length,
+    remaining: Math.max(0, candidates.length - retired.length),
+    retired,
+  };
+}
+
+export async function retireConsumedOneTimeLocalAgentCards(input: {
+  conversationId: string;
+  actorId: string;
+  participantIds: string[];
+}): Promise<ScoutLocalAgentStatus[]> {
+  const conversationId = input.conversationId.trim();
+  const actorId = input.actorId.trim();
+  if (!conversationId || !actorId) {
+    return [];
+  }
+
+  const participants = new Set(input.participantIds.map((entry) => entry.trim()).filter(Boolean));
+  if (participants.size === 0) {
+    return [];
+  }
+
+  const overrides = await readRelayAgentOverrides();
+  const retireIds = new Set<string>();
+  for (const [agentId, override] of Object.entries(overrides)) {
+    if (!participants.has(agentId)) {
+      continue;
+    }
+    const lifecycle = normalizeLocalAgentCardLifecycle(override.card);
+    if (lifecycle?.kind !== "one_time") {
+      continue;
+    }
+    if (lifecycle.createdById && lifecycle.createdById === actorId) {
+      continue;
+    }
+    if (agentId === actorId) {
+      continue;
+    }
+    retireIds.add(agentId);
+  }
+
+  return retireLocalAgentOverrides({ ...overrides }, retireIds);
 }
 
 export async function retireLocalAgent(agentId: string): Promise<ScoutLocalAgentStatus | null> {
@@ -2060,7 +2380,7 @@ function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string
     : [
         "> Do not publish a separate acknowledgement or progress update through Scout for this request.",
         "> Your final assistant message will be delivered back through the Scout broker.",
-        "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `invocations_ask` to answer this request.",
+        "> Do not call `messages_reply`, `scout_reply`, `scout send`, `messages_send`, or `ask` to answer this request.",
       ];
   const header = [
     "<!-- SCOUT BROKER REPLY MODE -->",
@@ -2206,7 +2526,10 @@ const TMUX_PASTE_DRAIN_MS = 150;
 const TMUX_VERIFY_FIRST_SAMPLE_MS = 250;
 const TMUX_VERIFY_SECOND_SAMPLE_MS = 750;
 const TMUX_VERIFY_RETRY_SAMPLE_MS = 400;
-const TMUX_CAPTURE_TAIL_LINES = 6;
+const TMUX_CAPTURE_TAIL_LINES = 20;
+const TMUX_READY_TIMEOUT_MS = 20_000;
+const TMUX_READY_POLL_MS = 250;
+const TMUX_READY_TAIL_LINES = 80;
 
 export interface TmuxPromptDispatchResult {
   submitted: boolean;
@@ -2336,8 +2659,59 @@ function captureTmuxPaneTail(sessionName: string, lines: number): string {
   }
 }
 
+async function waitForTmuxHarnessReady(sessionName: string, harness: AgentHarness): Promise<void> {
+  if (harness !== "claude") {
+    return;
+  }
+
+  const deadline = Date.now() + TMUX_READY_TIMEOUT_MS;
+  let paneTail = "";
+  while (Date.now() < deadline) {
+    if (!isLocalAgentSessionAlive(sessionName)) {
+      throw new Error(`tmux session ${sessionName} exited before Claude Code was ready.`);
+    }
+
+    paneTail = captureTmuxPaneTail(sessionName, TMUX_READY_TAIL_LINES);
+    if (tmuxPaneTailShowsReadyComposer(paneTail)) {
+      return;
+    }
+
+    await tmuxDispatchSleep(TMUX_READY_POLL_MS);
+  }
+
+  const tail = stripTerminalControlSequences(paneTail).trim().split(/\r?\n/).slice(-20).join("\n").trim();
+  throw new Error(
+    `tmux session ${sessionName} did not show a ready Claude Code composer within ${TMUX_READY_TIMEOUT_MS}ms.`
+      + (tail ? `\nRecent pane tail:\n${tail}` : ""),
+  );
+}
+
+export function tmuxPaneTailShowsReadyComposer(paneTail: string): boolean {
+  const cleanedTail = stripTerminalControlSequences(paneTail);
+  const lines = cleanedTail.split(/\r?\n/);
+  const anchor = findActiveTmuxComposerAnchor(lines);
+  if (!anchor) {
+    return false;
+  }
+
+  const afterComposer = lines.slice(anchor.index + 1).join("\n");
+  return !tmuxPaneTailShowsHarnessActivity(afterComposer);
+}
+
 export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: string): boolean {
-  const normalizedTail = paneTail.replace(/\s+/g, " ").trim();
+  const cleanedTail = stripTerminalControlSequences(paneTail);
+  const composerText = extractActiveTmuxComposerText(cleanedTail);
+  if (composerText !== null) {
+    return textContainsPromptFragment(composerText, prompt);
+  }
+  if (tmuxPaneTailShowsHarnessActivity(cleanedTail)) {
+    return false;
+  }
+  return textContainsPromptFragment(cleanedTail, prompt);
+}
+
+function textContainsPromptFragment(haystack: string, prompt: string): boolean {
+  const normalizedTail = haystack.replace(/\s+/g, " ").trim();
   if (!normalizedTail) return false;
   const normalizedPrompt = prompt.replace(/\s+/g, " ").trim();
   if (normalizedPrompt.length < 24) {
@@ -2350,6 +2724,98 @@ export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: str
     normalizedPrompt.slice(Math.max(0, normalizedPrompt.length - 40)),
   ];
   return windows.some((w) => w.length >= 24 && normalizedTail.includes(w));
+}
+
+function stripTerminalControlSequences(value: string): string {
+  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+}
+
+type TmuxComposerAnchor = {
+  index: number;
+  kind: "inline" | "boxed";
+};
+
+function findActiveTmuxComposerAnchor(lines: readonly string[]): TmuxComposerAnchor | null {
+  const inlineComposerIndex = findLastIndex(lines, (line) => /^\s*[❯›]\s*/.test(line));
+  const boxedComposerIndex = findLastIndex(lines, (line) => /^\s*[│┃]\s*[>❯]\s*/.test(line));
+  if (inlineComposerIndex < 0 && boxedComposerIndex < 0) {
+    return null;
+  }
+  if (inlineComposerIndex > boxedComposerIndex) {
+    return { index: inlineComposerIndex, kind: "inline" };
+  }
+  return { index: boxedComposerIndex, kind: "boxed" };
+}
+
+function extractActiveTmuxComposerText(paneTail: string): string | null {
+  const lines = paneTail.split(/\r?\n/);
+  const anchor = findActiveTmuxComposerAnchor(lines);
+  if (!anchor) {
+    return null;
+  }
+  return anchor.kind === "inline"
+    ? collectInlineComposerText(lines, anchor.index)
+    : collectBoxedComposerText(lines, anchor.index);
+}
+
+function findLastIndex<T>(items: readonly T[], predicate: (item: T) => boolean): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (predicate(items[index]!)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function collectInlineComposerText(lines: readonly string[], startIndex: number): string {
+  const collected = [lines[startIndex]!.replace(/^\s*[❯›]\s*/, "")];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (isTmuxComposerBoundary(line)) {
+      break;
+    }
+    collected.push(line);
+  }
+  return collected.join(" ").trim();
+}
+
+function collectBoxedComposerText(lines: readonly string[], startIndex: number): string {
+  const collected: string[] = [];
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (index > startIndex && isTmuxComposerBoundary(line)) {
+      break;
+    }
+    if (!/^\s*[│┃]/.test(line)) {
+      if (isTmuxComposerBoundary(line)) {
+        break;
+      }
+      collected.push(line);
+      continue;
+    }
+    const content = line
+      .replace(/^\s*[│┃]\s*/, "")
+      .replace(/\s*[│┃]\s*$/, "")
+      .replace(index === startIndex ? /^[>❯]\s*/ : /^/, "");
+    collected.push(content);
+  }
+  return collected.join(" ").trim();
+}
+
+function isTmuxComposerBoundary(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (/^[─━═╭╮╰╯┌┐└┘╔╗╚╝╟╢╠╣╪╫╬╩╦╤╧╌╍╎╏\s]+$/.test(trimmed)) {
+    return true;
+  }
+  return /^--\s*(?:INSERT|NORMAL)\s*--/.test(trimmed)
+    || /^(?:Opus|Sonnet|Haiku|Claude|Codex|GPT)\b/.test(trimmed);
+}
+
+function tmuxPaneTailShowsHarnessActivity(paneTail: string): boolean {
+  return /(?:^|\n)\s*(?:[⏺●✽✢✻⎿]|Bash\(|Read\(|Edit\(|Write\(|Grep\(|Glob\(|TodoWrite\()/.test(paneTail);
 }
 
 function shellQuoteArguments(args: string[]): string {
@@ -2719,6 +3185,13 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
     );
   }
 
+  try {
+    await waitForTmuxHarnessReady(normalizedRecord.tmuxSession, normalizeLocalAgentHarness(normalizedRecord.harness));
+  } catch (error) {
+    killAgentSession(normalizedRecord.tmuxSession);
+    throw error;
+  }
+
   const registry = await readLocalAgentRegistry();
   registry[agentName] = {
     ...normalizedRecord,
@@ -2970,6 +3443,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const effectiveCwd = input.cwdOverride ? normalizeProjectPath(input.cwdOverride) : undefined;
   const shouldEnsureOnline = input.ensureOnline !== false;
   const requestedPermissionProfile = parseScoutPermissionProfile(input.permissionProfile);
+  const cardLifecycle = normalizeLocalAgentCardLifecycle(input.card);
   const requestedDefinitionId = input.agentName?.trim()
     ? normalizeAgentSelectorSegment(input.agentName.trim())
     : "";
@@ -3042,7 +3516,11 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       : "";
     const definitionId = requestedDefinitionId || configDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
     const configDisplayName = coldProjectConfig?.agent?.displayName?.trim() || "";
-    const effectiveDisplayName = input.displayName || configDisplayName || titleCaseLocalAgentName(definitionId);
+    const operatorAugmentDefaults = operatorAugmentDefaultsForDefinitionId(definitionId);
+    const effectiveDisplayName = input.displayName
+      || operatorAugmentDefaults?.displayName
+      || configDisplayName
+      || titleCaseLocalAgentName(definitionId);
     const instance = buildRelayAgentInstance(definitionId, projectRoot);
     const configDefaultHarness = coldProjectConfig?.agent?.runtime?.defaultHarness;
     const effectiveHarness = normalizeManagedHarness(preferredHarness ?? configDefaultHarness, "claude");
@@ -3071,8 +3549,10 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       projectConfigPath: coldProjectConfigPath,
       source: "manual",
       startedAt: nowSeconds(),
+      ...(operatorAugmentDefaults ? { systemPrompt: operatorAugmentDefaults.systemPrompt } : {}),
       launchArgs,
       defaultHarness: effectiveHarness,
+      ...(cardLifecycle ? { card: cardLifecycle } : {}),
       harnessProfiles: {
         [effectiveHarness]: {
           cwd: effectiveCwd ?? projectRoot,
@@ -3125,20 +3605,23 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       preferredHarness ? undefined : matchingOverride.runtime?.transport,
       nextHarness,
     );
+    const operatorAugmentDefaults = operatorAugmentDefaultsForDefinitionId(requestedDefinitionId);
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId: requestedDefinitionId,
-      displayName: input.displayName || titleCaseLocalAgentName(requestedDefinitionId),
+      displayName: input.displayName || operatorAugmentDefaults?.displayName || titleCaseLocalAgentName(requestedDefinitionId),
       projectName: matchingOverride.projectName ?? basename(matchingProjectRoot),
       projectRoot: matchingProjectRoot,
       projectConfigPath: null,
       source: "manual",
       startedAt: matchingOverride.startedAt ?? nowSeconds(),
+      ...(operatorAugmentDefaults ? { systemPrompt: operatorAugmentDefaults.systemPrompt } : {}),
       launchArgs: nextHarness === nextDefaultHarness
         ? nextLaunchArgs
         : matchingOverride.launchArgs,
       capabilities: matchingOverride.capabilities,
       defaultHarness: nextDefaultHarness,
+      ...(cardLifecycle ? { card: cardLifecycle } : {}),
       harnessProfiles: {
         ...(matchingOverride.harnessProfiles ?? {}),
         [nextHarness]: {
@@ -3160,7 +3643,13 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     await writeRelayAgentOverrides(overrides);
     targetAgentId = instance.id;
   } else {
-    if (input.model || input.reasoningEffort || requestedPermissionProfile) {
+    const operatorAugmentDefaults = operatorAugmentDefaultsForDefinitionId(
+      matchingOverride.definitionId ?? requestedDefinitionId,
+    );
+    const shouldApplyOperatorAugmentPrompt = Boolean(
+      operatorAugmentDefaults && !matchingOverride.systemPrompt?.trim(),
+    );
+    if (input.model || input.reasoningEffort || requestedPermissionProfile || cardLifecycle || shouldApplyOperatorAugmentPrompt) {
       const existingHarness = normalizeManagedHarness(
         preferredHarness ?? matchingOverride.defaultHarness ?? matchingOverride.runtime?.harness,
         "claude",
@@ -3176,6 +3665,8 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
 
       overrides[matchingAgentId!] = {
         ...matchingOverride,
+        ...(cardLifecycle ? { card: cardLifecycle } : {}),
+        ...(shouldApplyOperatorAugmentPrompt ? { systemPrompt: operatorAugmentDefaults!.systemPrompt } : {}),
         launchArgs: existingHarness === defaultHarnessForOverride(matchingOverride, existingHarness)
           ? nextLaunchArgs
           : matchingOverride.launchArgs,
@@ -3339,6 +3830,7 @@ function buildLocalAgentBinding(
   const codexPermissionPosture = normalizeLocalAgentHarness(normalizedRecord.harness) === "codex"
     ? compileCodexPermissionProfile(normalizedRecord.permissionProfile)
     : null;
+  const cardLifecycle = normalizeLocalAgentCardLifecycle(normalizedRecord.card);
   const definitionId = normalizedRecord.definitionId ?? agentId;
   const displayName = titleCaseLocalAgentName(definitionId);
   const projectRoot = normalizedRecord.projectRoot ?? normalizedRecord.cwd;
@@ -3369,6 +3861,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,
           approvalPolicy: codexPermissionPosture.approvalPolicy,
@@ -3404,6 +3897,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,
           approvalPolicy: codexPermissionPosture.approvalPolicy,
@@ -3444,6 +3938,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,
           approvalPolicy: codexPermissionPosture.approvalPolicy,

@@ -55,6 +55,7 @@ describe("runCardCommand", () => {
       }),
     }));
     mock.module("../../core/agents/service.ts", () => ({
+      cleanupScoutAgentCards: mock(async () => ({ inspected: 0, remaining: 0, retired: [] })),
       createScoutAgentCard: mock(async () => {
         throw new Error("not used");
       }),
@@ -127,6 +128,7 @@ describe("runCardCommand", () => {
       }),
     }));
     mock.module("../../core/agents/service.ts", () => ({
+      cleanupScoutAgentCards: mock(async () => ({ inspected: 0, remaining: 0, retired: [] })),
       createScoutAgentCard: mock(async () => {
         throw new Error("not used");
       }),

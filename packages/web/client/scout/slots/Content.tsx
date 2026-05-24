@@ -19,6 +19,7 @@ import { SettingsScreen } from "../../screens/SettingsScreen.tsx";
 import { OpsScreen } from "../../screens/OpsScreen.tsx";
 import { TerminalScreen } from "../../screens/TerminalScreen.tsx";
 import { WorkDetailScreen } from "../../screens/WorkDetailScreen.tsx";
+import { MachineScopeControl } from "../../components/MachineScopeControl.tsx";
 
 export function ScoutContent() {
   const { route, navigate } = useScout();
@@ -39,7 +40,10 @@ function ScoutSurface({ children }: { children: ReactNode }) {
         flexDirection: "column",
       }}
     >
-      {children}
+      <MachineScopeControl />
+      <div className="scout-surface-body">
+        {children}
+      </div>
     </div>
   );
 }

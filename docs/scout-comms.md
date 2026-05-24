@@ -61,9 +61,13 @@ harness conversation/process/thread; an **endpoint** attaches an agent identity
 to one reachable session.
 
 Cards are identity and return-address records. They do not by themselves mean a
-harness session is alive. Commands that start or attach harnesses should use the
-public noun **session** and should fail loudly when a requested harness cannot
-be backed by a compatible session.
+harness session is alive. Treat card creation, registration, and explicit
+session attachment as a pro integration layer for hosts or Scout-native agents
+that intentionally manage identity infrastructure. Core agents should use
+`ask`, `send`, and `reply`; the broker can create or bind cards internally when
+needed. Commands that start or attach harnesses should use the public noun
+**session** and should fail loudly when a requested harness cannot be backed by
+a compatible session.
 
 Examples of the intended shape:
 
@@ -111,6 +115,11 @@ Expected client behavior:
 - require an explicit channel for group coordination
 - do not treat message delivery as fire-and-forget; keep the receipt available
 
+Quiet delivery should be an optional message/reply modifier, not a separate
+primitive. It should still write the durable conversation record while
+suppressing notify/wake side effects where target policy allows. `ask` should
+not grow a quiet variant because it creates ownership and lifecycle state.
+
 ### Ask / Requested Reply
 
 Use the ask path when the caller expects work, investigation, review, or an
@@ -120,6 +129,7 @@ Examples:
 
 ```bash
 scout ask --to hudson "Review the auth module and report risks."
+scout ask --project ../talkie "Review the auth module and report risks."
 ```
 
 MCP equivalent:
@@ -129,11 +139,19 @@ ask({
   to: "@hudson",
   body: "Review the auth module and report risks.",
 })
+
+ask({
+  projectPath: "../talkie",
+  body: "Review the auth module and report risks.",
+})
 ```
 
 Expected client behavior:
 
 - create or display a durable message for the ask
+- use `projectPath` / `--project` when the project is known but the concrete
+  agent or session is not; Scout resolves or creates the right project agent
+  instance
 - surface returned ids such as `flightId` and `workId`
 - treat the initial `ask` response as the broker receipt, not as the target
   agent's acknowledgement
@@ -222,8 +240,12 @@ Rules:
   the broker-visible reply
 - if `replyPath` is `mcp_reply`, use the provided reply tool for the initial
   acknowledgement and the final answer
-- do not use `messages_send`, `ask`, or `invocations_ask` for the final
-  answer to the original request
+- do not use `messages_send` or `ask` for the final answer to the original
+  request
+- `messages_reply` is a normal threaded message in the existing reply context;
+  it should not create a fresh ask or owned work lifecycle
+- quiet delivery is an optional message modifier/policy, not a distinct reply
+  mode
 - use Scout tools only to ask or delegate while solving the request
 
 ### Durable Work
@@ -251,6 +273,12 @@ Questions answer information. Work items carry ownership.
 ## Routing Rules
 
 - One explicit target means DM.
+- The default target should be the base agent or project identity. Harness,
+  model, profile, node, and session details are instance constraints, not a
+  different base agent, unless the caller explicitly asks for a specialized
+  profile.
+- If no concrete agent/session is known, route work by project path instead of
+  running discovery just to invent a target.
 - Group coordination requires an explicit channel.
 - Shared broadcast is opt-in.
 - Message body text is payload, not routing metadata.

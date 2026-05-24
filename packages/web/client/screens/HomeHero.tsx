@@ -306,7 +306,8 @@ function SystemSignalStack({
             </span>
           </>
         );
-        const handleClick = signal.onClick ?? (signal.route ? () => navigate(signal.route) : undefined);
+        const signalRoute = signal.route;
+        const handleClick = signal.onClick ?? (signalRoute ? () => navigate(signalRoute) : undefined);
         if (handleClick) {
           return (
             <button

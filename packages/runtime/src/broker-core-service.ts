@@ -4,6 +4,7 @@ import type {
   AgentBrokerFeedEndpointStatus,
   AgentBrokerFeedItem,
   AgentBrokerFeedSeverity,
+  AgentDefinition,
   CollaborationRecord,
   ControlCommand,
   DeliveryAttempt,
@@ -36,6 +37,7 @@ import type {
   ScoutBrokerUnblockRequestEventQuery,
   ScoutBrokerUnblockRequestQuery,
 } from "./broker-api.js";
+import { readInvocationLifecycle as readInvocationLifecycleModel } from "./invocation-lifecycle-read-model.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import type { ActivityItem } from "./sqlite-store.js";
@@ -262,6 +264,118 @@ function metadataNumber(
 ): number | undefined {
   const value = metadata?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function metadataBoolean(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): boolean {
+  return metadata?.[key] === true;
+}
+
+function metadataRecord(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = metadata?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+type BrokerAgentCounts = {
+  agents: number;
+  agentRecords: number;
+  rawAgentRecords: number;
+  configuredAgents: number;
+  scoutManagedAgents: number;
+  currentAgentRegistrations: number;
+  localAgentRegistrations: number;
+  remoteAgentRegistrations: number;
+  staleAgentRegistrations: number;
+  retiredAgentRegistrations: number;
+  oneTimeAgentCards: number;
+  persistentAgentCards: number;
+};
+
+function agentCardLifecycleKind(agent: AgentDefinition): "persistent" | "one_time" | null {
+  const lifecycle = metadataRecord(agent.metadata, "cardLifecycle");
+  const kind = metadataString(lifecycle, "kind");
+  return kind === "persistent" || kind === "one_time" ? kind : null;
+}
+
+function summarizeBrokerAgentCounts(
+  snapshot: RuntimeRegistrySnapshot,
+  localNodeId: string,
+): BrokerAgentCounts {
+  const counts: BrokerAgentCounts = {
+    agents: 0,
+    agentRecords: 0,
+    rawAgentRecords: 0,
+    configuredAgents: 0,
+    scoutManagedAgents: 0,
+    currentAgentRegistrations: 0,
+    localAgentRegistrations: 0,
+    remoteAgentRegistrations: 0,
+    staleAgentRegistrations: 0,
+    retiredAgentRegistrations: 0,
+    oneTimeAgentCards: 0,
+    persistentAgentCards: 0,
+  };
+
+  for (const agent of Object.values(snapshot.agents)) {
+    counts.agentRecords += 1;
+    counts.rawAgentRecords += 1;
+
+    const retired = metadataBoolean(agent.metadata, "retiredFromFleet");
+    const stale = metadataBoolean(agent.metadata, "staleLocalRegistration");
+    const current = !retired && !stale;
+    const local = agent.homeNodeId === localNodeId || agent.authorityNodeId === localNodeId;
+    const lifecycleKind = agentCardLifecycleKind(agent);
+    const oneTimeCard = lifecycleKind === "one_time";
+    const persistentCard = lifecycleKind === "persistent";
+    const source = metadataString(agent.metadata, "source");
+    const externalSource = metadataString(agent.metadata, "externalSource");
+    const registryBacked = source === undefined || source === "relay-agent-registry";
+    const durableScoutManaged = source === "scout-managed" && externalSource !== "pairing-session";
+
+    if (retired) {
+      counts.retiredAgentRegistrations += 1;
+    }
+    if (stale) {
+      counts.staleAgentRegistrations += 1;
+    }
+    if (!current) {
+      continue;
+    }
+
+    counts.currentAgentRegistrations += 1;
+    if (local) {
+      counts.localAgentRegistrations += 1;
+    } else {
+      counts.remoteAgentRegistrations += 1;
+    }
+    if (oneTimeCard) {
+      counts.oneTimeAgentCards += 1;
+    }
+    if (persistentCard) {
+      counts.persistentAgentCards += 1;
+    }
+    if (!local || oneTimeCard) {
+      continue;
+    }
+
+    if (registryBacked) {
+      counts.configuredAgents += 1;
+      continue;
+    }
+    if (durableScoutManaged) {
+      counts.scoutManagedAgents += 1;
+    }
+  }
+
+  counts.agents = counts.configuredAgents + counts.scoutManagedAgents;
+  return counts;
 }
 
 function messageMentionsAgent(message: MessageRecord, agentId: string): boolean {
@@ -788,6 +902,7 @@ export function createBrokerCoreService(
     baseUrl: deps.baseUrl,
     readHealth: async () => {
       const snapshot = deps.runtime.snapshot();
+      const agentCounts = summarizeBrokerAgentCounts(snapshot, deps.nodeId);
       return {
         ok: true,
         nodeId: deps.nodeId,
@@ -795,7 +910,18 @@ export function createBrokerCoreService(
         counts: {
           nodes: Object.keys(snapshot.nodes).length,
           actors: Object.keys(snapshot.actors).length,
-          agents: Object.keys(snapshot.agents).length,
+          agents: agentCounts.agents,
+          agentRecords: agentCounts.agentRecords,
+          rawAgentRecords: agentCounts.rawAgentRecords,
+          configuredAgents: agentCounts.configuredAgents,
+          scoutManagedAgents: agentCounts.scoutManagedAgents,
+          currentAgentRegistrations: agentCounts.currentAgentRegistrations,
+          localAgentRegistrations: agentCounts.localAgentRegistrations,
+          remoteAgentRegistrations: agentCounts.remoteAgentRegistrations,
+          staleAgentRegistrations: agentCounts.staleAgentRegistrations,
+          retiredAgentRegistrations: agentCounts.retiredAgentRegistrations,
+          oneTimeAgentCards: agentCounts.oneTimeAgentCards,
+          persistentAgentCards: agentCounts.persistentAgentCards,
           conversations: Object.keys(snapshot.conversations).length,
           messages: Object.keys(snapshot.messages).length,
           flights: Object.keys(snapshot.flights).length,
@@ -824,6 +950,12 @@ export function createBrokerCoreService(
       listBrokerUnblockRequestEvents(deps.journal, query),
     readAgentBrokerFeed: async (query) =>
       await readAgentBrokerFeed(deps, query),
+    readInvocationLifecycle: async (query) =>
+      readInvocationLifecycleModel({
+        snapshot: deps.runtime.snapshot(),
+        journal: deps.journal,
+        invocationId: query.invocationId,
+      }),
     readThreadEvents: async (query) =>
       await deps.threadEvents.replay({
         conversationId: query.conversationId,

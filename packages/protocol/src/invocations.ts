@@ -27,6 +27,7 @@ export interface InvocationExecutionPreference {
    * "new" so stable agent names do not silently inherit unrelated context.
    */
   session?: "new" | "existing" | "any";
+  targetSessionId?: ScoutId;
 }
 
 export interface InvocationRequest {

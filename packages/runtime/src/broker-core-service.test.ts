@@ -2,7 +2,72 @@ import { describe, expect, test } from "bun:test";
 
 import type { ActivityItem } from "./sqlite-store.js";
 import { createBrokerCoreService } from "./broker-core-service.js";
-import { createRuntimeRegistrySnapshot } from "./registry.js";
+import { createRuntimeRegistrySnapshot, type RuntimeRegistrySnapshot } from "./registry.js";
+
+function createReadOnlyBrokerCoreService(snapshot: RuntimeRegistrySnapshot) {
+  return createBrokerCoreService({
+    baseUrl: "http://broker.test",
+    nodeId: "node-1",
+    meshId: "mesh-1",
+    localNode: {
+      id: "node-1",
+      meshId: "mesh-1",
+      name: "node-1",
+      advertiseScope: "local",
+      registeredAt: 1,
+      lastSeenAt: 1,
+    },
+    runtime: {
+      snapshot: () => snapshot,
+    },
+    projection: {
+      listActivityItems: async () => [],
+    },
+    journal: {
+      listCollaborationRecords: () => [],
+      listCollaborationEvents: () => [],
+      listUnblockRequests: () => [],
+      listUnblockRequestEvents: () => [],
+      listDeliveries: () => [],
+      listDeliveryAttempts: () => [],
+      listScoutDispatches: () => [],
+    },
+    threadEvents: {
+      replay: async () => [],
+      snapshot: async (conversationId) => ({
+        conversation: {
+          id: conversationId,
+          kind: "direct",
+          authorityNodeId: "node-1",
+          participantIds: [],
+          visibility: "private",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        latestSeq: 0,
+        messages: [],
+        collaboration: [],
+        activeFlights: [],
+      }),
+      openWatch: async (request) => ({
+        watchId: `${request.watcherId}-watch`,
+        conversationId: request.conversationId,
+        authorityNodeId: "node-1",
+        acceptedAfterSeq: request.afterSeq ?? 0,
+        latestSeq: 0,
+        leaseExpiresAt: 999,
+        mode: "snapshot_then_stream",
+      }),
+      renewWatch: async (request) => ({
+        watchId: request.watchId,
+        leaseExpiresAt: 999,
+      }),
+      closeWatch: async () => {},
+    },
+    isReconciledStaleFlightActivityItem: () => false,
+    executeCommand: async () => ({ ok: true }),
+  });
+}
 
 describe("createBrokerCoreService", () => {
   test("builds broker reads around runtime state and delegates writes", async () => {
@@ -190,6 +255,86 @@ describe("createBrokerCoreService", () => {
         message: expect.objectContaining({ id: "msg-2" }),
       },
     ]);
+  });
+
+  test("splits top-level agent counts from raw registration records", async () => {
+    const makeAgent = (
+      id: string,
+      input: {
+        homeNodeId?: string;
+        authorityNodeId?: string;
+        metadata?: Record<string, unknown>;
+      } = {},
+    ) => ({
+      id,
+      kind: "agent" as const,
+      displayName: id,
+      definitionId: id.split(".")[0] ?? id,
+      agentClass: "general" as const,
+      capabilities: ["chat" as const],
+      wakePolicy: "on_demand" as const,
+      homeNodeId: input.homeNodeId ?? "node-1",
+      authorityNodeId: input.authorityNodeId ?? input.homeNodeId ?? "node-1",
+      advertiseScope: "local" as const,
+      metadata: input.metadata,
+    });
+    const snapshot = createRuntimeRegistrySnapshot({
+      agents: {
+        "configured.main.node-1": makeAgent("configured.main.node-1", {
+          metadata: { source: "relay-agent-registry" },
+        }),
+        "persistent-card.main.node-1": makeAgent("persistent-card.main.node-1", {
+          metadata: {
+            source: "relay-agent-registry",
+            cardLifecycle: { kind: "persistent" },
+          },
+        }),
+        "reply-card.main.node-1": makeAgent("reply-card.main.node-1", {
+          metadata: {
+            source: "relay-agent-registry",
+            cardLifecycle: { kind: "one_time" },
+          },
+        }),
+        "managed.main.node-1": makeAgent("managed.main.node-1", {
+          metadata: { source: "scout-managed", externalSource: "card_create" },
+        }),
+        "pairing-session.main.node-1": makeAgent("pairing-session.main.node-1", {
+          metadata: { source: "scout-managed", externalSource: "pairing-session" },
+        }),
+        "remote.main.node-2": makeAgent("remote.main.node-2", {
+          homeNodeId: "node-2",
+          authorityNodeId: "node-2",
+          metadata: { source: "relay-agent-registry" },
+        }),
+        "stale.main.node-1": makeAgent("stale.main.node-1", {
+          metadata: {
+            source: "relay-agent-registry",
+            staleLocalRegistration: true,
+            replacedByAgentId: "configured.main.node-1",
+          },
+        }),
+        "retired.main.node-1": makeAgent("retired.main.node-1", {
+          metadata: { source: "relay-agent-registry", retiredFromFleet: true },
+        }),
+      },
+    });
+
+    const health = await createReadOnlyBrokerCoreService(snapshot).readHealth();
+
+    expect(health.counts).toMatchObject({
+      agents: 3,
+      configuredAgents: 2,
+      scoutManagedAgents: 1,
+      currentAgentRegistrations: 6,
+      localAgentRegistrations: 5,
+      remoteAgentRegistrations: 1,
+      staleAgentRegistrations: 1,
+      retiredAgentRegistrations: 1,
+      oneTimeAgentCards: 1,
+      persistentAgentCards: 1,
+      agentRecords: 8,
+      rawAgentRecords: 8,
+    });
   });
 
   test("builds an agent broker feed from messages, status, and broker error records", async () => {

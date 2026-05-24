@@ -5,6 +5,7 @@ OpenScout releases are coordinated through one orchestrator:
 ```bash
 npm run ship -- patch
 npm run ship -- 0.2.64 --execute --yes
+npm run ship -- 0.2.64 --execute --yes --github-npm
 ```
 
 The default mode is a dry run. It prints the version plan and the commands that
@@ -18,8 +19,8 @@ public `@openscout/scout` package version, then runs the release train:
 - build the signed/notarized macOS DMG as `OpenScoutMenu-<version>.dmg`
 - commit the version bump and create `v<version>`
 - push the branch and tag
-- publish `@openscout/scout`
 - create the GitHub release and upload the DMG
+- publish `@openscout/scout` from GitHub Actions when `--github-npm` is used
 
 iOS remains opt-in because it touches App Store Connect:
 
@@ -33,7 +34,21 @@ Useful skips:
 npm run ship -- 0.2.64 --execute --yes --skip-dmg
 npm run ship -- 0.2.64 --execute --yes --skip-github-release
 npm run ship -- 0.2.64 --execute --yes --skip-npm
+npm run ship -- 0.2.64 --execute --yes --github-npm
 ```
+
+Use `--github-npm` for the normal public release path. It still runs the npm
+dry-run build locally before tagging, but the real publish happens when the
+release helper dispatches `.github/workflows/npm-publish.yml` after creating the
+GitHub release.
+Configure npm trusted publishing for package `@openscout/scout` with:
+
+- owner/repo: `arach/openscout`
+- workflow filename: `npm-publish.yml`
+- allowed action: `npm publish`
+
+If trusted publishing is not configured yet, add a GitHub repository secret
+named `NPM_TOKEN` with publish access; the workflow supports that as a fallback.
 
 The script refuses to execute from a dirty worktree unless `--allow-dirty` is
 passed. Prefer a clean release branch so the `Release v<version>` commit and tag

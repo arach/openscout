@@ -14,6 +14,7 @@ const originalHome = process.env.HOME;
 const agents: WebAgent[] = [
   {
     id: "agent-1",
+    definitionId: "agent",
     name: "Agent One",
     handle: null,
     agentClass: "general",
@@ -24,6 +25,9 @@ const agents: WebAgent[] = [
     updatedAt: 1,
     transport: null,
     selector: null,
+    defaultSelector: null,
+    nodeQualifier: null,
+    workspaceQualifier: null,
     wakePolicy: null,
     capabilities: [],
     project: null,
@@ -33,6 +37,16 @@ const agents: WebAgent[] = [
     harnessSessionId: null,
     harnessLogPath: null,
     conversationId: "dm.operator.agent-1",
+    authorityNodeId: "node-1",
+    authorityNodeName: "node-1",
+    homeNodeId: "node-1",
+    homeNodeName: "node-1",
+    ownerId: null,
+    ownerName: null,
+    ownerHandle: null,
+    staleLocalRegistration: false,
+    retiredFromFleet: false,
+    replacedByAgentId: null,
   },
 ];
 

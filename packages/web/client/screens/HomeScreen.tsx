@@ -25,7 +25,12 @@ import {
 } from "../lib/home-brief-player.ts";
 import { usePersistentString } from "../lib/persistent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
-import { conversationForAgent } from "../lib/router.ts";
+import { conversationForAgent, routeMachineId } from "../lib/router.ts";
+import {
+  filterAgentsByMachineScope,
+  filterFleetByMachineScope,
+  machineScopedAgentIds,
+} from "../lib/machine-scope.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import type {
   Agent,
@@ -62,6 +67,27 @@ type FleetHomeBrief = {
   preparedAt: number;
   expiresAt: number;
   ttlMs: number;
+  sourceBriefId?: string;
+};
+
+type BriefingKind = "fleet-home" | "tour";
+
+type BriefingSummary = {
+  id: string;
+  kind: BriefingKind;
+  title: string;
+  summary: string;
+  recommendation: string | null;
+  preparedAt: number;
+  ttlMs: number;
+  observationCount: number;
+  hasMarkdown: boolean;
+  createdAt: number;
+};
+
+const BRIEFING_KIND_LABEL: Record<BriefingKind, string> = {
+  "fleet-home": "fleet",
+  tour: "tour",
 };
 
 type StaleMotionItem = {
@@ -207,7 +233,16 @@ export function HomeScreen({
 }: {
   navigate: (r: Route) => void;
 }) {
-  const { agents, onboarding, reload } = useScout();
+  const { agents: allAgents, onboarding, reload, route } = useScout();
+  const machineId = routeMachineId(route);
+  const scopedAgentIds = useMemo(
+    () => machineScopedAgentIds(allAgents, machineId),
+    [allAgents, machineId],
+  );
+  const agents = useMemo(
+    () => filterAgentsByMachineScope(allAgents, machineId),
+    [allAgents, machineId],
+  );
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [attention, setAttention] = useState<OperatorAttentionState | null>(null);
   const [heartrate, setHeartrate] = useState<HeartrateBucketView[]>([]);
@@ -215,6 +250,8 @@ export function HomeScreen({
   const [heartrateBucketLabel, setHeartrateBucketLabel] = useState("3h buckets");
   const [serviceGauges, setServiceGauges] = useState<ServiceGauge[]>([]);
   const [fleetBrief, setFleetBrief] = useState<FleetHomeBrief | null>(null);
+  const [latestBriefing, setLatestBriefing] = useState<BriefingSummary | null>(null);
+  const [briefArchiveLoaded, setBriefArchiveLoaded] = useState(false);
   const [briefRefreshing, setBriefRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -228,6 +265,11 @@ export function HomeScreen({
   useEffect(() => {
     fleetRef.current = fleet;
   }, [fleet]);
+
+  const scopedFleet = useMemo(
+    () => filterFleetByMachineScope(fleet, scopedAgentIds),
+    [fleet, scopedAgentIds],
+  );
 
   const load = useCallback(async (mode: LoadMode = "initial") => {
     const requestId = ++requestIdRef.current;
@@ -315,26 +357,39 @@ export function HomeScreen({
     };
   }, []);
 
+  const fetchLatestBriefing = useCallback(async () => {
+    try {
+      const result = await api<{ briefings: BriefingSummary[] }>("/api/briefings?limit=1");
+      setLatestBriefing(result.briefings[0] ?? null);
+      setBriefArchiveLoaded(true);
+    } catch {
+      setBriefArchiveLoaded(true);
+      // Silent: the archive is a fallback for the live generated brief.
+    }
+  }, []);
+
   const fetchFleetBrief = useCallback(async (force = false) => {
     if (force) setBriefRefreshing(true);
     try {
       const path = force ? "/api/fleet/brief?refresh=1" : "/api/fleet/brief";
       const result = await api<FleetHomeBrief>(path);
       setFleetBrief(result);
+      void fetchLatestBriefing();
     } catch {
       // Silent: the generated brief is additive; the computed status line remains available.
     } finally {
       if (force) setBriefRefreshing(false);
     }
-  }, []);
+  }, [fetchLatestBriefing]);
 
   const briefPlayer = useHomeBriefPlayerState();
 
   useEffect(() => {
+    void fetchLatestBriefing();
     void fetchFleetBrief();
     const id = setInterval(() => void fetchFleetBrief(), FLEET_BRIEF_REFRESH_MS);
     return () => clearInterval(id);
-  }, [fetchFleetBrief]);
+  }, [fetchFleetBrief, fetchLatestBriefing]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -398,23 +453,23 @@ export function HomeScreen({
 
   const needsYouAsks = useMemo(
     () =>
-      [...(fleet?.activeAsks ?? []), ...(fleet?.recentCompleted ?? [])].filter(
+      [...(scopedFleet?.activeAsks ?? []), ...(scopedFleet?.recentCompleted ?? [])].filter(
         (a) => a.status === "needs_attention" || a.status === "failed",
       ),
-    [fleet],
+    [scopedFleet],
   );
   const movingAsks = useMemo(
     () =>
-      (fleet?.activeAsks ?? []).filter(
+      (scopedFleet?.activeAsks ?? []).filter(
         (a) => a.status === "queued" || a.status === "working",
       ),
-    [fleet],
+    [scopedFleet],
   );
   const freshMovingAsks = useMemo(
     () => movingAsks.filter((ask) => isFreshMovingTimestamp(ask.updatedAt, nowMs)),
     [movingAsks, nowMs],
   );
-  const needsYouItems = useMemo(() => fleet?.needsAttention ?? [], [fleet]);
+  const needsYouItems = useMemo(() => scopedFleet?.needsAttention ?? [], [scopedFleet]);
   const activeAskByAgent = useMemo(() => {
     const byAgent = new Map<string, FleetAsk>();
     for (const ask of freshMovingAsks) {
@@ -509,8 +564,15 @@ export function HomeScreen({
   );
 
   const totalNeedsYou = needsYouAsks.length + needsYouItems.length;
-  const attentionItems = attention?.items ?? [];
-  const totalOperatorQueue = attention?.totals.all ?? totalNeedsYou;
+  const attentionItems = useMemo(
+    () => scopedAgentIds
+      ? (attention?.items ?? []).filter((item) => item.agentId && scopedAgentIds.has(item.agentId))
+      : attention?.items ?? [],
+    [attention?.items, scopedAgentIds],
+  );
+  const totalOperatorQueue = machineId
+    ? totalNeedsYou + attentionItems.length
+    : attention?.totals.all ?? totalNeedsYou;
   const oldestNeedsTs = useMemo(() => {
     const stamps = [
       ...needsYouAsks.map((a) => a.updatedAt),
@@ -524,11 +586,16 @@ export function HomeScreen({
 
   const sinceMs = nowMs - lookbackMs;
   const liveActivity = useMemo<FleetActivity[]>(() => {
-    const items = fleet?.activity ?? [];
+    const items = scopedFleet?.activity ?? [];
     return items.filter(
       (item) => (normalizeTimestampMs(item.ts) ?? 0) >= sinceMs,
     );
-  }, [fleet?.activity, sinceMs]);
+  }, [scopedFleet?.activity, sinceMs]);
+  const liveActivityEmptyText = scopedFleet
+    ? `Quiet — no activity in the last ${formatLookback(lookbackMs)}.`
+    : loading || refreshing
+      ? "Loading activity…"
+      : "Activity snapshot unavailable.";
 
   const now = new Date();
   const greeting = greetingFor(now.getHours());
@@ -543,7 +610,7 @@ export function HomeScreen({
   const observedActiveActors = useMemo<FleetActivity[]>(() => {
     const ACTIVE_WINDOW_MS = 10 * 60_000;
     const cutoff = nowMs - ACTIVE_WINDOW_MS;
-    const items = fleet?.activity ?? [];
+    const items = scopedFleet?.activity ?? [];
     const managedNames = new Set(agents.map((a) => a.name.toLowerCase()));
     const managedIds = new Set(agents.map((a) => a.id));
     const interestingKinds = new Set([
@@ -573,7 +640,7 @@ export function HomeScreen({
     return [...byActor.values()].sort((a, b) =>
       compareTimestampsDesc(a.ts, b.ts),
     );
-  }, [fleet?.activity, nowMs, agents, operatorName]);
+  }, [scopedFleet?.activity, nowMs, agents, operatorName]);
 
   const fleetBriefExpiresAtMs = normalizeTimestampMs(fleetBrief?.expiresAt);
   const fleetBriefIsFresh =
@@ -681,19 +748,33 @@ export function HomeScreen({
       });
     }
 
+    const briefArchiveRoute: Route = latestBriefing
+      ? { view: "briefings", briefingId: latestBriefing.id }
+      : fleetBrief?.sourceBriefId
+        ? { view: "briefings", briefingId: fleetBrief.sourceBriefId }
+        : { view: "briefings" };
+    const briefMemoryValue = fleetBrief
+      ? `prepared ${timeAgo(fleetBrief.preparedAt)} · expires ${formatTimeUntil(fleetBrief.expiresAt, nowMs)}`
+      : latestBriefing
+        ? `latest ${BRIEFING_KIND_LABEL[latestBriefing.kind]} prepared ${timeAgo(latestBriefing.preparedAt)} · archived`
+        : briefArchiveLoaded
+          ? "no generated brief loaded yet"
+          : "checking brief archive...";
+
     signals.push({
       id: "brief-memory",
       label: "brief memory",
-      value: fleetBrief
-        ? `prepared ${timeAgo(fleetBrief.preparedAt)} · expires ${formatTimeUntil(fleetBrief.expiresAt, nowMs)}`
-        : "no generated brief loaded yet",
-      tone: fleetBriefIsFresh ? "dim" : "warn",
+      value: briefMemoryValue,
+      tone: fleetBriefIsFresh || latestBriefing || !briefArchiveLoaded ? "dim" : "warn",
+      route: briefArchiveRoute,
     });
 
     return signals;
   }, [
     fleetBrief,
     fleetBriefIsFresh,
+    briefArchiveLoaded,
+    latestBriefing,
     movingAsksWithoutActiveAgent.length,
     nowMs,
     observedActiveActors.length,
@@ -885,7 +966,7 @@ export function HomeScreen({
           />
           {liveActivity.length === 0 ? (
             <div className="s-mc-empty">
-              Quiet — no activity in the last {formatLookback(lookbackMs)}.
+              {liveActivityEmptyText}
             </div>
           ) : (
             <div className="s-mc-stream s-fleet-live-stream">

@@ -93,8 +93,8 @@
     "preferredTools": [
       "whoami",
       "agents_resolve",
+      "ask",
       "messages_send",
-      "invocations_ask",
       "invocations_get",
       "invocations_wait",
       "work_update"

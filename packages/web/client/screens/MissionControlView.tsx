@@ -18,8 +18,10 @@ import { statusOnHover } from "../lib/page-status.ts";
 import {
   MISSION_RECENT_WINDOWS,
   missionAgentMatchesQuery,
+  clearMissionCanvasFocusRequest,
   setMissionActivityFilter,
   setMissionFocusedId,
+  setMissionGroupMode,
   setMissionQuery,
   setMissionRecentWindow,
   setMissionSourceFilter,
@@ -27,6 +29,8 @@ import {
   toggleMissionSelected,
   clearMissionSelection,
   useMissionControlStore,
+  type MissionActivityState,
+  type MissionGroupMode,
 } from "../lib/mission-control-store.ts";
 import { normalizeAgentState, agentStateLabel } from "../lib/agent-state.ts";
 import {
@@ -58,10 +62,17 @@ const GROUP_GAP_X = 48;
 const GROUP_GAP_Y = 36;
 const GROUP_LABEL_H = 28;
 const CANVAS_PAD = 40;
+const FOCUS_TILE_MARGIN = 72;
+const MIN_FOCUS_ZOOM = 0.35;
+const MAX_FOCUS_ZOOM = 1.15;
 
 const MINIMAP_FALLBACK_W = 244;
 const MINIMAP_MAX_H = 160;
-const ACTIVE_EVENT_WINDOW_MS = 2 * 60_000;
+const ACTIVE_EVENT_WINDOW_MS = 60_000;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
 
 /* ── Viewport persistence ── */
 
@@ -99,6 +110,8 @@ type CanvasSubject = {
   name: string;
   group: string;
   stateRank: number;
+  activity: MissionActivityState;
+  lastActiveAt: number;
 };
 type NativeSessionModel = {
   id: string;
@@ -111,8 +124,12 @@ type NativeSessionModel = {
   recent: boolean;
 };
 
-function computeLayout(subjects: CanvasSubject[]): CanvasLayout {
-  const groups = groupSubjects(subjects);
+function computeLayout(
+  subjects: CanvasSubject[],
+  groupMode: MissionGroupMode,
+  recentLabel: string,
+): CanvasLayout {
+  const groups = groupSubjects(subjects, groupMode, recentLabel);
   if (groups.length === 0) return { groups: [], canvasW: 0, canvasH: 0 };
 
   const targetCols = Math.max(1, Math.round(Math.sqrt(groups.length * 1.2)));
@@ -149,34 +166,91 @@ function computeLayout(subjects: CanvasSubject[]): CanvasLayout {
 
 type SubjectGroup = { label: string; subjects: CanvasSubject[] };
 
-function groupSubjects(subjects: CanvasSubject[]): SubjectGroup[] {
+function activityRank(activity: MissionActivityState): number {
+  switch (activity) {
+    case "active":
+      return 0;
+    case "recent":
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+function subjectGroupLabel(
+  subject: CanvasSubject,
+  groupMode: MissionGroupMode,
+  recentLabel: string,
+): string {
+  if (groupMode === "workspace") return subject.group;
+  if (subject.activity === "active") return "Active now";
+  if (subject.activity === "recent") return `Recent ${recentLabel}`;
+  return subject.group;
+}
+
+function sortSubjectsByPriority(a: CanvasSubject, b: CanvasSubject): number {
+  const ar = activityRank(a.activity);
+  const br = activityRank(b.activity);
+  if (ar !== br) return ar - br;
+  if (a.lastActiveAt !== b.lastActiveAt) return b.lastActiveAt - a.lastActiveAt;
+  if (a.stateRank !== b.stateRank) return a.stateRank - b.stateRank;
+  return a.name.localeCompare(b.name);
+}
+
+function groupSortRank(group: SubjectGroup, groupMode: MissionGroupMode): number {
+  if (groupMode === "activity") {
+    if (group.label === "Active now") return 0;
+    if (group.label.startsWith("Recent ")) return 1;
+  }
+  return Math.min(...group.subjects.map((subject) => activityRank(subject.activity)));
+}
+
+function groupSubjects(
+  subjects: CanvasSubject[],
+  groupMode: MissionGroupMode,
+  recentLabel: string,
+): SubjectGroup[] {
   const sorted = [...subjects].sort((a, b) => {
-    if (a.stateRank !== b.stateRank) return a.stateRank - b.stateRank;
-    return a.name.localeCompare(b.name);
+    return sortSubjectsByPriority(a, b);
   });
 
   const byGroup = new Map<string, CanvasSubject[]>();
   for (const subject of sorted) {
-    if (!byGroup.has(subject.group)) byGroup.set(subject.group, []);
-    byGroup.get(subject.group)!.push(subject);
+    const label = subjectGroupLabel(subject, groupMode, recentLabel);
+    if (!byGroup.has(label)) byGroup.set(label, []);
+    byGroup.get(label)!.push(subject);
   }
 
   const groups: SubjectGroup[] = [];
   for (const [label, group] of byGroup) {
     groups.push({ label, subjects: group });
   }
-  groups.sort((a, b) => b.subjects.length - a.subjects.length);
+  groups.sort((a, b) => {
+    const rank = groupSortRank(a, groupMode) - groupSortRank(b, groupMode);
+    if (rank !== 0) return rank;
+    const activity = Math.max(...b.subjects.map((subject) => subject.lastActiveAt))
+      - Math.max(...a.subjects.map((subject) => subject.lastActiveAt));
+    if (activity !== 0) return activity;
+    if (b.subjects.length !== a.subjects.length) return b.subjects.length - a.subjects.length;
+    return a.label.localeCompare(b.label);
+  });
   return groups;
 }
 
-function agentSubject(agent: Agent): CanvasSubject {
+function agentSubject(
+  agent: Agent,
+  activity: { current: boolean; recent: boolean; lastActiveAt: number } | undefined,
+): CanvasSubject {
   const stateOrder: Record<string, number> = { working: 0, available: 1, offline: 2 };
   const state = normalizeAgentState(agent.state);
+  const activityState = activity?.current ? "active" : activity?.recent ? "recent" : "idle";
   return {
     id: agent.id,
     name: agent.name,
     group: agent.project ?? "unassigned",
     stateRank: stateOrder[state] ?? 1,
+    activity: activityState,
+    lastActiveAt: activity?.lastActiveAt ?? agent.updatedAt ?? 0,
   };
 }
 
@@ -186,6 +260,8 @@ function nativeSubject(session: NativeSessionModel): CanvasSubject {
     name: session.agent.name,
     group: `native ${session.transcript.source}`,
     stateRank: session.current ? 0 : 1,
+    activity: session.current ? "active" : session.recent ? "recent" : "idle",
+    lastActiveAt: session.lastActiveAt,
   };
 }
 
@@ -210,6 +286,13 @@ function sessionLastActivityByAgent(sessions: SessionEntry[]): Map<string, numbe
   return activity;
 }
 
+function observeLastEventAt(observe: ObserveCacheEntry | undefined): number {
+  const sessionStart = observe?.data.metadata?.session?.sessionStart;
+  if (typeof sessionStart !== "number" || !Number.isFinite(sessionStart)) return 0;
+  const lastEventT = Math.max(0, ...(observe?.data.events ?? []).map((event) => event.t));
+  return lastEventT > 0 ? sessionStart + lastEventT * 1000 : sessionStart;
+}
+
 function agentLastActivityAt(
   agent: Agent,
   observe: ObserveCacheEntry | undefined,
@@ -217,7 +300,7 @@ function agentLastActivityAt(
 ): number {
   return Math.max(
     sessionsLastAt.get(agent.id) ?? 0,
-    observe?.updatedAt ?? 0,
+    observeLastEventAt(observe),
     normalizeAgentState(agent.state) === "working" ? agent.updatedAt ?? 0 : 0,
   );
 }
@@ -225,14 +308,49 @@ function agentLastActivityAt(
 function isAgentCurrentlyActive(
   agent: Agent,
   observe: ObserveCacheEntry | undefined,
-  lastActiveAt: number,
-  now: number,
 ): boolean {
   return (
     normalizeAgentState(agent.state) === "working" ||
     observe?.data.live === true ||
-    (lastActiveAt > 0 && now - lastActiveAt <= ACTIVE_EVENT_WINDOW_MS)
+    (observe?.data.events ?? []).some((event) => event.live === true)
   );
+}
+
+type ActivityInfo = { lastActiveAt: number; current: boolean; recent: boolean };
+
+function missionActivityState(activity: ActivityInfo | undefined): MissionActivityState {
+  if (activity?.current) return "active";
+  if (activity?.recent) return "recent";
+  return "idle";
+}
+
+function compareActivity(
+  a: ActivityInfo | undefined,
+  b: ActivityInfo | undefined,
+): number {
+  const rank = activityRank(missionActivityState(a)) - activityRank(missionActivityState(b));
+  if (rank !== 0) return rank;
+  return (b?.lastActiveAt ?? 0) - (a?.lastActiveAt ?? 0);
+}
+
+function compareAgentsByActivity(
+  a: Agent,
+  b: Agent,
+  activityByAgent: Map<string, ActivityInfo>,
+): number {
+  const activity = compareActivity(activityByAgent.get(a.id), activityByAgent.get(b.id));
+  if (activity !== 0) return activity;
+  const stateOrder: Record<string, number> = { working: 0, available: 1, offline: 2 };
+  const state = (stateOrder[normalizeAgentState(a.state)] ?? 1)
+    - (stateOrder[normalizeAgentState(b.state)] ?? 1);
+  if (state !== 0) return state;
+  return a.name.localeCompare(b.name);
+}
+
+function compareNativeSessionsByActivity(a: NativeSessionModel, b: NativeSessionModel): number {
+  const activity = compareActivity(a, b);
+  if (activity !== 0) return activity;
+  return a.agent.name.localeCompare(b.agent.name);
 }
 
 function shortId(value: string | null | undefined): string {
@@ -392,10 +510,19 @@ export function MissionControlView({
   agents: Agent[];
 }) {
   const mc = useMissionControlStore();
-  const { activityFilter, sourceFilter, recentWindowMs, query, focusedId } = mc;
+  const {
+    activityFilter,
+    sourceFilter,
+    recentWindowMs,
+    groupMode,
+    query,
+    focusedId,
+    canvasFocusRequest,
+  } = mc;
   const setActivityFilter = setMissionActivityFilter;
   const setSourceFilter = setMissionSourceFilter;
   const setRecentWindowMs = setMissionRecentWindow;
+  const setGroupMode = setMissionGroupMode;
   const setFocusedId = setMissionFocusedId;
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [tailDiscovery, setTailDiscovery] = useState<TailDiscoverySnapshot | null>(null);
@@ -472,11 +599,11 @@ export function MissionControlView({
   const sessionsLastAt = useMemo(() => sessionLastActivityByAgent(sessions), [sessions]);
 
   const activityByAgent = useMemo(() => {
-    const map = new Map<string, { lastActiveAt: number; current: boolean; recent: boolean }>();
+    const map = new Map<string, ActivityInfo>();
     for (const agent of agents) {
       const observe = observeCache[agent.id];
       const lastActiveAt = agentLastActivityAt(agent, observe, sessionsLastAt);
-      const current = isAgentCurrentlyActive(agent, observe, lastActiveAt, now);
+      const current = isAgentCurrentlyActive(agent, observe);
       map.set(agent.id, {
         lastActiveAt,
         current,
@@ -550,7 +677,7 @@ export function MissionControlView({
         ),
       );
     }
-    return list;
+    return [...list].sort((a, b) => compareAgentsByActivity(a, b, activityByAgent));
   }, [activityByAgent, activityFilter, agents, query, sourceFilter]);
 
   const visibleNativeSessions = useMemo(() => {
@@ -576,12 +703,14 @@ export function MissionControlView({
         ),
       );
     }
-    return list;
+    return [...list].sort(compareNativeSessionsByActivity);
   }, [activityFilter, nativeSessions, query, sourceFilter]);
 
   useEffect(() => {
     const merged = [
       ...visibleAgents.map((a) => ({
+        activity: missionActivityState(activityByAgent.get(a.id)),
+        lastActiveAt: activityByAgent.get(a.id)?.lastActiveAt ?? null,
         id: a.id,
         name: a.name,
         handle: a.handle,
@@ -595,6 +724,8 @@ export function MissionControlView({
         source: "scout" as const,
       })),
       ...visibleNativeSessions.map((s) => ({
+        activity: s.current ? "active" as const : s.recent ? "recent" as const : "idle" as const,
+        lastActiveAt: s.lastActiveAt,
         id: s.agent.id,
         name: s.agent.name,
         handle: s.agent.handle,
@@ -607,25 +738,43 @@ export function MissionControlView({
         updatedAt: s.agent.updatedAt,
         source: "native" as const,
       })),
-    ];
+    ].sort((a, b) => {
+      const activity = compareActivity(
+        { current: a.activity === "active", recent: a.activity !== "idle", lastActiveAt: a.lastActiveAt ?? 0 },
+        { current: b.activity === "active", recent: b.activity !== "idle", lastActiveAt: b.lastActiveAt ?? 0 },
+      );
+      if (activity !== 0) return activity;
+      return a.name.localeCompare(b.name);
+    });
     setMissionVisibleAgents(merged);
-  }, [visibleAgents, visibleNativeSessions]);
+  }, [activityByAgent, visibleAgents, visibleNativeSessions]);
+
+  const recentWindowLabel = useMemo(
+    () => MISSION_RECENT_WINDOWS.find((option) => option.value === recentWindowMs)?.label ?? "recent",
+    [recentWindowMs],
+  );
 
   const canvasSubjects = useMemo(
     () => [
-      ...visibleAgents.map(agentSubject),
+      ...visibleAgents.map((agent) => agentSubject(agent, activityByAgent.get(agent.id))),
       ...visibleNativeSessions.map(nativeSubject),
     ],
-    [visibleAgents, visibleNativeSessions],
+    [activityByAgent, visibleAgents, visibleNativeSessions],
   );
 
-  const layout = useMemo(() => computeLayout(canvasSubjects), [canvasSubjects]);
+  const layout = useMemo(
+    () => computeLayout(canvasSubjects, groupMode, recentWindowLabel),
+    [canvasSubjects, groupMode, recentWindowLabel],
+  );
 
   const animTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [canvasFocusHighlightId, setCanvasFocusHighlightId] = useState<string | null>(null);
+  const consumedCanvasFocusSerialRef = useRef<number | null>(null);
 
   const triggerEntry = useCallback((useSaved = true) => {
     if (layout.canvasW === 0 || vpSize.w === 0) return;
     animTimers.current.forEach(clearTimeout);
+    setCanvasFocusHighlightId(null);
 
     const fitZoom = Math.min(1, vpSize.w / layout.canvasW, vpSize.h / layout.canvasH);
     const overviewZoom = Math.max(0.15, Math.min(1, fitZoom * 0.92));
@@ -655,6 +804,7 @@ export function MissionControlView({
   const fitAll = useCallback(() => {
     if (layout.canvasW === 0 || vpSize.w === 0) return;
     animTimers.current.forEach(clearTimeout);
+    setCanvasFocusHighlightId(null);
 
     const fitZoom = Math.min(1, vpSize.w / layout.canvasW, vpSize.h / layout.canvasH);
     const overviewZoom = Math.max(0.15, Math.min(1, fitZoom * 0.92));
@@ -673,7 +823,7 @@ export function MissionControlView({
     if (layout.canvasW === 0 || vpSize.w === 0) return;
     if (hasAnimated.current) return;
     hasAnimated.current = true;
-    triggerEntry(true);
+    triggerEntry(false);
   }, [layout, vpSize, triggerEntry]);
 
   /* ── Passive viewport save ── */
@@ -773,6 +923,8 @@ export function MissionControlView({
     (point: { x: number; y: number }) => {
       const vp = viewportRef.current;
       if (!vp) return;
+      animTimers.current.forEach(clearTimeout);
+      setCanvasFocusHighlightId(null);
       setPan({
         x: vp.clientWidth / 2 - point.x * zoom,
         y: vp.clientHeight / 2 - point.y * zoom,
@@ -788,6 +940,42 @@ export function MissionControlView({
     }
     return map;
   }, [layout]);
+
+  const focusCanvasSubject = useCallback((id: string): boolean => {
+    const pos = tilePositions[id];
+    if (!pos || vpSize.w === 0 || vpSize.h === 0) return false;
+
+    animTimers.current.forEach(clearTimeout);
+    const horizontalZoom = (vpSize.w - FOCUS_TILE_MARGIN * 2) / TILE_W;
+    const verticalZoom = (vpSize.h - FOCUS_TILE_MARGIN * 2) / TILE_H;
+    const nextZoom = clamp(
+      Math.min(horizontalZoom, verticalZoom),
+      MIN_FOCUS_ZOOM,
+      MAX_FOCUS_ZOOM,
+    );
+    const nextPan = {
+      x: vpSize.w / 2 - (pos.x + TILE_W / 2) * nextZoom,
+      y: vpSize.h / 2 - (pos.y + TILE_H / 2) * nextZoom,
+    };
+
+    setIsTransitioning(true);
+    setZoom(nextZoom);
+    setPan(nextPan);
+    setCanvasFocusHighlightId(id);
+
+    const settle = setTimeout(() => setIsTransitioning(false), 650);
+    const clearHighlight = setTimeout(() => setCanvasFocusHighlightId(null), 1800);
+    animTimers.current = [settle, clearHighlight];
+    return true;
+  }, [tilePositions, vpSize]);
+
+  useEffect(() => {
+    if (!canvasFocusRequest) return;
+    if (consumedCanvasFocusSerialRef.current === canvasFocusRequest.serial) return;
+    if (!focusCanvasSubject(canvasFocusRequest.id)) return;
+    consumedCanvasFocusSerialRef.current = canvasFocusRequest.serial;
+    clearMissionCanvasFocusRequest(canvasFocusRequest.serial);
+  }, [canvasFocusRequest, focusCanvasSubject]);
 
   const activeCount =
     visibleAgents.filter((agent) => activityByAgent.get(agent.id)?.current).length +
@@ -836,6 +1024,7 @@ export function MissionControlView({
   }, [mc.selectedIds, visibleNativeSessions]);
   const selectedNativeCount = selectedNativeSessionIds.length;
   const selectedLaunchableCount = selectedScoutAgentIds.length + selectedNativeSessionIds.length;
+  const groupNoun = groupMode === "activity" ? "group" : "workspace";
 
   return (
     <div className="s-mission">
@@ -843,14 +1032,12 @@ export function MissionControlView({
         <span className="s-mission-bar-label">
           {visibleTileCount}/{totalTileCount} tile{totalTileCount !== 1 ? "s" : ""} ·{" "}
           {visibleSessionCount} session{visibleSessionCount !== 1 ? "s" : ""} ·{" "}
-          {layout.groups.length} workspace{layout.groups.length !== 1 ? "s" : ""}
+          {layout.groups.length} {groupNoun}{layout.groups.length !== 1 ? "s" : ""}
         </span>
-        {activeCount > 0 && (
-          <span className="s-mission-bar-live">
-            <span className="s-mission-bar-live-dot" />
-            {activeCount} active
-          </span>
-        )}
+        <span className={`s-mission-bar-live${activeCount === 0 ? " s-mission-bar-live--idle" : ""}`}>
+          <span className="s-mission-bar-live-dot" />
+          {activeCount} active now
+        </span>
         <div className="s-mission-bar-search">
           <input
             type="text"
@@ -913,6 +1100,22 @@ export function MissionControlView({
             onClick={() => setSourceFilter("native")}
           >
             Native {nativeSessions.length}
+          </button>
+        </div>
+        <div className="s-mission-controls" role="group" aria-label="Canvas grouping">
+          <button
+            type="button"
+            className={`s-mission-filter${groupMode === "activity" ? " s-mission-filter--active" : ""}`}
+            onClick={() => setGroupMode("activity")}
+          >
+            Activity first
+          </button>
+          <button
+            type="button"
+            className={`s-mission-filter${groupMode === "workspace" ? " s-mission-filter--active" : ""}`}
+            onClick={() => setGroupMode("workspace")}
+          >
+            Workspace
           </button>
         </div>
         {activityFilter === "recent" && (
@@ -1010,7 +1213,11 @@ export function MissionControlView({
             {layout.groups.map((g) => (
               <div
                 key={g.label}
-                className="s-mission-group-label"
+                className={[
+                  "s-mission-group-label",
+                  g.label === "Active now" && "s-mission-group-label--active",
+                  g.label.startsWith("Recent ") && "s-mission-group-label--recent",
+                ].filter(Boolean).join(" ")}
                 style={{ left: g.x, top: g.y }}
               >
                 {g.label}
@@ -1030,6 +1237,7 @@ export function MissionControlView({
                   x={pos.x}
                   y={pos.y}
                   selected={isSelected}
+                  canvasFocused={canvasFocusHighlightId === agent.id}
                   onToggleSelected={() => toggleMissionSelected(agent.id)}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey || e.shiftKey) {
@@ -1053,6 +1261,7 @@ export function MissionControlView({
                   x={pos.x}
                   y={pos.y}
                   selected={isSelected}
+                  canvasFocused={canvasFocusHighlightId === session.id}
                   onToggleSelected={() => toggleMissionSelected(session.id)}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey || e.shiftKey) {
@@ -1116,6 +1325,7 @@ function ObserveTile({
   x,
   y,
   selected = false,
+  canvasFocused = false,
   onToggleSelected,
   onClick,
 }: {
@@ -1124,6 +1334,7 @@ function ObserveTile({
   x: number;
   y: number;
   selected?: boolean;
+  canvasFocused?: boolean;
   onToggleSelected: () => void;
   onClick: (e: ReactMouseEvent) => void;
 }) {
@@ -1156,7 +1367,13 @@ function ObserveTile({
 
   return (
     <div
-      className={`s-mission-tile${state === "working" ? " s-mission-tile--working" : ""}${hasAsk ? " s-mission-tile--asking" : ""}${selected ? " s-mission-tile--selected" : ""}`}
+      className={[
+        "s-mission-tile",
+        state === "working" ? "s-mission-tile--working" : null,
+        hasAsk ? "s-mission-tile--asking" : null,
+        selected ? "s-mission-tile--selected" : null,
+        canvasFocused ? "s-mission-tile--canvas-focused" : null,
+      ].filter(Boolean).join(" ")}
       style={{ left: x, top: y, height: TILE_H }}
       onClick={(e) => { e.stopPropagation(); onClick(e); }}
       onPointerEnter={hoverHandlers.onPointerEnter}
@@ -1428,7 +1645,7 @@ function FocusProfileTab({ agent }: { agent: Agent }) {
     ["CWD", agent.cwd || agent.projectRoot || "—"],
     ["AGENT", agent.agentClass || "—"],
     ["ROLE", agent.role || agent.transport || "—"],
-    ["HOME", agent.homeNodeName ?? agent.homeNodeId ?? "—"],
+    ["MACHINE", agent.authorityNodeName ?? agent.homeNodeName ?? agent.authorityNodeId ?? agent.homeNodeId ?? "—"],
     ["OWNER", agent.ownerHandle ?? agent.ownerName ?? agent.ownerId ?? "—"],
     ["SPAWNED", agent.createdAt ? timeAgo(agent.createdAt) : "—"],
     ["STATE", agentStateLabel(agent.state)],

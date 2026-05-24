@@ -72,6 +72,17 @@ Session invariants:
   reverse, unless an explicit adapter exists
 - `card create` creates identity and return-address metadata; it does not imply
   a running session unless a command explicitly starts one
+- short-lived agent-created cards should be one-time reply addresses by
+  default, with expiry and cleanup metadata, instead of permanent directory
+  identities
+- exact session asks should route work by `targetSessionId` to continue context;
+  asks without a target session may route by agent/project and create the
+  lightest usable fresh session/card
+- project-path asks do not require a caller-created card first; if no card
+  resolves for that project, the broker can create a one-time card as part of
+  accepting the work
+- when the sender needs a concrete live reply destination, carry
+  `replyToSessionId` rather than minting another card
 - `up` / wake behavior must resolve to start or attach semantics and report the
   chosen session id
 - incompatible, missing, or failed sessions must produce specific diagnostics
@@ -140,9 +151,21 @@ Agents connected through Scout's MCP server should prefer:
 - future `sessions_*` tools for explicit harness session start, attach, inspect,
   and stop operations
 
-Use `ask` first. It returns a compact receipt and lets Scout resolve, route,
-and wake the target when possible. Use lower-level invocation tools only when a
-caller needs their extra reply-mode controls.
+Use `ask` for requested work. It returns a compact receipt and lets Scout resolve, route,
+and wake the target when possible. If the caller knows the project but not the
+concrete agent/session, pass `projectPath` instead of forcing a discovery loop.
+Invocation and flight records are created as side effects of the ask; use
+`invocations_get` and `invocations_wait` only to observe those records.
+
+Base identity is the vanilla project/workspace identity. Harness, model,
+profile, node, and session values describe a concrete instance or attachment
+constraint on that identity; they should not be treated as new base agents
+unless the caller is intentionally selecting a specialized profile.
+
+Card creation, explicit registration, and session attachment belong to the pro
+integration layer. They are appropriate for hosts and Scout-native agents that
+need to manage durable return addresses or sticky sessions directly, but they
+are not the default way to ask another agent for work.
 
 ## Collaboration Semantics
 

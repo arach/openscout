@@ -8,7 +8,7 @@ import {
   resolveScoutTerminalRelayHealthUrl,
   resolveScoutTerminalRelayUrl,
 } from "../lib/runtime-config.ts";
-import { createVantageHandoff } from "../lib/vantage.ts";
+import { createVantageHandoff, formatVantageLinkLabel } from "../lib/vantage.ts";
 import type { Route } from "../lib/types.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 
@@ -43,6 +43,18 @@ export function TerminalScreen({
     void createVantageHandoff({ agentId: agentId ?? null, launch: true })
       .then((handoff) => {
         const nodeCount = handoff.plan.manifest.nodes.length;
+        const linkLabel = formatVantageLinkLabel(handoff);
+        if (nodeCount === 0) {
+          const diagnostic = handoff.plan.diagnostics.find((candidate) => candidate.severity === "warning")
+            ?? handoff.plan.diagnostics[0];
+          setHandoffState({
+            state: "failed",
+            error: diagnostic
+              ? `${linkLabel} · no windows: ${diagnostic.message}`
+              : `${linkLabel} · no Vantage windows.`,
+          });
+          return;
+        }
         if (!handoff.launch.ok && handoff.launch.error) {
           setHandoffState({
             state: "failed",
@@ -53,7 +65,7 @@ export function TerminalScreen({
         const launchDetail = handoff.launch.ok ? "Vantage launch requested" : "Vantage handoff written";
         setHandoffState({
           state: "opened",
-          detail: `${nodeCount} node${nodeCount === 1 ? "" : "s"} - ${launchDetail}`,
+          detail: `${linkLabel} · ${nodeCount} node${nodeCount === 1 ? "" : "s"} · ${launchDetail}`,
         });
       })
       .catch((error) => {

@@ -7,7 +7,7 @@ import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 import { parseCardCreateCommandOptions } from "../options.ts";
-import { createScoutAgentCard, retireScoutAgentCard, updateScoutAgentCard } from "../../core/agents/service.ts";
+import { cleanupScoutAgentCards, createScoutAgentCard, retireScoutAgentCard, updateScoutAgentCard } from "../../core/agents/service.ts";
 import { parseScoutLocalHarness, resolveScoutAgentName } from "../../core/broker/service.ts";
 import { renderScoutAgentCard } from "../../ui/terminal/cards.ts";
 
@@ -16,8 +16,9 @@ const HELP_FLAGS = new Set(["help", "--help", "-h"]);
 export function renderCardCommandHelp(): string {
   return [
     "Usage:",
-    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--no-input] [--path <path>]",
+    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--one-time] [--no-input] [--path <path>]",
     `  scout card update <agent> [--harness <claude|codex|pi>] [--model <model>|--clear-model] [--reasoning-effort <effort>|--clear-reasoning-effort] [--permission-profile <${formatScoutPermissionProfiles()}>|--clear-permission-profile] [--restart]`,
+    "  scout card cleanup [--all]",
     "  scout card retire <agent>",
     "",
     "Create, update, or retire a dedicated Scout agent card with a reply-ready return address.",
@@ -28,6 +29,8 @@ export function renderCardCommandHelp(): string {
     "Examples:",
     "  scout card create",
     '  scout card create ~/dev/openscout-worktrees/shell-fix --name shellfix --harness claude --model claude-sonnet-4-6',
+    "  scout card create --one-time --name review",
+    "  scout card cleanup",
     "  scout card update talkie-drift-investigator --harness claude --model claude-opus-4-7",
     "  scout card retire talkie-drift-investigator",
   ].join("\n");
@@ -144,6 +147,18 @@ function renderCardRetireResult(value: Awaited<ReturnType<typeof retireScoutAgen
   return `Retired ${value.agentId}`;
 }
 
+function renderCardCleanupResult(value: Awaited<ReturnType<typeof cleanupScoutAgentCards>>): string {
+  const count = value.retired.length;
+  if (count === 0) {
+    return `No one-time cards retired. Inspected ${value.inspected}.`;
+  }
+  const agents = value.retired.map((agent) => `- ${agent.agentId}`).join("\n");
+  return [
+    `Retired ${count} one-time card${count === 1 ? "" : "s"}.`,
+    agents,
+  ].join("\n");
+}
+
 function promptWithDefault(question: string, defaultValue: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -195,6 +210,26 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
     const agentId = await resolveCardAgentId(target);
     const retired = await retireScoutAgentCard(agentId);
     context.output.writeValue(retired, renderCardRetireResult);
+    return;
+  }
+  if (subcommand === "cleanup" || subcommand === "prune") {
+    if (args.slice(1).some((arg) => HELP_FLAGS.has(arg))) {
+      context.output.writeText(renderCardCommandHelp());
+      return;
+    }
+    let all = false;
+    for (const arg of args.slice(1)) {
+      if (arg === "--all") {
+        all = true;
+        continue;
+      }
+      throw new ScoutCliError(`unexpected argument for card cleanup: ${arg}`);
+    }
+    const cleaned = await cleanupScoutAgentCards({
+      currentDirectory: defaultScoutContextDirectory(context),
+      maxCount: all ? 0 : undefined,
+    });
+    context.output.writeValue(cleaned, renderCardCleanupResult);
     return;
   }
   if (subcommand !== "create") {
@@ -255,6 +290,7 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
     permissionProfile: options.permissionProfile,
     currentDirectory: options.currentDirectory,
     createdById: resolveScoutAgentName(options.requesterId),
+    oneTimeUse: options.oneTimeUse,
   });
 
   context.output.writeValue(card, renderScoutAgentCard);

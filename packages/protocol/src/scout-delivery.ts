@@ -41,9 +41,11 @@ export interface ScoutDeliverRequest {
   target?: ScoutRouteTarget;
   targetLabel?: string;
   targetAgentId?: ScoutId;
+  targetSessionId?: ScoutId;
   routePolicy?: ScoutRoutePolicy;
   channel?: string;
   replyToMessageId?: ScoutId;
+  replyToSessionId?: ScoutId;
   speechText?: string;
   ensureAwake?: boolean;
   execution?: InvocationExecutionPreference;
@@ -70,6 +72,7 @@ export interface ScoutDeliveryReceipt {
   requesterId: ScoutId;
   requesterNodeId: ScoutId;
   targetAgentId?: ScoutId;
+  targetSessionId?: ScoutId;
   targetLabel?: string;
   bindingRef?: string;
   conversationId: ScoutId;
@@ -94,6 +97,7 @@ export interface ScoutDeliverAcceptedResponse {
   conversation: ConversationDefinition;
   message: MessageRecord;
   targetAgentId?: ScoutId;
+  targetSessionId?: ScoutId;
   bindingRef?: string;
   flight?: FlightRecord;
   workItem?: WorkItemRecord;

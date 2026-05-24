@@ -7,7 +7,9 @@ import {
   getLocalAgentConfig,
   inferLocalAgentBinding,
   listLocalAgents,
+  pruneOneTimeLocalAgentCards,
   retireLocalAgent,
+  retireConsumedOneTimeLocalAgentCards,
   resolveLocalAgentByName,
   resolveLocalAgentIdentity,
   startLocalAgent,
@@ -21,6 +23,7 @@ import {
   writeRelayAgentOverrides,
   type OpenScoutProjectConfig,
 } from "./setup.js";
+import { configuredOperatorActorIds } from "./conversations/legacy-ids.js";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -28,6 +31,7 @@ const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
 const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
 const originalSkipUserProjectHints = process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const testDirectories = new Set<string>();
 
 afterEach(() => {
@@ -57,6 +61,11 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = originalSkipUserProjectHints;
   }
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
 
   for (const directory of testDirectories) {
     rmSync(directory, { recursive: true, force: true });
@@ -70,6 +79,7 @@ function useIsolatedOpenScoutHome(): string {
   process.env.HOME = home;
   process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
   process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+  process.env.OPENSCOUT_HOME = join(home, ".openscout");
   process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
   process.env.OPENSCOUT_NODE_QUALIFIER = "test-node";
   process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
@@ -639,5 +649,267 @@ describe("local agent lifecycle", () => {
       definitionId: "ranger",
       projectConfigPath: manifestPath,
     });
+  });
+
+  test("applies the generic operator augment prompt to the configured handle-ai agent", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "home");
+
+    mkdirSync(join(home, ".openscout"), { recursive: true });
+    writeFileSync(
+      join(home, ".openscout", "user.json"),
+      `${JSON.stringify({ name: "Scout Human", handle: "@pilot" }, null, 2)}\n`,
+      "utf8",
+    );
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "pilot-ai",
+      harness: "codex",
+      model: "gpt-5.5",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status.definitionId).toBe("pilot-ai");
+    expect(override?.systemPrompt).toContain("human Scout operator @pilot");
+    expect(override?.systemPrompt).toContain("@pilot-ai is the AI-augmented looper");
+    expect(override?.systemPrompt).toContain("When to invoke @pilot:");
+    expect(override?.systemPrompt).not.toContain("@arach");
+    expect(configuredOperatorActorIds()).toEqual(["operator", "Scout Human", "pilot"]);
+  });
+
+  test("applies the operator augment prompt when forking from an existing same-root agent", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "home");
+
+    mkdirSync(join(home, ".openscout"), { recursive: true });
+    writeFileSync(
+      join(home, ".openscout", "user.json"),
+      `${JSON.stringify({ name: "Scout Human", handle: "@pilot" }, null, 2)}\n`,
+      "utf8",
+    );
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    await writeRelayAgentOverrides({
+      "home.test-node": {
+        agentId: "home.test-node",
+        definitionId: "home",
+        displayName: "Home",
+        projectName: "Home",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-home-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "operator-ai",
+      harness: "codex",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status.definitionId).toBe("operator-ai");
+    expect(override?.systemPrompt).toContain("human Scout operator @pilot");
+    expect(override?.systemPrompt).toContain("@operator-ai is the AI-augmented looper");
+    expect(overrides["home.test-node"]?.systemPrompt).toBeUndefined();
+  });
+
+  test("prunes expired and overflowing one-time agent cards", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "review-old.test-node": {
+        agentId: "review-old.test-node",
+        definitionId: "review-old",
+        displayName: "Review Old",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 1_000,
+          createdById: "operator",
+          expiresAt: 2_000,
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-old-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+      "review-overflow.test-node": {
+        agentId: "review-overflow.test-node",
+        definitionId: "review-overflow",
+        displayName: "Review Overflow",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 3_000,
+          createdById: "operator",
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-overflow-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+      "review-new.test-node": {
+        agentId: "review-new.test-node",
+        definitionId: "review-new",
+        displayName: "Review New",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 9_000,
+          createdById: "operator",
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-new-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+      "ranger.test-node": {
+        agentId: "ranger.test-node",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "ranger-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const result = await pruneOneTimeLocalAgentCards({
+      now: 10_000,
+      maxAgeMs: 100_000,
+      maxCount: 1,
+      createdById: "operator",
+      projectRoot,
+    });
+
+    expect(result.retired.map((agent) => agent.definitionId).sort()).toEqual([
+      "review-old",
+      "review-overflow",
+    ]);
+    expect(result.remaining).toBe(1);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "ranger.test-node",
+      "review-new.test-node",
+    ]);
+  });
+
+  test("retires a one-time card after its direct conversation is used by the peer", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "review-reply.test-node": {
+        agentId: "review-reply.test-node",
+        definitionId: "review-reply",
+        displayName: "Review Reply",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 1_000,
+          createdById: "operator",
+          inboxConversationId: "dm.operator.review-reply.test-node",
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-reply-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+      "target.test-node": {
+        agentId: "target.test-node",
+        definitionId: "target",
+        displayName: "Target",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "target-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    expect(
+      await retireConsumedOneTimeLocalAgentCards({
+        conversationId: "dm.operator.review-reply.test-node",
+        actorId: "operator",
+        participantIds: ["operator", "review-reply.test-node"],
+      }),
+    ).toEqual([]);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "review-reply.test-node",
+      "target.test-node",
+    ]);
+
+    expect(
+      await retireConsumedOneTimeLocalAgentCards({
+        conversationId: "dm.operator.review-reply.test-node",
+        actorId: "review-reply.test-node",
+        participantIds: ["operator", "review-reply.test-node"],
+      }),
+    ).toEqual([]);
+
+    const retired = await retireConsumedOneTimeLocalAgentCards({
+      conversationId: "dm.review-reply.test-node.target.test-node",
+      actorId: "target.test-node",
+      participantIds: ["review-reply.test-node", "target.test-node"],
+    });
+
+    expect(retired.map((agent) => agent.definitionId)).toEqual(["review-reply"]);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual(["target.test-node"]);
   });
 });

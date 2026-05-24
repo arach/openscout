@@ -78,6 +78,7 @@ export interface ObserveSessionMeta {
   adapterType?: string;
   model?: string;
   cwd?: string;
+  sessionStart?: number;
   turnCount?: number;
   externalSessionId?: string;
   threadId?: string;
@@ -455,7 +456,10 @@ function metadataNumber(
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function buildObserveMetadata(snapshot: SessionState): ObserveMetadata | undefined {
+function buildObserveMetadata(
+  snapshot: SessionState,
+  sessionStart?: number,
+): ObserveMetadata | undefined {
   const providerMeta = snapshotProviderMeta(snapshot);
   const observeRuntime = metadataRecord(providerMeta, "observeRuntime");
   const observeUsage = metadataRecord(providerMeta, "observeUsage");
@@ -464,6 +468,9 @@ function buildObserveMetadata(snapshot: SessionState): ObserveMetadata | undefin
   if (snapshot.session.adapterType) sessionMeta.adapterType = snapshot.session.adapterType;
   if (snapshot.session.model) sessionMeta.model = snapshot.session.model;
   if (snapshot.session.cwd) sessionMeta.cwd = snapshot.session.cwd;
+  if (typeof sessionStart === "number" && Number.isFinite(sessionStart)) {
+    sessionMeta.sessionStart = sessionStart;
+  }
   if (snapshot.turns.length > 0) sessionMeta.turnCount = snapshot.turns.length;
   if (metadataString(providerMeta, "externalSessionId")) {
     sessionMeta.externalSessionId = metadataString(providerMeta, "externalSessionId");
@@ -1139,7 +1146,7 @@ export function buildObserveDataFromSnapshot(
     files: [...files.values()].sort((left, right) => right.lastT - left.lastT || left.path.localeCompare(right.path)),
     contextUsage: syntheticContextUsage(events.length),
     live,
-    metadata: buildObserveMetadata(snapshot),
+    metadata: buildObserveMetadata(snapshot, timing.baseTimestampMs),
   };
 }
 

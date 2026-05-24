@@ -15,6 +15,7 @@ import type {
   NodeDefinition,
   ScoutDeliverRequest,
   ScoutDeliverResponse,
+  ScoutInvocationLifecycle,
   ThreadEventEnvelope,
   ThreadSnapshot,
   ThreadWatchCloseRequest,
@@ -36,7 +37,19 @@ export type ScoutBrokerHealthPayload = {
   counts: {
     nodes: number;
     actors: number;
+    /** Operator-facing top-level agent count. Raw storage count is `agentRecords`. */
     agents: number;
+    agentRecords?: number;
+    rawAgentRecords?: number;
+    configuredAgents?: number;
+    scoutManagedAgents?: number;
+    currentAgentRegistrations?: number;
+    localAgentRegistrations?: number;
+    remoteAgentRegistrations?: number;
+    staleAgentRegistrations?: number;
+    retiredAgentRegistrations?: number;
+    oneTimeAgentCards?: number;
+    persistentAgentCards?: number;
     conversations: number;
     messages: number;
     flights: number;
@@ -111,6 +124,10 @@ export type ScoutBrokerThreadEventQuery = {
   limit?: number;
 };
 
+export type ScoutBrokerInvocationLifecycleQuery = {
+  invocationId: string;
+};
+
 export type ActiveScoutBrokerService = {
   baseUrl: string;
   matchesBaseUrl?: (baseUrl: string) => boolean;
@@ -124,6 +141,9 @@ export type ActiveScoutBrokerService = {
   readAgentBrokerFeed?: (
     query: ScoutBrokerAgentFeedQuery,
   ) => Promise<AgentBrokerFeed>;
+  readInvocationLifecycle?: (
+    query: ScoutBrokerInvocationLifecycleQuery,
+  ) => Promise<ScoutInvocationLifecycle | null>;
   readActivity?: (query: ScoutBrokerActivityQuery) => Promise<unknown>;
   readCollaborationRecords?: (
     query: ScoutBrokerCollaborationRecordQuery,
@@ -559,6 +579,18 @@ export async function maybeReadJsonFromActiveScoutBrokerService<T>(
       limit: parseLimit(url.searchParams.get("limit")),
       includeAcknowledged: url.searchParams.get("includeAcknowledged") === "1"
         || url.searchParams.get("includeAcknowledged") === "true",
+    }) as T);
+  }
+
+  const invocationLifecycleMatch = url.pathname.match(
+    /^\/v1\/invocations\/([^/]+)\/lifecycle$/,
+  );
+  if (invocationLifecycleMatch) {
+    if (!service.readInvocationLifecycle) {
+      return unhandled();
+    }
+    return handled(await service.readInvocationLifecycle({
+      invocationId: decodeURIComponent(invocationLifecycleMatch[1] ?? ""),
     }) as T);
   }
 

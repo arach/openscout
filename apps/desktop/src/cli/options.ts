@@ -54,6 +54,7 @@ export type ScoutWatchCommandOptions = ContextRootOptions & {
 export type ScoutChannelCommandOptions = ContextRootOptions & {
   channel?: string;
   latest?: number;
+  markRead: boolean;
 };
 
 export type ScoutInboxCommandOptions = ContextRootOptions & {
@@ -86,6 +87,7 @@ export type ScoutCardCreateCommandOptions = ContextRootOptions & {
   permissionProfile?: string;
   requesterId: string | null;
   noInput?: boolean;
+  oneTimeUse?: boolean;
 };
 
 export type ScoutTuiCommandOptions = ContextRootOptions & {
@@ -278,6 +280,15 @@ function parseComposerRoutedBody(
     return {
       targetLabel: `ref:${target.ref}`,
       targetRef: target.ref,
+      message: parsed.body,
+    };
+  }
+  if (target.kind === "session_id") {
+    if (commandName === "send") {
+      throw new ScoutCliError("send route operator must target an agent label, ref, channel, or broadcast");
+    }
+    return {
+      targetLabel: `session:${target.sessionId}`,
       message: parsed.body,
     };
   }
@@ -818,6 +829,7 @@ export function parseChannelCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let channel: string | undefined;
   let latest: number | undefined;
+  let markRead = false;
 
   for (let index = 0; index < parsed.args.length; index += 1) {
     const current = parsed.args[index] ?? "";
@@ -837,6 +849,10 @@ export function parseChannelCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--mark-read" || current === "--read" || current === "--clear") {
+      markRead = true;
+      continue;
+    }
     if (!current.startsWith("-") && !channel) {
       channel = current;
       continue;
@@ -844,8 +860,12 @@ export function parseChannelCommandOptions(
     unexpectedArgs("channel", args);
   }
 
-  if (channel && !latest) {
-    throw new ScoutCliError("channel name is only valid with --latest");
+  if (latest && markRead) {
+    throw new ScoutCliError("provide either --latest or --mark-read, not both");
+  }
+
+  if (channel && !latest && !markRead) {
+    throw new ScoutCliError("channel name is only valid with --latest or --mark-read");
   }
 
   return {
@@ -853,6 +873,7 @@ export function parseChannelCommandOptions(
     args: parsed.args,
     channel,
     latest,
+    markRead,
   };
 }
 
@@ -1022,6 +1043,7 @@ export function parseCardCreateCommandOptions(
   let permissionProfile: string | undefined;
   let requesterId: string | null = null;
   let noInput = false;
+  let oneTimeUse = false;
 
   for (let index = 0; index < parsed.args.length; index += 1) {
     const current = parsed.args[index] ?? "";
@@ -1086,6 +1108,10 @@ export function parseCardCreateCommandOptions(
       noInput = true;
       continue;
     }
+    if (current === "--one-time") {
+      oneTimeUse = true;
+      continue;
+    }
     if (current.startsWith("--")) {
       unexpectedArgs("card create", args);
     }
@@ -1107,6 +1133,7 @@ export function parseCardCreateCommandOptions(
     permissionProfile,
     requesterId,
     noInput,
+    oneTimeUse,
   };
 }
 
