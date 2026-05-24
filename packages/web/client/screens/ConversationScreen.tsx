@@ -52,6 +52,7 @@ import { useScout } from "../scout/Provider.tsx";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
+import { DictationMic } from "../components/DictationMic.tsx";
 import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
@@ -2666,6 +2667,12 @@ export function ConversationScreen({
                   }
                 }}
                 rows={1}
+              />
+
+              <DictationMic
+                onAppend={(text) =>
+                  setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
+                }
               />
 
               {isStopMode ? (

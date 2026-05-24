@@ -1,0 +1,456 @@
+/**
+ * Studio page registry — single source of truth for the persistent
+ * nav. Sidebar + per-page header strip both read from this list.
+ * Adding a page means appending an entry; nav surfaces it
+ * automatically.
+ *
+ * Buckets:
+ *  - plans       — long-form planning + decision docs, sourced from
+ *                  `plans/*.md` at the repo root. The sidebar appends
+ *                  live plan entries to this bucket at request time.
+ *  - eng         — SCO proposals + supporting notes, read live from
+ *                  `docs/eng/`.
+ *  - foundations — design primitives: tokens, type, spacing/density.
+ *  - studies     — inline React surfaces for openscout UI exploration.
+ *  - atoms       — live-rendered component gallery for shared primitives.
+ *  - meta        — about / conventions.
+ */
+
+export type StudioBucket =
+  | "plans"
+  | "eng"
+  | "foundations"
+  | "studies"
+  | "atoms"
+  | "meta";
+export type StudioSurface = "web" | "ios" | "macos" | "shell" | "cross";
+export type StudioStatus =
+  | "draft"
+  | "in-flight"
+  | "shipped"
+  | "shelved"
+  | "concept";
+
+export interface StudioPage {
+  /** Route. `/path` form, no trailing slash. */
+  href: string;
+  /** Sidebar label. */
+  label: string;
+  /** Drives sidebar group. */
+  bucket: StudioBucket;
+  /**
+   * Family — same logical surface, different variants. Variants get
+   * collapsed under one entry in the sidebar.
+   */
+  family?: string;
+  /** Surface — sub-grouping inside `studies`. */
+  surface?: StudioSurface;
+  /** Status pill rendered in the page strip + status dot in sidebar. */
+  status?: StudioStatus;
+  /** Linked source file(s), relative to repo root. */
+  source?: string[];
+  /** Subtitle shown in the page strip. */
+  blurb?: string;
+  /** ISO mtime — used to sort entries by recency (e.g. the eng bucket's
+   *  "Recent 5" sidebar slice). Optional; static registry pages omit it. */
+  updatedAt?: string;
+}
+
+/** Static pages. Plans are merged in at render time from the
+ *  filesystem (see `lib/plans.ts`). */
+export const STUDIO_PAGES: StudioPage[] = [
+  // ── Plans (index only — individual plans appended dynamically) ──
+  {
+    href: "/plans",
+    label: "Plans Index",
+    bucket: "plans",
+    status: "shipped",
+    blurb: "Every plan in plans/, with status + last-touched.",
+  },
+
+  // ── Engineering (index only — SCO docs appended from docs/eng/) ──
+  {
+    href: "/eng",
+    label: "Engineering Index",
+    bucket: "eng",
+    status: "shipped",
+    blurb: "Numbered SCO proposals + supporting notes, read live from docs/eng/.",
+  },
+
+  // ── Foundations ─────────────────────────────────────────────────
+  {
+    href: "/foundations/color-tokens",
+    label: "Color Tokens",
+    bucket: "foundations",
+    family: "color-tokens",
+    status: "draft",
+    source: ["design/studio/app/globals.css"],
+    blurb: "Every studio CSS var as side-by-side dark/light swatches.",
+  },
+  {
+    href: "/foundations/typography",
+    label: "Typography",
+    bucket: "foundations",
+    family: "typography",
+    status: "draft",
+    source: ["design/studio/app/globals.css", "design/studio/tailwind.config.ts"],
+    blurb: "Display · sans · mono ramps + a prose stress-test in both themes.",
+  },
+  {
+    href: "/foundations/spacing-density",
+    label: "Spacing & Density",
+    bucket: "foundations",
+    family: "spacing-density",
+    status: "draft",
+    source: ["design/studio/tailwind.config.ts"],
+    blurb: "Spacing scale + comfortable/compact/manifest density specimens.",
+  },
+
+  // ── Studies · Web ───────────────────────────────────────────────
+  {
+    href: "/studies/inspector-bar",
+    label: "Inspector Bar",
+    bucket: "studies",
+    surface: "web",
+    family: "inspector",
+    status: "concept",
+    source: ["packages/web/client/scout/slots/Inspector.tsx"],
+    blurb: "Cross-screen inspector bar — eight variants in one view.",
+  },
+  {
+    href: "/studies/status-pills",
+    label: "Status Pills",
+    bucket: "studies",
+    surface: "web",
+    family: "pills",
+    status: "draft",
+    source: ["design/studio/app/globals.css"],
+    blurb: "Five status tones × three pill forms, theme-aware.",
+  },
+  {
+    href: "/studies/agent-pulse",
+    label: "Agent Pulse",
+    bucket: "studies",
+    surface: "web",
+    family: "agent-pulse",
+    status: "draft",
+    source: ["packages/web/client/scout/inspector/HomeAgentsInspector.tsx"],
+    blurb: "Agent state vocabulary — three densities.",
+  },
+  {
+    href: "/studies/agent-cards",
+    label: "Agent Cards",
+    bucket: "studies",
+    surface: "web",
+    family: "agent-cards",
+    status: "draft",
+    source: ["packages/web/client/scout/inspector/AgentsInspector.tsx"],
+    blurb: "Info-dense agent tile — identity · state · task · project · capabilities.",
+  },
+  {
+    href: "/studies/tree-viewer",
+    label: "Tree Viewer",
+    bucket: "studies",
+    surface: "web",
+    family: "tree-viewer",
+    status: "draft",
+    source: ["design/studio/lib/repo-tree.ts"],
+    blurb: "Collapsible directory tree — live walk of docs/eng, plans, design/studio/app.",
+  },
+  {
+    href: "/studies/file-card",
+    label: "File Card",
+    bucket: "studies",
+    surface: "web",
+    family: "file-card",
+    status: "draft",
+    source: ["design/studio/components/FileCard.tsx"],
+    blurb: "At-a-glance file metadata in three sizes; real repo files.",
+  },
+  {
+    href: "/studies/file-explorer",
+    label: "File Explorer",
+    bucket: "studies",
+    surface: "web",
+    family: "file-explorer",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/file-explorer/page.tsx",
+      "design/studio/components/FileExplorerWorkspace.tsx",
+    ],
+    blurb: "Split-pane composition: tree + breadcrumb + excerpt + outline.",
+  },
+  {
+    href: "/studies/agent",
+    label: "Agent Vocabulary",
+    bucket: "studies",
+    surface: "web",
+    family: "agent-vocabulary",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/agent/page.tsx",
+      "design/studio/components/AgentRow.tsx",
+      "design/studio/components/AgentCard.tsx",
+    ],
+    blurb: "Presence dot · row · card · mention · stats · alert · mesh.",
+  },
+  {
+    href: "/studies/choreography",
+    label: "Choreography",
+    bucket: "studies",
+    surface: "web",
+    family: "choreography",
+    status: "concept",
+    source: ["design/studio/app/studies/choreography/page.tsx"],
+    blurb: "The fleet as a score — voices, notes, silences, cross-voice arcs.",
+  },
+  {
+    href: "/studies/arrangements",
+    label: "Arrangements",
+    bucket: "studies",
+    surface: "web",
+    family: "choreography",
+    status: "concept",
+    source: ["design/studio/app/studies/arrangements/page.tsx"],
+    blurb: "Structural companion to Choreography — agents wired as a schematic; gallery, anatomy, compose, in-flight.",
+  },
+  {
+    href: "/studies/standing-watch",
+    label: "Standing Watch",
+    bucket: "studies",
+    surface: "web",
+    family: "standing-watch",
+    status: "concept",
+    source: ["design/studio/app/studies/standing-watch/page.tsx"],
+    blurb: "The mesh as a sonar scope — heading carries node, distance carries recency.",
+  },
+  {
+    href: "/studies/almanac",
+    label: "Almanac",
+    bucket: "studies",
+    surface: "web",
+    family: "almanac",
+    status: "concept",
+    source: ["design/studio/app/studies/almanac/page.tsx"],
+    blurb: "The broker's overnight as a printed morning brief — three columns, in italic.",
+  },
+  {
+    href: "/studies/telegraph",
+    label: "Telegraph",
+    bucket: "studies",
+    surface: "web",
+    family: "ticker",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/telegraph/page.tsx",
+      "design/studio/components/Ticker.tsx",
+    ],
+    blurb: "Single-line printer-tape strip. Ambient. Dots, dashes, agent hues, scrolls all day.",
+  },
+  {
+    href: "/studies/ticker",
+    label: "Ticker · Quick Steer",
+    bucket: "studies",
+    surface: "web",
+    family: "ticker",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/ticker/page.tsx",
+      "design/studio/components/Ticker.tsx",
+      "design/studio/components/QuickSteer.tsx",
+    ],
+    blurb: "Reusable activity stream. Passive + steer modes; hover-to-pause, click-to-commit.",
+  },
+  {
+    href: "/studies/ticker-interactions",
+    label: "Ticker · Interactions",
+    bucket: "studies",
+    surface: "web",
+    family: "ticker",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/ticker-interactions/page.tsx",
+      "design/studio/components/QuickSteer.tsx",
+    ],
+    blurb: "Static frame-by-frame of every interaction state — storyboard, kinds, dock states, anatomy.",
+  },
+  {
+    href: "/studies/operator-brief",
+    label: "Operator Brief & Handoff",
+    bucket: "studies",
+    surface: "web",
+    family: "operator-brief",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/operator-brief/page.tsx",
+      "design/studio/components/QuickSteer.tsx",
+    ],
+    blurb: "The full arc: kickoff brief → check-in cadence (4 stations) → debrief → continuity.",
+  },
+  {
+    href: "/studies/brief-author",
+    label: "Brief Author",
+    bucket: "studies",
+    surface: "web",
+    family: "operator-brief",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/brief-author/page.tsx",
+      "design/studio/components/QuickSteer.tsx",
+    ],
+    blurb: "Two-pane composer — typed-slot chunks on the left, the rendered brief on the right.",
+  },
+  {
+    href: "/studies/hud-chrome",
+    label: "HUD Chrome",
+    bucket: "studies",
+    surface: "web",
+    family: "hud",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/hud-chrome/page.tsx",
+      "design/studio/components/hud/HudGlyphRail.tsx",
+      "design/studio/components/hud/HudCapsule.tsx",
+      "design/studio/components/hud/HudGroundControl.tsx",
+    ],
+    blurb: "Floating glass chrome over edge-to-edge content; Telegraph at the bottom.",
+  },
+  {
+    href: "/studies/hud-native",
+    label: "HUD Native",
+    bucket: "studies",
+    surface: "macos",
+    family: "hud",
+    status: "concept",
+    source: ["design/studio/app/studies/hud-native/page.tsx"],
+    blurb: "Glass pop-out from the menu bar — hotkey-summoned fleet glance over any window.",
+  },
+  {
+    href: "/studies/role-builder",
+    label: "Role Builder",
+    bucket: "studies",
+    surface: "web",
+    family: "role-builder",
+    status: "concept",
+    source: ["design/studio/app/studies/role-builder/page.tsx"],
+    blurb: "Roles as dossiers; construction as a bench. Skills · tools · context · permissions.",
+  },
+
+  // ── Atoms ───────────────────────────────────────────────────────
+  {
+    href: "/atoms",
+    label: "Atoms Index",
+    bucket: "atoms",
+    status: "shipped",
+    blurb: "Live-rendered scout/web primitives.",
+  },
+  {
+    href: "/atoms/inspector-section",
+    label: "InspectorSection",
+    bucket: "atoms",
+    family: "inspector-atoms",
+    status: "draft",
+    source: ["design/studio/app/atoms/inspector-section/page.tsx"],
+    blurb: "Proposed Tier-1 atom from the inspector-bar audit.",
+  },
+
+  // ── Meta ────────────────────────────────────────────────────────
+  {
+    href: "/",
+    label: "Overview",
+    bucket: "meta",
+    status: "shipped",
+    blurb: "Landing — every plan, study, and atom in one list.",
+  },
+];
+
+/** Find the registry entry for a route. */
+export function pageForPath(
+  pathname: string | null,
+  extra: StudioPage[] = [],
+): StudioPage | undefined {
+  if (!pathname) return undefined;
+  const all = [...STUDIO_PAGES, ...extra];
+  return all.find((p) => p.href === pathname);
+}
+
+/** All pages in a bucket. */
+export function pagesIn(
+  bucket: StudioBucket,
+  extra: StudioPage[] = [],
+): StudioPage[] {
+  return [...STUDIO_PAGES, ...extra].filter((p) => p.bucket === bucket);
+}
+
+/** Pages within a bucket grouped by surface; surfaces appear in
+ *  web → ios → macos → shell → cross order regardless of registry
+ *  order. */
+export function pagesBySurface(
+  bucket: StudioBucket,
+  extra: StudioPage[] = [],
+): Array<{ surface: StudioSurface; pages: StudioPage[] }> {
+  const order: StudioSurface[] = ["web", "ios", "macos", "shell", "cross"];
+  const bySurface = new Map<StudioSurface, StudioPage[]>();
+  for (const p of pagesIn(bucket, extra)) {
+    const s = (p.surface ?? "cross") as StudioSurface;
+    const list = bySurface.get(s) ?? [];
+    list.push(p);
+    bySurface.set(s, list);
+  }
+  return order
+    .map((surface) => ({ surface, pages: bySurface.get(surface) ?? [] }))
+    .filter((g) => g.pages.length > 0);
+}
+
+/** Family grouping — primary first, variants nested. The first page
+ *  added to a family is the primary; the rest become variants. */
+export function familyGroups(pages: StudioPage[]): Array<{
+  primary: StudioPage;
+  variants: StudioPage[];
+}> {
+  const groups: Array<{ primary: StudioPage; variants: StudioPage[] }> = [];
+  const byFamily = new Map<string, number>();
+  for (const p of pages) {
+    const fam = p.family ?? p.label;
+    const existing = byFamily.get(fam);
+    if (existing === undefined) {
+      groups.push({ primary: p, variants: [] });
+      byFamily.set(fam, groups.length - 1);
+    } else {
+      groups[existing].variants.push(p);
+    }
+  }
+  return groups;
+}
+
+export function surfaceLabel(surface: StudioSurface): string {
+  switch (surface) {
+    case "web":
+      return "Web";
+    case "ios":
+      return "iOS";
+    case "macos":
+      return "macOS";
+    case "shell":
+      return "Shell";
+    case "cross":
+      return "Cross";
+  }
+}
+
+export function bucketLabel(bucket: StudioBucket): string {
+  switch (bucket) {
+    case "plans":
+      return "Plans";
+    case "eng":
+      return "Engineering";
+    case "foundations":
+      return "Foundations";
+    case "studies":
+      return "Studies";
+    case "atoms":
+      return "Atoms";
+    case "meta":
+      return "Meta";
+  }
+}

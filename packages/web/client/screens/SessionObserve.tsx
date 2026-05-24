@@ -272,6 +272,34 @@ function ThinkBlock({ event }: { event: SessionEvent }) {
   );
 }
 
+function DiffPreview({ preview }: { preview: string }) {
+  const lines = preview.split("\n");
+  return (
+    <pre className="s-observe-tool-diff-preview">
+      {lines.map((line, i) => {
+        const head = line[0];
+        const tone =
+          head === "+"
+            ? "add"
+            : head === "-" || head === "−"
+              ? "del"
+              : line.startsWith("@@")
+                ? "hunk"
+                : "ctx";
+        return (
+          <span
+            key={i}
+            className={`s-observe-diff-line s-observe-diff-line--${tone}`}
+          >
+            {line}
+            {i < lines.length - 1 ? "\n" : null}
+          </span>
+        );
+      })}
+    </pre>
+  );
+}
+
 function ToolBlock({ event }: { event: SessionEvent }) {
   const glyph = TOOL_GLYPH[event.tool ?? ""] ?? "▸";
   const hasBody = !!(event.result || event.diff || event.stream);
@@ -309,9 +337,7 @@ function ToolBlock({ event }: { event: SessionEvent }) {
               </>
             )}
           </div>
-          <pre className="s-observe-tool-diff-preview">
-            {event.diff.preview}
-          </pre>
+          <DiffPreview preview={event.diff.preview} />
         </div>
       )}
 

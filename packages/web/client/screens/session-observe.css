@@ -305,11 +305,23 @@
   padding: 8px 10px;
   background: color-mix(in srgb, var(--bg) 70%, black);
   border-radius: 4px;
-  color: var(--green);
+  color: var(--ink);
   font-size: 11px;
   line-height: 1.5;
   white-space: pre-wrap;
   font-family: var(--font-mono);
+}
+
+.s-observe-diff-line--add {
+  color: var(--green);
+}
+
+.s-observe-diff-line--del {
+  color: var(--red);
+}
+
+.s-observe-diff-line--hunk {
+  color: var(--dim);
 }
 
 .s-observe-tool-stream {

@@ -1,0 +1,335 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ──────────────────────────────────────────────────────────────────
+ * OpenScout Studio globals.
+ *
+ * Two palettes — dark (default, matches scout's HUD default) and
+ * light — both backed by scout's actual oklch tokens from
+ * `packages/web/client/scout/Provider.tsx`. The theme is selected by
+ * `data-theme="dark|light"` on <html>; flip via the ThemeToggle in
+ * the sidebar. A bootstrap script in app/layout.tsx reads the saved
+ * value from localStorage before paint to avoid FOUC.
+ *
+ * Tailwind reads these as `var(--…)` (see tailwind.config.ts), so a
+ * single attribute flip recolors the whole studio.
+ * ────────────────────────────────────────────────────────────────── */
+
+/* ── Dark (default) — scout HUD dark bundle ───────────────────────── */
+:root,
+[data-theme="dark"] {
+  --studio-canvas:       oklch(0.14 0.008 80);
+  --studio-canvas-alt:   oklch(0.18 0.009 80);
+  --studio-surface:      oklch(0.20 0.010 80);
+  --studio-ink:          oklch(0.96 0.008 80);
+  --studio-ink-muted:    oklch(0.72 0.012 80);
+  --studio-ink-faint:    oklch(0.58 0.012 80);
+  /* Dividers: a slightly-elevated SOLID, never near-white-with-alpha.
+   * White-with-alpha on a dark surface reads as a hard pixel rule no
+   * matter how low the alpha gets — the contrast with the dark surface
+   * is what the eye picks up. A solid 0.25 in the same warm hue stays
+   * inside the surface family and reads as a quiet lift, not a stripe. */
+  --studio-edge:         oklch(0.25 0.008 80);
+  --studio-edge-strong:  oklch(0.32 0.010 80);
+
+  --scout-accent:        oklch(0.86 0.17 125);
+  --scout-accent-soft:   oklch(0.86 0.17 125 / 0.18);
+
+  --status-ok-fg:        oklch(0.84 0.16 155);
+  --status-ok-bg:        oklch(0.64 0.16 155 / 0.18);
+  --status-warn-fg:      oklch(0.85 0.15 85);
+  --status-warn-bg:      oklch(0.72 0.15 85 / 0.16);
+  --status-error-fg:     oklch(0.78 0.17 25);
+  --status-error-bg:     oklch(0.72 0.18 25 / 0.16);
+  --status-info-fg:      oklch(0.80 0.10 220);
+  --status-info-bg:      oklch(0.70 0.12 220 / 0.18);
+  --status-neutral-fg:   oklch(0.78 0.010 80);
+  --status-neutral-bg:   oklch(0.96 0.008 80 / 0.06);
+
+  --code-bg:             oklch(0.20 0.010 80);
+  --code-border:         oklch(0.24 0.010 80);
+
+  color-scheme: dark;
+}
+
+/* ── Light — scout HUD light bundle ───────────────────────────────── */
+[data-theme="light"] {
+  --studio-canvas:       oklch(0.978 0.004 85);
+  --studio-canvas-alt:   oklch(0.94 0.005 85);
+  --studio-surface:      oklch(0.992 0.003 85);
+  --studio-ink:          oklch(0.24 0.01 80);
+  --studio-ink-muted:    oklch(0.50 0.014 80);
+  --studio-ink-faint:    oklch(0.66 0.012 80);
+  --studio-edge:         oklch(0.84 0.008 82);
+  --studio-edge-strong:  oklch(0.72 0.010 82);
+
+  --scout-accent:        oklch(0.62 0.16 125);
+  --scout-accent-soft:   oklch(0.72 0.16 125 / 0.18);
+
+  --status-ok-fg:        oklch(0.40 0.14 155);
+  --status-ok-bg:        oklch(0.88 0.08 155 / 0.55);
+  --status-warn-fg:      oklch(0.48 0.14 75);
+  --status-warn-bg:      oklch(0.90 0.10 85 / 0.55);
+  --status-error-fg:     oklch(0.46 0.18 25);
+  --status-error-bg:     oklch(0.88 0.08 25 / 0.55);
+  --status-info-fg:      oklch(0.42 0.10 220);
+  --status-info-bg:      oklch(0.88 0.06 220 / 0.55);
+  --status-neutral-fg:   oklch(0.38 0.010 80);
+  --status-neutral-bg:   oklch(0.92 0.006 80);
+
+  --code-bg:             oklch(0.94 0.005 85);
+  --code-border:         oklch(0.84 0.008 82);
+
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--studio-canvas);
+  color: var(--studio-ink);
+  font-family: theme("fontFamily.mono");
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Focus ring ────────────────────────────────────────────────────
+ * Single keyboard-visible focus treatment for every interactive
+ * element. Use the `.focus-ring` utility on buttons / links / inputs
+ * that need it (chrome callsites already apply it via this class).
+ * `:focus-visible` only — never on click. */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--scout-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* ── Prose ─────────────────────────────────────────────────────────
+ * Applied via `.studio-prose` on the rendered markdown wrapper.
+ * Instrument Serif for prose headings, Inter Tight for body, JetBrains
+ * Mono for code + chrome — scout's actual face stack. Sized for
+ * sustained reading at ~720px column width. */
+
+.studio-prose {
+  font-family: theme("fontFamily.sans");
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--studio-ink);
+}
+
+.studio-prose h1,
+.studio-prose h2,
+.studio-prose h3,
+.studio-prose h4 {
+  font-family: theme("fontFamily.display");
+  color: var(--studio-ink);
+  letter-spacing: -0.012em;
+}
+
+.studio-prose h1 {
+  font-size: 28px;
+  font-weight: 500;
+  margin: 0 0 1.25rem;
+  line-height: 1.15;
+}
+.studio-prose h2 {
+  font-size: 20px;
+  font-weight: 500;
+  margin: 2.25rem 0 0.75rem;
+  line-height: 1.25;
+  border-bottom: 1px solid var(--studio-edge);
+  padding-bottom: 0.35rem;
+}
+.studio-prose h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 1.5rem 0 0.5rem;
+}
+.studio-prose h4 {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 1.25rem 0 0.35rem;
+  font-family: theme("fontFamily.mono");
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--studio-ink-faint);
+}
+
+.studio-prose p {
+  margin: 0 0 0.9rem;
+}
+
+.studio-prose a {
+  color: var(--scout-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.studio-prose a:hover {
+  color: var(--studio-ink);
+}
+
+.studio-prose ul,
+.studio-prose ol {
+  margin: 0 0 0.9rem 1.25rem;
+  padding: 0;
+}
+.studio-prose li {
+  margin: 0.15rem 0;
+}
+.studio-prose ul {
+  list-style: square;
+}
+.studio-prose ol {
+  list-style: decimal;
+}
+
+.studio-prose code {
+  font-family: theme("fontFamily.mono");
+  font-size: 0.86em;
+  background: var(--code-bg);
+  padding: 0.08em 0.35em;
+  border-radius: 2px;
+}
+
+.studio-prose pre {
+  font-family: theme("fontFamily.mono");
+  background: var(--code-bg);
+  padding: 0.9rem 1rem;
+  border-radius: 4px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  margin: 0 0 1rem;
+  border: 1px solid var(--code-border);
+}
+.studio-prose pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+.studio-prose blockquote {
+  margin: 0 0 1rem;
+  padding: 0.2rem 0 0.2rem 0.9rem;
+  border-left: 2px solid var(--studio-edge);
+  color: var(--studio-ink-faint);
+  font-style: italic;
+}
+
+.studio-prose hr {
+  border: none;
+  border-top: 1px solid var(--studio-edge);
+  margin: 2rem 0;
+}
+
+.studio-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin: 0 0 1rem;
+}
+.studio-prose th,
+.studio-prose td {
+  border-bottom: 1px solid var(--studio-edge);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+.studio-prose th {
+  font-family: theme("fontFamily.mono");
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--studio-ink-faint);
+  font-weight: 600;
+}
+
+.studio-prose strong {
+  font-weight: 600;
+  color: var(--studio-ink);
+}
+
+.studio-prose em {
+  font-style: italic;
+}
+
+/* ── highlight.js syntax tokens ────────────────────────────────────────
+ * Drives BOTH the EngMarkdown fenced-code blocks (via rehype-highlight)
+ * AND the CodeExcerpt server-rendered snippets in the file-explorer.
+ * Same palette as the CodeMirror studio theme in lib/cm-studio-theme.ts
+ * so the eye doesn't have to recalibrate when switching surfaces.
+ */
+.hljs {
+  color: var(--studio-ink);
+  background: transparent;
+}
+.hljs-keyword,
+.hljs-built_in,
+.hljs-selector-tag,
+.hljs-section,
+.hljs-bullet,
+.hljs-link {
+  color: var(--scout-accent);
+  font-weight: 500;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-quote {
+  color: var(--status-warn-fg);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-meta-number {
+  color: var(--status-ok-fg);
+}
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-title.class_,
+.hljs-attr,
+.hljs-attribute,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-meta,
+.hljs-meta-keyword,
+.hljs-tag,
+.hljs-name {
+  color: var(--status-info-fg);
+}
+.hljs-title,
+.hljs-title.function_ {
+  color: var(--studio-ink);
+}
+.hljs-variable,
+.hljs-property,
+.hljs-params {
+  color: var(--studio-ink);
+}
+.hljs-comment,
+.hljs-doctag,
+.hljs-meta-string {
+  color: color-mix(in oklab, var(--studio-ink-faint) 80%, transparent);
+  font-style: italic;
+}
+.hljs-punctuation,
+.hljs-operator {
+  color: color-mix(in oklab, var(--studio-ink-faint) 75%, transparent);
+}
+.hljs-deletion {
+  color: var(--status-error-fg);
+  background: color-mix(in oklab, var(--status-error-bg) 70%, transparent);
+}
+.hljs-addition {
+  color: var(--status-ok-fg);
+  background: color-mix(in oklab, var(--status-ok-bg) 70%, transparent);
+}
+.hljs-strong {
+  font-weight: 700;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
