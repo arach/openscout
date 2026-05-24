@@ -12,7 +12,7 @@ import type { OpsMode, Route } from "../lib/types.ts";
 const TABS: { id: OpsMode; label: string }[] = [
   { id: "mission", label: "Control" },
   { id: "plan", label: "Work" },
-  { id: "issues", label: "Issues" },
+  { id: "issues", label: "Alerts" },
   { id: "tail", label: "Tail" },
   { id: "atop", label: "Atop" },
   { id: "agents", label: "Agents" },
