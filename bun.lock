@@ -81,12 +81,14 @@
     },
     "packages/cli": {
       "name": "@openscout/scout",
-      "version": "0.2.66",
+      "version": "0.2.67",
       "bin": {
         "scout": "./bin/scout.mjs",
       },
       "dependencies": {
+        "node-pty": "1.2.0-beta.12",
         "picomatch": "^4.0.4",
+        "ws": "^8.18.3",
       },
       "devDependencies": {
         "@openscout/runtime": "workspace:*",

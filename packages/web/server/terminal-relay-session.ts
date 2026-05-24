@@ -23,7 +23,7 @@ export interface SessionInitMessage {
   tmuxSession?: string;
   /** CLI agent to spawn. 'claude' (default), 'pi', or 'shell'. */
   agent?: 'claude' | 'pi' | 'shell';
-  /** For pi agent: provider name (e.g. 'minimax', 'openai'). */
+  /** For pi agent: provider name (e.g. 'minimax', 'github-copilot'). */
   provider?: string;
   /** For pi agent: model ID (e.g. 'MiniMax-M1'). */
   model?: string;
@@ -223,7 +223,6 @@ function findExecutableInDirectories(name: string, directories: string[]): strin
 function findExecutableOnPath(name: string): string | null {
   return findExecutableInDirectories(name, (process.env.PATH || '').split(pathDelimiter));
 }
-
 /** Locate the claude binary, returning null if not found. */
 function findClaudeBin(): string | null {
   for (const envKey of ['OPENSCOUT_CLAUDE_BIN', 'SCOUT_CLAUDE_BIN', 'CLAUDE_BIN']) {
@@ -262,6 +261,13 @@ function findShellBin(): string | null {
     if (existsSync(candidate)) return candidate;
   }
   return null;
+}
+
+/** Map Hudson-facing provider ids to the exact provider names accepted by the Pi CLI. */
+function normalizePiProviderForCli(provider?: string): string | undefined {
+  if (!provider) return undefined;
+  if (provider === 'copilot' || provider === 'github') return 'github-copilot';
+  return provider;
 }
 
 /** Check if a tmux session exists. */
@@ -394,7 +400,8 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     agentArgs = [];
   } else if (agent === 'pi') {
     agentArgs = ['--verbose'];
-    if (msg.provider) agentArgs.push('--provider', msg.provider);
+    const provider = normalizePiProviderForCli(msg.provider);
+    if (provider) agentArgs.push('--provider', provider);
     if (msg.model) agentArgs.push('--model', msg.model);
     if (msg.systemPrompt) agentArgs.push('--system-prompt', msg.systemPrompt);
   } else {

@@ -28,10 +28,12 @@ export function TerminalScreen({
     | { state: "opened"; detail: string }
     | { state: "failed"; error: string }
   >({ state: "idle" });
+  const relayUrl = resolveScoutTerminalRelayUrl();
+  const healthUrl = resolveScoutTerminalRelayHealthUrl();
 
   const relay = useTerminalRelay({
-    url: resolveScoutTerminalRelayUrl(),
-    healthUrl: resolveScoutTerminalRelayHealthUrl(),
+    url: relayUrl,
+    healthUrl,
     autoConnect: true,
     sessionKey: agentId ? `scout-takeover-${agentId}` : "scout-takeover",
   });
@@ -113,7 +115,15 @@ export function TerminalScreen({
         </div>
       </div>
       <div className="s-term-body">
-        <TerminalRelay relay={relay} fontSize={13} quiet />
+        <TerminalRelay
+          relay={relay}
+          fontSize={13}
+          quiet
+          configItems={[
+            { label: "ws", value: relayUrl },
+            { label: "health", value: healthUrl },
+          ]}
+        />
       </div>
     </div>
   );
