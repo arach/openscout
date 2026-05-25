@@ -281,7 +281,7 @@ function buildMobileAgentSummary(
   const lastAuthoredMessageAt = Object.values(snapshot.messages)
     .filter((message) => message.actorId === agent.id)
     .reduce<number | null>((latest, message) => {
-      const createdAt = normalizeTimestamp(message.createdAt);
+      const createdAt = normalizeTimestampMs(message.createdAt);
       return typeof createdAt === "number" && (!latest || createdAt > latest) ? createdAt : latest;
     }, null);
 
@@ -346,7 +346,7 @@ function buildMobileSessionSummaries(snapshot: ScoutBrokerSnapshot): ScoutMobile
           ?? metadataString(agent?.metadata, "workspaceQualifier"),
         preview: latestMessage?.body ?? null,
         messageCount: messages.length,
-        lastMessageAt: normalizeTimestamp(latestMessage?.createdAt),
+        lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
         workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
       }];
     });
@@ -630,12 +630,12 @@ export async function getScoutMobileSessionSnapshot(
   const lastAgentMessageAt = messages
     .filter((message) => message.actorId === directAgentId)
     .reduce<number | null>((latest, message) => {
-      const createdAt = normalizeTimestamp(message.createdAt);
+      const createdAt = normalizeTimestampMs(message.createdAt);
       return typeof createdAt === "number" && (!latest || createdAt > latest) ? createdAt : latest;
     }, null);
   const shouldShowWorkingTurn = Boolean(
     activeFlight
-    && ((normalizeTimestamp(activeFlight.startedAt) ?? 0) > (lastAgentMessageAt ?? 0)),
+    && ((normalizeTimestampMs(activeFlight.startedAt) ?? 0) > (lastAgentMessageAt ?? 0)),
   );
 
   const turns: ScoutMobileSessionSnapshot["turns"] = messages.map((message) => ({

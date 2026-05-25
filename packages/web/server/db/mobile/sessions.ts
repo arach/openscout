@@ -12,11 +12,15 @@ import { db } from "../internal/db.ts";
 import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "../internal/paths.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
+  sqlTimestampMsExpression,
   transientBrokerWorkingStatusPredicate,
 } from "../internal/sql-helpers.ts";
 import type { MobileSessionSummary } from "../types/mobile.ts";
 
 export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
+  const conversationCreatedAtExpression = sqlTimestampMsExpression("c.created_at");
+  const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
+  const previewMessageCreatedAtExpression = sqlTimestampMsExpression("m.created_at");
   const rows = db().prepare(
     `SELECT
        c.id,
@@ -25,7 +29,7 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
        c.metadata_json
      FROM conversations c
      WHERE c.kind = 'direct'
-     ORDER BY c.created_at DESC
+     ORDER BY ${conversationCreatedAtExpression} DESC
      LIMIT ?`,
   ).all(limit) as Array<{
     id: string;
@@ -39,7 +43,7 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
     `SELECT actor_id FROM conversation_members WHERE conversation_id = ?`,
   );
   const statsStmt = db().prepare(
-    `SELECT COUNT(*) AS cnt, MAX(created_at) AS last_at FROM messages WHERE conversation_id = ?`,
+    `SELECT COUNT(*) AS cnt, MAX(${messageCreatedAtExpression}) AS last_at FROM messages WHERE conversation_id = ?`,
   );
   const previewStmt = db().prepare(
     `SELECT body
@@ -47,7 +51,7 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
      WHERE conversation_id = ?
        AND actor_id != 'operator'
        AND ${transientBrokerWorkingStatusPredicate("m")}
-     ORDER BY created_at DESC LIMIT 1`,
+     ORDER BY ${previewMessageCreatedAtExpression} DESC LIMIT 1`,
   );
 
   return rows.map((r) => {

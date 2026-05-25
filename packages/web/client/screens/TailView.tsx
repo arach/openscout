@@ -462,8 +462,8 @@ export function TailView({
         </span>
         {issueMode && (
           <span className="s-tail-status-cluster s-tail-status-cluster--issues">
-            <span className="s-tail-status-label">issues</span>
-            <span className="s-tail-issue-filter" role="group" aria-label="Issue severity filter">
+            <span className="s-tail-status-label">alerts</span>
+            <span className="s-tail-issue-filter" role="group" aria-label="Alert severity filter">
               <button
                 type="button"
                 className={`s-tail-issue-filter-btn${
@@ -546,7 +546,7 @@ export function TailView({
         {filtered.length === 0 ? (
           <div className="s-tail-empty">
             <span className="s-tail-empty-title">
-              {issueMode ? "No issue events" : "Waiting for events"}<span className="s-tail-empty-cursor" aria-hidden="true" />
+              {issueMode ? "No alert events" : "Waiting for events"}<span className="s-tail-empty-cursor" aria-hidden="true" />
             </span>
             <span className="s-tail-empty-body">
               {filter ? (

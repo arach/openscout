@@ -119,7 +119,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${hostname}:${port}`);
 
   if (req.method === "GET" && url.pathname === "/health") {
-    writeJson(res, 200, { ok: true });
+    writeJson(res, 200, { ok: true, surface: "openscout-terminal-relay" });
     return;
   }
 

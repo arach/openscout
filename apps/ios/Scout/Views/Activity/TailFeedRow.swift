@@ -25,7 +25,7 @@ enum TailFeedRow: Identifiable, Sendable {
     var tsMs: Int {
         switch self {
         case .activity(let item): item.tsMs
-        case .tail(let event): event.ts
+        case .tail(let event): event.tsMs
         case .turn(let proj): proj.tsMs
         }
     }

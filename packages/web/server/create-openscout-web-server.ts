@@ -772,16 +772,38 @@ function buildAgentSessionCatalogPayload(input: {
   agentId: string;
   harness: string | null;
   cwd: string;
+  transport?: string | null;
+  activeSessionId?: string | null;
+  model?: string | null;
+  startedAt?: number | null;
 }) {
   const runtimeDir = relayAgentRuntimeDirectory(input.agentId);
   const catalog = readSessionCatalogSync(runtimeDir);
-  const sessionId = catalog.activeSessionId;
+  const fallbackTmuxSessionId = input.transport === "tmux"
+    ? input.activeSessionId ?? null
+    : null;
+  const sessionId = catalog.activeSessionId ?? fallbackTmuxSessionId;
+  const sessions = sessionId && !catalog.sessions.some((session) => session.id === sessionId)
+    ? [
+        {
+          id: sessionId,
+          startedAt: input.startedAt ?? Date.now(),
+          cwd: input.cwd,
+          ...(input.harness ? { harness: input.harness } : {}),
+          ...(input.transport ? { transport: input.transport } : {}),
+          ...(input.model ? { model: input.model } : {}),
+        },
+        ...catalog.sessions,
+      ]
+    : catalog.sessions;
   const harnessEntry = findHarnessEntry(input.harness);
-  const resumeCommand = sessionId && harnessEntry
+  const resumeCommand = sessionId && harnessEntry && input.transport !== "tmux"
     ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
     : null;
   return {
     ...catalog,
+    activeSessionId: sessionId,
+    sessions,
     agentId: input.agentId,
     harness: input.harness,
     resumeCommand,
@@ -2533,7 +2555,17 @@ export async function createOpenScoutWebServer(
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return c.json(emptyAgentSessionCatalogPayload(agentId));
     const cwd = agent.cwd ?? agent.projectRoot ?? ".";
-    return c.json(buildAgentSessionCatalogPayload({ agentId, harness: agent.harness, cwd }));
+    return c.json(
+      buildAgentSessionCatalogPayload({
+        agentId,
+        harness: agent.harness,
+        cwd,
+        transport: agent.transport,
+        activeSessionId: agent.harnessSessionId,
+        model: agent.model,
+        startedAt: agent.createdAt ?? agent.updatedAt,
+      }),
+    );
   });
   app.get("/api/agents/:agentId/session/context", async (c) => {
     const agentId = c.req.param("agentId");

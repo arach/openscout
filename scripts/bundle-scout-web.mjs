@@ -54,6 +54,36 @@ export function bundleScoutControlPlaneWebServerBun(repoRoot, outfile) {
 }
 
 /**
+ * Bundle the Node-hosted PTY relay used by the Scout web console.
+ *
+ * @param {string} repoRoot
+ * @param {string} outfile Absolute path to openscout-terminal-relay.mjs
+ * @returns {boolean}
+ */
+export function bundleScoutTerminalRelayNode(repoRoot, outfile) {
+  mkdirSync(dirname(outfile), { recursive: true });
+  const entry = resolve(repoRoot, "packages/web/server/terminal-relay-node.ts");
+  const result = spawnSync(
+    "bun",
+    [
+      "build",
+      entry,
+      "--target=node",
+      "--format=esm",
+      "--outfile",
+      outfile,
+      "--external",
+      "node-pty",
+    ],
+    { cwd: repoRoot, stdio: "inherit" },
+  );
+  if ((result.status ?? 1) !== 0) {
+    return false;
+  }
+  return verifyBundleStaticChecks(outfile);
+}
+
+/**
  * Run Vite client build in packages/web and copy dist/client → targetClientDir.
  * @param {string} repoRoot
  * @param {string} targetClientDir e.g. packages/cli/dist/control-plane-client

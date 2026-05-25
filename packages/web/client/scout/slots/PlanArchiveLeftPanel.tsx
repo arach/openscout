@@ -23,7 +23,7 @@ export function ScoutPlanArchiveLeftPanel() {
         <input
           type="text"
           className="ctx-panel-search-input"
-          placeholder="Search plans…"
+          placeholder="Search records…"
           value={store.query}
           onChange={(e) => setPlanQuery(e.target.value)}
         />

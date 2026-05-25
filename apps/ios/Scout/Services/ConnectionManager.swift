@@ -1817,7 +1817,7 @@ final class ConnectionManager: @unchecked Sendable {
             let sessions = try await listMobileSessions(limit: limit)
             let now = Int(Date().timeIntervalSince1970 * 1000)
             let summaries = sessions.map { session in
-                let lastActivityAt = (session.lastMessageAt ?? Int(now / 1000)) * 1000
+                let lastActivityAt = session.lastMessageAt.map(scoutEpochMilliseconds) ?? now
                 let project = session.workspaceRoot?.trimmedNonEmpty.map {
                     URL(fileURLWithPath: $0).lastPathComponent
                 } ?? session.agentName
