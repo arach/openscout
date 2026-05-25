@@ -117,15 +117,8 @@ const STATE_COLOR: Record<AgentState, string> = {
   offline: "var(--studio-ink-faint)",
 };
 
-const AVATAR_HUE: Record<string, number> = {
-  Hudson: 210,
-  QB: 25,
-  Scout: 125,
-  Atlas: 175,
-};
-
-function avatarColor(name: string): string {
-  return `oklch(0.70 0.14 ${AVATAR_HUE[name] ?? 200})`;
+function avatarColor(_name: string): string {
+  return "oklch(0.42 0.008 80)";
 }
 
 export default function AgentCardsPage() {

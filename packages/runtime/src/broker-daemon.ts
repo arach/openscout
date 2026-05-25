@@ -6405,12 +6405,14 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
   },
 ): Promise<InvocationResolution> {
   const resolved = resolveBrokerDeliveryTarget(input);
-  if (resolved.kind !== "unknown") {
-    return resolved;
-  }
-
   const projectPath = projectPathRouteTarget(input);
-  if (!projectPath) {
+  const shouldCreateImplicitProjectCard =
+    projectPath
+    && (
+      resolved.kind === "unknown"
+      || (resolved.kind === "ambiguous" && (input.execution?.session ?? "new") === "new")
+    );
+  if (!shouldCreateImplicitProjectCard) {
     return resolved;
   }
 

@@ -47,6 +47,11 @@ interface AgentRowProps {
   ) => void;
 }
 
+// Agent identity is carried by name + handle, not color. Avatars use a
+// single neutral warm tone so the eye sorts the roster by name first.
+// (The per-agent hue table is preserved as `AVATAR_HUES` for any caller
+// that still needs a numeric hue — e.g. legacy QuickSteer wiring — but
+// `avatarColor` no longer returns a per-agent color.)
 const AVATAR_HUES: Record<string, number> = {
   Scout: 125,
   Hudson: 210,
@@ -58,9 +63,8 @@ const AVATAR_HUES: Record<string, number> = {
   Vault: 250,
 };
 
-export function avatarColor(name: string): string {
-  const hue = AVATAR_HUES[name] ?? 200;
-  return `oklch(0.72 0.14 ${hue})`;
+export function avatarColor(_name: string): string {
+  return "oklch(0.42 0.008 80)";
 }
 
 /** Derive a SteerEvent from an agent for use in QuickSteer wrapping.

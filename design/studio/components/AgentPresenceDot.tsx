@@ -21,13 +21,16 @@ export type AgentState =
   | "offline"
   | "error";
 
+// Two-tone palette: ink scales for passive states, single accent for the
+// states that actually need operator attention. No warn/ok/info/error
+// rainbow — semantic differentiation comes from the label, not a hue.
 export const AGENT_STATE_COLOR: Record<AgentState, string> = {
-  working: "var(--status-warn-fg)",
-  "needs-attention": "var(--status-error-fg)",
-  available: "var(--status-ok-fg)",
-  idle: "var(--scout-accent)",
+  working: "var(--scout-accent)",
+  "needs-attention": "var(--scout-accent)",
+  available: "var(--studio-ink-muted)",
+  idle: "var(--studio-ink-faint)",
   offline: "var(--studio-ink-faint)",
-  error: "var(--status-error-fg)",
+  error: "var(--scout-accent)",
 };
 
 export const AGENT_STATE_LABEL: Record<AgentState, string> = {

@@ -103,20 +103,8 @@ const STATE_LABEL: Record<AgentState, string> = {
   error: "error",
 };
 
-const AVATAR_HUES: Record<string, number> = {
-  Scout: 125,
-  Hudson: 210,
-  QB: 25,
-  Cody: 85,
-  Ranger: 295,
-  Vox: 340,
-  Atlas: 175,
-  Vault: 250,
-};
-
-function avatarColor(name: string): string {
-  const hue = AVATAR_HUES[name] ?? 200;
-  return `oklch(0.72 0.14 ${hue})`;
+function avatarColor(_name: string): string {
+  return "oklch(0.42 0.008 80)";
 }
 
 export default function AgentPulsePage() {

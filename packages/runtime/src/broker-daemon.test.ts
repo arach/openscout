@@ -2192,6 +2192,93 @@ describe("broker daemon comms layer", () => {
     }));
   }, 15_000);
 
+  test("auto-provisions a one-time card when project-target delivery has ambiguous existing agents", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "ambiguous-project");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {
+      "ambiguous-one": {
+        agentId: "ambiguous-one",
+        definitionId: "ambiguous-one",
+        displayName: "Ambiguous One",
+        projectName: "Ambiguous Project",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-ambiguous-one-codex",
+          wakePolicy: "on_demand",
+        },
+        capabilities: ["chat", "invoke", "deliver"],
+      },
+      "ambiguous-two": {
+        agentId: "ambiguous-two",
+        definitionId: "ambiguous-two",
+        displayName: "Ambiguous Two",
+        projectName: "Ambiguous Project",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-ambiguous-two-codex",
+          wakePolicy: "on_demand",
+        },
+        capabilities: ["chat", "invoke", "deliver"],
+      },
+    });
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+      flight?: { targetAgentId: string; state: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-auto-card-ambiguous",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Review this project without choosing from existing sessions.",
+      intent: "consult",
+      execution: {
+        harness: "codex",
+        session: "new",
+      },
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId?.startsWith("ambiguous-project-card-")).toBe(true);
+    expect(response.targetAgentId?.endsWith(".test-node")).toBe(true);
+    expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.state).toBe("queued");
+  }, 15_000);
+
   test("refreshes registered local agents before resolving broker-owned delivery", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
