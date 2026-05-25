@@ -3,14 +3,9 @@ import SwiftUI
 
 // Activity tab — native port of design/studio/components/hud/HudActivity.tsx.
 //
-// Structured, time-bucketed event ledger. Distinct from the tail by
-// having section headers, a 1px spine with square tick, category/kind
-// eyebrows, a sans 13 title, sans 12 muted summary, and a byline strip
-// with an initial-avatar.
-//
-// At compact (the shipped size) buckets stack vertically; engaging a
-// row reveals an inline detail panel below it. Activity rows share the
-// HudActivityItem stream consumed by the tail; this view groups it.
+// Compact: time-bucketed ledger, single col, inline reveal on engage.
+// Medium:  same ledger but wider time gutter (stacked relative + absolute).
+// Large:   two panes — ledger left (~480), full event detail right.
 
 private enum ActivityCategory: String, Sendable {
     case presence
@@ -53,6 +48,7 @@ private enum ActivityKindLabel: String, Sendable {
 private struct ActivityRowModel: Identifiable {
     let id: String
     let ago: String
+    let at: String   // HH:MM:SS absolute clock
     let ageSeconds: Int
     let agent: String
     let handle: String?
@@ -102,6 +98,7 @@ struct HUDActivityView: View {
     let activity: [HudActivityItem]?
     let isLoading: Bool
 
+    @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
 
     private var agentById: [String: HudAgent] {
@@ -115,6 +112,92 @@ struct HUDActivityView: View {
             } else if rows.isEmpty {
                 ActivityEmptyView()
             } else {
+                switch state.size {
+                case .compact: compactBody
+                case .medium:  mediumBody
+                case .large:   largeBody
+                }
+            }
+        }
+    }
+
+    // MARK: - Compact
+
+    private var compactBody: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                ForEach(grouped, id: \.bucket) { group in
+                    Section {
+                        ForEach(group.rows) { row in
+                            ActivityRowView(
+                                row: row,
+                                size: .compact,
+                                engaged: engage.isSelected(row.id),
+                                onTap: {
+                                    withAnimation(.easeOut(duration: 0.12)) {
+                                        engage.toggle(row.id)
+                                    }
+                                }
+                            )
+                            if engage.isSelected(row.id) {
+                                ActivityDetailInline(row: row)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            }
+                        }
+                    } header: {
+                        ActivitySectionHeader(bucket: group.bucket)
+                    }
+                }
+            }
+            .padding(.bottom, 12)
+        }
+    }
+
+    // MARK: - Medium
+
+    private var mediumBody: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                ForEach(grouped, id: \.bucket) { group in
+                    Section {
+                        ForEach(group.rows) { row in
+                            ActivityRowView(
+                                row: row,
+                                size: .medium,
+                                engaged: engage.isSelected(row.id),
+                                onTap: {
+                                    withAnimation(.easeOut(duration: 0.12)) {
+                                        engage.toggle(row.id)
+                                    }
+                                }
+                            )
+                            if engage.isSelected(row.id) {
+                                ActivityDetailInline(row: row)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            }
+                        }
+                    } header: {
+                        ActivitySectionHeader(bucket: group.bucket)
+                    }
+                }
+            }
+            .padding(.bottom, 12)
+        }
+    }
+
+    // MARK: - Large
+
+    private var selectedRow: ActivityRowModel {
+        if let id = engage.selectedId, let match = rows.first(where: { $0.id == id }) {
+            return match
+        }
+        return rows[0]
+    }
+
+    private var largeBody: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                // Left ledger
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                         ForEach(grouped, id: \.bucket) { group in
@@ -122,17 +205,14 @@ struct HUDActivityView: View {
                                 ForEach(group.rows) { row in
                                     ActivityRowView(
                                         row: row,
-                                        engaged: engage.isSelected(row.id),
+                                        size: .large,
+                                        engaged: row.id == selectedRow.id,
                                         onTap: {
                                             withAnimation(.easeOut(duration: 0.12)) {
-                                                engage.toggle(row.id)
+                                                engage.select(row.id)
                                             }
                                         }
                                     )
-                                    if engage.isSelected(row.id) {
-                                        ActivityDetailInline(row: row)
-                                            .transition(.move(edge: .top).combined(with: .opacity))
-                                    }
                                 }
                             } header: {
                                 ActivitySectionHeader(bucket: group.bucket)
@@ -141,12 +221,21 @@ struct HUDActivityView: View {
                     }
                     .padding(.bottom, 12)
                 }
+                .frame(width: 480)
+
+                Rectangle().fill(HUDChrome.border).frame(width: 0.5)
+
+                ActivityDetailLarge(row: selectedRow)
+                    .frame(maxWidth: .infinity)
             }
+            .frame(maxHeight: .infinity)
         }
     }
 
     private var rows: [ActivityRowModel] {
         let now = Date()
+        let clock = DateFormatter()
+        clock.dateFormat = "HH:mm:ss"
         return (activity ?? []).prefix(60).map { item in
             let agent = item.agentId.flatMap { agentById[$0] }
             let name = agent?.name ?? item.displayName
@@ -158,6 +247,7 @@ struct HUDActivityView: View {
             return ActivityRowModel(
                 id: item.id,
                 ago: HudAgent.formatAgo(sinceMs: item.ts),
+                at: clock.string(from: then),
                 ageSeconds: ageSec,
                 agent: name,
                 handle: handle,
@@ -246,6 +336,7 @@ private struct ActivitySectionHeader: View {
 
 private struct ActivityRowView: View {
     let row: ActivityRowModel
+    let size: HUDSize
     let engaged: Bool
     var onTap: () -> Void = {}
 
@@ -268,21 +359,30 @@ private struct ActivityRowView: View {
         row.emphasized ? HUDChrome.accent : HUDChrome.inkFaint
     }
 
+    // WHY: medium/large widen the gutter to fit a stacked relative + absolute timestamp.
+    private var gutterW: CGFloat {
+        size == .compact ? 32 : 48
+    }
+
+    private var spineX: CGFloat {
+        size == .compact ? 40 : 56
+    }
+
     var body: some View {
         ZStack(alignment: .leading) {
             rowFill
 
-            // Spine — sits at x=40, between the time gutter and dispatch
+            // Spine
             HStack(spacing: 0) {
-                Spacer().frame(width: 40)
+                Spacer().frame(width: spineX)
                 Rectangle()
                     .fill(HUDChrome.border)
                     .frame(width: 1)
             }
 
-            // Square tick on the spine
+            // Tick
             HStack(spacing: 0) {
-                Spacer().frame(width: row.emphasized ? 38 : 39)
+                Spacer().frame(width: row.emphasized ? spineX - 2 : spineX - 1)
                 Rectangle()
                     .fill(tickColor)
                     .frame(
@@ -294,24 +394,17 @@ private struct ActivityRowView: View {
             }
             .frame(maxHeight: .infinity, alignment: .top)
 
-            // Engaged rule
             if engaged {
-                Rectangle()
-                    .fill(HUDChrome.accent)
-                    .frame(width: 1.5)
+                Rectangle().fill(HUDChrome.accent).frame(width: 1.5)
             }
 
             // Content
             HStack(alignment: .top, spacing: 11) {
-                Text(row.ago)
-                    .font(HUDType.mono(10, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .frame(width: 32, alignment: .trailing)
+                timeGutter
+                    .frame(width: gutterW, alignment: .trailing)
                     .padding(.top, 2)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    // Category · kind eyebrow row
                     HStack(spacing: 5) {
                         Text(row.category.label)
                             .font(HUDType.mono(10, weight: .bold))
@@ -326,18 +419,16 @@ private struct ActivityRowView: View {
                             .foregroundStyle(row.emphasized ? HUDChrome.accent : HUDChrome.inkFaint)
                     }
 
-                    // Title (sans 12 compact — studio uses 12 at compact)
                     Text(row.title)
-                        .font(HUDType.body(12, weight: .semibold))
+                        .font(HUDType.body(size == .compact ? 12 : 13, weight: .semibold))
                         .foregroundStyle(HUDChrome.ink)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    // Summary
                     if !row.summary.isEmpty, row.summary != row.title {
                         Text(row.summary)
-                            .font(HUDType.body(11))
+                            .font(HUDType.body(size == .compact ? 11 : 12))
                             .foregroundStyle(HUDChrome.inkMuted)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
@@ -345,7 +436,6 @@ private struct ActivityRowView: View {
                             .lineSpacing(1.5)
                     }
 
-                    // Byline strip
                     HStack(spacing: 6) {
                         InitialAvatar(name: row.agent)
                         Text(row.agent)
@@ -372,8 +462,8 @@ private struct ActivityRowView: View {
                 Spacer(minLength: 0)
             }
             .padding(.leading, 12)
-            .padding(.trailing, 14)
-            .padding(.vertical, 9)
+            .padding(.trailing, size == .compact ? 14 : 16)
+            .padding(.vertical, size == .compact ? 9 : 10)
         }
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -383,6 +473,27 @@ private struct ActivityRowView: View {
                 .fill(HUDChrome.borderSoft)
                 .frame(height: 0.5)
                 .padding(.horizontal, 16)
+        }
+    }
+
+    @ViewBuilder
+    private var timeGutter: some View {
+        if size == .compact {
+            Text(row.ago)
+                .font(HUDType.mono(10, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(HUDChrome.inkFaint)
+        } else {
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(row.ago)
+                    .font(HUDType.mono(11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(HUDChrome.inkMuted)
+                Text(row.at)
+                    .font(HUDType.mono(10))
+                    .monospacedDigit()
+                    .foregroundStyle(HUDChrome.inkFaint)
+            }
         }
     }
 }
@@ -395,18 +506,12 @@ private struct InitialAvatar: View {
             .font(HUDType.mono(10, weight: .semibold))
             .foregroundStyle(HUDChrome.inkMuted)
             .frame(width: 13, height: 13)
-            .background(
-                Circle()
-                    .fill(HUDChrome.canvas)
-            )
-            .overlay(
-                Circle()
-                    .stroke(HUDChrome.border, lineWidth: 0.5)
-            )
+            .background(Circle().fill(HUDChrome.canvas))
+            .overlay(Circle().stroke(HUDChrome.border, lineWidth: 0.5))
     }
 }
 
-// MARK: - Engaged detail
+// MARK: - Engaged detail (compact + medium inline)
 
 private struct ActivityDetailInline: View {
     let row: ActivityRowModel
@@ -460,6 +565,123 @@ private struct ActivityDetailInline: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
+    }
+}
+
+// MARK: - Large right-pane detail
+
+private struct ActivityDetailLarge: View {
+    let row: ActivityRowModel
+
+    private var categoryColor: Color {
+        switch row.category {
+        case .work, .coordination: return HUDChrome.accent
+        default: return HUDChrome.inkMuted
+        }
+    }
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 6) {
+                    Text("· " + row.category.label)
+                        .font(HUDType.mono(10, weight: .bold))
+                        .tracking(HUDType.eyebrowTracking)
+                        .foregroundStyle(categoryColor)
+                    Text("·")
+                        .font(HUDType.mono(10))
+                        .foregroundStyle(HUDChrome.inkFaint)
+                    Text(row.kind.label)
+                        .font(HUDType.mono(10, weight: .semibold))
+                        .tracking(HUDType.eyebrowTracking)
+                        .foregroundStyle(row.emphasized ? HUDChrome.accent : HUDChrome.inkFaint)
+                    Spacer()
+                    Text("\(row.at)  ·  \(row.ago) ago")
+                        .font(HUDType.mono(10))
+                        .monospacedDigit()
+                        .foregroundStyle(HUDChrome.inkFaint)
+                }
+
+                Text(row.title)
+                    .font(HUDType.body(15, weight: .semibold))
+                    .foregroundStyle(HUDChrome.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+
+                if !row.summary.isEmpty, row.summary != row.title {
+                    Text(row.summary)
+                        .font(HUDType.body(13))
+                        .foregroundStyle(HUDChrome.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                        .lineSpacing(2)
+                }
+
+                if let detail = row.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(HUDType.body(12))
+                        .foregroundStyle(HUDChrome.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                        .lineSpacing(3)
+                }
+
+                VStack(spacing: 0) {
+                    Rectangle().fill(HUDChrome.border).frame(height: 0.5)
+                    HStack(spacing: 8) {
+                        InitialAvatar(name: row.agent)
+                        Text(row.agent)
+                            .font(HUDType.body(12))
+                            .foregroundStyle(HUDChrome.ink)
+                        if let handle = row.handle {
+                            Text(handle.hasPrefix("@") ? handle : "@" + handle)
+                                .font(HUDType.mono(11))
+                                .foregroundStyle(HUDChrome.inkFaint)
+                        }
+                        Spacer()
+                        if let flight = row.flightId {
+                            Text("flight \(flight)")
+                                .font(HUDType.mono(10))
+                                .monospacedDigit()
+                                .foregroundStyle(HUDChrome.inkMuted)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 2.5)
+                                        .stroke(HUDChrome.border, lineWidth: 0.5)
+                                )
+                        }
+                    }
+                    .padding(.top, 10)
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    drillLink(label: "OPEN THREAD")
+                    drillLink(label: "FOLLOW EXECUTION")
+                    drillLink(label: "AGENT PROFILE")
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func drillLink(label: String) -> some View {
+        HStack(spacing: 8) {
+            Text("→")
+                .font(HUDType.mono(11))
+                .foregroundStyle(HUDChrome.inkFaint)
+            Text(label)
+                .font(HUDType.mono(10, weight: .semibold))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(HUDChrome.inkMuted)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
     }
 }
 

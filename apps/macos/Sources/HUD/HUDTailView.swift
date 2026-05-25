@@ -3,14 +3,9 @@ import SwiftUI
 
 // Tail tab — native port of design/studio/components/hud/HudTail.tsx.
 //
-// Firehose pattern. No section headers, no time buckets, no spine, no
-// byline avatar. Just a thin live-meter strip and a dense single-line
-// mono stream: HH:MM:SS · KND · @source · <line>. Each row reveals a
-// raw + ±1 neighbor block on engage.
-//
-// This view shares the same HudActivityItem stream as HUDActivityView;
-// the difference is presentation — activity buckets + structures, tail
-// flattens + densifies. ssh-tail-into-a-server.
+// Compact: dense firehose mono rows, inline raw + PRV/NXT on engage.
+// Medium:  same firehose, row font bumps slightly + padded breathing room.
+// Large:   two panes — stream left (~540), focused raw + PRV/CUR/NXT right.
 
 private enum TailKind: String {
     case turn = "TUR"
@@ -51,6 +46,7 @@ struct HUDTailView: View {
     let activity: [HudActivityItem]?
     let isLoading: Bool
 
+    @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
 
     private var agentById: [String: HudAgent] {
@@ -64,34 +60,123 @@ struct HUDTailView: View {
             } else if rows.isEmpty {
                 TailEmptyView()
             } else {
-                VStack(spacing: 0) {
-                    TailLiveMeter(count: rows.count)
-                    ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
-                                TailRow(
-                                    row: row,
-                                    engaged: engage.isSelected(row.id),
-                                    onTap: {
-                                        withAnimation(.easeOut(duration: 0.10)) {
-                                            engage.toggle(row.id)
-                                        }
-                                    }
-                                )
-                                if engage.isSelected(row.id) {
-                                    TailDetailInline(
-                                        row: row,
-                                        prev: idx > 0 ? rows[idx - 1] : nil,
-                                        next: idx + 1 < rows.count ? rows[idx + 1] : nil
-                                    )
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                                }
-                            }
-                        }
-                        .padding(.bottom, 8)
-                    }
+                switch state.size {
+                case .compact: compactBody
+                case .medium:  mediumBody
+                case .large:   largeBody
                 }
             }
+        }
+    }
+
+    // MARK: - Compact
+
+    private var compactBody: some View {
+        VStack(spacing: 0) {
+            TailLiveMeter(count: rows.count)
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                        TailRow(
+                            row: row,
+                            size: .compact,
+                            engaged: engage.isSelected(row.id),
+                            onTap: {
+                                withAnimation(.easeOut(duration: 0.10)) {
+                                    engage.toggle(row.id)
+                                }
+                            }
+                        )
+                        if engage.isSelected(row.id) {
+                            TailDetailInline(
+                                row: row,
+                                prev: idx > 0 ? rows[idx - 1] : nil,
+                                next: idx + 1 < rows.count ? rows[idx + 1] : nil
+                            )
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    // MARK: - Medium
+
+    private var mediumBody: some View {
+        VStack(spacing: 0) {
+            TailLiveMeter(count: rows.count)
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                        TailRow(
+                            row: row,
+                            size: .medium,
+                            engaged: engage.isSelected(row.id),
+                            onTap: {
+                                withAnimation(.easeOut(duration: 0.10)) {
+                                    engage.toggle(row.id)
+                                }
+                            }
+                        )
+                        if engage.isSelected(row.id) {
+                            TailDetailInline(
+                                row: row,
+                                prev: idx > 0 ? rows[idx - 1] : nil,
+                                next: idx + 1 < rows.count ? rows[idx + 1] : nil
+                            )
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
+                }
+                .padding(.bottom, 10)
+            }
+        }
+    }
+
+    // MARK: - Large
+
+    private var selectedIdx: Int {
+        if let id = engage.selectedId, let i = rows.firstIndex(where: { $0.id == id }) {
+            return i
+        }
+        return 0
+    }
+
+    private var largeBody: some View {
+        VStack(spacing: 0) {
+            TailLiveMeter(count: rows.count)
+            HStack(spacing: 0) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { _, row in
+                            TailRow(
+                                row: row,
+                                size: .large,
+                                engaged: row.id == rows[selectedIdx].id,
+                                onTap: {
+                                    withAnimation(.easeOut(duration: 0.10)) {
+                                        engage.select(row.id)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .padding(.bottom, 10)
+                }
+                .frame(width: 540)
+
+                Rectangle().fill(HUDChrome.border).frame(width: 0.5)
+
+                TailDetailLarge(
+                    row: rows[selectedIdx],
+                    prev: selectedIdx > 0 ? rows[selectedIdx - 1] : nil,
+                    next: selectedIdx + 1 < rows.count ? rows[selectedIdx + 1] : nil
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .frame(maxHeight: .infinity)
         }
     }
 
@@ -131,10 +216,6 @@ struct HUDTailView: View {
 }
 
 // MARK: - Live meter strip
-//
-// Replaces the section header. Thin row with a pulsing lime dot, the
-// word "live · firehose" in mono eyebrow, and an evt counter on the right.
-// Reads as a status strip, never as a heading.
 
 private struct TailLiveMeter: View {
     let count: Int
@@ -184,10 +265,11 @@ private struct TailLiveMeter: View {
     }
 }
 
-// MARK: - Row — dense single-line mono
+// MARK: - Row
 
 private struct TailRow: View {
     let row: TailRowModel
+    let size: HUDSize
     let engaged: Bool
     var onTap: () -> Void = {}
 
@@ -207,37 +289,50 @@ private struct TailRow: View {
         row.emphasized ? HUDChrome.accent : HUDChrome.inkFaint
     }
 
+    // WHY: medium/large bump the row font from 10 → 11 for breathing room.
+    private var fontSize: CGFloat {
+        size == .compact ? 10 : 11
+    }
+
+    private var padX: CGFloat {
+        size == .compact ? 12 : 14
+    }
+
+    private var padY: CGFloat {
+        size == .compact ? 2 : 3
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(row.at)
-                .font(HUDType.mono(10))
+                .font(HUDType.mono(fontSize))
                 .monospacedDigit()
                 .foregroundStyle(HUDChrome.inkFaint)
 
             Text(row.kind.rawValue)
-                .font(HUDType.mono(10, weight: .bold))
+                .font(HUDType.mono(fontSize, weight: .bold))
                 .tracking(0.4)
                 .foregroundStyle(kindColor)
 
             Text("@" + row.source)
-                .font(HUDType.mono(10))
+                .font(HUDType.mono(fontSize))
                 .foregroundStyle(body1.opacity(0.85))
                 .lineLimit(1)
                 .fixedSize()
 
             Text("·")
-                .font(HUDType.mono(10))
+                .font(HUDType.mono(fontSize))
                 .foregroundStyle(HUDChrome.inkFaint)
 
             Text(row.line)
-                .font(HUDType.mono(10))
+                .font(HUDType.mono(fontSize))
                 .foregroundStyle(body1)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 2)
+        .padding(.horizontal, padX)
+        .padding(.vertical, padY)
         .background(fill)
         .overlay(alignment: .leading) {
             if engaged {
@@ -267,7 +362,7 @@ private struct TailRow: View {
     }
 }
 
-// MARK: - Engaged detail (raw + ±1 neighbors)
+// MARK: - Engaged inline detail
 
 private struct TailDetailInline: View {
     let row: TailRowModel
@@ -312,6 +407,88 @@ private struct TailDetailInline: View {
                 .foregroundStyle(HUDChrome.inkFaint)
                 .lineLimit(1)
                 .truncationMode(.tail)
+        }
+    }
+}
+
+// MARK: - Large right-pane detail
+
+private struct TailDetailLarge: View {
+    let row: TailRowModel
+    let prev: TailRowModel?
+    let next: TailRowModel?
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                HUDEyebrow(text: "RAW LINE", color: HUDChrome.inkFaint)
+
+                Text("[\(row.at)] [\(row.kind.rawValue)] @\(row.source) · \(row.line)")
+                    .font(HUDType.mono(12))
+                    .foregroundStyle(HUDChrome.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                    .lineSpacing(3)
+
+                Rectangle().fill(HUDChrome.border).frame(height: 0.5)
+
+                HUDEyebrow(text: "WINDOW", color: HUDChrome.inkFaint)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    if let prev {
+                        windowLine(label: "PRV", row: prev, current: false)
+                    }
+                    windowLine(label: "CUR", row: row, current: true)
+                    if let next {
+                        windowLine(label: "NXT", row: next, current: false)
+                    }
+                }
+
+                Rectangle().fill(HUDChrome.border).frame(height: 0.5)
+                    .padding(.top, 4)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    metaRow(label: "KIND", value: row.kind.rawValue)
+                    metaRow(label: "SOURCE", value: "@" + row.source)
+                    metaRow(label: "AT", value: row.at)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func windowLine(label: String, row r: TailRowModel, current: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(HUDType.mono(10, weight: .bold))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(current ? HUDChrome.accent : HUDChrome.inkDeep)
+                .frame(width: 32, alignment: .leading)
+            Text("\(r.at) \(r.kind.rawValue) @\(r.source) · \(r.line)")
+                .font(HUDType.mono(11))
+                .foregroundStyle(current ? HUDChrome.ink : HUDChrome.inkFaint)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    private func metaRow(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(HUDType.mono(10, weight: .bold))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(HUDChrome.inkDeep)
+                .frame(width: 64, alignment: .leading)
+            Text(value)
+                .font(HUDType.mono(11))
+                .foregroundStyle(HUDChrome.ink)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
         }
     }
 }
