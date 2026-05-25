@@ -9,6 +9,7 @@ import {
   buildControlPlaneClientAndCopy,
   bundleScoutWebServerBun,
   bundleScoutControlPlaneWebServerBun,
+  bundleScoutTerminalRelayNode,
   getOpenScoutRepoRoot,
   verifyBundleStaticChecks,
 } from "../../../scripts/bundle-scout-web.mjs";
@@ -21,6 +22,7 @@ const outputDirectory = resolve(packageDirectory, "dist");
 const outputFile = resolve(outputDirectory, "main.mjs");
 const webServerOutput = resolve(outputDirectory, "scout-web-server.mjs");
 const controlPlaneWebOutput = resolve(outputDirectory, "scout-control-plane-web.mjs");
+const terminalRelayOutput = resolve(outputDirectory, "openscout-terminal-relay.mjs");
 const pairSupervisorOutput = resolve(outputDirectory, "pair-supervisor.mjs");
 const runtimeOutputDirectory = resolve(outputDirectory, "runtime");
 const clientDir = resolve(outputDirectory, "client");
@@ -36,6 +38,10 @@ const result = spawnSync(
 
 if ((result.status ?? 1) !== 0) {
   process.exit(result.status ?? 1);
+}
+
+if (!bundleScoutTerminalRelayNode(repoRoot, terminalRelayOutput)) {
+  process.exit(1);
 }
 
 if (!bundleScoutControlPlaneWebServerBun(repoRoot, controlPlaneWebOutput)) {
@@ -120,7 +126,7 @@ const normalized = built
 writeFileSync(outputFile, `#!/usr/bin/env bun\n${normalized}`);
 chmodSync(outputFile, 0o755);
 
-for (const built of [outputFile, pairSupervisorOutput]) {
+for (const built of [outputFile, pairSupervisorOutput, terminalRelayOutput]) {
   if (!verifyBundleStaticChecks(built)) {
     process.exit(1);
   }

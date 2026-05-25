@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS actors (
   handle TEXT,
   labels_json TEXT,
   metadata_json TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS agent_endpoints (
   cwd TEXT,
   project_root TEXT,
   metadata_json TEXT,
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+  updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
   message_id TEXT,
   metadata_json TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
 CREATE TABLE IF NOT EXISTS conversation_members (
@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   lease_owner TEXT,
   lease_expires_at INTEGER,
   metadata_json TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
 CREATE TABLE IF NOT EXISTS delivery_attempts (
@@ -418,7 +418,7 @@ CREATE TABLE IF NOT EXISTS briefings (
   -- markdown pipeline landed; rows persisted after step 3 of SCO-037 carry
   -- the full markdown document the analyst emitted.
   markdown TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_mesh_id

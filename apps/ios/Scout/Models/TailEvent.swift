@@ -37,7 +37,11 @@ struct TailEvent: Codable, Identifiable, Sendable {
     let kind: Kind
     let summary: String
 
+    var tsMs: Int {
+        scoutEpochMilliseconds(ts)
+    }
+
     var date: Date {
-        Date(timeIntervalSince1970: Double(ts) / 1000.0)
+        scoutDate(fromEpoch: ts)
     }
 }

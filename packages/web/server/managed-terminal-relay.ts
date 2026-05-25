@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createServer as createTcpServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,15 +18,18 @@ export type TerminalRelayRunRequest = {
   agentId?: string | null;
 };
 
-function relayPortForWebPort(webPort: number): number {
+const TERMINAL_RELAY_HEALTH_SURFACE = "openscout-terminal-relay";
+const AUTO_RELAY_PORT_ATTEMPTS = 16;
+
+function relayPortPreferenceForWebPort(webPort: number): { port: number; configured: boolean } {
   const configured = process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PORT?.trim();
   if (configured) {
     const parsed = Number.parseInt(configured, 10);
     if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
+      return { port: parsed, configured: true };
     }
   }
-  return webPort + 1;
+  return { port: webPort + 1, configured: false };
 }
 
 function relayHostForWebHost(hostname: string): string {
@@ -39,12 +43,23 @@ function relayLoopbackHost(hostname: string): string {
   return hostname;
 }
 
-async function isHealthy(targetHttpUrl: string): Promise<boolean> {
+function isTerminalRelayHealthPayload(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const body = value as { ok?: unknown; surface?: unknown };
+  return body.ok === true && body.surface === TERMINAL_RELAY_HEALTH_SURFACE;
+}
+
+export async function isTerminalRelayHealthy(targetHttpUrl: string): Promise<boolean> {
   try {
     const response = await fetch(`${targetHttpUrl}/health`, {
       signal: AbortSignal.timeout(1000),
     });
-    return response.ok;
+    if (!response.ok) {
+      return false;
+    }
+    return isTerminalRelayHealthPayload(await response.json().catch(() => null));
   } catch {
     return false;
   }
@@ -56,12 +71,32 @@ async function waitForHealthy(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await isHealthy(targetHttpUrl)) {
+    if (await isTerminalRelayHealthy(targetHttpUrl)) {
       return true;
     }
     await new Promise((resolveTimer) => setTimeout(resolveTimer, 100));
   }
   return false;
+}
+
+async function canListenOnPort(hostname: string, port: number): Promise<boolean> {
+  return new Promise((resolveListen) => {
+    const server = createTcpServer();
+    let settled = false;
+    const finish = (available: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolveListen(available);
+    };
+
+    server.once("error", () => finish(false));
+    server.once("listening", () => {
+      server.close(() => finish(true));
+    });
+    server.listen(port, hostname);
+  });
 }
 
 function resolveRuntimeEntry(): string {
@@ -105,41 +140,95 @@ export async function startManagedTerminalRelay(args: {
   hostname: string;
   webPort: number;
 }): Promise<ManagedTerminalRelay> {
-  const relayPort = relayPortForWebPort(args.webPort);
+  const relayPortPreference = relayPortPreferenceForWebPort(args.webPort);
   const bindHost = relayHostForWebHost(args.hostname);
   const loopbackHost = relayLoopbackHost(bindHost);
-  const targetHttpUrl = `http://${loopbackHost}:${relayPort}`;
-  const targetWebSocketUrl = `ws://${loopbackHost}:${relayPort}`;
+  const preferredTargetHttpUrl = `http://${loopbackHost}:${relayPortPreference.port}`;
+  const preferredTargetWebSocketUrl = `ws://${loopbackHost}:${relayPortPreference.port}`;
 
-  if (await isHealthy(targetHttpUrl)) {
-    return {
-      healthcheck: () => isHealthy(targetHttpUrl),
-      queueCommand: async (request: TerminalRelayRunRequest) => {
-        const response = await fetch(`${targetHttpUrl}/api/terminal/run`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(request),
-        });
-        if (!response.ok) {
-          throw new Error("Terminal relay rejected queued command");
-        }
-      },
-      shutdown() {},
-      targetHttpUrl,
-      targetWebSocketUrl,
-    };
+  if (await isTerminalRelayHealthy(preferredTargetHttpUrl)) {
+    return createManagedRelayHandle(preferredTargetHttpUrl, preferredTargetWebSocketUrl);
   }
 
   const runtimeEntry = resolveRuntimeEntry();
+
+  for (let offset = 0; offset < AUTO_RELAY_PORT_ATTEMPTS; offset += 1) {
+    const relayPort = relayPortPreference.port + offset;
+    const targetHttpUrl = `http://${loopbackHost}:${relayPort}`;
+    const targetWebSocketUrl = `ws://${loopbackHost}:${relayPort}`;
+    const portAvailable = await canListenOnPort(bindHost, relayPort);
+
+    if (!portAvailable) {
+      if (relayPortPreference.configured) {
+        throw new Error(
+          `Configured terminal relay port ${relayPort} is already in use and is not an OpenScout terminal relay`,
+        );
+      }
+      if (offset === 0) {
+        console.warn(
+          `[relay] Terminal relay port ${relayPort} is occupied by another service; trying the next available port`,
+        );
+      }
+      continue;
+    }
+
+    return startRelayProcess({
+      runtimeEntry,
+      bindHost,
+      relayPort,
+      targetHttpUrl,
+      targetWebSocketUrl,
+    });
+  }
+
+  throw new Error(
+    `Could not find an available terminal relay port starting at ${relayPortPreference.port}`,
+  );
+}
+
+function createManagedRelayHandle(
+  targetHttpUrl: string,
+  targetWebSocketUrl: string,
+  child?: ChildProcess,
+): ManagedTerminalRelay {
+  return {
+    healthcheck: () => isTerminalRelayHealthy(targetHttpUrl),
+    queueCommand: async (request: TerminalRelayRunRequest) => {
+      const response = await fetch(`${targetHttpUrl}/api/terminal/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      if (!response.ok) {
+        throw new Error("Terminal relay rejected queued command");
+      }
+    },
+    shutdown() {
+      if (child) {
+        terminateChild(child);
+      }
+    },
+    targetHttpUrl,
+    targetWebSocketUrl,
+  };
+}
+
+async function startRelayProcess(input: {
+  runtimeEntry: string;
+  bindHost: string;
+  relayPort: number;
+  targetHttpUrl: string;
+  targetWebSocketUrl: string;
+}): Promise<ManagedTerminalRelay> {
   const child = spawn(
     "node",
-    [runtimeEntry],
+    [input.runtimeEntry],
     {
-      cwd: resolve(dirname(runtimeEntry), ".."),
+      cwd: resolve(dirname(input.runtimeEntry), ".."),
       env: {
         ...process.env,
-        OPENSCOUT_WEB_TERMINAL_RELAY_HOST: bindHost,
-        OPENSCOUT_WEB_TERMINAL_RELAY_PORT: String(relayPort),
+        OPENSCOUT_WEB_TERMINAL_RELAY_HOST: input.bindHost,
+        OPENSCOUT_WEB_TERMINAL_RELAY_PORT: String(input.relayPort),
       },
       stdio: "inherit",
     },
@@ -158,35 +247,18 @@ export async function startManagedTerminalRelay(args: {
     );
   });
 
-  const ready = await waitForHealthy(targetHttpUrl, 5000);
-  if (!ready) {
-    if (!child.killed) {
-      child.kill("SIGTERM");
-    }
-    if (spawnError) {
-      throw spawnError;
-    }
-    throw new Error(`Terminal relay did not become healthy at ${targetHttpUrl}`);
+  const ready = await waitForHealthy(input.targetHttpUrl, 5000);
+  if (ready) {
+    return createManagedRelayHandle(input.targetHttpUrl, input.targetWebSocketUrl, child);
   }
 
-  return {
-    healthcheck: () => isHealthy(targetHttpUrl),
-    queueCommand: async (request: TerminalRelayRunRequest) => {
-      const response = await fetch(`${targetHttpUrl}/api/terminal/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
-      if (!response.ok) {
-        throw new Error("Terminal relay rejected queued command");
-      }
-    },
-    shutdown() {
-      terminateChild(child);
-    },
-    targetHttpUrl,
-    targetWebSocketUrl,
-  };
+  if (!child.killed) {
+    child.kill("SIGTERM");
+  }
+  if (spawnError) {
+    throw spawnError;
+  }
+  throw new Error(`Terminal relay did not become healthy at ${input.targetHttpUrl}`);
 }
 
 function terminateChild(child: ChildProcess) {

@@ -23,7 +23,7 @@ export interface SessionInitMessage {
   tmuxSession?: string;
   /** CLI agent to spawn. 'claude' (default), 'pi', or 'shell'. */
   agent?: 'claude' | 'pi' | 'shell';
-  /** For pi agent: provider name (e.g. 'minimax', 'openai'). */
+  /** For pi agent: provider name (e.g. 'minimax', 'github-copilot'). */
   provider?: string;
   /** For pi agent: model ID (e.g. 'MiniMax-M1'). */
   model?: string;
@@ -54,7 +54,7 @@ export type ClientMessage =
   | TerminalResizeMessage;
 
 import { createRequire } from 'module';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { accessSync, constants, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { delimiter as pathDelimiter, join, dirname as pathDirname, resolve as pathResolve } from 'path';
 import type { IPty } from 'node-pty';
@@ -145,6 +145,9 @@ export function resizeSession(session: Session, cols: number, rows: number): boo
   if (session.exited) return false;
   try {
     session.pty.resize(cols, rows);
+    if (session.backend === 'tmux' && session.tmuxSession) {
+      resizeTmuxWindow(session.tmuxSession, cols, rows);
+    }
     session.cols = cols;
     session.rows = rows;
     return true;
@@ -223,7 +226,6 @@ function findExecutableInDirectories(name: string, directories: string[]): strin
 function findExecutableOnPath(name: string): string | null {
   return findExecutableInDirectories(name, (process.env.PATH || '').split(pathDelimiter));
 }
-
 /** Locate the claude binary, returning null if not found. */
 function findClaudeBin(): string | null {
   for (const envKey of ['OPENSCOUT_CLAUDE_BIN', 'SCOUT_CLAUDE_BIN', 'CLAUDE_BIN']) {
@@ -264,10 +266,35 @@ function findShellBin(): string | null {
   return null;
 }
 
+/** Map Hudson-facing provider ids to the exact provider names accepted by the Pi CLI. */
+function normalizePiProviderForCli(provider?: string): string | undefined {
+  if (!provider) return undefined;
+  if (provider === 'copilot' || provider === 'github') return 'github-copilot';
+  return provider;
+}
+
 /** Check if a tmux session exists. */
 function tmuxSessionExists(name: string): boolean {
   try {
     execSync(`tmux has-session -t ${name} 2>/dev/null`, { encoding: 'utf8' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Resize the tmux window behind an attached bridge PTY. */
+function resizeTmuxWindow(name: string, cols: number, rows: number): boolean {
+  try {
+    execFileSync('tmux', [
+      'resize-window',
+      '-t',
+      name,
+      '-x',
+      String(cols),
+      '-y',
+      String(rows),
+    ], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -313,7 +340,7 @@ function spawnTmuxSession(
     console.log(`[relay] Created tmux session: ${tmuxName}`);
   } else {
     // Resize existing session to match client
-    try { execSync(`tmux resize-window -t ${tmuxName} -x ${cols} -y ${rows} 2>/dev/null`); } catch {}
+    resizeTmuxWindow(tmuxName, cols, rows);
     console.log(`[relay] Attaching to existing tmux session: ${tmuxName}`);
   }
 
@@ -394,7 +421,8 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     agentArgs = [];
   } else if (agent === 'pi') {
     agentArgs = ['--verbose'];
-    if (msg.provider) agentArgs.push('--provider', msg.provider);
+    const provider = normalizePiProviderForCli(msg.provider);
+    if (provider) agentArgs.push('--provider', provider);
     if (msg.model) agentArgs.push('--model', msg.model);
     if (msg.systemPrompt) agentArgs.push('--system-prompt', msg.systemPrompt);
   } else {

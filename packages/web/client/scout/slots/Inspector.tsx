@@ -10,6 +10,7 @@ import { timeAgo } from "../../lib/time.ts";
 import { AgentsInspector } from "../inspector/AgentsInspector.tsx";
 import { HomeAgentsInspector } from "../inspector/HomeAgentsInspector.tsx";
 import { SessionsInspector } from "../inspector/SessionsInspector.tsx";
+import { TerminalInspector } from "../inspector/TerminalInspector.tsx";
 import { WorkInspector } from "../inspector/WorkInspector.tsx";
 import { MeshInspectorPanel } from "../inspector/MeshInspector.tsx";
 import { RangerPanel } from "../ranger/RangerPanel.tsx";
@@ -94,6 +95,9 @@ export function ScoutInspector() {
     case "sessions":
     case "conversation":
       content = <SessionsInspector />;
+      break;
+    case "terminal":
+      content = <TerminalInspector />;
       break;
     case "channels":
       content = <ChannelInspectorPanel channelId={route.channelId} agents={agents} navigate={navigate} returnRoute={route} />;
@@ -457,8 +461,8 @@ function ChannelActivityButton({
 
 const OPS_MODE_LABELS: Record<OpsMode, string> = {
   mission: "Control",
-  plan: "Plan",
-  issues: "Issues",
+  plan: "Work",
+  issues: "Alerts",
   tail: "Tail",
   atop: "Atop",
   agents: "Agents",

@@ -64,6 +64,17 @@
   text-transform: uppercase;
 }
 
+.s-term-session {
+  min-width: 0;
+  max-width: min(420px, 32vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
 .s-term-vantage {
   border: 1px solid rgba(94, 234, 212, 0.22);
   border-radius: 4px;

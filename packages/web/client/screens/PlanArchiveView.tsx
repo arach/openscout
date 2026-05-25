@@ -224,6 +224,10 @@ function buildRunPlanRecord(run: AgentRun, agentsById: Record<string, Agent>): P
   };
 }
 
+function recordSourceLabel(record: Pick<PlanRecord, "source">): string {
+  return record.source === "work" ? "work item" : "agent run";
+}
+
 function statusRouteForRecord(record: PlanRecord): string {
   if (record.route.view === "work") return `/work/${record.route.workId}`;
   if (record.route.view === "conversation") return `/messages/${record.route.conversationId}`;
@@ -294,6 +298,10 @@ export function PlanArchiveView({
       .filter((record): record is PlanRecord => record !== null);
     return [...workRecords, ...runRecords];
   }, [agentsById, runs, works]);
+  const sourceCounts = useMemo(() => {
+    const work = records.filter((record) => record.source === "work").length;
+    return { work, run: records.length - work };
+  }, [records]);
 
   useEffect(() => {
     const byAuthor: Record<PlanAuthor | "all", number> = {
@@ -338,23 +346,23 @@ export function PlanArchiveView({
   }, [records, store.authorFilter, store.outcomeFilter, store.projectFilter, store.timeFilter, store.query]);
 
   const indexedLabel = lastLoadedAt
-    ? `${records.length} plans · indexed ${timeAgo(lastLoadedAt)}`
+    ? `${records.length} records · ${sourceCounts.work} work items · ${sourceCounts.run} runs · indexed ${timeAgo(lastLoadedAt)}`
     : loading
       ? "Indexing…"
-      : "0 plans";
+      : "0 records";
 
   return (
     <section className="s-plan-main">
       <header className="s-plan-head">
         <div className="s-plan-head-left">
-          <span className="s-plan-eyebrow">Plan archive</span>
+          <span className="s-plan-eyebrow">Work archive</span>
           <span className="s-plan-stat">{indexedLabel}</span>
         </div>
         <div className="s-plan-head-right">
           <input
             type="search"
             className="s-plan-search"
-            placeholder="Search plans, titles, projects…"
+            placeholder="Search records, titles, projects…"
             value={store.query}
             onChange={(e) => setPlanQuery(e.target.value)}
             spellCheck={false}
@@ -370,13 +378,13 @@ export function PlanArchiveView({
         </div>
       </header>
 
-      {error && <div className="s-plan-error">Error loading plans: {error}</div>}
+      {error && <div className="s-plan-error">Error loading records: {error}</div>}
 
       <div className="s-plan-table" role="table">
         <div className="s-plan-table-head" role="row">
           <span role="columnheader">Created</span>
           <span role="columnheader">Author</span>
-          <span role="columnheader">Plan</span>
+          <span role="columnheader">Record</span>
           <span role="columnheader">Project</span>
           <span role="columnheader">Lifecycle</span>
           <span role="columnheader">Outcome</span>
@@ -384,7 +392,7 @@ export function PlanArchiveView({
 
         {filtered.length === 0 ? (
           <div className="s-plan-empty">
-            {records.length === 0 ? "No plans yet." : "No plans match these filters."}
+            {records.length === 0 ? "No records yet." : "No records match these filters."}
           </div>
         ) : (
           filtered.map((r) => (
@@ -431,7 +439,10 @@ function PlanRow({ record, onOpen }: { record: PlanRecord; onOpen: () => void })
         </span>
       </span>
       <span className="s-plan-cell s-plan-cell--plan" role="cell">
-        <span className="s-plan-row-title">{record.title}</span>
+        <span className="s-plan-row-title-line">
+          <span className="s-plan-row-title">{record.title}</span>
+          <span className={`s-plan-source s-plan-source--${record.source}`}>{recordSourceLabel(record)}</span>
+        </span>
         {record.summary && <span className="s-plan-row-summary">{record.summary}</span>}
       </span>
       <span className="s-plan-cell s-plan-cell--project" role="cell">{record.project}</span>
@@ -482,17 +493,21 @@ function PlanFocusOverlay({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [planId, record?.source]);
+  useEffect(() => {
+    setTab("profile");
+  }, [planId, record?.source]);
 
   const onKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     onTrapKeyDown(e);
     if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
     if (e.key === "1") { setTab("profile"); return; }
+    if (record?.source === "run") return;
     if (e.key === "2") { setTab("planning"); return; }
     if (e.key === "3") { setTab("execution"); return; }
     if (e.key === "4") { setTab("activity"); return; }
-  }, [onClose, onTrapKeyDown]);
+  }, [onClose, onTrapKeyDown, record?.source]);
 
-  const title = record?.title ?? detail?.title ?? "Plan";
+  const title = record?.title ?? detail?.title ?? "Record";
   const authorLabel = record?.authorLabel ?? "—";
   const author = record?.author ?? "operator";
 
@@ -507,6 +522,17 @@ function PlanFocusOverlay({
   );
   const planningCount = planningMaterials.length;
   const executionCount = executionMaterials.length;
+  const activityCount = detail?.timeline.length ?? 0;
+  const isStandaloneRun = record?.source === "run";
+
+  const planningEmpty = {
+    title: "No plan, spec, or doc files detected.",
+    detail: "Scout has a work record here, but did not find attached planning documents in the material inventory.",
+  };
+  const executionEmpty = {
+    title: "No changed files detected.",
+    detail: "Scout has a work record here, but did not infer code, tests, config, assets, or other execution files.",
+  };
 
   return (
     <div className="s-mission-overlay" onClick={onClose}>
@@ -515,7 +541,7 @@ function PlanFocusOverlay({
         className="s-mission-overlay-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label={`Plan ${title}`}
+        aria-label={`Record ${title}`}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={onKey}
         tabIndex={-1}
@@ -524,6 +550,9 @@ function PlanFocusOverlay({
           <div className="s-mission-overlay-identity">
             <span className="s-mission-overlay-handle">{title}</span>
             <span className="s-mission-overlay-sub">
+              {record && (
+                <span className={`s-plan-source s-plan-source--${record.source}`}>{recordSourceLabel(record)}</span>
+              )}
               <span className={`s-plan-author s-plan-author--${author}`}>
                 {author === "operator" ? "you" : authorLabel}
               </span>
@@ -546,45 +575,41 @@ function PlanFocusOverlay({
           <button type="button" className="s-mission-overlay-close" onClick={onClose} aria-label="Close (Esc)">×</button>
         </header>
 
-        <div className="s-mission-overlay-tabs">
+        <div className="s-mission-overlay-tabs" role="tablist">
           <div className="s-mission-overlay-tabs-group">
-            <button
-              type="button"
-              className={`s-mission-overlay-tab${tab === "profile" ? " s-mission-overlay-tab--active" : ""}`}
-              onClick={() => setTab("profile")}
-            >
-              Profile
-            </button>
-            <button
-              type="button"
-              className={`s-mission-overlay-tab${tab === "planning" ? " s-mission-overlay-tab--active" : ""}`}
-              onClick={() => setTab("planning")}
-            >
-              Planning
-              {planningCount > 0 && (
-                <span className="s-mission-overlay-tab-count">{planningCount}</span>
-              )}
-            </button>
-            <button
-              type="button"
-              className={`s-mission-overlay-tab${tab === "execution" ? " s-mission-overlay-tab--active" : ""}`}
-              onClick={() => setTab("execution")}
-            >
-              Execution
-              {executionCount > 0 && (
-                <span className="s-mission-overlay-tab-count">{executionCount}</span>
-              )}
-            </button>
-            <button
-              type="button"
-              className={`s-mission-overlay-tab${tab === "activity" ? " s-mission-overlay-tab--active" : ""}`}
-              onClick={() => setTab("activity")}
-            >
-              Activity
-              {detail?.timeline && detail.timeline.length > 0 && (
-                <span className="s-mission-overlay-tab-count">{detail.timeline.length}</span>
-              )}
-            </button>
+            {isStandaloneRun ? (
+              <PlanOverlayTabButton
+                label="Run"
+                active
+                onClick={() => setTab("profile")}
+              />
+            ) : (
+              <>
+                <PlanOverlayTabButton
+                  label="Profile"
+                  active={tab === "profile"}
+                  onClick={() => setTab("profile")}
+                />
+                <PlanOverlayTabButton
+                  label="Plans/docs"
+                  count={planningCount}
+                  active={tab === "planning"}
+                  onClick={() => setTab("planning")}
+                />
+                <PlanOverlayTabButton
+                  label="Files"
+                  count={executionCount}
+                  active={tab === "execution"}
+                  onClick={() => setTab("execution")}
+                />
+                <PlanOverlayTabButton
+                  label="Timeline"
+                  count={activityCount}
+                  active={tab === "activity"}
+                  onClick={() => setTab("activity")}
+                />
+              </>
+            )}
           </div>
           <div className="s-mission-overlay-tabs-action">
             <button
@@ -602,25 +627,69 @@ function PlanFocusOverlay({
         </div>
 
         <div className="s-mission-overlay-body">
-          {loading && !detail && <div className="s-plan-overlay-loading">Loading plan…</div>}
-          {error && <div className="s-plan-error">Error loading plan: {error}</div>}
-          {tab === "profile" && <PlanProfileTab record={record} detail={detail} />}
-          {tab === "planning" && (
-            <PlanMaterialsList workId={planId} materials={planningMaterials} emptyLabel="No planning materials yet." />
+          {loading && !detail ? (
+            <div className="s-plan-overlay-loading">Loading record…</div>
+          ) : (
+            <>
+              {error && <div className="s-plan-error">Error loading record: {error}</div>}
+              {isStandaloneRun ? (
+                <PlanProfileTab record={record} detail={detail} />
+              ) : (
+                <>
+                  {tab === "profile" && <PlanProfileTab record={record} detail={detail} />}
+                  {tab === "planning" && (
+                    <PlanMaterialsList workId={planId} materials={planningMaterials} empty={planningEmpty} />
+                  )}
+                  {tab === "execution" && (
+                    <PlanMaterialsList workId={planId} materials={executionMaterials} empty={executionEmpty} />
+                  )}
+                  {tab === "activity" && <PlanActivityTab record={record} detail={detail} />}
+                </>
+              )}
+            </>
           )}
-          {tab === "execution" && (
-            <PlanMaterialsList workId={planId} materials={executionMaterials} emptyLabel="No execution materials yet." />
-          )}
-          {tab === "activity" && <PlanActivityTab detail={detail} />}
         </div>
       </div>
     </div>
   );
 }
 
+function PlanOverlayTabButton({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      className={`s-mission-overlay-tab${active ? " s-mission-overlay-tab--active" : ""}`}
+      onClick={onClick}
+    >
+      {label}
+      {typeof count === "number" && (
+        <>
+          {" "}
+          <span className={`s-mission-overlay-tab-count${count === 0 ? " s-mission-overlay-tab-count--empty" : ""}`}>
+            {count}
+          </span>
+        </>
+      )}
+    </button>
+  );
+}
+
 function PlanProfileTab({ record, detail }: { record: PlanRecord | null; detail: WorkDetail | null }) {
   const rows: Array<[string, string]> = [
     ["TITLE", record?.title ?? detail?.title ?? "—"],
+    ["TYPE", record ? recordSourceLabel(record) : detail ? "work item" : "—"],
     ["AUTHOR", record?.authorLabel ?? detail?.ownerName ?? "—"],
     ["PROJECT", record?.project ?? "—"],
     ["STATE", record?.state ?? detail?.state ?? "—"],
@@ -666,18 +735,18 @@ function isJunkPath(path: string): boolean {
 function PlanMaterialsList({
   workId,
   materials,
-  emptyLabel,
+  empty,
 }: {
   workId: string;
   materials: WorkMaterial[];
-  emptyLabel: string;
+  empty: { title: string; detail: string };
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const filtered = useMemo(() => materials.filter((m) => !isJunkPath(m.path)), [materials]);
   const hiddenJunk = materials.length - filtered.length;
 
   if (filtered.length === 0 && materials.length === 0) {
-    return <div className="s-plan-overlay-empty">{emptyLabel}</div>;
+    return <PlanOverlayEmpty title={empty.title} detail={empty.detail} />;
   }
 
   // Reader view
@@ -796,10 +865,26 @@ function MaterialReader({ workId, material }: { workId: string; material: WorkMa
   );
 }
 
-function PlanActivityTab({ detail }: { detail: WorkDetail | null }) {
+function PlanOverlayEmpty({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <div className="s-plan-overlay-empty">
+      <div className="s-plan-overlay-empty-title">{title}</div>
+      {detail && <div className="s-plan-overlay-empty-detail">{detail}</div>}
+    </div>
+  );
+}
+
+function PlanActivityTab({ record, detail }: { record: PlanRecord | null; detail: WorkDetail | null }) {
   const timeline = detail?.timeline ?? [];
   if (timeline.length === 0) {
-    return <div className="s-plan-overlay-empty">No timeline events recorded.</div>;
+    return (
+      <PlanOverlayEmpty
+        title="No timeline events recorded."
+        detail={record?.source === "run"
+          ? "This row is an archived agent run. Open the conversation to inspect the run's surrounding messages."
+          : "Scout only has the current record state and summary for this work item."}
+      />
+    );
   }
   return (
     <ul className="s-plan-overlay-timeline">

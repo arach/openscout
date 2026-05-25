@@ -29,6 +29,7 @@ import {
 
 const MAX_BRIEFINGS = 100;
 const DB_BUSY_TIMEOUT_MS = 2_500;
+const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
 
 let _db: Database | null = null;
 let _drizzle: ReturnType<typeof openControlPlaneDrizzle> | null = null;
@@ -132,6 +133,10 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
+function normalizeTimestampMs(value: number): number {
+  return value < EPOCH_MILLISECONDS_FLOOR ? value * 1000 : value;
+}
+
 function rowToRecord(row: typeof briefingsTable.$inferSelect): SavedBriefingRow {
   return {
     id: row.id,
@@ -146,7 +151,7 @@ function rowToRecord(row: typeof briefingsTable.$inferSelect): SavedBriefingRow 
     snapshot: parseJson(row.snapshotJson, {}),
     call: parseJson(row.callJson, {}),
     markdown: row.markdown ?? null,
-    createdAt: row.createdAt,
+    createdAt: normalizeTimestampMs(row.createdAt),
   };
 }
 
@@ -162,13 +167,13 @@ function rowToSummary(row: typeof briefingsTable.$inferSelect): BriefingSummary 
     ttlMs: row.ttlMs,
     observationCount: Array.isArray(observations) ? observations.length : 0,
     hasMarkdown: typeof row.markdown === "string" && row.markdown.length > 0,
-    createdAt: row.createdAt,
+    createdAt: normalizeTimestampMs(row.createdAt),
   };
 }
 
 export function saveBriefing(input: SaveBriefingInput): SavedBriefingRow {
   const db = getDb();
-  const createdAt = Math.floor(Date.now() / 1000);
+  const createdAt = Date.now();
   const markdown = typeof input.markdown === "string" && input.markdown.length > 0
     ? input.markdown
     : null;

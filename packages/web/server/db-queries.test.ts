@@ -15,6 +15,7 @@ import {
   queryHeartrate,
   queryMobileAgents,
   queryMobileAgentDetail,
+  queryMobileSessions,
   queryRecentMessages,
   queryRuns,
   querySessions,
@@ -669,6 +670,7 @@ describe("web db timestamp normalization", () => {
       const activity = queryActivity(20);
       const fleet = queryFleet({ limit: 10, activityLimit: 1 });
       const mobileDetail = queryMobileAgentDetail("agent-1");
+      const mobileSessions = queryMobileSessions(10);
 
       expect(messages[0]).toMatchObject({
         id: "msg-normalized-seconds",
@@ -677,6 +679,8 @@ describe("web db timestamp normalization", () => {
       expect(messages.find((message) => message.id === "msg-normalized-ms")?.createdAt)
         .toBe(recentMs);
       expect(session?.lastMessageAt).toBe(recentSeconds * 1000);
+      expect(mobileSessions.find((item) => item.id === "conv-1")?.lastMessageAt)
+        .toBe(recentSeconds * 1000);
       expect(activity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
         .toBe(recentSeconds * 1000);
       expect(fleet.activity[0]).toMatchObject({
@@ -1118,6 +1122,33 @@ describe("web db query agents", () => {
       expect(agent?.harnessLogPath).toBe(
         join(homedir(), ".scout", "pairing", "codex", "pairing-019d9762", "logs", "stdout.log"),
       );
+    } finally {
+      store.close();
+    }
+  });
+
+  test("surfaces tmux session ids for tmux-backed local agents", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertEndpoint({
+        id: "agent-1-tmux",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "tmux",
+        state: "idle",
+        sessionId: "relay-agent-1-claude",
+        projectRoot: "/tmp/agent-1-tmux",
+        metadata: {
+          tmuxSession: "relay-agent-1-claude",
+        },
+      });
+
+      const agent = queryAgents(10).find((entry) => entry.id === "agent-1");
+
+      expect(agent?.transport).toBe("tmux");
+      expect(agent?.harnessSessionId).toBe("relay-agent-1-claude");
     } finally {
       store.close();
     }

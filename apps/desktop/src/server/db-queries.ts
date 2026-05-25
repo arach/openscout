@@ -139,6 +139,15 @@ function sqlStringList(values: readonly string[]): string {
   return `(${values.map(sqlQuoteLiteral).join(",")})`;
 }
 
+function sqlTimestampMsExpression(valueExpression: string): string {
+  return `CASE
+    WHEN ${valueExpression} IS NULL THEN NULL
+    WHEN CAST(${valueExpression} AS REAL) < ${EPOCH_MILLISECONDS_FLOOR}
+      THEN CAST(CAST(${valueExpression} AS REAL) * 1000 AS INTEGER)
+    ELSE CAST(${valueExpression} AS INTEGER)
+  END`;
+}
+
 function isExecutingFlightState(state: string | null): boolean {
   return state === "running";
 }
@@ -1562,6 +1571,9 @@ export type MobileSessionSummary = {
 };
 
 export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
+  const conversationCreatedAtExpression = sqlTimestampMsExpression("c.created_at");
+  const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
+  const previewMessageCreatedAtExpression = sqlTimestampMsExpression("created_at");
   const rows = db().prepare(
     `SELECT
        c.id,
@@ -1570,7 +1582,7 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
        c.metadata_json
      FROM conversations c
      WHERE c.kind = 'direct'
-     ORDER BY c.created_at DESC
+     ORDER BY ${conversationCreatedAtExpression} DESC
      LIMIT ?`,
   ).all(limit) as Array<{
     id: string;
@@ -1584,11 +1596,11 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
     `SELECT actor_id FROM conversation_members WHERE conversation_id = ?`,
   );
   const statsStmt = db().prepare(
-    `SELECT COUNT(*) AS cnt, MAX(created_at) AS last_at FROM messages WHERE conversation_id = ?`,
+    `SELECT COUNT(*) AS cnt, MAX(${messageCreatedAtExpression}) AS last_at FROM messages WHERE conversation_id = ?`,
   );
   const previewStmt = db().prepare(
     `SELECT body FROM messages WHERE conversation_id = ? AND actor_id != 'operator'
-     ORDER BY created_at DESC LIMIT 1`,
+     ORDER BY ${previewMessageCreatedAtExpression} DESC LIMIT 1`,
   );
 
   return rows.map((r) => {

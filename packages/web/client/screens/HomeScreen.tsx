@@ -1467,7 +1467,10 @@ function NowCard({
             {handle} · {role}
           </div>
         </div>
-        <span className="s-now-card-live">● live</span>
+        <span className="s-now-card-live">
+          <span className="s-now-card-live-dot" aria-hidden="true" />
+          live
+        </span>
       </div>
 
       <div className="s-now-card-task">
@@ -1478,6 +1481,9 @@ function NowCard({
         <span className="s-now-card-ticker-prompt">›</span>
         <span className="s-now-card-ticker-text">
           {ask ? `${ask.statusLabel} · ${ask.harness ?? agent.harness ?? "agent"}` : "working"}
+        </span>
+        <span className="s-now-card-ticker-dots" aria-hidden="true">
+          <span /><span /><span />
         </span>
         <span className="s-now-card-cursor" />
       </div>
@@ -1533,7 +1539,10 @@ function ObservedActorCard({
             observed{sourceTag ? ` · ${sourceTag}` : ""} · {verb}
           </div>
         </div>
-        <span className="s-now-card-live s-now-card-live--observed">~ live</span>
+        <span className="s-now-card-live s-now-card-live--observed">
+          <span className="s-now-card-live-dot" aria-hidden="true" />
+          live
+        </span>
       </div>
 
       <div className="s-now-card-task">{text || "(no recent text)"}</div>
@@ -1541,6 +1550,9 @@ function ObservedActorCard({
       <div className="s-now-card-ticker">
         <span className="s-now-card-ticker-prompt">›</span>
         <span className="s-now-card-ticker-text">{actor.kind.replace(/[._]/g, " ")}</span>
+        <span className="s-now-card-ticker-dots" aria-hidden="true">
+          <span /><span /><span />
+        </span>
       </div>
 
       <div className="s-now-card-footer">
