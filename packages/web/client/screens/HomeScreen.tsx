@@ -38,6 +38,7 @@ import type {
   FleetAsk,
   FleetAttentionItem,
   FleetState,
+  OperatorAttentionAction,
   OperatorAttentionItem,
   OperatorAttentionState,
   Route,
@@ -1198,12 +1199,22 @@ function severityLabel(severity: OperatorAttentionItem["severity"]): string {
   }
 }
 
-function routeFromAttention(item: OperatorAttentionItem): Route | null {
-  const routedAction = item.actions.find((action) => action.route)?.route;
-  if (routedAction) return routedAction;
+function fallbackRouteFromAttention(item: OperatorAttentionItem): Route | null {
   if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
   if (item.agentId) return { view: "agents", agentId: item.agentId };
   return null;
+}
+
+type RoutedOperatorAttentionAction = OperatorAttentionAction & { route: Route };
+
+function routedAttentionActions(item: OperatorAttentionItem): RoutedOperatorAttentionAction[] {
+  const explicit = item.actions.filter((action): action is RoutedOperatorAttentionAction =>
+    (action.kind === "open" || action.kind === "configure") && Boolean(action.route),
+  );
+  if (explicit.length > 0) return explicit;
+
+  const route = fallbackRouteFromAttention(item);
+  return route ? [{ kind: "open", label: "Open", route }] : [];
 }
 
 function OperatorAttentionCard({
@@ -1218,11 +1229,11 @@ function OperatorAttentionCard({
   const [busy, setBusy] = useState<"approve" | "deny" | "dismiss" | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const route = routeFromAttention(item);
   const copyAction = item.actions.find((action) => action.kind === "copy" && action.value);
   const approve = item.actions.find((action) => action.kind === "approve");
   const deny = item.actions.find((action) => action.kind === "deny");
   const dismiss = item.actions.find((action) => action.kind === "dismiss");
+  const routeActions = routedAttentionActions(item);
 
   const decide = async (decision: "approve" | "deny") => {
     if (!item.approval) return;
@@ -1336,35 +1347,27 @@ function OperatorAttentionCard({
           <button
             type="button"
             className="s-icon-btn"
-            title="Copy fix"
+            title={copyAction.label}
             onClick={copyFix}
           >
             <Copy size={14} aria-hidden="true" />
             <span>{copied ? "Copied" : copyAction.label}</span>
           </button>
         )}
-        {item.actions.some((action) => action.kind === "configure") && (
+        {routeActions.map((action, index) => (
           <button
+            key={`${action.kind}:${action.label}:${index}`}
             type="button"
             className="s-icon-btn"
-            title="Open settings"
-            onClick={() => navigate({ view: "settings" })}
+            title={action.label}
+            onClick={() => navigate(action.route)}
           >
-            <Settings size={14} aria-hidden="true" />
-            <span>Settings</span>
+            {action.kind === "configure"
+              ? <Settings size={14} aria-hidden="true" />
+              : <ExternalLink size={14} aria-hidden="true" />}
+            <span>{action.label}</span>
           </button>
-        )}
-        {route && (
-          <button
-            type="button"
-            className="s-icon-btn"
-            title="Open source"
-            onClick={() => navigate(route)}
-          >
-            <ExternalLink size={14} aria-hidden="true" />
-            <span>Open</span>
-          </button>
-        )}
+        ))}
         {dismiss && (
           <button
             type="button"

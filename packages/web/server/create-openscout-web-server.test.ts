@@ -32,9 +32,9 @@ let readUnblockRequestsResult: Array<Record<string, unknown>> = [];
 let scoutBrokerContextResult: unknown = null;
 let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
+let brokerDiagnosticsResult: Record<string, unknown> = makeBrokerDiagnostics();
 let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
-let queryBrokerDiagnosticsResult: Record<string, unknown> | null = null;
 
 let querySessionByIdImpl: (conversationId: string) => {
   kind: string;
@@ -68,32 +68,6 @@ let askScoutQuestionResult: unknown = {
   },
 };
 let scoutRelayConfigResult: Record<string, unknown> = {};
-
-function makeBrokerDiagnostics(): Record<string, unknown> {
-  return {
-    generatedAt: Date.now(),
-    windowMs: 86_400_000,
-    totals: {
-      successfulDispatches: 0,
-      failedQueries: 0,
-      failedDeliveries: 0,
-      deliveryAttempts: 0,
-      failedDeliveryAttempts: 0,
-      dialogueMessages: 0,
-    },
-    rates: {
-      messagesPerHour: 0,
-      failedQueriesPerHour: 0,
-      failedDeliveriesPerHour: 0,
-      failureRate: 0,
-    },
-    attempts: [],
-    failedQueries: [],
-    failedDeliveries: [],
-    dialogue: [],
-  };
-}
-
 mock.module("./db-queries.ts", () => ({
   configureReadonlyDb: (db: { exec(sql: string): void }) => {
     db.exec("PRAGMA busy_timeout = 250");
@@ -102,7 +76,7 @@ mock.module("./db-queries.ts", () => ({
   queryAgentById: () => null,
   queryAgents: () => [],
   queryActivity: () => [],
-  queryBrokerDiagnostics: () => queryBrokerDiagnosticsResult ?? makeBrokerDiagnostics(),
+  queryBrokerDiagnostics: () => brokerDiagnosticsResult,
   queryAgentById: () => null,
   queryConversationDefinitionById: () => null,
   queryHeartrate: () => [],
@@ -245,6 +219,32 @@ function makePairingState(overrides: Record<string, unknown> = {}): Record<strin
     logMissing: true,
     logTruncated: false,
     lastUpdatedLabel: null,
+    ...overrides,
+  };
+}
+
+function makeBrokerDiagnostics(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    generatedAt: Date.now(),
+    windowMs: 86_400_000,
+    totals: {
+      successfulDispatches: 0,
+      failedQueries: 0,
+      failedDeliveries: 0,
+      deliveryAttempts: 0,
+      failedDeliveryAttempts: 0,
+      dialogueMessages: 0,
+    },
+    rates: {
+      messagesPerHour: 0,
+      failedQueriesPerHour: 0,
+      failedDeliveriesPerHour: 0,
+      failureRate: 0,
+    },
+    attempts: [],
+    failedQueries: [],
+    failedDeliveries: [],
+    dialogue: [],
     ...overrides,
   };
 }
@@ -393,7 +393,6 @@ beforeEach(() => {
   scoutBrokerContextResult = null;
   agentObservePayloadResult = null;
   sessionRefObservePayloadResult = null;
-  queryBrokerDiagnosticsResult = null;
   sendScoutMessageResult = {
     usedBroker: true,
     invokedTargets: [],
@@ -421,6 +420,7 @@ beforeEach(() => {
     },
   };
   scoutRelayConfigResult = {};
+  brokerDiagnosticsResult = makeBrokerDiagnostics();
   readUnblockRequestsResult = [];
   pairingStateResult = makePairingState();
   pairingSessionSnapshotsResult = [];
@@ -690,8 +690,7 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("suggests the current Scout MCP ask permission only for the current tool", async () => {
-    queryBrokerDiagnosticsResult = {
-      ...makeBrokerDiagnostics(),
+    brokerDiagnosticsResult = makeBrokerDiagnostics({
       totals: {
         successfulDispatches: 0,
         failedQueries: 0,
@@ -732,7 +731,7 @@ describe("createOpenScoutWebServer", () => {
           metadata: null,
         },
       ],
-    };
+    });
 
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
@@ -870,6 +869,55 @@ describe("createOpenScoutWebServer", () => {
     };
     expect(body.items.find((item) => item.id === "unblock-1")?.actions.map((action) => action.kind))
       .toEqual(["open", "dismiss"]);
+  });
+
+  test("renders Claude Scout permission hints without a settings detour", async () => {
+    const createdAt = 1_700_000_000_000;
+    brokerDiagnosticsResult = makeBrokerDiagnostics({
+      failedQueries: [{
+        id: "failed-query-1",
+        ts: createdAt,
+        target: "claude.main",
+        conversationId: "conv-claude",
+        detail: "Claude blocked scout ask because allowedTools does not include Bash(scout:*).",
+      }],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      items: Array<{
+        id: string;
+        title: string;
+        detail: string | null;
+        actions: Array<{ kind: string; label: string; route?: Record<string, string>; value?: string }>;
+      }>;
+    };
+    const item = body.items.find((entry) => entry.id === "config:scout-ask-cli:failed-query-1");
+    expect(item).toMatchObject({
+      title: "Claude needs Scout CLI permission",
+      detail: expect.stringContaining("Claude-session permission"),
+      actions: [
+        expect.objectContaining({
+          kind: "copy",
+          label: "Copy Claude fix",
+          value: `{ "allowedTools": ["Bash(scout:*)"] }`,
+        }),
+        expect.objectContaining({
+          kind: "open",
+          label: "Open thread",
+          route: { view: "conversation", conversationId: "conv-claude" },
+        }),
+      ],
+    });
+    expect(item?.actions.some((action) => action.kind === "configure")).toBe(false);
+    expect(item?.actions.some((action) => action.route?.view === "settings")).toBe(false);
   });
 
   test("passes run filters to the run registry API", async () => {
