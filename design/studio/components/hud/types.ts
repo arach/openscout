@@ -4,25 +4,30 @@
  * (`/studies/hud-compact`, `/studies/hud-medium`, `/studies/hud-large`).
  *
  * Three named sizes — `compact` (420), `medium` (680), `large` (900).
- * Four tabs — `fleet`, `observe`, `tail`, `sessions`.
+ * Four tabs — `agents`, `activity`, `tail`, `sessions`.
  *
  * Tab semantics:
- *   fleet    — who's working
- *   observe  — structured activity, time-bucketed, byline + dispatch
- *   tail     — firehose; dense mono log-line rows; raw event stream
- *   sessions — terminal rooms / panes
+ *   agents   — who's working (fleet of broker agents)
+ *   activity — structured event ledger, time-bucketed, category eyebrow
+ *              + title + summary + byline. Mirrors the webapp's
+ *              ActivityScreen.
+ *   tail     — firehose; dense mono single-line rows; raw event stream.
+ *              ssh-tail-into-a-server feel.
+ *   sessions — agent run sessions (started, ended, status, harness,
+ *              message counts) — not local terminal sessions. Mirrors
+ *              OpsScreen's session ledger.
  */
 
 import type { AgentState } from "@/components/AgentPresenceDot";
 
 export type HudSize = "compact" | "medium" | "large";
 
-export type HudTab = "fleet" | "observe" | "tail" | "sessions";
+export type HudTab = "agents" | "activity" | "tail" | "sessions";
 
 /** Entity kinds linked from the trailing scout-link chip. */
 export type ScoutLinkKind = "agent" | "event" | "firehose" | "session";
 
-// ─── Fleet ───────────────────────────────────────────────────────────
+// ─── Agents (formerly "fleet") ──────────────────────────────────────
 
 export interface FleetAgent {
   id: string;
@@ -47,7 +52,7 @@ export interface FleetAgent {
   /** Optional per-recent-action relative time (zip with `recentActions`). */
   recentActionAgos?: string[];
   /** Full text of the agent's most recent turn (2–4 sentences). Surfaced
-   *  in the three-pane Fleet treatment at `large` in column C. */
+   *  in the three-pane Agents treatment at `large` in column C. */
   lastTurnText?: string;
   /** Turn-buffer position — used to render `N/5` indicator + dots. */
   turnBufferPosition?: number;
@@ -61,33 +66,44 @@ export interface FleetAgent {
   model?: string;
 }
 
-// ─── Observe (previously called "tail") ─────────────────────────────
+// ─── Activity (structured ledger) ───────────────────────────────────
 //
-// Structured activity view: time-bucketed, byline + dispatch line, spine
-// + tick. The pattern formerly named "tail" in the studio.
+// Structured, time-bucketed event ledger. Each event carries a category
+// (presence / work / delivery / coordination / system), a kind, a title,
+// a one-sentence summary, and a byline.
 
-export type ObserveKind = "turn" | "wire" | "ask" | "start" | "fail";
+export type ActivityKind = "turn" | "wire" | "ask" | "start" | "fail";
 
-export interface ObserveEvent {
+export type ActivityCategory =
+  | "presence"
+  | "work"
+  | "delivery"
+  | "coordination"
+  | "system";
+
+export interface ActivityEvent {
   id: string;
   ago: string;
   at: string;
   agent: string;
   handle: string;
-  kind: ObserveKind;
-  line: string;
-  meta: string;
+  kind: ActivityKind;
+  category: ActivityCategory;
+  /** Short title — the headline of the event. */
+  title: string;
+  /** One-sentence summary that follows the title. */
+  summary: string;
   emphasized?: boolean;
   /** Mocked related flight id surfaced in the engaged detail panel. */
   flightId?: string;
-  /** Full summary text revealed when engaged. */
-  summary?: string;
+  /** Long-form text revealed when engaged. */
+  detail?: string;
 }
 
-export interface ObserveBucket {
+export interface ActivityBucket {
   eyebrow: string;
   headline: string;
-  events: ObserveEvent[];
+  events: ActivityEvent[];
 }
 
 // ─── Tail (firehose) ─────────────────────────────────────────────────
@@ -119,26 +135,57 @@ export interface FirehoseEvent {
   emphasized?: boolean;
 }
 
-// ─── Sessions ────────────────────────────────────────────────────────
+// ─── Sessions (agent run sessions) ──────────────────────────────────
+//
+// The working sessions of broker agents — what the webapp's OpsScreen
+// session ledger shows. NOT local terminal sessions. Each row carries
+// an agent identity, a harness, a state, message counts, and lifecycle
+// timestamps.
 
-export type SessionKind = "tmux" | "iterm" | "terminal";
+export type SessionStatus = "running" | "idle" | "ended";
 
-export interface ScoutSession {
+/** Harness — claude-code, codex, cursor, scout, etc. */
+export type SessionHarness =
+  | "claude-code"
+  | "codex"
+  | "cursor"
+  | "scout"
+  | "raw";
+
+export interface AgentSession {
   id: string;
-  name: string;
-  kind: SessionKind;
-  windows: number;
-  attached: boolean;
+  /** Short session ref id (8-char). */
+  refId: string;
+  /** Agent name running this session. */
+  agentName: string;
+  /** Agent handle (with @). */
+  agentHandle: string;
+  /** Harness driving the session. */
+  harness: SessionHarness;
+  /** Run status. */
+  status: SessionStatus;
+  /** Status label for display. */
+  statusLabel: string;
+  /** Project name (leaf of cwd). */
+  project: string;
+  /** Branch the session is running against. */
+  branch: string;
+  /** Model the session is running on. */
+  model: string;
+  /** Messages exchanged in this session. */
+  messages: number;
+  /** Started — relative ago label. */
+  startedAgo: string;
+  /** Started absolute clock label. */
+  startedAt: string;
+  /** Ended — relative ago label, or null if still running. */
+  endedAgo: string | null;
+  /** Duration label (e.g. "1h 04m"). */
+  duration: string;
+  /** Last turn excerpt — what the agent last said. */
+  lastTurn: string;
+  /** Last activity ago — drives the visible timestamp on the row. */
   ago: string;
-  cwd: string;
-  /** One-line snippet shown at `compact`. */
-  snippet: string;
-  /** Multi-line pane preview shown at `medium`/`large`. */
-  pane: string[];
-  /** Optional last command surfaced in the engaged detail panel. */
-  lastCommand?: string;
-  /** Optional attached client label surfaced in the engaged detail panel. */
-  client?: string;
 }
 
 // ─── Engage ──────────────────────────────────────────────────────────

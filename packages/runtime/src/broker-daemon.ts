@@ -60,6 +60,8 @@ import {
   OPENSCOUT_MESH_PROTOCOL_VERSION,
   SCOUT_DISPATCHER_AGENT_ID,
   normalizeAgentSelectorSegment,
+  parseAgentIdentity,
+  type AgentHarness,
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
@@ -111,6 +113,7 @@ import {
   shutdownLocalSessionEndpoint,
   shouldDisableGeneratedCodexEndpoint,
   startLocalAgent,
+  SUPPORTED_SCOUT_HARNESSES,
 } from "./local-agents.js";
 import {
   upsertScoutAgentCardFromInput,
@@ -6376,6 +6379,40 @@ function callerContextForDelivery(payload: ScoutDeliverRequest): { requesterId: 
   };
 }
 
+function agentLabelForRouteParams(payload: ScoutDeliverRequest): string | undefined {
+  if (payload.target?.kind === "agent_label") {
+    return payload.target.label;
+  }
+  if (!payload.target && payload.targetLabel?.trim()) {
+    return payload.targetLabel;
+  }
+  return undefined;
+}
+
+function supportedRouteHarness(value: string | undefined): AgentHarness | undefined {
+  const normalized = value?.trim() as AgentHarness | undefined;
+  if (normalized && SUPPORTED_SCOUT_HARNESSES.includes(normalized)) {
+    return normalized;
+  }
+  return undefined;
+}
+
+function executionWithRouteParams(payload: ScoutDeliverRequest): InvocationRequest["execution"] | undefined {
+  const label = agentLabelForRouteParams(payload);
+  const identity = label
+    ? parseAgentIdentity(label.startsWith("@") ? label : `@${label}`)
+    : null;
+  const harness = supportedRouteHarness(identity?.harness);
+  if (!harness || payload.execution?.harness) {
+    return payload.execution;
+  }
+
+  return {
+    ...(payload.execution ?? {}),
+    harness,
+  };
+}
+
 function resolveBrokerDeliveryTarget(
   input: BrokerRouteTargetInput,
 ): InvocationResolution {
@@ -6977,6 +7014,7 @@ async function acceptBrokerDelivery(
     : Date.now();
   const { requesterId, requesterNodeId } = callerContextForDelivery(payload);
   const askedLabel = askedLabelForRouteTarget(payload);
+  const execution = executionWithRouteParams(payload);
   const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
   const targetSessionId =
     payload.target?.kind === "session_id"
@@ -7256,7 +7294,7 @@ async function acceptBrokerDelivery(
 
   const resolved = await resolveBrokerDeliveryTargetWithImplicitProjectCard({
     ...payload,
-    execution: payload.execution,
+    execution,
   }, {
     requesterId,
     currentDirectory: projectPathRouteTarget(payload),
@@ -7422,7 +7460,7 @@ async function acceptBrokerDelivery(
       : {}),
   };
   const invocationExecution = {
-    ...(payload.execution ?? (payload.intent === "tell" ? { session: "any" as const } : {})),
+    ...(execution ?? (payload.intent === "tell" ? { session: "any" as const } : {})),
     ...(targetSessionId ? { session: "existing" as const, targetSessionId } : {}),
   };
   const invocation: InvocationRequest = {

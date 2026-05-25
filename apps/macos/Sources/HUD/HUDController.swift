@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 // Singleton controller for the OpenScout HUD overlay.
@@ -11,6 +12,7 @@ final class HUDController {
 
     private var panel: OverlayPanel?
     private var clickMonitor: Any?
+    private var sizeSubscription: AnyCancellable?
 
     var isVisible: Bool {
         guard let panel else { return false }
@@ -37,6 +39,7 @@ final class HUDController {
             OverlayPanelShell.present(panel, activate: false, makeKey: true, orderFrontRegardless: true)
             fadeIn(panel)
             installMonitors()
+            installSizeObserver()
             return
         }
 
@@ -45,23 +48,31 @@ final class HUDController {
         })
         .preferredColorScheme(.dark)
 
-        var config = OverlayPanelShell.Config(size: NSSize(width: 420, height: 520))
+        var config = OverlayPanelShell.Config(size: HUDState.shared.size.contentSize)
         config.isMovableByWindowBackground = true
         config.resizable = true
         config.minContentSize = NSSize(width: 360, height: 380)
-        config.maxContentSize = NSSize(width: 880, height: 1200)
+        // Max sized to comfortably fit the large preset (900×720) plus
+        // headroom for the operator dragging beyond it.
+        config.maxContentSize = NSSize(width: 1200, height: 1200)
         config.onKeyDown = { [weak self] event in
             switch event.keyCode {
             case 53: // Escape
                 Task { @MainActor in self?.dismiss() }
             case 18: // 1
-                Task { @MainActor in HUDState.shared.select(.fleet) }
+                Task { @MainActor in HUDState.shared.select(.agents) }
             case 19: // 2
-                Task { @MainActor in HUDState.shared.select(.tail) }
+                Task { @MainActor in HUDState.shared.select(.activity) }
             case 20: // 3
+                Task { @MainActor in HUDState.shared.select(.tail) }
+            case 21: // 4
                 Task { @MainActor in HUDState.shared.select(.sessions) }
             case 36: // Return — activate selected row (Sessions only for now)
                 Task { @MainActor in self?.activateSelected() }
+            case 33: // [ — step size down
+                Task { @MainActor in HUDState.shared.stepSize(-1) }
+            case 30: // ] — step size up
+                Task { @MainActor in HUDState.shared.stepSize(+1) }
             default:
                 break
             }
@@ -85,11 +96,14 @@ final class HUDController {
 
         fadeIn(p)
         installMonitors()
+        installSizeObserver()
     }
 
     func dismiss() {
         guard let p = panel else { return }
         removeMonitors()
+        sizeSubscription?.cancel()
+        sizeSubscription = nil
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.14
@@ -100,6 +114,46 @@ final class HUDController {
                 p.orderOut(nil)
                 self?.panel = nil
             }
+        }
+    }
+
+    // Drive the panel frame from HUDState.size. The window resize is
+    // anchored on its current center so the panel grows/shrinks in
+    // place — feels like a tier swap, not a jump.
+    private func installSizeObserver() {
+        sizeSubscription?.cancel()
+        sizeSubscription = HUDState.shared.$size
+            .dropFirst() // ignore the initial value — already at that size
+            .sink { [weak self] newSize in
+                Task { @MainActor [weak self] in
+                    self?.applySize(newSize)
+                }
+            }
+    }
+
+    private func applySize(_ size: HUDSize) {
+        guard let p = panel else { return }
+        let target = size.contentSize
+        let currentFrame = p.frame
+        let centerX = currentFrame.midX
+        let centerY = currentFrame.midY
+
+        // Convert content size → frame size. For .borderless panels the
+        // title-bar contribution is zero, so frame == content; keep the
+        // call symmetric anyway in case the styleMask gains a titlebar.
+        let frameSize = p.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
+        let newFrame = NSRect(
+            x: centerX - frameSize.width / 2,
+            y: centerY - frameSize.height / 2,
+            width: frameSize.width,
+            height: frameSize.height
+        )
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.22
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ctx.allowsImplicitAnimation = true
+            p.animator().setFrame(newFrame, display: true)
         }
     }
 
@@ -138,13 +192,19 @@ final class HUDController {
             case 53: // Escape
                 Task { @MainActor in self.dismiss() }
             case 18: // 1
-                Task { @MainActor in HUDState.shared.select(.fleet) }
+                Task { @MainActor in HUDState.shared.select(.agents) }
             case 19: // 2
-                Task { @MainActor in HUDState.shared.select(.tail) }
+                Task { @MainActor in HUDState.shared.select(.activity) }
             case 20: // 3
+                Task { @MainActor in HUDState.shared.select(.tail) }
+            case 21: // 4
                 Task { @MainActor in HUDState.shared.select(.sessions) }
             case 36: // Return
                 Task { @MainActor in self.activateSelected() }
+            case 33: // [
+                Task { @MainActor in HUDState.shared.stepSize(-1) }
+            case 30: // ]
+                Task { @MainActor in HUDState.shared.stepSize(+1) }
             default:
                 break
             }
@@ -152,14 +212,10 @@ final class HUDController {
     }
 
     private func activateSelected() {
-        switch HUDState.shared.view {
-        case .sessions:
-            guard let first = SessionScanner.shared.sessions.first else { return }
-            SessionFocus.focus(first)
-            dismiss()
-        case .fleet, .tail:
-            break
-        }
+        // Engage on Return is reserved for surfaces with a clear single
+        // primary action. None of the redesigned tabs claim Return today;
+        // hook back in once HUDEngageState carries a "primary action" verb.
+        return
     }
 
     private func removeMonitors() {

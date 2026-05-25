@@ -6,22 +6,22 @@
  * text rather than buttons.
  *
  * Four tabs:
- *   fleet    → HudFleet
- *   observe  → HudObserve   (structured, time-bucketed)
- *   tail     → HudTail      (firehose, dense log-line)
- *   sessions → HudSessions
+ *   agents   → HudAgents    (roster of broker agents)
+ *   activity → HudActivity  (structured ledger, time-bucketed)
+ *   tail     → HudTail      (firehose, dense mono single-line stream)
+ *   sessions → HudSessions  (agent run sessions; not tmux)
  *
  * The bottom slot is the universal `HudMessageDock` (mic + input +
  * send), which replaced the old `HudFooter` byline strip.
  */
 
-import { HudFleet } from "./HudFleet";
+import { HudActivity } from "./HudActivity";
+import { HudAgents } from "./HudAgents";
 import { HudMasthead } from "./HudMasthead";
 import { HudMessageDock } from "./HudMessageDock";
-import { HudObserve } from "./HudObserve";
 import { HudSessions } from "./HudSessions";
 import { HudTail } from "./HudTail";
-import { FLEET } from "./mock";
+import { AGENTS } from "./mock";
 import { PANEL_DIMS } from "./tokens";
 import type { HudSize, HudTab } from "./types";
 
@@ -43,7 +43,7 @@ export function HudPanel({
   onSizeChange?: (s: HudSize) => void;
 }) {
   const { w, h } = PANEL_DIMS[size];
-  const attention = FLEET.filter((a) => a.state === "needs-attention").length;
+  const attention = AGENTS.filter((a) => a.state === "needs-attention").length;
 
   return (
     <div
@@ -57,8 +57,8 @@ export function HudPanel({
         attentionCount={attention}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "fleet" ? <HudFleet size={size} /> : null}
-        {tab === "observe" ? <HudObserve size={size} /> : null}
+        {tab === "agents" ? <HudAgents size={size} /> : null}
+        {tab === "activity" ? <HudActivity size={size} /> : null}
         {tab === "tail" ? <HudTail size={size} /> : null}
         {tab === "sessions" ? <HudSessions size={size} /> : null}
       </div>

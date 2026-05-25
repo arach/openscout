@@ -54,19 +54,22 @@ struct HUDStatusView: View {
 
     var body: some View {
         ZStack {
-            // ── Substrate: macOS glass + one solid warm-dark fill ──
-            VisualEffectBackground(
-                material: .hudWindow,
-                blendingMode: .behindWindow,
-                state: .active
-            )
-            HUDChrome.canvas.opacity(0.94)
+            // ── Substrate: one solid warm-dark fill (no live blur) ──
+            // Text sitting over a partially-transparent fill above
+            // NSVisualEffectView reads as soft because every glyph
+            // composites through the live-blurred desktop. A fully
+            // opaque canvas removes the leakage — the panel reads as
+            // printed ink on paper, not glass.
+            HUDChrome.canvas
 
             // ── Content stack ───────────────────────────────────────
+            // No .drawingGroup / .compositingGroup — both pre-rasterize
+            // glyphs at layer scale and lose the subpixel positioning
+            // SwiftUI's text renderer normally hands to the display.
             VStack(spacing: 0) {
                 masthead
                 content
-                footer
+                HudMessageDock()
             }
         }
         .frame(
@@ -106,12 +109,17 @@ struct HUDStatusView: View {
 
             Spacer(minLength: 6)
 
-            // Single pip — only when something needs eyes.
-            if attentionCount > 0 {
-                AttentionPip()
-                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3 }
-            } else if brokerOffline {
-                BrokerOfflinePip()
+            // Right cluster: attention (only when something needs eyes)
+            // and size toggle (always). Compact · medium · large.
+            HStack(spacing: 8) {
+                if attentionCount > 0 {
+                    AttentionPip()
+                        .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3 }
+                } else if brokerOffline {
+                    BrokerOfflinePip()
+                }
+                HUDSizeToggle()
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
             }
         }
         .padding(.horizontal, 16)
@@ -130,9 +138,16 @@ struct HUDStatusView: View {
     private var content: some View {
         ZStack {
             switch state.view {
-            case .fleet:
-                fleetContent
+            case .agents:
+                agentsContent
                     .transition(.opacity)
+            case .activity:
+                HUDActivityView(
+                    agents: agents,
+                    activity: fleet.activity,
+                    isLoading: fleet.isLoading && fleet.activity == nil
+                )
+                .transition(.opacity)
             case .tail:
                 HUDTailView(
                     agents: agents,
@@ -141,24 +156,19 @@ struct HUDStatusView: View {
                 )
                 .transition(.opacity)
             case .sessions:
-                HUDSessionsView(onActivate: { session in
-                    SessionFocus.focus(session)
-                    onDismiss()
-                })
-                .transition(.opacity)
+                HUDSessionsView()
+                    .transition(.opacity)
             }
         }
         .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder
-    private var fleetContent: some View {
+    private var agentsContent: some View {
         if fleet.agents == nil && fleet.lastError == nil {
             FleetLoadingView()
-        } else if agents.isEmpty {
-            FleetEmptyView()
         } else {
-            FleetView(agents: agents, activeAgentId: activeAgentId)
+            HUDAgentsView(agents: agents, activeAgentId: activeAgentId)
         }
     }
 

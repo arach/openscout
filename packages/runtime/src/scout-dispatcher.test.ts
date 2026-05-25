@@ -252,6 +252,20 @@ describe("resolveBrokerRouteTarget", () => {
     }
   });
 
+  test("treats harness-qualified labels as route params when no exact endpoint exists", () => {
+    const snapshot = makeSnapshot([makeAgent({ id: "hudson.main", definitionId: "hudson" })]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "agent_label", label: "@hudson.harness:codex" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("hudson.main");
+    }
+  });
+
   test("resolves typed direct agent ids before label parsing", () => {
     const snapshot = makeSnapshot([makeAgent({ id: "arc.main", definitionId: "arc" })]);
     const result = resolveBrokerRouteTarget(

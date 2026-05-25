@@ -1,37 +1,89 @@
 /**
- * Sessions tab content. Single-line snippet at compact; 3-line pane
- * preview card on canvas-alt inside a hairline at medium/large.
+ * Sessions tab content — agent run sessions.
+ *
+ * NOT local tmux/iTerm sessions. These are the working sessions of
+ * broker agents, mirroring the webapp's OpsScreen session ledger. Each
+ * row carries an agent identity, a harness, a run status, message
+ * counts, and lifecycle timestamps.
+ *
+ * Layout:
+ *   compact → single-column rows. Identity + status above harness/branch
+ *             meta + last-turn excerpt. Click reveals inline-below.
+ *   medium  → wider rows; meta strip widens to surface project + duration.
+ *   large   → two pane: list left (~480), session detail right.
  *
  * Universal row affordances:
- *   · Preview-engage  — click anywhere on the row to expand inline
- *   · Scout link       — trailing ↗ chip linking to scout.local/session/<id>
+ *   · Engage     — click → reveal inline (compact/medium) / swap detail
+ *                  (large). Esc closes.
+ *   · Scout link — trailing ↗ chip linking to scout.local/session/<id>.
  */
 
 "use client";
 
-import { useState } from "react";
 import { HudScoutLink } from "./HudScoutLink";
 import { HudSectionHeader } from "./HudSectionHeader";
 import { SESSIONS } from "./mock";
-import {
-  SESSION_PANE_LINES,
-  SESSION_PANE_LINES_ENGAGED,
-} from "./tokens";
 import type {
-  EngageState,
+  AgentSession,
   HudSize,
-  ScoutSession,
-  SessionKind,
+  SessionHarness,
+  SessionStatus,
 } from "./types";
+import { useHudEngage } from "./useHudEngage";
+
+const LIST_COL_W_LARGE = 480;
 
 export function HudSessions({ size }: { size: HudSize }) {
-  const [engaged, setEngaged] = useState<EngageState>(null);
+  const engage = useHudEngage();
+
+  if (size === "large") {
+    const selectedId =
+      (engage.engaged && SESSIONS.find((s) => s.id === engage.engaged)?.id) ??
+      SESSIONS[0]?.id ??
+      null;
+    const selected = SESSIONS.find((s) => s.id === selectedId) ?? SESSIONS[0];
+
+    return (
+      <section className="flex h-full flex-col">
+        <HudSectionHeader
+          eyebrow={sessionEyebrow(SESSIONS)}
+          headline="Sessions"
+          size="large"
+        />
+        <div className="flex min-h-0 flex-1">
+          <ul
+            className="flex shrink-0 flex-col overflow-y-auto"
+            style={{ width: LIST_COL_W_LARGE }}
+          >
+            {SESSIONS.map((s) => (
+              <SessionRow
+                key={s.id}
+                session={s}
+                size="large"
+                engaged={selectedId === s.id}
+                onClick={() => engage.select(s.id)}
+                showInlineDetail={false}
+              />
+            ))}
+          </ul>
+          <div
+            aria-hidden
+            className="shrink-0 self-stretch border-l border-studio-edge"
+            style={{ width: 1 }}
+          />
+          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+            {selected ? <SessionDetailLarge session={selected} /> : null}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section>
       <HudSectionHeader
-        eyebrow={`TERMINALS · ${SESSIONS.length} ROOMS`}
-        headline="Local sessions"
+        eyebrow={sessionEyebrow(SESSIONS)}
+        headline="Sessions"
         size={size}
       />
       <ul className="flex flex-col">
@@ -40,8 +92,9 @@ export function HudSessions({ size }: { size: HudSize }) {
             key={s.id}
             session={s}
             size={size}
-            engaged={engaged === s.id}
-            onToggle={() => setEngaged(engaged === s.id ? null : s.id)}
+            engaged={engage.isEngaged(s.id)}
+            onClick={() => engage.toggle(s.id)}
+            showInlineDetail
           />
         ))}
       </ul>
@@ -49,23 +102,35 @@ export function HudSessions({ size }: { size: HudSize }) {
   );
 }
 
+function sessionEyebrow(sessions: AgentSession[]): string {
+  const running = sessions.filter((s) => s.status === "running").length;
+  return `LEDGER · ${sessions.length} SESSIONS · ${running} RUNNING`;
+}
+
+function statusColor(status: SessionStatus): string {
+  return status === "running"
+    ? "var(--scout-accent)"
+    : status === "idle"
+      ? "var(--studio-ink-muted)"
+      : "var(--studio-ink-faint)";
+}
+
 function SessionRow({
   session,
   size,
   engaged,
-  onToggle,
+  onClick,
+  showInlineDetail,
 }: {
-  session: ScoutSession;
+  session: AgentSession;
   size: HudSize;
   engaged: boolean;
-  onToggle: () => void;
+  onClick: () => void;
+  showInlineDetail: boolean;
 }) {
   const compact = size === "compact";
-  const glyphColor = session.attached
-    ? "var(--scout-accent)"
-    : "var(--studio-ink-muted)";
-
-  const padX = compact ? "pl-4 pr-3.5" : size === "medium" ? "pl-4 pr-4" : "pl-5 pr-5";
+  const padX =
+    compact ? "pl-4 pr-3.5" : size === "medium" ? "pl-4 pr-4" : "pl-4 pr-4";
   const padY = compact ? "pt-2.5 pb-2.5" : "pt-3 pb-3";
 
   return (
@@ -74,28 +139,43 @@ function SessionRow({
         engaged ? "bg-studio-canvas-alt" : ""
       }`}
     >
-      {session.attached ? (
+      {session.status === "running" || engaged ? (
         <span
           aria-hidden
           className="absolute inset-y-0 left-0 w-[1.5px]"
-          style={{ background: "var(--scout-accent)" }}
+          style={{
+            background:
+              session.status === "running"
+                ? "var(--scout-accent)"
+                : engaged
+                  ? "var(--scout-accent)"
+                  : "transparent",
+          }}
         />
       ) : null}
 
       <button
         type="button"
-        onClick={onToggle}
+        onClick={onClick}
         className={`group w-full text-left transition-colors hover:bg-studio-canvas-alt ${padX} ${padY}`}
       >
-        {/* Top line: glyph · name · attached · ago · ↗ */}
-        <div className="flex items-baseline gap-2.5">
-          <SessionGlyph kind={session.kind} color={glyphColor} />
-          <span className="font-mono text-[13.5px] font-semibold leading-none text-studio-ink">
-            {session.name}
+        {/* Identity row: status dot · agent · @handle · STATUS · ago */}
+        <div className="flex items-baseline gap-2">
+          <StatusDot status={session.status} />
+          <span className="font-sans text-[13px] font-semibold leading-none tracking-tight text-studio-ink">
+            {session.agentName}
           </span>
-          {session.attached ? <CursorBlock /> : null}
+          <span className="font-mono text-[10px] text-studio-ink-faint">
+            {session.agentHandle}
+          </span>
+          <span
+            className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
+            style={{ color: statusColor(session.status) }}
+          >
+            {session.statusLabel}
+          </span>
           <span className="ml-auto inline-flex items-baseline gap-2">
-            <span className="font-mono text-[10px] font-medium tabular-nums text-studio-ink-muted">
+            <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
               {session.ago}
             </span>
             <HudScoutLink
@@ -107,72 +187,51 @@ function SessionRow({
           </span>
         </div>
 
-        {/* Meta line: KIND · N WIN · ATTACHED (compact) / + CWD (medium/large) */}
+        {/* Meta row: HARNESS · project · branch (medium/large add duration + msgs) */}
         <div
           className="mt-1.5 flex items-baseline gap-1.5"
-          style={{ paddingLeft: 25 }}
+          style={{ paddingLeft: 14 }}
         >
-          <span
-            className="font-mono text-[9px] font-bold uppercase"
-            style={{
-              color: session.attached
-                ? "var(--scout-accent)"
-                : "var(--studio-ink-faint)",
-            }}
-          >
-            {session.kind}
+          <HarnessChip harness={session.harness} />
+          <MetaDot />
+          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted">
+            {session.project}
           </span>
           <MetaDot />
-          <span className="font-mono text-[9px] font-semibold uppercase text-studio-ink-faint">
-            {session.windows} {session.windows === 1 ? "WIN" : "WINS"}
+          <span className="truncate font-mono text-[10px] text-studio-ink-faint">
+            {session.branch}
           </span>
-          {session.attached ? (
-            <>
-              <MetaDot />
-              <span
-                className="font-mono text-[9px] font-bold uppercase"
-                style={{ color: "var(--scout-accent)" }}
-              >
-                ATTACHED
-              </span>
-            </>
-          ) : null}
           {compact ? null : (
             <>
               <MetaDot />
-              <span className="truncate font-mono text-[10px] text-studio-ink-muted">
-                {session.cwd}
+              <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+                {session.duration}
+              </span>
+              <MetaDot />
+              <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+                {session.messages} msg
               </span>
             </>
           )}
         </div>
 
-        {/* Snippet (compact) vs full pane preview (medium + large) */}
-        {compact ? (
-          <div
-            className="mt-1 truncate font-mono text-[10.5px] text-studio-ink-muted"
-            style={{ paddingLeft: 25 }}
-          >
-            {session.snippet}
-          </div>
-        ) : (
-          <div
-            className="mt-2.5 overflow-hidden rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-2.5 py-1.5"
-            style={{ marginLeft: 25 }}
-          >
-            {session.pane.slice(0, SESSION_PANE_LINES[size]).map((line, i) => (
-              <div
-                key={i}
-                className="truncate font-mono text-[10.5px] leading-[1.55] text-studio-ink-muted"
-              >
-                {line}
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Last turn excerpt */}
+        <div
+          className={
+            compact
+              ? "mt-1.5 truncate font-sans text-[11px] leading-snug text-studio-ink-muted"
+              : "mt-2 font-sans text-[12px] leading-snug text-studio-ink-muted"
+          }
+          style={{ paddingLeft: 14 }}
+        >
+          <span className="font-mono text-[10px] text-studio-ink-faint">↪</span>{" "}
+          {session.lastTurn}
+        </div>
       </button>
 
-      {engaged ? <SessionDetail session={session} size={size} /> : null}
+      {engaged && showInlineDetail ? (
+        <SessionDetail session={session} size={size} />
+      ) : null}
     </li>
   );
 }
@@ -181,47 +240,211 @@ function SessionDetail({
   session,
   size,
 }: {
-  session: ScoutSession;
+  session: AgentSession;
   size: HudSize;
 }) {
   const compact = size === "compact";
-  const padX = compact ? "px-4" : size === "medium" ? "px-4" : "px-5";
+  const padX = compact ? "px-4" : "px-4";
 
   return (
-    <div className={`border-t border-studio-edge bg-studio-canvas-alt ${padX} py-2.5`}>
-      <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-        · pane
+    <div
+      className={`border-t border-studio-edge bg-studio-canvas-alt ${padX} py-2.5`}
+    >
+      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        · last turn
       </div>
-      <div className="mt-1 overflow-hidden rounded-[3px] border border-studio-edge bg-studio-canvas px-2.5 py-1.5">
-        {session.pane
-          .slice(0, SESSION_PANE_LINES_ENGAGED)
-          .map((line, i) => (
-            <div
-              key={i}
-              className="truncate font-mono text-[10.5px] leading-[1.55] text-studio-ink-muted"
-            >
-              {line}
-            </div>
-          ))}
+      <div className="mt-1 font-sans text-[12px] leading-snug text-studio-ink">
+        {session.lastTurn}
       </div>
 
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-[10px] leading-snug">
-        <dt className="uppercase tracking-eyebrow text-studio-ink-faint">cwd</dt>
-        <dd className="truncate text-studio-ink-muted">{session.cwd}</dd>
-        <dt className="uppercase tracking-eyebrow text-studio-ink-faint">client</dt>
-        <dd className="text-studio-ink-muted">
-          {session.client ?? (session.attached ? "attached" : "detached")}
+      <dl className="mt-2.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-[10px] leading-snug">
+        <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+          ref
+        </dt>
+        <dd className="tabular-nums text-studio-ink-muted">{session.refId}</dd>
+        <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+          harness
+        </dt>
+        <dd className="text-studio-ink-muted">{session.harness}</dd>
+        <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+          model
+        </dt>
+        <dd className="text-studio-ink-muted">{session.model}</dd>
+        <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+          started
+        </dt>
+        <dd className="tabular-nums text-studio-ink-muted">
+          {session.startedAt} · {session.startedAgo} ago
         </dd>
-        {session.lastCommand ? (
+        {session.endedAgo ? (
           <>
-            <dt className="uppercase tracking-eyebrow text-studio-ink-faint">last</dt>
-            <dd className="truncate text-studio-ink-muted">
-              {session.lastCommand}
+            <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+              ended
+            </dt>
+            <dd className="tabular-nums text-studio-ink-muted">
+              {session.endedAgo} ago
             </dd>
           </>
         ) : null}
+        <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+          duration
+        </dt>
+        <dd className="tabular-nums text-studio-ink-muted">
+          {session.duration}
+        </dd>
+        <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+          messages
+        </dt>
+        <dd className="tabular-nums text-studio-ink-muted">
+          {session.messages}
+        </dd>
       </dl>
     </div>
+  );
+}
+
+function SessionDetailLarge({ session }: { session: AgentSession }) {
+  return (
+    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-5 py-4">
+      {/* Header */}
+      <header className="flex items-baseline gap-2">
+        <StatusDot status={session.status} />
+        <span className="font-sans text-[15px] font-semibold leading-none tracking-tight text-studio-ink">
+          {session.agentName}
+        </span>
+        <span className="font-mono text-[11px] text-studio-ink-faint">
+          {session.agentHandle}
+        </span>
+        <span
+          className="ml-auto font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
+          style={{ color: statusColor(session.status) }}
+        >
+          {session.statusLabel}
+        </span>
+      </header>
+
+      {/* Meta strip */}
+      <div className="flex flex-wrap items-baseline gap-2">
+        <HarnessChip harness={session.harness} />
+        <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1.5 py-px font-mono text-[10px] tabular-nums text-studio-ink-muted">
+          {session.refId}
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted">
+          {session.project}
+        </span>
+        <span className="font-mono text-[10px] text-studio-ink-faint">
+          {session.branch}
+        </span>
+      </div>
+
+      {/* Last turn */}
+      <section>
+        <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          · last turn
+        </div>
+        <p className="mt-1.5 font-sans text-[12px] leading-relaxed text-studio-ink">
+          {session.lastTurn}
+        </p>
+      </section>
+
+      {/* Lifecycle grid */}
+      <section>
+        <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          · lifecycle
+        </div>
+        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] font-mono text-[11px] leading-snug">
+          <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+            started
+          </dt>
+          <dd className="tabular-nums text-studio-ink-muted">
+            {session.startedAt} · {session.startedAgo} ago
+          </dd>
+          {session.endedAgo ? (
+            <>
+              <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+                ended
+              </dt>
+              <dd className="tabular-nums text-studio-ink-muted">
+                {session.endedAgo} ago
+              </dd>
+            </>
+          ) : (
+            <>
+              <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+                running
+              </dt>
+              <dd className="tabular-nums text-studio-ink-muted">
+                {session.duration} elapsed
+              </dd>
+            </>
+          )}
+          <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+            duration
+          </dt>
+          <dd className="tabular-nums text-studio-ink-muted">
+            {session.duration}
+          </dd>
+          <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+            messages
+          </dt>
+          <dd className="tabular-nums text-studio-ink-muted">
+            {session.messages}
+          </dd>
+          <dt className="uppercase tracking-eyebrow text-studio-ink-faint">
+            model
+          </dt>
+          <dd className="text-studio-ink-muted">{session.model}</dd>
+        </dl>
+      </section>
+
+      {/* Drill list */}
+      <section className="mt-auto flex flex-col gap-[3px]">
+        <DrillLink label="open transcript" />
+        <DrillLink label="follow live" />
+        <DrillLink label="agent profile" />
+      </section>
+    </div>
+  );
+}
+
+function StatusDot({ status }: { status: SessionStatus }) {
+  const color = statusColor(status);
+  if (status === "running") {
+    return (
+      <span
+        aria-hidden
+        className="relative inline-block h-[7px] w-[7px] translate-y-[1px] rounded-full"
+        style={{ background: color }}
+      >
+        <span
+          aria-hidden
+          className="absolute inset-[-3px] rounded-full"
+          style={{
+            border:
+              "1px solid color-mix(in oklab, var(--scout-accent) 55%, transparent)",
+          }}
+        />
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-[7px] w-[7px] translate-y-[1px] rounded-full"
+      style={{
+        background:
+          status === "idle" ? "color-mix(in oklab, var(--studio-ink-muted) 65%, transparent)" : "transparent",
+        border: status === "ended" ? "1px solid var(--studio-ink-faint)" : "none",
+      }}
+    />
+  );
+}
+
+function HarnessChip({ harness }: { harness: SessionHarness }) {
+  return (
+    <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1.5 py-px font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+      {harness}
+    </span>
   );
 }
 
@@ -235,91 +458,18 @@ function MetaDot() {
   );
 }
 
-function CursorBlock() {
+function DrillLink({ label }: { label: string }) {
   return (
-    <span
-      aria-hidden
-      className="inline-block h-3 w-1.5 translate-y-[2px] animate-pulse"
-      style={{ background: "var(--scout-accent)" }}
-    />
-  );
-}
-
-function SessionGlyph({
-  kind,
-  color,
-}: {
-  kind: SessionKind;
-  color: string;
-}) {
-  if (kind === "tmux") {
-    return (
-      <svg width="16" height="14" viewBox="0 0 16 14" aria-hidden>
-        <rect
-          x="1.5"
-          y="1.5"
-          width="13"
-          height="11"
-          fill="none"
-          stroke={color}
-          strokeWidth="1"
-        />
-        <line x1="8" y1="1.5" x2="8" y2="12.5" stroke={color} strokeWidth="1" />
-        <line x1="8" y1="7" x2="14.5" y2="7" stroke={color} strokeWidth="1" />
-        <rect
-          x="8.5"
-          y="7.5"
-          width="5.5"
-          height="4.5"
-          fill={color}
-          fillOpacity="0.32"
-        />
-      </svg>
-    );
-  }
-  if (kind === "iterm") {
-    return (
-      <svg width="16" height="14" viewBox="0 0 16 14" aria-hidden>
-        <polyline
-          points="2.5,3.5 7,7 2.5,10.5"
-          fill="none"
-          stroke={color}
-          strokeWidth="1.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <rect x="8.5" y="9.6" width="5" height="1.6" fill={color} />
-      </svg>
-    );
-  }
-  return (
-    <svg width="16" height="14" viewBox="0 0 16 14" aria-hidden>
-      <rect
-        x="1.5"
-        y="2.5"
-        width="13"
-        height="9"
-        fill="none"
-        stroke={color}
-        strokeWidth="1"
-      />
-      <line
-        x1="1.5"
-        y1="5"
-        x2="14.5"
-        y2="5"
-        stroke={color}
-        strokeOpacity="0.55"
-        strokeWidth="0.75"
-      />
-      <polyline
-        points="3.5,7 5.5,8.5 3.5,10"
-        fill="none"
-        stroke={color}
-        strokeWidth="1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <button
+      type="button"
+      className="flex items-center gap-2 rounded-[2px] px-1.5 py-1 text-left transition-colors hover:bg-studio-canvas-alt"
+    >
+      <span aria-hidden className="font-mono text-[11px] text-studio-ink-faint">
+        →
+      </span>
+      <span className="flex-1 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted">
+        {label}
+      </span>
+    </button>
   );
 }

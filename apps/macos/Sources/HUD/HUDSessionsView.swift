@@ -1,52 +1,140 @@
+import AppKit
 import SwiftUI
 
-// Sessions view — teletype edition.
+// Sessions tab — native port of design/studio/components/hud/HudSessions.tsx.
 //
-// The thesis: each local terminal session is a tape line printed by
-// the broker. Big mono name, a tiny terminal-window glyph, a meta
-// line below. Attached sessions get a real blinking cursor block —
-// the only place in the HUD where literal "terminal" reads true.
-// Section head "Local sessions" matches the broadsheet voice.
+// Agent RUN sessions, not local tmux/iTerm sessions. The broker doesn't
+// yet expose /api/sessions; we synthesize one session per visible agent
+// from its existing identity + last turn + harness + branch.
+//
+// TEMP: synthesized from agents; replace with /api/sessions once broker
+// exposes session entities. SessionScanner remains the source of truth
+// for local-terminal probing — it just no longer renders in this tab.
+
+private enum SessionStatus: Sendable {
+    case running, idle, ended
+
+    var label: String {
+        switch self {
+        case .running: return "RUNNING"
+        case .idle: return "IDLE"
+        case .ended: return "ENDED"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .running: return HUDChrome.accent
+        case .idle: return HUDChrome.inkMuted
+        case .ended: return HUDChrome.inkFaint
+        }
+    }
+}
+
+private struct SynthesizedSession: Identifiable {
+    let id: String
+    let refId: String
+    let agentName: String
+    let agentHandle: String?
+    let harness: String
+    let status: SessionStatus
+    let project: String
+    let branch: String
+    let duration: String
+    let messageCount: Int
+    let lastTurn: String
+    let ago: String
+    let model: String
+    let startedAt: String?
+}
 
 struct HUDSessionsView: View {
-    @ObservedObject var scanner: SessionScanner = .shared
-    var onActivate: (ScoutSession) -> Void
+    @ObservedObject private var fleet = HudFleetService.shared
+
+    @StateObject private var engage = HUDEngageState()
+
+    private var sessions: [SynthesizedSession] {
+        Self.synthesize(from: fleet.agents ?? [])
+    }
 
     var body: some View {
         Group {
-            if scanner.sessions.isEmpty {
-                emptyState
+            if (fleet.agents ?? []).isEmpty {
+                EmptySessions()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        sectionHeader
-                        ForEach(Array(scanner.sessions.enumerated()), id: \.element.id) { idx, s in
-                            SessionRow(
+                    LazyVStack(spacing: 0) {
+                        SessionsHeader(sessions: sessions)
+                        ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
+                            SessionRowCompact(
                                 session: s,
-                                isSelected: idx == 0,
-                                onTap: { onActivate(s) }
+                                isFirst: idx == 0,
+                                engaged: engage.isSelected(s.id),
+                                onTap: {
+                                    withAnimation(.easeOut(duration: 0.14)) {
+                                        engage.toggle(s.id)
+                                    }
+                                }
                             )
+                            if engage.isSelected(s.id) {
+                                SessionDetailInline(session: s)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            }
                         }
                     }
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 10)
                 }
             }
         }
-        .onAppear { scanner.start() }
-        .onDisappear { scanner.stop() }
     }
 
-    // Section head — matches Tail's broadsheet rhythm.
-    private var sectionHeader: some View {
+    private static func synthesize(from agents: [HudAgent]) -> [SynthesizedSession] {
+        agents.map { agent in
+            let status: SessionStatus = {
+                switch agent.state {
+                case .working, .needsAttention, .waiting: return .running
+                case .available, .done: return .idle
+                case .offline: return .ended
+                }
+            }()
+            let project = (agent.projectRoot as NSString?)?.lastPathComponent
+                ?? agent.role.split(separator: "·").first.map { String($0).trimmingCharacters(in: .whitespaces) }
+                ?? "—"
+            let refId = String(agent.id.prefix(8))
+            return SynthesizedSession(
+                id: agent.id,
+                refId: refId,
+                agentName: agent.name,
+                agentHandle: agent.handle,
+                harness: agent.harness ?? "raw",
+                status: status,
+                project: project,
+                branch: agent.branch,
+                duration: agent.runtime,
+                messageCount: agent.capabilities.count,
+                lastTurn: agent.lastTurn,
+                ago: agent.ago,
+                model: agent.tokens,
+                startedAt: nil
+            )
+        }
+    }
+}
+
+// MARK: - Section header
+
+private struct SessionsHeader: View {
+    let sessions: [SynthesizedSession]
+
+    private var running: Int { sessions.filter { $0.status == .running }.count }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 0) {
-                HUDEyebrow(
-                    text: "TERMINALS  ·  \(scanner.sessions.count)  ROOM\(scanner.sessions.count == 1 ? "" : "S")",
-                    color: HUDChrome.inkDeep
-                )
-                Spacer(minLength: 8)
-            }
-            Text("Local sessions")
+            HUDEyebrow(
+                text: "LEDGER  ·  \(sessions.count) SESSION\(sessions.count == 1 ? "" : "S")  ·  \(running) RUNNING",
+                color: HUDChrome.inkDeep
+            )
+            Text("Sessions")
                 .font(HUDType.body(15, weight: .semibold))
                 .foregroundStyle(HUDChrome.ink)
         }
@@ -61,159 +149,38 @@ struct HUDSessionsView: View {
                 .padding(.horizontal, 16)
         }
     }
-
-    private var emptyState: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 24)
-
-            EmptyTerminalMark()
-                .frame(width: 44, height: 30)
-                .opacity(0.8)
-
-            HUDEyebrow(text: "TERMINALS  ·  NONE OPEN", color: HUDChrome.inkDeep)
-                .padding(.top, 18)
-
-            Text("No rooms running.")
-                .font(HUDType.body(15, weight: .semibold))
-                .foregroundStyle(HUDChrome.ink)
-                .padding(.top, 6)
-
-            Text("Start tmux or open iTerm and the room will print here.")
-                .font(HUDType.body(12).italic())
-                .foregroundStyle(HUDChrome.inkMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.top, 6)
-
-            // Hint chip — preserves the operator affordance
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text("tmux")
-                    .font(HUDType.mono(10, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundStyle(HUDChrome.accent)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 2.5)
-                            .fill(HUDChrome.accentSoft)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 2.5)
-                            .stroke(HUDChrome.accent.opacity(0.4), lineWidth: 0.5)
-                    )
-
-                Text("new -s vantage")
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-            }
-            .padding(.top, 16)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }
 
-// MARK: - Row (teletype)
-//
-// A printed tape line. Layout:
-//
-//   [ glyph ]  Big-mono-name                          [ LIVE ]  ago
-//              KIND  ·  4 WINS                                       ↦  attached cursor block
-//
-// Selected (first) row gets a lime hairline on the left, a canvas-lift
-// fill, and a hue-rule at the bottom. The cursor block only renders on
-// attached sessions and animates by default.
+// MARK: - Row
 
-private struct SessionRow: View {
-    let session: ScoutSession
-    let isSelected: Bool
+private struct SessionRowCompact: View {
+    let session: SynthesizedSession
+    let isFirst: Bool
+    let engaged: Bool
     var onTap: () -> Void = {}
 
     @State private var hovered = false
 
     private var rowFill: Color {
-        if isSelected { return HUDChrome.canvasLift.opacity(0.45) }
-        if hovered    { return HUDChrome.canvasLift.opacity(0.28) }
+        if engaged { return HUDChrome.canvasLift.opacity(0.55) }
+        if hovered { return HUDChrome.canvasLift.opacity(0.30) }
         return Color.clear
-    }
-
-    private var glyphColor: Color {
-        session.attached ? HUDChrome.accent : HUDChrome.inkMuted
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            // Name line — glyph + name take all available width; ago at right
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                SessionKindGlyph(kind: session.kind, color: glyphColor)
-                    .frame(width: 16, height: 14)
-                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 6 }
-
-                Text(session.name)
-                    .font(HUDType.mono(13, weight: .semibold))
-                    .foregroundStyle(HUDChrome.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-
-                if session.attached {
-                    CursorBlock()
-                        .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 5 }
-                }
-
-                Spacer(minLength: 6)
-
-                if let ago = session.createdAgo {
-                    Text(ago)
-                        .font(HUDType.mono(10, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(HUDChrome.inkMuted)
-                        .fixedSize()
-                }
-            }
-
-            // Meta line — single ink-tone, no rainbow
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text(session.kind.rawValue.uppercased())
-                    .font(HUDType.mono(10, weight: .bold))
-                    .foregroundStyle(session.attached ? HUDChrome.accent : HUDChrome.inkDeep)
-
-                metaDot
-
-                Text("\(session.windows) \(session.windows == 1 ? "WIN" : "WINS")")
-                    .font(HUDType.mono(10, weight: .semibold))
-                    .foregroundStyle(HUDChrome.inkDeep)
-
-                if session.attached {
-                    metaDot
-                    Text("ATTACHED")
-                        .font(HUDType.mono(10, weight: .bold))
-                        .foregroundStyle(HUDChrome.accent)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 25)
-
-            // Latest action snippet — last non-empty line from the pane.
-            // tmux only for now; iTerm/Terminal don't expose this cleanly.
-            if let snippet = session.latestAction, !snippet.isEmpty {
-                Text(snippet)
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.leading, 25)
-            }
+            identityLine
+            metaLine
+            lastTurnLine
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 11)
+        .padding(.leading, 16)
+        .padding(.trailing, 14)
+        .padding(.top, isFirst ? 11 : 10)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowFill)
         .overlay(alignment: .leading) {
-            if isSelected {
+            if session.status == .running || engaged {
                 Rectangle()
                     .fill(HUDChrome.accent)
                     .frame(width: 1.5)
@@ -229,18 +196,84 @@ private struct SessionRow: View {
         .onHover { hovered = $0 }
         .onTapGesture(perform: onTap)
         .contextMenu {
-            Button("Open in terminal") { onTap() }
-            Button("Copy session name") {
+            Button("Copy session ref") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(session.name, forType: .string)
+                NSPasteboard.general.setString(session.refId, forType: .string)
             }
-            if session.kind == .tmux {
-                Button("Copy attach command") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("tmux attach -t \(session.name)", forType: .string)
-                }
+            Button("Copy agent ID") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(session.id, forType: .string)
             }
         }
+    }
+
+    private var identityLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            StatusDot(status: session.status)
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+
+            Text(session.agentName)
+                .font(HUDType.body(13, weight: .semibold))
+                .foregroundStyle(HUDChrome.ink)
+                .lineLimit(1)
+                .fixedSize()
+
+            if let handle = session.agentHandle {
+                Text(handle.hasPrefix("@") ? handle : "@" + handle)
+                    .font(HUDType.mono(10))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .fixedSize()
+            }
+
+            Text(session.status.label)
+                .font(HUDType.mono(10, weight: .semibold))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(session.status.color)
+                .fixedSize()
+
+            Spacer(minLength: 6)
+
+            Text(session.ago)
+                .font(HUDType.mono(10, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(HUDChrome.inkFaint)
+                .fixedSize()
+        }
+    }
+
+    private var metaLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HarnessChip(harness: session.harness)
+            metaDot
+            Text(session.project.uppercased())
+                .font(HUDType.mono(10))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(HUDChrome.inkMuted)
+                .lineLimit(1)
+            metaDot
+            Text(session.branch)
+                .font(HUDType.mono(10))
+                .foregroundStyle(HUDChrome.inkFaint)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 14)
+    }
+
+    private var lastTurnLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("↪")
+                .font(HUDType.mono(10))
+                .foregroundStyle(HUDChrome.inkFaint)
+            Text(session.lastTurn)
+                .font(HUDType.body(11))
+                .foregroundStyle(HUDChrome.inkMuted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 14)
     }
 
     private var metaDot: some View {
@@ -250,134 +283,128 @@ private struct SessionRow: View {
     }
 }
 
-// MARK: - Cursor block
-//
-// A real blinking cursor — animates 1Hz between on and off. The only
-// literal-terminal flourish in the HUD; earns its place because the
-// Sessions view is a terminal surface.
+// MARK: - Status dot
 
-private struct CursorBlock: View {
-    @State private var on = true
+private struct StatusDot: View {
+    let status: SessionStatus
 
     var body: some View {
-        Rectangle()
-            .fill(HUDChrome.accent)
-            .frame(width: 6, height: 12)
-            .opacity(on ? 0.85 : 0.1)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                    on.toggle()
-                }
+        ZStack {
+            switch status {
+            case .running:
+                Circle()
+                    .fill(HUDChrome.accent.opacity(0.32))
+                    .frame(width: 12, height: 12)
+                Circle()
+                    .fill(HUDChrome.accent)
+                    .frame(width: 6, height: 6)
+            case .idle:
+                Circle()
+                    .fill(HUDChrome.inkMuted.opacity(0.65))
+                    .frame(width: 6, height: 6)
+            case .ended:
+                Circle()
+                    .stroke(HUDChrome.inkFaint, lineWidth: 1)
+                    .frame(width: 6, height: 6)
             }
+        }
+        .frame(width: 12, height: 12)
     }
 }
 
-// MARK: - Kind glyphs (hand-drawn, scout-only colors)
+// MARK: - Harness chip
 
-private struct SessionKindGlyph: View {
-    let kind: SessionKind
-    let color: Color
+private struct HarnessChip: View {
+    let harness: String
 
     var body: some View {
-        switch kind {
-        case .tmux:
-            // Quad of stacked rectangles — multiplexed panes
-            Canvas { ctx, size in
-                let style = StrokeStyle(lineWidth: 1, lineJoin: .miter)
-                var outer = Path()
-                outer.addRect(CGRect(x: 1.5, y: 1.5, width: 13, height: 11))
+        Text(harness.uppercased())
+            .font(HUDType.mono(10, weight: .semibold))
+            .tracking(HUDType.eyebrowTracking)
+            .foregroundStyle(HUDChrome.inkMuted)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(HUDChrome.canvas)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .stroke(HUDChrome.border, lineWidth: 0.5)
+            )
+    }
+}
 
-                var split = Path()
-                split.move(to: CGPoint(x: 8, y: 1.5))
-                split.addLine(to: CGPoint(x: 8, y: 12.5))
-                split.move(to: CGPoint(x: 8, y: 7))
-                split.addLine(to: CGPoint(x: 14.5, y: 7))
+// MARK: - Engaged detail
 
-                var pane = Path()
-                pane.addRect(CGRect(x: 8.5, y: 7.5, width: 5.5, height: 4.5))
-                ctx.fill(pane, with: .color(color.opacity(0.32)))
+private struct SessionDetailInline: View {
+    let session: SynthesizedSession
 
-                ctx.stroke(outer, with: .color(color), style: style)
-                ctx.stroke(split, with: .color(color), style: style)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HUDEyebrow(text: "LAST TURN", color: HUDChrome.inkDeep)
+            Text(session.lastTurn)
+                .font(HUDType.body(12))
+                .foregroundStyle(HUDChrome.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+                .lineSpacing(2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                meta(label: "REF", value: session.refId)
+                meta(label: "HARNESS", value: session.harness)
+                meta(label: "MODEL", value: session.model)
+                meta(label: "BRANCH", value: session.branch)
+                meta(label: "DURATION", value: session.duration)
             }
-        case .iterm:
-            // Prompt chevron + cursor block
-            Canvas { ctx, size in
-                let style = StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round)
-                var chev = Path()
-                chev.move(to: CGPoint(x: 2.5, y: 3.5))
-                chev.addLine(to: CGPoint(x: 7, y: 7))
-                chev.addLine(to: CGPoint(x: 2.5, y: 10.5))
-                ctx.stroke(chev, with: .color(color), style: style)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(HUDChrome.canvasAlt.opacity(0.55))
+    }
 
-                var cursor = Path()
-                cursor.addRect(CGRect(x: 8.5, y: 9.6, width: 5, height: 1.6))
-                ctx.fill(cursor, with: .color(color))
-            }
-        case .terminal:
-            // Window frame + tiny chevron
-            Canvas { ctx, size in
-                let style = StrokeStyle(lineWidth: 1, lineJoin: .miter)
-                var outer = Path()
-                outer.addRect(CGRect(x: 1.5, y: 2.5, width: 13, height: 9))
-                ctx.stroke(outer, with: .color(color), style: style)
-
-                var titleRule = Path()
-                titleRule.move(to: CGPoint(x: 1.5, y: 5))
-                titleRule.addLine(to: CGPoint(x: 14.5, y: 5))
-                ctx.stroke(titleRule, with: .color(color.opacity(0.55)),
-                           style: StrokeStyle(lineWidth: 0.75))
-
-                var chev = Path()
-                chev.move(to: CGPoint(x: 3.5, y: 7))
-                chev.addLine(to: CGPoint(x: 5.5, y: 8.5))
-                chev.addLine(to: CGPoint(x: 3.5, y: 10))
-                ctx.stroke(chev, with: .color(color),
-                           style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
-            }
+    private func meta(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(HUDType.mono(10, weight: .bold))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(HUDChrome.inkDeep)
+                .frame(width: 64, alignment: .leading)
+            Text(value.isEmpty ? "—" : value)
+                .font(HUDType.mono(10))
+                .foregroundStyle(HUDChrome.ink)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
         }
     }
 }
 
-// MARK: - Empty-state mark
-//
-// A small printed terminal-room glyph — frame + cursor mark. Reads as a
-// closed terminal door.
+// MARK: - Empty
 
-private struct EmptyTerminalMark: View {
+private struct EmptySessions: View {
     var body: some View {
-        Canvas { ctx, size in
-            let style = StrokeStyle(lineWidth: 1, lineJoin: .miter)
-            let c = HUDChrome.inkFaint
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
 
-            var outer = Path()
-            outer.addRect(CGRect(
-                x: 1, y: 1,
-                width: size.width - 2, height: size.height - 2
-            ))
-            ctx.stroke(outer, with: .color(c), style: style)
+            HUDEyebrow(text: "LEDGER  ·  NO SESSIONS", color: HUDChrome.inkDeep)
+                .padding(.top, 18)
 
-            for cx in stride(from: 4.0, to: 14.5, by: 4.0) {
-                let dot = CGRect(x: cx, y: 4, width: 1.8, height: 1.8)
-                ctx.fill(Path(ellipseIn: dot), with: .color(HUDChrome.borderStrong))
-            }
+            Text("No sessions running.")
+                .font(HUDType.body(15, weight: .semibold))
+                .foregroundStyle(HUDChrome.ink)
+                .padding(.top, 6)
 
-            var rule = Path()
-            rule.move(to: CGPoint(x: 1, y: 8.5))
-            rule.addLine(to: CGPoint(x: size.width - 1, y: 8.5))
-            ctx.stroke(rule, with: .color(HUDChrome.borderSoft),
-                       style: StrokeStyle(lineWidth: 0.5))
+            Text("Agent run sessions will print here as the broker reports them.")
+                .font(HUDType.body(12))
+                .foregroundStyle(HUDChrome.inkMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .padding(.top, 6)
 
-            // Empty-prompt placeholder
-            let py = size.height / 2 + 5
-            var prompt = Path()
-            prompt.move(to: CGPoint(x: 5, y: py))
-            prompt.addLine(to: CGPoint(x: 10, y: py))
-            ctx.stroke(prompt, with: .color(c),
-                       style: StrokeStyle(lineWidth: 1, lineCap: .round))
-
-            let cursor = CGRect(x: 12, y: py - 2, width: 2.5, height: 4.5)
-            ctx.fill(Path(cursor), with: .color(HUDChrome.borderStrong))
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

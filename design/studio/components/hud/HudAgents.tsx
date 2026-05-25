@@ -1,67 +1,75 @@
 /**
- * Fleet tab content. Row layout switches on size:
- *  · compact → single-column rows, identity line above work + last-action lines
- *  · medium  → 2-up tile grid; pulse gets its own labeled row inside the tile
- *  · large   → three columns side-by-side:
- *                A · Fleet list      (~280px)
+ * Agents tab content. The roster of broker agents and what they're each
+ * working on. Translates the webapp's AgentsScreen + OpsAgentsView
+ * identity-then-state cadence into the HUD's compact-cockpit vocabulary.
+ *
+ * Layout switches on size:
+ *  · compact → single-column rows; identity line above work + last-action.
+ *              Clicking a row reveals a detail panel inline below.
+ *  · medium  → 2-up tile grid. Pulse gets its own labeled row inside the
+ *              tile. Inline reveal under the engaged tile spans both cols.
+ *  · large   → three columns side-by-side (the side-column treatment we
+ *              generalize across all four tabs at large):
+ *                A · Agent list      (~280px)
  *                B · Context         (~300px)
  *                C · Last turn       (fills remainder)
  *              Clicking a row in column A swaps columns B + C; there is
  *              no inline expand at large.
  *
  * Universal row affordances at compact/medium:
- *   · Preview-engage  — click anywhere on the row to expand inline
- *   · Scout link       — trailing ↗ chip linking to scout.local/agent/<id>
+ *   · Engage     — click anywhere on the row to expand inline. Esc closes.
+ *                  Click another row to swap engage without closing.
+ *   · Scout link — trailing ↗ chip linking to scout.local/agent/<id>.
  */
 
 "use client";
 
-import { useState } from "react";
 import { AgentPresenceDot } from "@/components/AgentPresenceDot";
 import { HudActivityPulse } from "./HudActivityPulse";
 import { HudScoutLink } from "./HudScoutLink";
 import { HudSectionHeader } from "./HudSectionHeader";
-import { FLEET } from "./mock";
-import type { EngageState, FleetAgent, HudSize } from "./types";
+import { AGENTS } from "./mock";
+import type { FleetAgent, HudSize } from "./types";
+import { useHudEngage } from "./useHudEngage";
 
 // Three-pane column widths at `large` (panel width 900, ~14px gutters):
-//   column A — fleet list   280
-//   column B — context      300
-//   column C — last turn    fills remaining (~320)
-const FLEET_COL_A_W = 280;
-const FLEET_COL_B_W = 300;
+//   column A — agent list    280
+//   column B — context       300
+//   column C — last turn     fills remaining (~320)
+const COL_A_W = 280;
+const COL_B_W = 300;
 
-export function HudFleet({ size }: { size: HudSize }) {
-  const [engaged, setEngaged] = useState<EngageState>(null);
+export function HudAgents({ size }: { size: HudSize }) {
+  const engage = useHudEngage();
 
   if (size === "large") {
     // At large, the row is never "expanded inline" — selection drives
     // columns B + C instead. There is always a selected agent; default
     // to the first when nothing is engaged.
     const selectedId =
-      (engaged && FLEET.find((a) => a.id === engaged)?.id) ??
-      FLEET.find((a) => a.selected)?.id ??
-      FLEET[0]?.id ??
+      (engage.engaged && AGENTS.find((a) => a.id === engage.engaged)?.id) ??
+      AGENTS.find((a) => a.selected)?.id ??
+      AGENTS[0]?.id ??
       null;
-    const selected = FLEET.find((a) => a.id === selectedId) ?? FLEET[0];
+    const selected = AGENTS.find((a) => a.id === selectedId) ?? AGENTS[0];
 
     return (
       <section className="flex h-full flex-col">
         <HudSectionHeader
-          eyebrow={`FLEET · ${FLEET.length} AGENTS`}
-          headline="Fleet"
+          eyebrow={`ROSTER · ${AGENTS.length} AGENTS`}
+          headline="Agents"
           size={size}
         />
         <div className="flex min-h-0 flex-1">
-          <FleetColumnA
-            agents={FLEET}
+          <AgentColumnA
+            agents={AGENTS}
             selectedId={selected.id}
-            onSelect={(id) => setEngaged(id)}
+            onSelect={(id) => engage.select(id)}
           />
-          <FleetColumnDivider />
-          <FleetColumnB agent={selected} />
-          <FleetColumnDivider />
-          <FleetColumnC agent={selected} />
+          <ColumnDivider />
+          <AgentColumnB agent={selected} />
+          <ColumnDivider />
+          <AgentColumnC agent={selected} />
         </div>
       </section>
     );
@@ -70,30 +78,30 @@ export function HudFleet({ size }: { size: HudSize }) {
   return (
     <section>
       <HudSectionHeader
-        eyebrow={`FLEET · ${FLEET.length} AGENTS`}
-        headline="Fleet"
+        eyebrow={`ROSTER · ${AGENTS.length} AGENTS`}
+        headline="Agents"
         size={size}
       />
       {size === "medium" ? (
         <div className="grid grid-cols-2 gap-px bg-studio-edge">
-          {FLEET.map((a) => (
-            <FleetTileMedium
+          {AGENTS.map((a) => (
+            <AgentTileMedium
               key={a.id}
               agent={a}
-              engaged={engaged === a.id}
-              onToggle={() => setEngaged(engaged === a.id ? null : a.id)}
+              engaged={engage.isEngaged(a.id)}
+              onToggle={() => engage.toggle(a.id)}
             />
           ))}
         </div>
       ) : (
         <ul className="flex flex-col">
-          {FLEET.map((a) => (
-            <FleetRow
+          {AGENTS.map((a) => (
+            <AgentRow
               key={a.id}
               agent={a}
               size={size}
-              engaged={engaged === a.id}
-              onToggle={() => setEngaged(engaged === a.id ? null : a.id)}
+              engaged={engage.isEngaged(a.id)}
+              onToggle={() => engage.toggle(a.id)}
             />
           ))}
         </ul>
@@ -110,8 +118,8 @@ function stateColor(agent: FleetAgent) {
       : "var(--studio-ink-muted)";
 }
 
-/** Compact (420) + Large (900): single-column rows. */
-function FleetRow({
+/** Compact (420): single-column rows. */
+function AgentRow({
   agent,
   size,
   engaged,
@@ -159,7 +167,7 @@ function FleetRow({
             className={
               compact
                 ? "font-sans text-[13px] font-medium leading-none text-studio-ink"
-                : "font-sans text-[14px] font-semibold leading-none tracking-tight text-studio-ink"
+                : "font-sans text-[13px] font-semibold leading-none tracking-tight text-studio-ink"
             }
           >
             {agent.name}
@@ -167,14 +175,14 @@ function FleetRow({
           <span
             className={
               compact
-                ? "font-mono text-[9.5px] text-studio-ink-faint"
-                : "font-mono text-[10.5px] text-studio-ink-faint"
+                ? "font-mono text-[10px] text-studio-ink-faint"
+                : "font-mono text-[11px] text-studio-ink-faint"
             }
           >
             {agent.handle}
           </span>
           <span
-            className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+            className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
             style={{ color: stateColor(agent) }}
           >
             {agent.stateLabel}
@@ -202,7 +210,7 @@ function FleetRow({
           }
           style={{ paddingLeft: compact ? 14 : 16 }}
         >
-          <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
             work
           </span>{" "}
           <span>{agent.work}</span>
@@ -214,7 +222,7 @@ function FleetRow({
             className={
               compact
                 ? "mt-1 flex items-baseline gap-1.5 font-sans text-[11px] leading-snug text-studio-ink-muted"
-                : "mt-1.5 flex items-baseline gap-1.5 font-sans text-[11.5px] leading-snug text-studio-ink-muted"
+                : "mt-1.5 flex items-baseline gap-1.5 font-sans text-[12px] leading-snug text-studio-ink-muted"
             }
             style={{ paddingLeft: compact ? 14 : 16 }}
           >
@@ -223,7 +231,7 @@ function FleetRow({
             </span>
             <span className="min-w-0 flex-1 truncate">{agent.lastAction}</span>
             {agent.lastActionAgo ? (
-              <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-studio-ink-faint">
                 · {agent.lastActionAgo}
               </span>
             ) : null}
@@ -238,14 +246,14 @@ function FleetRow({
         )}
       </button>
 
-      {engaged ? <FleetDetail agent={agent} size={size} /> : null}
+      {engaged ? <AgentDetail agent={agent} size={size} /> : null}
     </li>
   );
 }
 
 /** Medium (680): 2-up tiles, more breathing room. Pulse row gets its
  *  own labeled line inside the tile. */
-function FleetTileMedium({
+function AgentTileMedium({
   agent,
   engaged,
   onToggle,
@@ -285,14 +293,14 @@ function FleetTileMedium({
               withHalo={agent.isWorking}
             />
           </span>
-          <span className="font-sans text-[13.5px] font-semibold leading-none tracking-tight text-studio-ink">
+          <span className="font-sans text-[13px] font-semibold leading-none tracking-tight text-studio-ink">
             {agent.name}
           </span>
           <span className="font-mono text-[10px] text-studio-ink-faint">
             {agent.handle}
           </span>
           <span
-            className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+            className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
             style={{ color: stateColor(agent) }}
           >
             {agent.stateLabel}
@@ -310,7 +318,7 @@ function FleetTileMedium({
           className="mt-2 flex items-center gap-2"
           style={{ paddingLeft: 14 }}
         >
-          <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
             pulse
           </span>
           <HudActivityPulse values={agent.pulse} size="medium" dim={agent.dim} />
@@ -321,7 +329,7 @@ function FleetTileMedium({
           className="mt-2 font-sans text-[12px] leading-snug text-studio-ink"
           style={{ paddingLeft: 14 }}
         >
-          <span className="font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
             work
           </span>{" "}
           <span>{agent.work}</span>
@@ -336,7 +344,7 @@ function FleetTileMedium({
             <span className="font-mono text-[10px] text-studio-ink-faint">↪</span>
             <span className="min-w-0 flex-1">{agent.lastAction}</span>
             {agent.lastActionAgo ? (
-              <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-studio-ink-faint">
                 · {agent.lastActionAgo}
               </span>
             ) : null}
@@ -351,12 +359,12 @@ function FleetTileMedium({
         )}
       </button>
 
-      {engaged ? <FleetDetail agent={agent} size="medium" /> : null}
+      {engaged ? <AgentDetail agent={agent} size="medium" /> : null}
     </article>
   );
 }
 
-function FleetDetail({ agent, size }: { agent: FleetAgent; size: HudSize }) {
+function AgentDetail({ agent, size }: { agent: FleetAgent; size: HudSize }) {
   const compact = size === "compact";
   const padX = compact ? "px-4" : size === "medium" ? "px-4" : "px-5";
 
@@ -364,7 +372,7 @@ function FleetDetail({ agent, size }: { agent: FleetAgent; size: HudSize }) {
     <div
       className={`border-t border-studio-edge bg-studio-canvas-alt ${padX} py-2.5`}
     >
-      <div className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · last turn
       </div>
       <div className="mt-1 font-sans text-[12px] leading-snug text-studio-ink">
@@ -373,16 +381,16 @@ function FleetDetail({ agent, size }: { agent: FleetAgent; size: HudSize }) {
 
       {agent.recentActions && agent.recentActions.length > 0 ? (
         <>
-          <div className="mt-2.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-            · recent actions
+          <div className="mt-2.5 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            · recent
           </div>
           <ul className="mt-1 flex flex-col gap-[2px]">
             {agent.recentActions.slice(0, 3).map((line, i) => (
               <li
                 key={i}
-                className="flex items-baseline gap-1.5 font-sans text-[11.5px] leading-snug text-studio-ink-muted"
+                className="flex items-baseline gap-1.5 font-sans text-[11px] leading-snug text-studio-ink-muted"
               >
-                <span className="font-mono text-[9px] text-studio-ink-faint">
+                <span className="font-mono text-[10px] text-studio-ink-faint">
                   ↪
                 </span>
                 <span className="min-w-0 flex-1">{line}</span>
@@ -394,13 +402,13 @@ function FleetDetail({ agent, size }: { agent: FleetAgent; size: HudSize }) {
 
       {agent.capabilities && agent.capabilities.length > 0 ? (
         <div className="mt-2.5 flex flex-wrap items-baseline gap-1.5">
-          <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · caps
           </span>
           {agent.capabilities.map((cap) => (
             <span
               key={cap}
-              className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-muted"
+              className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted"
             >
               {cap}
             </span>
@@ -413,7 +421,7 @@ function FleetDetail({ agent, size }: { agent: FleetAgent; size: HudSize }) {
 
 // ─── Large — three-pane treatment ────────────────────────────────────
 
-function FleetColumnDivider() {
+function ColumnDivider() {
   return (
     <div
       aria-hidden
@@ -423,10 +431,10 @@ function FleetColumnDivider() {
   );
 }
 
-/** Column A — manifest-style list of every fleet agent. The currently
+/** Column A — manifest-style list of every roster agent. The currently
  *  engaged row gets a 1.5px lime left rule + canvas-alt fill. State
  *  eyebrow and activity pulse stay inline on the same row. */
-function FleetColumnA({
+function AgentColumnA({
   agents,
   selectedId,
   onSelect,
@@ -438,11 +446,11 @@ function FleetColumnA({
   return (
     <div
       className="flex shrink-0 flex-col overflow-y-auto"
-      style={{ width: FLEET_COL_A_W }}
+      style={{ width: COL_A_W }}
     >
       <ul className="flex flex-col">
         {agents.map((a) => (
-          <FleetColumnARow
+          <AgentColumnARow
             key={a.id}
             agent={a}
             selected={a.id === selectedId}
@@ -454,7 +462,7 @@ function FleetColumnA({
   );
 }
 
-function FleetColumnARow({
+function AgentColumnARow({
   agent,
   selected,
   onSelect,
@@ -491,27 +499,27 @@ function FleetColumnARow({
               withHalo={agent.isWorking}
             />
           </span>
-          <span className="font-sans text-[12.5px] font-semibold leading-none tracking-tight text-studio-ink">
+          <span className="font-sans text-[12px] font-semibold leading-none tracking-tight text-studio-ink">
             {agent.name}
           </span>
-          <span className="font-mono text-[9.5px] text-studio-ink-faint">
+          <span className="font-mono text-[10px] text-studio-ink-faint">
             {agent.handle}
           </span>
           <span
-            className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+            className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
             style={{ color: stateColor(agent) }}
           >
             {agent.stateLabel}
           </span>
           <span className="ml-auto inline-flex shrink-0 items-baseline gap-2">
             <HudActivityPulse values={agent.pulse} size="compact" dim={agent.dim} />
-            <span className="font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+            <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
               {agent.ago}
             </span>
           </span>
         </div>
         <div
-          className="mt-1.5 font-sans text-[11.5px] leading-snug text-studio-ink-muted"
+          className="mt-1.5 font-sans text-[11px] leading-snug text-studio-ink-muted"
           style={{ paddingLeft: 14 }}
         >
           {agent.work}
@@ -523,14 +531,14 @@ function FleetColumnARow({
 
 /** Column B — context for the engaged agent: header, work item,
  *  recent actions, stat block, drill list. */
-function FleetColumnB({ agent }: { agent: FleetAgent }) {
+function AgentColumnB({ agent }: { agent: FleetAgent }) {
   const recent = (agent.recentActions ?? []).slice(0, 3);
   const recentAgos = agent.recentActionAgos ?? [];
 
   return (
     <div
       className="flex shrink-0 flex-col gap-3 overflow-y-auto px-3.5 py-3"
-      style={{ width: FLEET_COL_B_W }}
+      style={{ width: COL_B_W }}
     >
       {/* Header */}
       <header className="flex items-baseline gap-2">
@@ -548,7 +556,7 @@ function FleetColumnB({ agent }: { agent: FleetAgent }) {
           {agent.handle}
         </span>
         <span
-          className="ml-auto font-mono text-[9px] font-semibold uppercase tracking-eyebrow"
+          className="ml-auto font-mono text-[10px] font-semibold uppercase tracking-eyebrow"
           style={{ color: stateColor(agent) }}
         >
           {agent.stateLabel}
@@ -557,7 +565,7 @@ function FleetColumnB({ agent }: { agent: FleetAgent }) {
 
       {/* Work item — full sentence, sans 13 */}
       <section>
-        <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · work
         </div>
         <p className="mt-1 font-sans text-[13px] leading-snug text-studio-ink">
@@ -568,7 +576,7 @@ function FleetColumnB({ agent }: { agent: FleetAgent }) {
       {/* Recent actions — last 3 with relative time, sans 12 ink-muted */}
       {recent.length > 0 ? (
         <section>
-          <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             · recent
           </div>
           <ul className="mt-1 flex flex-col gap-[3px]">
@@ -580,7 +588,7 @@ function FleetColumnB({ agent }: { agent: FleetAgent }) {
                 <span className="font-mono text-[10px] text-studio-ink-faint">↪</span>
                 <span className="min-w-0 flex-1">{line}</span>
                 {recentAgos[i] ? (
-                  <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-studio-ink-faint">
                     · {recentAgos[i]}
                   </span>
                 ) : null}
@@ -590,57 +598,37 @@ function FleetColumnB({ agent }: { agent: FleetAgent }) {
         </section>
       ) : null}
 
-      {/* Stat block — mono eyebrow + sans value, three KVs */}
+      {/* Stat block — mono eyebrow + mono value, three KVs */}
       <section className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
-        <StatKV label="BRANCH" value={agent.branch ?? "—"} mono />
-        <StatKV label="CWD" value={agent.cwd ?? "—"} mono />
-        <StatKV label="MODEL" value={agent.model ?? "—"} mono />
+        <StatKV label="BRANCH" value={agent.branch ?? "—"} />
+        <StatKV label="CWD" value={agent.cwd ?? "—"} />
+        <StatKV label="MODEL" value={agent.model ?? "—"} />
       </section>
 
       {/* Drill list */}
       <section className="mt-auto flex flex-col gap-[3px]">
-        <FleetDrillRow label="last 5 turns" count={5} />
-        <FleetDrillRow label="changed files" count={14} />
-        <FleetDrillRow label="message log" count={47} />
+        <DrillRow label="last 5 turns" count={5} />
+        <DrillRow label="changed files" count={14} />
+        <DrillRow label="message log" count={47} />
       </section>
     </div>
   );
 }
 
-function StatKV({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function StatKV({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </span>
-      <span
-        className={
-          mono
-            ? "truncate font-mono text-[11px] text-studio-ink"
-            : "truncate font-sans text-[12px] text-studio-ink"
-        }
-      >
+      <span className="truncate font-mono text-[11px] text-studio-ink">
         {value}
       </span>
     </>
   );
 }
 
-function FleetDrillRow({
-  label,
-  count,
-}: {
-  label: string;
-  count: number;
-}) {
+function DrillRow({ label, count }: { label: string; count: number }) {
   return (
     <button
       type="button"
@@ -649,20 +637,18 @@ function FleetDrillRow({
       <span aria-hidden className="font-mono text-[11px] text-studio-ink-faint">
         →
       </span>
-      <span className="flex-1 font-mono text-[10.5px] uppercase tracking-eyebrow text-studio-ink-muted">
+      <span className="flex-1 font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-muted">
         {label}
       </span>
-      <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[9.5px] tabular-nums text-studio-ink-faint">
+      <span className="rounded-[2px] border border-studio-edge bg-studio-canvas px-1 py-px font-mono text-[10px] tabular-nums text-studio-ink-faint">
         ({count})
       </span>
     </button>
   );
 }
 
-/** Column C — full text of the engaged agent's most recent turn, wrapped
- *  at column width, with a · LAST TURN · @agent eyebrow on top and a
- *  small · TURN BUFFER · N/5 indicator + pagination dots below. */
-function FleetColumnC({ agent }: { agent: FleetAgent }) {
+/** Column C — full text of the engaged agent's most recent turn. */
+function AgentColumnC({ agent }: { agent: FleetAgent }) {
   const body =
     agent.lastTurnText ?? agent.lastAction ?? agent.work ?? "—";
   const pos = agent.turnBufferPosition ?? 5;
@@ -670,14 +656,14 @@ function FleetColumnC({ agent }: { agent: FleetAgent }) {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-3.5 py-3">
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · LAST TURN · {agent.handle}
       </div>
       <p className="mt-2 font-sans text-[12px] leading-relaxed text-studio-ink">
         {body}
       </p>
       <div className="mt-auto flex items-center gap-2 pt-3">
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · TURN BUFFER ·
         </span>
         <span className="font-mono text-[10px] tabular-nums text-studio-ink-muted">

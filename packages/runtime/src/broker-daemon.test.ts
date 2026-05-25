@@ -2342,6 +2342,75 @@ describe("broker daemon comms layer", () => {
     expect(response.receipt?.targetAgentId).toBe("ranger.test-node");
   }, 15_000);
 
+  test("routes harness-qualified labels as target params, not exact sessions", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "hudson");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {
+      hudson: {
+        agentId: "hudson",
+        definitionId: "hudson",
+        displayName: "Hudson",
+        projectName: "Hudson",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "claude",
+        runtime: {
+          cwd: projectRoot,
+          harness: "claude",
+          transport: "tmux",
+          sessionId: "relay-hudson-claude",
+          wakePolicy: "on_demand",
+        },
+        capabilities: ["chat", "invoke", "deliver"],
+      },
+    });
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      flight?: { invocationId: string; targetAgentId: string };
+      receipt?: { targetAgentId?: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-hudson-codex-param",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@hudson.harness:codex",
+      },
+      body: "Hudson should receive this through a Codex-constrained route.",
+      intent: "consult",
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toBe("hudson.test-node");
+    expect(response.receipt?.targetAgentId).toBe("hudson.test-node");
+
+    const snapshot = await getJson<{
+      invocations: Record<string, { execution?: { harness?: string } }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const invocation = snapshot.invocations[response.flight!.invocationId];
+    expect(invocation?.execution?.harness).toBe("codex");
+  }, 15_000);
+
   test("reconciles queued flights when their local agent is archived as stale", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");

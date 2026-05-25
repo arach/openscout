@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 import {
+  constructAgentIdentity,
   diagnoseAgentIdentity,
   formatMinimalAgentIdentity,
   OPENSCOUT_COORDINATOR_AGENT_ID,
@@ -8,7 +9,9 @@ import {
   SCOUT_DISPATCHER_AGENT_ID,
   type AgentDefinition,
   type AgentEndpoint,
+  type AgentIdentity,
   type AgentIdentityCandidate,
+  type AgentIdentityDiagnosis,
   type ScoutCandidateEndpointState,
   type ScoutDispatchCandidate,
   type ScoutDispatchEnvelope,
@@ -166,6 +169,37 @@ function buildAgentLabelCandidate(
   };
 }
 
+function stripHarnessQualifier(identity: AgentIdentity): AgentIdentity | null {
+  if (!identity.harness) {
+    return null;
+  }
+
+  return constructAgentIdentity({
+    definitionId: identity.definitionId,
+    workspaceQualifier: identity.workspaceQualifier,
+    profile: identity.profile,
+    model: identity.model,
+    nodeQualifier: identity.nodeQualifier,
+  });
+}
+
+function resolutionFromDiagnosis(
+  diagnosis: AgentIdentityDiagnosis<BrokerAgentCandidate>,
+  label: string,
+): BrokerLabelResolution | null {
+  if (diagnosis.kind === "resolved") {
+    return { kind: "resolved", agent: diagnosis.match.agent };
+  }
+  if (diagnosis.kind === "ambiguous") {
+    return {
+      kind: "ambiguous",
+      label,
+      candidates: diagnosis.candidates.map((candidate) => candidate.agent),
+    };
+  }
+  return null;
+}
+
 export function resolveAgentLabel(
   snapshot: RuntimeSnapshot,
   label: string,
@@ -186,12 +220,23 @@ export function resolveAgentLabel(
 
   const candidates = buildAgentLabelCandidates(snapshot, options.helpers);
   const diagnosis = diagnoseAgentIdentity(identity, candidates);
+  const harnessAgnosticIdentity = stripHarnessQualifier(identity);
 
   if (diagnosis.kind === "resolved") {
     return { kind: "resolved", agent: diagnosis.match.agent };
   }
 
   if (diagnosis.kind === "unknown") {
+    if (harnessAgnosticIdentity) {
+      const agnosticResolution = resolutionFromDiagnosis(
+        diagnoseAgentIdentity(harnessAgnosticIdentity, candidates),
+        identity.label,
+      );
+      if (agnosticResolution) {
+        return agnosticResolution;
+      }
+    }
+
     const fallbackCandidates = buildAgentLabelCandidates(snapshot, options.helpers, {
       includeStale: true,
     });
@@ -208,6 +253,15 @@ export function resolveAgentLabel(
         label: identity.label,
         candidates: fallbackDiagnosis.candidates.map((candidate) => candidate.agent),
       };
+    }
+    if (harnessAgnosticIdentity) {
+      const agnosticFallbackResolution = resolutionFromDiagnosis(
+        diagnoseAgentIdentity(harnessAgnosticIdentity, fallbackCandidates),
+        identity.label,
+      );
+      if (agnosticFallbackResolution) {
+        return agnosticFallbackResolution;
+      }
     }
     return { kind: "unknown", label: identity.label };
   }

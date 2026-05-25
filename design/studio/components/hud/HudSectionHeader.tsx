@@ -19,10 +19,10 @@ export function HudSectionHeader({
     <div
       className={`border-b border-studio-edge bg-studio-canvas ${PANEL_PAD_X[size]} pt-3 pb-1.5`}
     >
-      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
         · {eyebrow}
       </div>
-      <div className="mt-0.5 font-sans text-[14px] font-semibold leading-tight text-studio-ink">
+      <div className="mt-0.5 font-sans text-[15px] font-semibold leading-tight text-studio-ink">
         {headline}
       </div>
     </div>

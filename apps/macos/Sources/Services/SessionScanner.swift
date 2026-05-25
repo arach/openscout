@@ -191,7 +191,14 @@ final class SessionScanner: ObservableObject {
                 if trimmed.count <= 2, trimmed.allSatisfy({ "$%>❯➜→ ".contains($0) }) {
                     continue
                 }
-                // Cap snippet length so a long pasted command doesn't blow the row.
+                // Skip powerline / starship / p10k prompt lines: they
+                // contain Nerd-Font glyphs in the Unicode private use
+                // area (U+E000–U+F8FF). These render as tofu in our
+                // panel and aren't actually "last action" — they're
+                // the operator's idle prompt segments.
+                if Self.containsPrivateUseAreaGlyph(trimmed) {
+                    continue
+                }
                 return Self.compactLine(trimmed, max: 80)
             }
             return nil
@@ -201,14 +208,28 @@ final class SessionScanner: ObservableObject {
     }
 
     private static func compactLine(_ s: String, max: Int) -> String {
-        let collapsed = s
+        let sanitized = s
             .replacingOccurrences(of: "\t", with: " ")
+            .unicodeScalars
+            .filter { !Self.isPrivateUseAreaScalar($0) }
+        let collapsed = String(String.UnicodeScalarView(sanitized))
             .components(separatedBy: .whitespaces)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         if collapsed.count <= max { return collapsed }
         let idx = collapsed.index(collapsed.startIndex, offsetBy: max - 1)
         return String(collapsed[..<idx]) + "…"
+    }
+
+    private static func containsPrivateUseAreaGlyph(_ s: String) -> Bool {
+        s.unicodeScalars.contains(where: Self.isPrivateUseAreaScalar)
+    }
+
+    private static func isPrivateUseAreaScalar(_ scalar: Unicode.Scalar) -> Bool {
+        let v = scalar.value
+        return (0xE000...0xF8FF).contains(v)
+            || (0xF0000...0xFFFFD).contains(v)
+            || (0x100000...0x10FFFD).contains(v)
     }
 
     // MARK: - iTerm2

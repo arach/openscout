@@ -1,13 +1,20 @@
 /**
- * Masthead — tiny lime mark + `1 fleet · 2 observe · 3 tail · 4 sessions`
+ * Masthead — tiny lime mark + `1 agents · 2 activity · 3 tail · 4 sessions`
  * nav, with the optional `on you` attention pip on the right.
+ *
+ * Standardized across all four tabs:
+ *   · Height: 30px content row + 10px padding (2.5 top + 2 bottom).
+ *   · Horizontal padding: PANEL_PAD_X[size] (px-4 / px-4 / px-5).
+ *   · Mark: 14×14 lime triskele, vertically aligned with tab baseline.
+ *   · Tab label: sans 12 (mono num 9). Underline 1.5px lime on active.
+ *   · Attention pip: 5px dot + mono 11 count + mono 9 "ON YOU".
+ *
+ * Compact 4-tab fit decision: full labels fit inside 420 with px-4 even
+ * with the attention pip on the right (~316/388px used). No abbreviation
+ * needed at any tier.
  *
  * Tabs are clickable when `onTabChange` is provided; otherwise they
  * render as static labels (used by the locked per-size study pages).
- *
- * Compact 4-tab fit decision: full labels fit inside 420 with px-4 even
- * with the attention pip on the right (~336/388px used). No abbreviation
- * or number-dropping needed at any tier.
  */
 
 import { PANEL_PAD_X } from "./tokens";
@@ -20,8 +27,8 @@ interface TabSpec {
 }
 
 const TABS: TabSpec[] = [
-  { key: "fleet", num: "1", label: "fleet" },
-  { key: "observe", num: "2", label: "observe" },
+  { key: "agents", num: "1", label: "agents" },
+  { key: "activity", num: "2", label: "activity" },
   { key: "tail", num: "3", label: "tail" },
   { key: "sessions", num: "4", label: "sessions" },
 ];
@@ -39,7 +46,9 @@ export function HudMasthead({
   attentionCount?: number;
 }) {
   return (
-    <header className={`border-b border-studio-edge ${PANEL_PAD_X[size]} pt-2.5 pb-2`}>
+    <header
+      className={`border-b border-studio-edge ${PANEL_PAD_X[size]} pt-2.5 pb-2`}
+    >
       <div className="flex items-end gap-0">
         <MastheadMark />
         <span className="mx-3 self-end pb-[3px]" />
@@ -110,11 +119,11 @@ function AttentionPip({ count }: { count: number }) {
           }}
         />
       </span>
-      <span className="font-mono text-[11.5px] font-semibold tabular-nums text-studio-ink">
+      <span className="font-mono text-[11px] font-semibold tabular-nums text-studio-ink">
         {count}
       </span>
       <span
-        className="font-mono text-[8.5px] font-bold uppercase tracking-eyebrow"
+        className="font-mono text-[10px] font-bold uppercase tracking-eyebrow"
         style={{ color: "var(--scout-accent)" }}
       >
         on you
@@ -138,7 +147,7 @@ function TabLink({
     <>
       <span className="flex items-baseline gap-1">
         <span
-          className="font-mono text-[8.5px] font-bold"
+          className="font-mono text-[10px] font-bold"
           style={{
             color: active ? "var(--scout-accent)" : "var(--studio-ink-faint)",
           }}
@@ -148,10 +157,10 @@ function TabLink({
         <span
           className={
             active
-              ? "font-sans text-[13px] font-semibold lowercase text-studio-ink"
+              ? "font-sans text-[12px] font-semibold lowercase text-studio-ink"
               : onClick
-                ? "font-sans text-[13px] lowercase text-studio-ink-faint group-hover:text-studio-ink"
-                : "font-sans text-[13px] lowercase text-studio-ink-faint"
+                ? "font-sans text-[12px] lowercase text-studio-ink-faint group-hover:text-studio-ink"
+                : "font-sans text-[12px] lowercase text-studio-ink-faint"
           }
         >
           {label}
@@ -181,7 +190,7 @@ function TabLink({
 
 function TabSeparator() {
   return (
-    <span className="mx-2 self-end pb-[3px] font-mono text-[9px] text-studio-ink-faint">
+    <span className="mx-2 self-end pb-[3px] font-mono text-[10px] text-studio-ink-faint">
       ·
     </span>
   );

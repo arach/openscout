@@ -40,7 +40,15 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!menu) return;
 
-    const onClickOutside = () => close();
+    const onClickOutside = (event: MouseEvent) => {
+      if (
+        event.target instanceof Node &&
+        menuRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      close();
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };

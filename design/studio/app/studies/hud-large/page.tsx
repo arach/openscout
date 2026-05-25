@@ -12,7 +12,7 @@ import {
   SourceLinks,
 } from "@/components/studio/research";
 
-const TABS: HudTab[] = ["fleet", "observe", "tail", "sessions"];
+const TABS: HudTab[] = ["agents", "activity", "tail", "sessions"];
 
 export default function HudLargePage() {
   return (
@@ -27,11 +27,9 @@ export default function HudLargePage() {
         <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           Locked reference at the large size — a ~900px panel where the
           operator has the most horizontal room for the same vocabulary.
-          Fleet returns to a single-column row layout; observe&apos;s
-          time gutter widens for the stacked relative + absolute
-          timestamp; tail keeps its dense mono firehose; sessions keep
-          the 3-line pane peek. All four tabs stacked here for one-pass
-          review.
+          At this tier every tab adopts a two-pane treatment: list on
+          the left, detail panel pinned on the right. Click a row to
+          swap the detail; Esc closes back to the previous selection.
         </p>
       </header>
 
@@ -59,22 +57,27 @@ function Research() {
             packing.
           </li>
           <li>
-            <span className="text-studio-ink">Fleet:</span> single-column
-            rows again at full panel width. Pulse stretches; work item
-            + last action get more characters before truncation.
+            <span className="text-studio-ink">Agents:</span> three
+            panes — roster (A), context (B), last turn (C). Selection
+            in A swaps B + C.
           </li>
           <li>
-            <span className="text-studio-ink">Observe:</span> wider time
-            gutter holds stacked relative + absolute timestamp; dispatch
-            column wins the extra room.
+            <span className="text-studio-ink">Activity:</span> two
+            panes — time-bucketed ledger left, event detail right.
+            Detail surfaces category, kind, full body, byline, and
+            drill links (open thread / follow execution / agent
+            profile).
           </li>
           <li>
-            <span className="text-studio-ink">Tail:</span> same firehose
-            row; raw line gets the full width.
+            <span className="text-studio-ink">Tail:</span> two panes —
+            firehose stream left, raw-line + ±1 neighbors right. The
+            stream stays single-line mono; the detail unpacks the
+            current line.
           </li>
           <li>
-            <span className="text-studio-ink">Sessions:</span> pane peek
-            stays 3 lines but card frame gets more breathing room.
+            <span className="text-studio-ink">Sessions:</span> two
+            panes — session ledger left, session detail right. Detail
+            shows lifecycle grid, last turn, harness + model.
           </li>
         </ul>
       </ResearchBlock>
@@ -83,19 +86,17 @@ function Research() {
         <ul className="flex flex-col gap-2">
           <li>
             <span className="text-studio-ink">
-              Engage panel: inline vs side column.
-            </span>{" "}
-            At 900w, the engaged detail could either reveal below the
-            row (consistent with compact/medium) or open a right-side
-            detail column (closer to <em>hud-native</em>&apos;s
-            three-column shape). Not yet decided.
-          </li>
-          <li>
-            <span className="text-studio-ink">
               Tail correlation hints:
             </span>{" "}
             similar-line detection would shine at this width but the
             logic is hand-wavy in a mock. Likely defer.
+          </li>
+          <li>
+            <span className="text-studio-ink">
+              Sessions ledger sort order:
+            </span>{" "}
+            currently most-recently-active first. Group by status
+            (running / idle / ended) is a real candidate at large.
           </li>
         </ul>
       </ResearchBlock>
@@ -112,8 +113,8 @@ function Research() {
         <SourceLinks
           paths={[
             "design/studio/components/hud/HudPanel.tsx",
-            "design/studio/components/hud/HudFleet.tsx",
-            "design/studio/components/hud/HudObserve.tsx",
+            "design/studio/components/hud/HudAgents.tsx",
+            "design/studio/components/hud/HudActivity.tsx",
             "design/studio/components/hud/HudTail.tsx",
             "design/studio/components/hud/HudSessions.tsx",
             "design/studio/components/hud/tokens.ts",
