@@ -40,6 +40,7 @@ import {
 } from "../lib/observe.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
+import { DictationMic } from "../components/DictationMic.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import { type SessionObserveData } from "./SessionObserve.tsx";
 import type {
@@ -1926,6 +1927,11 @@ function FocusMessageTab({
             )}
           </div>
           <div className="s-focus-compose-actions">
+            <DictationMic
+              onAppend={(text) =>
+                setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
+              }
+            />
             <button
               type="button"
               className="s-ops-btn"

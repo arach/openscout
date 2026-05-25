@@ -20,6 +20,7 @@ import {
 } from "../lib/machine-scope.ts";
 import { routeMachineId } from "../lib/router.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { DictationMic } from "../components/DictationMic.tsx";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import type { Agent, Message, Route, SessionEntry } from "../lib/types.ts";
 import "./conversation-screen.css";
@@ -415,6 +416,11 @@ function ChannelFeed({
             rows={1}
             disabled={sending}
             textareaClassName="ch-compose-input"
+          />
+          <DictationMic
+            onAppend={(text) =>
+              setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
+            }
           />
           <button
             type="submit"

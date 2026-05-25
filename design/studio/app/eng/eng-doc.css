@@ -1,0 +1,146 @@
+/*
+ * Compact rhythm — when a markdown block lives inside the data-sheet
+ * header grid, the row already owns vertical padding. Strip the
+ * paragraph margins so the row doesn't double up.
+ */
+.eng-doc--compact > :first-child {
+  margin-top: 0;
+}
+.eng-doc--compact > :last-child {
+  margin-bottom: 0;
+}
+.eng-doc--compact p,
+.eng-doc--compact ul,
+.eng-doc--compact ol {
+  margin-top: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+.eng-doc--compact > p:first-child,
+.eng-doc--compact > ul:first-child,
+.eng-doc--compact > ol:first-child {
+  margin-top: 0;
+}
+
+/*
+ * Syntax highlighting for engineering doc code blocks.
+ *
+ * Scoped under `.eng-doc` so the rules can't leak into other Studio
+ * surfaces. Default theme is GitHub-light tuned to sit against
+ * `studio-canvas-alt`; a `prefers-color-scheme: dark` block flips to
+ * GitHub-dark colors for when Studio grows a dark mode.
+ */
+
+.eng-doc pre code.hljs {
+  display: block;
+  background: transparent;
+  padding: 0;
+}
+
+.eng-doc code.hljs {
+  background: transparent;
+}
+
+/* Light — default */
+.eng-doc .hljs {
+  color: #24292e;
+}
+.eng-doc .hljs-comment,
+.eng-doc .hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+.eng-doc .hljs-keyword,
+.eng-doc .hljs-formula {
+  color: #d73a49;
+}
+.eng-doc .hljs-string,
+.eng-doc .hljs-meta-string {
+  color: #032f62;
+}
+.eng-doc .hljs-number,
+.eng-doc .hljs-literal,
+.eng-doc .hljs-variable,
+.eng-doc .hljs-template-variable,
+.eng-doc .hljs-tag .hljs-attr {
+  color: #005cc5;
+}
+.eng-doc .hljs-built_in,
+.eng-doc .hljs-type,
+.eng-doc .hljs-title,
+.eng-doc .hljs-section,
+.eng-doc .hljs-class .hljs-title {
+  color: #6f42c1;
+}
+.eng-doc .hljs-attr,
+.eng-doc .hljs-attribute,
+.eng-doc .hljs-name {
+  color: #22863a;
+}
+.eng-doc .hljs-tag {
+  color: #24292e;
+}
+.eng-doc .hljs-meta,
+.eng-doc .hljs-meta-keyword {
+  color: #005cc5;
+}
+.eng-doc .hljs-symbol,
+.eng-doc .hljs-bullet,
+.eng-doc .hljs-link {
+  color: #e36209;
+}
+.eng-doc .hljs-emphasis {
+  font-style: italic;
+}
+.eng-doc .hljs-strong {
+  font-weight: 600;
+}
+
+/* Dark — driven by Studio's own theme toggle (data-theme="dark"),
+ * NOT prefers-color-scheme. This way the syntax theme tracks the
+ * sidebar toggle even when the OS is reporting the opposite. */
+[data-theme="dark"] .eng-doc .hljs {
+  color: #c9d1d9;
+}
+[data-theme="dark"] .eng-doc .hljs-comment,
+[data-theme="dark"] .eng-doc .hljs-quote {
+  color: #8b949e;
+}
+[data-theme="dark"] .eng-doc .hljs-keyword,
+[data-theme="dark"] .eng-doc .hljs-formula {
+  color: #ff7b72;
+}
+[data-theme="dark"] .eng-doc .hljs-string,
+[data-theme="dark"] .eng-doc .hljs-meta-string {
+  color: #a5d6ff;
+}
+[data-theme="dark"] .eng-doc .hljs-number,
+[data-theme="dark"] .eng-doc .hljs-literal,
+[data-theme="dark"] .eng-doc .hljs-variable,
+[data-theme="dark"] .eng-doc .hljs-template-variable,
+[data-theme="dark"] .eng-doc .hljs-tag .hljs-attr {
+  color: #79c0ff;
+}
+[data-theme="dark"] .eng-doc .hljs-built_in,
+[data-theme="dark"] .eng-doc .hljs-type,
+[data-theme="dark"] .eng-doc .hljs-title,
+[data-theme="dark"] .eng-doc .hljs-section,
+[data-theme="dark"] .eng-doc .hljs-class .hljs-title {
+  color: #d2a8ff;
+}
+[data-theme="dark"] .eng-doc .hljs-attr,
+[data-theme="dark"] .eng-doc .hljs-attribute,
+[data-theme="dark"] .eng-doc .hljs-name {
+  color: #7ee787;
+}
+[data-theme="dark"] .eng-doc .hljs-tag {
+  color: #c9d1d9;
+}
+[data-theme="dark"] .eng-doc .hljs-meta,
+[data-theme="dark"] .eng-doc .hljs-meta-keyword {
+  color: #79c0ff;
+}
+[data-theme="dark"] .eng-doc .hljs-symbol,
+[data-theme="dark"] .eng-doc .hljs-bullet,
+[data-theme="dark"] .eng-doc .hljs-link {
+  color: #ffa657;
+}

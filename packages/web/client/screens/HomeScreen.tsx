@@ -591,8 +591,22 @@ export function HomeScreen({
       (item) => (normalizeTimestampMs(item.ts) ?? 0) >= sinceMs,
     );
   }, [scopedFleet?.activity, sinceMs]);
-  const liveActivityEmptyText = scopedFleet
-    ? `Quiet — no activity in the last ${formatLookback(lookbackMs)}.`
+  const recentActivity = scopedFleet?.activity ?? [];
+  const activityRows = liveActivity.length > 0 ? liveActivity : recentActivity;
+  const activityWindowFallback = liveActivity.length === 0 && recentActivity.length > 0;
+  const latestRecentActivityAge = timeAgo(recentActivity[0]?.ts, nowMs);
+  const activityWindowNote = activityWindowFallback
+    ? `No activity in the last ${formatLookback(lookbackMs)}. ${
+      latestRecentActivityAge
+        ? `Latest activity ${latestRecentActivityAge} ago.`
+        : "Latest activity is outside the window."
+    }`
+    : null;
+  const activitySectionLabel = activityWindowFallback
+    ? `Recent activity · ${activityRows.length}`
+    : `Live activity · ${liveActivity.length}`;
+  const activityEmptyText = scopedFleet
+    ? "No activity recorded yet."
     : loading || refreshing
       ? "Loading activity…"
       : "Activity snapshot unavailable.";
@@ -953,10 +967,10 @@ export function HomeScreen({
           </div>
         )}
 
-        {/* ── Live activity (windowed) ───────────────────────────── */}
+        {/* ── Activity stream ────────────────────────────────────── */}
         <div className="s-fleet-section">
           <SectionRule
-            label={`Live activity · ${liveActivity.length}`}
+            label={activitySectionLabel}
             right={
               <LookbackPicker
                 value={lookbackMs}
@@ -964,24 +978,29 @@ export function HomeScreen({
               />
             }
           />
-          {liveActivity.length === 0 ? (
+          {activityRows.length === 0 ? (
             <div className="s-mc-empty">
-              {liveActivityEmptyText}
+              {activityEmptyText}
             </div>
           ) : (
-            <div className="s-mc-stream s-fleet-live-stream">
-              {liveActivity.slice(0, 30).map((item) => (
-                <ActivityRow
-                  key={item.id}
-                  item={item}
-                  nowMs={nowMs}
-                  onOpen={() => {
-                    const route = fleetActivityRoute(item);
-                    if (route) navigate(route);
-                  }}
-                />
-              ))}
-            </div>
+            <>
+              {activityWindowNote ? (
+                <div className="s-mc-empty">{activityWindowNote}</div>
+              ) : null}
+              <div className="s-mc-stream s-fleet-live-stream">
+                {activityRows.slice(0, 30).map((item) => (
+                  <ActivityRow
+                    key={item.id}
+                    item={item}
+                    nowMs={nowMs}
+                    onOpen={() => {
+                      const route = fleetActivityRoute(item);
+                      if (route) navigate(route);
+                    }}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
 

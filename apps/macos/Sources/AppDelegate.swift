@@ -24,6 +24,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         contextMenu = buildContextMenu()
 
+        // Global HUD hotkey: Hyper (⌃⌥⇧⌘) + H.
+        HotkeyManager.shared.register(
+            id: 1,
+            keyCode: CarbonKeyCode.h,
+            modifiers: CarbonModifier.hyper
+        ) {
+            Task { @MainActor in
+                HUDController.shared.toggle()
+            }
+        }
+
         controller.$menuBarSymbolName
             .combineLatest(controller.$menuBarTooltip)
             .sink { [weak self] symbolName, tooltip in
@@ -106,6 +117,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         menu.addItem(.separator())
 
+        let hudItem = NSMenuItem(title: "Show HUD", action: #selector(toggleHUD), keyEquivalent: "h")
+        hudItem.target = self
+        hudItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
+        menu.addItem(hudItem)
+
+        menu.addItem(.separator())
+
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -151,6 +169,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func refreshState() {
         controller.refresh()
+    }
+
+    @objc
+    private func toggleHUD() {
+        HUDController.shared.toggle()
     }
 
     @objc

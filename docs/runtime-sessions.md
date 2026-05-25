@@ -256,16 +256,19 @@ and max uses), are retired after a peer uses their direct conversation, and are
 pruned by retention so older disposable cards do not crowd `who`/search results.
 Manual CLI cards remain persistent unless created with `scout card create
 --one-time`; `scout card cleanup` retires expired or overflow one-time cards.
-When a caller asks a concrete `projectPath` and no card already resolves for
-that project, the broker may create the one-time card itself, accept the work
+When a caller asks a concrete `projectPath` and no existing project card is a
+clear winner, the broker may create the one-time card itself, accept the work
 against that generated identity, and prune older one-time cards for the same
-sender/project.
+sender/project. This includes the case where multiple same-project cards are
+equally plausible but the ask requests fresh work rather than a specific
+session.
 
 ## Ask Targets And Reply Sessions
 
 An ask has two different routes:
 
-- the work target, which is either a reusable `targetSessionId` or an agent/project target that can create a fresh session
+- the work target, which is an exact session target or an agent/project target
+  that can create a fresh session
 - the return target, which may be a concrete requester `sessionId`
 
 Use `targetSessionId` when the sender wants to keep building context in one
@@ -284,6 +287,45 @@ session on the requester's return address for the message and invocation. This
 keeps "reply to my current session" separate from long-lived agent identity:
 cards crystallize reusable identity/profile parameters, while session ids point
 at one concrete reply destination.
+
+### Session Reuse And Forking
+
+Session policy should be explicit because "which worker should do this" and
+"which prior context should it inherit" are different questions.
+
+| Policy | Meaning | Session id role |
+| --- | --- | --- |
+| `new` | Run the work in fresh model context. | No session id required. Existing project agents should not force user-visible ambiguity. |
+| `reuse` | Prefer an existing compatible session, but start fresh if none is suitable. | Optional optimization hint, not a hard target. |
+| `existing` | Continue one exact session. | `targetSessionId` is the target and must resolve to that session owner. |
+| `fork` | Start a new session from an excellent prior state. | `forkFromStateId` is preferred; `forkFromSessionId` means derive a source state from that session. |
+
+The fork case is intentionally different from `existing`. A fork should leave
+the source session untouched, create a new execution session, and carry only an
+excellent session state: goal, decisions, constraints, evidence, relevant
+files, and next move. If the harness has a native thread-fork primitive, Scout
+can use it. If not, Scout can synthesize a compact handoff from broker-owned
+records and observed harness material, with the same data-ownership boundary as
+ordinary session observation. It should not bulk import the source transcript
+into Scout messages.
+
+The strongest fork sources are curated base states: a small set of carefully
+constructed states that stay useful for recurring work. These should appear
+ahead of raw sessions when choosing what to fork from.
+
+Proposed request shape:
+
+```ts
+execution: {
+  session: "fork",
+  forkFromStateId: "state-session-abc123-review-ready",
+}
+```
+
+The work target should still be provided by `projectPath`, `agentId`, or an
+explicit target label unless the fork source is deliberately meant to imply the
+same project and agent profile. This keeps project routing as the work
+primitive, while the fork source is only a continuity input.
 
 ## Message And Work Semantics
 
