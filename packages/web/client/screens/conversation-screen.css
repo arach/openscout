@@ -781,16 +781,119 @@ button.s-thread-msg-actor:focus-visible {
 
 .s-thread-msg-working-body {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
   padding: 0;
   border: none;
   background: none;
 }
 
 .s-thread-msg-working-copy {
-  font-size: 12px;
+  display: -webkit-box;
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.s-thread-turn-snapshot {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+}
+
+.s-thread-turn-snapshot--stale .s-thread-msg-working-copy {
+  color: color-mix(in srgb, var(--amber) 78%, var(--ink));
+}
+
+.s-thread-turn-snapshot-pulse {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  margin-top: 16px;
+  border-radius: 999px;
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+.s-thread-turn-snapshot-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--green) 38%, transparent);
+  animation: s-thread-turn-pulse 1.8s ease-out infinite;
+}
+
+.s-thread-turn-snapshot-pulse--stale {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 12%, transparent);
+}
+
+.s-thread-turn-snapshot-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.s-thread-turn-snapshot-label {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.s-thread-turn-snapshot-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 2px 0 0;
+  padding: 7px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+.s-thread-msg-working-card--stale .s-thread-turn-snapshot-stats {
+  border-top-color: color-mix(in srgb, var(--amber) 18%, transparent);
+}
+
+.s-thread-turn-snapshot-stat {
+  min-width: 0;
+  padding-right: 10px;
+}
+
+.s-thread-turn-snapshot-stat + .s-thread-turn-snapshot-stat {
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
+}
+
+.s-thread-turn-snapshot-stat dt {
+  margin: 0 0 2px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.s-thread-turn-snapshot-stat dd {
+  margin: 0;
   color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .s-thread-typing-indicator {
@@ -835,6 +938,17 @@ button.s-thread-msg-actor:focus-visible {
   30% { opacity: 1; transform: translateY(-3px); }
 }
 
+@keyframes s-thread-turn-pulse {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.72);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
 /* ── Presence line ── */
 
 .s-thread-presence-line {
@@ -862,8 +976,13 @@ button.s-thread-msg-actor:focus-visible {
 }
 
 .s-thread-presence-line-label {
+  min-width: 0;
+  flex: 0 1 auto;
   font-size: 11px;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .s-thread-presence-line--stale .s-thread-presence-line-label {
