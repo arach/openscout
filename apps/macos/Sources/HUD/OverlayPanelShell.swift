@@ -27,11 +27,36 @@ final class OverlayPanel: NSPanel {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Let text fields consume their own input. Without this guard,
+        // typing in a dock TextField sends '1','2',… through to the
+        // panel's nav hotkeys and the user can't compose a message.
+        // Esc + ⌘-modified keys still reach onKeyDown so two-stage
+        // clear + ⌘-nav keep working while typing.
+        let kc = event.keyCode
+        let isEscape = kc == 53
+        let hasCommand = event.modifierFlags.contains(.command)
+        if firstResponderIsTextEditing && !isEscape && !hasCommand {
+            super.keyDown(with: event)
+            return
+        }
         if let onKeyDown {
             onKeyDown(event)
         } else {
             super.keyDown(with: event)
         }
+    }
+
+    private var firstResponderIsTextEditing: Bool {
+        // SwiftUI TextField bridges to NSTextView via the field editor.
+        // The field editor is the firstResponder when a TextField has
+        // focus inside an NSHostingView.
+        if let responder = firstResponder as? NSText, responder.isEditable {
+            return true
+        }
+        if firstResponder is NSTextView {
+            return true
+        }
+        return false
     }
 
     override func flagsChanged(with event: NSEvent) {

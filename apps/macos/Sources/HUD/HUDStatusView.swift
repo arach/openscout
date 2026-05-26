@@ -71,18 +71,28 @@ struct HUDStatusView: View {
                 content
                 HudMessageDock()
             }
+
+            // `?` cheatsheet — drawn on top of the panel body, masthead
+            // and dock stay visible underneath. Toggled from HUDController.
+            HUDCheatsheetOverlay()
         }
         .frame(
             minWidth: minPanelW, maxWidth: .infinity,
             minHeight: minPanelH, maxHeight: .infinity
         )
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        // Crisp warm-cream hairline at the panel edge. One restrained
+        // thin line cuts the rectangle out of the desktop the way
+        // Lattices' voice panel does — no brackets, no glow on the
+        // border itself. Shadow is the NSPanel's native one (configured
+        // in HUDController), which samples the alpha mask of the
+        // rounded content and casts a proper rounded halo; SwiftUI
+        // `.shadow` modifiers here would get clipped to the hosting
+        // view's rectangle and read as a faint rectangle behind us.
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(HUDChrome.border, lineWidth: 0.75)
+                .strokeBorder(HUDChrome.borderRim, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.55), radius: 26, y: 14)
-        .shadow(color: Color.black.opacity(0.30), radius: 6, y: 2)
         .onAppear { fleet.start() }
         .onDisappear { fleet.stop() }
     }
@@ -109,8 +119,8 @@ struct HUDStatusView: View {
 
             Spacer(minLength: 6)
 
-            // Right cluster: attention (only when something needs eyes)
-            // and size toggle (always). Compact · medium · large.
+            // Right cluster: attention pip (when something needs eyes) ·
+            // 3-pill size toggle · `?` cheatsheet hint.
             HStack(spacing: 8) {
                 if attentionCount > 0 {
                     AttentionPip()
@@ -119,6 +129,8 @@ struct HUDStatusView: View {
                     BrokerOfflinePip()
                 }
                 HUDSizeToggle()
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                CheatsheetChip()
                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
             }
         }
@@ -157,6 +169,9 @@ struct HUDStatusView: View {
                 .transition(.opacity)
             case .sessions:
                 HUDSessionsView()
+                    .transition(.opacity)
+            case .assistant:
+                HUDAssistantView()
                     .transition(.opacity)
             }
         }
@@ -226,9 +241,22 @@ private struct NavigatorLink: View {
     let isActive: Bool
     @State private var hovered = false
 
+    private var sigilColor: Color {
+        isActive ? HUDChrome.accent : HUDChrome.inkDeep
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
+                // Assistant tab carries the robot-head identity per
+                // feedback_meta_agent_naming_neutral — the label text
+                // stays neutral, the sigil does the brand work.
+                if view == .assistant {
+                    RobotGlyphShape()
+                        .stroke(sigilColor, style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
+                        .frame(width: 11, height: 11)
+                        .padding(.trailing, 1)
+                }
                 Text(view.keyLabel)
                     .font(HUDType.mono(10, weight: .bold))
                     .tracking(0.5)
@@ -334,6 +362,29 @@ private struct LiveDot: View {
                 }
             }
         }
+    }
+}
+
+// Tiny `?` chip in the masthead — clicking or pressing `?` opens the
+// keymap cheatsheet. Lives here so the discovery affordance never
+// scrolls off-screen with the content.
+private struct CheatsheetChip: View {
+    @ObservedObject private var sheet = HUDCheatsheetState.shared
+
+    var body: some View {
+        Button(action: { sheet.toggle() }) {
+            Text("?")
+                .font(HUDType.mono(10, weight: .bold))
+                .foregroundStyle(sheet.visible ? HUDChrome.accent : HUDChrome.inkFaint)
+                .frame(width: 14, height: 14)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(sheet.visible ? HUDChrome.accent.opacity(0.7) : HUDChrome.border, lineWidth: 0.5)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Show keymap")
     }
 }
 
@@ -683,7 +734,7 @@ private struct AgentExpandedPanel: View {
 
             if !agent.capabilities.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    HUDEyebrow(text: "CAPABILITIES", color: HUDChrome.inkDeep)
+                    HUDEyebrow(text: "CAPABILITIES", color: HUDChrome.inkFaint)
                     HStack(spacing: 4) {
                         ForEach(agent.capabilities.prefix(6), id: \.self) { cap in
                             Text(cap)
@@ -702,7 +753,7 @@ private struct AgentExpandedPanel: View {
 
             if let selector = agent.selector {
                 VStack(alignment: .leading, spacing: 3) {
-                    HUDEyebrow(text: "SELECTOR", color: HUDChrome.inkDeep)
+                    HUDEyebrow(text: "SELECTOR", color: HUDChrome.inkFaint)
                     Text(selector)
                         .font(HUDType.mono(10, weight: .medium))
                         .foregroundStyle(HUDChrome.inkMuted)
@@ -719,7 +770,7 @@ private struct AgentExpandedPanel: View {
 
     private func detailBlock(label: String, body: String, isAccent: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HUDEyebrow(text: label, color: isAccent ? HUDChrome.accent : HUDChrome.inkDeep)
+            HUDEyebrow(text: label, color: isAccent ? HUDChrome.accent : HUDChrome.inkFaint)
             Text(body)
                 .font(HUDType.body(12))
                 .foregroundStyle(HUDChrome.ink)
@@ -793,7 +844,7 @@ private struct FleetEmptyView: View {
             HUDMastheadMark(size: 44)
                 .opacity(0.85)
 
-            HUDEyebrow(text: "MORNING EDITION  ·  NIL DISPATCHES", color: HUDChrome.inkDeep)
+            HUDEyebrow(text: "MORNING EDITION  ·  NIL DISPATCHES", color: HUDChrome.inkFaint)
                 .padding(.top, 18)
 
             Text("The fleet is quiet.")

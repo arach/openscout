@@ -1,11 +1,12 @@
 import SwiftUI
 
-// Three-position segmented control — compact · medium · large.
-// Sits in the masthead's right cluster. Mirrors the studio's
-// HudSizeToggle.tsx: same labels, same affordance, same visual weight.
+// Three-position segmented control — S · M · L — for the masthead's
+// right cluster. Mirrors studio HudSizeToggle / HudMasthead. User
+// preferred this over the stepper variant: the three letters read as
+// an immediate spatial map, the stepper read as math.
 //
 // Selected = lime accent on canvasAlt fill; idle = inkFaint on canvas.
-// Tap any segment to jump; the global `[` / `]` hotkey also walks it.
+// Tap any segment to jump; ⌘← / ⌘→ + `[` / `]` walk it from the keyboard.
 
 struct HUDSizeToggle: View {
     @ObservedObject var state = HUDState.shared

@@ -90,6 +90,48 @@ function Research() {
         </ul>
       </ResearchBlock>
 
+      <ResearchBlock eyebrow="tier transitions">
+        <p className="mb-3">
+          The panel resizes between tiers, it does not pop. Switching{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            compact
+          </code>{" "}
+          ↔{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            medium
+          </code>{" "}
+          ↔{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            large
+          </code>{" "}
+          animates the outer frame&rsquo;s width and height over{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            220ms
+          </code>{" "}
+          with{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            cubic-bezier(0.42, 0, 0.58, 1)
+          </code>{" "}
+          — literal ease-in-out, mirroring the native HUD&rsquo;s{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            NSAnimationContext
+          </code>{" "}
+          cadence.
+        </p>
+        <p>
+          The body content cross-fades on the same gesture (
+          <code className="font-mono text-[11px] text-studio-ink">
+            180ms ease-out
+          </code>
+          , keyed on{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            `${"{tab}"}-${"{size}"}`
+          </code>
+          ) so the new layout lands already lit. Tab switches inherit the
+          same fade since the key flips on either axis.
+        </p>
+      </ResearchBlock>
+
       <ResearchBlock eyebrow="rules">
         <ul className="flex flex-col gap-2">
           <li>

@@ -16,7 +16,19 @@ final class HUDController {
 
     var isVisible: Bool {
         guard let panel else { return false }
-        return panel.isVisible && panel.alphaValue > 0.5
+        // Drop the alpha gate: external IPC consumers (HUDStateFile,
+        // capture loops) want "is the panel on screen" the moment show()
+        // returns, not "fully faded in." The internal toggle() check
+        // already handles the in-flight case via the panel == nil
+        // sentinel after dismiss.
+        return panel.isVisible
+    }
+
+    /// CGWindowID of the panel when visible; nil when dismissed. Consumed
+    /// by HUDStateFile + external screencapture loops (scout:// IPC).
+    var currentWindowId: Int? {
+        guard let panel, isVisible else { return nil }
+        return panel.windowNumber
     }
 
     private init() {}
@@ -40,6 +52,7 @@ final class HUDController {
             fadeIn(panel)
             installMonitors()
             installSizeObserver()
+            HUDStateFile.shared.touch()
             return
         }
 
@@ -52,13 +65,21 @@ final class HUDController {
         config.isMovableByWindowBackground = true
         config.resizable = true
         config.minContentSize = NSSize(width: 360, height: 380)
-        // Max sized to comfortably fit the large preset (900×720) plus
+        // Max sized to comfortably fit the large preset (1280×920) plus
         // headroom for the operator dragging beyond it.
-        config.maxContentSize = NSSize(width: 1200, height: 1200)
+        config.maxContentSize = NSSize(width: 1600, height: 1200)
+        // Keep the system window shadow ON. macOS samples the alpha of
+        // the hosting view's content (NSPanel is `isOpaque = false`,
+        // background `.clear`) and casts a shadow that follows the
+        // rounded clip — which is what we want. SwiftUI `.shadow`
+        // modifiers on the root view get clipped to the hosting view's
+        // rectangular bounds and produce a faint rectangular silhouette
+        // behind the rounded shape; we don't add any on HUDStatusView.
+        config.hasShadow = true
         config.onKeyDown = { [weak self] event in
             switch event.keyCode {
-            case 53: // Escape
-                Task { @MainActor in self?.dismiss() }
+            case 53: // Escape — cascade through dock/engage/dismiss
+                Task { @MainActor in self?.handleEscape() }
             case 18: // 1
                 Task { @MainActor in HUDState.shared.select(.agents) }
             case 19: // 2
@@ -67,12 +88,39 @@ final class HUDController {
                 Task { @MainActor in HUDState.shared.select(.tail) }
             case 21: // 4
                 Task { @MainActor in HUDState.shared.select(.sessions) }
-            case 36: // Return — activate selected row (Sessions only for now)
-                Task { @MainActor in self?.activateSelected() }
+            case 23: // 5
+                Task { @MainActor in HUDState.shared.select(.assistant) }
+            case 36: // Return — engage selected row (focus dock, prefill @target)
+                Task { @MainActor in
+                    HUDNavBus.shared.engageSelected?()
+                    self?.activateSelected()
+                }
+            case 38: // j — cycle selection next
+                Task { @MainActor in HUDNavBus.shared.cycleNext?() }
+            case 40: // k — cycle selection prev
+                Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
+            case 5: // g — top (G with shift = bottom)
+                if event.modifierFlags.contains(.shift) {
+                    Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
+                } else {
+                    Task { @MainActor in HUDNavBus.shared.jumpTop?() }
+                }
+            case 3: // f — toggle live-follow (tail / stream views)
+                Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
+            case 44 where event.modifierFlags.contains(.shift): // ? — cheatsheet
+                Task { @MainActor in HUDCheatsheetState.shared.toggle() }
             case 33: // [ — step size down
                 Task { @MainActor in HUDState.shared.stepSize(-1) }
             case 30: // ] — step size up
                 Task { @MainActor in HUDState.shared.stepSize(+1) }
+            case 124: // Right arrow — ⌘→ steps tier up
+                if event.modifierFlags.contains(.command) {
+                    Task { @MainActor in HUDState.shared.stepSize(+1) }
+                }
+            case 123: // Left arrow — ⌘← steps tier down
+                if event.modifierFlags.contains(.command) {
+                    Task { @MainActor in HUDState.shared.stepSize(-1) }
+                }
             default:
                 break
             }
@@ -97,6 +145,7 @@ final class HUDController {
         fadeIn(p)
         installMonitors()
         installSizeObserver()
+        HUDStateFile.shared.touch()
     }
 
     func dismiss() {
@@ -113,6 +162,7 @@ final class HUDController {
             Task { @MainActor [weak self] in
                 p.orderOut(nil)
                 self?.panel = nil
+                HUDStateFile.shared.touch()
             }
         }
     }
@@ -189,8 +239,8 @@ final class HUDController {
             guard let self else { return }
             let kc = event.keyCode
             switch kc {
-            case 53: // Escape
-                Task { @MainActor in self.dismiss() }
+            case 53: // Escape — cascade through dock/engage/dismiss
+                Task { @MainActor in self.handleEscape() }
             case 18: // 1
                 Task { @MainActor in HUDState.shared.select(.agents) }
             case 19: // 2
@@ -199,12 +249,39 @@ final class HUDController {
                 Task { @MainActor in HUDState.shared.select(.tail) }
             case 21: // 4
                 Task { @MainActor in HUDState.shared.select(.sessions) }
-            case 36: // Return
-                Task { @MainActor in self.activateSelected() }
+            case 23: // 5
+                Task { @MainActor in HUDState.shared.select(.assistant) }
+            case 36: // Return — engage selected row
+                Task { @MainActor in
+                    HUDNavBus.shared.engageSelected?()
+                    self.activateSelected()
+                }
+            case 38: // j — next row
+                Task { @MainActor in HUDNavBus.shared.cycleNext?() }
+            case 40: // k — prev row
+                Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
+            case 5: // g / G
+                if event.modifierFlags.contains(.shift) {
+                    Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
+                } else {
+                    Task { @MainActor in HUDNavBus.shared.jumpTop?() }
+                }
+            case 3: // f — toggle follow
+                Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
+            case 44 where event.modifierFlags.contains(.shift): // ? — cheatsheet
+                Task { @MainActor in HUDCheatsheetState.shared.toggle() }
             case 33: // [
                 Task { @MainActor in HUDState.shared.stepSize(-1) }
             case 30: // ]
                 Task { @MainActor in HUDState.shared.stepSize(+1) }
+            case 126: // Up arrow — ⌘↑
+                if event.modifierFlags.contains(.command) {
+                    Task { @MainActor in HUDState.shared.stepSize(+1) }
+                }
+            case 125: // Down arrow — ⌘↓
+                if event.modifierFlags.contains(.command) {
+                    Task { @MainActor in HUDState.shared.stepSize(-1) }
+                }
             default:
                 break
             }
@@ -216,6 +293,40 @@ final class HUDController {
         // primary action. None of the redesigned tabs claim Return today;
         // hook back in once HUDEngageState carries a "primary action" verb.
         return
+    }
+
+    /// Esc cascade — every Enter-driven state must have a reverse.
+    /// Walks back one stage at a time so the operator's mental stack
+    /// gets popped predictably:
+    ///
+    ///   0. `?` cheatsheet open    → close it
+    ///   1. dock has text          → clear the text
+    ///   2. dock has @target chip  → clear the chip
+    ///   3. dock has focus         → blur dock
+    ///   4. a row is engaged       → unengage (collapse expansion)
+    ///   5. nothing left to undo   → dismiss HUD
+    private func handleEscape() {
+        // 0: cheatsheet overlay
+        if HUDCheatsheetState.shared.visible {
+            HUDCheatsheetState.shared.dismiss()
+            return
+        }
+
+        // 1 + 2: text → target
+        if HUDDockState.shared.escapePressed() { return }
+
+        // 3: dock focus (blur but keep target/text empty already)
+        // Detect via the panel's firstResponder being the field editor.
+        if let panel, let editor = panel.firstResponder as? NSText, editor.isEditable {
+            HUDDockState.shared.blur()
+            return
+        }
+
+        // 4: collapse engaged row
+        if HUDNavBus.shared.unengageSelected?() == true { return }
+
+        // 5: dismiss
+        dismiss()
     }
 
     private func removeMonitors() {

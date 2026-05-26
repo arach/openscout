@@ -30,6 +30,74 @@ private enum TailKind: String {
         if v.contains("start") || v.contains("spawn") || v.contains("wake") || v.contains("lifecycle") { return .lif }
         return .turn
     }
+
+    // Aged-phosphor palette — distinct hue per kind so a scrolling
+    // firehose reads like a colorized terminal log. Saturation kept
+    // moderate so colors sit on the warm-dark canvas without buzzing.
+    // ASK + ERR are loudest (attention); TUR is neutral ink so a wall
+    // of turns reads as the baseline.
+    var color: Color {
+        switch self {
+        case .turn: return HUDChrome.inkMuted
+        case .msg:  return Color(red: 0.485, green: 0.780, blue: 0.420) // lime-green echo
+        case .tol:  return Color(red: 0.420, green: 0.720, blue: 0.700) // cool teal
+        case .edt:  return Color(red: 0.870, green: 0.715, blue: 0.400) // warm amber
+        case .err:  return Color(red: 0.910, green: 0.450, blue: 0.395) // muted red
+        case .lif:  return Color(red: 0.680, green: 0.575, blue: 0.840) // soft violet
+        case .pmt:  return Color(red: 0.880, green: 0.620, blue: 0.395) // soft orange
+        case .brk:  return Color(red: 0.555, green: 0.640, blue: 0.730) // cool slate
+        case .ask:  return HUDChrome.accent                              // scout lime
+        }
+    }
+}
+
+// Hash-to-hue helper so each agent's `@source` stamps in its own
+// color, mirroring studio's agentHue convention. Deterministic across
+// renders — same handle always lands on the same hue.
+private func sourceColor(for handle: String) -> Color {
+    var hash: UInt64 = 5381
+    for byte in handle.lowercased().utf8 {
+        hash = (hash &* 33) &+ UInt64(byte)
+    }
+    let hue = Double(hash % 360)
+    return HUDChrome.agentHue(hue, lightness: 0.74, saturation: 0.42)
+}
+
+// Light syntax highlighting for the line — @mentions get the agent
+// hue, file paths and *.ext tokens read in cool teal, and `backticked`
+// fragments lift slightly so code-like spans pop out of prose. Kept
+// deliberately small: this is a tail row, not a syntax-aware editor.
+private func styledLine(_ text: String, base: Color, mono: Font) -> AttributedString {
+    var attr = AttributedString(text)
+    attr.font = mono
+    attr.foregroundColor = base
+
+    let ns = text as NSString
+    let full = NSRange(location: 0, length: ns.length)
+    let pathColor = Color(red: 0.420, green: 0.720, blue: 0.700)
+    let codeColor = HUDChrome.ink
+
+    func apply(pattern: String, color: Color, weight: Font.Weight? = nil) {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+        for m in regex.matches(in: text, range: full) {
+            let sub = ns.substring(with: m.range)
+            guard let lo = attr.range(of: sub) else { continue }
+            attr[lo].foregroundColor = color
+            if let weight {
+                attr[lo].font = mono.weight(weight)
+            }
+        }
+    }
+
+    // @mention — token after @ is the agent handle
+    apply(pattern: #"@[A-Za-z][\w\-]+"#, color: HUDChrome.accent)
+    // *.ext file paths and slash paths
+    apply(pattern: #"[\w./\-_]+\.[a-z]{1,6}\b"#, color: pathColor)
+    apply(pattern: #"\B/[\w./\-_]+"#, color: pathColor)
+    // `backtick code spans` — read crisper than surrounding prose
+    apply(pattern: #"`[^`]+`"#, color: codeColor, weight: .medium)
+
+    return attr
 }
 
 private struct TailRowModel: Identifiable {
@@ -48,6 +116,10 @@ struct HUDTailView: View {
 
     @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
+    // `following` = j/k haven't moved off the latest; new rows auto-scroll.
+    // The moment the operator moves the cursor, follow drops to false so
+    // their reading position doesn't get yanked. `f` toggles it back.
+    @State private var following = true
 
     private var agentById: [String: HudAgent] {
         Dictionary(uniqueKeysWithValues: agents.map { ($0.id, $0) })
@@ -67,37 +139,115 @@ struct HUDTailView: View {
                 }
             }
         }
+        .onAppear { wireNavBus() }
+        .onDisappear { HUDNavBus.shared.clear() }
+    }
+
+    // Register cycle/engage closures with the global key bus. HUDController
+    // dispatches j/k/Return/f into these — each view tab does its own wiring
+    // so the bus stays a thin dispatcher.
+    private func wireNavBus() {
+        // j/k / g / G never flip `following` — the firehose keeps firing
+        // even while the operator explores. Only `f` pauses live mode
+        // (deliberately, so it can't be triggered as a side effect).
+        HUDNavBus.shared.cycleNext = {
+            let ids = rowIds()
+            guard !ids.isEmpty else { return }
+            if let cur = engage.cursoredId, let i = ids.firstIndex(of: cur), i + 1 < ids.count {
+                engage.cursor(ids[i + 1])
+            } else {
+                engage.cursor(ids.first)
+            }
+        }
+        HUDNavBus.shared.cyclePrev = {
+            let ids = rowIds()
+            guard !ids.isEmpty else { return }
+            if let cur = engage.cursoredId, let i = ids.firstIndex(of: cur), i > 0 {
+                engage.cursor(ids[i - 1])
+            } else {
+                engage.cursor(ids.last)
+            }
+        }
+        HUDNavBus.shared.jumpTop = {
+            engage.cursor(rowIds().first)
+        }
+        HUDNavBus.shared.jumpBottom = {
+            engage.cursor(rowIds().last)
+        }
+        HUDNavBus.shared.engageSelected = {
+            // Three-level progressive disclosure on Enter:
+            //   1. cursored row not yet engaged → engage it (inline detail expands)
+            //   2. cursored row already engaged → stage @target on the dock + focus
+            //   3. (next iteration) → drill into a dedicated detail view
+            guard let cursoredId = engage.cursoredId,
+                  let row = rows.first(where: { $0.id == cursoredId }) else { return }
+            if engage.engagedId != cursoredId {
+                engage.toggle(cursoredId)
+            } else {
+                HUDDockState.shared.setTarget(handle: row.source, label: row.source)
+                HUDDockState.shared.focus()
+            }
+        }
+        HUDNavBus.shared.toggleFollow = {
+            following.toggle()
+            if following, let last = rowIds().last {
+                engage.cursor(last)
+            }
+        }
+        HUDNavBus.shared.unengageSelected = {
+            // Esc cascade: collapse the engaged row back to cursored-only.
+            // Cursor stays where it is so j/k continues seamlessly.
+            if engage.engagedId != nil {
+                engage.unengage()
+                return true
+            }
+            return false
+        }
+    }
+
+    private func rowIds() -> [String] {
+        rows.map { $0.id }
     }
 
     // MARK: - Compact
 
     private var compactBody: some View {
         VStack(spacing: 0) {
-            TailLiveMeter(count: rows.count)
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
-                        TailRow(
-                            row: row,
-                            size: .compact,
-                            engaged: engage.isSelected(row.id),
-                            onTap: {
-                                withAnimation(.easeOut(duration: 0.10)) {
-                                    engage.toggle(row.id)
-                                }
-                            }
-                        )
-                        if engage.isSelected(row.id) {
-                            TailDetailInline(
+            TailLiveMeter(count: rows.count, size: .compact, following: following)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                            TailRow(
                                 row: row,
-                                prev: idx > 0 ? rows[idx - 1] : nil,
-                                next: idx + 1 < rows.count ? rows[idx + 1] : nil
+                                size: .compact,
+                                cursored: engage.isCursored(row.id),
+                                engaged: engage.isEngaged(row.id),
+                                onTap: {
+                                    withAnimation(.easeOut(duration: 0.10)) {
+                                        engage.toggle(row.id)
+                                    }
+                                }
                             )
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .id(row.id)
+                            if engage.isEngaged(row.id) {
+                                TailDetailInline(
+                                    row: row,
+                                    prev: idx > 0 ? rows[idx - 1] : nil,
+                                    next: idx + 1 < rows.count ? rows[idx + 1] : nil
+                                )
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                            }
                         }
                     }
+                    .padding(.bottom, 8)
                 }
-                .padding(.bottom, 8)
+                .onChange(of: engage.cursoredId) { _, id in
+                    // No anchor → only scroll when the cursor would
+                    // otherwise be off-screen. Rows already visible stay
+                    // put; the list doesn't jump under the operator.
+                    if let id { withAnimation(.easeOut(duration: 0.14)) { proxy.scrollTo(id) } }
+                }
             }
         }
     }
@@ -106,39 +256,52 @@ struct HUDTailView: View {
 
     private var mediumBody: some View {
         VStack(spacing: 0) {
-            TailLiveMeter(count: rows.count)
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
-                        TailRow(
-                            row: row,
-                            size: .medium,
-                            engaged: engage.isSelected(row.id),
-                            onTap: {
-                                withAnimation(.easeOut(duration: 0.10)) {
-                                    engage.toggle(row.id)
-                                }
-                            }
-                        )
-                        if engage.isSelected(row.id) {
-                            TailDetailInline(
+            TailLiveMeter(count: rows.count, size: .medium, following: following)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                            TailRow(
                                 row: row,
-                                prev: idx > 0 ? rows[idx - 1] : nil,
-                                next: idx + 1 < rows.count ? rows[idx + 1] : nil
+                                size: .medium,
+                                cursored: engage.isCursored(row.id),
+                                engaged: engage.isEngaged(row.id),
+                                onTap: {
+                                    withAnimation(.easeOut(duration: 0.10)) {
+                                        engage.toggle(row.id)
+                                    }
+                                }
                             )
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .id(row.id)
+                            if engage.isEngaged(row.id) {
+                                TailDetailInline(
+                                    row: row,
+                                    prev: idx > 0 ? rows[idx - 1] : nil,
+                                    next: idx + 1 < rows.count ? rows[idx + 1] : nil
+                                )
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                            }
                         }
                     }
+                    .padding(.bottom, 10)
                 }
-                .padding(.bottom, 10)
+                .onChange(of: engage.cursoredId) { _, id in
+                    // No anchor → only scroll when the cursor would
+                    // otherwise be off-screen. Rows already visible stay
+                    // put; the list doesn't jump under the operator.
+                    if let id { withAnimation(.easeOut(duration: 0.14)) { proxy.scrollTo(id) } }
+                }
             }
         }
     }
 
     // MARK: - Large
 
-    private var selectedIdx: Int {
-        if let id = engage.selectedId, let i = rows.firstIndex(where: { $0.id == id }) {
+    // At large the right pane reads as a preview of whatever the cursor
+    // is on (j/k driven), not the engaged row. Engagement opens the
+    // dock; cursor drives the side preview.
+    private var cursoredIdx: Int {
+        if let id = engage.cursoredId, let i = rows.firstIndex(where: { $0.id == id }) {
             return i
         }
         return 0
@@ -146,33 +309,40 @@ struct HUDTailView: View {
 
     private var largeBody: some View {
         VStack(spacing: 0) {
-            TailLiveMeter(count: rows.count)
+            TailLiveMeter(count: rows.count, size: .large, following: following)
             HStack(spacing: 0) {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { _, row in
-                            TailRow(
-                                row: row,
-                                size: .large,
-                                engaged: row.id == rows[selectedIdx].id,
-                                onTap: {
-                                    withAnimation(.easeOut(duration: 0.10)) {
-                                        engage.select(row.id)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { _, row in
+                                TailRow(
+                                    row: row,
+                                    size: .large,
+                                    cursored: engage.isCursored(row.id),
+                                    engaged: engage.isEngaged(row.id),
+                                    onTap: {
+                                        withAnimation(.easeOut(duration: 0.10)) {
+                                            engage.select(row.id)
+                                        }
                                     }
-                                }
-                            )
+                                )
+                                .id(row.id)
+                            }
                         }
+                        .padding(.bottom, 10)
                     }
-                    .padding(.bottom, 10)
+                    .onChange(of: engage.cursoredId) { _, id in
+                        if let id { withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .center) } }
+                    }
                 }
                 .frame(width: 540)
 
                 Rectangle().fill(HUDChrome.border).frame(width: 0.5)
 
                 TailDetailLarge(
-                    row: rows[selectedIdx],
-                    prev: selectedIdx > 0 ? rows[selectedIdx - 1] : nil,
-                    next: selectedIdx + 1 < rows.count ? rows[selectedIdx + 1] : nil
+                    row: rows[cursoredIdx],
+                    prev: cursoredIdx > 0 ? rows[cursoredIdx - 1] : nil,
+                    next: cursoredIdx + 1 < rows.count ? rows[cursoredIdx + 1] : nil
                 )
                 .frame(maxWidth: .infinity)
             }
@@ -219,25 +389,32 @@ struct HUDTailView: View {
 
 private struct TailLiveMeter: View {
     let count: Int
+    let size: HUDSize
+    let following: Bool
     @State private var phase: CGFloat = 0
+
+    // Matches studio PANEL_PAD_X: px-4 at compact/medium, px-5 at large.
+    private var horizontalPad: CGFloat { size == .large ? 20 : 16 }
 
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 6) {
                 ZStack {
+                    if following {
+                        Circle()
+                            .fill(HUDChrome.accent.opacity(0.35 * (1 - phase)))
+                            .frame(width: 9, height: 9)
+                    }
                     Circle()
-                        .fill(HUDChrome.accent.opacity(0.35 * (1 - phase)))
-                        .frame(width: 9, height: 9)
-                    Circle()
-                        .fill(HUDChrome.accent)
+                        .fill(following ? HUDChrome.accent : HUDChrome.inkFaint)
                         .frame(width: 5, height: 5)
                 }
                 .frame(width: 9, height: 9)
 
-                Text("LIVE")
+                Text(following ? "LIVE" : "PAUSED")
                     .font(HUDType.mono(10, weight: .bold))
                     .tracking(HUDType.eyebrowTracking)
-                    .foregroundStyle(HUDChrome.ink)
+                    .foregroundStyle(following ? HUDChrome.ink : HUDChrome.inkMuted)
 
                 Text("· FIREHOSE")
                     .font(HUDType.mono(10))
@@ -245,12 +422,32 @@ private struct TailLiveMeter: View {
                     .foregroundStyle(HUDChrome.inkFaint)
             }
             Spacer()
+            // f to follow chip — only when the operator has navigated off
+            // live. Reads as the "resume" affordance.
+            if !following {
+                HStack(spacing: 4) {
+                    Text("f")
+                        .font(HUDType.mono(9, weight: .bold))
+                        .foregroundStyle(HUDChrome.accent)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 0.5)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 2)
+                                .stroke(HUDChrome.accent.opacity(0.5), lineWidth: 0.5)
+                        )
+                    Text("FOLLOW")
+                        .font(HUDType.mono(9, weight: .semibold))
+                        .tracking(HUDType.eyebrowMicro)
+                        .foregroundStyle(HUDChrome.inkMuted)
+                }
+                .padding(.trailing, 8)
+            }
             Text("\(count) evt")
                 .font(HUDType.mono(10))
                 .monospacedDigit()
                 .foregroundStyle(HUDChrome.inkMuted)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, horizontalPad)
         .padding(.vertical, 5)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -270,14 +467,24 @@ private struct TailLiveMeter: View {
 private struct TailRow: View {
     let row: TailRowModel
     let size: HUDSize
+    var cursored: Bool = false
     let engaged: Bool
     var onTap: () -> Void = {}
 
     @State private var hovered = false
 
+    // Three states, all as background tints (no border bar — the user's
+    // call: "not like a border thing, just like a kind of background
+    // color thing"):
+    //   cursored → clear warm tint, easy to scan to
+    //   engaged  → heavier tint + the inline expansion below the row
+    //              (the expansion IS the engagement signal — no need
+    //              to compete with the background)
+    //   hovered  → faintest tint (mouse-only)
     private var fill: Color {
-        if engaged { return HUDChrome.canvasLift.opacity(0.55) }
-        if hovered { return HUDChrome.canvasLift.opacity(0.30) }
+        if engaged  { return HUDChrome.canvasLift.opacity(0.70) }
+        if cursored { return HUDChrome.canvasLift.opacity(0.42) }
+        if hovered  { return HUDChrome.canvasLift.opacity(0.18) }
         return Color.clear
     }
 
@@ -285,13 +492,11 @@ private struct TailRow: View {
         row.emphasized ? HUDChrome.ink : HUDChrome.inkMuted
     }
 
-    private var kindColor: Color {
-        row.emphasized ? HUDChrome.accent : HUDChrome.inkFaint
-    }
-
-    // WHY: medium/large bump the row font from 10 → 11 for breathing room.
+    // Bigger font baseline so the firehose reads as content, not chrome.
+    // Compact: 11pt. Medium/Large: 12pt. JBM at this size is dense but
+    // breathable; previously sat at 10/11 which felt scrunched.
     private var fontSize: CGFloat {
-        size == .compact ? 10 : 11
+        size == .compact ? 11 : 12
     }
 
     private var padX: CGFloat {
@@ -299,48 +504,62 @@ private struct TailRow: View {
     }
 
     private var padY: CGFloat {
-        size == .compact ? 2 : 3
+        size == .compact ? 3 : 4
+    }
+
+    // Fixed-width columns so the line column always starts at the same
+    // X — previously each row's `@source` width was different and the
+    // message text jittered horizontally as you scrolled. JBM at our
+    // size renders ~6.6pt per char, so widths are picked to fit the
+    // worst-case token + a hair of margin.
+    private var timeWidth: CGFloat {
+        size == .compact ? 56 : 62
+    }
+
+    private var kindWidth: CGFloat {
+        size == .compact ? 26 : 30
+    }
+
+    private var sourceWidth: CGFloat {
+        size == .compact ? 96 : 108
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(row.at)
                 .font(HUDType.mono(fontSize))
                 .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkFaint)
+                .foregroundStyle(HUDChrome.inkDeep)
+                .frame(width: timeWidth, alignment: .leading)
 
             Text(row.kind.rawValue)
                 .font(HUDType.mono(fontSize, weight: .bold))
-                .tracking(0.4)
-                .foregroundStyle(kindColor)
+                .tracking(0.5)
+                .foregroundStyle(row.kind.color)
+                .frame(width: kindWidth, alignment: .leading)
 
             Text("@" + row.source)
-                .font(HUDType.mono(fontSize))
-                .foregroundStyle(body1.opacity(0.85))
-                .lineLimit(1)
-                .fixedSize()
-
-            Text("·")
-                .font(HUDType.mono(fontSize))
-                .foregroundStyle(HUDChrome.inkFaint)
-
-            Text(row.line)
-                .font(HUDType.mono(fontSize))
-                .foregroundStyle(body1)
+                .font(HUDType.mono(fontSize, weight: .semibold))
+                .foregroundStyle(sourceColor(for: row.source))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: sourceWidth, alignment: .leading)
+
+            Text(styledLine(
+                row.line,
+                base: body1,
+                mono: HUDType.mono(fontSize)
+            ))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, padX)
         .padding(.vertical, padY)
         .background(fill)
-        .overlay(alignment: .leading) {
-            if engaged {
-                Rectangle()
-                    .fill(HUDChrome.accent)
-                    .frame(width: 1.5)
-            }
-        }
+        // No left edge bar — selection is carried entirely by the
+        // background fill above. Per the operator's call, highlight
+        // should read as a tinted row, not a chrome border.
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(HUDChrome.borderSoft)
@@ -371,7 +590,7 @@ private struct TailDetailInline: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HUDEyebrow(text: "RAW", color: HUDChrome.inkDeep)
+            HUDEyebrow(text: "RAW", color: HUDChrome.inkFaint)
             Text("[\(row.at)] [\(row.kind.rawValue)] @\(row.source) · \(row.line)")
                 .font(HUDType.mono(11))
                 .foregroundStyle(HUDChrome.ink)
@@ -526,7 +745,7 @@ private struct TailEmptyView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
 
-            HUDEyebrow(text: "FIREHOSE  ·  NO TRAFFIC", color: HUDChrome.inkDeep)
+            HUDEyebrow(text: "FIREHOSE  ·  NO TRAFFIC", color: HUDChrome.inkFaint)
                 .padding(.top, 18)
 
             Text("Wire is silent.")

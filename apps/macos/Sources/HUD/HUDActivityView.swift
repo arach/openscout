@@ -57,6 +57,10 @@ private struct ActivityRowModel: Identifiable {
     let title: String
     let summary: String
     let flightId: String?
+    let invocationId: String?
+    let sessionId: String?
+    let conversationId: String?
+    let agentId: String?
     let detail: String?
     let emphasized: Bool
 }
@@ -256,6 +260,10 @@ struct HUDActivityView: View {
                 title: item.title?.isEmpty == false ? item.title! : item.kind,
                 summary: item.summary ?? "",
                 flightId: item.flightId,
+                invocationId: item.invocationId,
+                sessionId: item.sessionId,
+                conversationId: item.conversationId,
+                agentId: item.agentId,
                 detail: nil,
                 emphasized: kind == .ask || kind == .fail
             )
@@ -313,7 +321,7 @@ private struct ActivitySectionHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HUDEyebrow(text: bucket.eyebrow, color: HUDChrome.inkDeep)
+            HUDEyebrow(text: bucket.eyebrow, color: HUDChrome.inkFaint)
             Text(bucket.headline)
                 .font(HUDType.body(15, weight: .semibold))
                 .foregroundStyle(HUDChrome.ink)
@@ -518,7 +526,7 @@ private struct ActivityDetailInline: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HUDEyebrow(text: "EVENT DETAIL", color: HUDChrome.inkDeep)
+            HUDEyebrow(text: "EVENT DETAIL", color: HUDChrome.inkFaint)
 
             Text(row.title)
                 .font(HUDType.body(12, weight: .semibold))
@@ -658,9 +666,9 @@ private struct ActivityDetailLarge: View {
                 Spacer(minLength: 0)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    drillLink(label: "OPEN THREAD")
-                    drillLink(label: "FOLLOW EXECUTION")
-                    drillLink(label: "AGENT PROFILE")
+                    HUDDrillLink(label: "OPEN THREAD", url: threadURL)
+                    HUDDrillLink(label: "FOLLOW EXECUTION", url: followURL)
+                    HUDDrillLink(label: "AGENT PROFILE", url: agentURL)
                 }
             }
             .padding(.horizontal, 18)
@@ -669,19 +677,120 @@ private struct ActivityDetailLarge: View {
         }
     }
 
-    private func drillLink(label: String) -> some View {
-        HStack(spacing: 8) {
-            Text("→")
-                .font(HUDType.mono(11))
-                .foregroundStyle(HUDChrome.inkFaint)
-            Text(label)
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkMuted)
-            Spacer(minLength: 0)
+    // WHY: every event always gets all three drills with the most-specific
+    // available scope. Each link walks down a deliberate priority chain;
+    // we never fall back to a static index when a scoped surface exists.
+    //
+    // Web routes consulted (see packages/web/client/lib/router.ts):
+    //   /c/<conversationId>                  conversation thread
+    //   /follow/{flight|invocation|session|conversation|agent}/<id>
+    //   /ops/tail?q=<query>                  scoped tail (last resort for follow)
+    //   /agents/<agentId>                    agent profile
+
+    private var threadURL: URL {
+        let base = HudFleetService.webBaseURL()
+        if let cid = row.conversationId, !cid.isEmpty {
+            return relativeURL("/c/\(percent(cid))", base: base)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        if let aid = row.agentId, !aid.isEmpty {
+            // No conversation on the event, but the operator's DM with this
+            // agent is the natural "open thread" landing. Mirrors the web
+            // router's conversationForAgent(agentId) helper.
+            return relativeURL("/c/\(percent("dm.operator.\(aid)"))", base: base)
+        }
+        return relativeURL("/conversations", base: base)
+    }
+
+    private var followURL: URL {
+        let base = HudFleetService.webBaseURL()
+        // Pick the narrowest follow target the event carries — flights run
+        // inside invocations inside sessions inside conversations. Each
+        // narrower scope hides less of the surrounding stream.
+        if let f = row.flightId, !f.isEmpty {
+            return relativeURL("/follow/flight/\(percent(f))", base: base)
+        }
+        if let i = row.invocationId, !i.isEmpty {
+            return relativeURL("/follow/invocation/\(percent(i))", base: base)
+        }
+        if let s = row.sessionId, !s.isEmpty {
+            return relativeURL("/follow/session/\(percent(s))", base: base)
+        }
+        if let c = row.conversationId, !c.isEmpty {
+            return relativeURL("/follow/conversation/\(percent(c))", base: base)
+        }
+        if let a = row.agentId, !a.isEmpty {
+            return relativeURL("/follow/agent/\(percent(a))", base: base)
+        }
+        // Last resort is a SCOPED tail, never an empty index. Handle reads
+        // best in /ops/tail's query box (operators type @handle by reflex).
+        if let q = tailQuery() {
+            return relativeURL("/ops/tail?q=\(percentQuery(q))", base: base)
+        }
+        return relativeURL("/ops/tail", base: base)
+    }
+
+    private var agentURL: URL {
+        let base = HudFleetService.webBaseURL()
+        if let aid = row.agentId, !aid.isEmpty {
+            return relativeURL("/agents/\(percent(aid))", base: base)
+        }
+        return relativeURL("/agents", base: base)
+    }
+
+    private func tailQuery() -> String? {
+        if let h = row.handle, !h.isEmpty {
+            return h.hasPrefix("@") ? h : "@" + h
+        }
+        if !row.agent.isEmpty { return row.agent }
+        return nil
+    }
+
+    private func percent(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
+    }
+
+    private func percentQuery(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+    }
+
+    private func relativeURL(_ path: String, base: URL) -> URL {
+        URL(string: path, relativeTo: base)?.absoluteURL ?? base
+    }
+}
+
+// MARK: - Drill link (shared by activity + sessions large detail)
+
+/// Underlined "→ LABEL" row that opens a web surface URL in the default
+/// browser. Used in the right-pane detail of Activity and Sessions; each
+/// caller passes a target URL or omits the link entirely when the
+/// underlying ID isn't available.
+struct HUDDrillLink: View {
+    let label: String
+    let url: URL
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button {
+            NSWorkspace.shared.open(url)
+        } label: {
+            HStack(spacing: 8) {
+                Text("→")
+                    .font(HUDType.mono(11))
+                    .foregroundStyle(hovered ? HUDChrome.accent : HUDChrome.inkFaint)
+                Text(label)
+                    .font(HUDType.mono(10, weight: .semibold))
+                    .tracking(HUDType.eyebrowTracking)
+                    .foregroundStyle(hovered ? HUDChrome.ink : HUDChrome.inkMuted)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help(url.absoluteString)
     }
 }
 
@@ -727,7 +836,7 @@ private struct ActivityEmptyView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
 
-            HUDEyebrow(text: "LEDGER  ·  EMPTY", color: HUDChrome.inkDeep)
+            HUDEyebrow(text: "LEDGER  ·  EMPTY", color: HUDChrome.inkFaint)
                 .padding(.top, 18)
 
             Text("Ledger is empty.")

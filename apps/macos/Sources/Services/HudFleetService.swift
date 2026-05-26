@@ -109,6 +109,28 @@ final class HudFleetService: ObservableObject {
         }
     }
 
+    /// POST to the web server's `/api/send` route. The broker parses
+    /// `@-mentions` in the body and routes accordingly, so direct vs.
+    /// channel routing is decided by the caller embedding (or omitting)
+    /// the mention. No conversationId — we always go through the broker
+    /// router, never directly to a session.
+    func send(body: String) async throws {
+        let url = try await resolveBrokerBaseURL().appending(path: "api/send")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payload: [String: Any] = ["body": body]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HudFleetServiceError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HudFleetServiceError.httpStatus(http.statusCode)
+        }
+    }
+
     private func resolveBrokerBaseURL() async throws -> URL {
         if let cached = brokerBaseURL {
             return cached
@@ -143,6 +165,21 @@ final class HudFleetService: ObservableObject {
         let host = cfg.host ?? "127.0.0.1"
         guard let port = cfg.ports?.web else { return nil }
         return URL(string: "http://\(host):\(port)")
+    }
+
+    /// Synchronous accessor for the web surface base URL. Used by HUD drill
+    /// links that open the matching web view in the browser. Mirrors the
+    /// resolution order of `resolveBrokerBaseURL` (env → config → default)
+    /// but without the actor-isolated cache.
+    nonisolated static func webBaseURL() -> URL {
+        if let env = ProcessInfo.processInfo.environment["OPENSCOUT_BROKER_URL"],
+           let url = URL(string: env) {
+            return url
+        }
+        if let url = readWebURLFromConfig() {
+            return url
+        }
+        return URL(string: "http://127.0.0.1:3200")!
     }
 
     private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {

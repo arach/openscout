@@ -7,6 +7,7 @@
 export { HudActivity } from "./HudActivity";
 export { HudActivityPulse } from "./HudActivityPulse";
 export { HudAgents } from "./HudAgents";
+export { HudAssistant, RobotGlyph } from "./HudAssistant";
 export { HudMasthead } from "./HudMasthead";
 export { HudMessageDock } from "./HudMessageDock";
 export { HudPanel } from "./HudPanel";
@@ -24,6 +25,7 @@ export {
   AGENTS,
   FIREHOSE,
   FIREHOSE_KIND_LABEL,
+  SCOUT_THREAD,
   SESSIONS,
 } from "./mock";
 export {
@@ -46,6 +48,9 @@ export type {
   HudSize,
   HudTab,
   ScoutLinkKind,
+  ScoutThreadMessage,
+  ScoutThreadSource,
+  ScoutThreadSpan,
   SessionHarness,
   SessionStatus,
 } from "./types";

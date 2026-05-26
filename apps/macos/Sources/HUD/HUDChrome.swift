@@ -15,33 +15,45 @@ import SwiftUI
 // honored. Scout-only colors: warm-dark canvas + lime accent.
 
 enum HUDChrome {
-    // ── Canvas (warm-dark, scout brand) ────────────────────────────────
-    // oklch(0.14 0.008 80) ≈ rgb(30, 28, 25)
-    static let canvas      = Color(red: 0.118, green: 0.110, blue: 0.098)
-    // oklch(0.18 0.009 80) ≈ rgb(40, 37, 33) — chrome surfaces
-    static let canvasAlt   = Color(red: 0.157, green: 0.145, blue: 0.129)
-    // oklch(0.22 0.009 80) ≈ rgb(50, 46, 41) — active row lift
-    static let canvasLift  = Color(red: 0.196, green: 0.180, blue: 0.161)
-    // Glass top + bottom (used in the panel gradient base under the
-    // NSVisualEffectView material).
-    static let glassTop    = Color(red: 0.156, green: 0.146, blue: 0.131).opacity(0.92)
-    static let glassBottom = Color(red: 0.090, green: 0.082, blue: 0.072).opacity(0.94)
+    // ── Canvas (hard black, faint warmth) ──────────────────────────────
+    // Pivot away from the warm-dark scout brand toward near-pure black.
+    // The operator asked for "very very very hard black" with softer
+    // tones reserved for hierarchy. A whisper of warmth (~+1% in r/g)
+    // keeps it from reading as a cold UI surface, but the visual
+    // intent is: black means black.
+    static let canvas      = Color(red: 0.045, green: 0.040, blue: 0.035)
+    static let canvasAlt   = Color(red: 0.080, green: 0.072, blue: 0.062)
+    static let canvasLift  = Color(red: 0.155, green: 0.142, blue: 0.122)
+    // Legacy glass tokens — still referenced by the panel background.
+    // Pulled down into the new near-black range so the panel reads as
+    // a single hard surface rather than the old warm gradient.
+    static let glassTop    = Color(red: 0.075, green: 0.068, blue: 0.058).opacity(0.96)
+    static let glassBottom = Color(red: 0.030, green: 0.026, blue: 0.022).opacity(0.97)
 
-    // ── Ink (solid greys, NEVER opacity-dimmed text) ───────────────────
-    // oklch(0.96 0.008 80) — near-white warm
-    static let ink         = Color(red: 0.955, green: 0.948, blue: 0.935)
-    // oklch(0.72 0.012 80)
-    static let inkMuted    = Color(red: 0.700, green: 0.682, blue: 0.652)
-    // oklch(0.58 0.012 80)
-    static let inkFaint    = Color(red: 0.535, green: 0.518, blue: 0.490)
-    // A deeper grey for masthead/eyebrow chrome — sits between faint and the
-    // canvas-alt fills. Reads as printed ink on paper at small sizes.
-    static let inkDeep     = Color(red: 0.430, green: 0.412, blue: 0.388)
+    // ── Ink (warm, never pure white) ───────────────────────────────────
+    // Pulled back from the harder-white pass — pure white reads as
+    // clinical, "blunt and out of place" per the operator. We sit
+    // around the 0.88-0.92 range with a faint warm tint so the names
+    // read as printed ink, not chrome lettering.
+    static let ink         = Color(red: 0.905, green: 0.892, blue: 0.862)
+    static let inkMuted    = Color(red: 0.700, green: 0.680, blue: 0.646)
+    static let inkFaint    = Color(red: 0.500, green: 0.485, blue: 0.455)
+    static let inkDeep     = Color(red: 0.380, green: 0.365, blue: 0.342)
 
-    // ── Borders (solid, no white-alpha gradient stripes) ───────────────
-    static let border      = Color(red: 0.235, green: 0.220, blue: 0.200)
-    static let borderSoft  = Color(red: 0.180, green: 0.168, blue: 0.150)
-    static let borderStrong = Color(red: 0.295, green: 0.275, blue: 0.245)
+    // ── Borders (sharper against the harder canvas) ────────────────────
+    static let border      = Color(red: 0.255, green: 0.240, blue: 0.215)
+    static let borderSoft  = Color(red: 0.155, green: 0.142, blue: 0.122)
+    static let borderStrong = Color(red: 0.380, green: 0.355, blue: 0.318)
+
+    // ── Rim (warm-cream hairline used on the panel edge) ──────────────
+    // The Lattices voice-mode reference: a single restrained, thin
+    // border cuts the panel out of the desktop without needing
+    // decorative brackets. Sits between border and ink — warm enough
+    // to feel like printed-paper edging, dim enough not to read as a
+    // glowing UI rectangle. Pair with an ambient halo shadow
+    // (HUDStatusView) — together they do the job that the now-removed
+    // corner brackets were doing badly.
+    static let borderRim   = Color(red: 0.395, green: 0.370, blue: 0.320)
 
     // ── Accent (scout lime — single accent, no cyan/rose) ──────────────
     // oklch(0.86 0.17 125)
@@ -391,7 +403,11 @@ struct HUDMastheadMark: View {
 
 struct HUDEyebrow: View {
     let text: String
-    var color: Color = HUDChrome.inkDeep
+    // Normalized to studio's `text-studio-ink-faint`. inkDeep was an
+    // earlier broadsheet departure; the source-of-truth playground (and
+    // the studio research entry) call for faint. Override per-call when
+    // a specific eyebrow legitimately needs the deeper voice.
+    var color: Color = HUDChrome.inkFaint
     var size: CGFloat = 9
     var leadingBullet: Bool = true
 
@@ -417,6 +433,36 @@ enum HUDMockPulse {
     ]
 
     static func pulse(for id: String) -> [Double] {
-        table[id] ?? Array(repeating: 0.2, count: 12)
+        if let table = table[id] { return table }
+        return synthesized(for: id)
+    }
+
+    /// Deterministic, varied 12-step amplitude derived from the id.
+    /// Mirrors what `design/studio/lib/agentHue.ts` does for hue — we
+    /// don't want every unknown agent's row to flatline at 0.2, that
+    /// reads as "dead" instead of "pulsing". Each agent gets a unique
+    /// curve that holds across renders.
+    private static func synthesized(for id: String) -> [Double] {
+        var seed: UInt64 = 5381
+        for byte in id.utf8 {
+            seed = (seed &* 33) &+ UInt64(byte)
+        }
+        var state = seed | 1 // avoid degenerate 0
+        func next() -> Double {
+            // xorshift64* — cheap deterministic PRNG, plenty for visuals
+            state ^= state >> 12
+            state ^= state << 25
+            state ^= state >> 27
+            let n = state &* 0x2545F4914F6CDD1D
+            return Double(n >> 11) / Double(1 << 53)
+        }
+        // Bias the curve toward a profile shape so it reads as activity,
+        // not noise: pick a base amplitude per agent, then jitter ±0.35
+        // around it. Floor at 0.12 (visible bar), ceil at 0.95.
+        let base = 0.35 + next() * 0.45 // 0.35–0.80
+        return (0..<12).map { _ in
+            let jitter = (next() - 0.5) * 0.7
+            return min(0.95, max(0.12, base + jitter))
+        }
     }
 }

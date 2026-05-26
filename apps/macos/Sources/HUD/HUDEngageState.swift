@@ -3,38 +3,82 @@ import SwiftUI
 
 // Native port of design/studio/components/hud/useHudEngage.ts.
 //
-// Standardizes the tap/engage pattern across all four HUD tabs:
-//   · toggle(id) — click a row. If it's already engaged, close. If
-//                  another row is engaged, swap to this one. Else open.
-//   · select(id) — direct setter (used at large where the side pane
-//                  always shows something).
-//   · clear()    — drop the engaged row (Esc, tab switch).
+// Two-layer selection for progressive disclosure:
 //
-// Each tab instantiates its own @StateObject HUDEngageState so the
-// engage scope is per-tab; switching tabs resets to closed because the
-// owning view is torn down.
+//   · cursoredId — keyboard cursor position (j/k moves this). Visual is
+//                  subtle: a hairline lime edge bar, no background shift.
+//                  Reads as "you're looking at this," not "you've opened
+//                  this." Mouse hover does NOT move the cursor.
+//   · engagedId  — committed engagement (tap, or Enter on cursored).
+//                  Visual is loud: row background lifts, inline detail
+//                  expands, lime bar gets thicker. Reads as "you've
+//                  committed to this row."
+//
+// One row can be cursored, another engaged; the cursor floats freely
+// during j/k navigation while the engaged row's detail stays open.
+//
+// Each tab instantiates its own @StateObject so state resets on tab
+// teardown.
 
 @MainActor
 final class HUDEngageState: ObservableObject {
-    @Published private(set) var selectedId: String?
+    @Published private(set) var cursoredId: String?
+    @Published private(set) var engagedId: String?
 
     init(initial: String? = nil) {
-        self.selectedId = initial
+        self.cursoredId = initial
+        self.engagedId = initial
     }
 
+    // MARK: - Cursor (j/k)
+
+    /// Move the cursor to `id` (or clear it with nil).
+    func cursor(_ id: String?) {
+        cursoredId = id
+    }
+
+    func isCursored(_ id: String) -> Bool {
+        cursoredId == id
+    }
+
+    // MARK: - Engagement (Enter / tap)
+
+    /// Toggle engagement on `id`. If already engaged, drop it. If
+    /// another row is engaged, swap. Same idiom as the old `toggle`.
     func toggle(_ id: String) {
-        selectedId = selectedId == id ? nil : id
+        engagedId = engagedId == id ? nil : id
+        cursoredId = id
     }
 
+    /// Direct setter — used when the engaged row should always reflect
+    /// the cursor (large-tier side pane).
     func select(_ id: String?) {
-        selectedId = id
+        engagedId = id
+        cursoredId = id
+    }
+
+    /// Collapse engagement without touching the cursor. Used by the
+    /// Esc cascade so the operator's cursor position doesn't reset
+    /// just because they undid an expansion.
+    func unengage() {
+        engagedId = nil
     }
 
     func clear() {
-        selectedId = nil
+        engagedId = nil
+        cursoredId = nil
     }
 
-    func isSelected(_ id: String) -> Bool {
-        selectedId == id
+    func isEngaged(_ id: String) -> Bool {
+        engagedId == id
     }
+
+    // MARK: - Back-compat shim
+    // Older callers asked "isSelected" when they meant "isEngaged".
+    // Keep the shim so we can migrate views incrementally.
+    func isSelected(_ id: String) -> Bool {
+        engagedId == id
+    }
+
+    var selectedId: String? { engagedId }
 }

@@ -4,20 +4,14 @@ import SwiftUI
 //
 // Native port of design/studio/components/hud/HudMessageDock.tsx.
 // Replaces the old footer ("filed by @scout · <ts> · ESC dismiss") on
-// every HUD panel. Always visible. Two stacked rows at medium/large,
-// one row at compact.
+// every HUD panel. Always visible. Single input row at every tier.
 //
-//   row 1 — activity strip  (`↑ 3 responses · 12 messages today`)
-//           collapses to inline `↑ N · M msg` chip at compact
-//   row 2 — input row       (mic glyph · placeholder · ↵ SEND · ESC + hyper)
+//   mic glyph · [@target] · text input · ↵ SEND · ESC + hyper
 //
-// This is a visual surface only — no TextField, no broker wire-up. The
-// placeholder is a Text, not a real input. The mic is a hand-drawn
-// SwiftUI Shape (no SF Symbols, per the cockpit aesthetic preference).
-//
-// No hairline divider between the strip and input row — separation is
-// carried by the lightness lift from canvas → canvasAlt, per the
-// no-white-alpha-dividers rule.
+// State + broker wiring live in HUDDockState. The dock binds to it via
+// shared singleton. ↵ submits, Esc clears (or dismisses HUD when empty),
+// engage SEND focuses the field. The mic is a hand-drawn SwiftUI Shape
+// (no SF Symbols, per the cockpit aesthetic preference).
 
 enum HudDockSize {
     case compact
@@ -40,8 +34,8 @@ enum HudDockSize {
 }
 
 struct HudMessageDock: View {
-    var responseCount: Int = 3
-    var messageCount: Int = 12
+    @ObservedObject private var dock = HUDDockState.shared
+    @FocusState private var focused: Bool
 
     var body: some View {
         GeometryReader { proxy in
@@ -50,43 +44,51 @@ struct HudMessageDock: View {
                 switch size {
                 case .compact:
                     CompactDock(
-                        responseCount: responseCount,
-                        messageCount: messageCount,
-                        pad: size.horizontalPadding
+                        pad: size.horizontalPadding,
+                        text: $dock.text,
+                        target: dock.targetLabel,
+                        isSending: dock.isSending,
+                        focused: $focused,
+                        onSubmit: submit
                     )
                 case .medium, .large:
                     MediumLargeDock(
                         size: size,
-                        responseCount: responseCount,
-                        messageCount: messageCount
+                        text: $dock.text,
+                        target: dock.targetLabel,
+                        isSending: dock.isSending,
+                        focused: $focused,
+                        onSubmit: submit
                     )
                 }
             }
             .frame(width: proxy.size.width, alignment: .leading)
         }
         .frame(height: dockHeight)
+        .onChange(of: dock.focusRequested) { _, _ in focused = true }
+        .onChange(of: dock.blurRequested)  { _, _ in focused = false }
     }
 
-    // Reserve the right vertical space at the outer level so GeometryReader
-    // doesn't collapse. Compact is a single row; medium/large are two rows.
-    // We pick the larger (medium) reservation by default; large rows fit
-    // within the same outer height because we let the inner content drive
-    // intrinsic height. Use a tight fixed value to stay close to the studio.
+    private func submit() {
+        Task { await dock.send() }
+    }
+
     private var dockHeight: CGFloat {
-        // 32 compact, 52 medium, 64 large — but height is decided at
-        // render time inside GeometryReader. We must hand a value to the
-        // outer frame to give GeometryReader a height. Conservative:
-        // 64 covers all three; the dock fills it from the bottom.
-        64
+        // 32 compact, 36 medium, 46 large — the dock fills from the bottom
+        // within this reservation. 48 covers all three tiers.
+        48
     }
 }
 
 // ─── Compact — single 32px row ──────────────────────────────────────
 
 private struct CompactDock: View {
-    let responseCount: Int
-    let messageCount: Int
     let pad: CGFloat
+    @Binding var text: String
+    let target: String?
+    let isSending: Bool
+    @FocusState.Binding var focused: Bool
+    let onSubmit: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,31 +96,35 @@ private struct CompactDock: View {
             HStack(spacing: 8) {
                 MicButton(box: 20, glyph: 12)
 
-                Text("talk — / commands · /s search")
+                if let target {
+                    TargetChip(label: target)
+                }
+
+                TextField("talk — / commands · /s search", text: $text)
+                    .textFieldStyle(.plain)
                     .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .foregroundStyle(HUDChrome.ink)
+                    .focused($focused)
+                    .onSubmit(onSubmit)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 4) {
-                    Text("↵")
-                        .font(HUDType.mono(9, weight: .semibold))
-                        .foregroundStyle(HUDChrome.inkFaint)
-                    Text("SEND")
-                        .font(HUDType.mono(9, weight: .semibold))
-                        .tracking(HUDType.eyebrowMicro)
-                        .foregroundStyle(HUDChrome.inkFaint)
-                }
-                .fixedSize()
-
+                SendChip(small: true, dimmed: text.isEmpty || isSending)
                 EscChip()
                 HyperKeyChip()
             }
             .padding(.horizontal, pad)
             .frame(height: 32)
             .frame(maxWidth: .infinity)
-            .background(HUDChrome.canvasAlt)
+            .background(HUDChrome.canvas)
+            .overlay(alignment: .top) {
+                // Warm-cream hairline framing — same family as the panel
+                // rim but at a fraction of the alpha. Cuts the dock out
+                // of the body the way Lattices' "Hold to speak" strip
+                // sits below its log column.
+                Rectangle()
+                    .fill(HUDChrome.borderRim.opacity(0.55))
+                    .frame(height: 0.5)
+            }
         }
     }
 }
@@ -127,11 +133,13 @@ private struct CompactDock: View {
 
 private struct MediumLargeDock: View {
     let size: HudDockSize
-    let responseCount: Int
-    let messageCount: Int
+    @Binding var text: String
+    let target: String?
+    let isSending: Bool
+    @FocusState.Binding var focused: Bool
+    let onSubmit: () -> Void
 
     private var isLarge: Bool { size == .large }
-    private var stripH: CGFloat { isLarge ? 18 : 16 }
     private var inputH: CGFloat { isLarge ? 46 : 36 }
     private var micBox: CGFloat { isLarge ? 28 : 24 }
     private var micGlyph: CGFloat { isLarge ? 16 : 14 }
@@ -141,59 +149,24 @@ private struct MediumLargeDock: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            // Activity strip — sits on panel-body canvas, reads as the
-            // closing line of the content. No divider — separation
-            // comes from the lift to canvasAlt below.
-            HStack(spacing: 6) {
-                Text("↑")
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Text("\(responseCount)")
-                    .font(HUDType.mono(10))
-                    .monospacedDigit()
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Text("responses")
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Text("·")
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Text("\(messageCount)")
-                    .font(HUDType.mono(10))
-                    .monospacedDigit()
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Text("messages today")
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, size.horizontalPadding)
-            .frame(height: stripH)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(HUDChrome.canvas)
-
-            // Input row — slightly lifted (canvasAlt) so the row reads
-            // recessed from the body without a hairline.
+            // Input row — lifted to canvasAlt so the dock reads recessed
+            // from the panel body without a hairline divider.
             HStack(spacing: 10) {
                 MicButton(box: micBox, glyph: micGlyph)
 
-                Text("talk to the assistant — / for commands, /s to search")
+                if let target {
+                    TargetChip(label: target)
+                }
+
+                TextField("talk to the assistant — / for commands, /s to search", text: $text)
+                    .textFieldStyle(.plain)
                     .font(HUDType.body(placeholderSize))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .foregroundStyle(HUDChrome.ink)
+                    .focused($focused)
+                    .onSubmit(onSubmit)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 4) {
-                    Text("↵")
-                        .font(HUDType.mono(10, weight: .semibold))
-                        .foregroundStyle(HUDChrome.inkFaint)
-                    Text("SEND")
-                        .font(HUDType.mono(10, weight: .semibold))
-                        .tracking(HUDType.eyebrowMicro)
-                        .foregroundStyle(HUDChrome.inkFaint)
-                }
-                .fixedSize()
+                SendChip(small: false, dimmed: text.isEmpty || isSending)
 
                 HStack(spacing: 8) {
                     EscChip()
@@ -204,8 +177,54 @@ private struct MediumLargeDock: View {
             .padding(.horizontal, size.horizontalPadding)
             .frame(height: inputH)
             .frame(maxWidth: .infinity)
-            .background(HUDChrome.canvasAlt)
+            .background(HUDChrome.canvas)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(HUDChrome.borderRim.opacity(0.55))
+                    .frame(height: 0.5)
+            }
         }
+    }
+}
+
+// ─── Target chip (telegraphs routing) ───────────────────────────────
+
+private struct TargetChip: View {
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(label.hasPrefix("@") ? label : "@" + label)
+                .font(HUDType.mono(10, weight: .semibold))
+                .foregroundStyle(HUDChrome.accent)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .stroke(HUDChrome.accent.opacity(0.45), lineWidth: 0.5)
+        )
+        .fixedSize()
+    }
+}
+
+// ─── SEND chip (lights up when text is present) ─────────────────────
+
+private struct SendChip: View {
+    let small: Bool
+    let dimmed: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("↵")
+                .font(HUDType.mono(small ? 9 : 10, weight: .semibold))
+                .foregroundStyle(dimmed ? HUDChrome.inkFaint : HUDChrome.accent)
+            Text("SEND")
+                .font(HUDType.mono(small ? 9 : 10, weight: .semibold))
+                .tracking(HUDType.eyebrowMicro)
+                .foregroundStyle(dimmed ? HUDChrome.inkFaint : HUDChrome.accent)
+        }
+        .fixedSize()
     }
 }
 

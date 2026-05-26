@@ -333,3 +333,19 @@ body {
 .hljs-emphasis {
   font-style: italic;
 }
+
+/* ── HUD body fade-in ──────────────────────────────────────────────
+ * Used when the HUD panel swaps tab or size tier. The outer panel
+ * frame animates its width/height (see HudPanel.tsx); this keyframe
+ * keeps the new body content from popping in cold — it crossfades up
+ * over the same ~180ms window so the eye lands on the new layout
+ * already lit. Short, ease-out, no overshoot.
+ * ────────────────────────────────────────────────────────────────── */
+@keyframes hud-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

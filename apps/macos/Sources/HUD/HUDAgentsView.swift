@@ -162,23 +162,20 @@ struct HUDAgentsView: View {
 private struct HUDAgentsHeader: View {
     let count: Int
 
+    // Tab name lives in the masthead (`1 agents`). No redundant
+    // big title under the eyebrow — eyebrow + count is enough.
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HUDEyebrow(text: "ROSTER  ·  \(count) AGENT\(count == 1 ? "" : "S")", color: HUDChrome.inkDeep)
-            Text("Agents")
-                .font(HUDType.body(15, weight: .semibold))
-                .foregroundStyle(HUDChrome.ink)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(HUDChrome.borderStrong)
-                .frame(height: 0.5)
-                .padding(.horizontal, 16)
-        }
+        HUDEyebrow(text: "ROSTER  ·  \(count) AGENT\(count == 1 ? "" : "S")", color: HUDChrome.inkFaint)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(HUDChrome.borderStrong)
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 16)
+            }
     }
 }
 
@@ -278,6 +275,10 @@ private struct AgentRowCompact: View {
     }
 
     private var identityLine: some View {
+        // Compact panel is ~560px. Name carries layout priority and
+        // truncates tail; handle drops to keep dot + name + state + ago
+        // fitting within the row without overflow that drops the dot
+        // or clips state text.
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             AgentStateDot(color: stateColor(for: agent.state), working: isWorking)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
@@ -286,15 +287,8 @@ private struct AgentRowCompact: View {
                 .font(HUDType.body(13, weight: .semibold))
                 .foregroundStyle(HUDChrome.ink)
                 .lineLimit(1)
-                .fixedSize()
-
-            if let handle = agent.handle {
-                Text(handle.hasPrefix("@") ? handle : "@" + handle)
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .lineLimit(1)
-                    .fixedSize()
-            }
+                .truncationMode(.tail)
+                .layoutPriority(1)
 
             Text(stateLabel(for: agent.state))
                 .font(HUDType.mono(10, weight: .semibold))
@@ -399,6 +393,10 @@ private struct AgentTileMedium: View {
     }
 
     private var identity: some View {
+        // Tile width is ~340px at medium. Name carries layout priority
+        // and truncates tail; state label drops (it lives in the eyebrow
+        // pattern), handle drops to keep the identity line tight and
+        // prevent overflow that nukes the leading dot.
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             AgentStateDot(color: stateColor(for: agent.state), working: isWorking)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
@@ -407,14 +405,8 @@ private struct AgentTileMedium: View {
                 .font(HUDType.body(13, weight: .semibold))
                 .foregroundStyle(HUDChrome.ink)
                 .lineLimit(1)
-                .fixedSize()
-
-            if let handle = agent.handle {
-                Text(handle.hasPrefix("@") ? handle : "@" + handle)
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .fixedSize()
-            }
+                .truncationMode(.tail)
+                .layoutPriority(1)
 
             Text(stateLabel(for: agent.state))
                 .font(HUDType.mono(10, weight: .semibold))
@@ -523,7 +515,7 @@ private struct AgentDetailInline: View {
 
             if !agent.capabilities.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    HUDEyebrow(text: "CAPS", color: HUDChrome.inkDeep)
+                    HUDEyebrow(text: "CAPS", color: HUDChrome.inkFaint)
                     HStack(spacing: 4) {
                         ForEach(agent.capabilities.prefix(6), id: \.self) { cap in
                             Text(cap)
@@ -556,7 +548,7 @@ private struct AgentDetailInline: View {
 
     private func detailBlock(label: String, body: String, accent: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HUDEyebrow(text: label, color: accent ? HUDChrome.accent : HUDChrome.inkDeep)
+            HUDEyebrow(text: label, color: accent ? HUDChrome.accent : HUDChrome.inkFaint)
             Text(body)
                 .font(HUDType.body(12))
                 .foregroundStyle(HUDChrome.ink)
@@ -620,6 +612,9 @@ private struct AgentColARow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // Col A is a narrow roster (280px). Keep the identity line
+            // tight: dot · name (truncates) · ago. Handle + state live
+            // in col B's header where they have room to breathe.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 AgentStateDot(color: stateColor(for: agent.state), working: agent.state == .working)
                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
@@ -628,23 +623,10 @@ private struct AgentColARow: View {
                     .font(HUDType.body(12, weight: .semibold))
                     .foregroundStyle(HUDChrome.ink)
                     .lineLimit(1)
-                    .fixedSize()
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
 
-                if let handle = agent.handle {
-                    Text(handle.hasPrefix("@") ? handle : "@" + handle)
-                        .font(HUDType.mono(10))
-                        .foregroundStyle(HUDChrome.inkFaint)
-                        .fixedSize()
-                }
-
-                Text(stateLabel(for: agent.state))
-                    .font(HUDType.mono(10, weight: .semibold))
-                    .tracking(HUDType.eyebrowTracking)
-                    .foregroundStyle(stateColor(for: agent.state))
-                    .lineLimit(1)
-                    .fixedSize()
-
-                Spacer(minLength: 4)
+                Spacer(minLength: 6)
 
                 Text(agent.ago)
                     .font(HUDType.mono(10, weight: .medium))
@@ -716,24 +698,38 @@ private struct AgentColumnB: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            AgentStateDot(color: stateColor(for: agent.state), working: agent.state == .working)
-                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
-            Text(agent.name)
-                .font(HUDType.body(13, weight: .semibold))
-                .foregroundStyle(HUDChrome.ink)
-                .fixedSize()
-            if let handle = agent.handle {
-                Text(handle.hasPrefix("@") ? handle : "@" + handle)
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                AgentStateDot(color: stateColor(for: agent.state), working: agent.state == .working)
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                Text(agent.name)
+                    .font(HUDType.body(13, weight: .semibold))
+                    .foregroundStyle(HUDChrome.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                if let handle = agent.handle {
+                    Text(handle.hasPrefix("@") ? handle : "@" + handle)
+                        .font(HUDType.mono(10))
+                        .foregroundStyle(HUDChrome.inkFaint)
+                        .fixedSize()
+                }
+                Spacer(minLength: 4)
+                Text(stateLabel(for: agent.state))
+                    .font(HUDType.mono(10, weight: .semibold))
+                    .tracking(HUDType.eyebrowTracking)
+                    .foregroundStyle(stateColor(for: agent.state))
                     .fixedSize()
             }
-            Spacer(minLength: 4)
-            Text(stateLabel(for: agent.state))
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(stateColor(for: agent.state))
+            // Pulse sparkline echoes the medium-tile signature so col B
+            // carries the agent's identity in the middle pane without
+            // a separate PULSE eyebrow row.
+            HUDPulseSparkline(
+                values: HUDMockPulse.pulse(for: (agent.handle ?? agent.name).lowercased()),
+                color: HUDChrome.agentHue(agent.hue),
+                size: CGSize(width: 72, height: 10)
+            )
+            .padding(.leading, 14)
         }
     }
 
@@ -792,28 +788,93 @@ private struct AgentColumnC: View {
     let agent: HudAgent
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                HUDEyebrow(
-                    text: "LAST TURN  ·  \((agent.handle ?? "@" + agent.name))",
-                    color: HUDChrome.inkFaint
-                )
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HUDEyebrow(
+                        text: "LAST TURN  ·  \((agent.handle ?? "@" + agent.name))",
+                        color: HUDChrome.inkFaint
+                    )
 
-                Text(agent.lastTurn)
-                    .font(HUDType.body(12))
-                    .foregroundStyle(HUDChrome.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-                    .lineSpacing(3)
-
-                Spacer(minLength: 0)
-
-                bufferStrip
+                    Text(agent.lastTurn)
+                        .font(HUDType.body(12))
+                        .foregroundStyle(HUDChrome.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                        .lineSpacing(3)
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxHeight: .infinity, alignment: .top)
+
+            // Engage stack — vertical pile of inert affordances. Lives
+            // pinned to the bottom of the column so the dead-space
+            // below LAST TURN reads as deliberate operator surface,
+            // not blank canvas. Wire-up arrives in iter 9.
+            engageStack
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(HUDChrome.borderSoft)
+                        .frame(height: 0.5)
+                }
+
+            bufferStrip
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(HUDChrome.canvasAlt.opacity(0.45))
         }
+    }
+
+    private var engageStack: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HUDEyebrow(text: "ENGAGE", color: HUDChrome.inkFaint)
+                .padding(.bottom, 2)
+            engageRow(verb: "SEND",   hint: "↵ deliver a directive", enabled: true,  action: sendAction)
+            engageRow(verb: "TAIL",   hint: "open this agent's tail", enabled: false, action: {})
+            engageRow(verb: "OPEN",   hint: "reveal project root",    enabled: agent.projectRoot != nil, action: openAction)
+            engageRow(verb: "SNOOZE", hint: "park asks for 1h",       enabled: false, action: {})
+            engageRow(verb: "MUTE",   hint: "suppress nudges",        enabled: false, action: {})
+        }
+    }
+
+    private func engageRow(verb: String, hint: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(verb)
+                    .font(HUDType.mono(10, weight: .bold))
+                    .tracking(HUDType.eyebrowTracking)
+                    .foregroundStyle(enabled ? HUDChrome.ink : HUDChrome.inkFaint)
+                    .frame(width: 56, alignment: .leading)
+                Text(hint)
+                    .font(HUDType.body(11))
+                    .foregroundStyle(enabled ? HUDChrome.inkMuted : HUDChrome.inkFaint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    // Stage the selected agent as the dock's routing target, then take
+    // keyboard focus. The dock's TextField becomes firstResponder via
+    // the focusRequested bump in HUDDockState.
+    private func sendAction() {
+        let handle = agent.handle ?? agent.name
+        HUDDockState.shared.setTarget(handle: handle, label: agent.name)
+        HUDDockState.shared.focus()
+    }
+
+    private func openAction() {
+        guard let root = agent.projectRoot else { return }
+        let expanded = (root as NSString).expandingTildeInPath
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: expanded)])
     }
 
     private var bufferStrip: some View {
@@ -835,7 +896,6 @@ private struct AgentColumnC: View {
                 }
             }
         }
-        .padding(.top, 6)
     }
 }
 
@@ -849,7 +909,7 @@ private struct FleetEmptyState: View {
             HUDMastheadMark(size: 44)
                 .opacity(0.85)
 
-            HUDEyebrow(text: "ROSTER  ·  EMPTY", color: HUDChrome.inkDeep)
+            HUDEyebrow(text: "ROSTER  ·  EMPTY", color: HUDChrome.inkFaint)
                 .padding(.top, 18)
 
             Text("No agents are filing.")

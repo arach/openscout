@@ -14,6 +14,7 @@ import type {
   FirehoseEvent,
   FirehoseKind,
   FleetAgent,
+  ScoutThreadMessage,
 } from "./types";
 
 // ─── Agents (formerly "fleet") ──────────────────────────────────────
@@ -659,5 +660,57 @@ export const SESSIONS: AgentSession[] = [
     lastTurn:
       "Three glyphs left to redraw before the set is consistent at 14/18/24.",
     ago: "2h",
+  },
+];
+
+// ─── Assistant thread (slot 5) ──────────────────────────────────────
+//
+// A short morning thread to seed the playground. Mixes prose, a slash
+// command, a @mention, and a file path — enough to exercise every
+// inline span renderer in HudAssistant.
+
+export const SCOUT_THREAD: ScoutThreadMessage[] = [
+  {
+    id: "m1",
+    source: "scout",
+    at: "09:14",
+    body: [
+      { kind: "text", text: "Morning. Five agents under broker, one on you — " },
+      { kind: "mention", text: "@hudson" },
+      { kind: "text", text: " is idle on a compile error. Want a status pass, or you driving?" },
+    ],
+  },
+  {
+    id: "m2",
+    source: "operator",
+    at: "09:14",
+    body: [{ kind: "cmd", text: "/find hudson" }],
+  },
+  {
+    id: "m3",
+    source: "scout",
+    at: "09:14",
+    body: [
+      { kind: "mention", text: "@hudson" },
+      { kind: "text", text: " is on branch " },
+      { kind: "code", text: "feature/migration-rename" },
+      { kind: "text", text: ", idle for 7 min. Last turn flagged a compile error in " },
+      { kind: "path", text: "Sources/Mesh/PresenceCache.swift" },
+      { kind: "text", text: " at line 142. Open the file?" },
+    ],
+  },
+  {
+    id: "m4",
+    source: "operator",
+    at: "09:15",
+    body: [{ kind: "text", text: "yes — and remind me what we said about the rename order yesterday" }],
+  },
+  {
+    id: "m5",
+    source: "scout",
+    at: "09:15",
+    body: [
+      { kind: "text", text: "Opened. On the rename — you parked it: index split first, the foreign-key rename collapses to a six-line patch. Reverse order rebuilds the index." },
+    ],
   },
 ];

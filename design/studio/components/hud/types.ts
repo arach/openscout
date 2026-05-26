@@ -22,7 +22,16 @@ import type { AgentState } from "@/components/AgentPresenceDot";
 
 export type HudSize = "compact" | "medium" | "large";
 
-export type HudTab = "agents" | "activity" | "tail" | "sessions";
+export type HudTab =
+  | "agents"
+  | "activity"
+  | "tail"
+  | "sessions"
+  // Assistant — slot 5. DM-style desktop surface for the same Scout
+  // that lives on iOS. UI labels stay neutral ("assistant") per
+  // feedback_meta_agent_naming_neutral; the brand work is done by the
+  // robot-head glyph beside the tab.
+  | "assistant";
 
 /** Entity kinds linked from the trailing scout-link chip. */
 export type ScoutLinkKind = "agent" | "event" | "firehose" | "session";
@@ -196,3 +205,34 @@ export interface AgentSession {
  * stable id (agent.id / event.id / session.id).
  */
 export type EngageState = string | null;
+
+// ─── Assistant thread (slot 5) ───────────────────────────────────────
+//
+// Conversation thread between the operator and the universal assistant.
+// One source talks at a time; messages are timeline-ordered. The body
+// can be plain prose or carry inline command chips (rendered specially
+// in HudAssistant). At v0 the structure intentionally mirrors a
+// shell-readable transcript: source + at + body, no buckets.
+
+export type ScoutThreadSource = "scout" | "operator";
+
+/** One inline span that's not plain prose — renders specially. */
+export type ScoutThreadSpan =
+  | { kind: "text"; text: string }
+  /** Slash command like `/help` or `/find hudson` — rendered as chip. */
+  | { kind: "cmd"; text: string }
+  /** Agent handle `@hudson` — rendered in agent hue. */
+  | { kind: "mention"; text: string }
+  /** File path `Sources/Foo.swift` — rendered in path hue. */
+  | { kind: "path"; text: string }
+  /** Backticked code span — slightly lifted ink + medium weight. */
+  | { kind: "code"; text: string };
+
+export interface ScoutThreadMessage {
+  id: string;
+  source: ScoutThreadSource;
+  /** HH:MM clock — short timestamp on the right of the source line. */
+  at: string;
+  /** Pre-tokenized body for inline rendering. The leaf is just spans. */
+  body: ScoutThreadSpan[];
+}

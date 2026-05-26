@@ -65,68 +65,143 @@ struct HUDSessionsView: View {
                 }
             }
         }
+        .onAppear { wireNavBus() }
+        .onDisappear { HUDNavBus.shared.clear() }
+    }
+
+    // Register cycle/engage closures with the global key bus. Mirrors the
+    // wiring HUDTailView already does — cursor tracks j/k (no expansion),
+    // engaged tracks Enter (inline detail opens). A second Enter on an
+    // already-engaged row stages the agent on the dock and focuses it.
+    private func wireNavBus() {
+        HUDNavBus.shared.cycleNext = {
+            let ids = sessions.map { $0.id }
+            guard !ids.isEmpty else { return }
+            if let cur = engage.cursoredId, let i = ids.firstIndex(of: cur), i + 1 < ids.count {
+                engage.cursor(ids[i + 1])
+            } else {
+                engage.cursor(ids.first)
+            }
+        }
+        HUDNavBus.shared.cyclePrev = {
+            let ids = sessions.map { $0.id }
+            guard !ids.isEmpty else { return }
+            if let cur = engage.cursoredId, let i = ids.firstIndex(of: cur), i > 0 {
+                engage.cursor(ids[i - 1])
+            } else {
+                engage.cursor(ids.last)
+            }
+        }
+        HUDNavBus.shared.jumpTop = {
+            engage.cursor(sessions.first?.id)
+        }
+        HUDNavBus.shared.jumpBottom = {
+            engage.cursor(sessions.last?.id)
+        }
+        HUDNavBus.shared.engageSelected = {
+            // Three-level progressive disclosure on Enter:
+            //   1. cursored row not yet engaged → engage it (inline detail expands)
+            //   2. cursored row already engaged → stage @target on the dock + focus
+            guard let cursoredId = engage.cursoredId,
+                  let session = sessions.first(where: { $0.id == cursoredId }) else { return }
+            if engage.engagedId != cursoredId {
+                engage.toggle(cursoredId)
+            } else {
+                let handle = session.agentHandle ?? session.agentName
+                HUDDockState.shared.setTarget(handle: handle, label: session.agentName)
+                HUDDockState.shared.focus()
+            }
+        }
+        HUDNavBus.shared.unengageSelected = {
+            if engage.engagedId != nil {
+                engage.unengage()
+                return true
+            }
+            return false
+        }
+        // Sessions has no live-follow concept; clear the slot so a previous
+        // tab's binding doesn't leak.
+        HUDNavBus.shared.toggleFollow = nil
     }
 
     // MARK: - Compact
 
     private var compactBody: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 0) {
-                SessionsHeader(sessions: sessions)
-                ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
-                    SessionRow(
-                        session: s,
-                        isFirst: idx == 0,
-                        size: .compact,
-                        engaged: engage.isSelected(s.id),
-                        onTap: {
-                            withAnimation(.easeOut(duration: 0.14)) {
-                                engage.toggle(s.id)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    SessionsHeader(sessions: sessions)
+                    ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
+                        SessionRow(
+                            session: s,
+                            isFirst: idx == 0,
+                            size: .compact,
+                            cursored: engage.isCursored(s.id),
+                            engaged: engage.isEngaged(s.id),
+                            onTap: {
+                                withAnimation(.easeOut(duration: 0.14)) {
+                                    engage.toggle(s.id)
+                                }
                             }
+                        )
+                        .id(s.id)
+                        if engage.isEngaged(s.id) {
+                            SessionDetailInline(session: s)
+                                .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                    )
-                    if engage.isSelected(s.id) {
-                        SessionDetailInline(session: s)
-                            .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
+                .padding(.bottom, 10)
             }
-            .padding(.bottom, 10)
+            .onChange(of: engage.cursoredId) { _, id in
+                if let id { withAnimation(.easeOut(duration: 0.14)) { proxy.scrollTo(id) } }
+            }
         }
     }
 
     // MARK: - Medium
 
     private var mediumBody: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 0) {
-                SessionsHeader(sessions: sessions)
-                ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
-                    SessionRow(
-                        session: s,
-                        isFirst: idx == 0,
-                        size: .medium,
-                        engaged: engage.isSelected(s.id),
-                        onTap: {
-                            withAnimation(.easeOut(duration: 0.14)) {
-                                engage.toggle(s.id)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    SessionsHeader(sessions: sessions)
+                    ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
+                        SessionRow(
+                            session: s,
+                            isFirst: idx == 0,
+                            size: .medium,
+                            cursored: engage.isCursored(s.id),
+                            engaged: engage.isEngaged(s.id),
+                            onTap: {
+                                withAnimation(.easeOut(duration: 0.14)) {
+                                    engage.toggle(s.id)
+                                }
                             }
+                        )
+                        .id(s.id)
+                        if engage.isEngaged(s.id) {
+                            SessionDetailInline(session: s)
+                                .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                    )
-                    if engage.isSelected(s.id) {
-                        SessionDetailInline(session: s)
-                            .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
+                .padding(.bottom, 10)
             }
-            .padding(.bottom, 10)
+            .onChange(of: engage.cursoredId) { _, id in
+                if let id { withAnimation(.easeOut(duration: 0.14)) { proxy.scrollTo(id) } }
+            }
         }
     }
 
     // MARK: - Large
 
-    private var selectedSession: SynthesizedSession {
-        if let id = engage.selectedId, let match = sessions.first(where: { $0.id == id }) {
+    private var focusedSession: SynthesizedSession {
+        // At large, j/k drives the side preview via cursor. Engagement
+        // (Enter) is reserved for staging the dock target; the right
+        // pane reads as a live preview of whatever the cursor is on.
+        if let id = engage.cursoredId ?? engage.engagedId,
+           let match = sessions.first(where: { $0.id == id }) {
             return match
         }
         return sessions[0]
@@ -136,29 +211,36 @@ struct HUDSessionsView: View {
         VStack(spacing: 0) {
             SessionsHeader(sessions: sessions)
             HStack(spacing: 0) {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
-                            SessionRow(
-                                session: s,
-                                isFirst: idx == 0,
-                                size: .large,
-                                engaged: s.id == selectedSession.id,
-                                onTap: {
-                                    withAnimation(.easeOut(duration: 0.14)) {
-                                        engage.select(s.id)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
+                                SessionRow(
+                                    session: s,
+                                    isFirst: idx == 0,
+                                    size: .large,
+                                    cursored: engage.isCursored(s.id),
+                                    engaged: engage.isEngaged(s.id),
+                                    onTap: {
+                                        withAnimation(.easeOut(duration: 0.14)) {
+                                            engage.select(s.id)
+                                        }
                                     }
-                                }
-                            )
+                                )
+                                .id(s.id)
+                            }
                         }
+                        .padding(.bottom, 10)
                     }
-                    .padding(.bottom, 10)
+                    .onChange(of: engage.cursoredId) { _, id in
+                        if let id { withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .center) } }
+                    }
                 }
-                .frame(width: 480)
+                .frame(width: 560)
 
                 Rectangle().fill(HUDChrome.border).frame(width: 0.5)
 
-                SessionDetailLarge(session: selectedSession)
+                SessionDetailLarge(session: focusedSession)
                     .frame(maxWidth: .infinity)
             }
             .frame(maxHeight: .infinity)
@@ -206,18 +288,14 @@ private struct SessionsHeader: View {
     private var running: Int { sessions.filter { $0.status == .running }.count }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HUDEyebrow(
-                text: "LEDGER  ·  \(sessions.count) SESSION\(sessions.count == 1 ? "" : "S")  ·  \(running) RUNNING",
-                color: HUDChrome.inkDeep
-            )
-            Text("Sessions")
-                .font(HUDType.body(15, weight: .semibold))
-                .foregroundStyle(HUDChrome.ink)
-        }
+        // Tab name is in the masthead. Eyebrow carries count + running.
+        HUDEyebrow(
+            text: "\(sessions.count) SESSION\(sessions.count == 1 ? "" : "S")  ·  \(running) RUNNING",
+            color: HUDChrome.inkFaint
+        )
         .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -234,14 +312,19 @@ private struct SessionRow: View {
     let session: SynthesizedSession
     let isFirst: Bool
     let size: HUDSize
+    var cursored: Bool = false
     let engaged: Bool
     var onTap: () -> Void = {}
 
     @State private var hovered = false
 
+    // Mirrors tail's three-tier fill: cursored (j/k landing) → engaged
+    // (Enter expansion) → hovered (mouse). Background carries the state;
+    // no left edge bar (operator's call).
     private var rowFill: Color {
-        if engaged { return HUDChrome.canvasLift.opacity(0.55) }
-        if hovered { return HUDChrome.canvasLift.opacity(0.30) }
+        if engaged  { return HUDChrome.canvasLift.opacity(0.70) }
+        if cursored { return HUDChrome.canvasLift.opacity(0.42) }
+        if hovered  { return HUDChrome.canvasLift.opacity(0.18) }
         return Color.clear
     }
 
@@ -439,7 +522,7 @@ private struct SessionDetailInline: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HUDEyebrow(text: "LAST TURN", color: HUDChrome.inkDeep)
+            HUDEyebrow(text: "LAST TURN", color: HUDChrome.inkFaint)
             Text(session.lastTurn)
                 .font(HUDType.body(12))
                 .foregroundStyle(HUDChrome.ink)
@@ -513,15 +596,66 @@ private struct SessionDetailLarge: View {
                 Spacer(minLength: 0)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    drillLink(label: "OPEN TRANSCRIPT")
-                    drillLink(label: "FOLLOW LIVE")
-                    drillLink(label: "AGENT PROFILE")
+                    HUDDrillLink(label: "OPEN TRANSCRIPT", url: transcriptURL)
+                    HUDDrillLink(label: "FOLLOW LIVE", url: followURL)
+                    HUDDrillLink(label: "AGENT PROFILE", url: agentURL)
                 }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    // WHY: every session row exposes all three drills. session.id is the
+    // broker agent ID (no real DB session ID is plumbed through the HUD
+    // model yet); SessionRefScreen on the web accepts agent IDs as a
+    // sessionRef and resolves the active session. Live tail falls back to
+    // a scoped /ops/tail query rather than an empty index.
+    private var transcriptURL: URL {
+        let base = HudFleetService.webBaseURL()
+        let aid = session.id
+        if aid.isEmpty { return relativeURL("/sessions", base: base) }
+        return relativeURL("/sessions/\(percent(aid))", base: base)
+    }
+
+    private var followURL: URL {
+        let base = HudFleetService.webBaseURL()
+        let aid = session.id
+        if !aid.isEmpty {
+            return relativeURL("/follow/agent/\(percent(aid))", base: base)
+        }
+        if let q = tailQuery() {
+            return relativeURL("/ops/tail?q=\(percentQuery(q))", base: base)
+        }
+        return relativeURL("/ops/tail", base: base)
+    }
+
+    private var agentURL: URL {
+        let base = HudFleetService.webBaseURL()
+        let aid = session.id
+        if aid.isEmpty { return relativeURL("/agents", base: base) }
+        return relativeURL("/agents/\(percent(aid))", base: base)
+    }
+
+    private func tailQuery() -> String? {
+        if let h = session.agentHandle, !h.isEmpty {
+            return h.hasPrefix("@") ? h : "@" + h
+        }
+        if !session.agentName.isEmpty { return session.agentName }
+        return nil
+    }
+
+    private func percent(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
+    }
+
+    private func percentQuery(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+    }
+
+    private func relativeURL(_ path: String, base: URL) -> URL {
+        URL(string: path, relativeTo: base)?.absoluteURL ?? base
     }
 
     private var header: some View {
@@ -595,20 +729,6 @@ private struct SessionDetailLarge: View {
         }
     }
 
-    private func drillLink(label: String) -> some View {
-        HStack(spacing: 8) {
-            Text("→")
-                .font(HUDType.mono(11))
-                .foregroundStyle(HUDChrome.inkFaint)
-            Text(label)
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkMuted)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-    }
 }
 
 // MARK: - Empty
@@ -618,7 +738,7 @@ private struct EmptySessions: View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
 
-            HUDEyebrow(text: "LEDGER  ·  NO SESSIONS", color: HUDChrome.inkDeep)
+            HUDEyebrow(text: "LEDGER  ·  NO SESSIONS", color: HUDChrome.inkFaint)
                 .padding(.top, 18)
 
             Text("No sessions running.")

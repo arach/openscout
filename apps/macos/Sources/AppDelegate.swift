@@ -13,6 +13,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        // scout:// URL scheme ingress + live state mirror at
+        // /tmp/openscout-hud-state.json. Pair makes up the HUD's
+        // external IPC: URLs for actions, JSON file for queries.
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleScoutURL(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+        HUDStateFile.shared.start()
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
             button.image = menuBarImage(symbolName: controller.menuBarSymbolName)
@@ -179,5 +190,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+
+    @objc
+    private func handleScoutURL(_ event: NSAppleEventDescriptor, withReplyEvent _: NSAppleEventDescriptor) {
+        guard
+            let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+            let url = URL(string: urlString)
+        else { return }
+        Task { @MainActor in
+            HUDURLRouter.handle(url: url)
+        }
     }
 }
