@@ -1059,13 +1059,10 @@ struct ComposerView: View {
         Task {
             do {
                 if !voice.isReady { await voice.prepare() }
-                let granted = await voice.requestMicrophonePermission()
-                guard granted else {
-                    lastError = "Mic permission denied"
-                    micState = .idle
-                    return
-                }
                 try await voice.startRecording()
+            } catch ScoutVoice.VoiceError.microphonePermissionDenied {
+                lastError = "Mic permission denied"
+                micState = .idle
             } catch {
                 lastError = "Recording failed: \(error.localizedDescription)"
                 micState = .idle
