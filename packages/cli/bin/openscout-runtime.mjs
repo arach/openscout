@@ -9,9 +9,16 @@ const binDir = dirname(fileURLToPath(import.meta.url));
 const runtimeDistDir = resolve(binDir, "../dist/runtime");
 
 const entrypoints = {
+  base: resolve(runtimeDistDir, "base-daemon.mjs"),
   broker: resolve(runtimeDistDir, "broker-daemon.mjs"),
   service: resolve(runtimeDistDir, "broker-process-manager.mjs"),
   discover: resolve(runtimeDistDir, "mesh-discover.mjs"),
+};
+const processNames = {
+  base: "scout-base",
+  broker: "scout-broker",
+  service: "scout-service",
+  discover: "scout-discover",
 };
 
 const [, , command = "service", ...args] = process.argv;
@@ -29,7 +36,11 @@ if (!existsSync(entrypoint)) {
   process.exit(1);
 }
 
+const processName = processNames[command] ?? "scout-runtime";
+process.title = processName;
+
 const child = spawn(process.execPath, [entrypoint, ...args], {
+  argv0: processName,
   stdio: "inherit",
 });
 

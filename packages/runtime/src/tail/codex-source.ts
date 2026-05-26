@@ -29,6 +29,23 @@ const DEFAULT_HOT_DISCOVERY_LIMIT = 64;
 const DEFAULT_SHALLOW_DISCOVERY_LIMIT = 160;
 const DEFAULT_DEEP_DISCOVERY_LIMIT = 160;
 const HEAD_READ_BYTES = 512 * 1024;
+const METADATA_CACHE_LIMIT = 512;
+
+type TranscriptFileStat = { path: string; mtimeMs: number; size: number };
+type TranscriptMetadata = { cwd: string | null; sessionId: string | null };
+
+const metadataCache = new Map<string, TranscriptFileStat & TranscriptMetadata>();
+
+function rememberMetadata(file: TranscriptFileStat, metadata: TranscriptMetadata): TranscriptMetadata {
+  metadataCache.delete(file.path);
+  metadataCache.set(file.path, { ...file, ...metadata });
+  while (metadataCache.size > METADATA_CACHE_LIMIT) {
+    const oldest = metadataCache.keys().next().value;
+    if (!oldest) break;
+    metadataCache.delete(oldest);
+  }
+  return metadata;
+}
 
 function readPositiveIntEnv(names: string[], fallback: number): number {
   for (const name of names) {
@@ -136,8 +153,13 @@ function metadataRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function readCodexMetadata(filePath: string): { cwd: string | null; sessionId: string | null } {
-  const head = readFileHead(filePath);
+function readCodexMetadata(file: TranscriptFileStat): TranscriptMetadata {
+  const cached = metadataCache.get(file.path);
+  if (cached && cached.mtimeMs === file.mtimeMs && cached.size === file.size) {
+    return { cwd: cached.cwd, sessionId: cached.sessionId };
+  }
+
+  const head = readFileHead(file.path);
   let cwd: string | null = null;
   let sessionId: string | null = null;
   for (const line of head.split(/\r?\n/)) {
@@ -153,17 +175,19 @@ function readCodexMetadata(filePath: string): { cwd: string | null; sessionId: s
         ? payload.id
         : null;
       if (cwd || sessionId) {
-        if (cwd && sessionId) return { cwd, sessionId };
+        if (cwd && sessionId) {
+          return rememberMetadata(file, { cwd, sessionId });
+        }
       }
     }
   }
-  return { cwd, sessionId };
+  return rememberMetadata(file, { cwd, sessionId });
 }
 
 function walkRecentJsonlFiles(
   root: string,
   scope: TailDiscoveryScope,
-): Array<{ path: string; mtimeMs: number; size: number }> {
+): TranscriptFileStat[] {
   const cutoff = Date.now() - discoveryWindowMs(scope);
   const found: Array<{ path: string; mtimeMs: number; size: number }> = [];
   const stack = [root];
@@ -195,7 +219,7 @@ function walkRecentJsonlFiles(
 }
 
 function discoverCodexTranscripts(scope: TailDiscoveryScope): DiscoveredTranscript[] {
-  const byPath = new Map<string, { path: string; mtimeMs: number; size: number }>();
+  const byPath = new Map<string, TranscriptFileStat>();
   for (const root of codexSessionRoots()) {
     for (const file of walkRecentJsonlFiles(root, scope)) {
       const existing = byPath.get(file.path);
@@ -206,7 +230,7 @@ function discoverCodexTranscripts(scope: TailDiscoveryScope): DiscoveredTranscri
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, discoveryLimit(scope))
     .map((file) => {
-      const meta = readCodexMetadata(file.path);
+      const meta = readCodexMetadata(file);
       const sessionId = meta.sessionId
         ?? sessionIdFromCodexPath(file.path);
       return {

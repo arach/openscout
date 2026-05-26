@@ -21,6 +21,12 @@ const distMain = {
   service: resolve(distDir, "broker-process-manager.js"),
   discover: resolve(distDir, "mesh-discover.js"),
 };
+const processNames = {
+  base: "scout-base",
+  broker: "scout-broker",
+  service: "scout-service",
+  discover: "scout-discover",
+};
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const [, , command = "service", ...args] = process.argv;
@@ -30,14 +36,19 @@ if (!(command in sourceMain)) {
   process.exit(1);
 }
 
+const processName = processNames[command] ?? "scout-runtime";
+process.title = processName;
+
 function runEntrypoint(entry, entryArgs) {
   const captureOutput = command === "service";
   const result = spawnSync(process.execPath, [entry, ...entryArgs], captureOutput
     ? {
         encoding: "utf8",
+        argv0: processName,
         stdio: ["inherit", "pipe", "pipe"],
       }
     : {
+        argv0: processName,
         stdio: "inherit",
       });
 

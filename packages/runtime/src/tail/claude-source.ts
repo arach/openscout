@@ -22,6 +22,23 @@ const DEFAULT_HOT_DISCOVERY_LIMIT = 64;
 const DEFAULT_SHALLOW_DISCOVERY_LIMIT = 160;
 const DEFAULT_DEEP_DISCOVERY_LIMIT = 160;
 const HEAD_READ_BYTES = 256 * 1024;
+const METADATA_CACHE_LIMIT = 512;
+
+type TranscriptFileStat = { path: string; mtimeMs: number; size: number };
+type TranscriptMetadata = { cwd: string | null; sessionId: string | null };
+
+const metadataCache = new Map<string, TranscriptFileStat & TranscriptMetadata>();
+
+function rememberMetadata(file: TranscriptFileStat, metadata: TranscriptMetadata): TranscriptMetadata {
+  metadataCache.delete(file.path);
+  metadataCache.set(file.path, { ...file, ...metadata });
+  while (metadataCache.size > METADATA_CACHE_LIMIT) {
+    const oldest = metadataCache.keys().next().value;
+    if (!oldest) break;
+    metadataCache.delete(oldest);
+  }
+  return metadata;
+}
 
 function encodeProjectDir(cwd: string): string {
   // Claude encodes the cwd by replacing "/" with "-" and prefixing the result.
@@ -118,8 +135,13 @@ function parseJsonRecord(line: string): Record<string, unknown> | null {
   }
 }
 
-function readClaudeMetadata(filePath: string): { cwd: string | null; sessionId: string | null } {
-  const head = readFileHead(filePath);
+function readClaudeMetadata(file: TranscriptFileStat): TranscriptMetadata {
+  const cached = metadataCache.get(file.path);
+  if (cached && cached.mtimeMs === file.mtimeMs && cached.size === file.size) {
+    return { cwd: cached.cwd, sessionId: cached.sessionId };
+  }
+
+  const head = readFileHead(file.path);
   let cwd: string | null = null;
   let sessionId: string | null = null;
   for (const line of head.split(/\r?\n/)) {
@@ -135,10 +157,10 @@ function readClaudeMetadata(filePath: string): { cwd: string | null; sessionId: 
           ? record.session_id
           : null;
     if (cwd && sessionId) {
-      return { cwd, sessionId };
+      return rememberMetadata(file, { cwd, sessionId });
     }
   }
-  return { cwd, sessionId };
+  return rememberMetadata(file, { cwd, sessionId });
 }
 
 function decodeProjectDir(dirName: string): string | null {
@@ -160,7 +182,7 @@ function fallbackCwdForPath(filePath: string): string | null {
 function walkRecentJsonlFiles(
   root: string,
   scope: TailDiscoveryScope,
-): Array<{ path: string; mtimeMs: number; size: number }> {
+): TranscriptFileStat[] {
   const cutoff = Date.now() - discoveryWindowMs(scope);
   const found: Array<{ path: string; mtimeMs: number; size: number }> = [];
   const stack = [root];
@@ -374,7 +396,7 @@ export const ClaudeSource: TranscriptSource = {
     const root = projectsRoot();
     if (!existsSync(root)) return [];
     return walkRecentJsonlFiles(root, scope).map((file) => {
-      const meta = readClaudeMetadata(file.path);
+      const meta = readClaudeMetadata(file);
       const cwd = meta.cwd ?? fallbackCwdForPath(file.path);
       const sessionId = meta.sessionId ?? basename(file.path).replace(/\.jsonl$/, "");
       return {

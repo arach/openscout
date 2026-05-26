@@ -18,6 +18,8 @@ import {
   type ManagedTerminalRelay,
 } from "./managed-terminal-relay.ts";
 
+process.title = "scout-web";
+
 const port = Number.parseInt(
   process.env.OPENSCOUT_WEB_PORT
     ?? process.env.SCOUT_WEB_PORT
@@ -68,16 +70,47 @@ function toWebSocketUrl(httpUrl: string, pathname: string, search = ""): string 
 }
 
 let terminalRelay: ManagedTerminalRelay | null = null;
+let terminalRelayStart: Promise<ManagedTerminalRelay | null> | null = null;
 
-try {
-  terminalRelay = await startManagedTerminalRelay({
+function stopTerminalRelay(): void {
+  terminalRelay?.shutdown();
+  terminalRelay = null;
+  terminalRelayStart = null;
+}
+
+function startTerminalRelay(): Promise<ManagedTerminalRelay | null> {
+  if (terminalRelayStart) {
+    return terminalRelayStart;
+  }
+  terminalRelayStart = startManagedTerminalRelay({
     hostname,
     webPort: port,
-  });
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.warn(`[scout] Terminal relay unavailable: ${message}`);
+  })
+    .then((relay) => {
+      terminalRelay = relay;
+      return relay;
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[scout] Terminal relay unavailable: ${message}`);
+      return null;
+    })
+    .finally(() => {
+      terminalRelayStart = null;
+    });
+  return terminalRelayStart;
 }
+
+async function ensureTerminalRelay(): Promise<ManagedTerminalRelay | null> {
+  if (terminalRelay && await terminalRelay.healthcheck()) {
+    return terminalRelay;
+  }
+  terminalRelay?.shutdown();
+  terminalRelay = null;
+  return startTerminalRelay();
+}
+
+terminalRelay = await startTerminalRelay();
 
 const { app, warmupCaches } = await createOpenScoutWebServer({
   currentDirectory,
@@ -90,8 +123,17 @@ const { app, warmupCaches } = await createOpenScoutWebServer({
   publicOrigin: applicationServerIdentity.publicOrigin,
   trustedHosts: applicationServerIdentity.trustedHosts,
   trustedOrigins: applicationServerIdentity.trustedOrigins,
-  runTerminalCommand: terminalRelay?.queueCommand,
-  terminalRelayHealthcheck: terminalRelay?.healthcheck,
+  runTerminalCommand: async (request) => {
+    const relay = await ensureTerminalRelay();
+    if (!relay) {
+      throw new Error("Terminal relay is unavailable");
+    }
+    await relay.queueCommand(request);
+  },
+  terminalRelayHealthcheck: async () => {
+    const relay = await ensureTerminalRelay();
+    return relay ? relay.healthcheck() : false;
+  },
 });
 
 const honoFetch = app.fetch;
@@ -111,7 +153,8 @@ try {
         let upstreamUrl: string | null = null;
 
         if (url.pathname === routes.terminalRelayPath) {
-          upstreamUrl = terminalRelay?.targetWebSocketUrl ?? null;
+          const relay = await ensureTerminalRelay();
+          upstreamUrl = relay?.targetWebSocketUrl ?? null;
           if (!upstreamUrl) {
             return new Response("Terminal relay unavailable", { status: 503 });
           }
@@ -156,7 +199,7 @@ try {
   } else {
     console.error(`[scout] Failed to start server on ${hostname}:${port} — ${message}`);
   }
-  terminalRelay?.shutdown();
+  stopTerminalRelay();
   process.exit(1);
 }
 
@@ -179,7 +222,7 @@ const shutdown = async (signal: NodeJS.Signals) => {
   // Tear down the terminal relay first so its WebSocket upstreams (long-lived
   // PTY/tmux sessions) close — otherwise server.stop() would wait the full
   // drain window for those connections to finish on their own.
-  terminalRelay?.shutdown();
+  stopTerminalRelay();
   try {
     await server.stop();
   } catch (error) {

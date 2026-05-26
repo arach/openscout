@@ -169,6 +169,11 @@ import {
   nudgeHarnessTopologyScan,
 } from "./harness-topology/index.js";
 
+const PROCESS_NAME = "scout-broker";
+const WEB_PROCESS_NAME = "scout-web";
+
+process.title = PROCESS_NAME;
+
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -899,6 +904,7 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
     bun.path,
     entry.endsWith(".ts") ? ["run", "--hot", entry] : ["run", entry],
     {
+      argv0: WEB_PROCESS_NAME,
       detached: true,
       env,
       stdio: ["ignore", logFd, logFd],
