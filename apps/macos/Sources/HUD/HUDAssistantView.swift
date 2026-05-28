@@ -43,60 +43,56 @@ struct HUDAssistantMessage: Identifiable {
     let body: [HUDAssistantSpan]
 }
 
-// Seeded mock thread — mirrors studio's SCOUT_THREAD. Exercises every
-// inline span renderer so the surface can be eyeballed end-to-end.
-private let mockThread: [HUDAssistantMessage] = [
-    .init(id: "m1", source: .scout, at: "09:14", body: [
-        .text("Morning. Five agents under broker, one on you — "),
-        .mention("@hudson"),
-        .text(" is idle on a compile error. Want a status pass, or you driving?"),
-    ]),
-    .init(id: "m2", source: .operatorYou, at: "09:14", body: [
-        .cmd("/find hudson"),
-    ]),
-    .init(id: "m3", source: .scout, at: "09:14", body: [
-        .mention("@hudson"),
-        .text(" is on branch "),
-        .code("feature/migration-rename"),
-        .text(", idle for 7 min. Last turn flagged a compile error in "),
-        .path("Sources/Mesh/PresenceCache.swift"),
-        .text(" at line 142. Open the file?"),
-    ]),
-    .init(id: "m4", source: .operatorYou, at: "09:15", body: [
-        .text("yes — and remind me what we said about the rename order yesterday"),
-    ]),
-    .init(id: "m5", source: .scout, at: "09:15", body: [
-        .text("Opened. On the rename — you parked it: index split first, the foreign-key rename collapses to a six-line patch. Reverse order rebuilds the index."),
-    ]),
-]
-
 // MARK: - Main view
 
 struct HUDAssistantView: View {
     @ObservedObject private var state = HUDState.shared
+    @ObservedObject private var compose = HudComposeService.shared
 
     var body: some View {
         Group {
             switch state.size {
-            case .compact, .medium: compactMediumBody
-            case .large:            largeBody
+            case .compact:           compactBody
+            case .medium, .large:    largeBody
             }
         }
     }
 
     private var horizontalPad: CGFloat {
-        state.size == .large ? 20 : 16
+        state.size == .compact ? 16 : 20
     }
 
-    // MARK: - Compact + Medium
+    private func scrollToLatest(proxy: ScrollViewProxy) {
+        guard let last = compose.assistantThread.last else { return }
+        withAnimation(.easeOut(duration: 0.18)) {
+            proxy.scrollTo(last.id, anchor: .bottom)
+        }
+    }
 
-    private var compactMediumBody: some View {
+    // MARK: - Compact
+
+    private var compactBody: some View {
         VStack(spacing: 0) {
             ThreadHeader(size: state.size)
-            ScrollView(.vertical, showsIndicators: false) {
-                Thread(messages: mockThread, size: state.size)
-                    .padding(.horizontal, horizontalPad)
-                    .padding(.vertical, 10)
+            if compose.assistantThread.isEmpty {
+                AssistantEmptyState()
+            } else {
+                // Top-anchored for short threads (a couple of turns hug
+                // the top of the available space, not the dock); auto-
+                // scroll to the freshest message on each new turn so long
+                // replies pull the operator to where the action is.
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        Thread(messages: compose.assistantThread, size: state.size)
+                            .padding(.horizontal, horizontalPad)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .defaultScrollAnchor(.top)
+                    .onChange(of: compose.assistantThread.count) { _, _ in
+                        scrollToLatest(proxy: proxy)
+                    }
+                }
             }
         }
     }
@@ -107,10 +103,21 @@ struct HUDAssistantView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 ThreadHeader(size: .large)
-                ScrollView(.vertical, showsIndicators: false) {
-                    Thread(messages: mockThread, size: .large)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
+                if compose.assistantThread.isEmpty {
+                    AssistantEmptyState()
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            Thread(messages: compose.assistantThread, size: .large)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .defaultScrollAnchor(.top)
+                        .onChange(of: compose.assistantThread.count) { _, _ in
+                            scrollToLatest(proxy: proxy)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -123,18 +130,58 @@ struct HUDAssistantView: View {
     }
 }
 
+// MARK: - Empty state
+
+/// Shown in the Assistant tab when the operator hasn't composed anything
+/// this session. Mirrors the empty pattern used by Tail/Sessions/Activity
+/// — eyebrow + headline + one-line hint — so the surfaces feel like a
+/// family.
+private struct AssistantEmptyState: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+
+            HUDEyebrow(text: "THREAD  ·  NEW", color: HUDChrome.inkFaint)
+                .padding(.top, 18)
+
+            Text("Talk to scout.")
+                .font(HUDType.body(15, weight: .semibold))
+                .foregroundStyle(HUDChrome.ink)
+                .padding(.top, 6)
+
+            Text("Tap the mic or type below. Your messages land here.")
+                .font(HUDType.body(12))
+                .foregroundStyle(HUDChrome.inkMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .padding(.top, 6)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 // MARK: - Header
 
 private struct ThreadHeader: View {
     let size: HUDSize
+    @ObservedObject private var compose = HudComposeService.shared
 
     private var horizontalPad: CGFloat {
         size == .large ? 20 : 16
     }
 
+    // Use the active thread name once it loads from the backend. Until
+    // then, fall back to "default" — the only thread stage 1 ships.
+    private var headerLabel: String {
+        let name = compose.activeThread?.name ?? "default"
+        return "DESKTOP THREAD  ·  \(name.uppercased())"
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            HUDEyebrow(text: "DESKTOP THREAD  ·  TODAY", color: HUDChrome.inkFaint)
+            HUDEyebrow(text: headerLabel, color: HUDChrome.inkFaint)
             Spacer()
             HStack(spacing: 5) {
                 Circle()
@@ -162,12 +209,57 @@ private struct Thread: View {
     let messages: [HUDAssistantMessage]
     let size: HUDSize
 
+    /// True when the operator has sent a message and scoutbot hasn't
+    /// replied yet — drives the "thinking" indicator under the thread.
+    private var awaitingReply: Bool {
+        messages.last?.source == .operatorYou
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(messages) { m in
                 MessageBlock(message: m, size: size)
+                    .id(m.id)
+            }
+            if awaitingReply {
+                ThinkingIndicator()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .animation(.easeOut(duration: 0.18), value: awaitingReply)
+    }
+}
+
+// "scoutbot is thinking" — quiet status row that appears between the
+// operator's latest send and scoutbot's reply. Three dots cycle through
+// opacity so it's clearly alive without grabbing attention.
+private struct ThinkingIndicator: View {
+    @State private var phase = 0
+    private let timer = Timer.publish(every: 0.42, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 6) {
+            RobotGlyphShape()
+                .stroke(HUDChrome.accent.opacity(0.7), style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
+                .frame(width: 12, height: 12)
+
+            Text("@scout")
+                .font(HUDType.mono(11, weight: .semibold))
+                .foregroundStyle(HUDChrome.accent.opacity(0.7))
+
+            HStack(spacing: 2) {
+                ForEach(0..<3) { i in
+                    Circle()
+                        .fill(HUDChrome.accent)
+                        .frame(width: 3, height: 3)
+                        .opacity(phase == i ? 1.0 : 0.25)
+                }
+            }
+            .padding(.leading, 2)
+
+            Spacer()
+        }
+        .onReceive(timer) { _ in phase = (phase + 1) % 3 }
     }
 }
 
@@ -180,25 +272,25 @@ private struct MessageBlock: View {
     private var sourceColor: Color {
         isScout ? HUDChrome.accent : HUDChrome.ink
     }
+    // Mono throughout the thread for the cockpit-terminal voice; sized
+    // down ~1pt from the sans-equivalent because mono reads heavier.
     private var bodyFontSize: CGFloat {
-        size == .compact ? 12 : (size == .medium ? 13 : 13.5)
+        size == .compact ? 11 : (size == .medium ? 11.5 : 12)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .center, spacing: 6) {
                 Group {
                     if isScout {
                         RobotGlyphShape()
                             .stroke(sourceColor, style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
-                            .frame(width: 12, height: 12)
                     } else {
                         YouGlyphShape()
                             .stroke(sourceColor, style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
-                            .frame(width: 12, height: 12)
                     }
                 }
-                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                .frame(width: 12, height: 12)
 
                 Text("@" + sourceLabel)
                     .font(HUDType.mono(11, weight: .semibold))
@@ -224,9 +316,9 @@ private struct MessageBlock: View {
     }
 }
 
-// Compose an AttributedString out of the message spans. Each kind gets
-// its own font + color treatment; concatenated in order so the prose
-// reads as a single paragraph.
+// Compose an AttributedString out of the message spans. All spans use
+// mono now (cockpit voice) — kind differences live in weight + color
+// rather than font family.
 private func buildAttributedBody(spans: [HUDAssistantSpan], baseSize: CGFloat) -> AttributedString {
     let pathColor = Color(red: 0.420, green: 0.720, blue: 0.700)
     var out = AttributedString("")
@@ -234,32 +326,32 @@ private func buildAttributedBody(spans: [HUDAssistantSpan], baseSize: CGFloat) -
         switch span {
         case .text(let s):
             var seg = AttributedString(s)
-            seg.font = HUDType.body(baseSize)
+            seg.font = HUDType.mono(baseSize)
             seg.foregroundColor = HUDChrome.ink
             out += seg
         case .mention(let s):
             var seg = AttributedString(s)
-            seg.font = HUDType.mono(baseSize - 0.5, weight: .semibold)
+            seg.font = HUDType.mono(baseSize, weight: .semibold)
             seg.foregroundColor = HUDChrome.accent
             out += seg
         case .cmd(let s):
             // Inline command spans get a chip-y treatment via spacing +
-            // semibold mono in accent. A true bordered chip isn't
+            // semibold weight in accent. A true bordered chip isn't
             // expressible inside AttributedString without breaking
-            // line-wrap, so we lean on type weight + color and accept
-            // it as inline-text rather than a true badge.
+            // line-wrap, so we lean on weight + color and accept it as
+            // inline-text rather than a true badge.
             var seg = AttributedString(" \(s) ")
-            seg.font = HUDType.mono(baseSize - 0.5, weight: .semibold)
+            seg.font = HUDType.mono(baseSize, weight: .semibold)
             seg.foregroundColor = HUDChrome.accent
             out += seg
         case .path(let s):
             var seg = AttributedString(s)
-            seg.font = HUDType.mono(baseSize - 0.5)
+            seg.font = HUDType.mono(baseSize)
             seg.foregroundColor = pathColor
             out += seg
         case .code(let s):
             var seg = AttributedString(s)
-            seg.font = HUDType.mono(baseSize - 0.5, weight: .medium)
+            seg.font = HUDType.mono(baseSize, weight: .medium)
             seg.foregroundColor = HUDChrome.ink
             out += seg
         }
@@ -448,19 +540,37 @@ struct RobotGlyphShape: Shape {
     }
 }
 
-/// Operator marker — a small right-facing chevron that pairs visually
-/// with the robot glyph without competing for silhouette space.
+/// Operator marker — a small head + shoulders silhouette. Reads as a
+/// person at 12px so it pairs with the robot glyph as a clear
+/// "human vs. machine" distinction in the assistant thread.
 struct YouGlyphShape: Shape {
     func path(in rect: CGRect) -> Path {
+        // viewBox is 0..14; same proportional layout as RobotGlyphShape
+        // so the two glyphs share visual mass at the same frame size.
         let s = min(rect.width, rect.height) / 14.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: rect.minX + x * s, y: rect.minY + y * s)
         }
 
         var path = Path()
-        path.move(to: p(4, 3))
-        path.addLine(to: p(10, 7))
-        path.addLine(to: p(4, 11))
+
+        // Head — small circle centered on top half
+        let headR: CGFloat = 2.1 * s
+        let headCx = rect.minX + 7 * s
+        let headCy = rect.minY + 4.4 * s
+        path.addEllipse(in: CGRect(
+            x: headCx - headR, y: headCy - headR,
+            width: headR * 2, height: headR * 2
+        ))
+
+        // Shoulders — gentle arc that reads as a torso outline
+        path.move(to: p(2.4, 12.2))
+        path.addCurve(
+            to: p(11.6, 12.2),
+            control1: p(3.4, 8.2),
+            control2: p(10.6, 8.2)
+        )
+
         return path
     }
 }

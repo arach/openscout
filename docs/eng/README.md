@@ -15,54 +15,23 @@ implementation specs.
 - prefer numbered proposal filenames like `sco-001-*.md`
 - write specs so they can stand on their own without chat context
 - keep product marketing or user-facing docs elsewhere under `docs/`
+- when a companion exists (implementation plan, review, addendum), the
+  proposal links to it in the header area via an `## Implementation` (or
+  `## Reviews`, etc.) section right after `## Proposal ID`. Reciprocally,
+  the companion links back in its `## Status` section. The studio's
+  sibling detection still surfaces these automatically, but the explicit
+  link makes the relationship visible in raw markdown too.
 
-## Current Proposals
+## Registration
 
-- [sco-001-authority-thread-events-proposal.md](./sco-001-authority-thread-events-proposal.md)
-- [sco-002-work-projection-and-trace-spec.md](./sco-002-work-projection-and-trace-spec.md)
-- [sco-003-agent-sessions-capability-proposal.md](./sco-003-agent-sessions-capability-proposal.md)
-  - [sco-003-implementation-plan.md](./sco-003-implementation-plan.md)
-- [sco-004-addressable-identities-and-session-bindings-proposal.md](./sco-004-addressable-identities-and-session-bindings-proposal.md)
-- [sco-005-trace-first-session-observability-proposal.md](./sco-005-trace-first-session-observability-proposal.md)
-- [sco-006-integration-layer-and-boundary-proposal.md](./sco-006-integration-layer-and-boundary-proposal.md)
-- [sco-007-run-graphs-and-recipes-proposal.md](./sco-007-run-graphs-and-recipes-proposal.md)
-- [sco-008-context-blocks-and-skills-proposal.md](./sco-008-context-blocks-and-skills-proposal.md)
-- [sco-009-activation-lifecycle-and-wake-triggers-proposal.md](./sco-009-activation-lifecycle-and-wake-triggers-proposal.md)
-- [sco-010-public-relay-connectivity-and-rendezvous-proposal.md](./sco-010-public-relay-connectivity-and-rendezvous-proposal.md)
-- [sco-011-external-runtime-integration-and-handoff-proposal.md](./sco-011-external-runtime-integration-and-handoff-proposal.md)
-- [sco-012-concierge-routing-and-delegation-proposal.md](./sco-012-concierge-routing-and-delegation-proposal.md)
-- [sco-013-intent-briefs-and-trusted-environments-proposal.md](./sco-013-intent-briefs-and-trusted-environments-proposal.md)
-- [sco-014-broker-owned-routing-and-context.md](./sco-014-broker-owned-routing-and-context.md)
-- [sco-015-pi-scout-integration.md](./sco-015-pi-scout-integration.md)
-  - [sco-015-implementation-plan.md](./sco-015-implementation-plan.md)
-- [sco-016-external-endpoint-registration-api.md](./sco-016-external-endpoint-registration-api.md)
-- [sco-017-scout-broker-reply-context.md](./sco-017-scout-broker-reply-context.md)
-- [sco-018-a2a-aligned-agent-manpages.md](./sco-018-a2a-aligned-agent-manpages.md)
-- [sco-019-lightweight-mission-channels.md](./sco-019-lightweight-mission-channels.md)
-- [sco-020-background-ask-observation.md](./sco-020-background-ask-observation.md)
-- [sco-021-openscout-mesh-cloudflare-iroh.md](./sco-021-openscout-mesh-cloudflare-iroh.md)
-- [sco-022-sandboxing-and-cross-harness-permission-model.md](./sco-022-sandboxing-and-cross-harness-permission-model.md)
-- [sco-023-agent-operations-and-run-registry.md](./sco-023-agent-operations-and-run-registry.md)
-- [sco-024-autonomous-issue-workspace-runner.md](./sco-024-autonomous-issue-workspace-runner.md)
-- [sco-025-observer-grade-local-runtime-visibility.md](./sco-025-observer-grade-local-runtime-visibility.md)
-- [sco-026-harness-instantiation-contract.md](./sco-026-harness-instantiation-contract.md)
-- [sco-026-scout-comms-grammar-and-semantic-hints.md](./sco-026-scout-comms-grammar-and-semantic-hints.md)
-- [sco-027-durable-action-ledger.md](./sco-027-durable-action-ledger.md)
-- [sco-028-work-materials-inventory.md](./sco-028-work-materials-inventory.md)
-- [sco-030-claude-code-tmux-personal-dev-transport.md](./sco-030-claude-code-tmux-personal-dev-transport.md)
-- [sco-031-native-terminal-surfaces.md](./sco-031-native-terminal-surfaces.md)
-- [sco-035-ranger-chip-unification.md](./sco-035-ranger-chip-unification.md)
-- [sco-036-agent-state-vocabulary.md](./sco-036-agent-state-vocabulary.md)
-- [sco-037-ranger-brief-pipeline.md](./sco-037-ranger-brief-pipeline.md)
-- [sco-039-durable-invocation-and-delivery-lifecycle.md](./sco-039-durable-invocation-and-delivery-lifecycle.md)
-- [sco-040-capability-registry-and-tool-boundaries.md](./sco-040-capability-registry-and-tool-boundaries.md)
-- [sco-041-extension-packs-and-project-overlays.md](./sco-041-extension-packs-and-project-overlays.md)
-- [sco-042-harness-event-normalization-and-replay-boundary.md](./sco-042-harness-event-normalization-and-replay-boundary.md)
-- [sco-043-execution-environment-contracts.md](./sco-043-execution-environment-contracts.md)
-- [sco-044-operator-attention-policy-and-progress-monitoring.md](./sco-044-operator-attention-policy-and-progress-monitoring.md)
-- [sco-045-mobile-fleet-posture-and-ranger-tiers.md](./sco-045-mobile-fleet-posture-and-ranger-tiers.md)
-- [sco-046-cross-machine-agent-ui-spec.md](./sco-046-cross-machine-agent-ui-spec.md)
-- [sco-047-agent-identity-and-fleet-counting.md](./sco-047-agent-identity-and-fleet-counting.md)
+**Any file matching `sco-*.md` in this folder auto-registers as a studio
+page.** No manual entry in `design/studio/lib/studio-pages.ts` or in this
+README is required, or wanted — the studio reads this folder live via
+`design/studio/lib/eng-docs.ts`. Hand-maintained index lists drift the
+moment someone adds a doc.
+
+To see the live, complete list of proposals: open the studio at
+`/eng` (or browse `docs/eng/` directly).
 
 ## Operations
 

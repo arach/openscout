@@ -1,11 +1,7 @@
-// ScoutBottomBar — Persistent toolbar at the bottom of every surface.
+// ScoutBottomBar — Persistent bottom navigation and composer host.
 //
-// Two modes:
-// - Chrome mode (non-session): back + hero home/grid + overflow
-// - Composer mode (session detail): ComposerView with compact home button left
-//
-// The center home button carries an integrated connection indicator:
-// hidden when healthy, amber when degraded, red when disconnected.
+// Non-session surfaces use a stable six-item tab bar. Session detail keeps the
+// composer toolbar, with a compact Sessions button for returning to the list.
 
 import SwiftUI
 
@@ -14,9 +10,6 @@ struct ScoutBottomBar: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(InboxStore.self) private var inbox
     @Environment(SessionStore.self) private var store
-
-    @State private var showingDiscovery = false
-    @State private var showingSavedSessions = false
 
     private var isConnected: Bool {
         connection.state == .connected
@@ -30,50 +23,25 @@ struct ScoutBottomBar: View {
                 chromeMode
             }
         }
-        .sheet(isPresented: $showingDiscovery) {
-            SessionDiscoveryView(onResumed: { sessionId in
-                showingDiscovery = false
-                router.push(.sessionDetail(sessionId: sessionId))
-            })
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showingSavedSessions) {
-            SessionHistoryView()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-        }
     }
 
     // MARK: - Chrome Mode
 
     private var chromeMode: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                backButton
-                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
+            GeometryReader { proxy in
+                let metrics = SurfaceDockMetrics(width: proxy.size.width)
 
-                Spacer()
-
-                commsButton
-                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
-
-                Spacer()
-
-                heroHomeButton
-
-                Spacer()
-
-                fleetButton
-                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
-
-                Spacer()
-
-                overflowMenu
-                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
+                HStack(spacing: metrics.spacing) {
+                    ForEach(BottomNavItem.allCases) { item in
+                        bottomNavButton(item, metrics: metrics)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
-            .padding(.horizontal, ActionTrayMetrics.horizontalPadding)
-            .padding(.top, 6)
+            .frame(height: 52)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
             .padding(.bottom, 10)
         }
         .frame(maxWidth: .infinity)
@@ -123,36 +91,179 @@ struct ScoutBottomBar: View {
                     }
                 }
             },
-            navigationLeftButton: AnyView(compactHomeButton)
+            navigationLeftButton: AnyView(compactSessionsButton)
         )
     }
 
-    // MARK: - Home Buttons
+    // MARK: - Bottom Navigation
 
-    private func navigateHome() {
-        let impact = UIImpactFeedbackGenerator(style: .light)
-        impact.impactOccurred()
-        router.popToRoot()
+    private enum BottomNavItem: CaseIterable, Identifiable {
+        case agents
+        case sessions
+        case tail
+        case terminal
+        case inbox
+        case assistant
+        case settings
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .agents: return "Agents"
+            case .sessions: return "Sessions"
+            case .tail: return "Tail"
+            case .terminal: return "Terminal"
+            case .inbox: return "Inbox"
+            case .assistant: return "Assistant"
+            case .settings: return "Settings"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .agents: return "person.3"
+            case .sessions: return "square.grid.2x2"
+            case .tail: return "text.line.first.and.arrowtriangle.forward"
+            case .terminal: return "terminal"
+            case .inbox: return "tray.full"
+            case .assistant: return "sparkles"
+            case .settings: return "gearshape"
+            }
+        }
+
+        var destination: Surface {
+            switch self {
+            case .agents: return .agents
+            case .sessions: return .home
+            case .tail: return .tail
+            case .terminal: return .terminal
+            case .inbox: return .inbox
+            case .assistant: return .assistant
+            case .settings: return .settings
+            }
+        }
     }
 
-    private var homeButtonForeground: Color {
-        router.currentSurface == .home
-            ? ScoutColors.textPrimary
-            : ScoutColors.textSecondary
+    private struct SurfaceDockMetrics {
+        let spacing: CGFloat
+        let activeWidth: CGFloat
+        let inactiveWidth: CGFloat
+        let itemHeight: CGFloat
+
+        init(width: CGFloat) {
+            let compact = width < 360
+            spacing = compact ? 2 : 4
+            activeWidth = compact ? 72 : 96
+            inactiveWidth = compact ? 36 : 38
+            itemHeight = 50
+        }
     }
 
-    private var compactHomeButton: some View {
+    private func bottomNavButton(_ item: BottomNavItem, metrics: SurfaceDockMetrics) -> some View {
+        let isSelected = isSelected(item)
+
+        return Button {
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            router.switchTo(item.destination)
+        } label: {
+            HStack(spacing: isSelected ? 6 : 0) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: item.systemImage)
+                        .font(.system(size: 15, weight: isSelected ? .semibold : .medium))
+                        .frame(width: 24, height: 24)
+
+                    if item == .inbox, inbox.unreadCount > 0 {
+                        Circle()
+                            .fill(ScoutColors.ledAmber)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 4, y: -1)
+                    }
+
+                    if item == .sessions, showsConnectionWarning {
+                        Circle()
+                            .fill(connectionWarningColor)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 4, y: -1)
+                    }
+
+                    if item == .settings, showsConnectionWarning {
+                        Circle()
+                            .fill(connectionWarningColor)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 4, y: -1)
+                    }
+                }
+
+                if isSelected {
+                    Text(item.title)
+                        .font(ScoutTypography.code(10, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+            .foregroundStyle(navForeground(selected: isSelected))
+            .frame(width: isSelected ? metrics.activeWidth : metrics.inactiveWidth)
+            .frame(height: metrics.itemHeight)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(ScoutColors.surfaceRaisedAdaptive.opacity(0.78))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(ScoutColors.divider.opacity(0.5), lineWidth: 0.5)
+                        }
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(item.title)
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
+    }
+
+    private func navForeground(selected: Bool) -> Color {
+        return selected ? ScoutColors.textPrimary : ScoutColors.textSecondary
+    }
+
+    private func isSelected(_ item: BottomNavItem) -> Bool {
+        switch router.currentSurface {
+        case .agents, .agentDashboard, .agentDetail:
+            return item == .agents
+        case .home, .allSessions, .sessionDetail:
+            return item == .sessions
+        case .tail:
+            return item == .tail
+        case .terminal:
+            return item == .terminal
+        case .inbox:
+            return item == .inbox
+        case .assistant:
+            return item == .assistant
+        case .settings:
+            return item == .settings
+        default:
+            return false
+        }
+    }
+
+    private var compactSessionsButton: some View {
         Button {
-            navigateHome()
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            router.switchTo(.home)
         } label: {
             Image(systemName: "square.grid.2x2")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(homeButtonForeground)
+                .foregroundStyle(ScoutColors.textSecondary)
                 .frame(
                     width: ActionTrayMetrics.sideButtonSize,
                     height: ActionTrayMetrics.sideButtonSize
                 )
-                .contentShape(Circle())
+                .contentShape(Rectangle())
                 .overlay(alignment: .topTrailing) {
                     if showsConnectionWarning {
                         Circle()
@@ -163,50 +274,7 @@ struct ScoutBottomBar: View {
                 }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Home")
-    }
-
-    private var heroHomeButton: some View {
-        Button {
-            navigateHome()
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(heroHomeButtonFill)
-
-                Circle()
-                    .strokeBorder(heroHomeButtonBorder, lineWidth: 1)
-
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(homeButtonForeground)
-            }
-            .frame(
-                width: ActionTrayMetrics.centerButtonSize,
-                height: ActionTrayMetrics.centerButtonSize
-            )
-            .contentShape(Circle())
-            .overlay(alignment: .topTrailing) {
-                if showsConnectionWarning {
-                    Circle()
-                        .fill(connectionWarningColor)
-                        .frame(width: 8, height: 8)
-                        .offset(x: -8, y: 8)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Home")
-    }
-
-    private var heroHomeButtonFill: Color {
-        router.currentSurface == .home
-            ? ScoutColors.surfaceRaisedAdaptive
-            : ScoutColors.surfaceAdaptive.opacity(0.92)
-    }
-
-    private var heroHomeButtonBorder: Color {
-        ScoutColors.border.opacity(router.currentSurface == .home ? 0.34 : 0.22)
+        .accessibilityLabel("Sessions")
     }
 
     // MARK: - Connection Indicator
@@ -238,183 +306,9 @@ struct ScoutBottomBar: View {
         default: return ScoutColors.ledRed
         }
     }
-
-    // MARK: - Chrome Buttons
-
-    private var backButton: some View {
-        Button {
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            router.pop()
-        } label: {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(router.canGoBack ? ScoutColors.textPrimary : ScoutColors.textMuted.opacity(0.4))
-                .frame(
-                    width: ActionTrayMetrics.sideButtonSize,
-                    height: ActionTrayMetrics.sideButtonSize
-                )
-        }
-        .disabled(!router.canGoBack)
-        .accessibilityLabel("Back")
-    }
-
-    private var isCommsCurrent: Bool {
-        switch router.currentSurface {
-        case .comms, .channel, .dm: return true
-        default: return false
-        }
-    }
-
-    private var commsButtonForeground: Color {
-        isCommsCurrent ? ScoutColors.textPrimary : ScoutColors.textSecondary
-    }
-
-    private var commsButton: some View {
-        Button {
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            router.push(.comms)
-        } label: {
-            VStack(spacing: 2) {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 15, weight: .medium))
-                    .overlay(alignment: .topTrailing) {
-                        if inbox.unreadCount > 0 {
-                            Circle()
-                                .fill(ScoutColors.ledAmber)
-                                .frame(width: 6, height: 6)
-                                .offset(x: 2, y: -2)
-                        }
-                    }
-                Text("Comms")
-                    .font(.system(size: 9, weight: .medium))
-            }
-            .foregroundStyle(commsButtonForeground)
-            .frame(
-                width: ActionTrayMetrics.sideButtonSize,
-                height: ActionTrayMetrics.sideButtonSize
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Comms")
-    }
-
-    private var isFleetCurrent: Bool {
-        switch router.currentSurface {
-        case .fleet, .nodeDetail: return true
-        default: return false
-        }
-    }
-
-    private var fleetButtonForeground: Color {
-        isFleetCurrent ? ScoutColors.textPrimary : ScoutColors.textSecondary
-    }
-
-    private var fleetButton: some View {
-        Button {
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            router.push(.fleet)
-        } label: {
-            VStack(spacing: 2) {
-                Image(systemName: "server.rack")
-                    .font(.system(size: 15, weight: .medium))
-                Text("Ops")
-                    .font(.system(size: 9, weight: .medium))
-            }
-            .foregroundStyle(fleetButtonForeground)
-            .frame(
-                width: ActionTrayMetrics.sideButtonSize,
-                height: ActionTrayMetrics.sideButtonSize
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Fleet")
-    }
-
-    private var overflowMenu: some View {
-        Menu {
-            Button {
-                router.push(.newSession)
-            } label: {
-                Label("New Session", systemImage: "plus")
-            }
-            .disabled(!isConnected)
-
-            Divider()
-
-            Button {
-                router.push(.inbox)
-            } label: {
-                Label(inbox.unreadCount > 0 ? "Inbox (\(inbox.unreadCount))" : "Inbox", systemImage: "tray.full")
-            }
-
-            Button {
-                router.push(.agents)
-            } label: {
-                Label("Agents", systemImage: "person.3")
-            }
-            .disabled(!isConnected)
-
-            Button {
-                router.push(.activity)
-            } label: {
-                Label("Activity Feed", systemImage: "text.line.first.and.arrowtriangle.forward")
-            }
-
-            Button {
-                router.push(.tail)
-            } label: {
-                Label("Tail", systemImage: "terminal")
-            }
-            .disabled(!isConnected)
-
-            Button {
-                router.push(.terminal)
-            } label: {
-                Label("Terminal", systemImage: "terminal.fill")
-            }
-
-            Divider()
-
-            Button {
-                showingDiscovery = true
-            } label: {
-                Label("Search Sessions", systemImage: "magnifyingglass")
-            }
-            .disabled(!isConnected)
-
-            Button {
-                showingSavedSessions = true
-            } label: {
-                Label("Saved Sessions", systemImage: "internaldrive")
-            }
-
-            Divider()
-
-            Button {
-                router.push(.settings)
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(ScoutColors.textMuted)
-                .frame(
-                    width: ActionTrayMetrics.sideButtonSize,
-                    height: ActionTrayMetrics.sideButtonSize
-                )
-                .contentShape(Circle())
-        }
-        .accessibilityLabel("More options")
-    }
 }
 
-// MARK: - Notification for composer → timeline communication
+// MARK: - Notification for composer -> timeline communication
 
 extension Notification.Name {
     static let scoutSendPrompt = Notification.Name("scoutSendPrompt")

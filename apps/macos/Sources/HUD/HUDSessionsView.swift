@@ -28,8 +28,10 @@ private enum SessionStatus: Sendable {
 }
 
 private struct SynthesizedSession: Identifiable {
-    let id: String
-    let refId: String
+    let id: String           // Broker agent ID
+    let refId: String        // Display-truncated agent ID
+    let harnessSessionId: String?  // Real ref resolvable via /api/session-ref
+    let conversationId: String?    // Canonical operator DM thread
     let agentName: String
     let agentHandle: String?
     let harness: String
@@ -59,9 +61,8 @@ struct HUDSessionsView: View {
                 EmptySessions()
             } else {
                 switch state.size {
-                case .compact: compactBody
-                case .medium:  mediumBody
-                case .large:   largeBody
+                case .compact:           compactBody
+                case .medium, .large:    largeBody
                 }
             }
         }
@@ -159,42 +160,8 @@ struct HUDSessionsView: View {
         }
     }
 
-    // MARK: - Medium
-
-    private var mediumBody: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
-                    SessionsHeader(sessions: sessions)
-                    ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
-                        SessionRow(
-                            session: s,
-                            isFirst: idx == 0,
-                            size: .medium,
-                            cursored: engage.isCursored(s.id),
-                            engaged: engage.isEngaged(s.id),
-                            onTap: {
-                                withAnimation(.easeOut(duration: 0.14)) {
-                                    engage.toggle(s.id)
-                                }
-                            }
-                        )
-                        .id(s.id)
-                        if engage.isEngaged(s.id) {
-                            SessionDetailInline(session: s)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-                    }
-                }
-                .padding(.bottom, 10)
-            }
-            .onChange(of: engage.cursoredId) { _, id in
-                if let id { withAnimation(.easeOut(duration: 0.14)) { proxy.scrollTo(id) } }
-            }
-        }
-    }
-
-    // MARK: - Large
+    // MARK: - Large (also serves Medium — same two-pane layout, smaller
+    // panel frame; see HUDState.contentSize)
 
     private var focusedSession: SynthesizedSession {
         // At large, j/k drives the side preview via cursor. Engagement
@@ -263,6 +230,8 @@ struct HUDSessionsView: View {
             return SynthesizedSession(
                 id: agent.id,
                 refId: refId,
+                harnessSessionId: agent.harnessSessionId,
+                conversationId: agent.conversationId,
                 agentName: agent.name,
                 agentHandle: agent.handle,
                 harness: agent.harness ?? "raw",
@@ -607,20 +576,37 @@ private struct SessionDetailLarge: View {
         }
     }
 
-    // WHY: every session row exposes all three drills. session.id is the
-    // broker agent ID (no real DB session ID is plumbed through the HUD
-    // model yet); SessionRefScreen on the web accepts agent IDs as a
-    // sessionRef and resolves the active session. Live tail falls back to
-    // a scoped /ops/tail query rather than an empty index.
+    // WHY: every session row exposes all three drills. The web's
+    // /api/session-ref only resolves real harness session IDs (e.g.
+    // "relay-hudson-claude"), session row PKs, or history file leaves —
+    // NOT broker agent IDs. So OPEN TRANSCRIPT must prefer
+    // harnessSessionId; if that's absent we route to the operator DM
+    // thread for this agent (which carries the same message history) or
+    // /messages scoped to that conversation. Live tail falls back to a
+    // scoped /ops/tail query, never an empty index.
+
     private var transcriptURL: URL {
         let base = HudFleetService.webBaseURL()
+        if let ref = session.harnessSessionId, !ref.isEmpty {
+            return relativeURL("/sessions/\(percent(ref))", base: base)
+        }
+        if let cid = session.conversationId, !cid.isEmpty {
+            return relativeURL("/c/\(percent(cid))", base: base)
+        }
         let aid = session.id
-        if aid.isEmpty { return relativeURL("/sessions", base: base) }
-        return relativeURL("/sessions/\(percent(aid))", base: base)
+        if !aid.isEmpty {
+            // Synthesize the operator DM url. Matches the broker's
+            // `dm.operator.<agentId>` convention.
+            return relativeURL("/c/\(percent("dm.operator.\(aid)"))", base: base)
+        }
+        return relativeURL("/sessions", base: base)
     }
 
     private var followURL: URL {
         let base = HudFleetService.webBaseURL()
+        if let ref = session.harnessSessionId, !ref.isEmpty {
+            return relativeURL("/follow/session/\(percent(ref))", base: base)
+        }
         let aid = session.id
         if !aid.isEmpty {
             return relativeURL("/follow/agent/\(percent(aid))", base: base)

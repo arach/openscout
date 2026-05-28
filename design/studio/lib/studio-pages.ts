@@ -326,6 +326,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Glass pop-out from the menu bar — hotkey-summoned fleet glance over any window.",
   },
   {
+    href: "/studies/assistant",
+    label: "Assistant · Compose",
+    bucket: "studies",
+    surface: "macos",
+    family: "hud",
+    status: "shipped",
+    source: [
+      "apps/macos/Sources/HUD/HUDDockState.swift",
+      "apps/macos/Sources/Services/HudComposeService.swift",
+      "apps/macos/Sources/HUD/HudMessageDock.swift",
+    ],
+    blurb: "Optimistic send — field clears on intent, echo lands immediately, network resolves in the background.",
+  },
+  {
     href: "/studies/hud",
     label: "HUD",
     bucket: "studies",

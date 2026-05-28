@@ -1459,7 +1459,8 @@ async function buildOperatorAttentionState(currentDirectory: string) {
   };
 }
 
-async function buildRangerAssistantControlState(currentDirectory: string) {
+async function buildRangerAssistantControlState(currentDirectory: string, route?: unknown) {
+  const omittedActiveAgentId = isScoutbotAssistantRoute(route) ? "scoutbot" : null;
   const [attention, mesh, tailDiscovery] = await Promise.all([
     valueOrNull(buildOperatorAttentionState(currentDirectory)),
     valueOrNull(loadMeshStatus()),
@@ -1480,6 +1481,11 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
     .filter((event) => !event.summary.toLowerCase().startsWith("permission-mode"))
     .map(compactRangerTailEvent);
   const scoutChatter = queryRecentMessages(50).map(compactRangerMessage);
+  const activeRuns = queryRuns({ active: true, limit: 24 })
+    .filter((run) => run.agentId !== omittedActiveAgentId);
+  const activeFlights = queryFlights({ activeOnly: true })
+    .filter((flight) => flight.agentId !== omittedActiveAgentId)
+    .slice(0, 24);
 
   return {
     build: loadOpenScoutBuildInfo(currentDirectory),
@@ -1525,8 +1531,8 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
       dialogue: broker.dialogue.slice(0, 12).map(compactRangerDialogue),
     },
     activeWork: queryWorkItems({ activeOnly: true, limit: 20 }).map(compactRangerWorkItem),
-    activeRuns: queryRuns({ active: true, limit: 24 }),
-    activeFlights: queryFlights({ activeOnly: true }).slice(0, 24),
+    activeRuns,
+    activeFlights,
     sessions: querySessions(24),
     recentMessages: scoutChatter.slice(0, 16),
     recentActivity: queryActivity(16).map(compactRangerActivity),
@@ -1577,6 +1583,14 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
         }
       : null,
   };
+}
+
+function isScoutbotAssistantRoute(route: unknown): boolean {
+  return Boolean(
+    route
+    && typeof route === "object"
+    && (route as { surface?: unknown }).surface === "scoutbot",
+  );
 }
 
 function compactRangerFleetAsk(ask: ReturnType<typeof queryFleet>["activeAsks"][number]) {
@@ -1973,8 +1987,8 @@ export async function createOpenScoutWebServer(
   const rangerCredentials = createRangerCredentialStore();
   const rangerAssistant = createRangerAssistantService({
     currentDirectory,
-    loadContext: async () => ({
-      ...(await buildRangerAssistantControlState(currentDirectory)),
+    loadContext: async (route) => ({
+      ...(await buildRangerAssistantControlState(currentDirectory, route)),
       reminders: rangerReminders.getState(),
     }),
     resolveApiKey: async () => {

@@ -20,6 +20,7 @@ import {
   askScoutSessionById,
   buildScoutLabelBrief,
   buildScoutLabelFeed,
+  listScoutAgents,
   loadScoutBrokerContext,
   parseScoutHarness,
   parseScoutLocalHarness,
@@ -97,6 +98,75 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
   }
   testDirectories.clear();
+});
+
+describe("listScoutAgents", () => {
+  test("hides stale broker registrations and includes discovered local projects", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const talkieRoot = join(workspaceRoot, "talkie");
+    mkdirSync(join(talkieRoot, ".git"), { recursive: true });
+    writeFileSync(join(talkieRoot, "AGENTS.md"), "# talkie\n", "utf8");
+
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [workspaceRoot],
+        includeCurrentRepo: false,
+      },
+    });
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {
+            "talkie.old.mini": {
+              id: "talkie.old.mini",
+              kind: "agent",
+              definitionId: "talkie",
+              displayName: "Talkie",
+              metadata: {
+                staleLocalRegistration: true,
+                projectRoot: "/tmp/old-talkie",
+              },
+            },
+          },
+          endpoints: {
+            "endpoint-talkie-old": {
+              id: "endpoint-talkie-old",
+              agentId: "talkie.old.mini",
+              nodeId: "node-1",
+              harness: "codex",
+              transport: "codex_app_server",
+              state: "offline",
+              metadata: { staleLocalRegistration: true },
+            },
+          },
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const entries = await listScoutAgents({ currentDirectory: workspaceRoot });
+
+    expect(entries.some((entry) => entry.agentId === "talkie.old.mini")).toBe(false);
+    expect(entries.some((entry) => (
+      entry.agentId.startsWith("talkie.")
+      && entry.registrationKind === "discovered"
+      && entry.state === "discovered"
+    ))).toBe(true);
+  });
 });
 
 describe("buildScoutLabelBrief", () => {

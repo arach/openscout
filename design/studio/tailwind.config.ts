@@ -8,9 +8,9 @@ import type { Config } from "tailwindcss";
  * `app/globals.css` and mirror scout's oklch HUD bundles from
  * `packages/web/client/scout/Provider.tsx`.
  *
- * Fonts mirror scout's actual stack: Instrument Serif (display), Inter
- * Tight (body), JetBrains Mono (chrome). Loaded from Google Fonts in
- * `app/layout.tsx`.
+ * Display is Play — the studio's HUD-flavored title face. Body stays
+ * Inter Tight, chrome stays JetBrains Mono (those mirror scout). All
+ * three loaded from Google Fonts in `app/layout.tsx`.
  */
 const config: Config = {
   content: [
@@ -61,11 +61,11 @@ const config: Config = {
       },
       fontFamily: {
         display: [
-          "Instrument Serif",
-          "Spectral",
-          '"Iowan Old Style"',
-          "Georgia",
-          "serif",
+          "Play",
+          "Inter Tight",
+          "-apple-system",
+          '"SF Pro Display"',
+          "sans-serif",
         ],
         sans: [
           "Inter Tight",

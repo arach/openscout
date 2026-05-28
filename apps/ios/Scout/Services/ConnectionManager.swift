@@ -126,6 +126,15 @@ func deduplicatedRelayURLs(primary: String, fallbacks: [String]) -> [String] {
     return urls
 }
 
+func relayURLsPromotingSuccessfulRelay(_ successfulRelayURL: String, within relayURLs: [String]) -> [String] {
+    let promoted = successfulRelayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !promoted.isEmpty else {
+        return relayURLsAllowedByRouteSettings(relayURLs)
+    }
+
+    return deduplicatedRelayURLs(primary: promoted, fallbacks: relayURLs)
+}
+
 func isTailscaleRouteNetworkFailure(_ error: Error) -> Bool {
     guard let urlError = error as? URLError else {
         return false
@@ -972,12 +981,13 @@ final class ConnectionManager: @unchecked Sendable {
             try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: primaryName)
 
             let publicKeyHex = hexString(attempt.remoteKey)
+            let persistedRelayURLs = relayURLsPromotingSuccessfulRelay(attempt.relayURL, within: relayURLs)
 
             let info = BridgeConnectionInfo(
-                relayURL: relayURLs.first ?? attempt.relayURL,
+                relayURL: persistedRelayURLs.first ?? attempt.relayURL,
                 roomId: attempt.roomId,
                 publicKeyHex: publicKeyHex,
-                fallbackRelayURLs: Array(relayURLs.dropFirst())
+                fallbackRelayURLs: Array(persistedRelayURLs.dropFirst())
             )
             saveConnectionInfo(info)
             connectionInfo = info
@@ -1107,17 +1117,18 @@ final class ConnectionManager: @unchecked Sendable {
                     failureReason: "Trusted bridge identity changed during reconnect"
                 )
 
-                if connectionAttempt.roomId != info.roomId || relayURLs != info.relayURLs {
+                let persistedRelayURLs = relayURLsPromotingSuccessfulRelay(connectionAttempt.relayURL, within: relayURLs)
+                if connectionAttempt.roomId != info.roomId || persistedRelayURLs != info.relayURLs {
                     if connectionAttempt.roomId != info.roomId {
                         Self.logger.notice("Room changed: \(info.roomId, privacy: .public) → \(connectionAttempt.roomId, privacy: .public)")
                     } else {
-                        Self.logger.notice("Relay routes updated via Bonjour discovery")
+                        Self.logger.notice("Relay routes updated after successful reconnect")
                     }
                     info = BridgeConnectionInfo(
-                        relayURL: relayURLs.first ?? connectionAttempt.relayURL,
+                        relayURL: persistedRelayURLs.first ?? connectionAttempt.relayURL,
                         roomId: connectionAttempt.roomId,
                         publicKeyHex: info.publicKeyHex,
-                        fallbackRelayURLs: Array(relayURLs.dropFirst())
+                        fallbackRelayURLs: Array(persistedRelayURLs.dropFirst())
                     )
                     saveConnectionInfo(info)
                     connectionInfo = info
@@ -1247,24 +1258,28 @@ final class ConnectionManager: @unchecked Sendable {
         var sawBridgeOffline = false
         var sawTailscaleUnavailable = false
 
-        for relayURL in relayURLs {
+        for (index, relayURL) in relayURLs.enumerated() {
             var roomId = initialRoomId
-            Self.logger.notice("Trying relay \(relayURL, privacy: .public)")
+            Self.logger.notice("Trying relay route \(index + 1, privacy: .public)/\(relayURLs.count, privacy: .public): \(relayURL, privacy: .public)")
 
             if resolveRoomBeforeConnect {
                 let resolvedRoom = await resolveRoom(relayURL: relayURL, publicKeyHex: publicKeyHex)
                 switch resolvedRoom {
                 case .resolved(let resolvedRoomId):
                     roomId = resolvedRoomId
+                    Self.logger.notice("Resolved relay route \(relayURL, privacy: .public) to room \(roomId, privacy: .public)")
                 case .tailscaleUnavailable:
+                    Self.logger.notice("Skipping unavailable Tailscale relay route \(relayURL, privacy: .public)")
                     sawTailscaleUnavailable = true
                     lastError = ConnectionError.tailscaleUnavailable
                     continue
                 case .bridgeOffline:
+                    Self.logger.notice("Relay route \(relayURL, privacy: .public) is reachable but bridge is absent")
                     sawBridgeOffline = true
                     lastError = ConnectionError.bridgeOffline
                     continue
                 case .relayUnavailable:
+                    Self.logger.notice("Relay route \(relayURL, privacy: .public) could not resolve current room; trying saved room")
                     break
                 }
             }
@@ -1283,14 +1298,17 @@ final class ConnectionManager: @unchecked Sendable {
                 }
 
                 activeRelayURL = relayURL
+                Self.logger.notice("Connected through relay route \(relayURL, privacy: .public)")
                 return RelayConnectionAttempt(relayURL: relayURL, roomId: roomId, remoteKey: remoteKey)
             } catch {
                 clearFailedConnectionAttempt()
                 if relayURLDependsOnTailscale(relayURL) && isTailscaleRouteNetworkFailure(error) {
                     sawTailscaleUnavailable = true
                     lastError = ConnectionError.tailscaleUnavailable
+                    Self.logger.notice("Tailscale relay route failed with network error: \(relayURL, privacy: .public)")
                 } else {
                     lastError = error
+                    Self.logger.error("Relay route failed: \(relayURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
                 }
             }
         }

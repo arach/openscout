@@ -130,6 +130,14 @@ describe("agents route parsing", () => {
     expect(routePath(route)).toBe("/ops/tail?q=019ddb1b-test-thread");
   });
 
+  test("terminal routes tolerate trailing punctuation on mode deep links", () => {
+    expect(routeFromUrl("http://127.0.0.1:3200/terminal/hero.master?mode=takeover.")).toEqual({
+      view: "terminal",
+      agentId: "hero.master",
+      mode: "takeover",
+    });
+  });
+
   test("ops issues route accepts error-oriented aliases", () => {
     expect(routeFromUrl("http://127.0.0.1:3200/ops/plan")).toEqual({
       view: "ops",

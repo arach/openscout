@@ -133,9 +133,8 @@ struct HUDTailView: View {
                 TailEmptyView()
             } else {
                 switch state.size {
-                case .compact: compactBody
-                case .medium:  mediumBody
-                case .large:   largeBody
+                case .compact:           compactBody
+                case .medium, .large:    largeBody
                 }
             }
         }
@@ -252,50 +251,8 @@ struct HUDTailView: View {
         }
     }
 
-    // MARK: - Medium
-
-    private var mediumBody: some View {
-        VStack(spacing: 0) {
-            TailLiveMeter(count: rows.count, size: .medium, following: following)
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
-                            TailRow(
-                                row: row,
-                                size: .medium,
-                                cursored: engage.isCursored(row.id),
-                                engaged: engage.isEngaged(row.id),
-                                onTap: {
-                                    withAnimation(.easeOut(duration: 0.10)) {
-                                        engage.toggle(row.id)
-                                    }
-                                }
-                            )
-                            .id(row.id)
-                            if engage.isEngaged(row.id) {
-                                TailDetailInline(
-                                    row: row,
-                                    prev: idx > 0 ? rows[idx - 1] : nil,
-                                    next: idx + 1 < rows.count ? rows[idx + 1] : nil
-                                )
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                            }
-                        }
-                    }
-                    .padding(.bottom, 10)
-                }
-                .onChange(of: engage.cursoredId) { _, id in
-                    // No anchor → only scroll when the cursor would
-                    // otherwise be off-screen. Rows already visible stay
-                    // put; the list doesn't jump under the operator.
-                    if let id { withAnimation(.easeOut(duration: 0.14)) { proxy.scrollTo(id) } }
-                }
-            }
-        }
-    }
-
-    // MARK: - Large
+    // MARK: - Large (also serves Medium — same two-pane layout, smaller
+    // panel frame; see HUDState.contentSize)
 
     // At large the right pane reads as a preview of whatever the cursor
     // is on (j/k driven), not the engaged row. Engagement opens the

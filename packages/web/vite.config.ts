@@ -103,6 +103,9 @@ export default defineConfig({
       "@hudsonkit/overlays": hudsonKitAlias("overlays.ts", "hudsonkit/overlays"),
       "@hudsonkit/styles": hudsonKitAlias("styles/bundle.css", "hudsonkit/styles"),
       "@hudsonkit": hudsonKitAlias("index.ts", "hudsonkit"),
+      "@xterm/addon-fit": resolveHudsonKitModule("@xterm/addon-fit"),
+      "@xterm/addon-webgl": resolveHudsonKitModule("@xterm/addon-webgl"),
+      "@xterm/xterm": resolveHudsonKitModule("@xterm/xterm"),
     },
   },
   build: {

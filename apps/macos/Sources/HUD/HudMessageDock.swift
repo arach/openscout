@@ -1,3 +1,4 @@
+import ScoutNativeCore
 import SwiftUI
 
 // HudMessageDock — universal bottom-of-panel conversational dock.
@@ -12,6 +13,13 @@ import SwiftUI
 // shared singleton. ↵ submits, Esc clears (or dismisses HUD when empty),
 // engage SEND focuses the field. The mic is a hand-drawn SwiftUI Shape
 // (no SF Symbols, per the cockpit aesthetic preference).
+
+private struct DockWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 enum HudDockSize {
     case compact
@@ -35,48 +43,67 @@ enum HudDockSize {
 
 struct HudMessageDock: View {
     @ObservedObject private var dock = HUDDockState.shared
+    @ObservedObject private var compose = HudComposeService.shared
     @FocusState private var focused: Bool
+    @State private var panelWidth: CGFloat = 0
+
+    // Active thread name for the dock's target row. Defaults to "default"
+    // until the thread map loads (stage 1 always resolves to that anyway).
+    private var threadName: String {
+        compose.activeThread?.name ?? "default"
+    }
 
     var body: some View {
-        GeometryReader { proxy in
-            let size = HudDockSize.from(panelWidth: proxy.size.width)
-            Group {
-                switch size {
-                case .compact:
-                    CompactDock(
-                        pad: size.horizontalPadding,
-                        text: $dock.text,
-                        target: dock.targetLabel,
-                        isSending: dock.isSending,
-                        focused: $focused,
-                        onSubmit: submit
-                    )
-                case .medium, .large:
-                    MediumLargeDock(
-                        size: size,
-                        text: $dock.text,
-                        target: dock.targetLabel,
-                        isSending: dock.isSending,
-                        focused: $focused,
-                        onSubmit: submit
-                    )
-                }
+        // Width is measured via a background-attached GeometryReader so it
+        // doesn't impose a vertical layout (a wrapping GeometryReader fills
+        // its parent vertically, which collapses any child that uses
+        // `.fixedSize(vertical: true)`). The actual dock content owns its
+        // own intrinsic height — and the multi-line TextField grows it.
+        let size = HudDockSize.from(panelWidth: panelWidth)
+        Group {
+            switch size {
+            case .compact:
+                CompactDock(
+                    pad: size.horizontalPadding,
+                    text: $dock.text,
+                    target: dock.targetLabel,
+                    threadName: threadName,
+                    isSending: dock.isSending,
+                    focused: $focused,
+                    onSubmit: submit
+                )
+            case .medium, .large:
+                MediumLargeDock(
+                    size: size,
+                    text: $dock.text,
+                    target: dock.targetLabel,
+                    threadName: threadName,
+                    isSending: dock.isSending,
+                    focused: $focused,
+                    onSubmit: submit
+                )
             }
-            .frame(width: proxy.size.width, alignment: .leading)
         }
-        .frame(height: dockHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: DockWidthKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(DockWidthKey.self) { panelWidth = $0 }
         .onChange(of: dock.focusRequested) { _, _ in focused = true }
         .onChange(of: dock.blurRequested)  { _, _ in focused = false }
     }
 
     private func submit() {
-        Task { await dock.send() }
-    }
-
-    private var dockHeight: CGFloat {
-        // 32 compact, 36 medium, 46 large — the dock fills from the bottom
-        // within this reservation. 48 covers all three tiers.
-        48
+        // Snapshot + clear synchronously so the field empties on the
+        // same runloop tick as the keypress — no Task hop between the
+        // user pressing return and SwiftUI seeing an empty binding.
+        // HudComposeService still echoes the message into the thread
+        // before the network round-trip resolves.
+        let outgoing = dock.text
+        dock.text = ""
+        Task { await dock.send(body: outgoing) }
     }
 }
 
@@ -86,6 +113,7 @@ private struct CompactDock: View {
     let pad: CGFloat
     @Binding var text: String
     let target: String?
+    let threadName: String
     let isSending: Bool
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
@@ -98,6 +126,7 @@ private struct CompactDock: View {
 
                 if let target {
                     TargetChip(label: target)
+                    ThreadPill(name: threadName)
                 }
 
                 TextField("talk — / commands · /s search", text: $text)
@@ -108,7 +137,7 @@ private struct CompactDock: View {
                     .onSubmit(onSubmit)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                SendChip(small: true, dimmed: text.isEmpty || isSending)
+                SendChip(small: true, dimmed: text.isEmpty || isSending, onTap: onSubmit)
                 EscChip()
                 HyperKeyChip()
             }
@@ -135,54 +164,66 @@ private struct MediumLargeDock: View {
     let size: HudDockSize
     @Binding var text: String
     let target: String?
+    let threadName: String
     let isSending: Bool
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
     private var isLarge: Bool { size == .large }
-    private var inputH: CGFloat { isLarge ? 46 : 36 }
+    private var minInputH: CGFloat { isLarge ? 46 : 36 }
     private var micBox: CGFloat { isLarge ? 28 : 24 }
     private var micGlyph: CGFloat { isLarge ? 16 : 14 }
-    private var placeholderSize: CGFloat { isLarge ? 12.5 : 11.5 }
+    // Slightly smaller than the prior sans sizes — mono reads heavier.
+    private var placeholderSize: CGFloat { isLarge ? 11.5 : 10.5 }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
+        // Top-aligned: chips stay with the first line; the text field
+        // grows downward as the operator types. lineLimit(1...5) caps
+        // growth so a runaway paste can't push the whole HUD around.
+        HStack(alignment: .top, spacing: 10) {
+            MicButton(box: micBox, glyph: micGlyph)
 
-            // Input row — lifted to canvasAlt so the dock reads recessed
-            // from the panel body without a hairline divider.
-            HStack(spacing: 10) {
-                MicButton(box: micBox, glyph: micGlyph)
-
-                if let target {
-                    TargetChip(label: target)
-                }
-
-                TextField("talk to the assistant — / for commands, /s to search", text: $text)
-                    .textFieldStyle(.plain)
-                    .font(HUDType.body(placeholderSize))
-                    .foregroundStyle(HUDChrome.ink)
-                    .focused($focused)
-                    .onSubmit(onSubmit)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                SendChip(small: false, dimmed: text.isEmpty || isSending)
-
-                HStack(spacing: 8) {
-                    EscChip()
-                    HyperKeyChip()
-                }
-                .padding(.leading, 4)
+            if let target {
+                TargetChip(label: target)
+                    .padding(.top, isLarge ? 6 : 4)
+                ThreadPill(name: threadName)
+                    .padding(.top, isLarge ? 6 : 4)
             }
-            .padding(.horizontal, size.horizontalPadding)
-            .frame(height: inputH)
-            .frame(maxWidth: .infinity)
-            .background(HUDChrome.canvas)
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(HUDChrome.borderRim.opacity(0.55))
-                    .frame(height: 0.5)
+
+            TextField(
+                "talk to the assistant — / for commands, /s to search",
+                text: $text,
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .lineLimit(1...5)
+            // Mono small for cockpit voice and to match the message
+            // thread font; matches CompactDock which is already mono.
+            .font(HUDType.mono(placeholderSize))
+            .foregroundStyle(HUDChrome.ink)
+            .focused($focused)
+            .onSubmit(onSubmit)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, isLarge ? 4 : 3)
+
+            SendChip(small: false, dimmed: text.isEmpty || isSending, onTap: onSubmit)
+                .padding(.top, isLarge ? 6 : 4)
+
+            HStack(spacing: 8) {
+                EscChip()
+                HyperKeyChip()
             }
+            .padding(.leading, 4)
+            .padding(.top, isLarge ? 6 : 4)
+        }
+        .padding(.horizontal, size.horizontalPadding)
+        .padding(.vertical, isLarge ? 6 : 4)
+        .frame(maxWidth: .infinity, minHeight: minInputH, alignment: .top)
+        .background(HUDChrome.canvas)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(HUDChrome.borderRim.opacity(0.55))
+                .frame(height: 0.5)
         }
     }
 }
@@ -208,44 +249,166 @@ private struct TargetChip: View {
     }
 }
 
-// ─── SEND chip (lights up when text is present) ─────────────────────
-
-private struct SendChip: View {
-    let small: Bool
-    let dimmed: Bool
+// ─── Thread pill (which scoutbot thread the send lands in) ──────────
+//
+// Subtle, borderless, mid-dot separator: reads as secondary metadata
+// next to the @target chip rather than a second chip competing for
+// attention. Static in stage 1; stage 2 will swap this for an
+// interactive switcher.
+private struct ThreadPill: View {
+    let name: String
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text("↵")
-                .font(HUDType.mono(small ? 9 : 10, weight: .semibold))
-                .foregroundStyle(dimmed ? HUDChrome.inkFaint : HUDChrome.accent)
-            Text("SEND")
-                .font(HUDType.mono(small ? 9 : 10, weight: .semibold))
-                .tracking(HUDType.eyebrowMicro)
-                .foregroundStyle(dimmed ? HUDChrome.inkFaint : HUDChrome.accent)
+        HStack(spacing: 3) {
+            Text("·")
+                .font(HUDType.mono(10, weight: .semibold))
+                .foregroundStyle(HUDChrome.inkFaint)
+            Text(name)
+                .font(HUDType.mono(10))
+                .foregroundStyle(HUDChrome.inkMuted)
         }
         .fixedSize()
     }
 }
 
+// ─── SEND chip (lights up when text is present) ─────────────────────
+
+private struct SendChip: View {
+    let small: Bool
+    let dimmed: Bool
+    let onTap: () -> Void
+
+    @State private var hovered = false
+
+    private var color: Color {
+        if dimmed { return HUDChrome.inkFaint }
+        return hovered ? HUDChrome.ink : HUDChrome.accent
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 4) {
+                Text("↵")
+                    .font(HUDType.mono(small ? 9 : 10, weight: .semibold))
+                    .foregroundStyle(color)
+                Text("SEND")
+                    .font(HUDType.mono(small ? 9 : 10, weight: .semibold))
+                    .tracking(HUDType.eyebrowMicro)
+                    .foregroundStyle(color)
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(dimmed)
+        .onHover { hovered = $0 }
+        .help(dimmed ? "" : "Send (↵)")
+    }
+}
+
 // ─── Mic button (hand-drawn glyph, no SF Symbols) ───────────────────
 
+/// Tap → toggle dictation. Visual state mirrors HudVoxService.state:
+///   idle/probing      → faint ink stroke
+///   starting          → ink stroke + soft pulse
+///   recording         → accent stroke + halo + pulse
+///   processing        → faint stroke + spinner-ish pulse
+///   unavailable       → very dim + dashed (and a `.help` tooltip with
+///                       the reason; tapping re-probes)
 private struct MicButton: View {
     let box: CGFloat
     let glyph: CGFloat
 
-    var body: some View {
-        ZStack {
-            MicGlyphShape()
-                .stroke(HUDChrome.inkFaint, style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
-                .frame(width: glyph, height: glyph)
+    @ObservedObject private var vox = HudVoxService.shared
+    @State private var pulse = false
+
+    private var isRecording: Bool {
+        vox.state.isCaptureActive
+    }
+
+    private var isProcessing: Bool {
+        vox.state.isProcessing
+    }
+
+    private var isUnavailable: Bool {
+        vox.state.isUnavailable
+    }
+
+    private var strokeColor: Color {
+        if isRecording { return HUDChrome.accent }
+        if isProcessing { return HUDChrome.inkMuted }
+        if isUnavailable { return HUDChrome.inkFaint.opacity(0.5) }
+        return HUDChrome.inkFaint
+    }
+
+    private var tooltip: String {
+        switch vox.state {
+        case .probing:               return "Checking Vox companion…"
+        case .idle:                  return "Hold to dictate (or tap to start)"
+        case .starting:              return "Starting recording…"
+        case .recording:             return "Recording — tap to commit"
+        case .processing:            return "Transcribing…"
+        case .unavailable(let r):    return r
         }
-        .frame(width: box, height: box)
+    }
+
+    var body: some View {
+        Button(action: handleTap) {
+            ZStack {
+                // Pulsing halo only when actively recording — accent at
+                // 14-20% alpha so the dock still reads composed.
+                if isRecording {
+                    Circle()
+                        .fill(HUDChrome.accent.opacity(pulse ? 0.20 : 0.08))
+                        .frame(width: box, height: box)
+                }
+                MicGlyphShape()
+                    .stroke(
+                        strokeColor,
+                        style: StrokeStyle(
+                            lineWidth: isRecording ? 1.4 : 1,
+                            lineCap: .round,
+                            lineJoin: .round,
+                            dash: isUnavailable ? [1.5, 1.5] : []
+                        )
+                    )
+                    .frame(width: glyph, height: glyph)
+                    .opacity(isProcessing && pulse ? 0.55 : 1.0)
+            }
+            .frame(width: box, height: box)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+        .task { if vox.state == .probing { await vox.probe() } }
+        .onChange(of: vox.state) { _, newValue in
+            // Drive the pulse based on whether we're hot/processing.
+            pulse = false
+            if newValue == .recording || newValue == .starting || newValue == .processing {
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                    pulse = true
+                }
+            }
+        }
+    }
+
+    private func handleTap() {
+        Task { @MainActor in
+            await HUDDockState.shared.toggleDictation()
+        }
     }
 }
 
-// MicGlyphShape — capsule body + cradle arc + stem-to-base, faithfully
-// mirroring the studio SVG (viewBox 0 0 14 14) scaled to the shape rect.
+// MicGlyphShape — slim capsule body sitting in a U-cradle that drops
+// to a short stem and a flat foot. Drawn on a 14×14 viewBox; pairs with
+// RobotGlyphShape + YouGlyphShape at the same stroke weight so the
+// hand-drawn family reads as one set.
+//
+// The old version had the cradle arc starting at y=7.5 (inside the
+// body) and sweeping the wrong way, which produced a shape that didn't
+// read as a mic. Now: body in upper half, cradle below it, stem and
+// foot — the classic studio-mic silhouette.
 private struct MicGlyphShape: Shape {
     func path(in rect: CGRect) -> Path {
         let sx = rect.width / 14.0
@@ -255,7 +418,7 @@ private struct MicGlyphShape: Shape {
         }
         var path = Path()
 
-        // Capsule body: rect x=5 y=2 w=4 h=6.5 rx=2
+        // Body — slim rounded capsule taking the upper half.
         let bodyRect = CGRect(
             x: rect.minX + 5 * sx,
             y: rect.minY + 2 * sy,
@@ -265,25 +428,19 @@ private struct MicGlyphShape: Shape {
         let rx = 2 * min(sx, sy)
         path.addRoundedRect(in: bodyRect, cornerSize: CGSize(width: rx, height: rx))
 
-        // Cradle arc: M3.5 7.5 A3.5 3.5 0 0 0 10.5 7.5
-        // Arc from (3.5,7.5) to (10.5,7.5), sweeping downward through (7, 11).
-        let arcStart = p(3.5, 7.5)
-        let arcEnd = p(10.5, 7.5)
-        let arcCenter = p(7, 7.5)
-        let arcRadius = 3.5 * sx
-        path.move(to: arcStart)
-        path.addArc(
-            center: arcCenter,
-            radius: arcRadius,
-            startAngle: .degrees(180),
-            endAngle: .degrees(0),
-            clockwise: false
-        )
-        _ = arcEnd // silence unused
+        // Cradle — U-shaped quadratic curve sitting below the body,
+        // slightly wider on each side so the body reads as resting in
+        // it. Control point at (7, 13.5) → bezier peak at (7, 11).
+        path.move(to: p(4, 8.5))
+        path.addQuadCurve(to: p(10, 8.5), control: p(7, 13.5))
 
-        // Stem: line from (7, 10.5) to (7, 12)
-        path.move(to: p(7, 10.5))
-        path.addLine(to: p(7, 12))
+        // Stem — short vertical from the cradle's peak down to the foot.
+        path.move(to: p(7, 11))
+        path.addLine(to: p(7, 12.7))
+
+        // Foot — flat horizontal base.
+        path.move(to: p(5, 12.7))
+        path.addLine(to: p(9, 12.7))
 
         return path
     }

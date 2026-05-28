@@ -2606,7 +2606,7 @@ export async function sendTmuxPrompt(
       stdio: "pipe",
       input: prompt,
     });
-    execFileSync("tmux", ["paste-buffer", "-d", "-b", bufferName, "-t", sessionName], {
+    execFileSync("tmux", buildTmuxPasteBufferArgs(bufferName, sessionName), {
       stdio: "pipe",
     });
     // paste-buffer -d deletes the buffer after consumption; no manual cleanup needed.
@@ -2650,6 +2650,10 @@ export async function sendTmuxPrompt(
     }
     throw error;
   }
+}
+
+export function buildTmuxPasteBufferArgs(bufferName: string, sessionName: string): string[] {
+  return ["paste-buffer", "-dpr", "-b", bufferName, "-t", sessionName];
 }
 
 function tmuxDispatchSleep(ms: number): Promise<void> {
@@ -2719,8 +2723,14 @@ export function tmuxPaneTailShowsReadyComposer(paneTail: string): boolean {
     return false;
   }
 
-  const afterComposer = lines.slice(anchor.index + 1).join("\n");
-  return !tmuxPaneTailShowsHarnessActivity(afterComposer);
+  const afterComposerLines: string[] = [];
+  for (const line of lines.slice(anchor.index + 1)) {
+    if (isTmuxComposerBoundary(line)) {
+      break;
+    }
+    afterComposerLines.push(line);
+  }
+  return !tmuxPaneTailShowsHarnessActivity(afterComposerLines.join("\n"));
 }
 
 export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: string): boolean {
@@ -4118,6 +4128,7 @@ export async function ensureLocalAgentBindingOnline(
 
 type LocalAgentInvocationResult = {
   output: string;
+  externalSessionId?: string | null;
 };
 
 export async function invokeLocalAgentEndpoint(
@@ -4145,6 +4156,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
+      externalSessionId: result.threadId,
     };
   }
 
@@ -4158,6 +4170,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
+      externalSessionId: result.sessionId,
     };
   }
 
@@ -4225,6 +4238,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
+      externalSessionId: result.threadId,
     };
   }
 
@@ -4245,6 +4259,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
+      externalSessionId: result.sessionId,
     };
   }
 

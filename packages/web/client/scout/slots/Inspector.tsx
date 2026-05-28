@@ -8,6 +8,7 @@ import { actorColor } from "../../lib/colors.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { AgentsInspector } from "../inspector/AgentsInspector.tsx";
+import { ConversationInspector } from "../inspector/ConversationInspector.tsx";
 import { HomeAgentsInspector } from "../inspector/HomeAgentsInspector.tsx";
 import { SessionsInspector } from "../inspector/SessionsInspector.tsx";
 import { TerminalInspector } from "../inspector/TerminalInspector.tsx";
@@ -93,8 +94,10 @@ export function ScoutInspector() {
       content = <AgentsInspector />;
       break;
     case "sessions":
-    case "conversation":
       content = <SessionsInspector />;
+      break;
+    case "conversation":
+      content = <ConversationInspector />;
       break;
     case "terminal":
       content = <TerminalInspector />;

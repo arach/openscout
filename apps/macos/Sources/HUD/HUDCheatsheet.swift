@@ -69,12 +69,15 @@ struct HUDCheatsheetOverlay: View {
             }
 
             section("Tabs · Tier") {
-                kbd("1 2 3 4", "agents · activity · tail · sessions")
+                kbd("1 2 3 4 5", "agents · activity · tail · sessions · assistant")
                 kbd("⌘← ⌘→", "tier down / up (S / M / L)")
                 kbd("[ ]", "tier down / up")
             }
 
             section("Dock") {
+                kbd("i", "focus the message dock (insert)")
+                kbd("/", "focus dock and start a slash command")
+                kbd("m", "toggle voice dictation — transcript lands in dock")
                 kbd("↵", "send message")
                 kbd("Esc", "cascade: clear text → target → blur → unengage → dismiss")
             }

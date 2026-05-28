@@ -2,6 +2,7 @@
 
 import SwiftUI
 import UIKit
+import MobileKeyboardKit
 
 struct ScoutTerminalView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -12,6 +13,7 @@ struct ScoutTerminalView: View {
     @State private var editingHost: ScoutTerminalSavedHost?
     @State private var pendingDeleteHost: ScoutTerminalSavedHost?
     @State private var errorMessage: String?
+    @State private var keyboardPresentation: ScoutTerminalKeyboardPresentation = .oneRow
 
     private var usesCompactLayout: Bool {
         horizontalSizeClass == .compact
@@ -327,30 +329,19 @@ struct ScoutTerminalView: View {
         VStack(spacing: ScoutSpacing.lg) {
             profileSummary
             adapter.makeTerminalView()
-            terminalShortcutBar
+            terminalKeyboardTray
         }
         .padding(usesCompactLayout ? ScoutSpacing.md : ScoutSpacing.xl)
         .padding(.bottom, 92)
     }
 
-    private var terminalShortcutBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: ScoutSpacing.sm) {
-                ForEach(ScoutTerminalShortcut.allCases) { shortcut in
-                    Button {
-                        adapter.sendShortcut(shortcut)
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } label: {
-                        Text(shortcut.title)
-                            .font(ScoutTypography.code(11, weight: .semibold))
-                            .frame(minWidth: 48)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+    private var terminalKeyboardTray: some View {
+        ScoutTerminalKeyboardTray(
+            presentation: $keyboardPresentation,
+            onSendText: { adapter.sendText($0) },
+            onSendBytes: { adapter.sendBytes($0) },
+            onShortcut: { adapter.sendShortcut($0) }
+        )
     }
 
     private var profileSummary: some View {
@@ -406,6 +397,305 @@ struct ScoutTerminalView: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+}
+
+private enum ScoutTerminalKeyboardPresentation: String, CaseIterable {
+    case hidden
+    case oneRow
+    case twoRow
+    case threeRow
+    case full
+}
+
+private struct ScoutTerminalKeyboardTray: View {
+    @Binding var presentation: ScoutTerminalKeyboardPresentation
+
+    let onSendText: (String) -> Void
+    let onSendBytes: ([UInt8]) -> Void
+    let onShortcut: (ScoutTerminalShortcut) -> Void
+
+    private var visibleRows: [[ScoutTerminalKey]] {
+        switch presentation {
+        case .hidden, .full:
+            []
+        case .oneRow:
+            [shortcutRows[0]]
+        case .twoRow:
+            Array(shortcutRows.prefix(2))
+        case .threeRow:
+            shortcutRows
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: ScoutSpacing.sm) {
+            if presentation == .hidden {
+                collapsedLauncher
+            } else {
+                modeBar
+
+                if presentation == .full {
+                    MobileCompactKeyboardView(
+                        onInsert: { insert($0) },
+                        onDelete: { send(bytes: [0x7F]) },
+                        onReturn: { send(bytes: [0x0D]) },
+                        onVoice: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                presentation = .oneRow
+                            }
+                        }
+                    )
+                    .frame(height: MobileCompactKeyboard.preferredHeight)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    VStack(spacing: 5) {
+                        ForEach(Array(visibleRows.enumerated()), id: \.offset) { _, row in
+                            HStack(spacing: 5) {
+                                ForEach(row) { key in
+                                    terminalKeyButton(key)
+                                }
+                            }
+                        }
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+        }
+        .padding(.horizontal, ScoutSpacing.sm)
+        .padding(.vertical, ScoutSpacing.sm)
+        .background {
+            RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous)
+                .fill(ScoutColors.surfaceAdaptive.opacity(0.86))
+                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: ScoutRadius.lg))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous)
+                .stroke(ScoutColors.divider.opacity(0.65), lineWidth: 0.5)
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: presentation)
+    }
+
+    private var collapsedLauncher: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                presentation = .oneRow
+            }
+        } label: {
+            HStack(spacing: ScoutSpacing.sm) {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("Keyboard")
+                    .font(ScoutTypography.code(11, weight: .semibold))
+                Spacer()
+                Text("Shortcuts")
+                    .font(ScoutTypography.code(10, weight: .medium))
+                    .foregroundStyle(ScoutColors.textMuted)
+            }
+            .foregroundStyle(ScoutColors.textSecondary)
+            .frame(height: 34)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show terminal keyboard")
+    }
+
+    private var modeBar: some View {
+        HStack(spacing: ScoutSpacing.xs) {
+            Image(systemName: "keyboard")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(ScoutColors.textMuted)
+                .frame(width: 28, height: 28)
+
+            presentationButton(.oneRow, label: "1")
+            presentationButton(.twoRow, label: "2")
+            presentationButton(.threeRow, label: "3")
+            presentationButton(.full, label: "ABC")
+
+            Spacer(minLength: ScoutSpacing.sm)
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    presentation = .hidden
+                }
+            } label: {
+                Image(systemName: "keyboard.chevron.compact.down")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textSecondary)
+                    .frame(width: 34, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Hide terminal keyboard")
+        }
+        .frame(height: 32)
+    }
+
+    private func presentationButton(
+        _ target: ScoutTerminalKeyboardPresentation,
+        label: String
+    ) -> some View {
+        let selected = presentation == target
+
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                presentation = target
+            }
+        } label: {
+            Text(label)
+                .font(ScoutTypography.code(10, weight: .bold))
+                .foregroundStyle(selected ? ScoutColors.textPrimary : ScoutColors.textSecondary)
+                .frame(width: label.count > 1 ? 46 : 34, height: 30)
+                .background {
+                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                        .fill(selected ? ScoutColors.surfaceRaisedAdaptive : Color.clear)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label == "ABC" ? "Full keyboard" : "\(label) row keyboard")
+    }
+
+    private func terminalKeyButton(_ key: ScoutTerminalKey) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            perform(key)
+        } label: {
+            HStack(spacing: 4) {
+                if let systemImage = key.systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                Text(key.title)
+                    .font(ScoutTypography.code(key.title.count > 4 ? 10 : 11, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+            .foregroundStyle(ScoutColors.textPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background {
+                RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                    .fill(ScoutColors.cardBg.opacity(0.78))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                    .stroke(ScoutColors.divider.opacity(0.55), lineWidth: 0.5)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(key.accessibilityLabel)
+    }
+
+    private func perform(_ key: ScoutTerminalKey) {
+        switch key.action {
+        case .text(let text):
+            insert(text)
+        case .bytes(let bytes):
+            send(bytes: bytes)
+        case .shortcut(let shortcut):
+            onShortcut(shortcut)
+        }
+    }
+
+    private func insert(_ text: String) {
+        onSendText(text)
+    }
+
+    private func send(bytes: [UInt8]) {
+        onSendBytes(bytes)
+    }
+
+    private var shortcutRows: [[ScoutTerminalKey]] {
+        [
+            [
+                .shortcut("Esc", .escape),
+                .bytes("C-c", [0x03], accessibilityLabel: "Control C"),
+                .shortcut("Tab", .tab),
+                .text("Space", " "),
+                .bytes("Enter", [0x0D]),
+                .bytes("Del", [0x7F], systemImage: "delete.left", accessibilityLabel: "Delete"),
+            ],
+            [
+                .bytes("Left", Array("\u{1B}[D".utf8), systemImage: "arrow.left"),
+                .bytes("Down", Array("\u{1B}[B".utf8), systemImage: "arrow.down"),
+                .bytes("Up", Array("\u{1B}[A".utf8), systemImage: "arrow.up"),
+                .bytes("Right", Array("\u{1B}[C".utf8), systemImage: "arrow.right"),
+                .text("/", "/"),
+                .text("-", "-"),
+            ],
+            [
+                .bytes("C-d", [0x04], accessibilityLabel: "Control D"),
+                .bytes("C-l", [0x0C], accessibilityLabel: "Control L"),
+                .text("cd ..", "cd .."),
+                .text("clear", "clear\r"),
+                .text("|", "|"),
+                .text("~", "~"),
+            ],
+        ]
+    }
+}
+
+private struct ScoutTerminalKey: Identifiable {
+    enum Action {
+        case text(String)
+        case bytes([UInt8])
+        case shortcut(ScoutTerminalShortcut)
+    }
+
+    let id: String
+    let title: String
+    let systemImage: String?
+    let accessibilityLabel: String
+    let action: Action
+
+    static func text(
+        _ title: String,
+        _ text: String,
+        systemImage: String? = nil,
+        accessibilityLabel: String? = nil
+    ) -> ScoutTerminalKey {
+        ScoutTerminalKey(
+            id: "text-\(title)-\(text)",
+            title: title,
+            systemImage: systemImage,
+            accessibilityLabel: accessibilityLabel ?? title,
+            action: .text(text)
+        )
+    }
+
+    static func bytes(
+        _ title: String,
+        _ bytes: [UInt8],
+        systemImage: String? = nil,
+        accessibilityLabel: String? = nil
+    ) -> ScoutTerminalKey {
+        ScoutTerminalKey(
+            id: "bytes-\(title)-\(bytes.map(String.init).joined(separator: "-"))",
+            title: title,
+            systemImage: systemImage,
+            accessibilityLabel: accessibilityLabel ?? title,
+            action: .bytes(bytes)
+        )
+    }
+
+    static func shortcut(
+        _ title: String,
+        _ shortcut: ScoutTerminalShortcut,
+        systemImage: String? = nil,
+        accessibilityLabel: String? = nil
+    ) -> ScoutTerminalKey {
+        ScoutTerminalKey(
+            id: "shortcut-\(shortcut.rawValue)",
+            title: title,
+            systemImage: systemImage,
+            accessibilityLabel: accessibilityLabel ?? shortcut.title,
+            action: .shortcut(shortcut)
+        )
     }
 }
 

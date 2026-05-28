@@ -45,11 +45,11 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin=""
         />
-        {/* Scout's actual face stack — Instrument Serif (display),
-         *  Inter Tight (body), JetBrains Mono (chrome). Defined in
-         *  packages/web/client/scout/Provider.tsx. */}
+        {/* Studio face stack — Play (display), Inter Tight (body),
+         *  JetBrains Mono (chrome). Scout proper now also ships Play via
+         *  packages/web/client/scout/Provider.tsx (--hud-font-serif). */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Play:wght@400;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
           rel="stylesheet"
         />
       </head>

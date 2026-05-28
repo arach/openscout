@@ -68,7 +68,16 @@ struct HUDStatusView: View {
             // SwiftUI's text renderer normally hands to the display.
             VStack(spacing: 0) {
                 masthead
+                // Force the content area to fill remaining height with
+                // child aligned to top. This pins the flash row + dock
+                // to the bottom of the panel regardless of whether the
+                // active tab's content is intrinsic-short (agents list)
+                // or has its own greedy Spacers (assistant empty state).
+                // A naked Spacer here would compete with the latter and
+                // land the flash row in the middle of the panel.
                 content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                HUDFlashRow()
                 HudMessageDock()
             }
 
@@ -120,7 +129,8 @@ struct HUDStatusView: View {
             Spacer(minLength: 6)
 
             // Right cluster: attention pip (when something needs eyes) ·
-            // 3-pill size toggle · `?` cheatsheet hint.
+            // dismissed-flash pip (when an alert was dismissed but the
+            // condition lingers) · 3-pill size toggle · `?` cheatsheet hint.
             HStack(spacing: 8) {
                 if attentionCount > 0 {
                     AttentionPip()
@@ -128,6 +138,7 @@ struct HUDStatusView: View {
                 } else if brokerOffline {
                     BrokerOfflinePip()
                 }
+                DismissedFlashPip()
                 HUDSizeToggle()
                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
                 CheatsheetChip()
@@ -419,7 +430,11 @@ private struct BrokerOfflinePip: View {
                 .font(HUDType.mono(10, weight: .bold))
                 .tracking(HUDType.eyebrowMicro)
                 .foregroundStyle(Color(red: 0.92, green: 0.42, blue: 0.38))
+                .lineLimit(1)
         }
+        // Keep the pip horizontal even when the masthead's right cluster
+        // is tight — without this, "OFFLINE" wraps to one letter per line.
+        .fixedSize()
     }
 }
 

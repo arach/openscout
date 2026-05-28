@@ -105,9 +105,9 @@ body {
 
 /* ── Prose ─────────────────────────────────────────────────────────
  * Applied via `.studio-prose` on the rendered markdown wrapper.
- * Instrument Serif for prose headings, Inter Tight for body, JetBrains
- * Mono for code + chrome — scout's actual face stack. Sized for
- * sustained reading at ~720px column width. */
+ * Play for prose headings (studio's display direction), Inter Tight
+ * for body, JetBrains Mono for code + chrome. Sized for sustained
+ * reading at ~720px column width. */
 
 .studio-prose {
   font-family: theme("fontFamily.sans");

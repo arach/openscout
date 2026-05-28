@@ -20,6 +20,17 @@ type SessionRefObservePayload =
       agentId: string;
     } & Omit<AgentObservePayload, "agentId">)
   | {
+      kind: "pairing";
+      refId: string;
+      agentId: null;
+      source: "live";
+      fidelity: "synthetic";
+      historyPath: null;
+      sessionId: string;
+      updatedAt: number;
+      data: ObserveData;
+    }
+  | {
       kind: "history";
       refId: string;
       agentId: null;

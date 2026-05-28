@@ -160,6 +160,7 @@ function listBrokerMessages(
   };
 
   return Object.values(snapshot.messages)
+    .filter((message) => !isBrokerRequesterWaitTimeoutStatusMessage(message))
     .filter((message) =>
       !input.conversationId || message.conversationId === input.conversationId
     )
@@ -172,6 +173,14 @@ function listBrokerMessages(
     .sort((lhs, rhs) => rhs.createdAt - lhs.createdAt)
     .slice(0, limit)
     .reverse();
+}
+
+function isBrokerRequesterWaitTimeoutStatusMessage(message: MessageRecord): boolean {
+  if (message.class !== "status" || metadataString(message.metadata, "source") !== "broker") {
+    return false;
+  }
+  return message.body.includes("Scout stopped waiting for a synchronous result")
+    || message.body.includes("the requester stopped waiting after");
 }
 
 async function listBrokerActivity(

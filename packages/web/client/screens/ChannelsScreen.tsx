@@ -22,11 +22,14 @@ import { routeMachineId } from "../lib/router.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { DictationMic } from "../components/DictationMic.tsx";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
+import { useAgentHovercard } from "../components/AgentHoverCard.tsx";
 import type { Agent, Message, Route, SessionEntry } from "../lib/types.ts";
 import "./conversation-screen.css";
 import "./channel-screen.css";
 
 /* ── Helpers ── */
+
+type ChannelActor = { id: string; name: string };
 
 function sortMessages(msgs: Message[]): Message[] {
   return [...msgs].sort((a, b) => a.createdAt - b.createdAt);
@@ -42,35 +45,75 @@ function resolveMessageAgent(message: Message, agents: Agent[]): Agent | null {
   return named.length === 1 ? named[0]! : null;
 }
 
+function actorsEqual(left: ChannelActor[], right: ChannelActor[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i]!.id !== right[i]!.id || left[i]!.name !== right[i]!.name) return false;
+  }
+  return true;
+}
+
 /* ── Header members control ── */
+
+type RosterMember = {
+  id: string;
+  name: string;
+  handle: string;
+  state: ReturnType<typeof normalizeAgentState>;
+  isMember: boolean;
+  agent: Agent | null;
+};
 
 function MembersHeaderControl({
   channel,
   agents,
+  extraActors,
 }: {
   channel: SessionEntry;
   agents: Agent[];
+  extraActors: ChannelActor[];
 }) {
-  const memberAgentIds = useMemo(
+  const formalMemberIds = useMemo(
     () => channel.participantIds.filter((pid) => pid !== "operator"),
     [channel.participantIds],
   );
 
-  const members = useMemo(() => {
-    return memberAgentIds.map((pid) => {
-      const agent = agents.find((a) => a.id === pid);
-      return agent
+  const members = useMemo<RosterMember[]>(() => {
+    const collected = new Map<string, RosterMember>();
+    const formalSet = new Set(formalMemberIds);
+
+    const add = (id: string, fallbackName: string, isMember: boolean) => {
+      if (collected.has(id)) return;
+      const agent = agents.find((a) => a.id === id) ?? null;
+      collected.set(id, agent
         ? {
             id: agent.id,
             name: agent.name,
             handle: agent.handle ?? agent.id,
             state: normalizeAgentState(agent.state),
+            isMember,
+            agent,
           }
-        : { id: pid, name: pid, handle: pid, state: "offline" as const };
-    });
-  }, [memberAgentIds, agents]);
+        : {
+            id,
+            name: fallbackName,
+            handle: id,
+            state: normalizeAgentState(null),
+            isMember,
+            agent: null,
+          });
+    };
+
+    for (const pid of formalMemberIds) add(pid, pid, true);
+    for (const actor of extraActors) {
+      if (actor.id === "operator") continue;
+      add(actor.id, actor.name, formalSet.has(actor.id));
+    }
+    return Array.from(collected.values());
+  }, [formalMemberIds, extraActors, agents]);
 
   const onlineCount = members.filter((m) => m.state !== "offline").length;
+  const guestCount = members.filter((m) => !m.isMember).length;
 
   const [rosterOpen, setRosterOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -171,40 +214,21 @@ function MembersHeaderControl({
               <div className="ch-members-roster-empty">No agents in this channel yet.</div>
             ) : (
               members.map((m) => (
-                <div key={m.id} className="ch-members-roster-row">
-                  <div className="ch-members-roster-avatar-wrap">
-                    <div
-                      className="ch-members-roster-avatar"
-                      style={{ background: actorColor(m.name) }}
-                    >
-                      {m.name[0]?.toUpperCase() ?? "?"}
-                    </div>
-                    <span
-                      className="ch-members-roster-dot"
-                      style={{ background: stateColor(m.state) }}
-                    />
-                  </div>
-                  <div className="ch-members-roster-info">
-                    <span className="ch-members-roster-name">{m.name}</span>
-                    <span className="ch-members-roster-handle">@{m.handle}</span>
-                  </div>
-                  {m.state === "working" && (
-                    <span className="ch-members-roster-state">working</span>
-                  )}
-                  <button
-                    type="button"
-                    className="ch-members-roster-remove"
-                    onClick={() => void removeMember(m.id)}
-                    disabled={pendingActorId === m.id}
-                    aria-label={`Remove ${m.name}`}
-                    title={`Remove ${m.name}`}
-                  >
-                    ×
-                  </button>
-                </div>
+                <RosterRow
+                  key={m.id}
+                  member={m}
+                  removeBusy={pendingActorId === m.id}
+                  onRemove={() => void removeMember(m.id)}
+                />
               ))
             )}
           </div>
+          {guestCount > 0 && (
+            <div className="ch-members-roster-footnote">
+              {guestCount} {guestCount === 1 ? "guest is" : "guests are"} posting without
+              being formally added.
+            </div>
+          )}
         </div>
       )}
 
@@ -220,7 +244,7 @@ function MembersHeaderControl({
       </button>
       <AgentPicker
         agents={agents}
-        excludeIds={memberAgentIds}
+        excludeIds={formalMemberIds}
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onSelect={(agent) => void addMember(agent.id)}
@@ -228,6 +252,163 @@ function MembersHeaderControl({
         emptyHint="All agents already in channel."
         triggerRef={addTriggerRef}
       />
+    </div>
+  );
+}
+
+/* ── Roster row ── */
+
+function RosterRow({
+  member,
+  removeBusy,
+  onRemove,
+}: {
+  member: RosterMember;
+  removeBusy: boolean;
+  onRemove: () => void;
+}) {
+  const { triggerProps, popover } = useAgentHovercard<HTMLButtonElement>({ agent: member.agent });
+  const initial = member.name[0]?.toUpperCase() ?? "?";
+
+  return (
+    <>
+      <div className="ch-members-roster-row" data-guest={member.isMember ? undefined : "true"}>
+        <button
+          type="button"
+          className="ch-members-roster-trigger"
+          {...triggerProps}
+          aria-label={`Open ${member.name} profile`}
+        >
+          <div className="ch-members-roster-avatar-wrap">
+            <div
+              className="ch-members-roster-avatar"
+              style={{ background: actorColor(member.name) }}
+            >
+              {initial}
+            </div>
+            <span
+              className="ch-members-roster-dot"
+              style={{ background: stateColor(member.state) }}
+            />
+          </div>
+          <div className="ch-members-roster-info">
+            <span className="ch-members-roster-name">{member.name}</span>
+            <span className="ch-members-roster-handle">
+              @{member.handle}
+              {!member.isMember && <span className="ch-members-roster-guest-tag">guest</span>}
+            </span>
+          </div>
+          {member.state === "working" && (
+            <span className="ch-members-roster-state">working</span>
+          )}
+        </button>
+        {member.isMember && (
+          <button
+            type="button"
+            className="ch-members-roster-remove"
+            onClick={onRemove}
+            disabled={removeBusy}
+            aria-label={`Remove ${member.name}`}
+            title={`Remove ${member.name}`}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {popover}
+    </>
+  );
+}
+
+/* ── Message row ── */
+
+function ChannelMessageRow({
+  message,
+  agent,
+  isYou,
+  operatorName,
+  showAvatar,
+  showDay,
+}: {
+  message: Message;
+  agent: Agent | null;
+  isYou: boolean;
+  operatorName: string;
+  showAvatar: boolean;
+  showDay: boolean;
+}) {
+  const { triggerProps, popover } = useAgentHovercard<HTMLButtonElement>({
+    agent: !isYou ? agent : null,
+  });
+
+  const abs = fullTimestamp(message.createdAt);
+  const displayName = isYou ? operatorName : (message.actorName ?? "?");
+  const initial = (isYou ? operatorName[0] : message.actorName?.[0] ?? "?").toUpperCase();
+  const color = actorColor(isYou ? operatorName : (message.actorName ?? "?"));
+  const handle = isYou ? operatorName.toLowerCase() : (agent?.handle ?? null);
+  const triggerable = !isYou && agent !== null;
+
+  return (
+    <div className="ch-msg-group">
+      {showDay && (
+        <div className="s-thread-day-divider">
+          <span className="s-thread-day-line" />
+          <span className="s-thread-day-label">{formatThreadDayLabel(message.createdAt)}</span>
+          <span className="s-thread-day-line" />
+        </div>
+      )}
+      <article
+        id={`msg-${message.id}`}
+        className={["ch-msg", showAvatar && "ch-msg--with-meta"].filter(Boolean).join(" ")}
+      >
+        <div className="ch-msg-meta">
+          {showAvatar ? (
+            <>
+              {triggerable ? (
+                <button
+                  type="button"
+                  className="ch-msg-meta-top ch-msg-meta-top--trigger"
+                  {...triggerProps}
+                  aria-label={`Open ${displayName} profile`}
+                >
+                  <div className="ch-msg-avatar" style={{ background: color }}>
+                    {initial}
+                  </div>
+                  <span className="ch-msg-author" style={{ color }}>
+                    {displayName}
+                  </span>
+                </button>
+              ) : (
+                <div className="ch-msg-meta-top">
+                  <div className="ch-msg-avatar" style={{ background: color }}>
+                    {initial}
+                  </div>
+                  <span className="ch-msg-author" style={{ color }}>
+                    {displayName}
+                  </span>
+                </div>
+              )}
+              <div className="ch-msg-meta-detail">
+                {handle && <span className="ch-msg-handle">@{handle}</span>}
+                <span className="ch-msg-time" title={abs}>
+                  {timeAgo(message.createdAt)}
+                </span>
+              </div>
+            </>
+          ) : (
+            <span className="ch-msg-inline-time" title={abs}>
+              {timeAgo(message.createdAt)}
+            </span>
+          )}
+        </div>
+        <div className="ch-msg-body-col">
+          <div className="ch-msg-body">
+            <MessageMarkup text={message.body} />
+          </div>
+          <MessageEmbeds message={message} />
+        </div>
+      </article>
+      {popover}
     </div>
   );
 }
@@ -240,12 +421,14 @@ function ChannelFeed({
   agents,
   operatorName,
   onMessageCountChange,
+  onSeenActorsChange,
 }: {
   channelId: string;
   channelName: string;
   agents: Agent[];
   operatorName: string;
   onMessageCountChange: (count: number) => void;
+  onSeenActorsChange?: (actors: ChannelActor[]) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -295,6 +478,22 @@ function ChannelFeed({
     initialScrollDoneRef.current = true;
   }, [messages.length]);
 
+  const seenActorsRef = useRef<ChannelActor[]>([]);
+  useEffect(() => {
+    if (!onSeenActorsChange) return;
+    const seen = new Map<string, string>();
+    for (const m of messages) {
+      if (!m.actorId || m.actorId === "operator") continue;
+      if (!seen.has(m.actorId)) seen.set(m.actorId, m.actorName);
+    }
+    const next: ChannelActor[] = Array.from(seen, ([id, name]) => ({ id, name }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    if (!actorsEqual(seenActorsRef.current, next)) {
+      seenActorsRef.current = next;
+      onSeenActorsChange(next);
+    }
+  }, [messages, onSeenActorsChange]);
+
   const send = async () => {
     const text = draft.trim();
     if (!text || sending) return;
@@ -343,58 +542,17 @@ function ChannelFeed({
           const isYou = msg.actorName === operatorName || msg.class === "operator";
           const showDay = i === 0 || !isSameCalendarDay(messages[i - 1]?.createdAt, msg.createdAt);
           const showAvatar = i === 0 || messages[i - 1]?.actorName !== msg.actorName || showDay;
-          const abs = fullTimestamp(msg.createdAt);
           const msgAgent = !isYou ? resolveMessageAgent(msg, agents) : null;
-          const handle = isYou ? operatorName.toLowerCase() : (msgAgent?.handle ?? null);
-          const color = actorColor(isYou ? operatorName : (msg.actorName ?? "?"));
-
           return (
-            <div key={msg.id} className="ch-msg-group">
-              {showDay && (
-                <div className="s-thread-day-divider">
-                  <span className="s-thread-day-line" />
-                  <span className="s-thread-day-label">{formatThreadDayLabel(msg.createdAt)}</span>
-                  <span className="s-thread-day-line" />
-                </div>
-              )}
-              <article
-                id={`msg-${msg.id}`}
-                className={["ch-msg", showAvatar && "ch-msg--with-meta"].filter(Boolean).join(" ")}
-              >
-                <div className="ch-msg-meta">
-                  {showAvatar ? (
-                    <>
-                      <div className="ch-msg-meta-top">
-                        <div className="ch-msg-avatar" style={{ background: color }}>
-                          {(isYou ? operatorName[0] : msg.actorName?.[0] ?? "?").toUpperCase()}
-                        </div>
-                        <span className="ch-msg-author" style={{ color }}>
-                          {isYou ? operatorName : msg.actorName}
-                        </span>
-                      </div>
-                      <div className="ch-msg-meta-detail">
-                        {handle && (
-                          <span className="ch-msg-handle">@{handle}</span>
-                        )}
-                        <span className="ch-msg-time" title={abs}>
-                          {timeAgo(msg.createdAt)}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <span className="ch-msg-inline-time" title={abs}>
-                      {timeAgo(msg.createdAt)}
-                    </span>
-                  )}
-                </div>
-                <div className="ch-msg-body-col">
-                  <div className="ch-msg-body">
-                    <MessageMarkup text={msg.body} />
-                  </div>
-                  <MessageEmbeds message={msg} />
-                </div>
-              </article>
-            </div>
+            <ChannelMessageRow
+              key={msg.id}
+              message={msg}
+              agent={msgAgent}
+              isYou={isYou}
+              operatorName={operatorName}
+              showAvatar={showAvatar}
+              showDay={showDay}
+            />
           );
         })}
         <div ref={bottomRef} />
@@ -537,6 +695,11 @@ export function ChannelsScreen({
     ? (channels.find((c) => c.id === channelId) ?? null)
     : null;
 
+  const [seenActors, setSeenActors] = useState<ChannelActor[]>([]);
+  useEffect(() => {
+    setSeenActors([]);
+  }, [channelId]);
+
   const loadSessions = useCallback(async () => {
     const data = await api<SessionEntry[]>("/api/conversations").catch(() => [] as SessionEntry[]);
     setSessions(data);
@@ -570,6 +733,7 @@ export function ChannelsScreen({
               <MembersHeaderControl
                 channel={selectedChannel}
                 agents={scopedAgents}
+                extraActors={seenActors}
               />
             </div>
           </div>
@@ -582,6 +746,7 @@ export function ChannelsScreen({
               agents={scopedAgents}
               operatorName={operatorName}
               onMessageCountChange={() => { /* noop — message count no longer surfaced */ }}
+              onSeenActorsChange={setSeenActors}
             />
           </div>
         </>

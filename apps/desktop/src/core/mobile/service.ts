@@ -186,6 +186,20 @@ function metadataBoolean(metadata: Record<string, unknown> | undefined, key: str
   return metadata?.[key] === true;
 }
 
+function isBrokerRequesterWaitTimeoutStatusMessage(message: MessageRecord): boolean {
+  if (message.class !== "status" || metadataString(message.metadata, "source") !== "broker") {
+    return false;
+  }
+  return message.body.includes("Scout stopped waiting for a synchronous result")
+    || message.body.includes("the requester stopped waiting after");
+}
+
+function isRequesterWaitTimeoutFlight(flight: FlightRecord): boolean {
+  return metadataBoolean(flight.metadata, "requesterTimedOut")
+    || metadataString(flight.metadata, "timeoutScope") === "requester_wait"
+    || Boolean(flight.summary?.includes("Scout stopped waiting for a synchronous result"));
+}
+
 function isInactiveAgent(agent: AgentDefinition | null | undefined): boolean {
   return metadataBoolean(agent?.metadata, "retiredFromFleet")
     || metadataBoolean(agent?.metadata, "staleLocalRegistration");
@@ -269,6 +283,9 @@ async function loadMobileWorkspaceInventory(currentDirectory?: string): Promise<
 function latestMessageByConversation(snapshot: ScoutBrokerSnapshot): Map<string, MessageRecord[]> {
   const buckets = new Map<string, MessageRecord[]>();
   for (const message of Object.values(snapshot.messages)) {
+    if (isBrokerRequesterWaitTimeoutStatusMessage(message)) {
+      continue;
+    }
     const next = buckets.get(message.conversationId) ?? [];
     next.push(message);
     buckets.set(message.conversationId, next);
@@ -291,7 +308,9 @@ function agentDisplayName(snapshot: ScoutBrokerSnapshot, agentId: string): strin
 }
 
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
-  return Object.values(snapshot.endpoints).find((endpoint) => endpoint.agentId === agentId) ?? null;
+  return Object.values(snapshot.endpoints).find((endpoint) => (
+    endpoint.agentId === agentId && !isInactiveEndpoint(snapshot, endpoint)
+  )) ?? null;
 }
 
 function buildMobileAgentSummary(
@@ -345,7 +364,7 @@ function buildMobileSessionSummaries(snapshot: ScoutBrokerSnapshot): ScoutMobile
         ? conversation.participantIds.find((participantId) => participantId !== "operator") ?? null
         : null;
       const agent = directAgentId ? snapshot.agents[directAgentId] ?? null : null;
-      if (!directAgentId || !agent || messages.length === 0) {
+      if (!directAgentId || !agent || isInactiveAgent(agent) || messages.length === 0) {
         return [];
       }
       const endpoint = endpointForAgent(snapshot, directAgentId);
@@ -405,6 +424,7 @@ function messagesForConversation(
   conversationId: string,
 ): MessageRecord[] {
   return Object.values(snapshot.messages)
+    .filter((message) => !isBrokerRequesterWaitTimeoutStatusMessage(message))
     .filter((message) => message.conversationId === conversationId)
     .sort((left, right) => (normalizeTimestamp(left.createdAt) ?? 0) - (normalizeTimestamp(right.createdAt) ?? 0));
 }
@@ -468,7 +488,8 @@ function latestActiveFlightForAgent(
   return Object.values(snapshot.flights as Record<string, FlightRecord>)
     .filter((flight) => (
       flight.targetAgentId === agentId
-      && !["completed", "failed", "cancelled"].includes(flight.state)
+      && (flight.state === "running" || flight.state === "waiting")
+      && !isRequesterWaitTimeoutFlight(flight)
     ))
     .sort((left, right) => (normalizeTimestamp(right.startedAt) ?? 0) - (normalizeTimestamp(left.startedAt) ?? 0))[0] ?? null;
 }
@@ -484,6 +505,12 @@ async function loadMobileRelayState(): Promise<{
 
   const snapshot = broker.snapshot;
   const agents = Object.values(snapshot.agents)
+    .filter((agent) => !isInactiveAgent(agent))
+    .filter((agent) => {
+      const endpoints = Object.values(snapshot.endpoints)
+        .filter((endpoint) => endpoint.agentId === agent.id);
+      return endpoints.length === 0 || endpoints.some((endpoint) => !isInactiveEndpoint(snapshot, endpoint));
+    })
     .map((agent) => buildMobileAgentSummary(snapshot, agent))
     .sort((left, right) => (right.lastActiveAt ?? 0) - (left.lastActiveAt ?? 0) || left.title.localeCompare(right.title));
 

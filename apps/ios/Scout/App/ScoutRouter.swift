@@ -23,6 +23,7 @@ enum Surface: Hashable {
     case channel(id: String)
     case dm(peerId: String)
     case terminal
+    case assistant
 }
 
 @MainActor
@@ -68,6 +69,10 @@ final class ScoutRouter {
 
     func popToRoot() {
         surfaceStack = [.home]
+    }
+
+    func switchTo(_ surface: Surface) {
+        surfaceStack = [surface]
     }
 
     func replaceTop(_ surface: Surface) {

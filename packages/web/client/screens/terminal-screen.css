@@ -152,6 +152,36 @@
   overflow: hidden;
 }
 
+.s-term-body--placeholder {
+  display: grid;
+  place-items: center;
+}
+
+.s-term-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.42);
+  text-transform: uppercase;
+}
+
+.s-term-placeholder button {
+  border: 1px solid rgba(94, 234, 212, 0.25);
+  border-radius: 4px;
+  background: rgba(94, 234, 212, 0.08);
+  color: rgba(219, 255, 248, 0.8);
+  cursor: pointer;
+  font: inherit;
+  padding: 5px 9px;
+}
+
+.s-term-placeholder button:hover {
+  background: rgba(94, 234, 212, 0.14);
+}
+
 @keyframes s-term-pulse {
   0%, 100% { opacity: 0.6; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.35); }

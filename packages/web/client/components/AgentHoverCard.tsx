@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { AgentIdentity } from "@openscout/protocol";
+import { constructAgentIdentity, type AgentIdentity } from "@openscout/protocol";
 
 import { api } from "../lib/api.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
@@ -163,21 +163,28 @@ function findThemeRoot(node: Node | null): HTMLElement {
 
 function AgentHoverCardPopover({
   identity,
+  agent: agentSeed,
   triggerEl,
   onRequestClose,
 }: {
   identity: AgentIdentity;
+  agent?: Agent | null;
   triggerEl: HTMLElement;
   onRequestClose: () => void;
 }) {
   const { agents, navigate } = useScout();
-  const [agent, setAgent] = useState<Agent | null>(() => lookupAgent(identity, agents));
-  const [loading, setLoading] = useState(true);
+  const [agent, setAgent] = useState<Agent | null>(() => agentSeed ?? lookupAgent(identity, agents));
+  const [loading, setLoading] = useState(!agentSeed);
   const [position, setPosition] = useState(() => computePosition(triggerEl.getBoundingClientRect()));
   const cardRef = useRef<HTMLDivElement>(null);
   const themeRoot = findThemeRoot(triggerEl);
 
   useEffect(() => {
+    if (agentSeed) {
+      setAgent(agentSeed);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     fetchAgent(identity, agents).then((next) => {
@@ -188,7 +195,7 @@ function AgentHoverCardPopover({
     return () => {
       cancelled = true;
     };
-  }, [identity, agents]);
+  }, [identity, agents, agentSeed]);
 
   useEffect(() => {
     const onScrollOrResize = () => {
@@ -265,21 +272,55 @@ function AgentHoverCardPopover({
   );
 }
 
-/** Mention text that opens an agent hovercard on hover, click pins it. */
-export function AgentMention({
-  identity,
-  color,
-}: {
-  identity: AgentIdentity;
-  color: string;
-}) {
+/** Best-effort AgentIdentity from a known Agent record. */
+export function identityFromAgent(agent: Agent): AgentIdentity | null {
+  return constructAgentIdentity({
+    definitionId: agent.definitionId,
+    workspaceQualifier: agent.workspaceQualifier ?? undefined,
+    nodeQualifier: agent.nodeQualifier ?? undefined,
+    harness: agent.harness ?? undefined,
+    model: agent.model ?? undefined,
+  });
+}
+
+/**
+ * Hover/click affordance shared by every agent mention surface: returns
+ * trigger props (hover-intent, click-to-pin, keyboard) plus the portal
+ * popover element. Spread `triggerProps` on any focusable element; render
+ * `popover` alongside it.
+ *
+ * Pass `agent` when the resolved record is already in hand to skip the
+ * lookup; the hook will derive an identity from it. Otherwise pass
+ * `identity` directly (e.g. for inline @-mentions parsed from text).
+ */
+export function useAgentHovercard<T extends HTMLElement = HTMLElement>(input: {
+  agent?: Agent | null;
+  identity?: AgentIdentity | null;
+}): {
+  triggerProps: {
+    ref: React.RefObject<T | null>;
+    onMouseEnter?: () => void;
+    onMouseLeave?: () => void;
+    onFocus?: () => void;
+    onBlur?: () => void;
+    onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+    onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
+    "data-hover-open"?: "true";
+    "aria-haspopup"?: "dialog";
+    "aria-expanded"?: boolean;
+  };
+  popover: React.ReactNode;
+  open: boolean;
+  pinned: boolean;
+} {
+  const { agent: agentProp, identity: identityProp } = input;
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
-  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const triggerRef = useRef<T | null>(null);
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
 
-  const clearTimers = () => {
+  const clearTimers = useCallback(() => {
     if (openTimer.current !== null) {
       window.clearTimeout(openTimer.current);
       openTimer.current = null;
@@ -288,77 +329,112 @@ export function AgentMention({
       window.clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
-  };
+  }, []);
 
   const requestOpen = useCallback(() => {
     if (open) return;
     clearTimers();
     openTimer.current = window.setTimeout(() => setOpen(true), HOVER_INTENT_MS);
-  }, [open]);
+  }, [open, clearTimers]);
 
   const requestClose = useCallback(() => {
     if (pinned) return;
     clearTimers();
     closeTimer.current = window.setTimeout(() => setOpen(false), HIDE_GRACE_MS);
-  }, [pinned]);
+  }, [pinned, clearTimers]);
 
   const forceClose = useCallback(() => {
     clearTimers();
     setOpen(false);
     setPinned(false);
-  }, []);
+  }, [clearTimers]);
 
-  useEffect(() => () => clearTimers(), []);
+  useEffect(() => () => clearTimers(), [clearTimers]);
 
-  const onClick = (event: React.MouseEvent<HTMLSpanElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (open && pinned) {
-      forceClose();
-      return;
-    }
-    clearTimers();
-    setPinned(true);
-    setOpen(true);
-  };
+  const identity = useMemo(
+    () => identityProp ?? (agentProp ? identityFromAgent(agentProp) : null),
+    [identityProp, agentProp],
+  );
+  const enabled = Boolean(identity);
 
+  const onClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (open && pinned) {
+        forceClose();
+        return;
+      }
+      clearTimers();
+      setPinned(true);
+      setOpen(true);
+    },
+    [open, pinned, forceClose, clearTimers],
+  );
+
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setPinned(true);
+        setOpen(true);
+      }
+    },
+    [],
+  );
+
+  const triggerProps = enabled
+    ? {
+        ref: triggerRef,
+        onMouseEnter: requestOpen,
+        onMouseLeave: requestClose,
+        onFocus: requestOpen,
+        onBlur: requestClose,
+        onClick,
+        onKeyDown,
+        "data-hover-open": open ? ("true" as const) : undefined,
+        "aria-haspopup": "dialog" as const,
+        "aria-expanded": open,
+      }
+    : { ref: triggerRef };
+
+  const popover =
+    open && triggerRef.current && identity ? (
+      <AgentHoverCardPopover
+        identity={identity}
+        agent={agentProp ?? null}
+        triggerEl={triggerRef.current}
+        onRequestClose={() => {
+          if (pinned) forceClose();
+          else requestClose();
+        }}
+      />
+    ) : null;
+
+  return { triggerProps, popover, open, pinned };
+}
+
+/** Mention text that opens an agent hovercard on hover, click pins it. */
+export function AgentMention({
+  identity,
+  color,
+}: {
+  identity: AgentIdentity;
+  color: string;
+}) {
+  const { triggerProps, popover } = useAgentHovercard<HTMLSpanElement>({ identity });
   return (
     <>
       <span
-        ref={triggerRef}
+        {...triggerProps}
         className="s-mention"
         role="button"
         tabIndex={0}
-        data-hover-open={open ? "true" : undefined}
         style={{ "--mention-color": color } as CSSProperties}
-        onMouseEnter={requestOpen}
-        onMouseLeave={requestClose}
-        onFocus={requestOpen}
-        onBlur={requestClose}
-        onClick={onClick}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setPinned(true);
-            setOpen(true);
-          }
-        }}
       >
         {identity.label}
       </span>
-      {open && triggerRef.current && (
-        <AgentHoverCardPopover
-          identity={identity}
-          triggerEl={triggerRef.current}
-          onRequestClose={() => {
-            if (pinned) {
-              forceClose();
-            } else {
-              requestClose();
-            }
-          }}
-        />
-      )}
+      {popover}
     </>
   );
 }

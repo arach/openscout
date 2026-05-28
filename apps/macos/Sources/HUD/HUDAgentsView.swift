@@ -19,9 +19,8 @@ struct HUDAgentsView: View {
             FleetEmptyState()
         } else {
             switch state.size {
-            case .compact: compactBody
-            case .medium:  mediumBody
-            case .large:   largeBody
+            case .compact:           compactBody
+            case .medium, .large:    largeBody
             }
         }
     }
@@ -54,76 +53,9 @@ struct HUDAgentsView: View {
         }
     }
 
-    // MARK: - Medium (2-up tile grid)
-
-    private var mediumBody: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 0) {
-                HUDAgentsHeader(count: agents.count)
-                tileGrid
-            }
-            .padding(.bottom, 10)
-        }
-    }
-
-    // WHY: SwiftUI's LazyVGrid can't host a row-spanning expanded panel cleanly,
-    // so pair tiles two-at-a-time and inline the detail under the engaged pair.
-    private var tilePairs: [(Int, HudAgent, HudAgent?)] {
-        var result: [(Int, HudAgent, HudAgent?)] = []
-        var i = 0
-        while i < agents.count {
-            let a = agents[i]
-            let b = i + 1 < agents.count ? agents[i + 1] : nil
-            result.append((i, a, b))
-            i += 2
-        }
-        return result
-    }
-
-    @ViewBuilder
-    private var tileGrid: some View {
-        ForEach(tilePairs, id: \.0) { _, a, b in
-            tilePairRow(a: a, b: b)
-            if engage.isSelected(a.id) {
-                AgentDetailInline(agent: a)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            } else if let b, engage.isSelected(b.id) {
-                AgentDetailInline(agent: b)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-    }
-
-    private func tilePairRow(a: HudAgent, b: HudAgent?) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            AgentTileMedium(
-                agent: a,
-                isActive: a.id == activeAgentId,
-                engaged: engage.isSelected(a.id),
-                onTap: {
-                    withAnimation(.easeOut(duration: 0.14)) { engage.toggle(a.id) }
-                }
-            )
-            Rectangle().fill(HUDChrome.border).frame(width: 0.5)
-            if let b {
-                AgentTileMedium(
-                    agent: b,
-                    isActive: b.id == activeAgentId,
-                    engaged: engage.isSelected(b.id),
-                    onTap: {
-                        withAnimation(.easeOut(duration: 0.14)) { engage.toggle(b.id) }
-                    }
-                )
-            } else {
-                Color.clear.frame(maxWidth: .infinity)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(HUDChrome.borderSoft).frame(height: 0.5)
-        }
-    }
-
-    // MARK: - Large (three panes)
+    // MARK: - Large (three panes — also serves Medium; the wide layout is
+    // what makes the S→M jump feel like a tier change rather than a font
+    // bump.)
 
     private var selectedAgent: HudAgent {
         if let id = engage.selectedId, let match = agents.first(where: { $0.id == id }) {
@@ -343,139 +275,6 @@ private struct AgentRowCompact: View {
                     .foregroundStyle(HUDChrome.inkFaint)
             }
             .padding(.leading, 14)
-        }
-    }
-}
-
-// MARK: - Medium tile
-
-private struct AgentTileMedium: View {
-    let agent: HudAgent
-    let isActive: Bool
-    let engaged: Bool
-    var onTap: () -> Void = {}
-
-    @State private var hovered = false
-
-    private var isAttention: Bool { agent.state == .needsAttention }
-    private var isWorking: Bool { agent.state == .working }
-
-    private var fill: Color {
-        if engaged { return HUDChrome.canvasLift.opacity(0.55) }
-        if hovered { return HUDChrome.canvasLift.opacity(0.30) }
-        return Color.clear
-    }
-
-    private var workSummary: String {
-        if isAttention, let ask = agent.pendingAsk { return ask }
-        return agent.lastTurn
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            identity
-            pulseRow
-            workRow
-            lastActionRow
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(fill)
-        .overlay(alignment: .leading) {
-            if engaged || isActive {
-                Rectangle().fill(HUDChrome.accent).frame(width: 1.5)
-            }
-        }
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 }
-        .onTapGesture(perform: onTap)
-    }
-
-    private var identity: some View {
-        // Tile width is ~340px at medium. Name carries layout priority
-        // and truncates tail; state label drops (it lives in the eyebrow
-        // pattern), handle drops to keep the identity line tight and
-        // prevent overflow that nukes the leading dot.
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            AgentStateDot(color: stateColor(for: agent.state), working: isWorking)
-                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
-
-            Text(agent.name)
-                .font(HUDType.body(13, weight: .semibold))
-                .foregroundStyle(HUDChrome.ink)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
-
-            Text(stateLabel(for: agent.state))
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(stateColor(for: agent.state))
-                .lineLimit(1)
-                .fixedSize()
-
-            Spacer(minLength: 6)
-
-            Text(agent.ago)
-                .font(HUDType.mono(10, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkFaint)
-                .fixedSize()
-        }
-    }
-
-    private var pulseRow: some View {
-        HStack(spacing: 8) {
-            Text("PULSE")
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkFaint)
-            HUDPulseSparkline(
-                values: HUDMockPulse.pulse(for: (agent.handle ?? agent.name).lowercased()),
-                color: HUDChrome.agentHue(agent.hue),
-                size: CGSize(width: 56, height: 9)
-            )
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 14)
-        .padding(.top, 8)
-    }
-
-    private var workRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("WORK")
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkFaint)
-            Text(workSummary)
-                .font(HUDType.body(12))
-                .foregroundStyle(isAttention ? HUDChrome.ink : HUDChrome.inkMuted)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(1.5)
-        }
-        .padding(.leading, 14)
-        .padding(.top, 8)
-    }
-
-    @ViewBuilder
-    private var lastActionRow: some View {
-        if let last = agent.lastMessage?.text, !last.isEmpty {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("↪")
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Text(last)
-                    .font(HUDType.body(11))
-                    .foregroundStyle(HUDChrome.inkMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 14)
-            .padding(.top, 6)
         }
     }
 }

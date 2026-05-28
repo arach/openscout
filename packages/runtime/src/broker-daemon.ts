@@ -1293,7 +1293,16 @@ async function recordInvocationDurably(
 }
 
 async function recordFlightDurably(flight: FlightRecord): Promise<void> {
+  let recordedFlight: FlightRecord | null = null;
   await runDurableWrite(async () => {
+    const previous = runtime.snapshot().flights[flight.id];
+    if (previous && shouldIgnoreFlightUpdate(previous, flight)) {
+      console.warn(
+        `[openscout-runtime] ignored stale flight update ${flight.id}: ${previous.state} -> ${flight.state}`,
+      );
+      return;
+    }
+
     const entries = await commitDurableEntries(
       { kind: "flight.record", flight },
       async () => {
@@ -1302,7 +1311,9 @@ async function recordFlightDurably(flight: FlightRecord): Promise<void> {
       { enqueueProjection: false },
     );
     await applyProjectedEntries(entries);
+    recordedFlight = flight;
   });
+  if (!recordedFlight) return;
 
   const invocation = knownInvocations.get(flight.invocationId)
     ?? runtime.snapshot().invocations[flight.invocationId];
@@ -1326,6 +1337,10 @@ async function recordFlightDurably(flight: FlightRecord): Promise<void> {
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+function shouldIgnoreFlightUpdate(previous: FlightRecord, next: FlightRecord): boolean {
+  return isTerminalFlightState(previous.state) && !isTerminalFlightState(next.state);
 }
 
 const terminalDeliveryStatuses = new Set<DeliveryStatus>(["completed", "failed", "cancelled"]);
@@ -2063,12 +2078,16 @@ function isRetiredLocalAgent(agent: AgentDefinition | undefined): boolean {
   return agent?.metadata?.retiredFromFleet === true;
 }
 
+function isInactiveLocalAgent(agent: AgentDefinition | undefined): boolean {
+  return isRetiredLocalAgent(agent) || agent?.metadata?.staleLocalRegistration === true;
+}
+
 function isStaleLocalEndpoint(snapshot: ReturnType<typeof runtime.snapshot>, endpoint: AgentEndpoint | null): boolean {
   if (!endpoint || endpoint.metadata?.staleLocalRegistration === true) {
     return true;
   }
 
-  return isRetiredLocalAgent(snapshot.agents[endpoint.agentId]);
+  return isInactiveLocalAgent(snapshot.agents[endpoint.agentId]);
 }
 
 function homeEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, agentId: string): AgentEndpoint | null {
@@ -2570,7 +2589,7 @@ function summarizeHomeAgent(endpoint: AgentEndpoint | null): {
 async function brokerHomePayload() {
   const snapshot = runtime.snapshot();
   const agents = Object.values(snapshot.agents)
-    .filter((agent) => !isRetiredLocalAgent(agent))
+    .filter((agent) => !isInactiveLocalAgent(agent))
     .map((agent) => {
       const endpoint = homeEndpointForAgent(snapshot, agent.id);
       const status = summarizeHomeAgent(endpoint);
@@ -2660,6 +2679,9 @@ function staleWorkingFlightReason(
   const agent = snapshot.agents[flight.targetAgentId];
   if (isRetiredLocalAgent(agent)) {
     return `target agent ${flight.targetAgentId} was retired from the fleet`;
+  }
+  if (agent?.metadata?.staleLocalRegistration === true) {
+    return `target agent ${flight.targetAgentId} is a stale local registration superseded by current setup`;
   }
 
   const dispatchEndpointReason = flightDispatchEndpointUnavailableReason(snapshot, flight);
@@ -2801,7 +2823,7 @@ function uniqueManagedAgentSelector(
   for (let counter = 2; counter <= 101; counter += 1) {
     const resolution = resolveAgentLabel(snapshot, candidate, {
       preferLocalNodeId: nodeId,
-      helpers: { isStale: isRetiredLocalAgent },
+      helpers: { isStale: isInactiveLocalAgent },
     });
 
     if (resolution.kind === "unknown") {
@@ -3095,7 +3117,7 @@ function resolveManagedSessionAttachTarget(
   const directAgentId = input.agentId?.trim();
   if (directAgentId) {
     const agent = snapshot.agents[directAgentId];
-    if (!agent || isRetiredLocalAgent(agent)) {
+    if (!agent || isInactiveLocalAgent(agent)) {
       throw new Error(`unknown Scout agent ${directAgentId}`);
     }
     if (agent.authorityNodeId !== nodeId) {
@@ -3111,7 +3133,7 @@ function resolveManagedSessionAttachTarget(
 
   const resolution = resolveAgentLabel(snapshot, selector, {
     preferLocalNodeId: nodeId,
-    helpers: { isStale: isRetiredLocalAgent },
+    helpers: { isStale: isInactiveLocalAgent },
   });
 
   switch (resolution.kind) {
@@ -3158,6 +3180,39 @@ function staleLocalAgentReplacementId(
     return mainCandidate ?? matches[0] ?? null;
   }
   return null;
+}
+
+function staleRegistrationMetadataMatches(
+  metadata: Record<string, unknown> | undefined,
+  replacementAgentId: string | null,
+): boolean {
+  if (metadata?.staleLocalRegistration !== true) {
+    return false;
+  }
+  const existingReplacement = typeof metadata.replacedByAgentId === "string"
+    ? metadata.replacedByAgentId.trim()
+    : "";
+  return replacementAgentId
+    ? existingReplacement === replacementAgentId
+    : existingReplacement.length === 0;
+}
+
+function staleLocalRegistrationMetadata(
+  metadata: Record<string, unknown> | undefined,
+  staleAt: number,
+  replacementAgentId: string | null,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = {
+    ...(metadata ?? {}),
+    staleLocalRegistration: true,
+    staleAt,
+  };
+  if (replacementAgentId) {
+    next.replacedByAgentId = replacementAgentId;
+  } else {
+    delete next.replacedByAgentId;
+  }
+  return next;
 }
 
 function clearStaleLocalEndpointMetadata(metadata: AgentEndpoint["metadata"]): AgentEndpoint["metadata"] {
@@ -3212,7 +3267,14 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
       activeAgentIdsByDefinition,
     );
 
-    if (endpoint.state === "offline" && endpoint.metadata?.staleLocalRegistration === true && replacementAgentId && endpoint.metadata?.replacedByAgentId === replacementAgentId) {
+    if (agent && !staleRegistrationMetadataMatches(agent.metadata, replacementAgentId)) {
+      await upsertAgentDurably({
+        ...agent,
+        metadata: staleLocalRegistrationMetadata(agent.metadata, staleAt, replacementAgentId),
+      });
+    }
+
+    if (endpoint.state === "offline" && staleRegistrationMetadataMatches(endpoint.metadata, replacementAgentId)) {
       continue;
     }
 
@@ -3220,10 +3282,7 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
       ...endpoint,
       state: "offline",
       metadata: {
-        ...(endpoint.metadata ?? {}),
-        staleLocalRegistration: true,
-        staleAt,
-        replacedByAgentId: replacementAgentId ?? endpoint.metadata?.replacedByAgentId,
+        ...staleLocalRegistrationMetadata(endpoint.metadata, staleAt, replacementAgentId),
         lastError: "stale local agent registration superseded by current setup",
         lastFailedAt: staleAt,
       },
@@ -3979,6 +4038,7 @@ async function postConversationMessage(
   await applyProjectedEntries(entries);
   await reconcileStaleLocalDeliveries();
   await retireConsumedOneTimeCardsForMessage(message);
+  await completeInvocationsForBrokerReply(message);
   return { ok: true, message, deliveries };
 }
 
@@ -4052,6 +4112,72 @@ function existingBrokerReplyForInvocation(
   return replies[0] ?? null;
 }
 
+function messageAnswersInvocation(message: MessageRecord, invocation: InvocationRequest): boolean {
+  if (invocation.action === "wake") {
+    return false;
+  }
+  if (!invocation.conversationId || !invocation.messageId) {
+    return false;
+  }
+  return message.class === "agent"
+    && message.actorId === invocation.targetAgentId
+    && message.conversationId === invocation.conversationId
+    && message.replyToMessageId === invocation.messageId
+    && message.body.trim().length > 0;
+}
+
+function completedFlightFromBrokerReply(
+  invocation: InvocationRequest,
+  flight: FlightRecord,
+  reply: MessageRecord,
+): FlightRecord {
+  const agent = runtime.agent(invocation.targetAgentId);
+  const replySource = metadataStringValue(reply.metadata, "source");
+  return {
+    ...flight,
+    state: "completed",
+    summary: `${agent?.displayName ?? invocation.targetAgentId} replied.`,
+    output: reply.body,
+    error: undefined,
+    completedAt: reply.createdAt,
+    metadata: {
+      ...(flight.metadata ?? {}),
+      completedByBrokerReply: true,
+      replyMessageId: reply.id,
+      ...(replySource ? { replySource } : {}),
+    },
+  };
+}
+
+async function completeInvocationForBrokerReply(
+  invocation: InvocationRequest,
+  reply: MessageRecord,
+): Promise<boolean> {
+  const flight = runtime.flightForInvocation(invocation.id);
+  if (!flight || !isWorkingFlightState(flight.state)) {
+    return false;
+  }
+  const startedAt = flight.startedAt ?? invocation.createdAt;
+  if (reply.createdAt < Math.max(0, startedAt - 5_000)) {
+    return false;
+  }
+
+  await persistFlight(completedFlightFromBrokerReply(invocation, flight, reply));
+  return true;
+}
+
+async function completeInvocationsForBrokerReply(message: MessageRecord): Promise<void> {
+  if (message.class !== "agent" || !message.replyToMessageId || !message.body.trim()) {
+    return;
+  }
+
+  const invocations = Object.values(runtime.snapshot().invocations)
+    .filter((invocation) => messageAnswersInvocation(message, invocation));
+  for (const invocation of invocations) {
+    await completeInvocationForBrokerReply(invocation, message);
+  }
+}
+
 function endpointMatchesTargetSession(endpoint: AgentEndpoint, sessionId: string): boolean {
   return endpoint.sessionId?.trim() === sessionId || endpoint.id === sessionId;
 }
@@ -4119,6 +4245,31 @@ function onlineConversationNotifyTargets(
   });
 }
 
+async function reviveManagedLocalSessionEndpoint(endpoint: AgentEndpoint): Promise<AgentEndpoint | null> {
+  if (!isManagedLocalSessionMetadata(endpoint.metadata)) {
+    return null;
+  }
+
+  const sessionResult = await ensureLocalSessionEndpointOnline(endpoint);
+  const externalSessionId = sessionResult.externalSessionId?.trim();
+  const { lastError: _lastError, lastFailedAt: _lastFailedAt, ...baseMetadata } = endpoint.metadata ?? {};
+  const revivedEndpoint: AgentEndpoint = {
+    ...endpoint,
+    state: "idle",
+    ...(externalSessionId ? { sessionId: externalSessionId } : {}),
+    metadata: {
+      ...baseMetadata,
+      lastResumedAt: Date.now(),
+      ...(externalSessionId ? {
+        externalSessionId,
+        ...(endpoint.transport === "codex_app_server" ? { threadId: externalSessionId } : {}),
+      } : {}),
+    },
+  };
+  await persistEndpoint(revivedEndpoint);
+  return revivedEndpoint;
+}
+
 async function resolveLocalEndpointForInvocation(invocation: InvocationRequest): Promise<AgentEndpoint | undefined> {
   const requestedHarness = invocation.execution?.harness;
   const targetSessionId = invocationTargetSessionId(invocation);
@@ -4146,6 +4297,25 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     throw new Error(staleLocalReason);
   }
 
+  if (invocation.ensureAwake) {
+    for (const endpoint of staleEndpoints) {
+      try {
+        const revived = await reviveManagedLocalSessionEndpoint(endpoint);
+        if (revived) return revived;
+      } catch (error) {
+        await persistEndpoint({
+          ...endpoint,
+          state: "offline",
+          metadata: {
+            ...(endpoint.metadata ?? {}),
+            lastError: error instanceof Error ? error.message : String(error),
+            lastFailedAt: Date.now(),
+          },
+        });
+      }
+    }
+  }
+
   for (const endpoint of staleEndpoints) {
     await persistEndpoint({
       ...endpoint,
@@ -4170,37 +4340,6 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
 
   if (targetSessionId) {
     return undefined;
-  }
-
-  for (const endpoint of staleEndpoints) {
-    if (!isManagedLocalSessionMetadata(endpoint.metadata)) {
-      continue;
-    }
-
-    try {
-      const sessionResult = await ensureLocalSessionEndpointOnline(endpoint);
-      const revivedEndpoint: AgentEndpoint = {
-        ...endpoint,
-        state: "idle",
-        metadata: {
-          ...(endpoint.metadata ?? {}),
-          lastResumedAt: Date.now(),
-          ...(sessionResult.externalSessionId ? { externalSessionId: sessionResult.externalSessionId } : {}),
-        },
-      };
-      await persistEndpoint(revivedEndpoint);
-      return revivedEndpoint;
-    } catch (error) {
-      await persistEndpoint({
-        ...endpoint,
-        state: "offline",
-        metadata: {
-          ...(endpoint.metadata ?? {}),
-          lastError: error instanceof Error ? error.message : String(error),
-          lastFailedAt: Date.now(),
-        },
-      });
-    }
   }
 
   const binding = await ensureLocalAgentBindingOnline(invocation.targetAgentId, nodeId, {
@@ -4341,6 +4480,22 @@ async function executeLocalInvocation(
     const result = endpoint.transport === "pairing_bridge"
       ? await invokePairingSessionEndpoint(runningEndpoint, invocation)
       : await invokeLocalAgentEndpoint(runningEndpoint, invocation);
+    const rawResultExternalSessionId = "externalSessionId" in result ? result.externalSessionId : undefined;
+    const resultExternalSessionId = typeof rawResultExternalSessionId === "string" && rawResultExternalSessionId.trim()
+      ? rawResultExternalSessionId.trim()
+      : undefined;
+    const completedEndpoint: AgentEndpoint = {
+      ...runningEndpoint,
+      ...(resultExternalSessionId ? { sessionId: resultExternalSessionId } : {}),
+      metadata: {
+        ...(runningEndpoint.metadata ?? {}),
+        lastCompletedAt: Date.now(),
+        ...(resultExternalSessionId ? {
+          externalSessionId: resultExternalSessionId,
+          ...(runningEndpoint.transport === "codex_app_server" ? { threadId: resultExternalSessionId } : {}),
+        } : {}),
+      },
+    };
 
     if (invocation.action === "wake") {
       const completedFlight = {
@@ -4353,12 +4508,17 @@ async function executeLocalInvocation(
       await persistFlight(completedFlight);
 
       await persistEndpoint({
-        ...runningEndpoint,
+        ...completedEndpoint,
         state: "idle",
-        metadata: {
-          ...(runningEndpoint.metadata ?? {}),
-          lastCompletedAt: Date.now(),
-        },
+      });
+      return;
+    }
+
+    const currentFlight = runtime.flightForInvocation(invocation.id);
+    if (currentFlight && isTerminalFlightState(currentFlight.state)) {
+      await persistEndpoint({
+        ...completedEndpoint,
+        state: "idle",
       });
       return;
     }
@@ -4407,12 +4567,8 @@ async function executeLocalInvocation(
     await persistFlight(completedFlight);
 
     await persistEndpoint({
-      ...runningEndpoint,
+      ...completedEndpoint,
       state: "idle",
-      metadata: {
-        ...(runningEndpoint.metadata ?? {}),
-        lastCompletedAt: Date.now(),
-      },
     });
 
     if (invocation.conversationId && !postedReply) {
@@ -4445,19 +4601,19 @@ async function executeLocalInvocation(
               defaultSelector: agent.defaultSelector,
               conversationId: invocation.conversationId,
               replyToMessageId: invocation.messageId,
-              nodeId: runningEndpoint.nodeId,
-              projectRoot: runningEndpoint.projectRoot ?? runningEndpoint.cwd,
-              sessionId: runningEndpoint.sessionId,
+              nodeId: completedEndpoint.nodeId,
+              projectRoot: completedEndpoint.projectRoot ?? completedEndpoint.cwd,
+              sessionId: completedEndpoint.sessionId,
             }),
             requestedReturnAddress: invocation.metadata?.["returnAddress"],
-            responderHarness: runningEndpoint.harness,
-            responderTransport: runningEndpoint.transport,
-            responderSessionId: runningEndpoint.sessionId ?? "",
-            responderCwd: runningEndpoint.cwd ?? "",
-            responderProjectRoot: runningEndpoint.projectRoot ?? "",
-            responderAgentName: String(runningEndpoint.metadata?.agentName ?? agent.id),
-            responderStartedAt: String(runningEndpoint.metadata?.startedAt ?? ""),
-            responderNodeId: runningEndpoint.nodeId,
+            responderHarness: completedEndpoint.harness,
+            responderTransport: completedEndpoint.transport,
+            responderSessionId: completedEndpoint.sessionId ?? "",
+            responderCwd: completedEndpoint.cwd ?? "",
+            responderProjectRoot: completedEndpoint.projectRoot ?? "",
+            responderAgentName: String(completedEndpoint.metadata?.agentName ?? agent.id),
+            responderStartedAt: String(completedEndpoint.metadata?.startedAt ?? ""),
+            responderNodeId: completedEndpoint.nodeId,
           },
         });
       }
@@ -4465,10 +4621,23 @@ async function executeLocalInvocation(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isRequesterWaitTimeoutError(error)) {
+      const currentFlight = runtime.flightForInvocation(invocation.id);
+      if (currentFlight && isTerminalFlightState(currentFlight.state)) {
+        return;
+      }
+      const postedReply = existingBrokerReplyForInvocation(
+        invocation,
+        agent.id,
+        runningFlight.startedAt ?? Date.now(),
+      );
+      if (postedReply && await completeInvocationForBrokerReply(invocation, postedReply)) {
+        return;
+      }
+
       const waitingFlight = {
         ...runningFlight,
         state: "waiting" as const,
-        summary: `${agent.displayName} is still working; the requester stopped waiting after ${error.timeoutMs}ms.`,
+        summary: `${agent.displayName} is still working; Scout stopped waiting for a synchronous result after ${error.timeoutMs}ms.`,
         error: undefined,
         completedAt: undefined,
         metadata: {
@@ -4479,7 +4648,7 @@ async function executeLocalInvocation(
         },
       };
       await persistFlight(waitingFlight);
-      await postInvocationStatusMessage(invocation, waitingFlight);
+      console.warn(`[openscout-runtime] ${waitingFlight.summary}`);
       return;
     }
 
@@ -6484,7 +6653,7 @@ function resolveBrokerDeliveryTarget(
 ): InvocationResolution {
   return resolveBrokerRouteTarget(runtime.snapshot(), input, {
     preferLocalNodeId: nodeId,
-    helpers: { isStale: isRetiredLocalAgent },
+    helpers: { isStale: isInactiveLocalAgent },
   });
 }
 
@@ -6549,7 +6718,7 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
 
   await syncRegisteredLocalAgentsIfChanged(options.reason);
   const agent = runtime.snapshot().agents[status.agentId];
-  if (agent && !isRetiredLocalAgent(agent)) {
+  if (agent && !isInactiveLocalAgent(agent)) {
     return { kind: "resolved", agent };
   }
 

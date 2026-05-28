@@ -14,10 +14,10 @@ final class HudFleetService: ObservableObject {
     private let pollInterval: TimeInterval = 2.0
     private var pollTask: Task<Void, Never>?
     private var inFlight: Task<Void, Never>?
-    private var brokerBaseURL: URL?
+    private var webBaseURL: URL?
     // Last-resort default if ~/.openscout/config.json can't be read.
     // The canonical source is the local openscout config (host + ports.web).
-    private static let defaultBrokerURL = URL(string: "http://127.0.0.1:3200")!
+    nonisolated private static let defaultWebURL = URL(string: "http://127.0.0.1:3200")!
 
     private init() {}
 
@@ -53,7 +53,7 @@ final class HudFleetService: ObservableObject {
             let started = Date()
             let baseURL: URL
             do {
-                baseURL = try await resolveBrokerBaseURL()
+                baseURL = try await resolveWebBaseURL()
             } catch {
                 guard !Task.isCancelled else { return }
                 self.lastError = Self.userFacingError(error)
@@ -109,36 +109,15 @@ final class HudFleetService: ObservableObject {
         }
     }
 
-    /// POST to the web server's `/api/send` route. The broker parses
-    /// `@-mentions` in the body and routes accordingly, so direct vs.
-    /// channel routing is decided by the caller embedding (or omitting)
-    /// the mention. No conversationId — we always go through the broker
-    /// router, never directly to a session.
-    func send(body: String) async throws {
-        let url = try await resolveBrokerBaseURL().appending(path: "api/send")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let payload: [String: Any] = ["body": body]
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw HudFleetServiceError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw HudFleetServiceError.httpStatus(http.statusCode)
-        }
-    }
-
-    private func resolveBrokerBaseURL() async throws -> URL {
-        if let cached = brokerBaseURL {
+    private func resolveWebBaseURL() async throws -> URL {
+        if let cached = webBaseURL {
             return cached
         }
-        // Explicit env override wins (for remote brokers / future routing).
-        if let env = ProcessInfo.processInfo.environment["OPENSCOUT_BROKER_URL"],
-           let url = URL(string: env) {
-            brokerBaseURL = url
+        // Explicit web-surface env overrides win. Do not use
+        // OPENSCOUT_BROKER_URL here: that is the control-plane broker
+        // and does not serve /api/agents, /api/activity, /api/send, etc.
+        if let url = Self.readWebURLFromEnvironment() {
+            webBaseURL = url
             return url
         }
         // Canonical source: ~/.openscout/config.json. The "web" port is
@@ -146,11 +125,37 @@ final class HudFleetService: ObservableObject {
         // separate "broker" port is the control plane and doesn't have
         // those routes.
         if let url = Self.readWebURLFromConfig() {
-            brokerBaseURL = url
+            webBaseURL = url
             return url
         }
-        brokerBaseURL = Self.defaultBrokerURL
-        return Self.defaultBrokerURL
+        webBaseURL = Self.defaultWebURL
+        return Self.defaultWebURL
+    }
+
+    nonisolated private static func readWebURLFromEnvironment() -> URL? {
+        let env = ProcessInfo.processInfo.environment
+
+        for key in ["OPENSCOUT_WEB_URL", "OPENSCOUT_WEB_BUN_URL", "OPENSCOUT_WEB_PUBLIC_ORIGIN"] {
+            guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  let url = URL(string: value) else {
+                continue
+            }
+            return url
+        }
+
+        let portValue = env["OPENSCOUT_WEB_PORT"] ?? env["SCOUT_WEB_PORT"]
+        guard let portText = portValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let port = Int(portText),
+              (1...65_535).contains(port) else {
+            return nil
+        }
+
+        let rawHost = env["OPENSCOUT_WEB_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = (rawHost?.isEmpty == false && rawHost != "0.0.0.0" && rawHost != "::")
+            ? rawHost!
+            : "127.0.0.1"
+        return URL(string: "http://\(host):\(port)")
     }
 
     nonisolated private static func readWebURLFromConfig() -> URL? {
@@ -169,17 +174,16 @@ final class HudFleetService: ObservableObject {
 
     /// Synchronous accessor for the web surface base URL. Used by HUD drill
     /// links that open the matching web view in the browser. Mirrors the
-    /// resolution order of `resolveBrokerBaseURL` (env → config → default)
+    /// resolution order of `resolveWebBaseURL` (env → config → default)
     /// but without the actor-isolated cache.
     nonisolated static func webBaseURL() -> URL {
-        if let env = ProcessInfo.processInfo.environment["OPENSCOUT_BROKER_URL"],
-           let url = URL(string: env) {
+        if let url = readWebURLFromEnvironment() {
             return url
         }
         if let url = readWebURLFromConfig() {
             return url
         }
-        return URL(string: "http://127.0.0.1:3200")!
+        return defaultWebURL
     }
 
     private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {

@@ -6,19 +6,15 @@ import {
   DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
   SUPPORTED_SCOUT_HARNESSES,
-  buildTmuxLaunchShellCommand,
   buildAttachedSessionInvocationPrompt,
   buildLocalAgentDirectInvocationPrompt,
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
-  buildTmuxDispatchStrategy,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
-  tmuxPaneTailContainsPromptFragment,
-  tmuxPaneTailShowsReadyComposer,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
 
@@ -370,115 +366,6 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.");
     expect(prompt).not.toContain("Scout message from");
     expect(prompt).not.toContain("Requested action:");
-  });
-
-  test("tmux launch shell command quotes script paths with spaces", () => {
-    expect(buildTmuxLaunchShellCommand("/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"))
-      .toBe('exec bash "/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"');
-  });
-
-  test("tmux dispatch strategy sends a single Enter and relies on verification + retry", () => {
-    // Leading Escape (C-[) was dropped because newer Claude Code builds bind it to
-    // composer state actions and can swallow the Enter that follows.
-    const prompt = "noop prompt body";
-    expect(buildTmuxDispatchStrategy("claude", prompt).submit).toEqual(["Enter"]);
-    expect(buildTmuxDispatchStrategy("pi", prompt).submit).toEqual(["Enter"]);
-    expect(buildTmuxDispatchStrategy("claude", prompt).pre).toBeUndefined();
-  });
-
-  test("tmux pane tail detection flags prompts that are still parked in the composer", () => {
-    const prompt =
-      "New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.";
-    const stuckTail = [
-      "╭──────────────────────────────────────────────────────────────────╮",
-      "│ > New broker ask from operator. Task: please refactor the        │",
-      "│   dispatch path so it submits the prompt.                        │",
-      "╰──────────────────────────────────────────────────────────────────╯",
-    ].join("\n");
-    const submittedTail = [
-      "● Reading file…",
-      "  src/dispatch.ts",
-      "╭──────────────────────────────────────────────────────────────────╮",
-      "│ >                                                                │",
-      "╰──────────────────────────────────────────────────────────────────╯",
-    ].join("\n");
-    expect(tmuxPaneTailContainsPromptFragment(stuckTail, prompt)).toBe(true);
-    expect(tmuxPaneTailContainsPromptFragment(submittedTail, prompt)).toBe(false);
-    expect(tmuxPaneTailContainsPromptFragment("", prompt)).toBe(false);
-  });
-
-  test("tmux ready detection waits for the Claude composer before dispatch", () => {
-    const bootingTail = [
-      "Claude Code v2.1.143",
-      "Opus 4.7 (1M context) with xhigh effort",
-      "~/dev/openscout",
-    ].join("\n");
-    const readyTail = [
-      " ▐▛███▜▌   Claude Code v2.1.143",
-      "▝▜█████▛▘  Opus 4.7 (1M context) with xhigh effort",
-      " openscout-relay-agent ",
-      "──",
-      "❯ Try \"edit broker-daemon.ts to...\"",
-      "────────────────────────────────────────────────────────────────────────────────",
-      "  Opus 4.7 (1M context) │ main",
-      "  -- INSERT -- ⏵⏵ bypass permissions on",
-    ].join("\n");
-
-    expect(tmuxPaneTailShowsReadyComposer(bootingTail)).toBe(false);
-    expect(tmuxPaneTailShowsReadyComposer(readyTail)).toBe(true);
-  });
-
-  test("tmux ready detection does not confuse active harness output for a composer", () => {
-    const workingTail = [
-      "❯ New broker ask from operator. Task: inspect the dispatch path",
-      "",
-      "⏺ Read(packages/runtime/src/local-agents.ts)",
-      "  ⎿  Read 40 lines",
-    ].join("\n");
-
-    expect(tmuxPaneTailShowsReadyComposer(workingTail)).toBe(false);
-  });
-
-  test("tmux dispatch strategy verifier reports submission via the pane tail", () => {
-    const prompt =
-      "New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.";
-    const strategy = buildTmuxDispatchStrategy("claude", prompt);
-    const stuckTail = [
-      "╭──────────────────────────────────────────────────────────────────╮",
-      "│ > New broker ask from operator. Task: please refactor the        │",
-      "│   dispatch path so it submits the prompt.                        │",
-      "╰──────────────────────────────────────────────────────────────────╯",
-    ].join("\n");
-    const submittedTail = [
-      "● Reading file…",
-      "  src/dispatch.ts",
-      "╭──────────────────────────────────────────────────────────────────╮",
-      "│ >                                                                │",
-      "╰──────────────────────────────────────────────────────────────────╯",
-    ].join("\n");
-    // verify(paneTail) === true means "submitted" (prompt absent from tail).
-    expect(strategy.verify(stuckTail)).toBe(false);
-    expect(strategy.verify(submittedTail)).toBe(true);
-  });
-
-  test("tmux pane tail detection ignores submitted prompt text in Claude transcript", () => {
-    const prompt =
-      "New broker ask from operator. Task: please inspect OpenScout's agent/session/project semantics and recommend root-cause fixes.";
-    const submittedTail = [
-      "  New broker ask from operator. Task: please inspect OpenScout's",
-      "  agent/session/project semantics and recommend root-cause fixes.",
-      "",
-      "⏺ Read(/Users/arach/dev/openscout/packages/runtime/src/broker-core-service.ts · lines 785-814)",
-      "  ⎿  Read 30 lines",
-      "",
-      "───────────────────────────── agent-taxonomy-generalist.main.mini-relay-agent ──",
-      "❯ ",
-      "────────────────────────────────────────────────────────────────────────────────",
-      "  Sonnet 4.6 │ ⎇ main │ ~/dev/openscout",
-      "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
-    ].join("\n");
-
-    expect(tmuxPaneTailContainsPromptFragment(submittedTail, prompt)).toBe(false);
   });
 
   test("claude runtime launch args preapprove Scout MCP coordination tools", () => {

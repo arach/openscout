@@ -60,6 +60,7 @@ private struct ActivityRowModel: Identifiable {
     let invocationId: String?
     let sessionId: String?
     let conversationId: String?
+    let messageId: String?
     let agentId: String?
     let detail: String?
     let emphasized: Bool
@@ -117,9 +118,8 @@ struct HUDActivityView: View {
                 ActivityEmptyView()
             } else {
                 switch state.size {
-                case .compact: compactBody
-                case .medium:  mediumBody
-                case .large:   largeBody
+                case .compact:           compactBody
+                case .medium, .large:    largeBody
                 }
             }
         }
@@ -128,7 +128,8 @@ struct HUDActivityView: View {
     // MARK: - Compact
 
     private var compactBody: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        let lastId = grouped.last?.rows.last?.id
+        return ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 ForEach(grouped, id: \.bucket) { group in
                     Section {
@@ -137,6 +138,7 @@ struct HUDActivityView: View {
                                 row: row,
                                 size: .compact,
                                 engaged: engage.isSelected(row.id),
+                                isLastInFeed: row.id == lastId,
                                 onTap: {
                                     withAnimation(.easeOut(duration: 0.12)) {
                                         engage.toggle(row.id)
@@ -152,44 +154,14 @@ struct HUDActivityView: View {
                         ActivitySectionHeader(bucket: group.bucket)
                     }
                 }
+
+                ActivityFeedEndMarker()
             }
-            .padding(.bottom, 12)
         }
     }
 
-    // MARK: - Medium
-
-    private var mediumBody: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                ForEach(grouped, id: \.bucket) { group in
-                    Section {
-                        ForEach(group.rows) { row in
-                            ActivityRowView(
-                                row: row,
-                                size: .medium,
-                                engaged: engage.isSelected(row.id),
-                                onTap: {
-                                    withAnimation(.easeOut(duration: 0.12)) {
-                                        engage.toggle(row.id)
-                                    }
-                                }
-                            )
-                            if engage.isSelected(row.id) {
-                                ActivityDetailInline(row: row)
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                            }
-                        }
-                    } header: {
-                        ActivitySectionHeader(bucket: group.bucket)
-                    }
-                }
-            }
-            .padding(.bottom, 12)
-        }
-    }
-
-    // MARK: - Large
+    // MARK: - Large (also serves Medium — the same two-pane layout, just
+    // in a smaller panel frame; see HUDState.contentSize)
 
     private var selectedRow: ActivityRowModel {
         if let id = engage.selectedId, let match = rows.first(where: { $0.id == id }) {
@@ -263,6 +235,7 @@ struct HUDActivityView: View {
                 invocationId: item.invocationId,
                 sessionId: item.sessionId,
                 conversationId: item.conversationId,
+                messageId: item.messageId,
                 agentId: item.agentId,
                 detail: nil,
                 emphasized: kind == .ask || kind == .fail
@@ -346,6 +319,7 @@ private struct ActivityRowView: View {
     let row: ActivityRowModel
     let size: HUDSize
     let engaged: Bool
+    var isLastInFeed: Bool = false
     var onTap: () -> Void = {}
 
     @State private var hovered = false
@@ -477,10 +451,15 @@ private struct ActivityRowView: View {
         .onHover { hovered = $0 }
         .onTapGesture(perform: onTap)
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(HUDChrome.borderSoft)
-                .frame(height: 0.5)
-                .padding(.horizontal, 16)
+            // Last row in the feed: the end-of-feed marker draws its own
+            // hairline, so skipping here keeps the canvas from reading as
+            // a torn page when the feed is short.
+            if !isLastInFeed {
+                Rectangle()
+                    .fill(HUDChrome.borderSoft)
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 16)
+            }
         }
     }
 
@@ -503,6 +482,35 @@ private struct ActivityRowView: View {
                     .foregroundStyle(HUDChrome.inkFaint)
             }
         }
+    }
+}
+
+// MARK: - End of feed marker
+//
+// Hairline-flanked eyebrow that closes the compact feed. Without it, a
+// short feed reads like the panel was clipped at midpoint — the last
+// row's bottom hairline becomes a torn page rather than a deliberate end.
+// The marker terminates the document: any canvas below is now clearly
+// "past the end," not missing content.
+
+private struct ActivityFeedEndMarker: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Rectangle()
+                .fill(HUDChrome.borderSoft)
+                .frame(height: 0.5)
+            Text("END OF FEED")
+                .font(HUDType.mono(9, weight: .semibold))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(HUDChrome.inkFaint)
+                .fixedSize()
+            Rectangle()
+                .fill(HUDChrome.borderSoft)
+                .frame(height: 0.5)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 16)
     }
 }
 
@@ -689,14 +697,21 @@ private struct ActivityDetailLarge: View {
 
     private var threadURL: URL {
         let base = HudFleetService.webBaseURL()
+        // When a specific message produced the event, deep-link to it via
+        // the #msg-<id> anchor ConversationScreen exposes (see
+        // ConversationScreen.tsx — share-link helper around msg- anchors).
+        let fragment: String = {
+            guard let mid = row.messageId, !mid.isEmpty else { return "" }
+            return "#msg-\(percent(mid))"
+        }()
         if let cid = row.conversationId, !cid.isEmpty {
-            return relativeURL("/c/\(percent(cid))", base: base)
+            return relativeURL("/c/\(percent(cid))\(fragment)", base: base)
         }
         if let aid = row.agentId, !aid.isEmpty {
             // No conversation on the event, but the operator's DM with this
             // agent is the natural "open thread" landing. Mirrors the web
             // router's conversationForAgent(agentId) helper.
-            return relativeURL("/c/\(percent("dm.operator.\(aid)"))", base: base)
+            return relativeURL("/c/\(percent("dm.operator.\(aid)"))\(fragment)", base: base)
         }
         return relativeURL("/conversations", base: base)
     }

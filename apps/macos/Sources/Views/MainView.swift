@@ -58,8 +58,11 @@ struct MainView: View {
             }
         }
         .frame(width: 408, height: popoverHeight)
+        // Action-log toggles run alongside restart actions that also flip
+        // the menu-bar symbol; animating the frame here makes NSPopover
+        // re-anchor against a status item that's mid-redraw and snap the
+        // popover to a default screen position. Keep the size change atomic.
         .animation(.easeInOut(duration: 0.18), value: showQR)
-        .animation(.easeInOut(duration: 0.18), value: controller.actionLog.isEmpty)
         .preferredColorScheme(theme.colorScheme)
     }
 

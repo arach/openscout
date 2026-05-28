@@ -340,6 +340,18 @@ function isBuiltInBrokerAgent(
   return BUILT_IN_AGENT_DEFINITION_IDS.has(definitionId);
 }
 
+function isInactiveBrokerAgent(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+): boolean {
+  const agent = snapshot.agents[agentId];
+  if (!agent) {
+    return false;
+  }
+  return metadataBoolean(agent.metadata, "retiredFromFleet")
+    || metadataBoolean(agent.metadata, "staleLocalRegistration");
+}
+
 export function normalizeUnixTimestamp(value: unknown): number | null {
   const numeric = typeof value === "number"
     ? value
@@ -580,7 +592,9 @@ function formatMentionCandidateLabel(
     return `@${agentId}`;
   }
   const candidates = withAgentReferenceAliases(
-    Object.values(snapshot.agents).map((agent) => buildMentionCandidate(snapshot, agent)),
+    Object.values(snapshot.agents)
+      .filter((agent) => !isInactiveBrokerAgent(snapshot, agent.id))
+      .map((agent) => buildMentionCandidate(snapshot, agent)),
   );
   const currentCandidate = candidates.find((candidate) => candidate.agentId === current.id)
     ?? buildMentionCandidate(snapshot, current);
@@ -690,6 +704,7 @@ async function findPreferredProjectLocalBrokerTarget(
     await findNearestProjectRoot(currentDirectory) ?? currentDirectory;
   const scored = Object.values(snapshot.agents)
     .filter((agent) => agent.id !== OPERATOR_ID)
+    .filter((agent) => !isInactiveBrokerAgent(snapshot, agent.id))
     .map((agent) => ({
       agentId: agent.id,
       score: scoreProjectLocalBrokerAgent(
@@ -757,10 +772,17 @@ async function resolveMentionTargets(
   const endpointBackedAgentIds = unique(
     Object.values(snapshot.endpoints)
       .map((endpoint) => endpoint.agentId)
-      .filter((agentId) => agentId && agentId !== OPERATOR_ID),
+      .filter((agentId) => (
+        agentId
+        && agentId !== OPERATOR_ID
+        && !isInactiveBrokerAgent(snapshot, agentId)
+      )),
   );
 
   for (const agent of Object.values(snapshot.agents)) {
+    if (isInactiveBrokerAgent(snapshot, agent.id)) {
+      continue;
+    }
     candidateMap.set(agent.id, buildMentionCandidate(snapshot, agent));
   }
 
@@ -1466,7 +1488,10 @@ export async function askScoutQuestion(input: {
   }
   const createdAt = input.createdAtMs ?? Date.now();
   const normalizedTargetLabel = renderScoutTargetLabel(input.targetLabel);
-  const explicitTargetAgentId = broker.snapshot.agents[input.targetLabel.trim()]?.id;
+  const explicitTarget = broker.snapshot.agents[input.targetLabel.trim()];
+  const explicitTargetAgentId = explicitTarget && !isInactiveBrokerAgent(broker.snapshot, explicitTarget.id)
+    ? explicitTarget.id
+    : undefined;
   if (explicitTargetAgentId) {
     await ensureTargetRelayAgentRegistered(
       broker.baseUrl,
@@ -1939,6 +1964,9 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
     if (isBuiltInBrokerAgent(broker.snapshot, endpoint.agentId)) {
       continue;
     }
+    if (isInactiveBrokerAgent(broker.snapshot, endpoint.agentId)) {
+      continue;
+    }
     const existing = endpointsByAgent.get(endpoint.agentId) ?? [];
     existing.push(endpoint);
     endpointsByAgent.set(endpoint.agentId, existing);
@@ -1949,6 +1977,9 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
       continue;
     }
     if (isBuiltInBrokerAgent(broker.snapshot, message.actorId)) {
+      continue;
+    }
+    if (isInactiveBrokerAgent(broker.snapshot, message.actorId)) {
       continue;
     }
     const current = messageStats.get(message.actorId) ?? { messages: 0, lastSeen: null };
@@ -1968,6 +1999,7 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
   ])
     .filter((agentId) => agentId && agentId !== OPERATOR_ID)
     .filter((agentId) => !isBuiltInBrokerAgent(broker.snapshot, agentId))
+    .filter((agentId) => !isInactiveBrokerAgent(broker.snapshot, agentId))
     .map((agentId): ScoutWhoEntry => {
       const endpoints = endpointsByAgent.get(agentId) ?? [];
       const brokerMessages = messageStats.get(agentId);

@@ -698,6 +698,48 @@ describe("web db timestamp normalization", () => {
   });
 });
 
+describe("web db message filtering", () => {
+  test("hides broker requester-wait timeout statuses from recent messages", () => {
+    const store = createSeededStore();
+
+    try {
+      store.recordMessage({
+        id: "msg-visible",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "Please keep going.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 1_000,
+      });
+      store.recordMessage({
+        id: "msg-timeout-status",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "status",
+        body: "Agent One is still working; Scout stopped waiting for a synchronous result after 300000ms.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 2_000,
+        metadata: {
+          source: "broker",
+          invocationId: "inv-1",
+          flightId: "flight-1",
+        },
+      });
+
+      const messages = queryRecentMessages(10, { conversationId: "conv-1" });
+
+      expect(messages.map((message) => message.id)).toEqual(["msg-visible"]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe("web db query agents", () => {
   test("returns one row per agent using the latest endpoint and normalized state", () => {
     const store = createSeededStore();
@@ -1305,6 +1347,44 @@ describe("web db query agents", () => {
     }
   });
 
+  test("shows always-on agents as available even without a harness endpoint", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "scoutbot",
+        kind: "agent",
+        displayName: "Scout",
+        handle: "scoutbot",
+      });
+      store.upsertAgent({
+        id: "scoutbot",
+        kind: "agent",
+        definitionId: "scoutbot",
+        displayName: "Scout",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "always_on",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+        defaultSelector: "scoutbot",
+      });
+
+      const listEntry = queryAgents(20).find((entry) => entry.id === "scoutbot");
+      const mobileEntry = queryMobileAgents(20, { query: "scoutbot" }).find(
+        (entry) => entry.id === "scoutbot",
+      );
+      const detail = queryMobileAgentDetail("scoutbot");
+
+      expect(listEntry?.state).toBe("available");
+      expect(mobileEntry?.state).toBe("available");
+      expect(detail?.state).toBe("available");
+    } finally {
+      store.close();
+    }
+  });
+
   test("does not surface stale wake-on-demand local agents as available choices", () => {
     const store = createSeededStore();
 
@@ -1347,6 +1427,57 @@ describe("web db query agents", () => {
       expect(queryAgents(20).some((entry) => entry.id === "ranger.old-branch.mini")).toBe(false);
       expect(queryMobileAgents(20).some((entry) => entry.id === "ranger.old-branch.mini")).toBe(false);
       expect(queryMobileAgentDetail("ranger.old-branch.mini")).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("filters mobile agents before applying the page limit", () => {
+    const store = createSeededStore();
+
+    try {
+      for (let i = 0; i < 30; i += 1) {
+        const id = `agent-${String(i).padStart(2, "0")}`;
+        store.upsertActor({
+          id,
+          kind: "agent",
+          displayName: `Agent ${String(i).padStart(2, "0")}`,
+        });
+        store.upsertAgent({
+          id,
+          kind: "agent",
+          definitionId: id,
+          displayName: `Agent ${String(i).padStart(2, "0")}`,
+          agentClass: "general",
+          capabilities: ["chat"],
+          wakePolicy: "on_demand",
+          homeNodeId: "node-1",
+          authorityNodeId: "node-1",
+          advertiseScope: "local",
+        });
+      }
+      store.upsertActor({
+        id: "scoutbot",
+        kind: "agent",
+        displayName: "Scout",
+        handle: "scoutbot",
+      });
+      store.upsertAgent({
+        id: "scoutbot",
+        kind: "agent",
+        definitionId: "scoutbot",
+        displayName: "Scout",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "manual",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+        defaultSelector: "scoutbot",
+      });
+
+      expect(queryMobileAgents(20).some((entry) => entry.id === "scoutbot")).toBe(false);
+      expect(queryMobileAgents(20, { query: "scoutbot" }).map((entry) => entry.id)).toEqual(["scoutbot"]);
     } finally {
       store.close();
     }

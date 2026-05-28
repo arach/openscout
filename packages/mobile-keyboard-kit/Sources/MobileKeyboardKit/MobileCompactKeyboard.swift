@@ -1,4 +1,4 @@
-// ScoutCompactKeyboard — UIKit QWERTY keyboard ported from Talkie's CompactKeyboardView.
+// MobileCompactKeyboard — UIKit QWERTY keyboard ported from Talkie's CompactKeyboardView.
 //
 // Full UIKit touch infrastructure: KeyButton with expanded hit slop (±6h/±8v),
 // spring press animations, accent long-press popups, hold-to-repeat delete,
@@ -11,6 +11,7 @@
 // Period long-press shows punctuation grid.
 
 #if canImport(UIKit)
+import SwiftUI
 import UIKit
 
 // MARK: - Accent Mappings
@@ -57,9 +58,9 @@ private class KeyButton: UIButton {
     }
 }
 
-// MARK: - ScoutCompactKeyboard
+// MARK: - MobileCompactKeyboard
 
-final class ScoutCompactKeyboard: UIView {
+public final class MobileCompactKeyboard: UIView {
 
     // MARK: - Colors (dark-first, Dispatch adapted)
 
@@ -102,7 +103,7 @@ final class ScoutCompactKeyboard: UIView {
         static let keyShadow = UIColor { t in
             t.userInterfaceStyle == .dark ? .black : UIColor(white: 0, alpha: 0.3)
         }
-        // Scout accent blue
+        // Shared accent blue
         static let accentBlue = UIColor(red: 0.45, green: 0.65, blue: 1.0, alpha: 1.0)
         // Dictation red
         static let vermillion = UIColor(red: 0.91, green: 0.30, blue: 0.24, alpha: 1.0)
@@ -115,12 +116,12 @@ final class ScoutCompactKeyboard: UIView {
 
     // MARK: - Callbacks
 
-    var onKeyTapped: ((String) -> Void)?
-    var onDeleteTapped: (() -> Void)?
-    var onReturnTapped: (() -> Void)?
-    var onSpaceTapped: (() -> Void)?
-    var onVoiceTapped: (() -> Void)?
-    var onEmojiTapped: (() -> Void)?
+    public var onKeyTapped: ((String) -> Void)?
+    public var onDeleteTapped: (() -> Void)?
+    public var onReturnTapped: (() -> Void)?
+    public var onSpaceTapped: (() -> Void)?
+    public var onVoiceTapped: (() -> Void)?
+    public var onEmojiTapped: (() -> Void)?
 
     // MARK: - Haptics
 
@@ -175,12 +176,12 @@ final class ScoutCompactKeyboard: UIView {
 
     // MARK: - Init
 
-    override init(frame: CGRect) {
+    public override init(frame: CGRect) {
         super.init(frame: frame)
         setupUI()
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupUI()
     }
@@ -189,7 +190,7 @@ final class ScoutCompactKeyboard: UIView {
         backgroundColor = Colors.background
         lightImpact.prepare()
         mediumImpact.prepare()
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: ScoutCompactKeyboard, prev: UITraitCollection) in
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: MobileCompactKeyboard, prev: UITraitCollection) in
             self.handleTraitChange(prev)
         }
         buildKeyboard()
@@ -388,7 +389,7 @@ final class ScoutCompactKeyboard: UIView {
 
     // MARK: - Layout
 
-    override func layoutSubviews() {
+    public override func layoutSubviews() {
         super.layoutSubviews()
         let availH = bounds.height
         let totalVSpacing = rowSpacing * 3 + topPadding + bottomPadding
@@ -404,7 +405,7 @@ final class ScoutCompactKeyboard: UIView {
         layoutRow4(y: r4Y, kH: dynH)
     }
 
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let resolved = super.hitTest(point, with: event)
         if let resolved, resolved !== self { return resolved }
         return nearestLetterKey(for: point) ?? resolved
@@ -731,27 +732,27 @@ final class ScoutCompactKeyboard: UIView {
 
     // MARK: - Preferred Height
 
-    static let preferredHeight: CGFloat = 224
-    static let minimizedHeight: CGFloat = 44
+    public static let preferredHeight: CGFloat = 224
+    public static let minimizedHeight: CGFloat = 44
 
     // MARK: - Public Page Control
 
-    enum Page { case letters, numbers, symbols }
+    public enum Page { case letters, numbers, symbols }
 
-    var currentPage: Page {
+    public var currentPage: Page {
         if isShowingSymbols { return .symbols }
         if isShowingNumbers { return .numbers }
         return .letters
     }
 
-    func switchToPage(_ page: Page) {
+    public func switchToPage(_ page: Page) {
         isShowingNumbers = (page == .numbers)
         isShowingSymbols = (page == .symbols)
         buildKeyboard()
         setNeedsLayout()
     }
 
-    func nextPage() {
+    public func nextPage() {
         switch currentPage {
         case .letters: switchToPage(.numbers)
         case .numbers: switchToPage(.symbols)
@@ -759,7 +760,7 @@ final class ScoutCompactKeyboard: UIView {
         }
     }
 
-    func previousPage() {
+    public func previousPage() {
         switch currentPage {
         case .letters: switchToPage(.symbols)
         case .numbers: switchToPage(.letters)
@@ -770,17 +771,27 @@ final class ScoutCompactKeyboard: UIView {
 
 // MARK: - SwiftUI Bridge
 
-import SwiftUI
+/// SwiftUI wrapper for the UIKit-based MobileCompactKeyboard.
+public struct MobileCompactKeyboardView: UIViewRepresentable {
+    public var onInsert: (String) -> Void
+    public var onDelete: () -> Void
+    public var onReturn: () -> Void
+    public var onVoice: () -> Void
 
-/// SwiftUI wrapper for the UIKit-based ScoutCompactKeyboard.
-struct ScoutCompactKeyboardView: UIViewRepresentable {
-    var onInsert: (String) -> Void
-    var onDelete: () -> Void
-    var onReturn: () -> Void
-    var onVoice: () -> Void
+    public init(
+        onInsert: @escaping (String) -> Void,
+        onDelete: @escaping () -> Void,
+        onReturn: @escaping () -> Void,
+        onVoice: @escaping () -> Void
+    ) {
+        self.onInsert = onInsert
+        self.onDelete = onDelete
+        self.onReturn = onReturn
+        self.onVoice = onVoice
+    }
 
-    func makeUIView(context: Context) -> ScoutCompactKeyboard {
-        let keyboard = ScoutCompactKeyboard()
+    public func makeUIView(context: Context) -> MobileCompactKeyboard {
+        let keyboard = MobileCompactKeyboard(frame: .zero)
         keyboard.onKeyTapped = onInsert
         keyboard.onDeleteTapped = onDelete
         keyboard.onReturnTapped = onReturn
@@ -789,7 +800,7 @@ struct ScoutCompactKeyboardView: UIViewRepresentable {
         return keyboard
     }
 
-    func updateUIView(_ uiView: ScoutCompactKeyboard, context: Context) {
+    public func updateUIView(_ uiView: MobileCompactKeyboard, context: Context) {
         uiView.onKeyTapped = onInsert
         uiView.onDeleteTapped = onDelete
         uiView.onReturnTapped = onReturn
