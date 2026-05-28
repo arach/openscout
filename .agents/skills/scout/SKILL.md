@@ -334,7 +334,7 @@ Aliases:
 
 Use typed qualifiers or shorthand any time the user's request implies a specific harness, model, or profile. Do not rely on short-name resolution to guess right.
 
-Product handles are reserved. Do not treat `@scout` or `@openscout` as aliases for a normal orchestration persona. For the local product inbox, use `scout send --to scout "..."`; the broker owns any legacy/internal aliasing. Use `@ranger` only when the user specifically needs Ranger-style orchestration.
+Product handles are reserved. Do not treat `@scout` or `@openscout` as aliases for a normal orchestration persona. For the local product inbox, use `scout send --to scout "..."`; the broker owns any legacy/internal aliasing. Use `@scoutbot` only when the user specifically needs Scoutbot-style orchestration.
 
 ## Resolution rule
 

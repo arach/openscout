@@ -3,29 +3,29 @@ import { Archive, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gaug
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
-import { RangerBroadcastChip } from "../../components/RangerBroadcastChip.tsx";
+import { ScoutbotBroadcastChip } from "../../components/ScoutbotBroadcastChip.tsx";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import {
   clearClientBroadcast,
   dismissPromotedBroadcast,
   emitClientBroadcast,
-  onToggleRanger,
+  onToggleScoutbot,
   selectActiveBroadcast,
-  useRangerBroadcastStore,
-} from "../../lib/ranger-broadcast-store.ts";
-import { extractRangerUiActions, normalizeRangerUiAction, stripRangerUiFences } from "../../lib/ranger.ts";
-import { RangerMarkdown } from "../../lib/ranger-markdown.tsx";
-import { parseRangerReminderIntent } from "../../lib/ranger-reminder-intent.ts";
+  useScoutbotBroadcastStore,
+} from "../../lib/scoutbot-broadcast-store.ts";
+import { extractScoutbotUiActions, normalizeScoutbotUiAction, stripScoutbotUiFences } from "../../lib/scoutbot.ts";
+import { ScoutbotMarkdown } from "../../lib/scoutbot-markdown.tsx";
+import { parseScoutbotReminderIntent } from "../../lib/scoutbot-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult, type VoxSpeechTimingCueRequest } from "../../lib/vox.ts";
 import { VOICE_FX_PRESETS, type VoiceFxParams } from "@voxd/client/fx";
 
 // Default voice mood + clean-dispatch overrides specific to Chill Dispatcher.
-// The stock Vox presets are intentionally characterful; Ranger's default should
+// The stock Vox presets are intentionally characterful; Scoutbot's default should
 // read closer to a clean mic with dispatch bookends than a noisy radio.
-const DEFAULT_RANGER_VOICE_PRESET_ID = "chill-dispatcher";
-const RANGER_BRIEF_CUE_EARLY_MS = 100;
+const DEFAULT_SCOUTBOT_VOICE_PRESET_ID = "chill-dispatcher";
+const SCOUTBOT_BRIEF_CUE_EARLY_MS = 100;
 const VOX_LIVE_STOP_TIMEOUT_MS = 60_000;
 const VOX_LIVE_CANCEL_TIMEOUT_MS = 2_500;
 const CHILL_DISPATCHER_OVERRIDES: Partial<VoiceFxParams> = {
@@ -55,7 +55,7 @@ const CHILL_DISPATCHER_OVERRIDES: Partial<VoiceFxParams> = {
 // the voice should feel the room — a touch faster + slightly more bite when
 // lots of agents are online, chill and clean when it's quiet. Never dramatic;
 // just enough that you sense the mood shift over a session.
-function rangerActivityParams(onlineCount: number): Partial<VoiceFxParams> {
+function scoutbotActivityParams(onlineCount: number): Partial<VoiceFxParams> {
   const activity = Math.min(1, onlineCount / 8); // 0 at idle, 1 at 8+ online
   return {
     saturationAmount: 0.035 + activity * 0.025,  // tiny edge without audible crunch
@@ -67,9 +67,9 @@ function rangerActivityParams(onlineCount: number): Partial<VoiceFxParams> {
 // the clarity-tuned overrides on top; for every other preset we use the
 // preset's own balanced character. Activity-driven variation is layered on
 // regardless so any voice "feels the room."
-function resolveRangerFxParams(presetId: string, onlineCount: number): Partial<VoiceFxParams> {
+function resolveScoutbotFxParams(presetId: string, onlineCount: number): Partial<VoiceFxParams> {
   const base = presetId === "chill-dispatcher" ? CHILL_DISPATCHER_OVERRIDES : {};
-  return { ...base, ...rangerActivityParams(onlineCount) };
+  return { ...base, ...scoutbotActivityParams(onlineCount) };
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -97,60 +97,60 @@ function isVoxLiveCancellation(error: unknown): boolean {
 }
 import { useScout } from "../Provider.tsx";
 import {
-  useRangerStatePublisher,
-  type RangerActionApi,
-  type RangerActivity,
-  type RangerPublicState,
-} from "./RangerStateContext.tsx";
+  useScoutbotStatePublisher,
+  type ScoutbotActionApi,
+  type ScoutbotActivity,
+  type ScoutbotPublicState,
+} from "./ScoutbotStateContext.tsx";
 
-type RangerAgentConfig = {
+type ScoutbotAgentConfig = {
   editable: boolean;
   model: string;
   systemPrompt: string;
 };
 
-type RangerAgentConfigUpdateResult = {
-  config: RangerAgentConfig;
+type ScoutbotAgentConfigUpdateResult = {
+  config: ScoutbotAgentConfig;
 };
 
-type RangerAssistantMessage = {
+type ScoutbotAssistantMessage = {
   id: string;
   role: "user" | "assistant";
   body: string;
   createdAt: number;
 };
 
-type RangerAssistantSession = {
+type ScoutbotAssistantSession = {
   id: string;
   title: string;
   createdAt: number;
   updatedAt: number;
   model: string;
   messageCount: number;
-  messages: RangerAssistantMessage[];
+  messages: ScoutbotAssistantMessage[];
 };
 
-type RangerAssistantSessionSummary = Omit<RangerAssistantSession, "messages">;
+type ScoutbotAssistantSessionSummary = Omit<ScoutbotAssistantSession, "messages">;
 
-type RangerAssistantSessionState = {
-  session: RangerAssistantSession;
-  sessions: RangerAssistantSessionSummary[];
+type ScoutbotAssistantSessionState = {
+  session: ScoutbotAssistantSession;
+  sessions: ScoutbotAssistantSessionSummary[];
   retention?: {
     activeLimit: number;
     archivedCount: number;
     totalCount: number;
   };
-  config: RangerAgentConfig;
+  config: ScoutbotAgentConfig;
 };
 
-type RangerAssistantReply = RangerAssistantSessionState & {
-  reply: RangerAssistantMessage;
+type ScoutbotAssistantReply = ScoutbotAssistantSessionState & {
+  reply: ScoutbotAssistantMessage;
   responseId: string | null;
 };
 
 type VoxLiveCancelReason = "discard" | "stop-failed";
 
-type RangerBriefStep = {
+type ScoutbotBriefStep = {
   id: string;
   label: string;
   route: Record<string, unknown>;
@@ -163,22 +163,22 @@ type RangerBriefStep = {
   };
 };
 
-type RangerBriefAction = {
+type ScoutbotBriefAction = {
   label: string;
   route?: Record<string, unknown>;
   prompt?: string;
 };
 
-type RangerBrief = {
+type ScoutbotBrief = {
   id: string;
   title: string;
   summary: string;
   preparedAt: number;
   expiresAt: number;
   ttlMs: number;
-  steps: RangerBriefStep[];
+  steps: ScoutbotBriefStep[];
   recommendation: string;
-  actions: RangerBriefAction[];
+  actions: ScoutbotBriefAction[];
 };
 
 type PreparedBriefSpeech = {
@@ -186,7 +186,7 @@ type PreparedBriefSpeech = {
   abort: () => void;
 };
 
-type RangerBriefSegment = {
+type ScoutbotBriefSegment = {
   id: string;
   cueId: string;
   label: string;
@@ -195,23 +195,23 @@ type RangerBriefSegment = {
   durationMs: number;
 };
 
-type RangerBriefSpeechPlan = {
+type ScoutbotBriefSpeechPlan = {
   text: string;
   cues: VoxSpeechTimingCueRequest[];
 };
 
-type RangerBriefCueSchedule = {
+type ScoutbotBriefCueSchedule = {
   cueId: string;
   segmentIndex: number;
   activateMs: number;
 };
 
-type RangerReminder = {
+type ScoutbotReminder = {
   id: string;
   title: string;
   body: string;
   status: "scheduled" | "due" | "dismissed";
-  source: "ranger" | "api";
+  source: "scoutbot" | "api";
   createdAt: number;
   updatedAt: number;
   dueAt: number;
@@ -219,18 +219,18 @@ type RangerReminder = {
   dismissedAt?: number;
 };
 
-type RangerReminderState = {
+type ScoutbotReminderState = {
   generatedAt: number;
-  reminders: RangerReminder[];
-  due: RangerReminder[];
-  scheduled: RangerReminder[];
+  reminders: ScoutbotReminder[];
+  due: ScoutbotReminder[];
+  scheduled: ScoutbotReminder[];
 };
 
-type RangerReminderCreateResult = RangerReminderState & {
-  reminder: RangerReminder;
+type ScoutbotReminderCreateResult = ScoutbotReminderState & {
+  reminder: ScoutbotReminder;
 };
 
-type RangerAskAgentResult = {
+type ScoutbotAskAgentResult = {
   ok: boolean;
   targetLabel: string;
   conversationId: string | null;
@@ -243,21 +243,21 @@ type VoiceProbeState = "idle" | "probing" | "launching";
 
 const STATE_PROMPT =
   "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.";
-const RANGER_VOICE_SPEEDS = [1, 1.2, 1.35] as const;
-const DEFAULT_RANGER_VOICE_SPEED = 1.2;
-const RANGER_BRIEF_SEGMENT_SEPARATOR = "\n\n";
-const RANGER_BRIEF_SPEECH_INSTRUCTIONS = [
+const SCOUTBOT_VOICE_SPEEDS = [1, 1.2, 1.35] as const;
+const DEFAULT_SCOUTBOT_VOICE_SPEED = 1.2;
+const SCOUTBOT_BRIEF_SEGMENT_SEPARATOR = "\n\n";
+const SCOUTBOT_BRIEF_SPEECH_INSTRUCTIONS = [
   "Read as a calm local operations briefer.",
   "Use the paragraph breaks as short breath moments so the operator can look at the screen.",
   "Keep the tone warm, focused, and unhurried; do not sound like an advertisement.",
 ].join(" ");
 
-type RangerVoiceDefaults = {
+type ScoutbotVoiceDefaults = {
   modelId: string;
   voiceId?: string;
 };
 
-function buildRangerBriefSpeechPlan(segments: RangerBriefSegment[]): RangerBriefSpeechPlan {
+function buildScoutbotBriefSpeechPlan(segments: ScoutbotBriefSegment[]): ScoutbotBriefSpeechPlan {
   let text = "";
   const cues: VoxSpeechTimingCueRequest[] = [];
   for (const segment of segments) {
@@ -266,7 +266,7 @@ function buildRangerBriefSpeechPlan(segments: RangerBriefSegment[]): RangerBrief
       continue;
     }
     if (text) {
-      text += RANGER_BRIEF_SEGMENT_SEPARATOR;
+      text += SCOUTBOT_BRIEF_SEGMENT_SEPARATOR;
     }
     const textStart = text.length;
     text += spoken;
@@ -279,16 +279,16 @@ function buildRangerBriefSpeechPlan(segments: RangerBriefSegment[]): RangerBrief
   return { text, cues };
 }
 
-function resolveRangerBriefCueSchedule(
+function resolveScoutbotBriefCueSchedule(
   result: VoxSpeakResult,
-  segments: RangerBriefSegment[],
-): RangerBriefCueSchedule[] | null {
+  segments: ScoutbotBriefSegment[],
+): ScoutbotBriefCueSchedule[] | null {
   const timingCues = result.speechTiming?.cues;
   if (!timingCues?.length) {
     return null;
   }
   const byId = new globalThis.Map(timingCues.map((cue) => [cue.id, cue]));
-  const schedule: RangerBriefCueSchedule[] = [];
+  const schedule: ScoutbotBriefCueSchedule[] = [];
   for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
     const segment = segments[segmentIndex];
     const cue = byId.get(segment.cueId);
@@ -298,32 +298,32 @@ function resolveRangerBriefCueSchedule(
     schedule.push({
       cueId: segment.cueId,
       segmentIndex,
-      activateMs: Math.max(0, cue.startMs - RANGER_BRIEF_CUE_EARLY_MS),
+      activateMs: Math.max(0, cue.startMs - SCOUTBOT_BRIEF_CUE_EARLY_MS),
     });
   }
   return schedule;
 }
 
-export function RangerPanel({ height }: { height?: number } = {}) {
+export function ScoutbotPanel({ height }: { height?: number } = {}) {
   const {
-    applyRangerUiAction,
+    applyScoutbotUiAction,
     route,
     onlineCount,
   } = useScout();
-  const publisher = useRangerStatePublisher();
+  const publisher = useScoutbotStatePublisher();
 
-  const [collapsed, setCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", true);
+  const [collapsed, setCollapsed] = usePersistentBoolean("openscout.scoutbot.collapsed", true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [voiceAvailable, setVoiceAvailable] = useState<boolean | null>(null);
   const [voiceIssue, setVoiceIssue] = useState<string | null>(null);
   const [voiceProbeState, setVoiceProbeState] = useState<VoiceProbeState>("idle");
-  const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.ranger.voiceReplies", false);
-  const [voiceSpeed, setVoiceSpeed] = usePersistentNumber("openscout.ranger.voiceSpeed", DEFAULT_RANGER_VOICE_SPEED);
-  const [voicePresetId, setVoicePresetId] = usePersistentString("openscout.ranger.voicePresetId", DEFAULT_RANGER_VOICE_PRESET_ID);
+  const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.scoutbot.voiceReplies", false);
+  const [voiceSpeed, setVoiceSpeed] = usePersistentNumber("openscout.scoutbot.voiceSpeed", DEFAULT_SCOUTBOT_VOICE_SPEED);
+  const [voicePresetId, setVoicePresetId] = usePersistentString("openscout.scoutbot.voicePresetId", DEFAULT_SCOUTBOT_VOICE_PRESET_ID);
   const [briefing, setBriefing] = useState(false);
-  const [brief, setBrief] = useState<RangerBrief | null>(null);
+  const [brief, setBrief] = useState<ScoutbotBrief | null>(null);
   const [briefStepIndex, setBriefStepIndex] = useState<number | null>(null);
   const [recording, setRecording] = useState(false);
   const [voiceState, setVoiceState] = useState<VoxSessionState | null>(null);
@@ -333,7 +333,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [lastReply, setLastReply] = useState<string | null>(null);
   const [askStatus, setAskStatus] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sessionState, setSessionState] = useState<RangerAssistantSessionState | null>(null);
+  const [sessionState, setSessionState] = useState<ScoutbotAssistantSessionState | null>(null);
   const [resettingSession, setResettingSession] = useState(false);
   const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
@@ -342,8 +342,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const [configStatus, setConfigStatus] = useState<string | null>(null);
   const [modelDraft, setModelDraft] = useState("");
   const [promptDraft, setPromptDraft] = useState("");
-  const [voiceDefaults, setVoiceDefaults] = useState<RangerVoiceDefaults | null>(null);
-  const [reminderState, setReminderState] = useState<RangerReminderState | null>(null);
+  const [voiceDefaults, setVoiceDefaults] = useState<ScoutbotVoiceDefaults | null>(null);
+  const [reminderState, setReminderState] = useState<ScoutbotReminderState | null>(null);
   const [chatExpanded, setChatExpanded] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
@@ -372,7 +372,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     const speech = startVoxSpeechWithEffects(toSpokenScoutText(text), {
       speed: voiceSpeed,
       presetId: voicePresetId,
-      params: resolveRangerFxParams(voicePresetId, onlineCount),
+      params: resolveScoutbotFxParams(voicePresetId, onlineCount),
     });
     speechRef.current = speech;
     setSpeaking(true);
@@ -390,13 +390,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       });
   }, [stopSpeech, voiceSpeed, onlineCount, voicePresetId]);
 
-  const speakRangerText = useCallback((text: string) => {
+  const speakScoutbotText = useCallback((text: string) => {
     if (!voiceRepliesRef.current) return;
     runSpeech(text);
   }, [runSpeech]);
 
-  const replayRangerText = useCallback((body: string) => {
-    runSpeech(stripRangerUiFences(body));
+  const replayScoutbotText = useCallback((body: string) => {
+    runSpeech(stripScoutbotUiFences(body));
   }, [runSpeech]);
 
   const { openFilePreview } = useScout();
@@ -404,7 +404,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   const onAssistantMessageContextMenu = useCallback(
     (event: React.MouseEvent, body: string) => {
       const sel = window.getSelection()?.toString().trim();
-      const text = stripRangerUiFences(body);
+      const text = stripScoutbotUiFences(body);
       const paths = extractAbsoluteFilePaths(text);
       const items: MenuItem[] = [];
       if (sel) {
@@ -460,11 +460,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       items.push({
         kind: "action",
         label: speaking ? "Say again (stop current)" : "Say",
-        onSelect: () => replayRangerText(body),
+        onSelect: () => replayScoutbotText(body),
       });
       showContextMenu(event, items);
     },
-    [openFilePreview, replayRangerText, showContextMenu, speaking],
+    [openFilePreview, replayScoutbotText, showContextMenu, speaking],
   );
 
   useEffect(() => () => {
@@ -472,16 +472,16 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     stopSpeech();
   }, [stopSpeech]);
 
-  const syncLastMessages = useCallback((session: RangerAssistantSession) => {
+  const syncLastMessages = useCallback((session: ScoutbotAssistantSession) => {
     const lastUser = [...session.messages].reverse().find((message) => message.role === "user");
     const lastAssistant = [...session.messages].reverse().find((message) => message.role === "assistant");
     setLastAsk(lastUser?.body ?? null);
-    setLastReply(lastAssistant ? stripRangerUiFences(lastAssistant.body) : null);
+    setLastReply(lastAssistant ? stripScoutbotUiFences(lastAssistant.body) : null);
   }, []);
 
-  const loadRangerSession = useCallback(async () => {
+  const loadScoutbotSession = useCallback(async () => {
     try {
-      const state = await api<RangerAssistantSessionState>("/api/ranger/session");
+      const state = await api<ScoutbotAssistantSessionState>("/api/scoutbot/session");
       setSessionState(state);
       syncLastMessages(state.session);
     } catch {
@@ -490,42 +490,42 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   }, [syncLastMessages]);
 
   useEffect(() => {
-    void loadRangerSession();
-  }, [loadRangerSession]);
+    void loadScoutbotSession();
+  }, [loadScoutbotSession]);
 
-  const loadRangerReminders = useCallback(async () => {
+  const loadScoutbotReminders = useCallback(async () => {
     try {
-      setReminderState(await api<RangerReminderState>("/api/ranger/reminders"));
+      setReminderState(await api<ScoutbotReminderState>("/api/scoutbot/reminders"));
     } catch {
       setReminderState(null);
     }
   }, []);
 
   useEffect(() => {
-    void loadRangerReminders();
+    void loadScoutbotReminders();
     const timer = window.setInterval(() => {
-      void loadRangerReminders();
+      void loadScoutbotReminders();
     }, 15_000);
-    window.addEventListener("focus", loadRangerReminders);
+    window.addEventListener("focus", loadScoutbotReminders);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", loadRangerReminders);
+      window.removeEventListener("focus", loadScoutbotReminders);
     };
-  }, [loadRangerReminders]);
+  }, [loadScoutbotReminders]);
 
-  const createRangerReminder = useCallback(async (input: {
+  const createScoutbotReminder = useCallback(async (input: {
     title?: string;
     body: string;
     dueAt?: number;
     delayMs?: number;
     delayMinutes?: number;
     context?: Record<string, unknown>;
-  }): Promise<RangerReminder> => {
-    const result = await api<RangerReminderCreateResult>("/api/ranger/reminders", {
+  }): Promise<ScoutbotReminder> => {
+    const result = await api<ScoutbotReminderCreateResult>("/api/scoutbot/reminders", {
       method: "POST",
       body: JSON.stringify({
         ...input,
-        source: "ranger",
+        source: "scoutbot",
       }),
     });
     setReminderState({
@@ -537,18 +537,18 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     return result.reminder;
   }, []);
 
-  const dismissRangerReminder = useCallback(async (id: string) => {
-    const next = await api<RangerReminderState>(`/api/ranger/reminders/${encodeURIComponent(id)}/dismiss`, {
+  const dismissScoutbotReminder = useCallback(async (id: string) => {
+    const next = await api<ScoutbotReminderState>(`/api/scoutbot/reminders/${encodeURIComponent(id)}/dismiss`, {
       method: "POST",
     });
     setReminderState(next);
   }, []);
 
-  const loadRangerConfig = useCallback(async () => {
+  const loadScoutbotConfig = useCallback(async () => {
     setConfigLoading(true);
     setConfigError(null);
     try {
-      const config = await api<RangerAgentConfig>("/api/ranger/config");
+      const config = await api<ScoutbotAgentConfig>("/api/scoutbot/config");
       setModelDraft(config.model);
       setPromptDraft(config.systemPrompt);
       setConfigStatus(null);
@@ -561,14 +561,14 @@ export function RangerPanel({ height }: { height?: number } = {}) {
 
   useEffect(() => {
     if (settingsOpen) {
-      void loadRangerConfig();
+      void loadScoutbotConfig();
     }
-  }, [loadRangerConfig, settingsOpen]);
+  }, [loadScoutbotConfig, settingsOpen]);
 
   useEffect(() => {
     if (!settingsOpen) return;
     let cancelled = false;
-    void api<RangerVoiceDefaults>("/api/voice/defaults")
+    void api<ScoutbotVoiceDefaults>("/api/voice/defaults")
       .then((defaults) => {
         if (!cancelled) {
           setVoiceDefaults(defaults);
@@ -584,13 +584,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     };
   }, [settingsOpen]);
 
-  const saveRangerConfig = useCallback(async () => {
+  const saveScoutbotConfig = useCallback(async () => {
     setConfigSaving(true);
     setConfigError(null);
     setConfigStatus(null);
     try {
-      const result = await api<RangerAgentConfigUpdateResult>(
-        "/api/ranger/config",
+      const result = await api<ScoutbotAgentConfigUpdateResult>(
+        "/api/scoutbot/config",
         {
           method: "POST",
           body: JSON.stringify({
@@ -609,13 +609,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     }
   }, [modelDraft, promptDraft]);
 
-  const switchRangerSession = useCallback(async (id: string) => {
+  const switchScoutbotSession = useCallback(async (id: string) => {
     if (!id || switchingSessionId) return;
     setSwitchingSessionId(id);
     setError(null);
     stopSpeech();
     try {
-      const state = await api<RangerAssistantSessionState>("/api/ranger/session/switch", {
+      const state = await api<ScoutbotAssistantSessionState>("/api/scoutbot/session/switch", {
         method: "POST",
         body: JSON.stringify({ id }),
       });
@@ -630,13 +630,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     }
   }, [stopSpeech, switchingSessionId, syncLastMessages]);
 
-  const resetRangerSession = useCallback(async () => {
+  const resetScoutbotSession = useCallback(async () => {
     setResettingSession(true);
     setError(null);
     setAskStatus("Starting fresh session");
     stopSpeech();
     try {
-      const state = await api<RangerAssistantSessionState>("/api/ranger/session/reset", { method: "POST" });
+      const state = await api<ScoutbotAssistantSessionState>("/api/scoutbot/session/reset", { method: "POST" });
       setSessionState(state);
       setLastAsk(null);
       setLastReply(null);
@@ -651,13 +651,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     }
   }, [stopSpeech]);
 
-  const archiveRangerSession = useCallback(async (id: string) => {
+  const archiveScoutbotSession = useCallback(async (id: string) => {
     if (!id || archivingSessionId) return;
     setArchivingSessionId(id);
     setError(null);
     stopSpeech();
     try {
-      const state = await api<RangerAssistantSessionState>("/api/ranger/session/archive", {
+      const state = await api<ScoutbotAssistantSessionState>("/api/scoutbot/session/archive", {
         method: "POST",
         body: JSON.stringify({ id }),
       });
@@ -715,13 +715,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     client.openSettings({ source: "openscout", context: makeScoutAudioLaunchContext() });
   }, []);
 
-  const handleRangerReply = useCallback((body: string) => {
-    const replyText = stripRangerUiFences(body);
+  const handleScoutbotReply = useCallback((body: string) => {
+    const replyText = stripScoutbotUiFences(body);
     setLastReply(replyText);
-    for (const action of extractRangerUiActions(body)) {
+    for (const action of extractScoutbotUiActions(body)) {
       if (action.type === "ask-agent") {
         setAskStatus(`Asking ${action.targetLabel}`);
-        void api<RangerAskAgentResult>("/api/ranger/actions/ask", {
+        void api<ScoutbotAskAgentResult>("/api/scoutbot/actions/ask", {
           method: "POST",
           body: JSON.stringify({
             targetLabel: action.targetLabel,
@@ -740,7 +740,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           setError(err instanceof Error ? err.message : "Could not ask agent.");
         });
       } else if (action.type === "reminder") {
-        void createRangerReminder({
+        void createScoutbotReminder({
           title: action.title,
           body: action.body,
           dueAt: action.dueAt,
@@ -753,11 +753,11 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           setError(err instanceof Error ? err.message : "Could not set reminder.");
         });
       } else {
-        applyRangerUiAction(action);
+        applyScoutbotUiAction(action);
       }
     }
-    speakRangerText(replyText);
-  }, [applyRangerUiAction, createRangerReminder, route, speakRangerText]);
+    speakScoutbotText(replyText);
+  }, [applyScoutbotUiAction, createScoutbotReminder, route, speakScoutbotText]);
 
   useEffect(() => {
     const due = reminderState?.due ?? [];
@@ -780,16 +780,16 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     const text = `Reminder due: ${freshDue.body}`;
     setAskStatus("Reminder due");
     setLastReply(text);
-    speakRangerText(text);
-  }, [reminderState, speakRangerText]);
+    speakScoutbotText(text);
+  }, [reminderState, speakScoutbotText]);
 
   const cycleVoiceSpeed = useCallback(() => {
-    const nearestIndex = RANGER_VOICE_SPEEDS.reduce((bestIndex, candidate, index) => (
-      Math.abs(candidate - voiceSpeed) < Math.abs(RANGER_VOICE_SPEEDS[bestIndex] - voiceSpeed)
+    const nearestIndex = SCOUTBOT_VOICE_SPEEDS.reduce((bestIndex, candidate, index) => (
+      Math.abs(candidate - voiceSpeed) < Math.abs(SCOUTBOT_VOICE_SPEEDS[bestIndex] - voiceSpeed)
         ? index
         : bestIndex
     ), 0);
-    setVoiceSpeed(RANGER_VOICE_SPEEDS[(nearestIndex + 1) % RANGER_VOICE_SPEEDS.length]);
+    setVoiceSpeed(SCOUTBOT_VOICE_SPEEDS[(nearestIndex + 1) % SCOUTBOT_VOICE_SPEEDS.length]);
   }, [setVoiceSpeed, voiceSpeed]);
 
   const prepareBriefSpeech = useCallback((
@@ -814,10 +814,10 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     };
     const promise = prepareVoxSpeech(text, {
       speed: voiceSpeed,
-      instructions: RANGER_BRIEF_SPEECH_INSTRUCTIONS,
+      instructions: SCOUTBOT_BRIEF_SPEECH_INSTRUCTIONS,
       signal: controller.signal,
-      originAppId: "openscout.ranger",
-      utteranceId: `ranger-brief:${runId}`,
+      originAppId: "openscout.scoutbot",
+      utteranceId: `scoutbot-brief:${runId}`,
       ...(cues.length > 0 ? { speechTiming: { enabled: true, cues } } : {}),
     })
       .catch((err) => {
@@ -838,8 +838,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     prepared: Promise<VoxSpeakResult | null>,
     runId: string,
     options: {
-      cueSchedule?: RangerBriefCueSchedule[];
-      onCue?: (cue: RangerBriefCueSchedule) => void;
+      cueSchedule?: ScoutbotBriefCueSchedule[];
+      onCue?: (cue: ScoutbotBriefCueSchedule) => void;
     } = {},
   ): Promise<boolean> => {
     const audio = await prepared;
@@ -848,7 +848,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     }
     const controller = new AbortController();
     const cueTimers: number[] = [];
-    const fxParams = resolveRangerFxParams(voicePresetId, onlineCount);
+    const fxParams = resolveScoutbotFxParams(voicePresetId, onlineCount);
     const playbackRate = Math.min(2, Math.max(0.5, fxParams.playbackRate ?? 1));
     const clearCueTimers = () => {
       for (const timer of cueTimers) {
@@ -902,8 +902,8 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     return true;
   }, [onlineCount, voicePresetId]);
 
-  const runBrief = useCallback(async (nextBrief: RangerBrief, runId: string) => {
-    const segments: RangerBriefSegment[] = [
+  const runBrief = useCallback(async (nextBrief: ScoutbotBrief, runId: string) => {
+    const segments: ScoutbotBriefSegment[] = [
       ...nextBrief.steps.map((step) => ({
         id: step.id,
         cueId: `step:${step.id}`,
@@ -922,17 +922,17 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       },
     ];
     const spokenLines: string[] = [];
-    const speechPlan = buildRangerBriefSpeechPlan(segments);
+    const speechPlan = buildScoutbotBriefSpeechPlan(segments);
     let preparedBriefSpeech: PreparedBriefSpeech | null = null;
     let preparedAudio: VoxSpeakResult | null = null;
 
-    const activateSegment = (segment: RangerBriefSegment, index: number) => {
+    const activateSegment = (segment: ScoutbotBriefSegment, index: number) => {
       setBriefStepIndex(Math.min(index, nextBrief.steps.length - 1));
       setAskStatus(`Brief ${Math.min(index + 1, nextBrief.steps.length)}/${nextBrief.steps.length}: ${segment.label}`);
       if (segment.route) {
-        const action = normalizeRangerUiAction({ type: "navigate", route: segment.route });
+        const action = normalizeScoutbotUiAction({ type: "navigate", route: segment.route });
         if (action?.type === "navigate") {
-          applyRangerUiAction(action);
+          applyScoutbotUiAction(action);
         }
       }
       spokenLines.push(`${segment.label}: ${segment.narration}`);
@@ -966,7 +966,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       }
     }
 
-    const cueSchedule = preparedAudio ? resolveRangerBriefCueSchedule(preparedAudio, segments) : null;
+    const cueSchedule = preparedAudio ? resolveScoutbotBriefCueSchedule(preparedAudio, segments) : null;
     if (preparedAudio && cueSchedule) {
       const activatedSegmentIndexes = new Set<number>();
       try {
@@ -1018,7 +1018,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setBriefing(false);
     setBriefStepIndex(null);
     briefRunRef.current = null;
-  }, [applyRangerUiAction, playBriefSpeech, prepareBriefSpeech]);
+  }, [applyScoutbotUiAction, playBriefSpeech, prepareBriefSpeech]);
 
   const startBrief = useCallback(async () => {
     if (briefing || sending) return;
@@ -1034,7 +1034,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     stopSpeech();
     try {
       await ensureOpenAIKeyOnServer().catch(() => null);
-      const nextBrief = await api<RangerBrief>("/api/ranger/brief", {
+      const nextBrief = await api<ScoutbotBrief>("/api/scoutbot/brief", {
         method: "POST",
         body: JSON.stringify({
           route,
@@ -1055,7 +1055,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     }
   }, [briefing, route, runBrief, sending, stopSpeech]);
 
-  const askRanger = useCallback(async (body: string) => {
+  const askScoutbot = useCallback(async (body: string) => {
     const trimmed = body.trim();
     if (!trimmed || sending) return;
     setSending(true);
@@ -1065,10 +1065,10 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     setAskStatus("Sending");
     setDraft((current) => current.trim() === trimmed ? "" : current);
     try {
-      const reminderIntent = parseRangerReminderIntent(trimmed);
+      const reminderIntent = parseScoutbotReminderIntent(trimmed);
       if (reminderIntent) {
         setAskStatus("Setting reminder");
-        const reminder = await createRangerReminder({
+        const reminder = await createScoutbotReminder({
           title: reminderIntent.title,
           body: reminderIntent.body,
           delayMs: reminderIntent.delayMs,
@@ -1076,12 +1076,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         });
         const reply = `Reminder set for ${formatReminderDueAt(reminder.dueAt)}: ${reminder.body}`;
         setAskStatus("Reminder set");
-        handleRangerReply(reply);
+        handleScoutbotReply(reply);
         return;
       }
 
       await ensureOpenAIKeyOnServer().catch(() => null);
-      const result = await api<RangerAssistantReply>("/api/ranger/chat", {
+      const result = await api<ScoutbotAssistantReply>("/api/scoutbot/chat", {
         method: "POST",
         body: JSON.stringify({
           body: trimmed,
@@ -1094,14 +1094,14 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         config: result.config,
       });
       setAskStatus("Reply received");
-      handleRangerReply(result.reply.body);
+      handleScoutbotReply(result.reply.body);
     } catch (err) {
       setAskStatus(null);
       setError(err instanceof Error ? err.message : "Could not send.");
     } finally {
       setSending(false);
     }
-  }, [createRangerReminder, handleRangerReply, route, sending]);
+  }, [createScoutbotReminder, handleScoutbotReply, route, sending]);
 
   const startVoice = useCallback(async () => {
     if (recording) return;
@@ -1147,7 +1147,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       }
       setVoiceState("done");
       if (final.text) {
-        await askRanger(final.text);
+        await askScoutbot(final.text);
       }
     } catch (err) {
       const cancelReason = liveCancelReasonRef.current;
@@ -1166,7 +1166,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       await cleanupLive();
       liveCancelReasonRef.current = null;
     }
-  }, [askRanger, probeVoice, recording, voiceAvailable]);
+  }, [askScoutbot, probeVoice, recording, voiceAvailable]);
 
   const stopVoice = useCallback(async () => {
     const live = liveRef.current;
@@ -1193,16 +1193,16 @@ export function RangerPanel({ height }: { height?: number } = {}) {
 
   useEffect(() => {
     const openHandler = () => setCollapsed(false);
-    window.addEventListener("scout:ranger-panel-open", openHandler);
-    return () => window.removeEventListener("scout:ranger-panel-open", openHandler);
+    window.addEventListener("scout:scoutbot-panel-open", openHandler);
+    return () => window.removeEventListener("scout:scoutbot-panel-open", openHandler);
   }, [setCollapsed]);
 
   useEffect(
-    () => onToggleRanger(() => setCollapsed(!collapsed)),
+    () => onToggleScoutbot(() => setCollapsed(!collapsed)),
     [collapsed, setCollapsed],
   );
 
-  const broadcastSnap = useRangerBroadcastStore();
+  const broadcastSnap = useScoutbotBroadcastStore();
   const promotedBroadcast = selectActiveBroadcast(broadcastSnap);
 
   useEffect(() => {
@@ -1213,12 +1213,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         : null;
       if (typeof body === "string" && body.trim()) {
         setCollapsed(false);
-        void askRanger(body);
+        void askScoutbot(body);
       }
     };
-    window.addEventListener("scout:ranger-submit", submitHandler);
-    return () => window.removeEventListener("scout:ranger-submit", submitHandler);
-  }, [askRanger, setCollapsed]);
+    window.addEventListener("scout:scoutbot-submit", submitHandler);
+    return () => window.removeEventListener("scout:scoutbot-submit", submitHandler);
+  }, [askScoutbot, setCollapsed]);
 
   useEffect(() => {
     const briefHandler = () => {
@@ -1227,12 +1227,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         void startBrief();
       }
     };
-    window.addEventListener("scout:ranger-brief-now", briefHandler);
-    return () => window.removeEventListener("scout:ranger-brief-now", briefHandler);
+    window.addEventListener("scout:scoutbot-brief-now", briefHandler);
+    return () => window.removeEventListener("scout:scoutbot-brief-now", briefHandler);
   }, [briefing, sending, setCollapsed, startBrief]);
 
-  const rangerPublicState = useMemo<RangerPublicState>(() => {
-    const activity: RangerActivity = speaking
+  const scoutbotPublicState = useMemo<ScoutbotPublicState>(() => {
+    const activity: ScoutbotActivity = speaking
       ? "speaking"
       : briefing
         ? "briefing"
@@ -1295,13 +1295,13 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   ]);
 
   useEffect(() => {
-    publisher?.publishState(rangerPublicState);
-  }, [publisher, rangerPublicState]);
+    publisher?.publishState(scoutbotPublicState);
+  }, [publisher, scoutbotPublicState]);
 
   useEffect(() => {
     if (!publisher) return;
-    const actions: RangerActionApi = {
-      focusRanger: () => setCollapsed(false),
+    const actions: ScoutbotActionApi = {
+      focusScoutbot: () => setCollapsed(false),
       triggerBrief: () => {
         setCollapsed(false);
         if (!briefing && !sending) {
@@ -1310,29 +1310,29 @@ export function RangerPanel({ height }: { height?: number } = {}) {
       },
       triggerAskState: () => {
         setCollapsed(false);
-        void askRanger(STATE_PROMPT);
+        void askScoutbot(STATE_PROMPT);
       },
       toggleVoiceReplies: () => {
         const next = !voiceReplies;
         setVoiceReplies(next);
         if (!next) stopSpeech();
       },
-      openRangerSettings: () => {
+      openScoutbotSettings: () => {
         setCollapsed(false);
         setSettingsOpen(true);
       },
       startNewChat: () => {
         setCollapsed(false);
         if (!resettingSession) {
-          void resetRangerSession();
+          void resetScoutbotSession();
         }
       },
       dismissReminder: (id) => {
-        void dismissRangerReminder(id);
+        void dismissScoutbotReminder(id);
       },
       askReminderStatus: ({ body }) => {
         setCollapsed(false);
-        void askRanger(
+        void askScoutbot(
           `Reminder due: ${body}. Check the current Scout control-plane state and give me the shortest useful status update.`,
         );
       },
@@ -1344,14 +1344,14 @@ export function RangerPanel({ height }: { height?: number } = {}) {
     briefing,
     sending,
     startBrief,
-    askRanger,
+    askScoutbot,
     voiceReplies,
     setVoiceReplies,
     stopSpeech,
     setSettingsOpen,
     resettingSession,
-    resetRangerSession,
-    dismissRangerReminder,
+    resetScoutbotSession,
+    dismissScoutbotReminder,
   ]);
 
   // Sync attention states onto the broadcast store so the chip surfaces them.
@@ -1383,12 +1383,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   useEffect(() => {
     if (error) {
       emitClientBroadcast({
-        key: "ranger.error",
+        key: "scoutbot.error",
         tier: "error",
         text: error,
       });
     } else {
-      clearClientBroadcast("ranger.error");
+      clearClientBroadcast("scoutbot.error");
     }
   }, [error]);
 
@@ -1406,7 +1406,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
   if (collapsed) {
     return (
       <div className="flex shrink-0 items-center border-t border-[var(--scout-chrome-border-soft)] px-3 py-1.5">
-        <RangerBroadcastChip />
+        <ScoutbotBroadcastChip />
       </div>
     );
   }
@@ -1424,7 +1424,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
           <Bot size={20} className="shrink-0 text-lime-300" aria-hidden="true" />
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          <RangerIconButton
+          <ScoutbotIconButton
             icon={voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
             title={voiceReplies ? "Voice replies on (click to mute)" : "Voice replies off (click to enable)"}
             onClick={() => {
@@ -1434,7 +1434,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             }}
             active={voiceReplies}
           />
-          <RangerIconButton
+          <ScoutbotIconButton
             icon={<ChevronDown size={11} />}
             title="Minimize"
             onClick={() => setCollapsed(true)}
@@ -1465,7 +1465,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
               type="button"
               title="Ask about this"
               aria-label="Ask about this"
-              onClick={() => void askRanger(`Tell me about this broadcast: ${promotedBroadcast.text}`)}
+              onClick={() => void askScoutbot(`Tell me about this broadcast: ${promotedBroadcast.text}`)}
               disabled={sending || briefing}
               className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:opacity-40"
             >
@@ -1546,7 +1546,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => void saveRangerConfig()}
+                onClick={() => void saveScoutbotConfig()}
                 disabled={configLoading || configSaving || !promptDraft.trim()}
                 className="flex items-center justify-center gap-2 rounded bg-lime-300/90 px-2.5 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -1555,7 +1555,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
               </button>
               <button
                 type="button"
-                onClick={() => void loadRangerConfig()}
+                onClick={() => void loadScoutbotConfig()}
                 disabled={configLoading || configSaving}
                 className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -1576,12 +1576,12 @@ export function RangerPanel({ height }: { height?: number } = {}) {
             onToggleExpanded={() => setChatExpanded((v) => !v)}
             sessionPickerOpen={sessionPickerOpen}
             onToggleSessionPicker={() => setSessionPickerOpen((v) => !v)}
-            onSwitchSession={(id) => void switchRangerSession(id)}
+            onSwitchSession={(id) => void switchScoutbotSession(id)}
             switchingSessionId={switchingSessionId}
             sending={sending}
             briefing={briefing}
             pendingAsk={sending ? lastAsk : null}
-            onArchiveSession={(id) => void archiveRangerSession(id)}
+            onArchiveSession={(id) => void archiveScoutbotSession(id)}
             archivingSessionId={archivingSessionId}
             onAssistantContextMenu={onAssistantMessageContextMenu}
           />
@@ -1624,7 +1624,7 @@ export function RangerPanel({ height }: { height?: number } = {}) {
         <ChatInput
           draft={draft}
           onDraftChange={setDraft}
-          onSubmit={() => void askRanger(draft)}
+          onSubmit={() => void askScoutbot(draft)}
           sending={sending}
           recording={recording}
           voiceLabel={voiceLabel}
@@ -1698,18 +1698,18 @@ function formatReminderDueAt(dueAt: number): string {
   return new Date(dueAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-const RANGER_MESSAGE_TIMESTAMP_GAP_MS = 5 * 60_000;
+const SCOUTBOT_MESSAGE_TIMESTAMP_GAP_MS = 5 * 60_000;
 
-function shouldShowRangerMessageTimestamp(
-  previous: RangerAssistantMessage | undefined,
-  current: RangerAssistantMessage,
+function shouldShowScoutbotMessageTimestamp(
+  previous: ScoutbotAssistantMessage | undefined,
+  current: ScoutbotAssistantMessage,
 ): boolean {
   if (!previous) return true;
-  if (!isSameRangerMessageDay(previous.createdAt, current.createdAt)) return true;
-  return Math.abs(current.createdAt - previous.createdAt) >= RANGER_MESSAGE_TIMESTAMP_GAP_MS;
+  if (!isSameScoutbotMessageDay(previous.createdAt, current.createdAt)) return true;
+  return Math.abs(current.createdAt - previous.createdAt) >= SCOUTBOT_MESSAGE_TIMESTAMP_GAP_MS;
 }
 
-function isSameRangerMessageDay(left: number, right: number): boolean {
+function isSameScoutbotMessageDay(left: number, right: number): boolean {
   const leftDate = new Date(left);
   const rightDate = new Date(right);
   return (
@@ -1719,17 +1719,17 @@ function isSameRangerMessageDay(left: number, right: number): boolean {
   );
 }
 
-function formatRangerMessageTimestamp(value: number): string {
+function formatScoutbotMessageTimestamp(value: number): string {
   const date = new Date(value);
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-  if (isSameRangerMessageDay(value, now.getTime())) {
+  if (isSameScoutbotMessageDay(value, now.getTime())) {
     return `Today ${time}`;
   }
-  if (isSameRangerMessageDay(value, yesterday.getTime())) {
+  if (isSameScoutbotMessageDay(value, yesterday.getTime())) {
     return `Yesterday ${time}`;
   }
   if (date.getFullYear() === now.getFullYear()) {
@@ -1757,7 +1757,7 @@ function ChatHistory({
   archivingSessionId,
   onAssistantContextMenu,
 }: {
-  state: RangerAssistantSessionState;
+  state: ScoutbotAssistantSessionState;
   chatExpanded: boolean;
   onToggleExpanded: () => void;
   sessionPickerOpen: boolean;
@@ -1781,7 +1781,7 @@ function ChatHistory({
   const startedAt = state.session.createdAt
     ? new Date(state.session.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : null;
-  const titleLine = state.session.title && state.session.title !== "New Ranger Session"
+  const titleLine = state.session.title && state.session.title !== "New Scout Session"
     ? state.session.title
     : `Session ${state.session.id.slice(0, 8)}`;
 
@@ -1857,7 +1857,7 @@ function ChatHistory({
                 hour: "numeric",
                 minute: "2-digit",
               });
-              const display = entry.title && entry.title !== "New Ranger Session"
+              const display = entry.title && entry.title !== "New Scout Session"
                 ? entry.title
                 : `Session ${entry.id.slice(0, 8)}`;
               return (
@@ -1917,8 +1917,8 @@ function ChatHistory({
           <p className="text-[var(--scout-chrome-ink-ghost)]">No messages yet — ask anything below.</p>
         )}
         {visible.map((message, index) => {
-          const showTimestamp = shouldShowRangerMessageTimestamp(visible[index - 1], message);
-          const timestamp = formatRangerMessageTimestamp(message.createdAt);
+          const showTimestamp = shouldShowScoutbotMessageTimestamp(visible[index - 1], message);
+          const timestamp = formatScoutbotMessageTimestamp(message.createdAt);
           return (
             <div key={message.id} className="flex flex-col gap-1">
               {showTimestamp && (
@@ -2057,7 +2057,7 @@ function ChatBubble({
   onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   const isUser = role === "user";
-  const text = isUser ? body : stripRangerUiFences(body);
+  const text = isUser ? body : stripScoutbotUiFences(body);
   const [copied, setCopied] = useState(false);
   const copyMessage = useCallback(() => {
     void copyTextToClipboard(text).then(() => {
@@ -2089,14 +2089,14 @@ function ChatBubble({
         </p>
       ) : (
         <div className={pending ? "opacity-60" : ""}>
-          <RangerMarkdown text={text} />
+          <ScoutbotMarkdown text={text} />
         </div>
       )}
     </div>
   );
 }
 
-function RangerIconButton({
+function ScoutbotIconButton({
   icon,
   title,
   onClick,
@@ -2130,7 +2130,7 @@ function RangerIconButton({
   );
 }
 
-function RangerActionButton({
+function ScoutbotActionButton({
   icon,
   label,
   title,

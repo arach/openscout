@@ -38,7 +38,7 @@ export const deliveryAttemptsTable = sqliteTable("delivery_attempts", {
   createdAt: integer("created_at").notNull(),
 });
 
-// Briefing Room — three-layer archive of Ranger-generated briefs. Raw schema
+// Briefing Room — three-layer archive of Scoutbot-generated briefs. Raw schema
 // in `schema.ts`; this Drizzle mirror gives type-safe access for the web
 // server. See packages/web/server/db/briefings.ts for queries.
 export const briefingsTable = sqliteTable("briefings", {

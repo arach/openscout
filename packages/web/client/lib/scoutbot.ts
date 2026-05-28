@@ -1,11 +1,11 @@
 import type { Agent, OpsMode, Route } from "./types.ts";
 
-export const DEFAULT_RANGER_AGENT_ID = "ranger.main.mini";
+export const DEFAULT_SCOUTBOT_AGENT_ID = "scoutbot.main.mini";
 
-const RANGER_AGENT_IDS = new Set([
-  DEFAULT_RANGER_AGENT_ID,
-  "ranger",
-  "@ranger",
+const SCOUTBOT_AGENT_IDS = new Set([
+  DEFAULT_SCOUTBOT_AGENT_ID,
+  "scoutbot",
+  "@scoutbot",
 ]);
 
 const OPS_MODES = new Set([
@@ -24,7 +24,7 @@ const OPS_MODES = new Set([
   "atop",
 ]);
 
-const ONLINE_RANGER_STATES = new Set([
+const ONLINE_SCOUTBOT_STATES = new Set([
   "available",
   "working",
   "active",
@@ -33,9 +33,9 @@ const ONLINE_RANGER_STATES = new Set([
   "registered",
 ]);
 
-export type RangerUiAction =
+export type ScoutbotUiAction =
   | { type: "navigate"; route: Route; reason?: string }
-  | { type: "open-ranger"; mode?: "ask" | "tell"; reason?: string }
+  | { type: "open-scoutbot"; mode?: "ask" | "tell"; reason?: string }
   | { type: "refresh"; reason?: string }
   | { type: "view-file"; path: string; reason?: string }
   | {
@@ -56,7 +56,7 @@ export type RangerUiAction =
       reason?: string;
     };
 
-export function isRangerAgent(agent: Agent): boolean {
+export function isScoutbotAgent(agent: Agent): boolean {
   const candidates = [
     agent.id,
     agent.name,
@@ -66,78 +66,78 @@ export function isRangerAgent(agent: Agent): boolean {
   ].map((value) => value.trim().toLowerCase());
 
   return candidates.some((value) =>
-    RANGER_AGENT_IDS.has(value) ||
-    value === "ranger" ||
-    value.startsWith("ranger.") ||
-    value.includes(".ranger.") ||
-    value.includes(" ranger")
+    SCOUTBOT_AGENT_IDS.has(value) ||
+    value === "scoutbot" ||
+    value.startsWith("scoutbot.") ||
+    value.includes(".scoutbot.") ||
+    value.includes(" scoutbot")
   );
 }
 
-function isOnlineRangerAgent(agent: Agent): boolean {
-  return ONLINE_RANGER_STATES.has(agent.state?.trim().toLowerCase() ?? "");
+function isOnlineScoutbotAgent(agent: Agent): boolean {
+  return ONLINE_SCOUTBOT_STATES.has(agent.state?.trim().toLowerCase() ?? "");
 }
 
-function rangerAgentScore(agent: Agent): number {
-  if (!isRangerAgent(agent)) {
+function scoutbotAgentScore(agent: Agent): number {
+  if (!isScoutbotAgent(agent)) {
     return Number.NEGATIVE_INFINITY;
   }
   let score = 0;
-  if (isOnlineRangerAgent(agent)) {
+  if (isOnlineScoutbotAgent(agent)) {
     score += 100;
   }
-  if (agent.handle?.trim().toLowerCase() === "ranger") {
+  if (agent.handle?.trim().toLowerCase() === "scoutbot") {
     score += 20;
   }
-  if (agent.selector?.trim().toLowerCase() === "@ranger") {
+  if (agent.selector?.trim().toLowerCase() === "@scoutbot") {
     score += 20;
   }
-  if (agent.role?.trim().toLowerCase() === "ranger") {
+  if (agent.role?.trim().toLowerCase() === "scoutbot") {
     score += 10;
   }
-  if (agent.id === DEFAULT_RANGER_AGENT_ID) {
+  if (agent.id === DEFAULT_SCOUTBOT_AGENT_ID) {
     score += 1;
   }
   return score;
 }
 
-export function resolveRangerAgent(agents: Agent[]): Agent | null {
+export function resolveScoutbotAgent(agents: Agent[]): Agent | null {
   return agents
-    .filter(isRangerAgent)
+    .filter(isScoutbotAgent)
     .sort((left, right) => {
-      const scoreDelta = rangerAgentScore(right) - rangerAgentScore(left);
+      const scoreDelta = scoutbotAgentScore(right) - scoutbotAgentScore(left);
       if (scoreDelta !== 0) return scoreDelta;
       return (right.updatedAt ?? 0) - (left.updatedAt ?? 0);
     })[0] ?? null;
 }
 
-export function resolveRangerAgentId(agents: Agent[]): string {
-  return resolveRangerAgent(agents)?.id ?? DEFAULT_RANGER_AGENT_ID;
+export function resolveScoutbotAgentId(agents: Agent[]): string {
+  return resolveScoutbotAgent(agents)?.id ?? DEFAULT_SCOUTBOT_AGENT_ID;
 }
 
-export function rangerConversationId(agentId: string): string {
+export function scoutbotConversationId(agentId: string): string {
   return `dm.operator.${agentId}`;
 }
 
-export function isRangerActorId(actorId: string, rangerAgentId = DEFAULT_RANGER_AGENT_ID): boolean {
+export function isScoutbotActorId(actorId: string, scoutbotAgentId = DEFAULT_SCOUTBOT_AGENT_ID): boolean {
   const normalized = actorId.trim().toLowerCase();
-  const ranger = rangerAgentId.trim().toLowerCase();
-  return normalized === ranger ||
-    normalized === "ranger" ||
-    normalized.startsWith("ranger.") ||
-    normalized.includes(".ranger.");
+  const scoutbot = scoutbotAgentId.trim().toLowerCase();
+  return normalized === scoutbot ||
+    normalized === "scoutbot" ||
+    normalized.startsWith("scoutbot.") ||
+    normalized.includes(".scoutbot.");
 }
 
-const RANGER_FENCE_TAGS = new Set(["scout-ui", "scout-ui-action", "ranger-ui"]);
+const SCOUTBOT_FENCE_TAGS = new Set(["scout-ui", "scout-ui-action", "scoutbot-ui"]);
 const FENCE_PATTERN = /```([a-zA-Z0-9_-]*)\s*([\s\S]*?)```/g;
 
 type FenceScan = {
   stripped: string;
-  actions: RangerUiAction[];
+  actions: ScoutbotUiAction[];
 };
 
-function scanRangerFences(body: string): FenceScan {
-  const actions: RangerUiAction[] = [];
+function scanScoutbotFences(body: string): FenceScan {
+  const actions: ScoutbotUiAction[] = [];
   let stripped = "";
   let cursor = 0;
 
@@ -148,20 +148,20 @@ function scanRangerFences(body: string): FenceScan {
     const tag = (tagRaw ?? "").toLowerCase();
     const payload = payloadRaw ?? "";
 
-    let parsedActions: RangerUiAction[] = [];
-    let isRangerFence = false;
+    let parsedActions: ScoutbotUiAction[] = [];
+    let isScoutbotFence = false;
 
-    if (RANGER_FENCE_TAGS.has(tag)) {
-      isRangerFence = true;
+    if (SCOUTBOT_FENCE_TAGS.has(tag)) {
+      isScoutbotFence = true;
       parsedActions = parseActionJson(payload);
     } else if (tag === "json" || tag === "") {
       parsedActions = parseActionJson(payload);
       if (parsedActions.length > 0) {
-        isRangerFence = true;
+        isScoutbotFence = true;
       }
     }
 
-    if (isRangerFence) {
+    if (isScoutbotFence) {
       actions.push(...parsedActions);
       stripped += body.slice(cursor, match.index);
       cursor = match.index + fullMatch.length;
@@ -175,15 +175,15 @@ function scanRangerFences(body: string): FenceScan {
   };
 }
 
-export function extractRangerUiActions(body: string): RangerUiAction[] {
-  return scanRangerFences(body).actions;
+export function extractScoutbotUiActions(body: string): ScoutbotUiAction[] {
+  return scanScoutbotFences(body).actions;
 }
 
-export function stripRangerUiFences(body: string): string {
-  return scanRangerFences(body).stripped;
+export function stripScoutbotUiFences(body: string): string {
+  return scanScoutbotFences(body).stripped;
 }
 
-function parseActionJson(raw: string): RangerUiAction[] {
+function parseActionJson(raw: string): ScoutbotUiAction[] {
   const trimmed = raw.trim();
   if (!trimmed) return [];
 
@@ -191,18 +191,18 @@ function parseActionJson(raw: string): RangerUiAction[] {
     const parsed = JSON.parse(trimmed) as unknown;
     const list = Array.isArray(parsed) ? parsed : [parsed];
     return list
-      .map((entry) => normalizeRangerUiAction(entry))
-      .filter((entry): entry is RangerUiAction => Boolean(entry));
+      .map((entry) => normalizeScoutbotUiAction(entry))
+      .filter((entry): entry is ScoutbotUiAction => Boolean(entry));
   } catch {
     return [];
   }
 }
 
-export function normalizeRangerUiAction(raw: unknown): RangerUiAction | null {
+export function normalizeScoutbotUiAction(raw: unknown): ScoutbotUiAction | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
-  const nested = record.scoutUi ?? record.scout_ui ?? record.rangerUi ?? record.ranger_ui;
-  if (nested) return normalizeRangerUiAction(nested);
+  const nested = record.scoutUi ?? record.scout_ui ?? record.scoutbotUi ?? record.scoutbot_ui;
+  if (nested) return normalizeScoutbotUiAction(nested);
 
   const type = typeof record.type === "string"
     ? record.type
@@ -211,9 +211,9 @@ export function normalizeRangerUiAction(raw: unknown): RangerUiAction | null {
       : "";
   const reason = typeof record.reason === "string" ? record.reason : undefined;
 
-  if (type === "open-ranger" || type === "open_ranger") {
+  if (type === "open-scoutbot" || type === "open_scoutbot") {
     const mode = record.mode === "tell" ? "tell" : record.mode === "ask" ? "ask" : undefined;
-    return { type: "open-ranger", ...(mode ? { mode } : {}), ...(reason ? { reason } : {}) };
+    return { type: "open-scoutbot", ...(mode ? { mode } : {}), ...(reason ? { reason } : {}) };
   }
 
   if (type === "refresh") {

@@ -106,13 +106,13 @@
 
 /* Lift small chrome glyphs (status dots, clock icon) toward the visual middle
  * of the mono text instead of the line-box center, which makes them read
- * "dropped". Applies inside the status bar only. The Ranger chip's Bot icon
+ * "dropped". Applies inside the status bar only. The Scoutbot chip's Bot icon
  * is opted out because it's centered inside its own flex container — the
  * outer lift would double-nudge it relative to the adjacent chip text. */
 [data-scout-theme] [data-frame-panel="status-bar"] .rounded-full {
   transform: translateY(-1.5px);
 }
-[data-scout-theme] [data-frame-panel="status-bar"] svg:not(.s-ranger-chip-icon) {
+[data-scout-theme] [data-frame-panel="status-bar"] svg:not(.s-scoutbot-chip-icon) {
   transform: translateY(-1px);
 }
 
@@ -2050,7 +2050,7 @@ a.s-inline-link {
   gap: 0.375rem;
 }
 
-.scout-nav-action--ranger {
+.scout-nav-action--scoutbot {
   color: var(--hud-accent);
   border-color: color-mix(in srgb, var(--hud-accent) 36%, transparent);
   background: color-mix(in srgb, var(--hud-accent) 7%, transparent);
@@ -2062,7 +2062,7 @@ a.s-inline-link {
   gap: 2px;
 }
 
-.scout-nav-action--ranger-brief {
+.scout-nav-action--scoutbot-brief {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2075,7 +2075,7 @@ a.s-inline-link {
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-.scout-nav-action--ranger-brief:hover {
+.scout-nav-action--scoutbot-brief:hover {
   color: var(--hud-accent);
   background: var(--scout-chrome-hover);
 }

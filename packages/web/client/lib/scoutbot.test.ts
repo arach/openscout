@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { Agent } from "./types.ts";
 import {
-  extractRangerUiActions,
-  resolveRangerAgentId,
-  stripRangerUiFences,
-} from "./ranger.ts";
+  extractScoutbotUiActions,
+  resolveScoutbotAgentId,
+  stripScoutbotUiFences,
+} from "./scoutbot.ts";
 
 function agent(input: Partial<Agent> & { id: string }): Agent {
   return {
@@ -38,7 +38,7 @@ function agent(input: Partial<Agent> & { id: string }): Agent {
   };
 }
 
-describe("extractRangerUiActions + stripRangerUiFences", () => {
+describe("extractScoutbotUiActions + stripScoutbotUiFences", () => {
   test("handles a scout-ui fence (strips + extracts)", () => {
     const body = [
       "Here you go.",
@@ -47,22 +47,22 @@ describe("extractRangerUiActions + stripRangerUiFences", () => {
       "```",
     ].join("\n");
 
-    expect(extractRangerUiActions(body)).toEqual([
+    expect(extractScoutbotUiActions(body)).toEqual([
       { type: "navigate", route: { view: "mesh" } },
     ]);
-    expect(stripRangerUiFences(body)).toBe("Here you go.");
+    expect(stripScoutbotUiFences(body)).toBe("Here you go.");
   });
 
   test("handles a json fence that carries a known action shape", () => {
     const body = [
-      "Opening Ranger.",
+      "Opening Scoutbot.",
       "```json",
-      '{"action":"open-ranger"}',
+      '{"action":"open-scoutbot"}',
       "```",
     ].join("\n");
 
-    expect(extractRangerUiActions(body)).toEqual([{ type: "open-ranger" }]);
-    expect(stripRangerUiFences(body)).toBe("Opening Ranger.");
+    expect(extractScoutbotUiActions(body)).toEqual([{ type: "open-scoutbot" }]);
+    expect(stripScoutbotUiFences(body)).toBe("Opening Scoutbot.");
   });
 
   test("leaves unrelated json fences in place", () => {
@@ -73,8 +73,8 @@ describe("extractRangerUiActions + stripRangerUiFences", () => {
       "```",
     ].join("\n");
 
-    expect(extractRangerUiActions(body)).toEqual([]);
-    expect(stripRangerUiFences(body)).toBe(body.trim());
+    expect(extractScoutbotUiActions(body)).toEqual([]);
+    expect(stripScoutbotUiFences(body)).toBe(body.trim());
   });
 
   test("leaves non-json code fences alone", () => {
@@ -85,8 +85,8 @@ describe("extractRangerUiActions + stripRangerUiFences", () => {
       "```",
     ].join("\n");
 
-    expect(extractRangerUiActions(body)).toEqual([]);
-    expect(stripRangerUiFences(body)).toBe(body.trim());
+    expect(extractScoutbotUiActions(body)).toEqual([]);
+    expect(stripScoutbotUiFences(body)).toBe(body.trim());
   });
 
   test("strips bare fences when payload is a recognized action", () => {
@@ -97,14 +97,14 @@ describe("extractRangerUiActions + stripRangerUiFences", () => {
       "```",
     ].join("\n");
 
-    expect(extractRangerUiActions(body)).toEqual([{ type: "refresh" }]);
-    expect(stripRangerUiFences(body)).toBe("Refreshing.");
+    expect(extractScoutbotUiActions(body)).toEqual([{ type: "refresh" }]);
+    expect(stripScoutbotUiFences(body)).toBe("Refreshing.");
   });
 
   test("handles two leaking action fences in one body", () => {
     const body = [
       "```json",
-      '{"action":"open-ranger"}',
+      '{"action":"open-scoutbot"}',
       "```",
       "Reply text.",
       "```json",
@@ -112,40 +112,40 @@ describe("extractRangerUiActions + stripRangerUiFences", () => {
       "```",
     ].join("\n");
 
-    expect(extractRangerUiActions(body)).toEqual([
-      { type: "open-ranger" },
+    expect(extractScoutbotUiActions(body)).toEqual([
+      { type: "open-scoutbot" },
       { type: "navigate", route: { view: "mesh" } },
     ]);
-    expect(stripRangerUiFences(body)).toBe("Reply text.");
+    expect(stripScoutbotUiFences(body)).toBe("Reply text.");
   });
 });
 
-describe("resolveRangerAgentId", () => {
-  test("prefers an available Ranger over the stale default id", () => {
-    const resolved = resolveRangerAgentId([
+describe("resolveScoutbotAgentId", () => {
+  test("prefers an available Scoutbot over the stale default id", () => {
+    const resolved = resolveScoutbotAgentId([
       agent({
-        id: "ranger.main.mini",
-        handle: "ranger",
-        selector: "@ranger",
+        id: "scoutbot.main.mini",
+        handle: "scoutbot",
+        selector: "@scoutbot",
         state: "offline",
         updatedAt: 10,
       }),
       agent({
-        id: "ranger.codex-vox-getting-started.mini",
-        handle: "ranger",
-        selector: "@ranger",
+        id: "scoutbot.codex-vox-getting-started.mini",
+        handle: "scoutbot",
+        selector: "@scoutbot",
         state: "available",
         updatedAt: 20,
       }),
     ]);
 
-    expect(resolved).toBe("ranger.codex-vox-getting-started.mini");
+    expect(resolved).toBe("scoutbot.codex-vox-getting-started.mini");
   });
 });
 
-describe("extractRangerUiActions", () => {
+describe("extractScoutbotUiActions", () => {
   test("normalizes ask-agent actions", () => {
-    const actions = extractRangerUiActions([
+    const actions = extractScoutbotUiActions([
       "I’ll ask Hudson.",
       "```scout-ui",
       JSON.stringify({

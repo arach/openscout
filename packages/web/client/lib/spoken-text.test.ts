@@ -9,8 +9,8 @@ describe("toSpokenScoutText", () => {
   });
 
   test("keeps written precision out of spoken agent ids", () => {
-    expect(toSpokenScoutText("Ask @openscout.codex-ranger-server-credentials.air-local next."))
-      .toBe("Ask openscout, codex ranger server credentials next.");
+    expect(toSpokenScoutText("Ask @openscout.codex-scoutbot-server-credentials.air-local next."))
+      .toBe("Ask openscout, codex scoutbot server credentials next.");
   });
 
   test("drops default branch and local node qualifiers", () => {

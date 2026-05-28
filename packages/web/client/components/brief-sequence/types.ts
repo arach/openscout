@@ -1,7 +1,7 @@
 /**
  * Type contract for the brief-sequence component.
  *
- * A `BriefStep` represents one phase Ranger goes through to assemble a brief
+ * A `BriefStep` represents one phase Scoutbot goes through to assemble a brief
  * (scanning fleet, reading sessions, inspecting broker queue, etc.) and carries
  * a `StepSample` of the data that phase would surface.
  *

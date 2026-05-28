@@ -1039,7 +1039,7 @@ describe("SQLiteControlPlaneStore", () => {
         createdAt: 100,
         metadata: {
           dueAt: 1_000,
-          mode: "ranger",
+          mode: "scoutbot",
           body: "check lattices status",
         },
       });

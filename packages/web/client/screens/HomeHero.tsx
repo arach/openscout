@@ -453,7 +453,7 @@ export default function HomeHero(props: HomeHeroProps) {
           data-brief-refreshing={briefRefreshing || undefined}
         >
           <div className="hd-panel-title">
-            <Bot className="hd-brief-ranger-glyph" size={12} aria-hidden="true" />
+            <Bot className="hd-brief-scoutbot-glyph" size={12} aria-hidden="true" />
             <span>BRIEFING</span>
             <span className="hd-sep">·</span>
             <span>{formatDateChip(now)}</span>

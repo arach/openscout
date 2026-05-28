@@ -1,9 +1,9 @@
-/* ── Ranger chip popover ─────────────────────────────────────────────
-   Opens from the chip in the left of the status bar. Carries Ranger's
+/* ── Scoutbot chip popover ─────────────────────────────────────────────
+   Opens from the chip in the left of the status bar. Carries Scoutbot's
    contextual surface: current state, reminders, recent broadcasts,
    actions, and the broadcast filter/mute footer. */
 
-.s-ranger-popover-backdrop {
+.s-scoutbot-popover-backdrop {
   position: fixed;
   inset: 0;
   z-index: 10000;
@@ -11,7 +11,7 @@
   pointer-events: auto;
 }
 
-.s-ranger-popover {
+.s-scoutbot-popover {
   position: fixed;
   bottom: 36px;
   left: 12px;
@@ -31,7 +31,7 @@
   overflow: hidden;
 }
 
-.s-ranger-popover-head {
+.s-scoutbot-popover-head {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -39,11 +39,11 @@
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 70%, var(--bg));
 }
-.s-ranger-popover-head-icon {
+.s-scoutbot-popover-head-icon {
   color: color-mix(in srgb, var(--accent) 80%, var(--ink));
   flex-shrink: 0;
 }
-.s-ranger-popover-head-title {
+.s-scoutbot-popover-head-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -54,7 +54,7 @@
   text-transform: uppercase;
   color: var(--muted);
 }
-.s-ranger-popover-close {
+.s-scoutbot-popover-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -67,19 +67,19 @@
   cursor: pointer;
   transition: color 0.12s ease, border-color 0.12s ease;
 }
-.s-ranger-popover-close:hover {
+.s-scoutbot-popover-close:hover {
   color: var(--ink);
   border-color: var(--border);
 }
 
-.s-ranger-popover-section {
+.s-scoutbot-popover-section {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   overflow: hidden;
 }
-.s-ranger-popover-section:last-of-type {
+.s-scoutbot-popover-section:last-of-type {
   border-bottom: 0;
 }
-.s-ranger-popover-section-head {
+.s-scoutbot-popover-section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -90,22 +90,22 @@
   text-transform: uppercase;
   color: var(--dim);
 }
-.s-ranger-popover-section-body {
+.s-scoutbot-popover-section-body {
   padding: 4px 10px 8px;
 }
 
-.s-ranger-popover-count {
+.s-scoutbot-popover-count {
   font-size: 9px;
   color: var(--muted);
 }
 
-.s-ranger-popover-empty-line {
+.s-scoutbot-popover-empty-line {
   padding: 4px 0;
   color: var(--dim);
   font-size: 10px;
 }
 
-.s-ranger-popover-now {
+.s-scoutbot-popover-now {
   display: grid;
   grid-template-columns: 10px 1fr auto auto;
   align-items: baseline;
@@ -114,24 +114,24 @@
   font-size: 11px;
   color: var(--ink);
 }
-.s-ranger-popover-now--activity {
+.s-scoutbot-popover-now--activity {
   color: color-mix(in srgb, var(--accent) 70%, var(--ink));
 }
-.s-ranger-popover-now--error {
+.s-scoutbot-popover-now--error {
   color: color-mix(in srgb, crimson 50%, var(--ink));
 }
-.s-ranger-popover-now-text {
+.s-scoutbot-popover-now-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.s-ranger-popover-now-time {
+.s-scoutbot-popover-now-time {
   font-size: 10px;
   color: var(--dim);
   font-variant-numeric: tabular-nums;
 }
-.s-ranger-popover-now-dismiss {
+.s-scoutbot-popover-now-dismiss {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -143,12 +143,12 @@
   border-radius: 3px;
   cursor: pointer;
 }
-.s-ranger-popover-now-dismiss:hover {
+.s-scoutbot-popover-now-dismiss:hover {
   color: var(--ink);
   border-color: var(--border);
 }
 
-.s-ranger-popover-dot {
+.s-scoutbot-popover-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -156,19 +156,19 @@
   background: var(--muted);
   display: inline-block;
 }
-.s-ranger-popover-dot--info  { background: var(--muted); }
-.s-ranger-popover-dot--warn  { background: color-mix(in srgb, gold 70%, var(--muted)); }
-.s-ranger-popover-dot--error { background: color-mix(in srgb, crimson 70%, var(--muted)); }
-.s-ranger-popover-dot--pulse {
+.s-scoutbot-popover-dot--info  { background: var(--muted); }
+.s-scoutbot-popover-dot--warn  { background: color-mix(in srgb, gold 70%, var(--muted)); }
+.s-scoutbot-popover-dot--error { background: color-mix(in srgb, crimson 70%, var(--muted)); }
+.s-scoutbot-popover-dot--pulse {
   background: color-mix(in srgb, var(--accent) 80%, var(--ink));
-  animation: s-ranger-popover-pulse 1.4s ease-in-out infinite;
+  animation: s-scoutbot-popover-pulse 1.4s ease-in-out infinite;
 }
-@keyframes s-ranger-popover-pulse {
+@keyframes s-scoutbot-popover-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
 
-.s-ranger-popover-reminder {
+.s-scoutbot-popover-reminder {
   display: grid;
   grid-template-columns: 12px 1fr 22px 22px;
   align-items: center;
@@ -177,17 +177,17 @@
   font-size: 11px;
   color: var(--ink);
 }
-.s-ranger-popover-reminder-icon {
+.s-scoutbot-popover-reminder-icon {
   color: color-mix(in srgb, gold 60%, var(--muted));
   flex-shrink: 0;
 }
-.s-ranger-popover-reminder-body {
+.s-scoutbot-popover-reminder-body {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.s-ranger-popover-icon-btn {
+.s-scoutbot-popover-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -200,18 +200,18 @@
   cursor: pointer;
   transition: color 0.12s ease, border-color 0.12s ease;
 }
-.s-ranger-popover-icon-btn:hover {
+.s-scoutbot-popover-icon-btn:hover {
   color: var(--ink);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 
-.s-ranger-popover-history {
+.s-scoutbot-popover-history {
   display: flex;
   flex-direction: column;
   max-height: 200px;
   overflow-y: auto;
 }
-.s-ranger-popover-history-row {
+.s-scoutbot-popover-history-row {
   display: grid;
   grid-template-columns: 10px 60px 1fr;
   align-items: baseline;
@@ -221,30 +221,30 @@
   color: var(--ink);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
 }
-.s-ranger-popover-history-row:last-child {
+.s-scoutbot-popover-history-row:last-child {
   border-bottom: 0;
 }
-.s-ranger-popover-history-row--muted {
+.s-scoutbot-popover-history-row--muted {
   opacity: 0.45;
 }
-.s-ranger-popover-history-time {
+.s-scoutbot-popover-history-time {
   color: var(--dim);
   font-variant-numeric: tabular-nums;
 }
-.s-ranger-popover-history-text {
+.s-scoutbot-popover-history-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.s-ranger-popover-actions {
+.s-scoutbot-popover-actions {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 4px;
   padding: 2px 0;
 }
-.s-ranger-popover-action {
+.s-scoutbot-popover-action {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -258,20 +258,20 @@
   cursor: pointer;
   transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
 }
-.s-ranger-popover-action:hover {
+.s-scoutbot-popover-action:hover {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
-.s-ranger-popover-action--primary {
+.s-scoutbot-popover-action--primary {
   color: var(--ink);
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.s-ranger-popover-action--primary:hover {
+.s-scoutbot-popover-action--primary:hover {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.s-ranger-popover-alerts {
+.s-scoutbot-popover-alerts {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -280,14 +280,14 @@
   border-top: 1px solid var(--border);
   background: var(--bg);
 }
-.s-ranger-popover-alerts-label {
+.s-scoutbot-popover-alerts-label {
   margin-right: 4px;
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--dim);
 }
-.s-ranger-popover-mute-btn {
+.s-scoutbot-popover-mute-btn {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--muted);
@@ -298,11 +298,11 @@
   cursor: pointer;
   transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
 }
-.s-ranger-popover-mute-btn:hover {
+.s-scoutbot-popover-mute-btn:hover {
   color: var(--ink);
   border-color: var(--dim);
 }
-.s-ranger-popover-mute-btn--active {
+.s-scoutbot-popover-mute-btn--active {
   color: var(--ink);
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);

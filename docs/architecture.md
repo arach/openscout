@@ -24,6 +24,13 @@ In practice, the architecture is aiming for three stable outcomes:
 - one shared model for messages, invocations, flights, and identities: the protocol
 - many possible operator surfaces and harness adapters around that core
 
+Platform Scout is distinct from the conversational assistant handle
+`@scoutbot`. The product, broker, CLI, protocol, and coordination model remain
+Scout/OpenScout. `@scoutbot` is the routeable assistant identity that may appear
+in operator chrome, mentions, chips, and broker logs when the human is talking to
+the assistant. Friendly UI may call that assistant Scout, but use `@scoutbot`
+where the handle matters.
+
 That framing matters because most of the design choices below are about protecting those boundaries.
 
 ## Principles

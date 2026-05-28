@@ -12,6 +12,7 @@ import {
 } from "./lib/canvas-minimap.tsx";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
+import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
 
 interface OpenScoutAppShellProps {
@@ -64,6 +65,8 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
         </span>
         <span className={`text-[10px] ${meshValueClass}`}>{statusBar.mesh.value}</span>
       </div>
+      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
+      <ScoutbotBroadcastChip />
     </div>
   );
 }

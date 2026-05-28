@@ -1,5 +1,5 @@
-// Dev-only lab page for prototyping Ranger's dispatcher-radio FX chain.
-// Mounted at /dev/ranger-fx via main.tsx pathname gate.
+// Dev-only lab page for prototyping Scoutbot's dispatcher-radio FX chain.
+// Mounted at /dev/scoutbot-fx via main.tsx pathname gate.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -117,7 +117,7 @@ const SPEED_VARY_RANGE = 0.12; // ±12% around the configured speed when vary-pe
 const clampSpeed = (v: number) => Math.max(0.7, Math.min(1.45, v));
 
 const LOOP_GAP_MS = 220;
-const RANGER_CLEAN_DISPATCH_FX: VoiceFxParams = {
+const SCOUTBOT_CLEAN_DISPATCH_FX: VoiceFxParams = {
   ...DEFAULT_VOICE_FX,
   lowCutHz: 160,
   highCutHz: 5200,
@@ -143,7 +143,7 @@ const RANGER_CLEAN_DISPATCH_FX: VoiceFxParams = {
 };
 
 const CODEX_CLEAN_DISPATCH_FX: VoiceFxParams = {
-  ...RANGER_CLEAN_DISPATCH_FX,
+  ...SCOUTBOT_CLEAN_DISPATCH_FX,
   lowCutHz: 190,
   highCutHz: 5000,
   saturationAmount: 0.055,
@@ -162,14 +162,14 @@ function voiceFxParamsCode(params: VoiceFxParams): string {
   const entries = Object.entries(params)
     .map(([key, value]) => `  ${key}: ${typeof value === "number" ? Number(value.toFixed(3)) : String(value)},`)
     .join("\n");
-  return `const RANGER_VOICE_FX: Partial<VoiceFxParams> = {\n${entries}\n};`;
+  return `const SCOUTBOT_VOICE_FX: Partial<VoiceFxParams> = {\n${entries}\n};`;
 }
 
-export function RangerFxLab() {
+export function ScoutbotFxLab() {
   const [response, setResponse] = useState<FixturesResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [buffers, setBuffers] = useState<Record<string, LoadedBuffer>>({});
-  const [params, setParams] = useState<VoiceFxParams>(RANGER_CLEAN_DISPATCH_FX);
+  const [params, setParams] = useState<VoiceFxParams>(SCOUTBOT_CLEAN_DISPATCH_FX);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [playingSlug, setPlayingSlug] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -189,7 +189,7 @@ export function RangerFxLab() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/dev/ranger-fx/fixtures");
+        const res = await fetch("/api/dev/scoutbot-fx/fixtures");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as FixturesResponse;
         if (!cancelled) setResponse(data);
@@ -202,7 +202,7 @@ export function RangerFxLab() {
 
   const ensureBuffer = useCallback(async (fixture: Fixture): Promise<AudioBuffer> => {
     if (buffers[fixture.slug]) return buffers[fixture.slug].buffer;
-    const buffer = await decodeAudioFromUrl(`/api/dev/ranger-fx/audio/${encodeURIComponent(fixture.file)}`);
+    const buffer = await decodeAudioFromUrl(`/api/dev/scoutbot-fx/audio/${encodeURIComponent(fixture.file)}`);
     setBuffers((prev) => ({ ...prev, [fixture.slug]: { fixture, buffer } }));
     return buffer;
   }, [buffers]);
@@ -271,7 +271,7 @@ export function RangerFxLab() {
         });
       }
     } catch (error) {
-      console.error(`[ranger-fx] ${mode} playback failed`, error);
+      console.error(`[scoutbot-fx] ${mode} playback failed`, error);
     } finally {
       if (sessionRef.current === token) sessionRef.current = null;
       handleRef.current = null;
@@ -293,10 +293,10 @@ export function RangerFxLab() {
     <div style={pageStyle}>
       <header style={headerStyle}>
         <div>
-          <h1 style={titleStyle}>Ranger FX Lab</h1>
+          <h1 style={titleStyle}>Scoutbot FX Lab</h1>
           <p style={subTitleStyle}>
             Dispatcher-radio FX prototyping. Generate fixtures with{" "}
-            <code style={codeStyle}>node packages/web/scripts/generate-ranger-fx-fixtures.mjs</code>.
+            <code style={codeStyle}>node packages/web/scripts/generate-scoutbot-fx-fixtures.mjs</code>.
           </p>
         </div>
         <div style={metaStyle}>
@@ -372,11 +372,11 @@ export function RangerFxLab() {
               type="button"
               style={buttonStyle}
               onClick={() => {
-                setActivePresetId("ranger-clean-dispatch");
-                setParams(RANGER_CLEAN_DISPATCH_FX);
+                setActivePresetId("scoutbot-clean-dispatch");
+                setParams(SCOUTBOT_CLEAN_DISPATCH_FX);
               }}
             >
-              Ranger default
+              Scoutbot default
             </button>
             <button
               type="button"
@@ -465,7 +465,7 @@ export function RangerFxLab() {
         ) : fixtures.length === 0 ? (
           <p style={mutedStyle}>
             No fixtures yet. Run{" "}
-            <code style={codeStyle}>node packages/web/scripts/generate-ranger-fx-fixtures.mjs</code>{" "}
+            <code style={codeStyle}>node packages/web/scripts/generate-scoutbot-fx-fixtures.mjs</code>{" "}
             (Vox must be running) and reload.
           </p>
         ) : (

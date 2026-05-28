@@ -353,7 +353,7 @@ function CredentialsSection({
             {preview ?? "No key stored"} · {source}
           </div>
           <div className="s-settings-relay-desc">
-            Ranger stores user-entered keys in the local OpenScout credential store and keeps a HudVault mirror for this browser profile.
+            Scout stores user-entered keys in the local OpenScout credential store and keeps a HudVault mirror for this browser profile.
           </div>
         </div>
       </div>

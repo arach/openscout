@@ -18,7 +18,7 @@ const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
 const originalOperatorName = process.env.OPENSCOUT_OPERATOR_NAME;
 const originalOpenAIKey = process.env.OPENAI_API_KEY;
 const originalOpenAIModel = process.env.OPENAI_MODEL;
-const originalRangerAssistantModel = process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL;
+const originalScoutbotAssistantModel = process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL;
 const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutConversationMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
@@ -384,10 +384,10 @@ beforeEach(() => {
   } else {
     process.env.OPENAI_MODEL = originalOpenAIModel;
   }
-  if (originalRangerAssistantModel === undefined) {
-    delete process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL;
+  if (originalScoutbotAssistantModel === undefined) {
+    delete process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL;
   } else {
-    process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL = originalRangerAssistantModel;
+    process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL = originalScoutbotAssistantModel;
   }
   querySessionByIdImpl = () => null;
   scoutBrokerContextResult = null;
@@ -476,10 +476,10 @@ afterEach(() => {
   } else {
     process.env.OPENAI_MODEL = originalOpenAIModel;
   }
-  if (originalRangerAssistantModel === undefined) {
-    delete process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL;
+  if (originalScoutbotAssistantModel === undefined) {
+    delete process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL;
   } else {
-    process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL = originalRangerAssistantModel;
+    process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL = originalScoutbotAssistantModel;
   }
 
   for (const directory of testDirectories) {
@@ -1280,25 +1280,25 @@ describe("createOpenScoutWebServer", () => {
     const projectRoot = join(home, "dev", "openscout");
     mkdirSync(projectRoot, { recursive: true });
     await writeRelayAgentOverrides({
-      ranger: {
-        agentId: "ranger",
-        definitionId: "ranger",
-        displayName: "Ranger",
+      scoutbot: {
+        agentId: "scoutbot",
+        definitionId: "scoutbot",
+        displayName: "Scoutbot",
         projectName: "OpenScout",
         projectRoot,
         source: "manual",
-        systemPrompt: "Ranger prompt",
+        systemPrompt: "Scoutbot prompt",
         launchArgs: ["--color", "never", "--model", "gpt-5.3-codex"],
         runtime: {
           cwd: projectRoot,
           harness: "codex",
           transport: "codex_app_server",
-          sessionId: "ranger-codex",
+          sessionId: "scoutbot-codex",
           wakePolicy: "on_demand",
         },
       },
     });
-    const agentId = buildRelayAgentInstance("ranger", projectRoot).id;
+    const agentId = buildRelayAgentInstance("scoutbot", projectRoot).id;
     const server = await createOpenScoutWebServer({
       currentDirectory: projectRoot,
       assetMode: "static",
@@ -1311,7 +1311,7 @@ describe("createOpenScoutWebServer", () => {
     expect(getResponse.status).toBe(200);
     expect(await getResponse.json()).toMatchObject({
       model: "gpt-5.3-codex",
-      systemPrompt: "Ranger prompt",
+      systemPrompt: "Scoutbot prompt",
     });
 
     const postResponse = await server.app.request(
@@ -1321,7 +1321,7 @@ describe("createOpenScoutWebServer", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           model: "gpt-5.4-mini",
-          systemPrompt: "Updated Ranger prompt",
+          systemPrompt: "Updated Scoutbot prompt",
           restart: false,
         }),
       },
@@ -1336,7 +1336,7 @@ describe("createOpenScoutWebServer", () => {
       restarted: false,
       config: {
         model: "gpt-5.4-mini",
-        systemPrompt: "Updated Ranger prompt",
+        systemPrompt: "Updated Scoutbot prompt",
       },
     });
     expect(postJson.config.launchArgs.join("\n")).toContain("gpt-5.4-mini");
@@ -1493,7 +1493,7 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
-  test("routes Ranger ask actions through askScoutQuestion", async () => {
+  test("routes Scoutbot ask actions through askScoutQuestion", async () => {
     const home = useIsolatedOpenScoutHome();
     process.env.OPENSCOUT_HOME = join(home, ".openscout");
     process.env.OPENSCOUT_OPERATOR_NAME = "operator";
@@ -1505,7 +1505,7 @@ describe("createOpenScoutWebServer", () => {
     });
 
     const response = await server.app.request(
-      "http://localhost/api/ranger/actions/ask",
+      "http://localhost/api/scoutbot/actions/ask",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1539,9 +1539,9 @@ describe("createOpenScoutWebServer", () => {
     ]);
   });
 
-  test("runs Ranger assistant through direct OpenAI control loop", async () => {
+  test("runs Scoutbot assistant through direct OpenAI control loop", async () => {
     process.env.OPENAI_API_KEY = "sk-test";
-    process.env.OPENSCOUT_RANGER_ASSISTANT_MODEL = "gpt-test-ranger";
+    process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL = "gpt-test-scoutbot";
     const fetchCalls: Array<{
       input: string;
       body: Record<string, unknown>;
@@ -1554,7 +1554,7 @@ describe("createOpenScoutWebServer", () => {
         authorization: new Headers(init?.headers).get("authorization"),
       });
       return new Response(JSON.stringify({
-        id: "resp_ranger_1",
+        id: "resp_scoutbot_1",
         output_text: [
           "The control plane is quiet.",
           "```scout-ui",
@@ -1573,7 +1573,7 @@ describe("createOpenScoutWebServer", () => {
       staticRoot: makeStaticRoot(),
     });
 
-    const response = await server.app.request("http://localhost/api/ranger/chat", {
+    const response = await server.app.request("http://localhost/api/scoutbot/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -1589,7 +1589,7 @@ describe("createOpenScoutWebServer", () => {
       responseId: string | null;
     };
     expect(json.reply.body).toContain("control plane is quiet");
-    expect(json.responseId).toBe("resp_ranger_1");
+    expect(json.responseId).toBe("resp_scoutbot_1");
     expect(json.session.messageCount).toBe(2);
     expect(json.session.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(askScoutQuestionCalls).toHaveLength(0);
@@ -1597,7 +1597,7 @@ describe("createOpenScoutWebServer", () => {
     expect(fetchCalls[0].input).toBe("https://api.openai.com/v1/responses");
     expect(fetchCalls[0].authorization).toBe("Bearer sk-test");
     expect(fetchCalls[0].body).toMatchObject({
-      model: "gpt-test-ranger",
+      model: "gpt-test-scoutbot",
       instructions: expect.stringContaining("not a peer agent"),
     });
     expect(JSON.stringify(fetchCalls[0].body)).toContain("Current Scout control-plane snapshot");
@@ -1605,7 +1605,7 @@ describe("createOpenScoutWebServer", () => {
     expect(JSON.stringify(fetchCalls[0].body)).toContain("fleet");
   });
 
-  test("creates a structured Ranger one-minute brief with TTL", async () => {
+  test("creates a structured Scoutbot one-minute brief with TTL", async () => {
     process.env.OPENAI_API_KEY = "sk-test";
     const fetchCalls: Array<{
       body: Record<string, unknown>;
@@ -1652,7 +1652,7 @@ describe("createOpenScoutWebServer", () => {
       staticRoot: makeStaticRoot(),
     });
 
-    const response = await server.app.request("http://localhost/api/ranger/brief", {
+    const response = await server.app.request("http://localhost/api/scoutbot/brief", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -1763,7 +1763,7 @@ describe("createOpenScoutWebServer", () => {
     expect(JSON.stringify(fetchCalls[0])).toContain("Never copy the examples or schema placeholders.");
   });
 
-  test("stores and dismisses Ranger reminders without an OpenAI key", async () => {
+  test("stores and dismisses Scoutbot reminders without an OpenAI key", async () => {
     useIsolatedOpenScoutHome();
     delete process.env.OPENAI_API_KEY;
     const server = await createOpenScoutWebServer({
@@ -1772,7 +1772,7 @@ describe("createOpenScoutWebServer", () => {
       staticRoot: makeStaticRoot(),
     });
 
-    const createResponse = await server.app.request("http://localhost/api/ranger/reminders", {
+    const createResponse = await server.app.request("http://localhost/api/scoutbot/reminders", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -1794,7 +1794,7 @@ describe("createOpenScoutWebServer", () => {
     expect(created.scheduled).toEqual([expect.objectContaining({ id: created.reminder.id })]);
     expect(created.due).toEqual([]);
 
-    const dueResponse = await server.app.request("http://localhost/api/ranger/reminders", {
+    const dueResponse = await server.app.request("http://localhost/api/scoutbot/reminders", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -1809,7 +1809,7 @@ describe("createOpenScoutWebServer", () => {
     expect(due.reminder.status).toBe("due");
     expect(due.due).toEqual([expect.objectContaining({ id: due.reminder.id, status: "due" })]);
 
-    const dismissResponse = await server.app.request(`http://localhost/api/ranger/reminders/${due.reminder.id}/dismiss`, {
+    const dismissResponse = await server.app.request(`http://localhost/api/scoutbot/reminders/${due.reminder.id}/dismiss`, {
       method: "POST",
     });
     expect(dismissResponse.status).toBe(200);
@@ -1821,7 +1821,7 @@ describe("createOpenScoutWebServer", () => {
     expect(dismissed.reminders.find((reminder) => reminder.id === due.reminder.id)?.status).toBe("dismissed");
   });
 
-  test("returns a setup error when Ranger assistant has no OpenAI key", async () => {
+  test("returns a setup error when Scoutbot assistant has no OpenAI key", async () => {
     useIsolatedOpenScoutHome();
     delete process.env.OPENAI_API_KEY;
     let fetchCalled = false;
@@ -1836,7 +1836,7 @@ describe("createOpenScoutWebServer", () => {
       staticRoot: makeStaticRoot(),
     });
 
-    const response = await server.app.request("http://localhost/api/ranger/chat", {
+    const response = await server.app.request("http://localhost/api/scoutbot/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ body: "state?" }),
@@ -1844,12 +1844,12 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
-      error: "An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.",
+      error: "An OpenAI API key is required for Scoutbot assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.",
     });
     expect(fetchCalled).toBe(false);
   });
 
-  test("does not use a transient request supplied OpenAI key for Ranger assistant", async () => {
+  test("does not use a transient request supplied OpenAI key for Scoutbot assistant", async () => {
     useIsolatedOpenScoutHome();
     delete process.env.OPENAI_API_KEY;
     let fetchCalled = false;
@@ -1857,7 +1857,7 @@ describe("createOpenScoutWebServer", () => {
       fetchCalled = true;
       void init;
       return new Response(JSON.stringify({
-        id: "resp_ranger_request_key",
+        id: "resp_scoutbot_request_key",
         output_text: "Request key works.",
       }), {
         status: 200,
@@ -1871,7 +1871,7 @@ describe("createOpenScoutWebServer", () => {
       staticRoot: makeStaticRoot(),
     });
 
-    const response = await server.app.request("http://localhost/api/ranger/chat", {
+    const response = await server.app.request("http://localhost/api/scoutbot/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -1882,12 +1882,12 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
-      error: "An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.",
+      error: "An OpenAI API key is required for Scoutbot assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.",
     });
     expect(fetchCalled).toBe(false);
   });
 
-  test("saves and uses the local Ranger OpenAI credential store", async () => {
+  test("saves and uses the local Scoutbot OpenAI credential store", async () => {
     useIsolatedOpenScoutHome();
     delete process.env.OPENAI_API_KEY;
     const fetchCalls: Array<{ authorization: string | null }> = [];
@@ -1896,7 +1896,7 @@ describe("createOpenScoutWebServer", () => {
         authorization: new Headers(init?.headers).get("authorization"),
       });
       return new Response(JSON.stringify({
-        id: "resp_ranger_local_store_key",
+        id: "resp_scoutbot_local_store_key",
         output_text: "Local store key works.",
       }), {
         status: 200,
@@ -1910,7 +1910,7 @@ describe("createOpenScoutWebServer", () => {
       staticRoot: makeStaticRoot(),
     });
 
-    const saveResponse = await server.app.request("http://localhost/api/ranger/credentials/openai", {
+    const saveResponse = await server.app.request("http://localhost/api/scoutbot/credentials/openai", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ apiKey: "sk-local-store-test" }),
@@ -1924,10 +1924,10 @@ describe("createOpenScoutWebServer", () => {
       },
     });
 
-    const credentialFile = join(process.env.OPENSCOUT_CONTROL_HOME ?? "", "ranger-credentials.json");
+    const credentialFile = join(process.env.OPENSCOUT_CONTROL_HOME ?? "", "scoutbot-credentials.json");
     expect(readFileSync(credentialFile, "utf8")).not.toContain("sk-local-store-test");
 
-    const chatResponse = await server.app.request("http://localhost/api/ranger/chat", {
+    const chatResponse = await server.app.request("http://localhost/api/scoutbot/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ body: "state?" }),
@@ -1935,7 +1935,7 @@ describe("createOpenScoutWebServer", () => {
     expect(chatResponse.status).toBe(200);
     expect(fetchCalls).toEqual([{ authorization: "Bearer sk-local-store-test" }]);
 
-    const deleteResponse = await server.app.request("http://localhost/api/ranger/credentials/openai", {
+    const deleteResponse = await server.app.request("http://localhost/api/scoutbot/credentials/openai", {
       method: "DELETE",
     });
     expect(deleteResponse.status).toBe(200);
@@ -1948,7 +1948,7 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
-  test("uses the local Scout relay OpenAI key for Ranger assistant", async () => {
+  test("uses the local Scout relay OpenAI key for Scoutbot assistant", async () => {
     delete process.env.OPENAI_API_KEY;
     scoutRelayConfigResult = { openaiApiKey: "sk-relay-test" };
     const fetchCalls: Array<{ authorization: string | null }> = [];
@@ -1957,7 +1957,7 @@ describe("createOpenScoutWebServer", () => {
         authorization: new Headers(init?.headers).get("authorization"),
       });
       return new Response(JSON.stringify({
-        id: "resp_ranger_relay_key",
+        id: "resp_scoutbot_relay_key",
         output_text: "Relay key works.",
       }), {
         status: 200,
@@ -1971,7 +1971,7 @@ describe("createOpenScoutWebServer", () => {
       staticRoot: makeStaticRoot(),
     });
 
-    const response = await server.app.request("http://localhost/api/ranger/chat", {
+    const response = await server.app.request("http://localhost/api/scoutbot/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ body: "state?" }),

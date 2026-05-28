@@ -6,7 +6,7 @@ import type { Broadcast, BroadcastTier } from "./types.ts";
 const HISTORY_LIMIT = 50;
 const VISIBLE_LIFETIME_MS = 30_000;
 const PROMOTE_LIFETIME_MS = 5 * 60_000;
-const TOGGLE_RANGER_EVENT = "openscout:toggle-ranger";
+const TOGGLE_SCOUTBOT_EVENT = "openscout:toggle-scoutbot";
 const MUTE_KEY = "openscout.broadcast.mute";
 
 export type MuteFilter = "all" | "warn-plus" | "errors-only";
@@ -259,7 +259,7 @@ function getSnapshot(): StoreSnapshot {
   return snapshot;
 }
 
-export function useRangerBroadcastStore(): StoreSnapshot {
+export function useScoutbotBroadcastStore(): StoreSnapshot {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
@@ -294,7 +294,7 @@ export function updateMute(next: MuteState): void {
 
 /* ── Client-side broadcasts ─────────────────────────────────────────
    Attention states that originate in the client (reminders due, voice
-   offline, Ranger errors) flow through the same store as server SSE
+   offline, Scoutbot errors) flow through the same store as server SSE
    broadcasts so the chip surfaces them without per-state branching.
    Each client broadcast has a stable `key`; emitting the same key again
    replaces the existing entry in place rather than stacking duplicates.
@@ -361,13 +361,13 @@ export function clearClientBroadcast(key: string): void {
   });
 }
 
-export function toggleRanger(broadcast?: Broadcast | null): void {
+export function toggleScoutbot(broadcast?: Broadcast | null): void {
   if (typeof window === "undefined") return;
   const detail = broadcast ? { broadcastId: broadcast.id } : {};
-  window.dispatchEvent(new CustomEvent(TOGGLE_RANGER_EVENT, { detail }));
+  window.dispatchEvent(new CustomEvent(TOGGLE_SCOUTBOT_EVENT, { detail }));
 }
 
-export function onToggleRanger(
+export function onToggleScoutbot(
   handler: (detail: { broadcastId?: string }) => void,
 ): () => void {
   if (typeof window === "undefined") return () => {};
@@ -375,8 +375,8 @@ export function onToggleRanger(
     const detail = (event as CustomEvent).detail ?? {};
     handler(detail as { broadcastId?: string });
   };
-  window.addEventListener(TOGGLE_RANGER_EVENT, listener);
-  return () => window.removeEventListener(TOGGLE_RANGER_EVENT, listener);
+  window.addEventListener(TOGGLE_SCOUTBOT_EVENT, listener);
+  return () => window.removeEventListener(TOGGLE_SCOUTBOT_EVENT, listener);
 }
 
-export const TOGGLE_RANGER_EVENT_NAME = TOGGLE_RANGER_EVENT;
+export const TOGGLE_SCOUTBOT_EVENT_NAME = TOGGLE_SCOUTBOT_EVENT;

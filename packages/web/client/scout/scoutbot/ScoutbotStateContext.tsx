@@ -8,30 +8,30 @@ import {
   type ReactNode,
 } from "react";
 
-export type RangerActivity =
+export type ScoutbotActivity =
   | "idle"
   | "listening"
   | "thinking"
   | "speaking"
   | "briefing";
 
-export type RangerReminderSummary = {
+export type ScoutbotReminderSummary = {
   id: string;
   body: string;
   status: "scheduled" | "due" | "dismissed";
   dueAt: number;
 };
 
-export type RangerPublicState = {
-  activity: RangerActivity;
+export type ScoutbotPublicState = {
+  activity: ScoutbotActivity;
   brief: {
     lastDeliveredAt: number | null;
   };
   reminders: {
     dueCount: number;
     upcomingCount: number;
-    due: RangerReminderSummary[];
-    next: RangerReminderSummary | null;
+    due: ScoutbotReminderSummary[];
+    next: ScoutbotReminderSummary | null;
   };
   voice: {
     available: boolean | null;
@@ -45,18 +45,18 @@ export type RangerPublicState = {
   };
 };
 
-export type RangerActionApi = {
-  focusRanger: () => void;
+export type ScoutbotActionApi = {
+  focusScoutbot: () => void;
   triggerBrief: () => void;
   triggerAskState: () => void;
   toggleVoiceReplies: () => void;
-  openRangerSettings: () => void;
+  openScoutbotSettings: () => void;
   startNewChat: () => void;
   dismissReminder: (id: string) => void;
   askReminderStatus: (reminder: { id: string; body: string }) => void;
 };
 
-export const DEFAULT_RANGER_STATE: RangerPublicState = {
+export const DEFAULT_SCOUTBOT_STATE: ScoutbotPublicState = {
   activity: "idle",
   brief: { lastDeliveredAt: null },
   reminders: { dueCount: 0, upcomingCount: 0, due: [], next: null },
@@ -67,45 +67,45 @@ export const DEFAULT_RANGER_STATE: RangerPublicState = {
 
 const noop = () => {};
 
-const DEFAULT_RANGER_ACTIONS: RangerActionApi = {
-  focusRanger: noop,
+const DEFAULT_SCOUTBOT_ACTIONS: ScoutbotActionApi = {
+  focusScoutbot: noop,
   triggerBrief: noop,
   triggerAskState: noop,
   toggleVoiceReplies: noop,
-  openRangerSettings: noop,
+  openScoutbotSettings: noop,
   startNewChat: noop,
   dismissReminder: noop,
   askReminderStatus: noop,
 };
 
-type RangerStateContextValue = {
-  state: RangerPublicState;
-  actions: RangerActionApi;
-  publishState: (next: RangerPublicState) => void;
-  registerActions: (next: RangerActionApi) => void;
+type ScoutbotStateContextValue = {
+  state: ScoutbotPublicState;
+  actions: ScoutbotActionApi;
+  publishState: (next: ScoutbotPublicState) => void;
+  registerActions: (next: ScoutbotActionApi) => void;
 };
 
-const RangerStateContext = createContext<RangerStateContextValue | null>(null);
+const ScoutbotStateContext = createContext<ScoutbotStateContextValue | null>(null);
 
-export function RangerStateProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<RangerPublicState>(DEFAULT_RANGER_STATE);
-  const actionsRef = useRef<RangerActionApi>(DEFAULT_RANGER_ACTIONS);
+export function ScoutbotStateProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<ScoutbotPublicState>(DEFAULT_SCOUTBOT_STATE);
+  const actionsRef = useRef<ScoutbotActionApi>(DEFAULT_SCOUTBOT_ACTIONS);
 
-  const publishState = useCallback((next: RangerPublicState) => {
-    setState((prev) => (rangerStateEqual(prev, next) ? prev : next));
+  const publishState = useCallback((next: ScoutbotPublicState) => {
+    setState((prev) => (scoutbotStateEqual(prev, next) ? prev : next));
   }, []);
 
-  const registerActions = useCallback((next: RangerActionApi) => {
+  const registerActions = useCallback((next: ScoutbotActionApi) => {
     actionsRef.current = next;
   }, []);
 
-  const stableActions = useMemo<RangerActionApi>(
+  const stableActions = useMemo<ScoutbotActionApi>(
     () => ({
-      focusRanger: () => actionsRef.current.focusRanger(),
+      focusScoutbot: () => actionsRef.current.focusScoutbot(),
       triggerBrief: () => actionsRef.current.triggerBrief(),
       triggerAskState: () => actionsRef.current.triggerAskState(),
       toggleVoiceReplies: () => actionsRef.current.toggleVoiceReplies(),
-      openRangerSettings: () => actionsRef.current.openRangerSettings(),
+      openScoutbotSettings: () => actionsRef.current.openScoutbotSettings(),
       startNewChat: () => actionsRef.current.startNewChat(),
       dismissReminder: (id) => actionsRef.current.dismissReminder(id),
       askReminderStatus: (reminder) => actionsRef.current.askReminderStatus(reminder),
@@ -113,39 +113,39 @@ export function RangerStateProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const value = useMemo<RangerStateContextValue>(
+  const value = useMemo<ScoutbotStateContextValue>(
     () => ({ state, actions: stableActions, publishState, registerActions }),
     [state, stableActions, publishState, registerActions],
   );
 
   return (
-    <RangerStateContext.Provider value={value}>
+    <ScoutbotStateContext.Provider value={value}>
       {children}
-    </RangerStateContext.Provider>
+    </ScoutbotStateContext.Provider>
   );
 }
 
-export function useRangerState(): {
-  state: RangerPublicState;
-  actions: RangerActionApi;
+export function useScoutbotState(): {
+  state: ScoutbotPublicState;
+  actions: ScoutbotActionApi;
 } {
-  const ctx = useContext(RangerStateContext);
+  const ctx = useContext(ScoutbotStateContext);
   if (!ctx) {
-    return { state: DEFAULT_RANGER_STATE, actions: DEFAULT_RANGER_ACTIONS };
+    return { state: DEFAULT_SCOUTBOT_STATE, actions: DEFAULT_SCOUTBOT_ACTIONS };
   }
   return { state: ctx.state, actions: ctx.actions };
 }
 
-export function useRangerStatePublisher(): {
-  publishState: (next: RangerPublicState) => void;
-  registerActions: (next: RangerActionApi) => void;
+export function useScoutbotStatePublisher(): {
+  publishState: (next: ScoutbotPublicState) => void;
+  registerActions: (next: ScoutbotActionApi) => void;
 } | null {
-  const ctx = useContext(RangerStateContext);
+  const ctx = useContext(ScoutbotStateContext);
   if (!ctx) return null;
   return { publishState: ctx.publishState, registerActions: ctx.registerActions };
 }
 
-function rangerStateEqual(a: RangerPublicState, b: RangerPublicState): boolean {
+function scoutbotStateEqual(a: ScoutbotPublicState, b: ScoutbotPublicState): boolean {
   return (
     a.activity === b.activity &&
     a.brief.lastDeliveredAt === b.brief.lastDeliveredAt &&
@@ -163,8 +163,8 @@ function rangerStateEqual(a: RangerPublicState, b: RangerPublicState): boolean {
 }
 
 function reminderListEqual(
-  a: RangerReminderSummary[],
-  b: RangerReminderSummary[],
+  a: ScoutbotReminderSummary[],
+  b: ScoutbotReminderSummary[],
 ): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
@@ -174,8 +174,8 @@ function reminderListEqual(
 }
 
 function reminderSummaryEqual(
-  a: RangerReminderSummary | null,
-  b: RangerReminderSummary | null,
+  a: ScoutbotReminderSummary | null,
+  b: ScoutbotReminderSummary | null,
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;

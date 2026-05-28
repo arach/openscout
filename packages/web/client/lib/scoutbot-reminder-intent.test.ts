@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseRangerReminderIntent } from "./ranger-reminder-intent.ts";
+import { parseScoutbotReminderIntent } from "./scoutbot-reminder-intent.ts";
 
-describe("Ranger reminder intents", () => {
+describe("Scoutbot reminder intents", () => {
   test("parses direct remind-me phrasing", () => {
-    expect(parseRangerReminderIntent("Remind me in three minutes to check lattices status", 1_000))
+    expect(parseScoutbotReminderIntent("Remind me in three minutes to check lattices status", 1_000))
       .toEqual({
         title: "check lattices status",
         body: "check lattices status",
@@ -14,7 +14,7 @@ describe("Ranger reminder intents", () => {
   });
 
   test("parses check-back phrasing", () => {
-    expect(parseRangerReminderIntent("check back in 2 mins on this status", 10_000))
+    expect(parseScoutbotReminderIntent("check back in 2 mins on this status", 10_000))
       .toEqual({
         title: "this status",
         body: "this status",
@@ -24,7 +24,7 @@ describe("Ranger reminder intents", () => {
   });
 
   test("parses update phrasing", () => {
-    expect(parseRangerReminderIntent("can I get an update in five minutes", 10_000))
+    expect(parseScoutbotReminderIntent("can I get an update in five minutes", 10_000))
       .toEqual({
         title: "give me an update",
         body: "give me an update",
@@ -34,6 +34,6 @@ describe("Ranger reminder intents", () => {
   });
 
   test("ignores generic reminder discussion", () => {
-    expect(parseRangerReminderIntent("we should make reminders a primitive", 10_000)).toBeNull();
+    expect(parseScoutbotReminderIntent("we should make reminders a primitive", 10_000)).toBeNull();
   });
 });

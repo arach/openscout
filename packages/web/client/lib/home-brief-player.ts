@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 import {
   clearClientBroadcast,
   emitClientBroadcast,
-} from "./ranger-broadcast-store.ts";
+} from "./scoutbot-broadcast-store.ts";
 import { toSpokenScoutText } from "./spoken-text.ts";
 import {
   isVoxSpeechStopped,

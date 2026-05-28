@@ -308,10 +308,10 @@
   color: var(--ink, inherit);
 }
 
-/* Quiet design nod to Ranger: briefs are a Ranger-originated artifact, so the
- * panel header carries the same bot glyph used by the Ranger chip + panel,
+/* Quiet design nod to Scoutbot: briefs are a Scoutbot-originated artifact, so the
+ * panel header carries the same bot glyph used by the Scoutbot chip + panel,
  * dimmed to the same key as the panel title text. */
-.hd-brief-ranger-glyph {
+.hd-brief-scoutbot-glyph {
   color: color-mix(in srgb, var(--accent) 50%, var(--dim));
   opacity: 0.75;
   flex-shrink: 0;

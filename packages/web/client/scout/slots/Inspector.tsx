@@ -14,25 +14,25 @@ import { SessionsInspector } from "../inspector/SessionsInspector.tsx";
 import { TerminalInspector } from "../inspector/TerminalInspector.tsx";
 import { WorkInspector } from "../inspector/WorkInspector.tsx";
 import { MeshInspectorPanel } from "../inspector/MeshInspector.tsx";
-import { RangerPanel } from "../ranger/RangerPanel.tsx";
+import { ScoutbotPanel } from "../scoutbot/ScoutbotPanel.tsx";
 import { BrokerAttemptInspector } from "../../screens/BrokerScreen.tsx";
 import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
 import { VerticalResizeHandle } from "./VerticalResizeHandle.tsx";
 import type { Agent, AgentRun, FleetAsk, FleetAttentionItem, FleetState, OpsMode, Route, WorkItem } from "../../lib/types.ts";
 
-const RANGER_MIN_HEIGHT = 180;
-const RANGER_MAX_HEIGHT_RATIO = 0.7;
-const RANGER_DEFAULT_HEIGHT = 260;
+const SCOUTBOT_MIN_HEIGHT = 180;
+const SCOUTBOT_MAX_HEIGHT_RATIO = 0.7;
+const SCOUTBOT_DEFAULT_HEIGHT = 260;
 
-function clampRangerHeight(value: number, inspectorHeight: number) {
-  const max = Math.max(RANGER_MIN_HEIGHT, Math.floor(inspectorHeight * RANGER_MAX_HEIGHT_RATIO));
-  return Math.min(max, Math.max(RANGER_MIN_HEIGHT, Math.round(value)));
+function clampScoutbotHeight(value: number, inspectorHeight: number) {
+  const max = Math.max(SCOUTBOT_MIN_HEIGHT, Math.floor(inspectorHeight * SCOUTBOT_MAX_HEIGHT_RATIO));
+  return Math.min(max, Math.max(SCOUTBOT_MIN_HEIGHT, Math.round(value)));
 }
 
 export function ScoutInspector() {
   const { route, navigate, agents, selectedBrokerAttempt, clearBrokerAttempt } = useScout();
-  const [rangerCollapsed] = usePersistentBoolean("openscout.ranger.collapsed", true);
-  const [rangerHeight, setRangerHeight] = usePersistentNumber("openscout.ranger.height", RANGER_DEFAULT_HEIGHT);
+  const [scoutbotCollapsed] = usePersistentBoolean("openscout.scoutbot.collapsed", true);
+  const [scoutbotHeight, setScoutbotHeight] = usePersistentNumber("openscout.scoutbot.height", SCOUTBOT_DEFAULT_HEIGHT);
   const containerRef = useRef<HTMLDivElement>(null);
   const [inspectorHeight, setInspectorHeight] = useState(0);
 
@@ -51,21 +51,21 @@ export function ScoutInspector() {
 
   useEffect(() => {
     if (inspectorHeight <= 0) return;
-    const next = clampRangerHeight(rangerHeight, inspectorHeight);
-    if (next !== rangerHeight) {
-      setRangerHeight(next);
+    const next = clampScoutbotHeight(scoutbotHeight, inspectorHeight);
+    if (next !== scoutbotHeight) {
+      setScoutbotHeight(next);
     }
-  }, [inspectorHeight, rangerHeight, setRangerHeight]);
+  }, [inspectorHeight, scoutbotHeight, setScoutbotHeight]);
 
   const handleResizeStart = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
       const startY = event.clientY;
-      const startHeight = rangerHeight;
+      const startHeight = scoutbotHeight;
       const containerHeight = containerRef.current?.getBoundingClientRect().height ?? inspectorHeight;
 
       const onMouseMove = (ev: MouseEvent) => {
         const delta = ev.clientY - startY;
-        setRangerHeight(clampRangerHeight(startHeight - delta, containerHeight));
+        setScoutbotHeight(clampScoutbotHeight(startHeight - delta, containerHeight));
       };
       const onMouseUp = () => {
         document.removeEventListener("mousemove", onMouseMove);
@@ -79,7 +79,7 @@ export function ScoutInspector() {
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [inspectorHeight, rangerHeight, setRangerHeight],
+    [inspectorHeight, scoutbotHeight, setScoutbotHeight],
   );
 
   let content: ReactNode = null;
@@ -129,17 +129,17 @@ export function ScoutInspector() {
       content = null;
   }
 
-  const clampedRangerHeight = inspectorHeight > 0
-    ? clampRangerHeight(rangerHeight, inspectorHeight)
-    : rangerHeight;
+  const clampedScoutbotHeight = inspectorHeight > 0
+    ? clampScoutbotHeight(scoutbotHeight, inspectorHeight)
+    : scoutbotHeight;
 
   return (
     <div ref={containerRef} className="flex h-full flex-col overflow-hidden">
       <div className="min-h-0 flex-1 overflow-hidden">
         {content}
       </div>
-      {!rangerCollapsed && <VerticalResizeHandle onResizeStart={handleResizeStart} />}
-      <RangerPanel height={rangerCollapsed ? undefined : clampedRangerHeight} />
+      {!scoutbotCollapsed && <VerticalResizeHandle onResizeStart={handleResizeStart} />}
+      <ScoutbotPanel height={scoutbotCollapsed ? undefined : clampedScoutbotHeight} />
     </div>
   );
 }

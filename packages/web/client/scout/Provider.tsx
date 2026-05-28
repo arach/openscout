@@ -14,22 +14,22 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import {
-  isRangerAgent,
-  rangerConversationId,
-  resolveRangerAgentId,
-  type RangerUiAction,
-} from "../lib/ranger.ts";
+  isScoutbotAgent,
+  scoutbotConversationId,
+  resolveScoutbotAgentId,
+  type ScoutbotUiAction,
+} from "../lib/scoutbot.ts";
 import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { FilePreviewOverlay } from "./FilePreviewOverlay.tsx";
-import { RangerStateProvider } from "./ranger/RangerStateContext.tsx";
+import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
 
 declare global {
   interface Window {
-    scoutRanger?: {
-      applyUiAction: (action: RangerUiAction) => void;
+    scoutScoutbot?: {
+      applyUiAction: (action: ScoutbotUiAction) => void;
       navigate: (route: Route) => void;
     };
   }
@@ -64,9 +64,9 @@ export interface ScoutContextValue {
   openSettings: () => void;
   closeSettings: () => void;
 
-  rangerAgentId: string;
-  rangerConversationId: string;
-  applyRangerUiAction: (action: RangerUiAction) => void;
+  scoutbotAgentId: string;
+  scoutbotConversationId: string;
+  applyScoutbotUiAction: (action: ScoutbotUiAction) => void;
 
   selectedBrokerAttempt: BrokerRouteAttempt | null;
   inspectBrokerAttempt: (attempt: BrokerRouteAttempt) => void;
@@ -183,8 +183,8 @@ export function ScoutProvider({
   }, []);
   const clearBrokerAttempt = useCallback(() => setSelectedBrokerAttempt(null), []);
   const themeVars = initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
-  const rangerAgentId = useMemo(() => resolveRangerAgentId(agents), [agents]);
-  const rangerDmConversationId = useMemo(() => rangerConversationId(rangerAgentId), [rangerAgentId]);
+  const scoutbotAgentId = useMemo(() => resolveScoutbotAgentId(agents), [agents]);
+  const scoutbotDmConversationId = useMemo(() => scoutbotConversationId(scoutbotAgentId), [scoutbotAgentId]);
   const reloadInFlightRef = useRef<Promise<void> | null>(null);
 
   const reload = useCallback(async () => {
@@ -195,7 +195,7 @@ export function ScoutProvider({
     const request = (async () => {
       const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
       if (agentsResult) {
-        setAgents(agentsResult.filter((agent) => !isRangerAgent(agent)));
+        setAgents(agentsResult.filter((agent) => !isScoutbotAgent(agent)));
       }
     })();
 
@@ -258,13 +258,13 @@ export function ScoutProvider({
   }, []);
   const closeFilePreview = useCallback(() => setFilePreviewPath(null), []);
 
-  const applyRangerUiAction = useCallback((action: RangerUiAction) => {
+  const applyScoutbotUiAction = useCallback((action: ScoutbotUiAction) => {
     switch (action.type) {
       case "navigate":
         navigate(action.route);
         break;
-      case "open-ranger":
-        window.dispatchEvent(new CustomEvent("scout:ranger-panel-open", { detail: action }));
+      case "open-scoutbot":
+        window.dispatchEvent(new CustomEvent("scout:scoutbot-panel-open", { detail: action }));
         break;
       case "refresh":
         void reload();
@@ -275,10 +275,10 @@ export function ScoutProvider({
     }
   }, [navigate, openFilePreview, reload]);
 
-  const rangerBridgeRef = useRef({
-    applyRangerUiAction,
+  const scoutbotBridgeRef = useRef({
+    applyScoutbotUiAction,
   });
-  rangerBridgeRef.current = { applyRangerUiAction };
+  scoutbotBridgeRef.current = { applyScoutbotUiAction };
 
   useBrokerEvents((event) => {
     if (AGENT_REFRESH_EVENT_KIND_SET.has(event.kind)) {
@@ -290,21 +290,21 @@ export function ScoutProvider({
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail;
       const action = detail && typeof detail === "object" && "type" in detail
-        ? detail as RangerUiAction
+        ? detail as ScoutbotUiAction
         : null;
       if (action) {
-        rangerBridgeRef.current.applyRangerUiAction(action);
+        scoutbotBridgeRef.current.applyScoutbotUiAction(action);
       }
     };
-    window.addEventListener("scout:ranger-ui-action", handler);
-    window.scoutRanger = {
-      applyUiAction: (action: RangerUiAction) => rangerBridgeRef.current.applyRangerUiAction(action),
-      navigate: (route: Route) => rangerBridgeRef.current.applyRangerUiAction({ type: "navigate", route }),
+    window.addEventListener("scout:scoutbot-ui-action", handler);
+    window.scoutScoutbot = {
+      applyUiAction: (action: ScoutbotUiAction) => scoutbotBridgeRef.current.applyScoutbotUiAction(action),
+      navigate: (route: Route) => scoutbotBridgeRef.current.applyScoutbotUiAction({ type: "navigate", route }),
     };
     return () => {
-      window.removeEventListener("scout:ranger-ui-action", handler);
-      if (window.scoutRanger?.applyUiAction) {
-        delete window.scoutRanger;
+      window.removeEventListener("scout:scoutbot-ui-action", handler);
+      if (window.scoutScoutbot?.applyUiAction) {
+        delete window.scoutScoutbot;
       }
     };
   }, []);
@@ -314,7 +314,7 @@ export function ScoutProvider({
       route, navigate, agents, onlineCount, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
-      rangerAgentId, rangerConversationId: rangerDmConversationId, applyRangerUiAction,
+      scoutbotAgentId, scoutbotConversationId: scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
       openFilePreview, closeFilePreview,
     }),
@@ -322,7 +322,7 @@ export function ScoutProvider({
       route, navigate, agents, onlineCount, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
-      rangerAgentId, rangerDmConversationId, applyRangerUiAction,
+      scoutbotAgentId, scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
       openFilePreview, closeFilePreview,
     ],
@@ -338,7 +338,7 @@ export function ScoutProvider({
         }}
       >
         <ContextMenuProvider>
-          <RangerStateProvider>
+          <ScoutbotStateProvider>
             {children}
             <SettingsDrawer open={settingsOpen} onClose={closeSettings} />
             <FilePreviewOverlay
@@ -346,7 +346,7 @@ export function ScoutProvider({
               onOpenPath={openFilePreview}
               onClose={closeFilePreview}
             />
-          </RangerStateProvider>
+          </ScoutbotStateProvider>
         </ContextMenuProvider>
       </div>
     </ScoutContext.Provider>

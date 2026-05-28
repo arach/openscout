@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 
-export type RangerAssistantMessageRole = "user" | "assistant";
+export type ScoutbotAssistantMessageRole = "user" | "assistant";
 
-export type RangerAssistantMessage = {
+export type ScoutbotAssistantMessage = {
   id: string;
-  role: RangerAssistantMessageRole;
+  role: ScoutbotAssistantMessageRole;
   body: string;
   createdAt: number;
 };
 
-export type RangerAssistantSessionSummary = {
+export type ScoutbotAssistantSessionSummary = {
   id: string;
   title: string;
   createdAt: number;
@@ -18,39 +18,39 @@ export type RangerAssistantSessionSummary = {
   messageCount: number;
 };
 
-export type RangerAssistantSession = RangerAssistantSessionSummary & {
-  messages: RangerAssistantMessage[];
+export type ScoutbotAssistantSession = ScoutbotAssistantSessionSummary & {
+  messages: ScoutbotAssistantMessage[];
 };
 
-export type RangerAssistantConfig = {
+export type ScoutbotAssistantConfig = {
   editable: true;
   model: string;
   systemPrompt: string;
 };
 
-export type RangerAssistantSessionState = {
-  session: RangerAssistantSession;
-  sessions: RangerAssistantSessionSummary[];
+export type ScoutbotAssistantSessionState = {
+  session: ScoutbotAssistantSession;
+  sessions: ScoutbotAssistantSessionSummary[];
   retention: {
     activeLimit: number;
     archivedCount: number;
     totalCount: number;
   };
-  config: RangerAssistantConfig;
+  config: ScoutbotAssistantConfig;
 };
 
-export type RangerAssistantReply = RangerAssistantSessionState & {
-  reply: RangerAssistantMessage;
+export type ScoutbotAssistantReply = ScoutbotAssistantSessionState & {
+  reply: ScoutbotAssistantMessage;
   responseId: string | null;
 };
 
-export type RangerBriefStep = {
+export type ScoutbotBriefStep = {
   id: string;
   label: string;
   route: Record<string, unknown>;
   narration: string;
-  observations?: RangerBriefObservation[];
-  references?: RangerBriefReference[];
+  observations?: ScoutbotBriefObservation[];
+  references?: ScoutbotBriefReference[];
   durationMs: number;
   snapshot: {
     capturedAt: number;
@@ -59,20 +59,20 @@ export type RangerBriefStep = {
   };
 };
 
-export type RangerBriefReference = {
+export type ScoutbotBriefReference = {
   label: string;
   kind: string;
   route?: Record<string, unknown>;
   detail?: string;
 };
 
-export type RangerBriefObservation = {
+export type ScoutbotBriefObservation = {
   text: string;
   tone?: string;
-  references: RangerBriefReference[];
+  references: ScoutbotBriefReference[];
 };
 
-export type RangerBriefAction = {
+export type ScoutbotBriefAction = {
   label: string;
   route?: Record<string, unknown>;
   prompt?: string;
@@ -85,7 +85,7 @@ export type BriefVoiceSpec = {
   persona: string;
 };
 
-export type RangerBriefPresented = {
+export type ScoutbotBriefPresented = {
   /** TTS-shaped sentences in the order they should be spoken. */
   sentences: string[];
   voiceSpec: BriefVoiceSpec;
@@ -93,16 +93,16 @@ export type RangerBriefPresented = {
   responseId: string | null;
 };
 
-export type RangerBrief = {
+export type ScoutbotBrief = {
   id: string;
   title: string;
   summary: string;
   preparedAt: number;
   expiresAt: number;
   ttlMs: number;
-  steps: RangerBriefStep[];
+  steps: ScoutbotBriefStep[];
   recommendation: string;
-  actions: RangerBriefAction[];
+  actions: ScoutbotBriefAction[];
   /**
    * Raw markdown body emitted by the analyst (SCO-037). When present, this
    * is the canonical form; the structured fields above are derived for
@@ -116,17 +116,17 @@ export type RangerBrief = {
    * presenter's voice. Absent when the presenter call failed or the brief
    * had no markdown body to present from.
    */
-  presented?: RangerBriefPresented;
+  presented?: ScoutbotBriefPresented;
 };
 
-export type RangerAssistantContextSnapshot = {
+export type ScoutbotAssistantContextSnapshot = {
   generatedAt: string;
   currentDirectory: string;
   currentRoute?: unknown;
   state: Record<string, unknown>;
 };
 
-export type RangerBriefCall = {
+export type ScoutbotBriefCall = {
   model: string;
   systemPrompt: string;
   operatorRequest: string;
@@ -164,28 +164,28 @@ export type BriefPresenterTelemetry = BriefCallTelemetry & {
   errorMessage?: string;
 };
 
-export type RangerBriefCapture = {
-  snapshot: RangerAssistantContextSnapshot;
-  call: RangerBriefCall;
+export type ScoutbotBriefCapture = {
+  snapshot: ScoutbotAssistantContextSnapshot;
+  call: ScoutbotBriefCall;
 };
 
-export type RangerAssistantService = {
-  getConfig: () => RangerAssistantConfig;
-  updateConfig: (input: { model?: string | null; systemPrompt?: string | null }) => RangerAssistantConfig;
-  getSessionState: () => RangerAssistantSessionState;
-  resetSession: () => RangerAssistantSessionState;
-  switchSession: (id: string) => RangerAssistantSessionState;
-  archiveSession: (id: string) => RangerAssistantSessionState;
-  respond: (input: { body: string; route?: unknown }) => Promise<RangerAssistantReply>;
+export type ScoutbotAssistantService = {
+  getConfig: () => ScoutbotAssistantConfig;
+  updateConfig: (input: { model?: string | null; systemPrompt?: string | null }) => ScoutbotAssistantConfig;
+  getSessionState: () => ScoutbotAssistantSessionState;
+  resetSession: () => ScoutbotAssistantSessionState;
+  switchSession: (id: string) => ScoutbotAssistantSessionState;
+  archiveSession: (id: string) => ScoutbotAssistantSessionState;
+  respond: (input: { body: string; route?: unknown }) => Promise<ScoutbotAssistantReply>;
   createBrief: (input: {
     route?: unknown;
     ttlMs?: number | null;
-    mode?: RangerBriefMode;
-    onCaptured?: (capture: RangerBriefCapture) => void;
-  }) => Promise<RangerBrief>;
+    mode?: ScoutbotBriefMode;
+    onCaptured?: (capture: ScoutbotBriefCapture) => void;
+  }) => Promise<ScoutbotBrief>;
 };
 
-export type RangerBriefMode = "tour" | "fleet-home";
+export type ScoutbotBriefMode = "tour" | "fleet-home";
 
 type StoredSession = {
   id: string;
@@ -194,7 +194,7 @@ type StoredSession = {
   updatedAt: number;
   model: string;
   previousResponseId: string | null;
-  messages: RangerAssistantMessage[];
+  messages: ScoutbotAssistantMessage[];
   archivedAt: number | null;
 };
 
@@ -211,7 +211,7 @@ const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 
 // SCO-037 step 5: presenter defaults. The presenter is a small-model
 // formatter that turns the analyst's markdown into spoken sentences. Both
-// of these are eventually configurable via Ranger settings; for v1 they
+// of these are eventually configurable via Scoutbot settings; for v1 they
 // are baked here.
 const PRESENTER_MODEL = "gpt-4o-mini";
 const PRESENTER_TIMEOUT_MS = 25_000;
@@ -223,13 +223,13 @@ const DEFAULT_PRESENTER_PERSONA = "calm dispatcher";
 // RATE_GUARD_WINDOW_MS, skip the presenter on subsequent briefs until the
 // window falls below the threshold. The analyst is unaffected — only the
 // optional TTS-polish step is gated.
-// Override via env: OPENSCOUT_RANGER_PRESENTER_MAX_PER_HOUR.
+// Override via env: OPENSCOUT_SCOUTBOT_PRESENTER_MAX_PER_HOUR.
 const RATE_GUARD_WINDOW_MS = 60 * 60_000;
 const RATE_GUARD_DEFAULT_MAX = 60;
 const presenterCallTimestamps: number[] = [];
 
 function presenterMaxPerWindow(): number {
-  const raw = process.env.OPENSCOUT_RANGER_PRESENTER_MAX_PER_HOUR?.trim();
+  const raw = process.env.OPENSCOUT_SCOUTBOT_PRESENTER_MAX_PER_HOUR?.trim();
   if (!raw) return RATE_GUARD_DEFAULT_MAX;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : RATE_GUARD_DEFAULT_MAX;
@@ -255,14 +255,14 @@ const MAX_BRIEF_TTL_MS = 30 * 60_000;
 const MIN_BRIEF_TTL_MS = 30_000;
 
 const DEFAULT_SYSTEM_PROMPT = [
-  "You are Ranger, the in-app OpenScout control-plane assistant.",
+  "You are Scoutbot, the in-app OpenScout control-plane assistant.",
   "You are not a peer agent in the Scout fleet. You are the operator's direct loop inside the web app.",
   "Use the provided Scout state snapshot and current UI route to answer state questions quickly and concretely.",
   "When the operator asks for navigation or UI actions, include a single fenced JSON block after your human reply.",
   "The fence language tag MUST be exactly `scout-ui` (open with ```scout-ui), never `json` or any other tag.",
-  "Supported scout-ui actions are navigate, refresh, open-ranger, view-file, reminder, and ask-agent.",
+  "Supported scout-ui actions are navigate, refresh, open-scoutbot, view-file, reminder, and ask-agent.",
   "When the operator wants to read a specific file (a spec, doc, transcript, or source file) and you know its absolute path, emit {\"type\":\"view-file\",\"path\":\"/abs/path/to/file.md\"} so the in-app preview opens automatically. Do not just narrate the path.",
-  "For reminders, emit {\"type\":\"reminder\",\"body\":\"what to revisit\",\"delayMinutes\":3} or a dueAt epoch timestamp; reminders stay in the operator-side Ranger loop.",
+  "For reminders, emit {\"type\":\"reminder\",\"body\":\"what to revisit\",\"delayMinutes\":3} or a dueAt epoch timestamp; reminders stay in the operator-side Scoutbot loop.",
   "When the operator explicitly asks you to ask, delegate to, or get an answer from a specific Scout agent, emit {\"type\":\"ask-agent\",\"targetLabel\":\"agent handle or selector\",\"body\":\"the exact request to send\"}; do not use ask-agent unless the operator clearly requested durable coordination.",
   "Supported navigate views include inbox, fleet, agents, sessions, mesh, broker, activity, settings, terminal, work, conversation, and ops.",
   "Do not create or imply durable Scout messages, work items, or agent asks unless the operator explicitly requests coordination.",
@@ -271,26 +271,26 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Keep answers concise unless the operator asks for minutiae.",
 ].join("\n");
 
-export function createRangerAssistantService(input: {
+export function createScoutbotAssistantService(input: {
   currentDirectory: string;
   loadContext: (route?: unknown) => Promise<Record<string, unknown>> | Record<string, unknown>;
   resolveApiKey?: () => Promise<string | null | undefined> | string | null | undefined;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
-}): RangerAssistantService {
+}): ScoutbotAssistantService {
   const env = input.env ?? process.env;
   const fetchImpl = input.fetchImpl ?? fetch;
   const sessions: StoredSession[] = [];
   let activeSessionId: string | null = null;
   let model = firstNonEmptyString(
-    env.OPENSCOUT_RANGER_ASSISTANT_MODEL,
-    env.OPENSCOUT_RANGER_MODEL,
+    env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL,
+    env.OPENSCOUT_SCOUTBOT_MODEL,
     env.OPENAI_MODEL,
   ) ?? DEFAULT_MODEL;
-  let systemPrompt = firstNonEmptyString(env.OPENSCOUT_RANGER_ASSISTANT_PROMPT)
+  let systemPrompt = firstNonEmptyString(env.OPENSCOUT_SCOUTBOT_ASSISTANT_PROMPT)
     ?? DEFAULT_SYSTEM_PROMPT;
   const activeSessionLimit = clampInteger(
-    env.OPENSCOUT_RANGER_ACTIVE_SESSION_LIMIT,
+    env.OPENSCOUT_SCOUTBOT_ACTIVE_SESSION_LIMIT,
     DEFAULT_ACTIVE_SESSION_LIMIT,
     1,
     MAX_ACTIVE_SESSION_LIMIT,
@@ -324,7 +324,7 @@ export function createRangerAssistantService(input: {
     return session;
   };
 
-  const snapshot = (): RangerAssistantSessionState => ({
+  const snapshot = (): ScoutbotAssistantSessionState => ({
     session: publicSession(ensureSession()),
     sessions: activeSessions()
       .slice(0, activeSessionLimit)
@@ -372,7 +372,7 @@ export function createRangerAssistantService(input: {
       env.OPENAI_API_KEY,
       await input.resolveApiKey?.(),
     );
-  const contextSnapshot = async (route?: unknown): Promise<RangerAssistantContextSnapshot> => ({
+  const contextSnapshot = async (route?: unknown): Promise<ScoutbotAssistantContextSnapshot> => ({
     generatedAt: new Date().toISOString(),
     currentDirectory: input.currentDirectory,
     ...(route !== undefined ? { currentRoute: route } : {}),
@@ -396,7 +396,7 @@ export function createRangerAssistantService(input: {
     switchSession: (id) => {
       const target = sessions.find((session) => session.id === id && session.archivedAt === null);
       if (!target) {
-        throw new RangerAssistantError(`Ranger session "${id}" not found.`, 404);
+        throw new ScoutbotAssistantError(`Scoutbot session "${id}" not found.`, 404);
       }
       activeSessionId = target.id;
       return snapshot();
@@ -404,7 +404,7 @@ export function createRangerAssistantService(input: {
     archiveSession: (id) => {
       const target = sessions.find((session) => session.id === id && session.archivedAt === null);
       if (!target) {
-        throw new RangerAssistantError(`Ranger session "${id}" not found.`, 404);
+        throw new ScoutbotAssistantError(`Scoutbot session "${id}" not found.`, 404);
       }
       target.archivedAt = Date.now();
       target.previousResponseId = null;
@@ -417,12 +417,12 @@ export function createRangerAssistantService(input: {
     respond: async ({ body, route }) => {
       const trimmed = body.trim();
       if (!trimmed) {
-        throw new RangerAssistantError("body is required", 400);
+        throw new ScoutbotAssistantError("body is required", 400);
       }
 
       const apiKey = await resolveApiKey();
       if (!apiKey) {
-        throw new RangerAssistantError("An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
+        throw new ScoutbotAssistantError("An OpenAI API key is required for Scoutbot assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
       }
 
       const session = ensureSession();
@@ -441,17 +441,17 @@ export function createRangerAssistantService(input: {
       });
       const replyBody = response.text.trim();
       if (!replyBody) {
-        throw new RangerAssistantError("Ranger returned an empty response.", 502);
+        throw new ScoutbotAssistantError("Scoutbot returned an empty response.", 502);
       }
 
       const now = Date.now();
-      const userMessage: RangerAssistantMessage = {
+      const userMessage: ScoutbotAssistantMessage = {
         id: `msg_${randomUUID()}`,
         role: "user",
         body: trimmed,
         createdAt: now,
       };
-      const assistantMessage: RangerAssistantMessage = {
+      const assistantMessage: ScoutbotAssistantMessage = {
         id: `msg_${randomUUID()}`,
         role: "assistant",
         body: replyBody,
@@ -463,7 +463,7 @@ export function createRangerAssistantService(input: {
       session.updatedAt = assistantMessage.createdAt;
       session.model = model;
       session.previousResponseId = response.id ?? session.previousResponseId;
-      if (session.title === "New Ranger Session") {
+      if (session.title === "New Scout Session") {
         session.title = titleFromRequest(trimmed);
       }
       enforceSessionRetention();
@@ -477,7 +477,7 @@ export function createRangerAssistantService(input: {
     createBrief: async ({ route, ttlMs, mode = "tour", onCaptured }) => {
       const apiKey = await resolveApiKey();
       if (!apiKey) {
-        throw new RangerAssistantError("An OpenAI API key is required for Ranger assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
+        throw new ScoutbotAssistantError("An OpenAI API key is required for Scoutbot assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
       }
 
       const now = Date.now();
@@ -522,7 +522,7 @@ export function createRangerAssistantService(input: {
           // the brief is fully readable; TTS just won't be polished this
           // round. The rate window self-clears, so this is a soft skip.
           console.warn(
-            `[ranger] presenter rate-guard hit (${presenterCallTimestamps.length}/${presenterMaxPerWindow()} calls in window); skipping presenter for this brief.`,
+            `[scoutbot] presenter rate-guard hit (${presenterCallTimestamps.length}/${presenterMaxPerWindow()} calls in window); skipping presenter for this brief.`,
           );
           presenterTelemetry = {
             elapsedMs: 0,
@@ -567,7 +567,7 @@ export function createRangerAssistantService(input: {
             // as polished. Log once for diagnostics.
             const message = err instanceof Error ? err.message : String(err);
             console.warn(
-              "[ranger] presenter call failed; brief returns without TTS polish:",
+              "[scoutbot] presenter call failed; brief returns without TTS polish:",
               message,
             );
             presenterTelemetry = {
@@ -607,10 +607,10 @@ export function createRangerAssistantService(input: {
   };
 }
 
-export class RangerAssistantError extends Error {
+export class ScoutbotAssistantError extends Error {
   constructor(message: string, readonly status = 500) {
     super(message);
-    this.name = "RangerAssistantError";
+    this.name = "ScoutbotAssistantError";
   }
 }
 
@@ -624,7 +624,7 @@ async function callOpenAIResponse(input: {
   systemPrompt: string;
   previousResponseId: string | null;
   body: string;
-  context: RangerAssistantContextSnapshot;
+  context: ScoutbotAssistantContextSnapshot;
 }): Promise<{ id: string | null; text: string; usage: BriefTokenUsage | null }> {
   // Without an abort signal, a slow/stuck Responses call leaves the endpoint
   // hanging indefinitely — operators see an empty reply / generic 500 from the
@@ -665,7 +665,7 @@ async function callOpenAIResponse(input: {
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new RangerAssistantError(
+      throw new ScoutbotAssistantError(
         `OpenAI Responses call exceeded ${Math.round(OPENAI_CALL_TIMEOUT_MS / 1000)}s — likely a large brief context or a stuck upstream.`,
         504,
       );
@@ -686,7 +686,7 @@ async function callOpenAIResponse(input: {
   }
 
   if (!response.ok) {
-    throw new RangerAssistantError(openAIErrorMessage(parsed) || raw || `OpenAI returned HTTP ${response.status}`, 502);
+    throw new ScoutbotAssistantError(openAIErrorMessage(parsed) || raw || `OpenAI returned HTTP ${response.status}`, 502);
   }
 
   return {
@@ -725,7 +725,7 @@ async function presentBriefMarkdown(input: {
   model: string;
   markdown: string;
   voiceSpec: BriefVoiceSpec;
-}): Promise<{ presented: RangerBriefPresented; usage: BriefTokenUsage | null }> {
+}): Promise<{ presented: ScoutbotBriefPresented; usage: BriefTokenUsage | null }> {
   const systemPrompt = buildPresenterSystemPrompt(input.voiceSpec);
   const userInput = buildPresenterUserPrompt(input.markdown, input.voiceSpec);
 
@@ -753,7 +753,7 @@ async function presentBriefMarkdown(input: {
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new RangerAssistantError(
+      throw new ScoutbotAssistantError(
         `Presenter call exceeded ${Math.round(PRESENTER_TIMEOUT_MS / 1000)}s — falling back to derived narration.`,
         504,
       );
@@ -773,7 +773,7 @@ async function presentBriefMarkdown(input: {
     }
   }
   if (!response.ok) {
-    throw new RangerAssistantError(
+    throw new ScoutbotAssistantError(
       openAIErrorMessage(parsed) || raw || `Presenter HTTP ${response.status}`,
       502,
     );
@@ -861,7 +861,7 @@ function openAIErrorMessage(payload: OpenAIResponsePayload): string | null {
   return typeof message === "string" ? message : null;
 }
 
-function briefSystemPrompt(basePrompt: string, mode: RangerBriefMode): string {
+function briefSystemPrompt(basePrompt: string, mode: ScoutbotBriefMode): string {
   const shared = [
     basePrompt,
     "",
@@ -895,7 +895,7 @@ function briefSystemPrompt(basePrompt: string, mode: RangerBriefMode): string {
     shared.push(
       "",
       "Fleet-home hero mode:",
-      "For this mode, act as Ranger Brief Compiler: a Scout-aware context session that understands broker records, agent registrations, conversations, work items, invocations, flights, sessions, and observed harness transcripts.",
+      "For this mode, act as Scoutbot Brief Compiler: a Scout-aware context session that understands broker records, agent registrations, conversations, work items, invocations, flights, sessions, and observed harness transcripts.",
       "This output appears inside the Fleet home hero beside already-visible counters for active, available, queued, and offline agents.",
       "Do NOT use the Fleet narration to repeat those counters or say that many agents are available with zero active work. The UI already says that.",
       "Assume deterministic facts that deserve permanent UI, such as simple counts, online/offline status, and ordinary recency, will be shown elsewhere. Spend the brief on interpretation and cognitive assistance.",
@@ -924,7 +924,7 @@ function briefSystemPrompt(basePrompt: string, mode: RangerBriefMode): string {
   return shared.join("\n");
 }
 
-function briefOperatorRequest(ttlMs: number, mode: RangerBriefMode): string {
+function briefOperatorRequest(ttlMs: number, mode: ScoutbotBriefMode): string {
   const ttlSeconds = Math.round(ttlMs / 1000);
 
   if (mode === "fleet-home") {
@@ -1012,9 +1012,9 @@ function briefOperatorRequest(ttlMs: number, mode: RangerBriefMode): string {
 function parseBriefResponse(
   raw: string,
   timing: { preparedAt: number; ttlMs: number },
-  mode: RangerBriefMode = "tour",
-): RangerBrief {
-  // SCO-037: the analyst now emits markdown. The structured RangerBrief
+  mode: ScoutbotBriefMode = "tour",
+): ScoutbotBrief {
+  // SCO-037: the analyst now emits markdown. The structured ScoutbotBrief
   // fields are derived from the markdown for backward compatibility with
   // consumers that haven't migrated to direct markdown rendering yet.
   // If the model drifts and emits JSON anyway, fall back to the old path.
@@ -1034,7 +1034,7 @@ function parseBriefResponse(
   return {
     id: `brf_${randomUUID()}`,
     title: stringField(record.title, "One-minute brief"),
-    summary: stringField(record.summary, fallbackSummary || "Ranger prepared a current control-plane brief."),
+    summary: stringField(record.summary, fallbackSummary || "Scoutbot prepared a current control-plane brief."),
     preparedAt: timing.preparedAt,
     expiresAt,
     ttlMs: timing.ttlMs,
@@ -1064,8 +1064,8 @@ type MarkdownFinding = {
 function briefFromMarkdown(
   markdown: string,
   timing: { preparedAt: number; ttlMs: number },
-  mode: RangerBriefMode,
-): RangerBrief {
+  mode: ScoutbotBriefMode,
+): ScoutbotBrief {
   const sections = splitMarkdownSections(markdown);
   const expiresAt = timing.preparedAt + timing.ttlMs;
   const fallbackSummary = markdown.replace(/\s+/g, " ").trim();
@@ -1079,18 +1079,18 @@ function briefFromMarkdown(
   const actions = parseMarkdownActions(sections.actions);
 
   // Derive a single step that carries the headline + top findings as narration
-  // and the findings as observations. Surfaces still consuming RangerBriefStep
+  // and the findings as observations. Surfaces still consuming ScoutbotBriefStep
   // continue to work; markdown-aware surfaces read the `markdown` field.
   const narrationLines = [headline, ...findings.slice(0, 3).map((f) => f.text)].filter(Boolean);
   const narration = narrationLines.join(" ").trim()
     || fallbackSummary
-    || "Ranger prepared a current control-plane brief.";
+    || "Scoutbot prepared a current control-plane brief.";
 
   const stepRoute = mode === "fleet-home" ? { view: "fleet" } : { view: "fleet" };
   const stepLabel = mode === "fleet-home" ? "Fleet" : "Fleet";
   const stepId = mode === "fleet-home" ? "fleet-home" : "fleet";
 
-  const observations: RangerBriefObservation[] = findings.map((f) => ({
+  const observations: ScoutbotBriefObservation[] = findings.map((f) => ({
     text: f.text,
     tone: f.tone,
     references: f.references.map((r) => {
@@ -1103,7 +1103,7 @@ function briefFromMarkdown(
     }),
   }));
 
-  const step: RangerBriefStep = {
+  const step: ScoutbotBriefStep = {
     id: stepId,
     label: stepLabel,
     route: stepRoute,
@@ -1120,7 +1120,7 @@ function briefFromMarkdown(
   return {
     id: `brf_${randomUUID()}`,
     title,
-    summary: headline || fallbackSummary || "Ranger prepared a current control-plane brief.",
+    summary: headline || fallbackSummary || "Scoutbot prepared a current control-plane brief.",
     preparedAt: timing.preparedAt,
     expiresAt,
     ttlMs: timing.ttlMs,
@@ -1198,9 +1198,9 @@ function parseReferenceLine(line: string): { label: string; href: string } | nul
   return { label: m[1]!.trim(), href: m[2]!.trim() };
 }
 
-function parseMarkdownActions(block: string): RangerBriefAction[] {
+function parseMarkdownActions(block: string): ScoutbotBriefAction[] {
   if (!block) return [];
-  const actions: RangerBriefAction[] = [];
+  const actions: ScoutbotBriefAction[] = [];
   const re = /^-\s*\[([^\]]+)\]\(([^)]+)\)/gm;
   let match: RegExpExecArray | null;
   while ((match = re.exec(block)) !== null) {
@@ -1253,7 +1253,7 @@ function routeForHref(href: string): Record<string, unknown> | null {
   }
 }
 
-function routeKindForHref(href: string): RangerBriefReference["kind"] {
+function routeKindForHref(href: string): ScoutbotBriefReference["kind"] {
   const head = href.replace(/^\/+/, "").split("/")[0] ?? "";
   switch (head) {
     case "agents": return "agent";
@@ -1290,12 +1290,12 @@ function parseJsonObject(raw: string): unknown {
   return null;
 }
 
-function normalizeBriefSteps(raw: unknown, capturedAt: number, expiresAt: number): RangerBriefStep[] {
+function normalizeBriefSteps(raw: unknown, capturedAt: number, expiresAt: number): ScoutbotBriefStep[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .slice(0, 5)
     .map((entry, index) => normalizeBriefStep(entry, index, capturedAt, expiresAt))
-    .filter((entry): entry is RangerBriefStep => Boolean(entry));
+    .filter((entry): entry is ScoutbotBriefStep => Boolean(entry));
 }
 
 function normalizeBriefStep(
@@ -1303,7 +1303,7 @@ function normalizeBriefStep(
   index: number,
   capturedAt: number,
   expiresAt: number,
-): RangerBriefStep | null {
+): ScoutbotBriefStep | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
   const route = sanitizeBriefRoute(record.route);
@@ -1328,7 +1328,7 @@ function normalizeBriefStep(
   };
 }
 
-function normalizeBriefObservations(raw: unknown): RangerBriefObservation[] {
+function normalizeBriefObservations(raw: unknown): ScoutbotBriefObservation[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .slice(0, 5)
@@ -1347,10 +1347,10 @@ function normalizeBriefObservations(raw: unknown): RangerBriefObservation[] {
         references,
       };
     })
-    .filter((entry): entry is RangerBriefObservation => Boolean(entry));
+    .filter((entry): entry is ScoutbotBriefObservation => Boolean(entry));
 }
 
-function normalizeBriefReferences(raw: unknown): RangerBriefReference[] {
+function normalizeBriefReferences(raw: unknown): ScoutbotBriefReference[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .slice(0, 4)
@@ -1371,10 +1371,10 @@ function normalizeBriefReferences(raw: unknown): RangerBriefReference[] {
         ...(detail ? { detail } : {}),
       };
     })
-    .filter((entry): entry is RangerBriefReference => Boolean(entry));
+    .filter((entry): entry is ScoutbotBriefReference => Boolean(entry));
 }
 
-function fallbackBriefSteps(summary: string, capturedAt: number, expiresAt: number): RangerBriefStep[] {
+function fallbackBriefSteps(summary: string, capturedAt: number, expiresAt: number): ScoutbotBriefStep[] {
   const narration = summary || "I prepared a fresh control-plane snapshot. Start with Fleet, then check Ops Tail and Broker health.";
   return [
     {
@@ -1388,7 +1388,7 @@ function fallbackBriefSteps(summary: string, capturedAt: number, expiresAt: numb
   ];
 }
 
-function normalizeBriefActions(raw: unknown): RangerBriefAction[] {
+function normalizeBriefActions(raw: unknown): ScoutbotBriefAction[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .slice(0, 3)
@@ -1407,7 +1407,7 @@ function normalizeBriefActions(raw: unknown): RangerBriefAction[] {
         ...(prompt ? { prompt } : {}),
       };
     })
-    .filter((entry): entry is RangerBriefAction => Boolean(entry));
+    .filter((entry): entry is ScoutbotBriefAction => Boolean(entry));
 }
 
 function sanitizeBriefRoute(raw: unknown): Record<string, unknown> | null {
@@ -1479,7 +1479,7 @@ function createSession(model: string): StoredSession {
   const now = Date.now();
   return {
     id: `rgr_${randomUUID()}`,
-    title: "New Ranger Session",
+    title: "New Scout Session",
     createdAt: now,
     updatedAt: now,
     model,
@@ -1489,14 +1489,14 @@ function createSession(model: string): StoredSession {
   };
 }
 
-function publicSession(session: StoredSession): RangerAssistantSession {
+function publicSession(session: StoredSession): ScoutbotAssistantSession {
   return {
     ...publicSessionSummary(session),
     messages: session.messages.slice(),
   };
 }
 
-function publicSessionSummary(session: StoredSession): RangerAssistantSessionSummary {
+function publicSessionSummary(session: StoredSession): ScoutbotAssistantSessionSummary {
   return {
     id: session.id,
     title: session.title,
@@ -1509,7 +1509,7 @@ function publicSessionSummary(session: StoredSession): RangerAssistantSessionSum
 
 function titleFromRequest(body: string): string {
   const singleLine = body.replace(/\s+/g, " ").trim();
-  if (singleLine.length <= 48) return singleLine || "Ranger Session";
+  if (singleLine.length <= 48) return singleLine || "Scout Session";
   return `${singleLine.slice(0, 45).trimEnd()}...`;
 }
 

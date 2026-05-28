@@ -25,17 +25,17 @@ type BuildInfo = {
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
-  const { navigate, agents, reload, openSettings, applyRangerUiAction } = useScout();
+  const { navigate, agents, reload, openSettings, applyScoutbotUiAction } = useScout();
   const opsEnabled = isOpsEnabled();
 
-  const askRangerForState = useCallback(() => {
-    applyRangerUiAction({ type: "open-ranger", mode: "ask" });
-    window.dispatchEvent(new CustomEvent("scout:ranger-submit", {
+  const askScoutbotForState = useCallback(() => {
+    applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" });
+    window.dispatchEvent(new CustomEvent("scout:scoutbot-submit", {
       detail: {
         body: "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.",
       },
     }));
-  }, [applyRangerUiAction]);
+  }, [applyScoutbotUiAction]);
 
   const interruptAgent = useCallback(async (agentId: string) => {
     await api(`/api/agents/${encodeURIComponent(agentId)}/interrupt`, {
@@ -116,19 +116,19 @@ export function useScoutCommands(): CommandOption[] {
         action: () => navigate({ view: "settings", section: "agents" }),
       },
       {
-        id: "ranger:open",
-        label: "Open Ranger",
-        action: () => applyRangerUiAction({ type: "open-ranger", mode: "ask" }),
+        id: "scoutbot:open",
+        label: "Open Scout",
+        action: () => applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" }),
       },
       {
-        id: "ranger:state",
-        label: "Ask Ranger for State",
-        action: () => askRangerForState(),
+        id: "scoutbot:state",
+        label: "Ask Scout for State",
+        action: () => askScoutbotForState(),
       },
       {
-        id: "ranger:ops-tail",
-        label: "Ranger: Open Ops Tail",
-        action: () => applyRangerUiAction({ type: "navigate", route: { view: "ops", mode: "tail" } }),
+        id: "scoutbot:ops-tail",
+        label: "Scout: Open Ops Tail",
+        action: () => applyScoutbotUiAction({ type: "navigate", route: { view: "ops", mode: "tail" } }),
       },
       {
         id: "nav:pair",
@@ -179,7 +179,7 @@ export function useScoutCommands(): CommandOption[] {
     }
 
     return commands;
-  }, [agents, applyRangerUiAction, askRangerForState, interruptAgent, navigate, opsEnabled, reload, openSettings]);
+  }, [agents, applyScoutbotUiAction, askScoutbotForState, interruptAgent, navigate, opsEnabled, reload, openSettings]);
 }
 
 export function useScoutStatusBarState(): ScoutStatusBarState {

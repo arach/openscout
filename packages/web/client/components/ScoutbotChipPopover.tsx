@@ -19,24 +19,24 @@ import {
   selectActiveBroadcast,
   shouldDisplayBroadcast,
   tierAllowed,
-  toggleRanger,
+  toggleScoutbot,
   updateMute,
-  useRangerBroadcastStore,
+  useScoutbotBroadcastStore,
   type MuteFilter,
   type MuteState,
-} from "../lib/ranger-broadcast-store.ts";
+} from "../lib/scoutbot-broadcast-store.ts";
 import {
-  useRangerState,
-  type RangerActivity,
-} from "../scout/ranger/RangerStateContext.tsx";
+  useScoutbotState,
+  type ScoutbotActivity,
+} from "../scout/scoutbot/ScoutbotStateContext.tsx";
 import type { Broadcast, BroadcastTier } from "../lib/types.ts";
 
-import "./ranger-chip-popover.css";
+import "./scoutbot-chip-popover.css";
 
 const MUTE_30M_MS = 30 * 60_000;
 const HISTORY_RENDER_LIMIT = 10;
 
-function activityLabel(activity: RangerActivity): string {
+function activityLabel(activity: ScoutbotActivity): string {
   switch (activity) {
     case "listening":
       return "Listening";
@@ -58,7 +58,7 @@ function formatHms(ts: number): string {
 }
 
 function tierDotClass(tier: BroadcastTier): string {
-  return `s-ranger-popover-dot s-ranger-popover-dot--${tier}`;
+  return `s-scoutbot-popover-dot s-scoutbot-popover-dot--${tier}`;
 }
 
 function Section({
@@ -71,12 +71,12 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="s-ranger-popover-section">
-      <header className="s-ranger-popover-section-head">
+    <section className="s-scoutbot-popover-section">
+      <header className="s-scoutbot-popover-section-head">
         <span>{title}</span>
         {trailing}
       </header>
-      <div className="s-ranger-popover-section-body">{children}</div>
+      <div className="s-scoutbot-popover-section-body">{children}</div>
     </section>
   );
 }
@@ -95,7 +95,7 @@ function MuteButton({
   return (
     <button
       type="button"
-      className={`s-ranger-popover-mute-btn${active ? " s-ranger-popover-mute-btn--active" : ""}`}
+      className={`s-scoutbot-popover-mute-btn${active ? " s-scoutbot-popover-mute-btn--active" : ""}`}
       onClick={onClick}
       title={title}
       aria-pressed={active}
@@ -105,7 +105,7 @@ function MuteButton({
   );
 }
 
-export function RangerChipPopover({
+export function ScoutbotChipPopover({
   open,
   onClose,
 }: {
@@ -113,8 +113,8 @@ export function RangerChipPopover({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { state, actions } = useRangerState();
-  const snap = useRangerBroadcastStore();
+  const { state, actions } = useScoutbotState();
+  const snap = useScoutbotBroadcastStore();
   const active = selectActiveBroadcast(snap);
 
   useEffect(() => {
@@ -159,7 +159,7 @@ export function RangerChipPopover({
   };
 
   const handleOpenChat = () => {
-    toggleRanger(active ?? null);
+    toggleScoutbot(active ?? null);
     onClose();
   };
 
@@ -177,23 +177,23 @@ export function RangerChipPopover({
   return (
     <>
       <div
-        className="s-ranger-popover-backdrop"
+        className="s-scoutbot-popover-backdrop"
         onClick={onClose}
         aria-hidden="true"
       />
       <div
         ref={ref}
-        className="s-ranger-popover"
+        className="s-scoutbot-popover"
         role="dialog"
-        aria-label="Ranger"
+        aria-label="Scout"
       >
-        <header className="s-ranger-popover-head">
-          <span className="s-ranger-popover-head-title">
+        <header className="s-scoutbot-popover-head">
+          <span className="s-scoutbot-popover-head-title">
             {state.session.title ?? "Chat"}
           </span>
           <button
             type="button"
-            className="s-ranger-popover-close"
+            className="s-scoutbot-popover-close"
             onClick={onClose}
             aria-label="Close"
             title="Close"
@@ -204,23 +204,23 @@ export function RangerChipPopover({
 
         <Section title="Now">
           {hasError ? (
-            <div className="s-ranger-popover-now s-ranger-popover-now--error">
-              <span className="s-ranger-popover-dot s-ranger-popover-dot--error" />
+            <div className="s-scoutbot-popover-now s-scoutbot-popover-now--error">
+              <span className="s-scoutbot-popover-dot s-scoutbot-popover-dot--error" />
               <span>{state.error}</span>
             </div>
           ) : state.activity !== "idle" ? (
-            <div className="s-ranger-popover-now s-ranger-popover-now--activity">
-              <span className="s-ranger-popover-dot s-ranger-popover-dot--pulse" />
+            <div className="s-scoutbot-popover-now s-scoutbot-popover-now--activity">
+              <span className="s-scoutbot-popover-dot s-scoutbot-popover-dot--pulse" />
               <span>{activityLabel(state.activity)}</span>
             </div>
           ) : active ? (
-            <div className="s-ranger-popover-now">
+            <div className="s-scoutbot-popover-now">
               <span className={tierDotClass(active.tier)} />
-              <span className="s-ranger-popover-now-text">{active.text}</span>
-              <span className="s-ranger-popover-now-time">{formatHms(active.ts)}</span>
+              <span className="s-scoutbot-popover-now-text">{active.text}</span>
+              <span className="s-scoutbot-popover-now-time">{formatHms(active.ts)}</span>
               <button
                 type="button"
-                className="s-ranger-popover-now-dismiss"
+                className="s-scoutbot-popover-now-dismiss"
                 onClick={dismissPromotedBroadcast}
                 title="Dismiss"
                 aria-label="Dismiss"
@@ -229,31 +229,31 @@ export function RangerChipPopover({
               </button>
             </div>
           ) : showBriefFresh && state.brief.lastDeliveredAt ? (
-            <div className="s-ranger-popover-now">
-              <span className="s-ranger-popover-dot s-ranger-popover-dot--info" />
+            <div className="s-scoutbot-popover-now">
+              <span className="s-scoutbot-popover-dot s-scoutbot-popover-dot--info" />
               <span>
                 Brief delivered {Math.max(1, Math.floor((snap.now - state.brief.lastDeliveredAt) / 60_000))}m ago
               </span>
             </div>
           ) : (
-            <div className="s-ranger-popover-empty-line">No active signal.</div>
+            <div className="s-scoutbot-popover-empty-line">No active signal.</div>
           )}
         </Section>
 
         {dueReminders.length > 0 && (
           <Section
             title="Reminders"
-            trailing={<span className="s-ranger-popover-count">{dueReminders.length}</span>}
+            trailing={<span className="s-scoutbot-popover-count">{dueReminders.length}</span>}
           >
             {dueReminders.map((reminder) => (
-              <div key={reminder.id} className="s-ranger-popover-reminder">
-                <Bell size={11} className="s-ranger-popover-reminder-icon" aria-hidden="true" />
-                <span className="s-ranger-popover-reminder-body" title={reminder.body}>
+              <div key={reminder.id} className="s-scoutbot-popover-reminder">
+                <Bell size={11} className="s-scoutbot-popover-reminder-icon" aria-hidden="true" />
+                <span className="s-scoutbot-popover-reminder-body" title={reminder.body}>
                   {reminder.body}
                 </span>
                 <button
                   type="button"
-                  className="s-ranger-popover-icon-btn"
+                  className="s-scoutbot-popover-icon-btn"
                   onClick={handleAction(() => actions.askReminderStatus({ id: reminder.id, body: reminder.body }))}
                   title="Ask status"
                   aria-label="Ask status"
@@ -262,7 +262,7 @@ export function RangerChipPopover({
                 </button>
                 <button
                   type="button"
-                  className="s-ranger-popover-icon-btn"
+                  className="s-scoutbot-popover-icon-btn"
                   onClick={() => actions.dismissReminder(reminder.id)}
                   title="Dismiss"
                   aria-label="Dismiss"
@@ -276,23 +276,23 @@ export function RangerChipPopover({
 
         <Section
           title="Recent broadcasts"
-          trailing={<span className="s-ranger-popover-count">{snap.history.length}</span>}
+          trailing={<span className="s-scoutbot-popover-count">{snap.history.length}</span>}
         >
           {recentBroadcasts.length === 0 ? (
-            <div className="s-ranger-popover-empty-line">No broadcasts.</div>
+            <div className="s-scoutbot-popover-empty-line">No broadcasts.</div>
           ) : (
-            <div className="s-ranger-popover-history">
+            <div className="s-scoutbot-popover-history">
               {recentBroadcasts.map((b) => {
                 const dimmed = !shouldDisplayBroadcast(b, mute, snap.now);
                 return (
                   <div
                     key={b.id}
-                    className={`s-ranger-popover-history-row${dimmed ? " s-ranger-popover-history-row--muted" : ""}`}
+                    className={`s-scoutbot-popover-history-row${dimmed ? " s-scoutbot-popover-history-row--muted" : ""}`}
                     title={b.text}
                   >
                     <span className={tierDotClass(b.tier)} aria-hidden="true" />
-                    <span className="s-ranger-popover-history-time">{formatHms(b.ts)}</span>
-                    <span className="s-ranger-popover-history-text">{b.text}</span>
+                    <span className="s-scoutbot-popover-history-time">{formatHms(b.ts)}</span>
+                    <span className="s-scoutbot-popover-history-text">{b.text}</span>
                   </div>
                 );
               })}
@@ -301,10 +301,10 @@ export function RangerChipPopover({
         </Section>
 
         <Section title="Actions">
-          <div className="s-ranger-popover-actions">
+          <div className="s-scoutbot-popover-actions">
             <button
               type="button"
-              className="s-ranger-popover-action"
+              className="s-scoutbot-popover-action"
               onClick={handleAction(actions.triggerBrief)}
             >
               <ListChecks size={11} />
@@ -312,7 +312,7 @@ export function RangerChipPopover({
             </button>
             <button
               type="button"
-              className="s-ranger-popover-action"
+              className="s-scoutbot-popover-action"
               onClick={handleAction(actions.triggerAskState)}
             >
               <Radio size={11} />
@@ -320,7 +320,7 @@ export function RangerChipPopover({
             </button>
             <button
               type="button"
-              className="s-ranger-popover-action"
+              className="s-scoutbot-popover-action"
               onClick={actions.toggleVoiceReplies}
               aria-pressed={state.voice.replies}
             >
@@ -329,15 +329,15 @@ export function RangerChipPopover({
             </button>
             <button
               type="button"
-              className="s-ranger-popover-action"
-              onClick={handleAction(actions.openRangerSettings)}
+              className="s-scoutbot-popover-action"
+              onClick={handleAction(actions.openScoutbotSettings)}
             >
               <Settings size={11} />
               <span>Settings</span>
             </button>
             <button
               type="button"
-              className="s-ranger-popover-action"
+              className="s-scoutbot-popover-action"
               onClick={handleAction(actions.startNewChat)}
             >
               <Plus size={11} />
@@ -345,7 +345,7 @@ export function RangerChipPopover({
             </button>
             <button
               type="button"
-              className="s-ranger-popover-action s-ranger-popover-action--primary"
+              className="s-scoutbot-popover-action s-scoutbot-popover-action--primary"
               onClick={handleOpenChat}
             >
               <Bot size={11} />
@@ -354,8 +354,8 @@ export function RangerChipPopover({
           </div>
         </Section>
 
-        <footer className="s-ranger-popover-alerts">
-          <span className="s-ranger-popover-alerts-label">Alerts</span>
+        <footer className="s-scoutbot-popover-alerts">
+          <span className="s-scoutbot-popover-alerts-label">Alerts</span>
           <MuteButton
             label="All"
             active={mute.filter === "all" && !mute.goDark}

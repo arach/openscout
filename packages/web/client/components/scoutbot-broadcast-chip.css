@@ -1,10 +1,10 @@
-/* ── Ranger broadcast chip ───────────────────────────────────────────
+/* ── Scoutbot broadcast chip ───────────────────────────────────────────
    Inline chip in the status bar's left cluster. Folds the fleet
-   broadcast stream into Ranger's surface: idle is just the bot head
+   broadcast stream into Scoutbot's surface: idle is just the bot head
    at low opacity (it has nothing to say); active surfaces a one-line
    preempt with tier color. */
 
-.s-ranger-chip {
+.s-scoutbot-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -26,96 +26,96 @@
  * so the two peers in the same row sit on the same visual line. The chip's
  * Bot icon stays at flex-center because the icon is large enough that
  * additional lift makes it look airborne. */
-.s-ranger-chip-dot {
+.s-scoutbot-chip-dot {
   position: relative;
   top: -1.5px;
 }
 
-.s-ranger-chip--idle {
+.s-scoutbot-chip--idle {
   padding: 1px 4px;
 }
-.s-ranger-chip--idle .s-ranger-chip-icon {
+.s-scoutbot-chip--idle .s-scoutbot-chip-icon {
   color: var(--muted);
 }
-.s-ranger-chip--idle:hover .s-ranger-chip-icon {
+.s-scoutbot-chip--idle:hover .s-scoutbot-chip-icon {
   color: var(--ink);
 }
 
-.s-ranger-chip--active {
+.s-scoutbot-chip--active {
   padding: 1px 8px;
   color: var(--ink);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
-.s-ranger-chip--active:hover {
+.s-scoutbot-chip--active:hover {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
 }
-.s-ranger-chip--active .s-ranger-chip-icon {
+.s-scoutbot-chip--active .s-scoutbot-chip-icon {
   color: color-mix(in srgb, var(--accent) 80%, var(--ink));
 }
 
 /* Activity preempt: listening / thinking / speaking / briefing. Reads
  * as a live state on the chip, takes priority over broadcast text. */
-.s-ranger-chip--activity {
+.s-scoutbot-chip--activity {
   padding: 1px 8px;
   color: var(--ink);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
-.s-ranger-chip--activity:hover {
+.s-scoutbot-chip--activity:hover {
   border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
 }
-.s-ranger-chip--activity .s-ranger-chip-icon {
+.s-scoutbot-chip--activity .s-scoutbot-chip-icon {
   color: color-mix(in srgb, var(--accent) 90%, var(--ink));
 }
-.s-ranger-chip-spinner {
+.s-scoutbot-chip-spinner {
   flex-shrink: 0;
-  animation: s-ranger-chip-spin 1s linear infinite;
+  animation: s-scoutbot-chip-spin 1s linear infinite;
 }
-@keyframes s-ranger-chip-spin {
+@keyframes s-scoutbot-chip-spin {
   to { transform: rotate(360deg); }
 }
-.s-ranger-chip-dot--pulse {
+.s-scoutbot-chip-dot--pulse {
   background: color-mix(in srgb, var(--accent) 80%, var(--ink));
-  animation: s-ranger-chip-pulse 1.4s ease-in-out infinite;
+  animation: s-scoutbot-chip-pulse 1.4s ease-in-out infinite;
 }
-@keyframes s-ranger-chip-pulse {
+@keyframes s-scoutbot-chip-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
 
 /* Brief-fresh: small "Nm" age chip after a brief lands. Faint until
  * it decays out of the 5-minute window. */
-.s-ranger-chip--fresh {
+.s-scoutbot-chip--fresh {
   padding: 1px 6px;
   color: var(--muted);
   border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
   background: transparent;
 }
-.s-ranger-chip--fresh:hover {
+.s-scoutbot-chip--fresh:hover {
   color: var(--ink);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
-.s-ranger-chip--fresh .s-ranger-chip-icon {
+.s-scoutbot-chip--fresh .s-scoutbot-chip-icon {
   color: color-mix(in srgb, var(--accent) 60%, var(--muted));
 }
 
-.s-ranger-chip-icon {
+.s-scoutbot-chip-icon {
   flex-shrink: 0;
 }
 
-.s-ranger-chip-dot {
+.s-scoutbot-chip-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--muted);
 }
-.s-ranger-chip-dot--info  { background: var(--muted); }
-.s-ranger-chip-dot--warn  { background: color-mix(in srgb, gold 70%, var(--muted)); }
-.s-ranger-chip-dot--error { background: color-mix(in srgb, crimson 70%, var(--muted)); }
+.s-scoutbot-chip-dot--info  { background: var(--muted); }
+.s-scoutbot-chip-dot--warn  { background: color-mix(in srgb, gold 70%, var(--muted)); }
+.s-scoutbot-chip-dot--error { background: color-mix(in srgb, crimson 70%, var(--muted)); }
 
-.s-ranger-chip-text {
+.s-scoutbot-chip-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
