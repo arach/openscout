@@ -2045,6 +2045,28 @@ function endpointMetadataString(endpoint: AgentEndpoint, key: string): string | 
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function endpointMetadataStringArray(endpoint: AgentEndpoint, key: string): string[] {
+  const value = endpoint.metadata?.[key];
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry).trim()).filter(Boolean);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+  return [];
+}
+
+function attachedCodexEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
+  return applyRequestedRuntimeOptionsToLaunchArgs(
+    "codex",
+    endpointMetadataStringArray(endpoint, "launchArgs"),
+    {
+      model: endpointMetadataString(endpoint, "model"),
+      reasoningEffort: endpointMetadataString(endpoint, "reasoningEffort"),
+    },
+  );
+}
+
 function endpointInvocationPrompt(
   endpoint: AgentEndpoint,
   agentName: string,
@@ -2141,7 +2163,7 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
     systemPrompt: attachedLocalSessionSystemPrompt(endpoint),
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
-    launchArgs: [],
+    launchArgs: attachedCodexEndpointLaunchArgs(endpoint),
     threadId,
     requireExistingThread: Boolean(threadId) && !ownsSessionThread,
   };

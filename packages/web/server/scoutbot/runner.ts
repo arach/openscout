@@ -11,6 +11,11 @@ import {
   loadScoutBrokerContext,
   resolveScoutBrokerUrl,
 } from "../core/broker/service.ts";
+import {
+  parseScoutbotDirectives,
+  scoutbotDirectiveMetadata,
+  type ScoutbotReasoningEffort,
+} from "./directives.ts";
 import { prefilterHandle } from "./prefilter.ts";
 import {
   buildScoutbotThreadConversation,
@@ -296,7 +301,7 @@ async function ensureScoutbotRegistered(
     await postJson(baseUrl, "/v1/actors", actor);
   }
   const existingAgent = snapshot.agents?.[SCOUTBOT_AGENT_ID];
-  if (!existingAgent || !hasScoutbotLabels(existingAgent)) {
+  if (!existingAgent || !hasScoutbotLabels(existingAgent) || !hasCurrentScoutbotAgentConfig(existingAgent)) {
     await postJson(baseUrl, "/v1/agents", agent);
   }
   const existingEndpoint = findScoutbotEndpoint(snapshot, nodeId);
@@ -304,6 +309,7 @@ async function ensureScoutbotRegistered(
     !existingEndpoint
     || existingEndpoint.state === "offline"
     || existingEndpoint.metadata?.source !== "scoutbot"
+    || !hasCurrentScoutbotRuntimeConfig(existingEndpoint)
     || isInvalidScoutbotSessionEndpoint(existingEndpoint)
   ) {
     await postJson(baseUrl, "/v1/endpoints", endpoint);
@@ -348,6 +354,7 @@ function buildScoutbotAgent(nodeId: string): ScoutBrokerAgentRecord {
 }
 
 function buildScoutbotEndpoint(nodeId: string, currentDirectory: string): ScoutBrokerEndpointRecord {
+  const reasoningEffort = SCOUTBOT_ROLE_CONFIG.defaults.reasoningEffort;
   return {
     id: `${SCOUTBOT_ENDPOINT_ID}.${nodeId}`,
     agentId: SCOUTBOT_AGENT_ID,
@@ -369,6 +376,8 @@ function buildScoutbotEndpoint(nodeId: string, currentDirectory: string): ScoutB
       roleConfig: SCOUTBOT_ROLE_CONFIG,
       systemPrompt: SCOUTBOT_ROLE_CONFIG.systemPrompt,
       toolGrants: SCOUTBOT_ROLE_CONFIG.grants,
+      reasoningEffort,
+      launchArgs: ["--reasoning-effort", reasoningEffort],
       projectRoot: currentDirectory,
       transport: "codex_app_server",
       startedAt: String(Date.now()),
@@ -416,6 +425,11 @@ function isInvalidScoutbotSessionEndpoint(endpoint: ScoutBrokerEndpointRecord): 
   return lastError.includes("no rollout found for thread id")
     || lastError.includes("codex_app_server session unavailable")
     || lastError.includes("session unavailable");
+}
+
+function hasCurrentScoutbotRuntimeConfig(endpoint: ScoutBrokerEndpointRecord): boolean {
+  return metadataString(endpoint.metadata, "systemPrompt") === SCOUTBOT_ROLE_CONFIG.systemPrompt
+    && metadataString(endpoint.metadata, "reasoningEffort") === SCOUTBOT_ROLE_CONFIG.defaults.reasoningEffort;
 }
 
 function scoutbotEndpointTransportSessionId(endpoint: ScoutBrokerEndpointRecord): string | null {
@@ -469,9 +483,12 @@ async function postOperatorThreadMessage(input: {
     await postJson(input.baseUrl, "/v1/conversations", conversation);
   }
 
+  const parsed = parseScoutbotDirectives(input.body);
   const now = Date.now();
   const messageId = createId("msg");
-  const transportSessionId = input.thread.transportSessionId?.trim() || null;
+  const transportSessionId = parsed.directives.targetSessionId
+    ?? input.thread.transportSessionId?.trim()
+    ?? null;
   await postJson(input.baseUrl, "/v1/messages", {
     id: messageId,
     conversationId: input.thread.conversationId,
@@ -487,6 +504,7 @@ async function postOperatorThreadMessage(input: {
     createdAt: now,
     metadata: {
       source: input.source,
+      ...scoutbotDirectiveMetadata(parsed),
       destinationKind: "scoutbot_thread",
       destinationId: input.thread.threadId,
       scoutbotThreadId: input.thread.threadId,
@@ -589,20 +607,28 @@ async function handleBlock(block: string, options: RunEventLoopOptions): Promise
     }
     return;
   }
-  if (!isAddressedToScoutbot(message)) return;
+  if (!isScoutbotAddressedMessage(message)) return;
 
   const ctx = await loadScoutBrokerContext(options.baseUrl);
   if (!ctx) return;
+
+  const prompt = stripMentions(message.body);
+  const prefilter = prefilterHandle(prompt, ctx.snapshot);
   const existingFlight = findScoutbotFlightForMessage(ctx.snapshot, message.id, { includeTerminal: false });
-  if (existingFlight) {
+  if (existingFlight && !(prefilter && isScoutbotDirectDeliveryFlight(existingFlight))) {
     options.log.info(`message already has flight id=${shortId(existingFlight.id)} source=${shortId(message.id)}`);
     return;
   }
 
-  const prompt = stripMentions(message.body);
   options.log.info(`handling thread=${thread.threadId} source=${shortId(message.id)} promptChars=${prompt.length}`);
-  const prefilter = prefilterHandle(prompt, ctx.snapshot);
   if (prefilter) {
+    const steerTargetSessionId = prefilter.metadata.matched_rule === "slash.steer"
+      ? metadataString(prefilter.metadata, "targetSessionId")
+      : undefined;
+    if (steerTargetSessionId) {
+      await options.threadMap.setThreadTransportSessionId(thread.threadId, steerTargetSessionId);
+      options.log.info(`thread=${thread.threadId} steered transportSession=${shortId(steerTargetSessionId)}`);
+    }
     const replyId = await postPrefilterReply({
       baseUrl: options.baseUrl,
       conversation: ctx.snapshot.conversations[thread.conversationId],
@@ -672,16 +698,32 @@ async function postScoutbotInvocation(input: {
   nodeId: string;
 }): Promise<void> {
   const invocationId = createId("inv");
-  const transportSessionId = input.thread.transportSessionId?.trim() || null;
+  const prompt = stripMentions(input.message.body);
+  const parsed = parseScoutbotDirectives(prompt);
+  const requestedReasoningEffort =
+    parsed.directives.reasoningEffort
+    ?? metadataReasoningEffort(input.message.metadata);
+  const transportSessionId =
+    parsed.directives.targetSessionId
+    ?? metadataString(input.message.metadata, "targetSessionId")
+    ?? input.thread.transportSessionId?.trim()
+    ?? null;
+  const task = parsed.body || parsed.messageBody || prompt;
+  const context = scoutbotInvocationDirectiveContext({
+    parsed,
+    requestedReasoningEffort,
+    targetSessionId: transportSessionId,
+  });
   await postJson(input.baseUrl, "/v1/invocations", {
     id: invocationId,
     requesterId: input.message.actorId,
     requesterNodeId: input.nodeId,
     targetAgentId: SCOUTBOT_AGENT_ID,
     action: "consult",
-    task: stripMentions(input.message.body),
+    task,
     conversationId: input.thread.conversationId,
     messageId: input.message.id,
+    ...(Object.keys(context).length > 0 ? { context } : {}),
     execution: {
       session: "existing",
       ...(transportSessionId ? { targetSessionId: transportSessionId } : {}),
@@ -694,6 +736,8 @@ async function postScoutbotInvocation(input: {
         requestedBy: input.message.actorId,
         sourceMessageId: input.message.id,
       }),
+      ...scoutbotDirectiveMetadata(parsed),
+      ...(requestedReasoningEffort ? { reasoningEffort: requestedReasoningEffort } : {}),
       scoutbotThreadId: input.thread.threadId,
       ...(transportSessionId ? { targetSessionId: transportSessionId } : {}),
       relayTarget: SCOUTBOT_AGENT_ID,
@@ -706,6 +750,24 @@ async function postScoutbotInvocation(input: {
       },
     },
   });
+}
+
+function scoutbotInvocationDirectiveContext(input: {
+  parsed: ReturnType<typeof parseScoutbotDirectives>;
+  requestedReasoningEffort?: ScoutbotReasoningEffort;
+  targetSessionId?: string | null;
+}): Record<string, string> {
+  const context: Record<string, string> = {};
+  if (input.requestedReasoningEffort) {
+    context.requestedReasoningEffort = input.requestedReasoningEffort;
+  }
+  if (input.targetSessionId) {
+    context.targetSessionId = input.targetSessionId;
+  }
+  if (input.parsed.body && input.parsed.body !== input.parsed.original) {
+    context.directiveBody = input.parsed.body;
+  }
+  return context;
 }
 
 function parseSseBlock(block: string): { eventName: string; data: unknown } | null {
@@ -743,9 +805,12 @@ function scoutbotReplyTransportSessionId(message: ScoutBrokerMessageRecord): str
     ?? null;
 }
 
-function isAddressedToScoutbot(message: ScoutBrokerMessageRecord): boolean {
+export function isScoutbotAddressedMessage(message: ScoutBrokerMessageRecord): boolean {
   if (message.mentions?.some((mention) => mention.actorId === SCOUTBOT_AGENT_ID)) return true;
   if (message.audience?.notify?.includes(SCOUTBOT_AGENT_ID)) return true;
+  if (metadataString(message.metadata, "destinationId") === SCOUTBOT_AGENT_ID) return true;
+  if (metadataString(message.metadata, "relayTarget") === SCOUTBOT_AGENT_ID) return true;
+  if (metadataStringArrayIncludes(message.metadata, "relayTargetIds", SCOUTBOT_AGENT_ID)) return true;
   return /(^|\s)@scoutbot(\b|\s|$)/i.test(message.body);
 }
 
@@ -777,6 +842,14 @@ export function findScoutbotFlightForMessage(
     return metadataString(returnAddress, "replyToMessageId") === messageId;
   });
   return candidates.sort((left, right) => (right.startedAt ?? 0) - (left.startedAt ?? 0))[0] ?? null;
+}
+
+export function isScoutbotDirectDeliveryFlight(flight: ScoutBrokerFlightRecord): boolean {
+  if (flight.targetAgentId !== SCOUTBOT_AGENT_ID) return false;
+  if (metadataString(flight.metadata, "source") === "scoutbot") return false;
+  if (metadataString(flight.metadata, "destinationId") === SCOUTBOT_AGENT_ID) return true;
+  if (metadataString(flight.metadata, "relayTarget") === SCOUTBOT_AGENT_ID) return true;
+  return false;
 }
 
 async function postJson<T = { ok: true }>(
@@ -811,6 +884,11 @@ function hasScoutbotLabels(agent: ScoutBrokerAgentRecord): boolean {
   return labels.has("assistant") && labels.has("scout") && labels.has("scoutbot");
 }
 
+function hasCurrentScoutbotAgentConfig(agent: ScoutBrokerAgentRecord): boolean {
+  const roleConfig = metadataObject(agent.metadata, "roleConfig");
+  return metadataString(roleConfig, "systemPrompt") === SCOUTBOT_ROLE_CONFIG.systemPrompt;
+}
+
 function metadataObject(metadata: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
   const value = metadata?.[key];
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -819,6 +897,31 @@ function metadataObject(metadata: Record<string, unknown> | undefined, key: stri
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+const SCOUTBOT_REASONING_EFFORTS = new Set<ScoutbotReasoningEffort>([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
+
+function metadataReasoningEffort(metadata: Record<string, unknown> | undefined): ScoutbotReasoningEffort | undefined {
+  const value = metadataString(metadata, "reasoningEffort");
+  return SCOUTBOT_REASONING_EFFORTS.has(value as ScoutbotReasoningEffort)
+    ? value as ScoutbotReasoningEffort
+    : undefined;
+}
+
+function metadataStringArrayIncludes(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+  value: string,
+): boolean {
+  const entry = metadata?.[key];
+  return Array.isArray(entry) && entry.some((item) => item === value);
 }
 
 function createId(prefix: string): string {

@@ -1,4 +1,8 @@
-.machine-scope-bar {
+.machine-scope {
+  flex: 0 0 auto;
+}
+
+.machine-scope--bar {
   min-height: 38px;
   display: flex;
   align-items: center;
@@ -7,13 +11,28 @@
   border-bottom: 1px solid color-mix(in srgb, var(--hud-ink) 8%, transparent);
   background: color-mix(in srgb, var(--hud-surface) 94%, transparent);
   color: var(--hud-ink);
-  flex: 0 0 auto;
+}
+
+.machine-scope--nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--scout-chrome-ink);
 }
 
 .machine-scope-label {
   font-size: 11px;
   font-weight: 650;
   color: color-mix(in srgb, var(--hud-ink) 58%, transparent);
+}
+
+.machine-scope--nav .machine-scope-label {
+  font-family: var(--hud-font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--scout-chrome-ink-faint);
 }
 
 .machine-scope-select {
@@ -28,19 +47,34 @@
   padding: 0 28px 0 9px;
 }
 
+.machine-scope--nav .machine-scope-select {
+  min-width: 168px;
+  max-width: 24vw;
+  height: 25px;
+  border-radius: 3px;
+  border-color: var(--scout-chrome-border-soft);
+  background: color-mix(in srgb, var(--hud-bg) 82%, transparent);
+  color: var(--scout-chrome-ink-strong);
+  font: 600 11px/1 var(--hud-font-sans);
+}
+
+.machine-scope--nav .machine-scope-select:hover {
+  border-color: color-mix(in srgb, var(--hud-ink) 16%, transparent);
+  background: var(--scout-chrome-hover);
+}
+
 .machine-scope-select:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--hud-accent) 65%, transparent);
   outline-offset: 2px;
 }
 
-.scout-surface-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
+@media (max-width: 940px) {
+  .machine-scope--nav .machine-scope-label {
+    display: none;
+  }
 
-.scout-surface-body > * {
-  flex: 1 1 auto;
-  min-height: 0;
+  .machine-scope--nav .machine-scope-select {
+    min-width: 132px;
+    max-width: 30vw;
+  }
 }

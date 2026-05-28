@@ -6,6 +6,7 @@ import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { useScout } from "./Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
+import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 
 export type ScoutStatusBarState = {
   status: { label: string; color: StatusColor };
@@ -326,6 +327,7 @@ export function useScoutNavCenter(): ReactNode | null {
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
   return createElement("div", { className: "scout-nav-actions" },
+    createElement(MachineScopeControl, { variant: "nav" }),
     createElement(
       "button",
       {
