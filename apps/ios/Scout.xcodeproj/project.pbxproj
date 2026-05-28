@@ -18,6 +18,7 @@
 		105F24BC57F5A44E8AA397E7 /* ComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CA2ABB345CA1C4A48933F69 /* ComposerView.swift */; };
 		11A4CF43DDF609207B0C2FA0 /* CrashCatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */; };
 		11ABE7E5EC9EAFE29087C37F /* ScoutNavigationShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110ABDD1A3E9A65540CD8EDC /* ScoutNavigationShell.swift */; };
+		BB7943C382A74CAA986C114D /* ScoutAssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C1917C235A4AA596813E54 /* ScoutAssistantView.swift */; };
 		1521983CBAFA97F03E3DC9D6 /* PermissionAuthorizations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E552A43E6BA2AB3110C09C8 /* PermissionAuthorizations.swift */; };
 		17A48936E093A7BE6A44D135 /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0DC1A52DFF1F128145DA0C /* SplashView.swift */; };
 		1B548F5201CC047B5E766FEA /* TurnView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 220AC3C67A7D1CAD996A28D5 /* TurnView.swift */; };
@@ -131,6 +132,7 @@
 		1CB1259D202C983314D17199 /* FileBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBlockView.swift; sourceTree = "<group>"; };
 		1E6C0A30A72EE6C72F54DC86 /* ScoutRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutRouter.swift; sourceTree = "<group>"; };
 		2043B28142C57D92E9226882 /* SecureTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureTransport.swift; sourceTree = "<group>"; };
+		21C1917C235A4AA596813E54 /* ScoutAssistantView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutAssistantView.swift; sourceTree = "<group>"; };
 		21CE3025DE755A2428B0FDD0 /* NodeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeDetailView.swift; sourceTree = "<group>"; };
 		220AC3C67A7D1CAD996A28D5 /* TurnView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnView.swift; sourceTree = "<group>"; };
 		25FDE9E16EC017A6B945AF9D /* MicButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicButton.swift; sourceTree = "<group>"; };
@@ -337,6 +339,14 @@
 			path = Workspace;
 			sourceTree = "<group>";
 		};
+		D13A6F3A412C4121B0883A77 /* Assistant */ = {
+			isa = PBXGroup;
+			children = (
+				21C1917C235A4AA596813E54 /* ScoutAssistantView.swift */,
+			);
+			path = Assistant;
+			sourceTree = "<group>";
+		};
 		655D1D640EB95CB8B5338EF3 /* Navigation */ = {
 			isa = PBXGroup;
 			children = (
@@ -404,6 +414,7 @@
 				0EF028CD5FE053150F6365F8 /* Activity */,
 				FAF4F04B7B7D29C2F3133636 /* Agents */,
 				D1ACD5213D244EA64A7BBF67 /* AllSessions */,
+				D13A6F3A412C4121B0883A77 /* Assistant */,
 				F539C32239630FBA3BCF3BB1 /* Blocks */,
 				8A1ED1AF4EF28A613A7883A1 /* Comms */,
 				6A881A2E98FAE9347CA9ADB4 /* Composer */,
@@ -710,6 +721,7 @@
 				ECEDCF709BDAE4260FDE7161 /* ReasoningBlockView.swift in Sources */,
 				2E233FBDD7ABD16D18172BAC /* RecordingIndicator.swift in Sources */,
 				89C658D59512376E44D79698 /* ScoutApp.swift in Sources */,
+				BB7943C382A74CAA986C114D /* ScoutAssistantView.swift in Sources */,
 				7FB90125803C0B185AE36E74 /* ScoutAppDelegate.swift in Sources */,
 				676D68D8E8A12B4607055123 /* ScoutBottomBar.swift in Sources */,
 				CCB65C48A10E885795764D27 /* ScoutCompactKeyboard.swift in Sources */,

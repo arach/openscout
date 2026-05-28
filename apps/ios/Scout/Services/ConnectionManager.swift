@@ -1713,6 +1713,23 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult(MobileSendMessageResult.self, from: data)
     }
 
+    func sendDirectMessage(
+        agentId: String,
+        body: String,
+        harness: String? = nil
+    ) async throws -> MobileSendMessageResult {
+        let params = MobileSendMessageParams(
+            agentId: agentId,
+            body: body,
+            clientMessageId: UUID().uuidString,
+            replyToMessageId: nil,
+            referenceMessageIds: nil,
+            harness: harness?.trimmedNonEmpty
+        )
+        let data = try await sendRPC(method: "mobile/message/send", params: params)
+        return try decodeResult(MobileSendMessageResult.self, from: data)
+    }
+
     func interruptTurn(_ sessionId: String) async throws {
         let params = SessionIdParams(sessionId: sessionId)
         _ = try await sendRPC(method: "turn/interrupt", params: params)

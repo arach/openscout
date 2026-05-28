@@ -110,7 +110,7 @@ async function ensureTerminalRelay(): Promise<ManagedTerminalRelay | null> {
   return startTerminalRelay();
 }
 
-terminalRelay = await startTerminalRelay();
+void startTerminalRelay();
 
 const web = await createOpenScoutWebServer({
   currentDirectory,
@@ -156,7 +156,9 @@ try {
 
         if (url.pathname === routes.terminalRelayPath) {
           const relay = await ensureTerminalRelay();
-          upstreamUrl = relay?.targetWebSocketUrl ?? null;
+          upstreamUrl = relay?.targetWebSocketUrl
+            ? `${relay.targetWebSocketUrl}${url.search}`
+            : null;
           if (!upstreamUrl) {
             return new Response("Terminal relay unavailable", { status: 503 });
           }

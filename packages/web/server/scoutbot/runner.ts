@@ -65,6 +65,7 @@ export type PostScoutbotOperatorMessageInput = {
   replyToMessageId?: string | null;
   referenceMessageIds?: string[];
   deviceId?: string;
+  bootstrap?: boolean;
   log?: ScoutbotRunnerLog;
   threadMap?: ScoutbotThreadMapStore;
 };
@@ -164,20 +165,29 @@ export async function postScoutbotOperatorMessage(
   const baseUrl = input.brokerBaseUrl ?? resolveScoutBrokerUrl();
   const threadMap = input.threadMap ?? new ScoutbotThreadMapStore();
 
-  const prepared = await ensureScoutbotBootstrapped({
+  if (input.bootstrap) {
+    const prepared = await ensureScoutbotBootstrapped({
+      baseUrl,
+      currentDirectory: input.currentDirectory,
+      threadMap,
+      log,
+    });
+    if (!prepared) {
+      return { usedBroker: false, invokedTargets: [], unresolvedTargets: [] };
+    }
+  }
+  const thread = await resolvePostTargetThread({
     baseUrl,
-    currentDirectory: input.currentDirectory,
     threadMap,
-    log,
+    threadId: input.threadId,
   });
-  if (!prepared) {
+  if (!thread) {
+    if (input.threadId?.trim()) {
+      throw new Error(`Unknown scoutbot thread ${input.threadId}`);
+    }
     return { usedBroker: false, invokedTargets: [], unresolvedTargets: [] };
   }
-  const threadList = await threadMap.list();
-  const thread = input.threadId?.trim()
-    ? await threadMap.getThread(input.threadId)
-    : threadList.threads.find((candidate) => candidate.threadId === threadList.defaultThreadId) ?? null;
-  if (!thread) {
+  if (input.threadId?.trim() && thread.threadId !== input.threadId.trim()) {
     throw new Error(`Unknown scoutbot thread ${input.threadId}`);
   }
   return postOperatorThreadMessage({
@@ -190,6 +200,29 @@ export async function postScoutbotOperatorMessage(
     referenceMessageIds: input.referenceMessageIds,
     deviceId: input.deviceId,
     log,
+  });
+}
+
+async function resolvePostTargetThread(input: {
+  baseUrl: string;
+  threadMap: ScoutbotThreadMapStore;
+  threadId?: string | null;
+}): Promise<ScoutbotThreadRecord | null> {
+  const explicitThreadId = input.threadId?.trim();
+  if (explicitThreadId) {
+    return input.threadMap.getThread(explicitThreadId);
+  }
+
+  const threadList = await input.threadMap.list();
+  const existing = threadList.threads.find((candidate) => candidate.threadId === threadList.defaultThreadId) ?? null;
+  if (existing) return existing;
+
+  const ctx = await loadScoutBrokerContext(input.baseUrl);
+  if (!ctx) return null;
+  return input.threadMap.ensureDefaultThread({
+    snapshot: ctx.snapshot,
+    transportSessionId: null,
+    transport: "codex_app_server",
   });
 }
 
@@ -406,6 +439,7 @@ async function ensureScoutbotEndpointSession(
       baseUrl,
       "/v1/local-sessions/ensure",
       { agentId: endpoint.agentId, endpointId: endpoint.id },
+      { timeoutMs: 2_000 },
     );
     return result.endpoint ?? endpoint;
   } catch (error) {
@@ -745,17 +779,31 @@ export function findScoutbotFlightForMessage(
   return candidates.sort((left, right) => (right.startedAt ?? 0) - (left.startedAt ?? 0))[0] ?? null;
 }
 
-async function postJson<T = { ok: true }>(baseUrl: string, path: string, body: unknown): Promise<T> {
-  const res = await fetch(new URL(path, baseUrl), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`POST ${path} ${res.status}${text ? ` - ${text}` : ""}`);
+async function postJson<T = { ok: true }>(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  options: { timeoutMs?: number } = {},
+): Promise<T> {
+  const controller = options.timeoutMs ? new AbortController() : null;
+  const timer = controller && options.timeoutMs
+    ? setTimeout(() => controller.abort(), options.timeoutMs)
+    : null;
+  try {
+    const res = await fetch(new URL(path, baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`POST ${path} ${res.status}${text ? ` - ${text}` : ""}`);
+    }
+    return await res.json().catch(() => ({ ok: true }) as T);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return await res.json().catch(() => ({ ok: true }) as T);
 }
 
 function hasScoutbotLabels(agent: ScoutBrokerAgentRecord): boolean {

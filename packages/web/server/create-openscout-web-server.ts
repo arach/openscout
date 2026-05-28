@@ -129,6 +129,7 @@ import {
   startScoutbotRunner,
   type ScoutbotRunnerHandle,
 } from "./scoutbot/runner.ts";
+import { SCOUTBOT_AGENT_ID } from "./scoutbot/role.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
@@ -3313,6 +3314,22 @@ export async function createOpenScoutWebServer(
       resolveConversationRouting(conversationId);
 
     if (directAgentId) {
+      if (directAgentId === SCOUTBOT_AGENT_ID && scoutbotRunner) {
+        try {
+          const result = await scoutbotRunner.postOperatorMessage({
+            body: body.trim(),
+            threadId,
+          });
+          if (!result.usedBroker) {
+            return c.json({ error: "broker unreachable" }, 502);
+          }
+          return c.json(result);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return c.json({ error: message }, /unknown scoutbot thread/i.test(message) ? 404 : 500);
+        }
+      }
+
       const result = await sendScoutDirectMessage({
         agentId: directAgentId,
         body: body.trim(),
