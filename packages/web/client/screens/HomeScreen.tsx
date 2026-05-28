@@ -1020,7 +1020,7 @@ export function HomeScreen({
           </div>
         )}
 
-        {/* ── Live activity (windowed) ───────────────────────────── */}
+        {/* ── Activity stream ────────────────────────────────────── */}
         <div className="s-fleet-section">
           <SectionRule
             label={`Live activity · ${liveActivity.length}${activityCapReached ? "+" : ""}`}

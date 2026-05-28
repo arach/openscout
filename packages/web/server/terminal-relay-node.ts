@@ -22,6 +22,8 @@ import type {
   Session,
 } from "./terminal-relay-session.ts";
 
+process.title = "scout-relay";
+
 const require = createRequire(import.meta.url);
 const { WebSocketServer } = require("ws") as typeof import("ws");
 
@@ -119,7 +121,19 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${hostname}:${port}`);
 
   if (req.method === "GET" && url.pathname === "/health") {
-    writeJson(res, 200, { ok: true, surface: "openscout-terminal-relay" });
+    let attachedSessions = 0;
+    for (const session of sessions.values()) {
+      if (session.ws) {
+        attachedSessions += 1;
+      }
+    }
+    writeJson(res, 200, {
+      ok: true,
+      surface: "openscout-terminal-relay",
+      pid: process.pid,
+      sessions: sessions.size,
+      attachedSessions,
+    });
     return;
   }
 

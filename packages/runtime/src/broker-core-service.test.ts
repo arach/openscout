@@ -257,6 +257,113 @@ describe("createBrokerCoreService", () => {
     ]);
   });
 
+  test("keeps requester wait timeouts out of message reads but exposes the flight as a warning", async () => {
+    const snapshot = createRuntimeRegistrySnapshot({
+      agents: {
+        "agent-1": {
+          id: "agent-1",
+          kind: "agent",
+          definitionId: "agent-1",
+          displayName: "Agent One",
+          agentClass: "general",
+          capabilities: ["chat", "invoke"],
+          wakePolicy: "on_demand",
+          homeNodeId: "node-1",
+          authorityNodeId: "node-1",
+          advertiseScope: "local",
+        },
+      },
+      conversations: {
+        "conv-1": {
+          id: "conv-1",
+          kind: "direct",
+          title: "Agent One",
+          authorityNodeId: "node-1",
+          participantIds: ["operator", "agent-1"],
+          visibility: "private",
+          shareMode: "local",
+        },
+      },
+      messages: {
+        "msg-1": {
+          id: "msg-1",
+          conversationId: "conv-1",
+          actorId: "operator",
+          originNodeId: "node-1",
+          class: "agent",
+          body: "please review this",
+          audience: { notify: ["agent-1"] },
+          visibility: "private",
+          policy: "durable",
+          createdAt: 100,
+        },
+        "msg-timeout": {
+          id: "msg-timeout",
+          conversationId: "conv-1",
+          actorId: "scout",
+          originNodeId: "node-1",
+          class: "status",
+          body: "Agent One is still working; Scout stopped waiting for a synchronous result after 300000ms.",
+          replyToMessageId: "msg-1",
+          visibility: "private",
+          policy: "durable",
+          createdAt: 150,
+          metadata: {
+            source: "broker",
+            invocationId: "inv-1",
+            flightId: "flight-1",
+          },
+        },
+      },
+      invocations: {
+        "inv-1": {
+          id: "inv-1",
+          requesterId: "operator",
+          requesterNodeId: "node-1",
+          targetAgentId: "agent-1",
+          action: "execute",
+          task: "review this",
+          conversationId: "conv-1",
+          messageId: "msg-1",
+          ensureAwake: true,
+          stream: false,
+          createdAt: 110,
+        },
+      },
+      flights: {
+        "flight-1": {
+          id: "flight-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: "agent-1",
+          state: "waiting",
+          summary: "Agent One is still working; Scout stopped waiting for a synchronous result after 300000ms.",
+          startedAt: 120,
+          metadata: {
+            requesterTimedOut: true,
+            timeoutScope: "requester_wait",
+          },
+        },
+      },
+    });
+    const service = createReadOnlyBrokerCoreService(snapshot);
+
+    const messages = await service.readMessages?.({ conversationId: "conv-1", limit: 10 });
+    const feed = await service.readAgentBrokerFeed?.({ agentId: "agent-1", limit: 10 });
+
+    expect(messages?.map((message) => message.id)).toEqual(["msg-1"]);
+    expect(feed?.items).toContainEqual(expect.objectContaining({
+      kind: "flight",
+      severity: "warning",
+      flightId: "flight-1",
+    }));
+    expect(feed?.items).not.toContainEqual(expect.objectContaining({
+      messageId: "msg-timeout",
+    }));
+    expect(feed?.counts.errors).toBe(0);
+    expect(feed?.counts.warnings).toBeGreaterThanOrEqual(1);
+  });
+
   test("splits top-level agent counts from raw registration records", async () => {
     const makeAgent = (
       id: string,

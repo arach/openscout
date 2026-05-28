@@ -1,4 +1,4 @@
-// ScoutKeyboardView — SwiftUI wrapper around ScoutCompactKeyboard (UIKit).
+// ScoutKeyboardView — Scout-specific toolbar wrapper around MobileKeyboardKit.
 //
 // UIViewRepresentable bridge that exposes the same callback API
 // while using the real UIKit keyboard underneath for proper touch
@@ -9,6 +9,7 @@
 // and edge gesture exclusion zones (18pt from edges).
 
 import SwiftUI
+import MobileKeyboardKit
 
 // MARK: - Keyboard State
 
@@ -194,7 +195,7 @@ struct ScoutKeyboardView: View {
                     onSwipeLeft: nil,
                     onSwipeRight: nil
                 )
-                .frame(height: ScoutCompactKeyboard.preferredHeight)
+                .frame(height: MobileCompactKeyboard.preferredHeight)
             }
         }
         .background {
@@ -290,10 +291,10 @@ private struct ScoutKeyboardRepresentable: UIViewRepresentable {
 
 // MARK: - Host View (gesture handling from HostedTalkieKeyboardView)
 
-/// Wraps ScoutCompactKeyboard with swipe gesture handling
+/// Wraps MobileCompactKeyboard with swipe gesture handling
 /// and edge gesture exclusion zones.
 final class ScoutKeyboardHostView: UIView, UIGestureRecognizerDelegate {
-    let keyboard = ScoutCompactKeyboard()
+    let keyboard = MobileCompactKeyboard(frame: .zero)
     var onSwipeDown: (() -> Void)?
     var onSwipeLeft: (() -> Void)?
     var onSwipeRight: (() -> Void)?

@@ -323,6 +323,59 @@
   cursor: default;
 }
 
+/* Roster row trigger — wraps avatar + info as a clickable surface that opens
+   the agent hovercard without disturbing the row layout or remove button. */
+.ch-members-roster-trigger {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.ch-members-roster-trigger:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--ink) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.ch-members-roster-row[data-guest="true"] .ch-members-roster-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ch-members-roster-guest-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  height: 13px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.ch-members-roster-footnote {
+  padding: 7px 9px 9px;
+  font-size: 10.5px;
+  color: var(--dim);
+  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
 /* ── Body (feed only) ── */
 
 .ch-body {
@@ -406,6 +459,31 @@
   gap: 8px;
   min-width: 0;
   width: 100%;
+}
+
+/* Button variant — same layout, no chrome until hover/focus. Opens the
+   agent hovercard. */
+button.ch-msg-meta-top--trigger {
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: background-color 0.12s ease;
+}
+
+button.ch-msg-meta-top--trigger:hover,
+button.ch-msg-meta-top--trigger[data-hover-open="true"] {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+button.ch-msg-meta-top--trigger:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--ink) 50%, transparent);
+  outline-offset: 2px;
 }
 
 .ch-msg-avatar {

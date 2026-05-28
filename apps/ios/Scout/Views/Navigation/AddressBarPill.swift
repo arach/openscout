@@ -129,7 +129,7 @@ struct AddressBarPill: View {
     private var contextText: String {
         switch router.currentSurface {
         case .home:
-            return "Home"
+            return "Sessions"
         case .inbox:
             return "Inbox"
         case .agents:
@@ -137,7 +137,7 @@ struct AddressBarPill: View {
         case .sessionDetail(let sessionId):
             return store.sessions[sessionId]?.session.name ?? "Session"
         case .allSessions:
-            return "All Sessions"
+            return "Sessions"
         case .activity:
             return "Activity"
         case .tail:
@@ -162,6 +162,8 @@ struct AddressBarPill: View {
             return "DM"
         case .terminal:
             return "Terminal"
+        case .assistant:
+            return "Assistant"
         }
     }
 

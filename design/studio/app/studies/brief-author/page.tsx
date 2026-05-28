@@ -2075,4 +2075,3 @@ function SectionTitle({
     </div>
   );
 }
-

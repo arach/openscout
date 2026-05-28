@@ -6,6 +6,7 @@ import type { DiscoveredProcess, TailAttribution } from "./types.js";
 const execFileAsync = promisify(execFile);
 
 const PARENT_HOP_LIMIT = 10;
+const PROCESS_LIST_CACHE_MS = readNonNegativeIntEnv("OPENSCOUT_TAIL_PROCESS_CACHE_MS", 1000);
 
 export type RawProcess = {
   pid: number;
@@ -14,7 +15,14 @@ export type RawProcess = {
   command: string;
 };
 
-export async function listProcesses(): Promise<RawProcess[]> {
+let processListCache: { expiresAt: number; promise: Promise<RawProcess[]> } | null = null;
+
+function readNonNegativeIntEnv(name: string, fallback: number): number {
+  const raw = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
+}
+
+async function readProcessListUncached(): Promise<RawProcess[]> {
   const { stdout } = await execFileAsync("ps", ["-axww", "-o", "pid=,ppid=,etime=,command="], {
     maxBuffer: 32 * 1024 * 1024,
   });
@@ -31,6 +39,26 @@ export async function listProcesses(): Promise<RawProcess[]> {
     out.push({ pid, ppid, etime: match[3], command: match[4] });
   }
   return out;
+}
+
+export async function listProcesses(): Promise<RawProcess[]> {
+  const now = Date.now();
+  if (processListCache && now < processListCache.expiresAt) {
+    return processListCache.promise;
+  }
+
+  let promise = readProcessListUncached();
+  promise = promise.catch((error) => {
+    if (processListCache?.promise === promise) {
+      processListCache = null;
+    }
+    throw error;
+  });
+  processListCache = {
+    expiresAt: now + PROCESS_LIST_CACHE_MS,
+    promise,
+  };
+  return promise;
 }
 
 export function commandBasename(command: string): string {

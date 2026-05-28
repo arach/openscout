@@ -449,7 +449,8 @@ function isSupersededBrokerAgent(snapshot: ScoutBrokerSnapshot, agentId: string)
   if (!agent) {
     return false;
   }
-  return metadataBoolean(agent.metadata, "retiredFromFleet");
+  return metadataBoolean(agent.metadata, "retiredFromFleet")
+    || metadataBoolean(agent.metadata, "staleLocalRegistration");
 }
 
 async function brokerReadJson<T>(
@@ -920,7 +921,9 @@ async function resolveMentionTargets(
   const ambiguous: ScoutMentionAmbiguity[] = [];
   const candidateMap = new Map<string, AgentSelectorCandidate>();
   const endpointBackedAgentIds = [...new Set(
-    Object.values(snapshot.endpoints).map((endpoint) => endpoint.agentId).filter((agentId) => agentId && agentId !== OPERATOR_ID),
+    Object.values(snapshot.endpoints)
+      .map((endpoint) => endpoint.agentId)
+      .filter((agentId) => agentId && agentId !== OPERATOR_ID && !isSupersededBrokerAgent(snapshot, agentId)),
   )];
 
   for (const agent of Object.values(snapshot.agents)) {
@@ -1972,6 +1975,21 @@ export async function sendScoutDirectMessage(input: {
   const broker = await requireScoutBrokerContext();
   const createdAt = Date.now();
   const source = input.source?.trim() || "scout-mobile";
+  const targetEndpoints = Object.values(broker.snapshot.endpoints ?? {})
+    .filter((endpoint) => endpoint.agentId === input.agentId);
+  const targetIsStale = isSupersededBrokerAgent(broker.snapshot, input.agentId)
+    || (
+      targetEndpoints.length > 0
+      && targetEndpoints.every((endpoint) => (
+        metadataBoolean(endpoint.metadata, "retiredFromFleet")
+        || metadataBoolean(endpoint.metadata, "staleLocalRegistration")
+      ))
+    );
+  if (targetIsStale) {
+    throw new Error(
+      `${displayNameForBrokerActor(broker.snapshot, input.agentId)} is a stale local registration. Start the current project session from Workspaces before sending.`,
+    );
+  }
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: OPERATOR_ID,

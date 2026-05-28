@@ -1666,8 +1666,8 @@ export async function getLocalAgentEndpointSessionSnapshot(endpoint: AgentEndpoi
 
 export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint): Promise<{ externalSessionId?: string | null }> {
   if (endpoint.transport === "codex_app_server") {
-    await ensureCodexAppServerAgentOnline(buildCodexEndpointSessionOptions(endpoint));
-    return {};
+    const result = await ensureCodexAppServerAgentOnline(buildCodexEndpointSessionOptions(endpoint));
+    return { externalSessionId: result.threadId };
   }
 
   if (endpoint.transport === "claude_stream_json") {
@@ -2045,6 +2045,28 @@ function endpointMetadataString(endpoint: AgentEndpoint, key: string): string | 
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function endpointMetadataStringArray(endpoint: AgentEndpoint, key: string): string[] {
+  const value = endpoint.metadata?.[key];
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry).trim()).filter(Boolean);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+  return [];
+}
+
+function attachedCodexEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
+  return applyRequestedRuntimeOptionsToLaunchArgs(
+    "codex",
+    endpointMetadataStringArray(endpoint, "launchArgs"),
+    {
+      model: endpointMetadataString(endpoint, "model"),
+      reasoningEffort: endpointMetadataString(endpoint, "reasoningEffort"),
+    },
+  );
+}
+
 function endpointInvocationPrompt(
   endpoint: AgentEndpoint,
   agentName: string,
@@ -2126,10 +2148,13 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
   requireExistingThread?: boolean;
 } {
   const agentName = endpointAgentName(endpoint);
-  const threadId = endpointMetadataString(endpoint, "threadId")
-    ?? endpointMetadataString(endpoint, "externalSessionId")
-    ?? endpoint.sessionId
-    ?? undefined;
+  const ownsSessionThread = endpoint.metadata?.source === "scoutbot";
+  const threadId = ownsSessionThread
+    ? undefined
+    : endpointMetadataString(endpoint, "threadId")
+      ?? endpointMetadataString(endpoint, "externalSessionId")
+      ?? endpoint.sessionId
+      ?? undefined;
 
   return {
     agentName,
@@ -2138,9 +2163,9 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
     systemPrompt: attachedLocalSessionSystemPrompt(endpoint),
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
-    launchArgs: [],
+    launchArgs: attachedCodexEndpointLaunchArgs(endpoint),
     threadId,
-    requireExistingThread: Boolean(threadId),
+    requireExistingThread: Boolean(threadId) && !ownsSessionThread,
   };
 }
 
@@ -2581,7 +2606,7 @@ export async function sendTmuxPrompt(
       stdio: "pipe",
       input: prompt,
     });
-    execFileSync("tmux", ["paste-buffer", "-d", "-b", bufferName, "-t", sessionName], {
+    execFileSync("tmux", buildTmuxPasteBufferArgs(bufferName, sessionName), {
       stdio: "pipe",
     });
     // paste-buffer -d deletes the buffer after consumption; no manual cleanup needed.
@@ -2625,6 +2650,10 @@ export async function sendTmuxPrompt(
     }
     throw error;
   }
+}
+
+export function buildTmuxPasteBufferArgs(bufferName: string, sessionName: string): string[] {
+  return ["paste-buffer", "-dpr", "-b", bufferName, "-t", sessionName];
 }
 
 function tmuxDispatchSleep(ms: number): Promise<void> {
@@ -2694,8 +2723,14 @@ export function tmuxPaneTailShowsReadyComposer(paneTail: string): boolean {
     return false;
   }
 
-  const afterComposer = lines.slice(anchor.index + 1).join("\n");
-  return !tmuxPaneTailShowsHarnessActivity(afterComposer);
+  const afterComposerLines: string[] = [];
+  for (const line of lines.slice(anchor.index + 1)) {
+    if (isTmuxComposerBoundary(line)) {
+      break;
+    }
+    afterComposerLines.push(line);
+  }
+  return !tmuxPaneTailShowsHarnessActivity(afterComposerLines.join("\n"));
 }
 
 export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: string): boolean {
@@ -4093,6 +4128,7 @@ export async function ensureLocalAgentBindingOnline(
 
 type LocalAgentInvocationResult = {
   output: string;
+  externalSessionId?: string | null;
 };
 
 export async function invokeLocalAgentEndpoint(
@@ -4120,6 +4156,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
+      externalSessionId: result.threadId,
     };
   }
 
@@ -4133,6 +4170,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
+      externalSessionId: result.sessionId,
     };
   }
 
@@ -4200,6 +4238,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
+      externalSessionId: result.threadId,
     };
   }
 
@@ -4220,6 +4259,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
+      externalSessionId: result.sessionId,
     };
   }
 

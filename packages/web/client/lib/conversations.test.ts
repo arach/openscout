@@ -20,6 +20,16 @@ describe("conversation flight presence", () => {
     ).toBe(false);
   });
 
+  test("does not show requester wait timeouts as conversation working turns", () => {
+    const timeoutFlight = {
+      state: "waiting",
+      summary: "Review Run2 is still working; Scout stopped waiting for a synchronous result after 300000ms.",
+    };
+
+    expect(isActiveConversationFlight(timeoutFlight)).toBe(true);
+    expect(shouldShowConversationWorkingTurn(timeoutFlight)).toBe(false);
+  });
+
   test("clears working state after terminal flights", () => {
     for (const state of ["completed", "failed", "cancelled"]) {
       const terminalFlight = { state };

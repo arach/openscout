@@ -853,14 +853,8 @@ function isSupersededBrokerAgent(
   if (!agent) {
     return false;
   }
-  if (!metadataBoolean(agent.metadata, "staleLocalRegistration")) {
-    return false;
-  }
-  const replacementAgentId = metadataString(
-    agent.metadata,
-    "replacedByAgentId",
-  );
-  return Boolean(replacementAgentId && snapshot.agents[replacementAgentId]);
+  return metadataBoolean(agent.metadata, "retiredFromFleet")
+    || metadataBoolean(agent.metadata, "staleLocalRegistration");
 }
 
 function isBuiltInBrokerAgent(
@@ -1840,7 +1834,11 @@ async function resolveMentionTargets(
     ...new Set(
       Object.values(snapshot.endpoints)
         .map((endpoint) => endpoint.agentId)
-        .filter((agentId) => agentId && agentId !== OPERATOR_ID),
+        .filter((agentId) => (
+          agentId
+          && agentId !== OPERATOR_ID
+          && !isSupersededBrokerAgent(snapshot, agentId)
+        )),
     ),
   ];
 
@@ -3558,6 +3556,21 @@ export async function sendScoutDirectMessage(input: {
 }): Promise<ScoutDirectMessageResult> {
   const broker = await requireScoutBrokerContext();
   const source = input.source?.trim() || "scout-mobile";
+  const targetEndpoints = Object.values(broker.snapshot.endpoints ?? {})
+    .filter((endpoint) => endpoint.agentId === input.agentId);
+  const targetIsStale = isSupersededBrokerAgent(broker.snapshot, input.agentId)
+    || (
+      targetEndpoints.length > 0
+      && targetEndpoints.every((endpoint) => (
+        metadataBoolean(endpoint.metadata, "retiredFromFleet")
+        || metadataBoolean(endpoint.metadata, "staleLocalRegistration")
+      ))
+    );
+  if (targetIsStale) {
+    throw new Error(
+      `${displayNameForBrokerActor(broker.snapshot, input.agentId)} is a stale local registration. Start the current project session from Workspaces before sending.`,
+    );
+  }
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     caller: {
       actorId: OPERATOR_ID,
@@ -4639,12 +4652,25 @@ async function loadConfiguredAgentIds(): Promise<Set<string>> {
   }
 }
 
+async function loadDiscoveredAgentMap(
+  currentDirectory: string,
+): Promise<Map<string, ResolvedRelayAgentConfig>> {
+  try {
+    const setup = await loadResolvedRelayAgents({ currentDirectory });
+    return new Map(setup.discoveredAgents.map((agent) => [agent.agentId, agent]));
+  } catch {
+    return new Map();
+  }
+}
+
 export async function listScoutAgents(
   options: { currentDirectory?: string } = {},
 ): Promise<ScoutWhoEntry[]> {
   const broker = await requireScoutBrokerContext();
-  void options;
-  const configuredAgentIds = await loadConfiguredAgentIds();
+  const [configuredAgentIds, discoveredAgents] = await Promise.all([
+    loadConfiguredAgentIds(),
+    loadDiscoveredAgentMap(options.currentDirectory ?? process.cwd()),
+  ]);
   const endpointsByAgent = new Map<string, ScoutBrokerEndpointRecord[]>();
   const messageStats = new Map<
     string,
@@ -4681,6 +4707,7 @@ export async function listScoutAgents(
       ...Array.from(endpointsByAgent.keys()),
       ...Array.from(messageStats.keys()),
       ...Array.from(configuredAgentIds.values()),
+      ...Array.from(discoveredAgents.keys()),
     ]),
   ]
     .filter((agentId) => agentId && agentId !== OPERATOR_ID)
@@ -4689,11 +4716,9 @@ export async function listScoutAgents(
     .map((agentId): ScoutWhoEntry => {
       const endpoints = endpointsByAgent.get(agentId) ?? [];
       const brokerMessages = messageStats.get(agentId);
-      const registrationKind: ScoutWhoRegistrationKind = configuredAgentIds.has(
-        agentId,
-      )
-        ? "configured"
-        : "broker";
+      const registrationKind: ScoutWhoRegistrationKind =
+        discoveredAgents.get(agentId)?.registrationKind
+        ?? (configuredAgentIds.has(agentId) ? "configured" : "broker");
       const state = whoEntryState(endpoints, registrationKind);
       const lastSeen = maxDefined([
         brokerMessages?.lastSeen,

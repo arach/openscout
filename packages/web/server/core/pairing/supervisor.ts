@@ -136,6 +136,7 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
       ? startBonjourRelayAdvertisement({
           port: relayPort,
           relayUrl: activeRelayUrl,
+          fallbackRelayUrls: managedRelay.fallbackRelayUrls,
           publicKeyHex,
         })
       : null;
@@ -295,6 +296,7 @@ async function stopSupervisorRuntime(state: SupervisorState): Promise<void> {
 function startBonjourRelayAdvertisement(input: {
   port: number;
   relayUrl: string;
+  fallbackRelayUrls?: string[];
   publicKeyHex: string;
 }): BonjourAdvertisement | null {
   if (process.platform !== "darwin") {
@@ -315,6 +317,10 @@ function startBonjourRelayAdvertisement(input: {
     `fp=${fingerprint}`,
     `scheme=${scheme}`,
   ];
+  const fallbackRelayUrls = normalizedBonjourFallbackRelayUrls(input.fallbackRelayUrls);
+  if (fallbackRelayUrls.length > 0) {
+    args.push(`fallbackRelays=${fallbackRelayUrls.join("|")}`);
+  }
 
   let processRef: ChildProcessWithoutNullStreams | null = null;
   try {
@@ -340,6 +346,22 @@ function startBonjourRelayAdvertisement(input: {
       processRef = null;
     },
   };
+}
+
+function normalizedBonjourFallbackRelayUrls(relayUrls: string[] | null | undefined): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const relayUrl of relayUrls ?? []) {
+    const trimmed = relayUrl.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result;
 }
 
 function relayScheme(relayUrl: string): "ws" | "wss" {

@@ -72,6 +72,60 @@ final class ConnectionStatusPresentationTests: XCTestCase {
         )
     }
 
+    func testSuccessfulRelayIsPromotedForFutureReconnects() {
+        XCTAssertEqual(
+            relayURLsPromotingSuccessfulRelay(
+                "wss://mac.tailnet.ts.net:7889",
+                within: [
+                    "ws://192.168.1.10:7889",
+                    "wss://mac.tailnet.ts.net:7889"
+                ]
+            ),
+            [
+                "wss://mac.tailnet.ts.net:7889",
+                "ws://192.168.1.10:7889"
+            ]
+        )
+    }
+
+    func testBonjourAdvertisementIncludesTailnetFallbackRelays() {
+        let publicKey = String(repeating: "ab", count: 32)
+
+        XCTAssertEqual(
+            relayURLsFromBonjourAdvertisement(
+                port: 7889,
+                hostName: "mac.local.",
+                txt: [
+                    "pk": publicKey,
+                    "scheme": "wss",
+                    "fallbackRelays": "wss://mac.tailnet.ts.net:7889|ws://100.96.12.4:7889|not-a-url"
+                ],
+                targetPublicKeyHex: publicKey
+            ),
+            [
+                "wss://mac.local:7889",
+                "wss://mac.tailnet.ts.net:7889",
+                "ws://100.96.12.4:7889"
+            ]
+        )
+    }
+
+    func testBonjourAdvertisementIgnoresFallbackRelaysForOtherBridge() {
+        XCTAssertEqual(
+            relayURLsFromBonjourAdvertisement(
+                port: 7889,
+                hostName: "mac.local.",
+                txt: [
+                    "pk": String(repeating: "ab", count: 32),
+                    "scheme": "wss",
+                    "fallbackRelays": "wss://mac.tailnet.ts.net:7889"
+                ],
+                targetPublicKeyHex: String(repeating: "cd", count: 32)
+            ),
+            []
+        )
+    }
+
     func testTailnetRoutingDefaultsEnabledWhenUnset() {
         let defaults = makeRouteSettingsDefaults()
         XCTAssertTrue(tailnetRoutingEnabled(userDefaults: defaults))

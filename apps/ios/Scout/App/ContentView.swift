@@ -1,6 +1,6 @@
 // ContentView — Top-level routing for the Dispatch iOS client.
 //
-// Routes to PairingView, reconnecting UI, or SessionListView
+// Routes to PairingView, reconnecting UI, or ScoutNavigationShell
 // based on connection state and trusted bridge availability.
 
 import SwiftUI

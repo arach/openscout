@@ -7,17 +7,19 @@
  */
 
 import type {
+  ActivityBucket,
+  ActivityCategory,
+  ActivityKind,
+  AgentSession,
   FirehoseEvent,
   FirehoseKind,
   FleetAgent,
-  ObserveBucket,
-  ObserveKind,
-  ScoutSession,
+  ScoutThreadMessage,
 } from "./types";
 
-// ─── Fleet ───────────────────────────────────────────────────────────
+// ─── Agents (formerly "fleet") ──────────────────────────────────────
 
-export const FLEET: FleetAgent[] = [
+export const AGENTS: FleetAgent[] = [
   {
     id: "hudson",
     name: "Hudson",
@@ -178,11 +180,11 @@ export const FLEET: FleetAgent[] = [
   },
 ];
 
-// ─── Observe (structured activity) ──────────────────────────────────
+// ─── Activity (structured event ledger) ─────────────────────────────
 
-export const OBSERVE: ObserveBucket[] = [
+export const ACTIVITY: ActivityBucket[] = [
   {
-    eyebrow: "WIRE · LIVE",
+    eyebrow: "LEDGER · JUST NOW",
     headline: "Just now",
     events: [
       {
@@ -192,10 +194,12 @@ export const OBSERVE: ObserveBucket[] = [
         agent: "Hudson",
         handle: "@hudson",
         kind: "turn",
-        line: "Pulled AgentRow into a shared atom — three call sites updated.",
-        meta: "→ drilling: last 5 turns · 3 changed files · message log",
-        flightId: "0c8fee",
+        category: "work",
+        title: "Hudson advanced PR #214",
         summary:
+          "Pulled AgentRow into a shared atom; three call sites updated.",
+        flightId: "0c8fee",
+        detail:
           "Extracted AgentRow into atoms/agent-row and rewired the three call sites in inspector. PR #214 opened against main.",
       },
       {
@@ -205,11 +209,13 @@ export const OBSERVE: ObserveBucket[] = [
         agent: "QB",
         handle: "@qb",
         kind: "ask",
-        line: "Push flight 0c8fee to staging? Schema migration runs on deploy.",
-        meta: "→ drilling: decision context · 2 linked PRs · ask history",
+        category: "coordination",
+        title: "QB asked the operator a question",
+        summary:
+          "Push flight 0c8fee to staging? Schema migration runs on deploy.",
         emphasized: true,
         flightId: "0c8fee",
-        summary:
+        detail:
           "Awaiting operator approval. Deploy will trigger the schema migration on apply. Two linked PRs queued behind this decision.",
       },
       {
@@ -219,15 +225,17 @@ export const OBSERVE: ObserveBucket[] = [
         agent: "Scout",
         handle: "@scout",
         kind: "wire",
-        line: "Indexed 14 new files under packages/web/client/scout/inspector.",
-        meta: "→ drilling: index diff · 14 files · search readiness",
+        category: "system",
+        title: "Scout refreshed the index",
         summary:
+          "Indexed 14 new files under packages/web/client/scout/inspector.",
+        detail:
           "Fresh index covers the inspector atoms surface; search readiness reported green.",
       },
     ],
   },
   {
-    eyebrow: "WIRE · 60 MIN",
+    eyebrow: "LEDGER · 60 MIN",
     headline: "Last hour",
     events: [
       {
@@ -237,10 +245,12 @@ export const OBSERVE: ObserveBucket[] = [
         agent: "Drover",
         handle: "@drover",
         kind: "start",
-        line: "Started migration sweep on atoms/inspector-section.",
-        meta: "→ drilling: kickoff brief · file targets · turn log",
-        flightId: "a912b3",
+        category: "work",
+        title: "Drover started migration sweep",
         summary:
+          "Six file targets queued in atoms/inspector-section.",
+        flightId: "a912b3",
+        detail:
           "Migration sweep kicked off with six file targets in atoms/inspector-section.",
       },
       {
@@ -250,23 +260,47 @@ export const OBSERVE: ObserveBucket[] = [
         agent: "Pike",
         handle: "@pike",
         kind: "fail",
-        line: "Build failed on macos-arm64 — missing entitlement for screen capture.",
-        meta: "→ drilling: stderr tail · entitlements diff · last green build",
+        category: "work",
+        title: "Pike's build failed on macos-arm64",
+        summary:
+          "Missing entitlement com.apple.security.screen-capture.",
         emphasized: true,
         flightId: "f1d220",
-        summary:
+        detail:
           "Build failed on macos-arm64. Missing entitlement com.apple.security.screen-capture. Last green build was 4h ago at f1d11c.",
+      },
+      {
+        id: "e6",
+        ago: "52m",
+        at: "13:40",
+        agent: "Atlas",
+        handle: "@atlas",
+        kind: "wire",
+        category: "delivery",
+        title: "Atlas messaged Drover",
+        summary:
+          "Asked for the migration file when the sweep lands.",
+        detail:
+          "Direct DM to @drover. No response yet; Atlas is idle pending reply.",
       },
     ],
   },
 ];
 
-export const OBSERVE_KIND_LABEL: Record<ObserveKind, string> = {
+export const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = {
   turn: "TURN",
   wire: "WIRE",
   ask: "ASK",
   start: "START",
   fail: "FAIL",
+};
+
+export const ACTIVITY_CATEGORY_LABEL: Record<ActivityCategory, string> = {
+  presence: "PRESENCE",
+  work: "EXECUTION",
+  delivery: "DELIVERY",
+  coordination: "COORDINATION",
+  system: "SYSTEM",
 };
 
 // ─── Tail (firehose) ─────────────────────────────────────────────────
@@ -480,117 +514,203 @@ export const FIREHOSE_KIND_LABEL: Record<FirehoseKind, string> = {
   ASK: "ASK",
 };
 
-// ─── Sessions ────────────────────────────────────────────────────────
+// ─── Sessions (agent run sessions) ──────────────────────────────────
+//
+// The working sessions of broker agents — mirrors the OpsScreen session
+// ledger. NOT local tmux/iTerm sessions. Each row carries an agent
+// identity, harness, status, message count, lifecycle timestamps.
 
-export const SESSIONS: ScoutSession[] = [
+export const SESSIONS: AgentSession[] = [
   {
-    id: "s1",
-    name: "openscout-main",
-    kind: "tmux",
-    windows: 4,
-    attached: true,
-    ago: "3h",
-    cwd: "/Users/arach/dev/openscout",
-    snippet: "▲ Next.js 15.0.3 (turbopack) · :3030",
-    pane: [
-      "$ bun dev --port 3030",
-      "  ▲ Next.js 15.0.3 (turbopack)",
-      "  - Local:        http://localhost:3030",
-      "  ✓ Ready in 1.4s",
-      "  ✓ Compiled /studies/hud in 412ms (2241 modules)",
-      "  ✓ Compiled /studies/hud-compact in 220ms (2244 modules)",
-      "  ✓ Compiled /studies/hud-medium in 188ms (2244 modules)",
-      "  ✓ Compiled /studies/hud-large in 170ms (2244 modules)",
-    ],
-    lastCommand: "bun dev --port 3030",
-    client: "iTerm · pane 0.0",
+    id: "sess-hudson-214",
+    refId: "0c8fee21",
+    agentName: "Hudson",
+    agentHandle: "@hudson",
+    harness: "claude-code",
+    status: "running",
+    statusLabel: "RUNNING",
+    project: "openscout",
+    branch: "feat/audit-trail",
+    model: "opus-4-7",
+    messages: 47,
+    startedAgo: "1h 12m",
+    startedAt: "13:20",
+    endedAgo: null,
+    duration: "1h 12m",
+    lastTurn:
+      "Pulled AgentRow into a shared atom — three call sites updated.",
+    ago: "12s",
   },
   {
-    id: "s2",
-    name: "studio-dev",
-    kind: "tmux",
-    windows: 1,
-    attached: false,
-    ago: "1h",
-    cwd: "/Users/arach/dev/openscout/design/studio",
-    snippet: "✓ no errors in 184 files (3.2s)",
-    pane: [
-      "$ bun run typecheck",
-      "  ✓ no errors in 184 files (3.2s)",
-      "$ bun run lint",
-      "  ✓ 0 warnings, 0 errors",
-      "$ ",
-      "",
-      "",
-      "",
-    ],
-    lastCommand: "bun run lint",
-    client: "detached",
+    id: "sess-qb-deploy",
+    refId: "a912b340",
+    agentName: "QB",
+    agentHandle: "@qb",
+    harness: "claude-code",
+    status: "running",
+    statusLabel: "AWAITING",
+    project: "control-plane",
+    branch: "deploy/0c8fee",
+    model: "opus-4-7",
+    messages: 23,
+    startedAgo: "42m",
+    startedAt: "13:50",
+    endedAgo: null,
+    duration: "42m",
+    lastTurn:
+      "Awaiting your call on whether the schema migration runs on deploy.",
+    ago: "1m",
   },
   {
-    id: "s3",
-    name: "macos-build",
-    kind: "iterm",
-    windows: 2,
-    attached: false,
-    ago: "22m",
-    cwd: "/Users/arach/dev/openscout/apps/macos",
-    snippet: "Compiling HUDSessionsView.swift",
-    pane: [
-      "$ swift build -c release",
-      "  Building for production...",
-      "  [142/188] Compiling Grab HUDSessionsView.swift",
-      "  [156/188] Compiling Grab HUDTailView.swift",
-      "  [170/188] Compiling Grab HUDChrome.swift",
-      "  [188/188] Linking Grab",
-      "  Build complete! (38.4s)",
-      "$ ",
-    ],
-    lastCommand: "swift build -c release",
-    client: "detached",
+    id: "sess-scout-idx",
+    refId: "b7c19f04",
+    agentName: "Scout",
+    agentHandle: "@scout",
+    harness: "scout",
+    status: "idle",
+    statusLabel: "IDLE",
+    project: "openscout",
+    branch: "main",
+    model: "haiku-4-7",
+    messages: 9,
+    startedAgo: "2h 04m",
+    startedAt: "12:28",
+    endedAgo: null,
+    duration: "2h 04m",
+    lastTurn:
+      "Indexed 14 new files under packages/web/client/scout/inspector.",
+    ago: "4m",
   },
   {
-    id: "s4",
-    name: "broker-tail",
-    kind: "terminal",
-    windows: 1,
-    attached: false,
-    ago: "8m",
-    cwd: "/Users/arach/dev/openscout/packages/runtime",
-    snippet: "@qb asked → push flight 0c8fee",
-    pane: [
-      "[14:31:48] broker · @qb asked → push flight 0c8fee",
-      "[14:30:12] broker · @scout indexed 14 files",
-      "[14:29:56] broker · @hudson committed atoms/inspector",
-      "[14:28:50] broker · @atlas sent → @drover",
-      "[14:27:44] broker · ping · 14 agents · 3 live",
-      "[14:26:31] broker · @pike ERR exit 65",
-      "[14:25:48] broker · @pike start",
-      "[14:24:22] broker · @drover edited 1 file",
-    ],
-    lastCommand: "bun run broker tail",
-    client: "detached",
+    id: "sess-drover-sweep",
+    refId: "f1d220bb",
+    agentName: "Drover",
+    agentHandle: "@drover",
+    harness: "codex",
+    status: "ended",
+    statusLabel: "ENDED",
+    project: "control-plane",
+    branch: "infra/sessions-split",
+    model: "opus-4-7",
+    messages: 38,
+    startedAgo: "1h 48m",
+    startedAt: "12:44",
+    endedAgo: "32m",
+    duration: "1h 16m",
+    lastTurn:
+      "Migration sweep through atoms/inspector-section is done — six files rewritten.",
+    ago: "32m",
   },
   {
-    id: "s5",
-    name: "ranger-ios",
-    kind: "tmux",
-    windows: 3,
-    attached: false,
-    ago: "45m",
-    cwd: "/Users/arach/dev/openscout/apps/ios",
-    snippet: "** BUILD SUCCEEDED **",
-    pane: [
-      "$ xcodebuild -scheme Ranger -destination 'platform=iOS Simulator,…'",
-      "  ** BUILD SUCCEEDED **",
-      "$ xcrun simctl boot 'iPhone 15 Pro'",
-      "$ xcrun simctl install booted Ranger.app",
-      "$ xcrun simctl launch booted dev.openscout.Ranger",
-      "  com.openscout.Ranger: 41822",
-      "$ ",
-      "",
+    id: "sess-atlas-broker",
+    refId: "33aa8d11",
+    agentName: "Atlas",
+    agentHandle: "@atlas",
+    harness: "cursor",
+    status: "idle",
+    statusLabel: "WAITING",
+    project: "control-plane",
+    branch: "feat/broker-link",
+    model: "sonnet-4-7",
+    messages: 14,
+    startedAgo: "1h 28m",
+    startedAt: "13:04",
+    endedAgo: null,
+    duration: "1h 28m",
+    lastTurn:
+      "Pinged Drover for the migration file — holding for broker reply.",
+    ago: "11m",
+  },
+  {
+    id: "sess-pike-build",
+    refId: "f1d11c02",
+    agentName: "Pike",
+    agentHandle: "@pike",
+    harness: "raw",
+    status: "ended",
+    statusLabel: "FAILED",
+    project: "openscout",
+    branch: "ci/macos-arm64",
+    model: "sonnet-4-7",
+    messages: 5,
+    startedAgo: "44m",
+    startedAt: "13:48",
+    endedAgo: "37m",
+    duration: "7m",
+    lastTurn:
+      "Build failed on macos-arm64 — missing entitlement for screen capture.",
+    ago: "37m",
+  },
+  {
+    id: "sess-cobalt-icons",
+    refId: "55ccdd9e",
+    agentName: "Cobalt",
+    agentHandle: "@cobalt",
+    harness: "claude-code",
+    status: "ended",
+    statusLabel: "ENDED",
+    project: "design/studio",
+    branch: "design/atlas-iconography",
+    model: "sonnet-4-7",
+    messages: 31,
+    startedAgo: "4h 12m",
+    startedAt: "10:20",
+    endedAgo: "2h",
+    duration: "2h 12m",
+    lastTurn:
+      "Three glyphs left to redraw before the set is consistent at 14/18/24.",
+    ago: "2h",
+  },
+];
+
+// ─── Assistant thread (slot 5) ──────────────────────────────────────
+//
+// A short morning thread to seed the playground. Mixes prose, a slash
+// command, a @mention, and a file path — enough to exercise every
+// inline span renderer in HudAssistant.
+
+export const SCOUT_THREAD: ScoutThreadMessage[] = [
+  {
+    id: "m1",
+    source: "scout",
+    at: "09:14",
+    body: [
+      { kind: "text", text: "Morning. Five agents under broker, one on you — " },
+      { kind: "mention", text: "@hudson" },
+      { kind: "text", text: " is idle on a compile error. Want a status pass, or you driving?" },
     ],
-    lastCommand: "xcrun simctl launch booted dev.openscout.Ranger",
-    client: "detached",
+  },
+  {
+    id: "m2",
+    source: "operator",
+    at: "09:14",
+    body: [{ kind: "cmd", text: "/find hudson" }],
+  },
+  {
+    id: "m3",
+    source: "scout",
+    at: "09:14",
+    body: [
+      { kind: "mention", text: "@hudson" },
+      { kind: "text", text: " is on branch " },
+      { kind: "code", text: "feature/migration-rename" },
+      { kind: "text", text: ", idle for 7 min. Last turn flagged a compile error in " },
+      { kind: "path", text: "Sources/Mesh/PresenceCache.swift" },
+      { kind: "text", text: " at line 142. Open the file?" },
+    ],
+  },
+  {
+    id: "m4",
+    source: "operator",
+    at: "09:15",
+    body: [{ kind: "text", text: "yes — and remind me what we said about the rename order yesterday" }],
+  },
+  {
+    id: "m5",
+    source: "scout",
+    at: "09:15",
+    body: [
+      { kind: "text", text: "Opened. On the rename — you parked it: index split first, the foreign-key rename collapses to a six-line patch. Reverse order rebuilds the index." },
+    ],
   },
 ];

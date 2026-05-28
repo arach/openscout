@@ -1,15 +1,23 @@
 /**
- * Masthead — tiny lime mark + `1 fleet · 2 observe · 3 tail · 4 sessions`
- * nav, with the optional `on you` attention pip on the right.
+ * Masthead — tiny lime mark + `1 agents · 2 activity · 3 tail · 4 sessions`
+ * nav, with the right cluster: attention pip + scout-home link + tier
+ * stepper, all integrated inline per [[feedback_integrate_not_stack_chrome]].
  *
- * Tabs are clickable when `onTabChange` is provided; otherwise they
- * render as static labels (used by the locked per-size study pages).
+ * Standardized across all four tabs:
+ *   · Height: 30px content row + 10px padding (2.5 top + 2 bottom).
+ *   · Horizontal padding: PANEL_PAD_X[size] (px-4 / px-4 / px-5).
+ *   · Mark: 14×14 lime triskele, vertically aligned with tab baseline.
+ *   · Tab label: sans 12 (mono num 9). Underline 1.5px lime on active.
+ *   · Right cluster reads pip → scout-link → stepper, right-to-left
+ *     priority (stepper anchors the corner because it's the only true
+ *     control; scout-link sits beside it; pip floats further left).
  *
- * Compact 4-tab fit decision: full labels fit inside 420 with px-4 even
- * with the attention pip on the right (~336/388px used). No abbreviation
- * or number-dropping needed at any tier.
+ * Tabs are clickable when `onTabChange` is provided; tier stepper is
+ * functional when `onSizeChange` is provided; both fall back to static
+ * labels on the locked study pages.
  */
 
+import { RobotGlyph } from "./HudAssistant";
 import { PANEL_PAD_X } from "./tokens";
 import type { HudSize, HudTab } from "./types";
 
@@ -17,29 +25,41 @@ interface TabSpec {
   key: HudTab;
   num: string;
   label: string;
+  /** Optional sigil rendered to the left of the number. Used by the
+   *  assistant tab to carry the robot-head identity per
+   *  feedback_meta_agent_naming_neutral — neutral text label, brand
+   *  sits in the glyph. */
+  sigil?: "robot";
 }
 
 const TABS: TabSpec[] = [
-  { key: "fleet", num: "1", label: "fleet" },
-  { key: "observe", num: "2", label: "observe" },
+  { key: "agents", num: "1", label: "agents" },
+  { key: "activity", num: "2", label: "activity" },
   { key: "tail", num: "3", label: "tail" },
   { key: "sessions", num: "4", label: "sessions" },
+  { key: "assistant", num: "5", label: "assistant", sigil: "robot" },
 ];
+
+const SIZE_ORDER: HudSize[] = ["compact", "medium", "large"];
 
 export function HudMasthead({
   size,
   tab,
   onTabChange,
+  onSizeChange,
   attentionCount = 0,
 }: {
   size: HudSize;
   tab: HudTab;
   onTabChange?: (t: HudTab) => void;
+  onSizeChange?: (s: HudSize) => void;
   /** When > 0, renders the right-side `on you` pip with this count. */
   attentionCount?: number;
 }) {
   return (
-    <header className={`border-b border-studio-edge ${PANEL_PAD_X[size]} pt-2.5 pb-2`}>
+    <header
+      className={`border-b border-studio-edge ${PANEL_PAD_X[size]} pt-2.5 pb-2`}
+    >
       <div className="flex items-end gap-0">
         <MastheadMark />
         <span className="mx-3 self-end pb-[3px]" />
@@ -50,15 +70,17 @@ export function HudMasthead({
               keyLabel={spec.num}
               label={spec.label}
               active={tab === spec.key}
+              sigil={spec.sigil}
               onClick={onTabChange ? () => onTabChange(spec.key) : undefined}
             />
           </span>
         ))}
-        {attentionCount > 0 ? (
-          <span className="ml-auto self-end pb-[2px]">
+        <span className="ml-auto flex items-center gap-3 self-end pb-[2px]">
+          {attentionCount > 0 ? (
             <AttentionPip count={attentionCount} />
-          </span>
-        ) : null}
+          ) : null}
+          <SizePills size={size} onChange={onSizeChange} />
+        </span>
       </div>
     </header>
   );
@@ -110,11 +132,11 @@ function AttentionPip({ count }: { count: number }) {
           }}
         />
       </span>
-      <span className="font-mono text-[11.5px] font-semibold tabular-nums text-studio-ink">
+      <span className="font-mono text-[11px] font-semibold tabular-nums text-studio-ink">
         {count}
       </span>
       <span
-        className="font-mono text-[8.5px] font-bold uppercase tracking-eyebrow"
+        className="font-mono text-[10px] font-bold uppercase tracking-eyebrow"
         style={{ color: "var(--scout-accent)" }}
       >
         on you
@@ -127,18 +149,30 @@ function TabLink({
   keyLabel,
   label,
   active,
+  sigil,
   onClick,
 }: {
   keyLabel: string;
   label: string;
   active?: boolean;
+  sigil?: "robot";
   onClick?: () => void;
 }) {
   const inner = (
     <>
       <span className="flex items-baseline gap-1">
+        {sigil === "robot" ? (
+          <span
+            className="grid translate-y-[1px] place-items-center"
+            style={{
+              color: active ? "var(--scout-accent)" : "var(--studio-ink-faint)",
+            }}
+          >
+            <RobotGlyph size={11} />
+          </span>
+        ) : null}
         <span
-          className="font-mono text-[8.5px] font-bold"
+          className="font-mono text-[10px] font-bold"
           style={{
             color: active ? "var(--scout-accent)" : "var(--studio-ink-faint)",
           }}
@@ -148,10 +182,10 @@ function TabLink({
         <span
           className={
             active
-              ? "font-sans text-[13px] font-semibold lowercase text-studio-ink"
+              ? "font-sans text-[12px] font-semibold lowercase text-studio-ink"
               : onClick
-                ? "font-sans text-[13px] lowercase text-studio-ink-faint group-hover:text-studio-ink"
-                : "font-sans text-[13px] lowercase text-studio-ink-faint"
+                ? "font-sans text-[12px] lowercase text-studio-ink-faint group-hover:text-studio-ink"
+                : "font-sans text-[12px] lowercase text-studio-ink-faint"
           }
         >
           {label}
@@ -181,8 +215,50 @@ function TabLink({
 
 function TabSeparator() {
   return (
-    <span className="mx-2 self-end pb-[3px] font-mono text-[9px] text-studio-ink-faint">
+    <span className="mx-2 self-end pb-[3px] font-mono text-[10px] text-studio-ink-faint">
       ·
+    </span>
+  );
+}
+
+/**
+ * Size pills — three-position segmented S · M · L. Mirrors Swift's
+ * HUDSizeToggle. Selected = lime accent on canvasAlt fill; idle =
+ * inkFaint, transparent fill. The stepper variant was tried and
+ * rejected (math felt non-intuitive; letters map spatially). Single
+ * letters keep the compact-tier masthead from line-wrapping.
+ */
+function SizePills({
+  size,
+  onChange,
+}: {
+  size: HudSize;
+  onChange?: (s: HudSize) => void;
+}) {
+  return (
+    <span className="inline-flex rounded-[4px] border border-studio-edge p-[2px]">
+      {SIZE_ORDER.map((s) => {
+        const active = s === size;
+        return (
+          <button
+            key={s}
+            type="button"
+            onClick={onChange ? () => onChange(s) : undefined}
+            disabled={!onChange}
+            aria-pressed={active}
+            className={[
+              "inline-flex h-[16px] w-[18px] items-center justify-center",
+              "rounded-[2.5px] transition-colors",
+              "font-mono text-[9px] font-bold tracking-[0.5px]",
+              active
+                ? "bg-studio-canvas-alt text-scout-accent"
+                : "text-studio-ink-faint hover:text-studio-ink",
+            ].join(" ")}
+          >
+            {s === "compact" ? "S" : s === "medium" ? "M" : "L"}
+          </button>
+        );
+      })}
     </span>
   );
 }

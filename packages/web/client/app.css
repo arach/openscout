@@ -133,6 +133,20 @@
 * { box-sizing: border-box; margin: 0; }
 body { margin: 0; }
 
+/* ── Content shell ── */
+
+.scout-surface-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scout-surface-body > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 /* ── Nav tabs (center slot in NavigationBar) ── */
 
 .scout-nav-tabs {

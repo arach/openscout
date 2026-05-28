@@ -36,13 +36,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
+  const full = url.searchParams.get("full") === "1";
+
   const file = await loadRepoFile(parts);
   const stat = readFileStat(parts.join("/"));
   if (!file || !stat) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  const excerpt = file.content.split("\n").slice(0, 80).join("\n");
+  const totalLines = file.content.split("\n").length;
+  const excerpt = full
+    ? file.content
+    : file.content.split("\n").slice(0, 80).join("\n");
   const language = file.filename.includes(".")
     ? file.filename.slice(file.filename.lastIndexOf(".") + 1).toLowerCase()
     : "";
@@ -53,7 +58,8 @@ export async function GET(request: Request) {
       excerpt,
       language,
       truncated: file.truncated,
-      totalLines: file.content.split("\n").length,
+      totalLines,
+      filename: file.filename,
     },
     {
       headers: {

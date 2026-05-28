@@ -125,6 +125,11 @@ import {
 import {
   createRangerCredentialStore,
 } from "./ranger-credentials.ts";
+import {
+  startScoutbotRunner,
+  type ScoutbotRunnerHandle,
+} from "./scoutbot/runner.ts";
+import { SCOUTBOT_AGENT_ID } from "./scoutbot/role.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
@@ -271,6 +276,10 @@ export type CreateOpenScoutWebServerOptions = {
   createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
+  scoutbot?: {
+    enabled?: boolean;
+    brokerBaseUrl?: string;
+  };
 };
 
 type FleetHomeBrief = {
@@ -510,6 +519,7 @@ function dedupeFleetBriefReferences(refs: FleetHomeBriefReference[]): FleetHomeB
 export type OpenScoutWebServer = {
   app: Hono;
   warmupCaches: () => Promise<void>;
+  stop: () => Promise<void>;
 };
 
 type OperatorAttentionItem = {
@@ -1445,7 +1455,8 @@ async function buildOperatorAttentionState(currentDirectory: string) {
   };
 }
 
-async function buildRangerAssistantControlState(currentDirectory: string) {
+async function buildRangerAssistantControlState(currentDirectory: string, route?: unknown) {
+  const omittedActiveAgentId = isScoutbotAssistantRoute(route) ? "scoutbot" : null;
   const [attention, mesh, tailDiscovery] = await Promise.all([
     valueOrNull(buildOperatorAttentionState(currentDirectory)),
     valueOrNull(loadMeshStatus()),
@@ -1466,6 +1477,11 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
     .filter((event) => !event.summary.toLowerCase().startsWith("permission-mode"))
     .map(compactRangerTailEvent);
   const scoutChatter = queryRecentMessages(50).map(compactRangerMessage);
+  const activeRuns = queryRuns({ active: true, limit: 24 })
+    .filter((run) => run.agentId !== omittedActiveAgentId);
+  const activeFlights = queryFlights({ activeOnly: true })
+    .filter((flight) => flight.agentId !== omittedActiveAgentId)
+    .slice(0, 24);
 
   return {
     build: loadOpenScoutBuildInfo(currentDirectory),
@@ -1511,8 +1527,8 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
       dialogue: broker.dialogue.slice(0, 12).map(compactRangerDialogue),
     },
     activeWork: queryWorkItems({ activeOnly: true, limit: 20 }).map(compactRangerWorkItem),
-    activeRuns: queryRuns({ active: true, limit: 24 }),
-    activeFlights: queryFlights({ activeOnly: true }).slice(0, 24),
+    activeRuns,
+    activeFlights,
     sessions: querySessions(24),
     recentMessages: scoutChatter.slice(0, 16),
     recentActivity: queryActivity(16).map(compactRangerActivity),
@@ -1563,6 +1579,14 @@ async function buildRangerAssistantControlState(currentDirectory: string) {
         }
       : null,
   };
+}
+
+function isScoutbotAssistantRoute(route: unknown): boolean {
+  return Boolean(
+    route
+    && typeof route === "object"
+    && (route as { surface?: unknown }).surface === "scoutbot",
+  );
 }
 
 function compactRangerFleetAsk(ask: ReturnType<typeof queryFleet>["activeAsks"][number]) {
@@ -1959,8 +1983,8 @@ export async function createOpenScoutWebServer(
   const rangerCredentials = createRangerCredentialStore();
   const rangerAssistant = createRangerAssistantService({
     currentDirectory,
-    loadContext: async () => ({
-      ...(await buildRangerAssistantControlState(currentDirectory)),
+    loadContext: async (route) => ({
+      ...(await buildRangerAssistantControlState(currentDirectory, route)),
       reminders: rangerReminders.getState(),
     }),
     resolveApiKey: async () => {
@@ -1968,6 +1992,18 @@ export async function createOpenScoutWebServer(
       return config?.openaiApiKey ?? rangerCredentials.getOpenAIKey();
     },
   });
+  let scoutbotRunner: ScoutbotRunnerHandle | null = null;
+  if (options.scoutbot?.enabled) {
+    try {
+      scoutbotRunner = await startScoutbotRunner({
+        brokerBaseUrl: options.scoutbot.brokerBaseUrl,
+        currentDirectory,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[scoutbot] runner failed to start: ${message}`);
+    }
+  }
   let fleetHomeBrief: FleetHomeBrief | null = null;
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
   const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
@@ -3247,19 +3283,64 @@ export async function createOpenScoutWebServer(
     });
   });
 
+  app.get("/api/scoutbot/threads", async (c) => {
+    if (!scoutbotRunner) {
+      return c.json({ error: "scoutbot runner is not enabled" }, 503);
+    }
+    try {
+      return c.json(await scoutbotRunner.getThreads());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: message }, /broker unreachable/i.test(message) ? 502 : 500);
+    }
+  });
+
   app.post("/api/send", async (c) => {
-    const { body, conversationId } = (await c.req.json()) as {
+    const { body, conversationId, threadId } = (await c.req.json()) as {
       body: string;
       conversationId?: string;
+      threadId?: string;
     };
     if (!body?.trim()) {
       return c.json({ error: "body is required" }, 400);
+    }
+
+    if (!conversationId && scoutbotRunner) {
+      try {
+        const result = await scoutbotRunner.postOperatorMessage({
+          body: body.trim(),
+          threadId,
+        });
+        if (!result.usedBroker) {
+          return c.json({ error: "broker unreachable" }, 502);
+        }
+        return c.json(result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return c.json({ error: message }, /unknown scoutbot thread/i.test(message) ? 404 : 500);
+      }
     }
 
     const { directAgentId, channel, conversationId: routedConversationId, senderId } =
       resolveConversationRouting(conversationId);
 
     if (directAgentId) {
+      if (directAgentId === SCOUTBOT_AGENT_ID && scoutbotRunner) {
+        try {
+          const result = await scoutbotRunner.postOperatorMessage({
+            body: body.trim(),
+            threadId,
+          });
+          if (!result.usedBroker) {
+            return c.json({ error: "broker unreachable" }, 502);
+          }
+          return c.json(result);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return c.json({ error: message }, /unknown scoutbot thread/i.test(message) ? 404 : 500);
+        }
+      }
+
       const result = await sendScoutDirectMessage({
         agentId: directAgentId,
         body: body.trim(),
@@ -3573,5 +3654,12 @@ export async function createOpenScoutWebServer(
       }
     });
 
-  return { app, warmupCaches };
+  const stop = async () => {
+    if (!scoutbotRunner) return;
+    const runner = scoutbotRunner;
+    scoutbotRunner = null;
+    await runner.stop();
+  };
+
+  return { app, warmupCaches, stop };
 }

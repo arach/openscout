@@ -27,6 +27,12 @@ const BROKER_HEALTH_TIMEOUT_MS = 30_000;
 const BROKER_HEALTH_POLL_MS = 250;
 const MENU_BUNDLE_ID = "com.openscout.menu";
 const MENU_PROCESS_NAME = "OpenScoutMenu";
+const PROCESS_NAME = "scout-base";
+const BROKER_LAUNCHER_PROCESS_NAME = "scout-broker-run";
+const EDGE_PROCESS_NAME = "scout-edge";
+const MDNS_PROCESS_NAME = "scout-mdns";
+
+process.title = PROCESS_NAME;
 
 let shuttingDown = false;
 let brokerProcess: ChildProcess | null = null;
@@ -81,6 +87,7 @@ function spawnBroker(): void {
     runtimeEntrypoint(config),
     "broker",
   ], {
+    argv0: BROKER_LAUNCHER_PROCESS_NAME,
     cwd: config.runtimePackageDir,
     env: {
       ...process.env,
@@ -189,6 +196,7 @@ function spawnMdnsProxy(input: {
     "127.0.0.1",
     "path=/",
   ], {
+    argv0: MDNS_PROCESS_NAME,
     stdio: ["ignore", logFile("mdns.stdout.log"), logFile("mdns.stderr.log")],
   });
 }
@@ -245,6 +253,7 @@ function startLocalEdge(): void {
     "--adapter",
     "caddyfile",
   ], {
+    argv0: EDGE_PROCESS_NAME,
     env: process.env,
     stdio: ["ignore", logFile("edge.stdout.log"), logFile("edge.stderr.log")],
   });

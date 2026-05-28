@@ -65,6 +65,14 @@ struct HudAgent: Identifiable, Sendable, Decodable {
     let createdAt: TimeInterval?
     let capabilities: [String]
     let nodeName: String?
+    // Real harness session ref (e.g. "relay-hudson-claude") — the value
+    // /api/session-ref resolves. NOT the broker agent ID. Used for the HUD
+    // OPEN TRANSCRIPT drill so the web actually finds the session.
+    let harnessSessionId: String?
+    // Canonical operator DM conversation for this agent. Server-rendered
+    // as `dm.operator.<agentId>` but read it from the payload rather than
+    // synthesizing, so we stay in sync if the convention changes.
+    let conversationId: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -89,6 +97,8 @@ struct HudAgent: Identifiable, Sendable, Decodable {
         case model
         case authorityNodeName
         case homeNodeName
+        case harnessSessionId
+        case conversationId
     }
 
     init(from decoder: Decoder) throws {
@@ -105,6 +115,8 @@ struct HudAgent: Identifiable, Sendable, Decodable {
         capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities) ?? []
         nodeName = try c.decodeIfPresent(String.self, forKey: .authorityNodeName)
             ?? c.decodeIfPresent(String.self, forKey: .homeNodeName)
+        harnessSessionId = try c.decodeIfPresent(String.self, forKey: .harnessSessionId)
+        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
 
         let project = try c.decodeIfPresent(String.self, forKey: .project)
         let brokerRole = try c.decodeIfPresent(String.self, forKey: .role)

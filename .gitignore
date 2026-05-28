@@ -47,6 +47,10 @@ packages/runtime/native/**/target/
 # local review/audit artifacts (PM/engineer reports, screenshots, logs)
 /reviews/
 
+# local planning notes; only issue-keyed Scout plans are source material
+plans/*.md
+!plans/SCO-*.md
+
 # Ranger FX dev fixtures (generated WAVs, regenerable via scripts/generate-ranger-fx-fixtures.mjs)
 packages/web/dev/ranger-fx-fixtures/
 

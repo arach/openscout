@@ -1,11 +1,23 @@
 import { existsSync } from "node:fs";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createServer as createTcpServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const TERMINAL_RELAY_HEALTH_SURFACE = "openscout-terminal-relay";
+const AUTO_RELAY_PORT_ATTEMPTS = 16;
+
+export type TerminalRelayHealth = {
+  ok: true;
+  surface: typeof TERMINAL_RELAY_HEALTH_SURFACE;
+  pid?: number;
+  sessions?: number;
+  attachedSessions?: number;
+};
+
 export type ManagedTerminalRelay = {
   healthcheck: () => Promise<boolean>;
+  readHealth: () => Promise<TerminalRelayHealth | null>;
   queueCommand: (request: TerminalRelayRunRequest) => Promise<void>;
   shutdown: () => void;
   targetHttpUrl: string;
@@ -17,9 +29,6 @@ export type TerminalRelayRunRequest = {
   cwd?: string | null;
   agentId?: string | null;
 };
-
-const TERMINAL_RELAY_HEALTH_SURFACE = "openscout-terminal-relay";
-const AUTO_RELAY_PORT_ATTEMPTS = 16;
 
 function relayPortPreferenceForWebPort(webPort: number): { port: number; configured: boolean } {
   const configured = process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PORT?.trim();
@@ -51,18 +60,33 @@ function isTerminalRelayHealthPayload(value: unknown): boolean {
   return body.ok === true && body.surface === TERMINAL_RELAY_HEALTH_SURFACE;
 }
 
-export async function isTerminalRelayHealthy(targetHttpUrl: string): Promise<boolean> {
+export async function readTerminalRelayHealth(targetHttpUrl: string): Promise<TerminalRelayHealth | null> {
   try {
     const response = await fetch(`${targetHttpUrl}/health`, {
       signal: AbortSignal.timeout(1000),
     });
     if (!response.ok) {
-      return false;
+      return null;
     }
-    return isTerminalRelayHealthPayload(await response.json().catch(() => null));
+    const payload = await response.json().catch(() => null);
+    if (!isTerminalRelayHealthPayload(payload)) {
+      return null;
+    }
+    const body = payload as TerminalRelayHealth;
+    return {
+      ok: true,
+      surface: TERMINAL_RELAY_HEALTH_SURFACE,
+      ...(Number.isFinite(body.pid) ? { pid: body.pid } : {}),
+      ...(Number.isFinite(body.sessions) ? { sessions: body.sessions } : {}),
+      ...(Number.isFinite(body.attachedSessions) ? { attachedSessions: body.attachedSessions } : {}),
+    };
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function isTerminalRelayHealthy(targetHttpUrl: string): Promise<boolean> {
+  return (await readTerminalRelayHealth(targetHttpUrl)) !== null;
 }
 
 async function waitForHealthy(
@@ -97,6 +121,17 @@ async function canListenOnPort(hostname: string, port: number): Promise<boolean>
     });
     server.listen(port, hostname);
   });
+}
+
+async function waitForPortAvailable(hostname: string, port: number, timeoutMs = 1000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await canListenOnPort(hostname, port)) {
+      return true;
+    }
+    await new Promise((resolveTimer) => setTimeout(resolveTimer, 50));
+  }
+  return false;
 }
 
 function resolveRuntimeEntry(): string {
@@ -136,6 +171,82 @@ function resolveRuntimeEntry(): string {
   throw new Error("Could not locate the terminal relay runtime entry");
 }
 
+function relayPortRange(preferredPort: number): number[] {
+  return Array.from({ length: AUTO_RELAY_PORT_ATTEMPTS }, (_, offset) => preferredPort + offset);
+}
+
+function tcpListenerPid(port: number): number | null {
+  try {
+    const output = execFileSync("lsof", [
+      "-nP",
+      `-iTCP:${port}`,
+      "-sTCP:LISTEN",
+      "-Fp",
+    ], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const match = output.match(/^p(\d+)/m);
+    if (!match) return null;
+    const pid = Number.parseInt(match[1], 10);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function processField(pid: number, field: "command" | "ppid"): string | null {
+  try {
+    return execFileSync("ps", ["-p", String(pid), "-o", `${field}=`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function processParentPid(pid: number): number | null {
+  const raw = processField(pid, "ppid");
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isRelayProcess(pid: number): boolean {
+  const command = processField(pid, "command") ?? "";
+  return /\bscout-relay\b|openscout-terminal-relay|terminal-relay-node/.test(command);
+}
+
+function relayPidOwnedByThisWebProcess(pid: number | null): pid is number {
+  return Boolean(pid && pid !== process.pid && processParentPid(pid) === process.pid && isRelayProcess(pid));
+}
+
+function terminateRelayPid(pid: number): boolean {
+  try {
+    process.kill(pid, "SIGTERM");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function terminateOwnedRelayListener(port: number, keepPid: number | null): boolean {
+  const pid = tcpListenerPid(port);
+  if (!relayPidOwnedByThisWebProcess(pid) || pid === keepPid) {
+    return false;
+  }
+  return terminateRelayPid(pid);
+}
+
+function cleanupOwnedRelayListeners(ports: number[], keepPort: number): void {
+  const keepPid = tcpListenerPid(keepPort);
+  for (const port of ports) {
+    if (port === keepPort) continue;
+    terminateOwnedRelayListener(port, keepPid);
+  }
+}
+
 export async function startManagedTerminalRelay(args: {
   hostname: string;
   webPort: number;
@@ -143,20 +254,60 @@ export async function startManagedTerminalRelay(args: {
   const relayPortPreference = relayPortPreferenceForWebPort(args.webPort);
   const bindHost = relayHostForWebHost(args.hostname);
   const loopbackHost = relayLoopbackHost(bindHost);
+  const ports = relayPortRange(relayPortPreference.port);
   const preferredTargetHttpUrl = `http://${loopbackHost}:${relayPortPreference.port}`;
   const preferredTargetWebSocketUrl = `ws://${loopbackHost}:${relayPortPreference.port}`;
+  const preferredHealth = await readTerminalRelayHealth(preferredTargetHttpUrl);
 
-  if (await isTerminalRelayHealthy(preferredTargetHttpUrl)) {
-    return createManagedRelayHandle(preferredTargetHttpUrl, preferredTargetWebSocketUrl);
+  if (preferredHealth) {
+    cleanupOwnedRelayListeners(ports, relayPortPreference.port);
+    const listenerPid = preferredHealth.pid ?? tcpListenerPid(relayPortPreference.port);
+    return createManagedRelayHandle({
+      targetHttpUrl: preferredTargetHttpUrl,
+      targetWebSocketUrl: preferredTargetWebSocketUrl,
+      ownedPid: relayPidOwnedByThisWebProcess(listenerPid) ? listenerPid : null,
+    });
+  }
+
+  let preferredPortAvailable = await canListenOnPort(bindHost, relayPortPreference.port);
+  if (!preferredPortAvailable && terminateOwnedRelayListener(relayPortPreference.port, null)) {
+    preferredPortAvailable = await waitForPortAvailable(bindHost, relayPortPreference.port);
+  }
+
+  if (!relayPortPreference.configured && !preferredPortAvailable) {
+    for (const relayPort of ports.slice(1)) {
+      const targetHttpUrl = `http://${loopbackHost}:${relayPort}`;
+      const targetWebSocketUrl = `ws://${loopbackHost}:${relayPort}`;
+      const health = await readTerminalRelayHealth(targetHttpUrl);
+      if (!health) continue;
+      console.warn(
+        `[relay] Reusing existing terminal relay on port ${relayPort}; preferred port ${relayPortPreference.port} is occupied`,
+      );
+      cleanupOwnedRelayListeners(ports, relayPort);
+      const listenerPid = health.pid ?? tcpListenerPid(relayPort);
+      return createManagedRelayHandle({
+        targetHttpUrl,
+        targetWebSocketUrl,
+        ownedPid: relayPidOwnedByThisWebProcess(listenerPid) ? listenerPid : null,
+      });
+    }
   }
 
   const runtimeEntry = resolveRuntimeEntry();
 
-  for (let offset = 0; offset < AUTO_RELAY_PORT_ATTEMPTS; offset += 1) {
-    const relayPort = relayPortPreference.port + offset;
+  for (let offset = 0; offset < ports.length; offset += 1) {
+    const relayPort = ports[offset]!;
     const targetHttpUrl = `http://${loopbackHost}:${relayPort}`;
     const targetWebSocketUrl = `ws://${loopbackHost}:${relayPort}`;
-    const portAvailable = await canListenOnPort(bindHost, relayPort);
+    let portAvailable = relayPort === relayPortPreference.port
+      ? preferredPortAvailable
+      : await canListenOnPort(bindHost, relayPort);
+
+    if (!portAvailable) {
+      if (terminateOwnedRelayListener(relayPort, null)) {
+        portAvailable = await waitForPortAvailable(bindHost, relayPort);
+      }
+    }
 
     if (!portAvailable) {
       if (relayPortPreference.configured) {
@@ -172,13 +323,15 @@ export async function startManagedTerminalRelay(args: {
       continue;
     }
 
-    return startRelayProcess({
+    const relay = await startRelayProcess({
       runtimeEntry,
       bindHost,
       relayPort,
       targetHttpUrl,
       targetWebSocketUrl,
     });
+    cleanupOwnedRelayListeners(ports, relayPort);
+    return relay;
   }
 
   throw new Error(
@@ -186,15 +339,17 @@ export async function startManagedTerminalRelay(args: {
   );
 }
 
-function createManagedRelayHandle(
-  targetHttpUrl: string,
-  targetWebSocketUrl: string,
-  child?: ChildProcess,
-): ManagedTerminalRelay {
+function createManagedRelayHandle(input: {
+  targetHttpUrl: string;
+  targetWebSocketUrl: string;
+  child?: ChildProcess;
+  ownedPid?: number | null;
+}): ManagedTerminalRelay {
   return {
-    healthcheck: () => isTerminalRelayHealthy(targetHttpUrl),
+    healthcheck: () => isTerminalRelayHealthy(input.targetHttpUrl),
+    readHealth: () => readTerminalRelayHealth(input.targetHttpUrl),
     queueCommand: async (request: TerminalRelayRunRequest) => {
-      const response = await fetch(`${targetHttpUrl}/api/terminal/run`, {
+      const response = await fetch(`${input.targetHttpUrl}/api/terminal/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
@@ -204,12 +359,16 @@ function createManagedRelayHandle(
       }
     },
     shutdown() {
-      if (child) {
-        terminateChild(child);
+      if (input.child) {
+        terminateChild(input.child);
+        return;
+      }
+      if (input.ownedPid) {
+        terminateRelayPid(input.ownedPid);
       }
     },
-    targetHttpUrl,
-    targetWebSocketUrl,
+    targetHttpUrl: input.targetHttpUrl,
+    targetWebSocketUrl: input.targetWebSocketUrl,
   };
 }
 
@@ -224,6 +383,7 @@ async function startRelayProcess(input: {
     "node",
     [input.runtimeEntry],
     {
+      argv0: "scout-relay",
       cwd: resolve(dirname(input.runtimeEntry), ".."),
       env: {
         ...process.env,
@@ -249,7 +409,11 @@ async function startRelayProcess(input: {
 
   const ready = await waitForHealthy(input.targetHttpUrl, 5000);
   if (ready) {
-    return createManagedRelayHandle(input.targetHttpUrl, input.targetWebSocketUrl, child);
+    return createManagedRelayHandle({
+      targetHttpUrl: input.targetHttpUrl,
+      targetWebSocketUrl: input.targetWebSocketUrl,
+      child,
+    });
   }
 
   if (!child.killed) {

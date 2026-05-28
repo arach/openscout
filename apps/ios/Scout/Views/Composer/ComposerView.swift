@@ -4,6 +4,7 @@
 // Mic toggles recording. After transcription, editable text field + send.
 // Keyboard only when explicitly toggled.
 
+import ScoutNativeCore
 import SwiftUI
 
 struct ComposerSendRequest: Sendable {
@@ -1059,13 +1060,10 @@ struct ComposerView: View {
         Task {
             do {
                 if !voice.isReady { await voice.prepare() }
-                let granted = await voice.requestMicrophonePermission()
-                guard granted else {
-                    lastError = "Mic permission denied"
-                    micState = .idle
-                    return
-                }
                 try await voice.startRecording()
+            } catch ScoutVoice.VoiceError.microphonePermissionDenied {
+                lastError = "Mic permission denied"
+                micState = .idle
             } catch {
                 lastError = "Recording failed: \(error.localizedDescription)"
                 micState = .idle
@@ -1079,7 +1077,7 @@ struct ComposerView: View {
         Task {
             do {
                 let transcribed = try await voice.stopAndTranscribe()
-                text = mergedDictationText(current: text, transcribed: transcribed)
+                text = ScoutDictationBuffer.appending(transcribed, to: text)
                 micState = .idle
             } catch ScoutVoice.VoiceError.recordingTooShort {
                 lastError = "Recording too short (min 0.3s)"
@@ -1091,18 +1089,6 @@ struct ComposerView: View {
         }
     }
 
-    private func mergedDictationText(current: String, transcribed: String) -> String {
-        let appended = transcribed.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !appended.isEmpty else { return current }
-        guard !current.isEmpty else { return appended }
-
-        if let lastScalar = current.unicodeScalars.last,
-           CharacterSet.whitespacesAndNewlines.contains(lastScalar) {
-            return current + appended
-        }
-
-        return current + " " + appended
-    }
 }
 
 // MARK: - Previews

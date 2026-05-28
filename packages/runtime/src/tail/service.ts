@@ -32,6 +32,7 @@ const RAW_MAX_ARRAY_ITEMS = 25;
 const RAW_MAX_OBJECT_KEYS = 50;
 const RECENT_TRANSCRIPT_READ_BYTES = 512 * 1024;
 const RECENT_TRANSCRIPT_LINES_PER_FILE = 200;
+const RECENT_TRANSCRIPT_MAX_FILES = readPositiveIntEnv("OPENSCOUT_TAIL_RECENT_TRANSCRIPT_MAX_FILES", 24);
 
 type Subscriber = (event: TailEvent) => void;
 
@@ -206,28 +207,32 @@ function pushEvent(rawEvent: TailEvent): void {
   }
 }
 
-async function readNew(handle: FileHandle, fromOffset: number): Promise<{ text: string; nextOffset: number }> {
-  const stats = await handle.stat();
-  if (stats.size <= fromOffset) {
+async function readNew(
+  handle: FileHandle,
+  fromOffset: number,
+  fileSize: number,
+): Promise<{ text: string; nextOffset: number }> {
+  if (fileSize <= fromOffset) {
     return { text: "", nextOffset: fromOffset };
   }
-  const length = stats.size - fromOffset;
+  const length = fileSize - fromOffset;
   const buffer = Buffer.alloc(length);
   await handle.read(buffer, 0, length, fromOffset);
-  return { text: buffer.toString("utf8"), nextOffset: stats.size };
+  return { text: buffer.toString("utf8"), nextOffset: fileSize };
 }
 
 async function pumpWatcher(watcher: Watcher): Promise<void> {
   let handle: FileHandle | null = null;
   try {
-    handle = await open(watcher.transcriptPath, "r");
-    const stats = await handle.stat();
+    const stats = await stat(watcher.transcriptPath);
     if (stats.size < watcher.offset) {
       // File was rotated/truncated; reset.
       watcher.offset = 0;
       watcher.carry = "";
     }
-    const { text, nextOffset } = await readNew(handle, watcher.offset);
+    if (stats.size <= watcher.offset) return;
+    handle = await open(watcher.transcriptPath, "r");
+    const { text, nextOffset } = await readNew(handle, watcher.offset, stats.size);
     watcher.offset = nextOffset;
     if (!text) return;
     const combined = watcher.carry + text;
@@ -484,7 +489,8 @@ export async function readRecentTranscriptEvents(
   const seenTranscripts = new Set<string>();
   const seenEvents = new Set<string>();
 
-  for (const transcript of discovery.transcripts.slice(0, Math.max(12, limit))) {
+  const transcriptReadLimit = Math.min(RECENT_TRANSCRIPT_MAX_FILES, Math.max(12, limit));
+  for (const transcript of discovery.transcripts.slice(0, transcriptReadLimit)) {
     const key = transcriptKey(transcript);
     if (seenTranscripts.has(key)) continue;
     seenTranscripts.add(key);

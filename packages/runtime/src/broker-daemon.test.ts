@@ -612,6 +612,142 @@ describe("broker daemon comms layer", () => {
     expect(feed.items.some((item) => item.kind === "delivery" && item.deliveryId)).toBe(true);
   }, 15_000);
 
+  test("does not downgrade terminal flights with delayed queued updates", async () => {
+    const harness = await startBroker();
+    const startedAt = Date.now();
+
+    await postJson(harness.baseUrl, "/v1/flights", {
+      id: "flight-terminal-downgrade-1",
+      invocationId: "inv-terminal-downgrade-1",
+      requesterId: "operator",
+      targetAgentId: "scoutbot",
+      state: "completed",
+      summary: "Scoutbot replied.",
+      output: "done",
+      startedAt,
+      completedAt: startedAt + 1,
+      metadata: {
+        completedBy: "scoutbot",
+        replyMessageId: "reply-1",
+      },
+    });
+
+    await postJson(harness.baseUrl, "/v1/flights", {
+      id: "flight-terminal-downgrade-1",
+      invocationId: "inv-terminal-downgrade-1",
+      requesterId: "operator",
+      targetAgentId: "scoutbot",
+      state: "queued",
+      summary: "Message stored for Scout. Will deliver when online.",
+      startedAt,
+      metadata: {},
+    });
+
+    const snapshot = await getJson<{
+      flights: Record<string, {
+        state: string;
+        summary?: string;
+        output?: string;
+        completedAt?: number;
+        metadata?: Record<string, unknown>;
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const flight = snapshot.flights["flight-terminal-downgrade-1"];
+
+    expect(flight?.state).toBe("completed");
+    expect(flight?.summary).toBe("Scoutbot replied.");
+    expect(flight?.output).toBe("done");
+    expect(flight?.completedAt).toBe(startedAt + 1);
+    expect(flight?.metadata?.replyMessageId).toBe("reply-1");
+  }, 15_000);
+
+  test("completes an active invocation when the target posts a broker reply", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const createdAt = Date.now();
+    const request = await postJson<{
+      kind: string;
+      flight?: {
+        id: string;
+        invocationId: string;
+        requesterId: string;
+        targetAgentId: string;
+        metadata?: Record<string, unknown>;
+      };
+      conversation?: { id: string; visibility: "workspace" | "private" | "public" };
+      message?: { id: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-complete-on-reply",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_id",
+        agentId: "fabric",
+      },
+      body: "Please answer in this thread.",
+      intent: "consult",
+      ensureAwake: false,
+      createdAt,
+    });
+
+    expect(request.kind).toBe("delivery");
+    expect(request.flight?.id).toBeTruthy();
+    expect(request.conversation?.id).toBeTruthy();
+    expect(request.message?.id).toBeTruthy();
+
+    await postJson(harness.baseUrl, "/v1/flights", {
+      id: request.flight!.id,
+      invocationId: request.flight!.invocationId,
+      requesterId: request.flight!.requesterId,
+      targetAgentId: request.flight!.targetAgentId,
+      state: "running",
+      summary: "Fabric acknowledged.",
+      startedAt: createdAt + 1,
+      metadata: request.flight!.metadata ?? {},
+    });
+
+    await postJson(harness.baseUrl, "/v1/messages", {
+      id: "msg-fabric-completes-invocation",
+      conversationId: request.conversation!.id,
+      actorId: "fabric",
+      originNodeId: harness.nodeId,
+      class: "agent",
+      body: "The requested answer is complete.",
+      replyToMessageId: request.message!.id,
+      audience: {
+        notify: ["operator"],
+        reason: "thread_reply",
+      },
+      visibility: request.conversation!.visibility,
+      policy: "durable",
+      createdAt: createdAt + 2,
+      metadata: {
+        source: "test",
+      },
+    });
+
+    const snapshot = await getJson<{
+      flights: Record<string, {
+        state: string;
+        summary?: string;
+        output?: string;
+        completedAt?: number;
+        metadata?: Record<string, unknown>;
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const flight = snapshot.flights[request.flight!.id];
+
+    expect(flight?.state).toBe("completed");
+    expect(flight?.summary).toBe("Fabric replied.");
+    expect(flight?.output).toBe("The requested answer is complete.");
+    expect(flight?.completedAt).toBe(createdAt + 2);
+    expect(flight?.metadata?.completedByBrokerReply).toBe(true);
+    expect(flight?.metadata?.replyMessageId).toBe("msg-fabric-completes-invocation");
+  }, 15_000);
+
   test("projects target deliveries as claimable inbox items", async () => {
     const harness = await startBroker();
     await seedBasicConversation(harness);
@@ -2342,6 +2478,75 @@ describe("broker daemon comms layer", () => {
     expect(response.receipt?.targetAgentId).toBe("ranger.test-node");
   }, 15_000);
 
+  test("routes harness-qualified labels as target params, not exact sessions", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "hudson");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {
+      hudson: {
+        agentId: "hudson",
+        definitionId: "hudson",
+        displayName: "Hudson",
+        projectName: "Hudson",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "claude",
+        runtime: {
+          cwd: projectRoot,
+          harness: "claude",
+          transport: "tmux",
+          sessionId: "relay-hudson-claude",
+          wakePolicy: "on_demand",
+        },
+        capabilities: ["chat", "invoke", "deliver"],
+      },
+    });
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      flight?: { invocationId: string; targetAgentId: string };
+      receipt?: { targetAgentId?: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-hudson-codex-param",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@hudson.harness:codex",
+      },
+      body: "Hudson should receive this through a Codex-constrained route.",
+      intent: "consult",
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toBe("hudson.test-node");
+    expect(response.receipt?.targetAgentId).toBe("hudson.test-node");
+
+    const snapshot = await getJson<{
+      invocations: Record<string, { execution?: { harness?: string } }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    const invocation = snapshot.invocations[response.flight!.invocationId];
+    expect(invocation?.execution?.harness).toBe("codex");
+  }, 15_000);
+
   test("reconciles queued flights when their local agent is archived as stale", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
@@ -2476,6 +2681,93 @@ describe("broker daemon comms layer", () => {
       state: "queued",
     });
     expect(reconciled.flights[flightId]?.metadata?.reconciledStaleFlight).not.toBe(true);
+  }, 15_000);
+
+  test("marks archived local registrations stale on the agent row", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "talkie");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "talkie.test-node",
+      kind: "agent",
+      definitionId: "talkie",
+      nodeQualifier: "test-node",
+      selector: "@talkie.node:test-node",
+      defaultSelector: "@talkie",
+      displayName: "Talkie",
+      handle: "talkie",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        source: "relay-agent-registry",
+        projectRoot,
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-talkie-old",
+      agentId: "talkie.test-node",
+      nodeId: harness.nodeId,
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "waiting",
+      address: null,
+      sessionId: "relay-talkie-codex",
+      pane: null,
+      cwd: projectRoot,
+      projectRoot,
+      metadata: {
+        source: "relay-agent-registry",
+        definitionId: "talkie",
+        projectRoot,
+      },
+    });
+
+    await Bun.sleep(5);
+    writeRelayAgentRegistry(supportDirectory, {});
+    await postJson(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-trigger-talkie-stale-sync",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "channel",
+        channel: "shared",
+      },
+      body: "trigger registry sync",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    const snapshot = await waitFor(
+      () => getJson<{
+        agents: Record<string, { metadata?: Record<string, unknown> }>;
+        endpoints: Record<string, { state?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (value) => value.agents["talkie.test-node"]?.metadata?.staleLocalRegistration === true,
+    );
+
+    expect(snapshot.agents["talkie.test-node"]?.metadata?.staleLocalRegistration).toBe(true);
+    expect(snapshot.endpoints["endpoint-talkie-old"]?.state).toBe("offline");
+    expect(snapshot.endpoints["endpoint-talkie-old"]?.metadata?.staleLocalRegistration).toBe(true);
   }, 15_000);
 
   test("accepts broker-owned channel tells without caller-side route preflight", async () => {

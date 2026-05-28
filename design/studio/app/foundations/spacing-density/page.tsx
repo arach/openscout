@@ -198,4 +198,3 @@ function ManifestRow({ a }: { a: Agent }) {
     </div>
   );
 }
-

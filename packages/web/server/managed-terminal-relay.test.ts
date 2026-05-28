@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { createServer, type Server } from "node:http";
 
-import { isTerminalRelayHealthy } from "./managed-terminal-relay.ts";
+import {
+  isTerminalRelayHealthy,
+  readTerminalRelayHealth,
+  startManagedTerminalRelay,
+} from "./managed-terminal-relay.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -11,10 +16,16 @@ afterEach(() => {
 describe("isTerminalRelayHealthy", () => {
   test("accepts the terminal relay health payload", async () => {
     globalThis.fetch = mock(async () =>
-      Response.json({ ok: true, surface: "openscout-terminal-relay" })
+      Response.json({ ok: true, surface: "openscout-terminal-relay", pid: 123, sessions: 2 })
     ) as typeof fetch;
 
     await expect(isTerminalRelayHealthy("http://127.0.0.1:3201")).resolves.toBe(true);
+    await expect(readTerminalRelayHealth("http://127.0.0.1:3201")).resolves.toEqual({
+      ok: true,
+      surface: "openscout-terminal-relay",
+      pid: 123,
+      sessions: 2,
+    });
   });
 
   test("rejects a generic 200 response from another service", async () => {
@@ -32,5 +43,77 @@ describe("isTerminalRelayHealthy", () => {
     globalThis.fetch = mock(async () => Response.json({ ok: true })) as typeof fetch;
 
     await expect(isTerminalRelayHealthy("http://127.0.0.1:3201")).resolves.toBe(false);
+  });
+});
+
+function listen(server: Server, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const done = (ok: boolean) => {
+      server.off("error", onError);
+      server.off("listening", onListening);
+      resolve(ok);
+    };
+    const onError = () => done(false);
+    const onListening = () => done(true);
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, "127.0.0.1");
+  });
+}
+
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+async function startRelayAdoptionFixture(): Promise<{
+  basePort: number;
+  genericServer: Server;
+  relayServer: Server;
+}> {
+  for (let basePort = 42100; basePort < 43000; basePort += 10) {
+    const genericServer = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    if (!await listen(genericServer, basePort + 1)) {
+      continue;
+    }
+
+    const relayServer = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        ok: true,
+        surface: "openscout-terminal-relay",
+        pid: process.pid,
+        sessions: 0,
+      }));
+    });
+    if (await listen(relayServer, basePort + 2)) {
+      return { basePort, genericServer, relayServer };
+    }
+
+    await closeServer(genericServer);
+  }
+
+  throw new Error("Could not reserve relay adoption test ports");
+}
+
+describe("startManagedTerminalRelay", () => {
+  test("adopts an existing healthy relay in the automatic port band", async () => {
+    const fixture = await startRelayAdoptionFixture();
+    try {
+      const relay = await startManagedTerminalRelay({
+        hostname: "127.0.0.1",
+        webPort: fixture.basePort,
+      });
+
+      expect(relay.targetHttpUrl).toBe(`http://127.0.0.1:${fixture.basePort + 2}`);
+      expect(relay.targetWebSocketUrl).toBe(`ws://127.0.0.1:${fixture.basePort + 2}`);
+      await expect(relay.healthcheck()).resolves.toBe(true);
+      relay.shutdown();
+    } finally {
+      await closeServer(fixture.genericServer);
+      await closeServer(fixture.relayServer);
+    }
   });
 });

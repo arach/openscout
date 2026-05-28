@@ -12,7 +12,7 @@ import {
   SourceLinks,
 } from "@/components/studio/research";
 
-const TABS: HudTab[] = ["fleet", "observe", "tail", "sessions"];
+const TABS: HudTab[] = ["agents", "activity", "tail", "sessions"];
 
 export default function HudMediumPage() {
   return (
@@ -27,10 +27,11 @@ export default function HudMediumPage() {
         <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           Locked reference at the medium size — a ~680px panel where
           the operator has room to see more state per item without
-          drilling in. Fleet becomes a 2-up tile grid; observe widens
-          its time gutter and dispatch column; tail (firehose) keeps
-          its dense mono row; sessions become cards with a 3-line pane
-          peek. All four tabs stacked here for one-pass review.
+          drilling in. Agents become a 2-up tile grid; activity widens
+          its time gutter and dispatch column; tail (firehose) stays
+          dense single-line mono; sessions surface duration + message
+          count alongside harness + project. All four tabs stacked
+          here for one-pass review.
         </p>
       </header>
 
@@ -58,24 +59,25 @@ function Research() {
             workspace-grade large tier. Density up by area, not packing.
           </li>
           <li>
-            <span className="text-studio-ink">Fleet:</span> 2-up tiles
+            <span className="text-studio-ink">Agents:</span> 2-up tiles
             with internal stat block. Activity pulse gets its own
             labeled row inside each tile.
           </li>
           <li>
-            <span className="text-studio-ink">Observe:</span> time
-            gutter stacks relative + absolute; dispatch carries byline
-            + two-line summary + drilling meta row.
+            <span className="text-studio-ink">Activity:</span> time
+            gutter stacks relative + absolute; each row carries a
+            category eyebrow, sans title, sans summary, and a byline
+            initial avatar.
           </li>
           <li>
             <span className="text-studio-ink">Tail:</span> firehose row
-            unchanged in structure; size bumps slightly so the raw line
-            is easier to read at the wider width.
+            stays single-line mono. No section header — just a thin
+            live meter strip. ssh-tail-into-a-server feel.
           </li>
           <li>
-            <span className="text-studio-ink">Sessions:</span> 3-line
-            pane preview on canvas-alt fill, hairline border. CWD
-            appended to meta line.
+            <span className="text-studio-ink">Sessions:</span> agent
+            run sessions (not local terminals). Meta strip surfaces
+            harness · project · branch · duration · message count.
           </li>
         </ul>
       </ResearchBlock>
@@ -93,8 +95,8 @@ function Research() {
         <SourceLinks
           paths={[
             "design/studio/components/hud/HudPanel.tsx",
-            "design/studio/components/hud/HudFleet.tsx",
-            "design/studio/components/hud/HudObserve.tsx",
+            "design/studio/components/hud/HudAgents.tsx",
+            "design/studio/components/hud/HudActivity.tsx",
             "design/studio/components/hud/HudTail.tsx",
             "design/studio/components/hud/HudSessions.tsx",
             "design/studio/components/hud/tokens.ts",

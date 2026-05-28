@@ -75,6 +75,8 @@ protocol ScoutTerminalAdapter: AnyObject {
     var state: ScoutTerminalConnectionState { get }
     func connect(_ request: ScoutTerminalLaunchRequest) async
     func disconnect()
+    func sendText(_ text: String)
+    func sendBytes(_ bytes: [UInt8])
     func sendShortcut(_ shortcut: ScoutTerminalShortcut)
     func makeTerminalView() -> AnyView
 }
@@ -95,6 +97,14 @@ final class PlaceholderScoutTerminalAdapter: ScoutTerminalAdapter {
 
     func disconnect() {
         state = .idle
+    }
+
+    func sendText(_ text: String) {
+        lastShortcut = nil
+    }
+
+    func sendBytes(_ bytes: [UInt8]) {
+        lastShortcut = nil
     }
 
     func sendShortcut(_ shortcut: ScoutTerminalShortcut) {
@@ -128,15 +138,23 @@ final class TerminiScoutTerminalAdapter: ScoutTerminalAdapter {
         }
     }
 
+    func sendText(_ text: String) {
+        workspace.controller.onTransportWrite?(Data(text.utf8))
+    }
+
+    func sendBytes(_ bytes: [UInt8]) {
+        workspace.controller.onTransportWrite?(Data(bytes))
+    }
+
     func sendShortcut(_ shortcut: ScoutTerminalShortcut) {
-        workspace.controller.onTransportWrite?(Data(shortcut.transportBytes))
+        sendBytes(shortcut.transportBytes)
     }
 
     func makeTerminalView() -> AnyView {
         AnyView(
             TerminiTerminalView(
                 controller: workspace.controller,
-                showsSystemKeyboard: true,
+                showsSystemKeyboard: false,
                 appearance: .init(theme: .jadeNight, fontSize: 13, fontFamily: "SF Mono")
             )
             .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous))

@@ -19,6 +19,8 @@
 
 import type { ReactNode } from "react";
 
+export { SourceLinks } from "./SourceLinks";
+
 export function ResearchHeader({
   surface,
 }: {
@@ -51,22 +53,5 @@ export function ResearchBlock({
       </div>
       <div className="text-studio-ink-muted">{children}</div>
     </div>
-  );
-}
-
-export function SourceLinks({ paths }: { paths: string[] }) {
-  return (
-    <ul className="flex flex-col gap-1 font-mono text-[11px] leading-relaxed text-studio-ink-faint">
-      {paths.map((p) => (
-        <li key={p}>
-          <a
-            href={`cursor:///Users/arach/dev/openscout/${p}`}
-            className="underline decoration-studio-edge underline-offset-2 transition-colors hover:text-studio-ink hover:decoration-scout-accent"
-          >
-            {p}
-          </a>
-        </li>
-      ))}
-    </ul>
   );
 }

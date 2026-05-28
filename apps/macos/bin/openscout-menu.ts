@@ -1,7 +1,14 @@
 #!/usr/bin/env bun
 
 import { execSync, spawn } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +37,7 @@ type Command =
   | "stop"
   | "status"
   | "dmg"
+  | "hud"
   | "help";
 
 type CliOptions = {
@@ -85,6 +93,14 @@ Usage:
   bun apps/macos/bin/openscout-menu.ts quit
   bun apps/macos/bin/openscout-menu.ts status
   bun apps/macos/bin/openscout-menu.ts dmg [--version 0.2.16]
+
+HUD control (via scout:// URL scheme):
+  bun apps/macos/bin/openscout-menu.ts hud state
+  bun apps/macos/bin/openscout-menu.ts hud show|hide|toggle
+  bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|tail|sessions>
+  bun apps/macos/bin/openscout-menu.ts hud size <compact|medium|large>
+  bun apps/macos/bin/openscout-menu.ts hud capture [<out.png>]
+  bun apps/macos/bin/openscout-menu.ts hud matrix [<dir>]
 
 Options:
   --version <v>              Override bundle version (defaults to repo package.json version)
@@ -313,7 +329,15 @@ function buildDMG(options: CliOptions): void {
 }
 
 async function main(): Promise<void> {
-  const { command, options } = parseOptions(process.argv.slice(2));
+  // `hud` takes positional sub-args (action + optional name/path), so we
+  // don't run it through parseOptions (which throws on unknown flags).
+  const argv = process.argv.slice(2);
+  if (argv[0] === "hud") {
+    await runHudCommand(argv.slice(1));
+    return;
+  }
+
+  const { command, options } = parseOptions(argv);
 
   switch (command) {
     case "build":
@@ -349,6 +373,143 @@ async function main(): Promise<void> {
     default:
       printHelp();
       break;
+  }
+}
+
+// ── HUD control via scout:// URL scheme ─────────────────────────────
+//
+// Actions are fired as URLs (`open -g scout://hud/<action>`); the app
+// mirrors current state to /tmp/openscout-hud-state.json on every
+// change. `capture` reads windowId from that file and shells out to
+// screencapture; `matrix` walks the 4×3 grid for a polish review.
+
+const HUD_STATE_PATH = "/tmp/openscout-hud-state.json";
+const HUD_TABS = ["agents", "activity", "tail", "sessions"] as const;
+const HUD_SIZES = ["compact", "medium", "large"] as const;
+
+type HudState = {
+  visible: boolean;
+  tab: string;
+  size: string;
+  windowId: number;
+  ts: number;
+};
+
+function readHudState(): HudState {
+  if (!existsSync(HUD_STATE_PATH)) {
+    throw new Error(
+      `${HUD_STATE_PATH} not found. Is OpenScoutMenu running? Try \`launch\`.`,
+    );
+  }
+  return JSON.parse(readFileSync(HUD_STATE_PATH, "utf8")) as HudState;
+}
+
+function fireHudURL(path: string): void {
+  execSync(`open -g 'scout://hud/${path}'`, { stdio: "inherit" });
+}
+
+function captureHud(out: string): string {
+  const state = readHudState();
+  if (!state.visible || !state.windowId) {
+    throw new Error("HUD not visible. Send `hud show` first.");
+  }
+  execSync(`screencapture -x -l${state.windowId} '${out}'`);
+  return out;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function runHudCommand(args: string[]): Promise<void> {
+  const [action, ...rest] = args;
+  switch (action) {
+    case undefined:
+    case "state": {
+      console.log(JSON.stringify(readHudState(), null, 2));
+      return;
+    }
+    case "show":
+    case "hide":
+    case "toggle": {
+      fireHudURL(action);
+      return;
+    }
+    case "tab": {
+      const name = rest[0];
+      if (!name || !HUD_TABS.includes(name as typeof HUD_TABS[number])) {
+        throw new Error(`hud tab <${HUD_TABS.join("|")}>`);
+      }
+      fireHudURL(`tab/${name}`);
+      return;
+    }
+    case "size": {
+      const name = rest[0];
+      if (!name || !HUD_SIZES.includes(name as typeof HUD_SIZES[number])) {
+        throw new Error(`hud size <${HUD_SIZES.join("|")}>`);
+      }
+      fireHudURL(`size/${name}`);
+      return;
+    }
+    case "capture": {
+      const out =
+        rest[0] ?? `/tmp/openscout-hud-${Date.now()}.png`;
+      console.log(captureHud(out));
+      return;
+    }
+    case "matrix": {
+      // LaunchServices dispatch for `open -g scout://...` adds ~1-2s of
+      // latency per URL. Wait long enough that the state file update
+      // observed for the current URL is the one we just fired, not a
+      // backlog from previous fires.
+      const dir = rest[0] ?? "/tmp/hud-shots";
+      mkdirSync(dir, { recursive: true });
+      console.log(`hud matrix → ${dir}`);
+      fireHudURL("show");
+      await sleep(1500);
+      for (const tab of HUD_TABS) {
+        for (const size of HUD_SIZES) {
+          // Defensive re-show — if a global click or focus shift dismissed
+          // the HUD between iterations, this brings it back without losing
+          // the loop.
+          if (!readHudState().visible) {
+            fireHudURL("show");
+            await sleep(1200);
+          }
+          fireHudURL(`tab/${tab}`);
+          await sleep(1500);
+          fireHudURL(`size/${size}`);
+          await sleep(1500);
+          const out = `${dir}/${tab}-${size}.png`;
+          try {
+            const state = readHudState();
+            if (!state.visible) {
+              fireHudURL("show");
+              await sleep(1500);
+              fireHudURL(`tab/${tab}`);
+              fireHudURL(`size/${size}`);
+              await sleep(1500);
+            } else if (state.tab !== tab || state.size !== size) {
+              console.error(
+                `  ${tab}/${size} state mismatch — actual ${state.tab}/${state.size}; retrying once`,
+              );
+              fireHudURL(`tab/${tab}`);
+              fireHudURL(`size/${size}`);
+              await sleep(2000);
+            }
+            captureHud(out);
+            console.log(`  ${tab}/${size} → ${out}`);
+          } catch (e) {
+            console.error(`  ${tab}/${size} FAILED: ${(e as Error).message}`);
+          }
+        }
+      }
+      return;
+    }
+    default:
+      throw new Error(
+        `Unknown hud action: ${action}. Try state, show, hide, toggle, tab, size, capture, matrix.`,
+      );
   }
 }
 

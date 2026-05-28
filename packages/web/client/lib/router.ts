@@ -67,6 +67,11 @@ function parseFollowPreferredView(value: string | null): FollowPreferredView | u
   }
 }
 
+function parseTerminalMode(value: string | null): "observe" | "takeover" | undefined {
+  const normalized = value?.trim().replace(/\.+$/u, "");
+  return normalized === "observe" || normalized === "takeover" ? normalized : undefined;
+}
+
 function opsModePath(mode: OpsMode): string {
   switch (mode) {
     case "mission":
@@ -281,8 +286,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return { view: "settings" };
   }
   if (parts[0] === "terminal") {
-    const modeParam = url.searchParams.get("mode");
-    const mode = modeParam === "observe" || modeParam === "takeover" ? modeParam : undefined;
+    const mode = parseTerminalMode(url.searchParams.get("mode"));
     return {
       view: "terminal",
       ...(parts[1] ? { agentId: decodeURIComponent(parts[1]) } : {}),

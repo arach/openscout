@@ -14,7 +14,7 @@ import {
   SourceLinks,
 } from "@/components/studio/research";
 
-const TABS: HudTab[] = ["fleet", "observe", "tail", "sessions"];
+const TABS: HudTab[] = ["agents", "activity", "tail", "sessions"];
 
 export default function HudCompactPage() {
   return (
@@ -28,8 +28,8 @@ export default function HudCompactPage() {
         </h1>
         <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           Locked reference at the compact size — a ~420px column the
-          operator summons over any window. All four tabs (fleet ·
-          observe · tail · sessions) stacked here for one-pass review.
+          operator summons over any window. All four tabs (agents ·
+          activity · tail · sessions) stacked here for one-pass review.
           The interactive playground with size + tab switching lives at{" "}
           <em>/studies/hud</em>.
         </p>
@@ -81,8 +81,8 @@ function Research() {
         <SourceLinks
           paths={[
             "design/studio/components/hud/HudPanel.tsx",
-            "design/studio/components/hud/HudFleet.tsx",
-            "design/studio/components/hud/HudObserve.tsx",
+            "design/studio/components/hud/HudAgents.tsx",
+            "design/studio/components/hud/HudActivity.tsx",
             "design/studio/components/hud/HudTail.tsx",
             "design/studio/components/hud/HudSessions.tsx",
             "design/studio/components/hud/tokens.ts",

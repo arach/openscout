@@ -57,26 +57,17 @@ final class BonjourRelayDiscovery: NSObject {
         service.name + service.type + service.domain
     }
 
-    private func relayURL(for service: NetService) -> String? {
-        guard service.port > 0 else { return nil }
-        guard let txtData = service.txtRecordData() else { return nil }
+    private func relayURLs(for service: NetService) -> [String] {
+        guard service.port > 0 else { return [] }
+        guard let txtData = service.txtRecordData() else { return [] }
 
         let txt = Self.txtDictionary(from: txtData)
-        guard txt["pk"]?.lowercased() == targetPublicKeyHex else {
-            return nil
-        }
-
-        let scheme = txt["scheme"] == "wss" ? "wss" : "ws"
-        guard let hostName = service.hostName?.trimmedNonEmpty else { return nil }
-        let host = normalize(hostName: hostName)
-        guard !host.isEmpty else { return nil }
-
-        return "\(scheme)://\(host):\(service.port)"
-    }
-
-    private func normalize(hostName: String) -> String {
-        guard hostName.hasSuffix(".") else { return hostName }
-        return String(hostName.dropLast())
+        return relayURLsFromBonjourAdvertisement(
+            port: service.port,
+            hostName: service.hostName,
+            txt: txt,
+            targetPublicKeyHex: targetPublicKeyHex
+        )
     }
 
     private static func txtDictionary(from data: Data) -> [String: String] {
@@ -114,18 +105,61 @@ extension BonjourRelayDiscovery: NetServiceBrowserDelegate, NetServiceDelegate {
         let key = serviceKey(sender)
         resolvingServices.removeValue(forKey: key)
 
-        guard let relayURL = relayURL(for: sender) else {
+        let relayURLs = relayURLs(for: sender)
+        guard !relayURLs.isEmpty else {
             return
         }
 
-        Self.logger.notice("Discovered trusted Scout relay via Bonjour: \(relayURL, privacy: .public)")
-        discoveredRelayURLs.append(relayURL)
+        Self.logger.notice("Discovered trusted Scout relay via Bonjour with \(relayURLs.count, privacy: .public) route(s)")
+        discoveredRelayURLs.append(contentsOf: relayURLs)
         finish()
     }
 
     func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
         resolvingServices.removeValue(forKey: serviceKey(sender))
     }
+}
+
+func relayURLsFromBonjourAdvertisement(
+    port: Int,
+    hostName: String?,
+    txt: [String: String],
+    targetPublicKeyHex: String
+) -> [String] {
+    guard port > 0,
+          txt["pk"]?.lowercased() == targetPublicKeyHex.lowercased(),
+          let hostName = hostName?.trimmedNonEmpty else {
+        return []
+    }
+
+    let scheme = txt["scheme"] == "wss" ? "wss" : "ws"
+    let host = normalizedBonjourHostName(hostName)
+    guard !host.isEmpty else { return [] }
+
+    let discoveredRelayURL = "\(scheme)://\(host):\(port)"
+    let fallbackRelayURLs = parseBonjourFallbackRelayURLs(txt["fallbackRelays"])
+    return deduplicatedRelayURLs([discoveredRelayURL] + fallbackRelayURLs)
+}
+
+private func parseBonjourFallbackRelayURLs(_ rawValue: String?) -> [String] {
+    guard let rawValue else { return [] }
+
+    return rawValue
+        .split(separator: "|")
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { value in
+            guard let components = URLComponents(string: value),
+                  let scheme = components.scheme?.lowercased(),
+                  components.host?.trimmedNonEmpty != nil else {
+                return false
+            }
+            return scheme == "ws" || scheme == "wss"
+        }
+}
+
+private func normalizedBonjourHostName(_ hostName: String) -> String {
+    guard hostName.hasSuffix(".") else { return hostName }
+    return String(hostName.dropLast())
 }
 
 private func deduplicatedRelayURLs(_ relayURLs: [String]) -> [String] {

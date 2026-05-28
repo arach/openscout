@@ -26,6 +26,11 @@ import {
   type ScoutDirectMessageResult,
 } from "../broker/service.ts";
 
+const SCOUTBOT_AGENT_ID = "scoutbot";
+const SCOUTBOT_DEFAULT_THREAD_ID = "thr-default";
+const SCOUTBOT_DEFAULT_CONVERSATION_ID = "dm.operator.scoutbot.default";
+const SCOUTBOT_LEGACY_CONVERSATION_ID = "dm.operator.scoutbot";
+
 export type ScoutMobileListFilters = {
   query?: string;
   limit?: number;
@@ -177,6 +182,38 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string): boolean {
+  return metadata?.[key] === true;
+}
+
+function isBrokerRequesterWaitTimeoutStatusMessage(message: MessageRecord): boolean {
+  if (message.class !== "status" || metadataString(message.metadata, "source") !== "broker") {
+    return false;
+  }
+  return message.body.includes("Scout stopped waiting for a synchronous result")
+    || message.body.includes("the requester stopped waiting after");
+}
+
+function isRequesterWaitTimeoutFlight(flight: FlightRecord): boolean {
+  return metadataBoolean(flight.metadata, "requesterTimedOut")
+    || metadataString(flight.metadata, "timeoutScope") === "requester_wait"
+    || Boolean(flight.summary?.includes("Scout stopped waiting for a synchronous result"));
+}
+
+function isInactiveAgent(agent: AgentDefinition | null | undefined): boolean {
+  return metadataBoolean(agent?.metadata, "retiredFromFleet")
+    || metadataBoolean(agent?.metadata, "staleLocalRegistration");
+}
+
+function isInactiveEndpoint(snapshot: ScoutBrokerSnapshot, endpoint: AgentEndpoint | null | undefined): boolean {
+  if (!endpoint) {
+    return true;
+  }
+  return metadataBoolean(endpoint.metadata, "retiredFromFleet")
+    || metadataBoolean(endpoint.metadata, "staleLocalRegistration")
+    || isInactiveAgent(snapshot.agents[endpoint.agentId]);
+}
+
 function titleCaseToken(value: string): string {
   return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
 }
@@ -246,6 +283,9 @@ async function loadMobileWorkspaceInventory(currentDirectory?: string): Promise<
 function latestMessageByConversation(snapshot: ScoutBrokerSnapshot): Map<string, MessageRecord[]> {
   const buckets = new Map<string, MessageRecord[]>();
   for (const message of Object.values(snapshot.messages)) {
+    if (isBrokerRequesterWaitTimeoutStatusMessage(message)) {
+      continue;
+    }
     const next = buckets.get(message.conversationId) ?? [];
     next.push(message);
     buckets.set(message.conversationId, next);
@@ -268,7 +308,9 @@ function agentDisplayName(snapshot: ScoutBrokerSnapshot, agentId: string): strin
 }
 
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
-  return Object.values(snapshot.endpoints).find((endpoint) => endpoint.agentId === agentId) ?? null;
+  return Object.values(snapshot.endpoints).find((endpoint) => (
+    endpoint.agentId === agentId && !isInactiveEndpoint(snapshot, endpoint)
+  )) ?? null;
 }
 
 function buildMobileAgentSummary(
@@ -322,7 +364,7 @@ function buildMobileSessionSummaries(snapshot: ScoutBrokerSnapshot): ScoutMobile
         ? conversation.participantIds.find((participantId) => participantId !== "operator") ?? null
         : null;
       const agent = directAgentId ? snapshot.agents[directAgentId] ?? null : null;
-      if (!directAgentId || !agent || messages.length === 0) {
+      if (!directAgentId || !agent || isInactiveAgent(agent) || messages.length === 0) {
         return [];
       }
       const endpoint = endpointForAgent(snapshot, directAgentId);
@@ -382,6 +424,7 @@ function messagesForConversation(
   conversationId: string,
 ): MessageRecord[] {
   return Object.values(snapshot.messages)
+    .filter((message) => !isBrokerRequesterWaitTimeoutStatusMessage(message))
     .filter((message) => message.conversationId === conversationId)
     .sort((left, right) => (normalizeTimestamp(left.createdAt) ?? 0) - (normalizeTimestamp(right.createdAt) ?? 0));
 }
@@ -445,7 +488,8 @@ function latestActiveFlightForAgent(
   return Object.values(snapshot.flights as Record<string, FlightRecord>)
     .filter((flight) => (
       flight.targetAgentId === agentId
-      && !["completed", "failed", "cancelled"].includes(flight.state)
+      && (flight.state === "running" || flight.state === "waiting")
+      && !isRequesterWaitTimeoutFlight(flight)
     ))
     .sort((left, right) => (normalizeTimestamp(right.startedAt) ?? 0) - (normalizeTimestamp(left.startedAt) ?? 0))[0] ?? null;
 }
@@ -461,6 +505,12 @@ async function loadMobileRelayState(): Promise<{
 
   const snapshot = broker.snapshot;
   const agents = Object.values(snapshot.agents)
+    .filter((agent) => !isInactiveAgent(agent))
+    .filter((agent) => {
+      const endpoints = Object.values(snapshot.endpoints)
+        .filter((endpoint) => endpoint.agentId === agent.id);
+      return endpoints.length === 0 || endpoints.some((endpoint) => !isInactiveEndpoint(snapshot, endpoint));
+    })
     .map((agent) => buildMobileAgentSummary(snapshot, agent))
     .sort((left, right) => (right.lastActiveAt ?? 0) - (left.lastActiveAt ?? 0) || left.title.localeCompare(right.title));
 
@@ -834,6 +884,10 @@ export async function sendScoutMobileMessage(
   currentDirectory?: string,
   deviceId?: string,
 ): Promise<ScoutDirectMessageResult> {
+  if (input.agentId === SCOUTBOT_AGENT_ID) {
+    return sendScoutbotMobileThreadMessage(input, currentDirectory, deviceId);
+  }
+
   return sendScoutDirectMessage({
     agentId: input.agentId,
     body: input.body,
@@ -845,6 +899,112 @@ export async function sendScoutMobileMessage(
     source: "scout-mobile",
     deviceId,
   });
+}
+
+async function sendScoutbotMobileThreadMessage(
+  input: SendScoutMobileMessageInput,
+  currentDirectory?: string,
+  deviceId?: string,
+): Promise<ScoutDirectMessageResult> {
+  void currentDirectory;
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    throw new Error("Scoutbot is not available.");
+  }
+
+  const conversationId = broker.snapshot.conversations[SCOUTBOT_LEGACY_CONVERSATION_ID]
+    ? SCOUTBOT_LEGACY_CONVERSATION_ID
+    : SCOUTBOT_DEFAULT_CONVERSATION_ID;
+  const conversation = broker.snapshot.conversations[conversationId] ?? {
+    id: conversationId,
+    kind: "direct",
+    title: conversationId === SCOUTBOT_LEGACY_CONVERSATION_ID ? "Scout" : "Scout · default",
+    visibility: "private",
+    shareMode: "local",
+    authorityNodeId: broker.node.id,
+    participantIds: ["operator", SCOUTBOT_AGENT_ID].sort(),
+    metadata: {
+      surface: "scoutbot",
+      scoutbotThreadId: SCOUTBOT_DEFAULT_THREAD_ID,
+    },
+  };
+  if (!broker.snapshot.conversations[conversationId]) {
+    await postMobileBrokerJson(broker.baseUrl, "/v1/conversations", conversation);
+  }
+
+  const now = Date.now();
+  const messageId = createMobileBrokerEntityId("msg", now);
+  const transportSessionId = scoutbotTransportSessionId(broker.snapshot);
+  await postMobileBrokerJson(broker.baseUrl, "/v1/messages", {
+    id: messageId,
+    conversationId,
+    actorId: "operator",
+    originNodeId: broker.node.id,
+    class: "agent",
+    body: input.body.trim(),
+    replyToMessageId: input.replyToMessageId ?? undefined,
+    mentions: [{ actorId: SCOUTBOT_AGENT_ID, label: "@scoutbot" }],
+    audience: { notify: [SCOUTBOT_AGENT_ID], reason: "direct_message" },
+    visibility: "private",
+    policy: "durable",
+    createdAt: now,
+    metadata: {
+      source: "scout-mobile",
+      destinationKind: "scoutbot_thread",
+      destinationId: SCOUTBOT_DEFAULT_THREAD_ID,
+      scoutbotThreadId: SCOUTBOT_DEFAULT_THREAD_ID,
+      ...(transportSessionId ? { targetSessionId: transportSessionId } : {}),
+      referenceMessageIds: input.referenceMessageIds ?? [],
+      clientMessageId: input.clientMessageId ?? null,
+      ...(deviceId ? { deviceId } : {}),
+      relayMessageId: messageId,
+      returnAddress: {
+        actorId: "operator",
+        conversationId,
+        replyToMessageId: messageId,
+        ...(transportSessionId ? { sessionId: transportSessionId } : {}),
+      },
+    },
+  });
+
+  return {
+    conversationId,
+    messageId,
+  };
+}
+
+function scoutbotTransportSessionId(snapshot: ScoutBrokerSnapshot): string | null {
+  const endpoint = Object.values(snapshot.endpoints ?? {}).find((candidate) => (
+    candidate.agentId === SCOUTBOT_AGENT_ID
+      && candidate.transport === "codex_app_server"
+      && !isInactiveEndpoint(snapshot, candidate)
+  ));
+  if (!endpoint) return null;
+  return metadataString(endpoint.metadata, "threadId")
+    ?? metadataString(endpoint.metadata, "externalSessionId")
+    ?? endpoint.sessionId?.trim()
+    ?? null;
+}
+
+async function postMobileBrokerJson<T>(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const response = await fetch(new URL(path, baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Broker ${path} failed (${response.status}): ${text || response.statusText}`);
+  }
+  return await response.json() as T;
+}
+
+function createMobileBrokerEntityId(prefix: string, createdAtMs: number): string {
+  return `${prefix}-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /**

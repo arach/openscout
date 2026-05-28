@@ -22,10 +22,28 @@ import type {
   MobileAgentSummary,
 } from "../types/mobile.ts";
 
-export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
+export function queryMobileAgents(
+  limit = 50,
+  filters: { query?: string | null } = {},
+): MobileAgentSummary[] {
   const executingAgentIds = queryExecutingAgentIds();
   const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
   const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
+  const query = filters.query?.trim().toLowerCase();
+  const whereClauses = [activeAgentMetadataPredicate("a")];
+  const params: Array<string | number> = [];
+  if (query) {
+    whereClauses.push(`(
+      lower(ac.display_name) LIKE ?
+      OR lower(a.id) LIKE ?
+      OR lower(COALESCE(a.default_selector, '')) LIKE ?
+      OR lower(COALESCE(a.selector, '')) LIKE ?
+      OR lower(COALESCE(ep.project_root, '')) LIKE ?
+    )`);
+    const pattern = `%${query}%`;
+    params.push(pattern, pattern, pattern, pattern, pattern);
+  }
+  params.push(limit);
 
   // Latest message timestamp per actor (for lastActiveAt)
   const lastMessageAt = new Map(
@@ -50,10 +68,10 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
      FROM agents a
      JOIN actors ac ON ac.id = a.id
      ${LATEST_AGENT_ENDPOINT_JOIN}
-     WHERE ${activeAgentMetadataPredicate("a")}
+     WHERE ${whereClauses.join(" AND ")}
      ORDER BY COALESCE(${endpointUpdatedAtExpression}, 0) DESC, ac.display_name ASC
      LIMIT ?`,
-  ).all(limit) as Array<{
+  ).all(...params) as Array<{
     id: string;
     display_name: string;
     default_selector: string | null;

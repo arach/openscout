@@ -119,7 +119,7 @@ describe("terminal relay config", () => {
         autoConnect: true,
         healthUrl: "https://scout.test/api/relay-health",
         sessionKey: "scout-takeover-agent-1",
-        url: "wss://scout.test/ws/relay",
+        url: "wss://scout.test/ws/relay?agentId=agent-1",
       }),
     );
   });
@@ -151,7 +151,7 @@ describe("terminal relay config", () => {
         healthUrl: "https://scout.test/ws/terminal/health",
         sessionKey: "scout-tmux-agent-1-relay-agent-1-claude",
         tmuxSession: "relay-agent-1-claude",
-        url: "wss://scout.test/ws/terminal",
+        url: "wss://scout.test/ws/terminal?agentId=agent-1",
       }),
     );
   });

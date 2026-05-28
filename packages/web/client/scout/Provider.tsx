@@ -124,7 +124,7 @@ const DARK_THEME_VARS: ThemeVars = {
   "--scout-chrome-avatar-ink": "#111111",
   "--hud-font-sans": "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
-  "--hud-font-serif": "'Instrument Serif', 'Spectral', Georgia, serif",
+  "--hud-font-serif": "'Play', 'Inter Tight', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-accent-title": "var(--hud-font-sans)",
 };
 
@@ -152,7 +152,7 @@ const LIGHT_THEME_VARS: ThemeVars = {
   "--scout-chrome-avatar-ink": "#ffffff",
   "--hud-font-sans": "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
-  "--hud-font-serif": "'Instrument Serif', 'Spectral', Georgia, serif",
+  "--hud-font-serif": "'Play', 'Inter Tight', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-accent-title": "var(--hud-font-sans)",
 };
 

@@ -14,6 +14,20 @@
 
 import SwiftUI
 
+enum TailScope: String, CaseIterable {
+    case all
+    case scout
+    case native
+
+    var label: String {
+        switch self {
+        case .all: "ALL"
+        case .scout: "SCOUT"
+        case .native: "NATIVE"
+        }
+    }
+}
+
 struct TailFeedView: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(ScoutRouter.self) private var router
@@ -29,6 +43,12 @@ struct TailFeedView: View {
     @State private var ratePerMin: Int = 0
     @State private var rateWindow: [Int] = []  // ts (sec) of items observed in last 60s
     @State private var mutedActivityKinds: [String: Date] = [:]  // kind → expiry
+    @State private var selectedRow: TailFeedRow?
+    @AppStorage("tail.scope") private var scopeRaw: String = TailScope.all.rawValue
+
+    private var scope: TailScope {
+        TailScope(rawValue: scopeRaw) ?? .all
+    }
 
     private static let muteDuration: TimeInterval = 5 * 60
 
@@ -48,7 +68,24 @@ struct TailFeedView: View {
         return merged
             .filter { !$0.isNoise }
             .filter { !isMuted($0, now: now) }
+            .filter { inScope($0) }
             .sorted { $0.tsMs > $1.tsMs }
+    }
+
+    private func inScope(_ row: TailFeedRow) -> Bool {
+        switch scope {
+        case .all: return true
+        case .scout:
+            switch row {
+            case .activity, .turn: return true
+            case .tail: return false
+            }
+        case .native:
+            switch row {
+            case .tail: return true
+            case .activity, .turn: return false
+            }
+        }
     }
 
     private func isMuted(_ row: TailFeedRow, now: Date) -> Bool {
@@ -107,6 +144,11 @@ struct TailFeedView: View {
             footer
         }
         .background(ScoutColors.backgroundAdaptive)
+        .sheet(item: $selectedRow) { row in
+            TailRowDetailView(row: row) { sid in
+                router.push(.sessionDetail(sessionId: sid))
+            }
+        }
         .task { await activityLoop() }
         .task { await safetyPollLoop() }
         .task { await tailEventLoop() }
@@ -137,7 +179,11 @@ struct TailFeedView: View {
                     .foregroundStyle(paused ? ScoutColors.ledAmber : ScoutColors.ledGreen)
             }
 
-            Spacer()
+            Spacer(minLength: ScoutSpacing.sm)
+
+            scopePicker
+
+            Spacer(minLength: ScoutSpacing.sm)
 
             Text("\(ratePerMin)/m")
                 .font(ScoutTypography.code(9, weight: .medium))
@@ -165,6 +211,37 @@ struct TailFeedView: View {
         .padding(.horizontal, ScoutSpacing.lg)
         .padding(.vertical, ScoutSpacing.sm)
         .background(ScoutColors.surfaceRaisedAdaptive)
+    }
+
+    private var scopePicker: some View {
+        HStack(spacing: 2) {
+            ForEach(TailScope.allCases, id: \.self) { option in
+                Button {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    scopeRaw = option.rawValue
+                } label: {
+                    Text(option.label)
+                        .font(ScoutTypography.code(9, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(option == scope ? ScoutColors.textPrimary : ScoutColors.textMuted)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(option == scope
+                                      ? ScoutColors.backgroundAdaptive
+                                      : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Scope: \(option.label)")
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .stroke(ScoutColors.divider, lineWidth: 0.5)
+        )
     }
 
     // MARK: - Tail rows
@@ -199,6 +276,8 @@ struct TailFeedView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(rows) { row in
                             TailRow(row: row, livePids: livePids)
+                                .contentShape(Rectangle())
+                                .onTapGesture { selectedRow = row }
                                 .contextMenu {
                                     Button {
                                         UIPasteboard.general.string = copyLine(for: row)

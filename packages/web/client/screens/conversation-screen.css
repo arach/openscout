@@ -763,8 +763,66 @@ button.s-thread-msg-actor:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
 }
 
-.s-thread-msg[data-class="system"] .s-thread-msg-card {
-  background: var(--bg);
+/* System + status notes are signposts around real replies, not replies
+   themselves. Strip avatar weight, shrink type, and de-saturate so the
+   eye lands on the actual agent message instead. */
+.s-thread-feed-block:has(> .s-thread-msg[data-class="system"]),
+.s-thread-feed-block:has(> .s-thread-msg[data-class="status"]) {
+  max-width: min(72%, 560px);
+  align-self: center;
+}
+
+.s-thread-msg[data-class="system"] .s-thread-msg-card,
+.s-thread-msg[data-class="status"] .s-thread-msg-card {
+  gap: 2px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border-color: color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+
+.s-thread-msg[data-class="system"] .s-thread-msg-avatar,
+.s-thread-msg[data-class="status"] .s-thread-msg-avatar {
+  --size: 18px;
+  margin-top: 1px;
+  opacity: 0.55;
+}
+
+.s-thread-msg[data-class="system"] .s-thread-msg-actor,
+.s-thread-msg[data-class="status"] .s-thread-msg-actor {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.s-thread-msg[data-class="system"] .s-thread-msg-handle,
+.s-thread-msg[data-class="status"] .s-thread-msg-handle {
+  display: none;
+}
+
+.s-thread-msg[data-class="system"] .s-thread-msg-kind,
+.s-thread-msg[data-class="status"] .s-thread-msg-kind {
+  min-height: 16px;
+  padding: 0 5px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-color: color-mix(in srgb, var(--border) 50%, transparent);
+  color: var(--dim);
+}
+
+.s-thread-msg[data-class="system"] .s-thread-msg-time,
+.s-thread-msg[data-class="status"] .s-thread-msg-time {
+  font-size: 9.5px;
+}
+
+.s-thread-msg[data-class="system"] .s-thread-msg-body,
+.s-thread-msg[data-class="status"] .s-thread-msg-body {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 /* ── Working indicator ── */
@@ -1587,31 +1645,29 @@ details[open] > .s-thread-meta-toggle::before {
 .s-thread-status {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 8px 20px 0;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
-  border-radius: 12px;
+  gap: 8px;
+  margin: 6px 20px 0;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
 }
 
 .s-thread-status--pending {
-  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
-  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
 }
 
 .s-thread-status--working {
   border-color: color-mix(in srgb, var(--green) 20%, var(--border));
-  background: color-mix(in srgb, var(--green) 3%, var(--surface));
 }
 
 .s-thread-status--stale {
-  border-color: color-mix(in srgb, var(--amber) 24%, var(--border));
-  background: color-mix(in srgb, var(--amber) 4%, var(--surface));
+  border-color: color-mix(in srgb, var(--amber) 22%, var(--border));
 }
 
 .s-thread-status-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
   animation: s-thread-sidebar-pulse 1.5s ease-in-out infinite;
@@ -1624,20 +1680,24 @@ details[open] > .s-thread-meta-toggle::before {
 .s-thread-status-copy {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .s-thread-status-label {
-  display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--ink);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-family: var(--font-mono);
 }
 
 .s-thread-status-detail {
-  display: block;
   font-size: 11px;
   color: var(--muted);
-  margin-top: 1px;
 }
 
 /* ── KBD ── */

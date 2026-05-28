@@ -103,7 +103,16 @@ struct ScoutNavigationShell: View {
             ScoutBottomBar()
                 .offset(x: dragOffset)
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if showsConnectionIssueBanner {
+                ConnectionIssueBanner {
+                    router.push(.settings)
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .background(ScoutColors.backgroundAdaptive)
+        .animation(.easeOut(duration: 0.18), value: showsConnectionIssueBanner)
         .overlay {
             // Capture screen width once without triggering relayout during drag
             GeometryReader { geo in
@@ -182,11 +191,21 @@ struct ScoutNavigationShell: View {
         }
     }
 
+    private var showsConnectionIssueBanner: Bool {
+        guard connection.hasTrustedBridge else { return false }
+        let displayHealth = normalizedConnectionDisplayHealth(
+            state: connection.state,
+            health: connection.health
+        )
+        if connection.state != .connected { return true }
+        return displayHealth != .healthy
+    }
+
     @ViewBuilder
     private func surfaceView(for surface: Surface) -> some View {
         switch surface {
         case .home:
-            HomeView()
+            AllSessionsGridView()
         case .inbox:
             InboxView()
         case .agents:
@@ -221,6 +240,94 @@ struct ScoutNavigationShell: View {
             DMView(peerId: id)
         case .terminal:
             ScoutTerminalView()
+        case .assistant:
+            ScoutAssistantView()
         }
+    }
+}
+
+private struct ConnectionIssueBanner: View {
+    @Environment(ConnectionManager.self) private var connection
+    let action: () -> Void
+
+    private var toneColor: Color {
+        switch connection.state {
+        case .connecting, .handshaking, .reconnecting:
+            return ScoutColors.ledAmber
+        case .failed:
+            return ScoutColors.ledRed
+        case .connected:
+            let displayHealth = normalizedConnectionDisplayHealth(
+                state: connection.state,
+                health: connection.health
+            )
+            switch displayHealth {
+            case .healthy: return ScoutColors.ledGreen
+            case .suspect, .degraded: return ScoutColors.ledAmber
+            case .tailscaleUnavailable, .offline: return ScoutColors.ledRed
+            }
+        case .disconnected:
+            return ScoutColors.ledRed
+        }
+    }
+
+    private var title: String {
+        switch connection.state {
+        case .connecting, .handshaking, .reconnecting:
+            return "Connection issues"
+        case .connected:
+            return "Connection degraded"
+        case .disconnected, .failed:
+            return "Not connected"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: ScoutSpacing.md) {
+                Image(systemName: connection.statusDetails.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(toneColor)
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(ScoutTypography.code(11, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
+                        .lineLimit(1)
+
+                    Text(connection.statusDetails.message ?? connection.statusDetails.title)
+                        .font(ScoutTypography.caption(12))
+                        .foregroundStyle(ScoutColors.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                Spacer(minLength: ScoutSpacing.md)
+
+                Text("Settings")
+                    .font(ScoutTypography.code(10, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, ScoutSpacing.lg)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(ScoutColors.surfaceRaisedAdaptive)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(toneColor.opacity(0.55))
+                    .frame(height: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Connection issues")
+        .accessibilityHint("Opens connection settings")
     }
 }

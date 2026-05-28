@@ -94,7 +94,8 @@ export function summarizeAgentState(
   if (isWorking) {
     return "working";
   }
-  if (rawState === "offline" && wakePolicy === "on_demand") {
+  const wakeableWithoutEndpoint = wakePolicy === "on_demand" || wakePolicy === "always_on";
+  if ((!rawState || rawState === "offline") && wakeableWithoutEndpoint) {
     return "available";
   }
   return rawState && rawState !== "offline" ? "available" : "offline";
@@ -149,7 +150,11 @@ export function transientBrokerWorkingStatusPredicate(alias: string): string {
   return `NOT (
     ${alias}.class = 'status'
     AND COALESCE(json_extract(${alias}.metadata_json, '$.source'), '') = 'broker'
-    AND ${alias}.body LIKE '% is working.'
+    AND (
+      ${alias}.body LIKE '% is working.'
+      OR ${alias}.body LIKE '%Scout stopped waiting for a synchronous result%'
+      OR ${alias}.body LIKE '%the requester stopped waiting after%'
+    )
   )`;
 }
 

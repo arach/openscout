@@ -30,7 +30,7 @@ import {
 
 export default function HudStudyPage() {
   const [size, setSize] = useState<HudSize>("compact");
-  const [tab, setTab] = useState<HudTab>("fleet");
+  const [tab, setTab] = useState<HudTab>("agents");
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-7 px-7 pt-16 pb-24">
@@ -57,19 +57,16 @@ function Research() {
       <ResearchBlock eyebrow="engage preview matrix">
         <p className="mb-4">
           Every row across every tab carries a preview-engage scaffold.
-          Click the row to expand inline; the engaged panel reveals more
-          context without leaving the HUD. Detail depth scales by size.
+          At compact/medium, click a row to reveal a detail panel
+          inline below. At large, every tab switches to a two-pane
+          layout — list left, detail right; clicking a row swaps the
+          detail without closing. Esc closes the engage panel.
         </p>
         <EngageMatrix />
       </ResearchBlock>
 
       <ResearchBlock eyebrow="open questions">
         <ul className="flex flex-col gap-2">
-          <li>
-            <span className="text-studio-ink">Engage panel at large:</span>{" "}
-            inline-below (vertical reveal) vs right-side detail column
-            (like hud-native three-column). Choice still open.
-          </li>
           <li>
             <span className="text-studio-ink">Tail correlation hints:</span>{" "}
             useful at large, but needs &ldquo;similar line&rdquo;
@@ -80,8 +77,59 @@ function Research() {
               Scout-link visibility at compact:
             </span>{" "}
             always visible (eats horizontal space) vs hover-reveal only.
+            Currently hover-gated.
+          </li>
+          <li>
+            <span className="text-studio-ink">
+              Sessions sort order:
+            </span>{" "}
+            most-recent-activity first vs grouped by status
+            (running / idle / ended). At large the grouped variant
+            reads cleaner.
           </li>
         </ul>
+      </ResearchBlock>
+
+      <ResearchBlock eyebrow="tier transitions">
+        <p className="mb-3">
+          The panel resizes between tiers, it does not pop. Switching{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            compact
+          </code>{" "}
+          ↔{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            medium
+          </code>{" "}
+          ↔{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            large
+          </code>{" "}
+          animates the outer frame&rsquo;s width and height over{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            220ms
+          </code>{" "}
+          with{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            cubic-bezier(0.42, 0, 0.58, 1)
+          </code>{" "}
+          — literal ease-in-out, mirroring the native HUD&rsquo;s{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            NSAnimationContext
+          </code>{" "}
+          cadence.
+        </p>
+        <p>
+          The body content cross-fades on the same gesture (
+          <code className="font-mono text-[11px] text-studio-ink">
+            180ms ease-out
+          </code>
+          , keyed on{" "}
+          <code className="font-mono text-[11px] text-studio-ink">
+            `${"{tab}"}-${"{size}"}`
+          </code>
+          ) so the new layout lands already lit. Tab switches inherit the
+          same fade since the key flips on either axis.
+        </p>
       </ResearchBlock>
 
       <ResearchBlock eyebrow="rules">
@@ -109,7 +157,18 @@ function Research() {
           </li>
           <li>
             <span className="text-studio-ink">Density:</span> ladder
-            collapses to 10 / 11 / 12 / 13 / 15. Five sizes total.
+            locked at 10 / 11 / 12 / 13 / 15. Mono for eyebrows,
+            counts, timestamps, hotkeys. Sans for everything readable.
+          </li>
+          <li>
+            <span className="text-studio-ink">Engage:</span> click a
+            row to reveal detail. Esc closes. Clicking another row
+            swaps the detail without closing. Identical pattern across
+            all four tabs via{" "}
+            <code className="font-mono text-[11px] text-studio-ink">
+              useHudEngage()
+            </code>
+            .
           </li>
         </ul>
       </ResearchBlock>
@@ -118,13 +177,14 @@ function Research() {
         <SourceLinks
           paths={[
             "design/studio/components/hud/HudPanel.tsx",
-            "design/studio/components/hud/HudFleet.tsx",
-            "design/studio/components/hud/HudObserve.tsx",
+            "design/studio/components/hud/HudAgents.tsx",
+            "design/studio/components/hud/HudActivity.tsx",
             "design/studio/components/hud/HudTail.tsx",
             "design/studio/components/hud/HudSessions.tsx",
             "design/studio/components/hud/HudMasthead.tsx",
             "design/studio/components/hud/HudScoutLink.tsx",
             "design/studio/components/hud/HudActivityPulse.tsx",
+            "design/studio/components/hud/useHudEngage.ts",
             "design/studio/components/hud/mock.ts",
             "design/studio/components/hud/tokens.ts",
             "design/studio/components/hud/types.ts",
@@ -193,9 +253,9 @@ function Research() {
 // ─── Engage preview matrix ──────────────────────────────────────────
 
 const MATRIX_COLS: { size: HudSize; label: string; sub: string }[] = [
-  { size: "compact", label: "compact", sub: "~80–120pt detail" },
-  { size: "medium", label: "medium", sub: "~140–200pt detail" },
-  { size: "large", label: "large", sub: "~220–300pt detail" },
+  { size: "compact", label: "compact", sub: "inline reveal · ~80–120pt" },
+  { size: "medium", label: "medium", sub: "inline reveal · ~140–200pt" },
+  { size: "large", label: "large", sub: "side pane · sticky right column" },
 ];
 
 const MATRIX_ROWS: {
@@ -204,39 +264,39 @@ const MATRIX_ROWS: {
   cells: [string, string, string];
 }[] = [
   {
-    tab: "fleet",
-    label: "Fleet",
+    tab: "agents",
+    label: "Agents",
     cells: [
       "full work item · last 3 actions w/ ago · current state w/ duration",
-      "+ capabilities · 24-step activity pulse · branch · cwd · linked flight chip",
-      "+ last 3 message excerpts · recent files touched · selector · prominent scout link",
+      "+ capabilities · activity pulse · branch · cwd · linked flight chip",
+      "side-pane (B+C) — context column + last-turn body + turn-buffer dots",
     ],
   },
   {
-    tab: "observe",
-    label: "Observe",
+    tab: "activity",
+    label: "Activity",
     cells: [
-      "full title · summary · source agent · kind · flight id",
-      "+ related events (2 nearby in same flight) · turn buffer position",
-      "+ 3-turn conversation context (this/prev/next) · related agents · drill-into-thread chip",
+      "category eyebrow · title · summary · byline · flight id",
+      "+ related events (2 nearby in same flight) · drilling meta row",
+      "side-pane — full detail body + drill links (open thread / follow / agent)",
     ],
   },
   {
     tab: "tail",
     label: "Tail",
     cells: [
-      "full raw line · ±1 surrounding lines (ink-faint) · source agent",
+      "raw line · ±1 surrounding lines (ink-faint) · source agent",
       "+ ±2 surrounding lines · kind detail · scout link anchored at timestamp",
-      "+ ±5 lines · correlation hints (similar lines, related flight id)",
+      "side-pane — raw line + PRV/CUR/NXT window + kind/source KVs",
     ],
   },
   {
     tab: "sessions",
     label: "Sessions",
     cells: [
-      "8-line pane preview · CWD · last command",
-      "+ attached client · uptime · 3–5 recent commands",
-      "+ window/pane breakdown · activity timeline · tmux-attach chip · last 10 commands",
+      "last-turn excerpt · ref id · harness · model · started/ended/duration",
+      "+ project · branch · message count · started clock · duration",
+      "side-pane — lifecycle grid + last turn + drill links (transcript / live / agent)",
     ],
   },
 ];

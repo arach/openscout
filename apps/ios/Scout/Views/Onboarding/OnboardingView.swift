@@ -1,13 +1,11 @@
-// OnboardingView — First-launch flow: value prop, permissions, model download.
+// OnboardingView — First-launch flow: value prop, model download, notification opt-in.
 //
 // Three pages:
 //   1. Welcome — what Scout is, how to use it
-//   2. Permissions — mic + speech recognition
-//   3. Model — Parakeet download progress, Apple Speech fallback
+//   2. Model — Parakeet download progress, Apple Speech fallback
+//   3. Notifications — voice permissions are deferred until recording
 
 import SwiftUI
-import AVFoundation
-import Speech
 
 struct OnboardingView: View {
     @Binding var hasCompletedOnboarding: Bool
@@ -87,17 +85,15 @@ private struct WelcomePage: View {
     }
 }
 
-// MARK: - Page 2: Permissions
+// MARK: - Voice Access
 
 private struct PermissionsPage: View {
     let onNext: () -> Void
 
-    @State private var micGranted: Bool?
-    @State private var speechGranted: Bool?
     @State private var notificationsGranted: Bool?
 
-    private var allGranted: Bool {
-        micGranted == true && speechGranted == true && notificationsGranted == true
+    private var notificationsAllowed: Bool {
+        notificationsGranted == true
     }
 
     var body: some View {
@@ -115,11 +111,11 @@ private struct PermissionsPage: View {
                 }
 
                 VStack(spacing: ScoutSpacing.md) {
-                    Text("Permissions")
+                    Text("Voice Access")
                         .font(ScoutTypography.body(28, weight: .bold))
                         .foregroundStyle(ScoutColors.textPrimary)
 
-                    Text("Scout needs microphone access for voice input, speech recognition for transcription, and notifications for approvals that need you.")
+                    Text("Scout will ask for voice permissions when you tap the microphone. Notifications can be enabled now for approvals that need you.")
                         .font(ScoutTypography.body(15))
                         .foregroundStyle(ScoutColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -127,23 +123,17 @@ private struct PermissionsPage: View {
                 }
 
                 VStack(spacing: ScoutSpacing.md) {
-                    PermissionRow(
+                    DeferredPermissionRow(
                         icon: "mic.fill",
                         title: "Microphone",
-                        subtitle: "For voice recording",
-                        granted: micGranted
-                    ) {
-                        await requestMic()
-                    }
+                        subtitle: "Asked when you start recording"
+                    )
 
-                    PermissionRow(
+                    DeferredPermissionRow(
                         icon: "waveform",
                         title: "Speech Recognition",
-                        subtitle: "For on-device transcription",
-                        granted: speechGranted
-                    ) {
-                        await requestSpeech()
-                    }
+                        subtitle: "Asked after recording if needed"
+                    )
 
                     PermissionRow(
                         icon: "bell.badge.fill",
@@ -160,37 +150,24 @@ private struct PermissionsPage: View {
             Spacer()
 
             Button(action: onNext) {
-                Text(allGranted ? "Start Using Scout" : "Skip for Now")
+                Text(notificationsAllowed ? "Start Using Scout" : "Skip for Now")
                     .font(ScoutTypography.body(17, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(allGranted ? ScoutColors.accent : ScoutColors.surfaceAdaptive)
-                    .foregroundStyle(allGranted ? .white : ScoutColors.textSecondary)
+                    .background(notificationsAllowed ? ScoutColors.accent : ScoutColors.surfaceAdaptive)
+                    .foregroundStyle(notificationsAllowed ? .white : ScoutColors.textSecondary)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(allGranted ? Color.clear : ScoutColors.border, lineWidth: 0.5)
+                            .strokeBorder(notificationsAllowed ? Color.clear : ScoutColors.border, lineWidth: 0.5)
                     )
             }
             .padding(.horizontal, ScoutSpacing.xxl)
             .padding(.bottom, 60)
         }
         .task {
-            // Check existing status
-            micGranted = PermissionAuthorizations.microphoneGranted()
-            speechGranted = PermissionAuthorizations.speechGranted()
             notificationsGranted = await PermissionAuthorizations.notificationsGranted()
         }
-    }
-
-    @MainActor
-    private func requestMic() async {
-        micGranted = await PermissionAuthorizations.requestMicrophone()
-    }
-
-    @MainActor
-    private func requestSpeech() async {
-        speechGranted = await PermissionAuthorizations.requestSpeechRecognition()
     }
 
     @MainActor
@@ -199,7 +176,7 @@ private struct PermissionsPage: View {
     }
 }
 
-// MARK: - Page 3: Model Download
+// MARK: - Model Download
 
 private struct ModelPage: View {
     let onComplete: () -> Void
@@ -363,6 +340,43 @@ private struct FeatureRow: View {
     }
 }
 
+private struct DeferredPermissionRow: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(spacing: ScoutSpacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(ScoutColors.textMuted)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(ScoutTypography.body(15, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
+                Text(subtitle)
+                    .font(ScoutTypography.caption(13))
+                    .foregroundStyle(ScoutColors.textSecondary)
+            }
+
+            Spacer()
+
+            Text("Later")
+                .font(ScoutTypography.body(13, weight: .semibold))
+                .foregroundStyle(ScoutColors.textMuted)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(ScoutColors.surfaceAdaptive)
+                .clipShape(Capsule())
+        }
+        .padding(ScoutSpacing.md)
+        .background(ScoutColors.surfaceAdaptive)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
 private struct PermissionRow: View {
     let icon: String
     let title: String
@@ -414,7 +428,6 @@ private struct PermissionRow: View {
         case true: ScoutColors.statusActive
         case false: ScoutColors.statusError
         case nil: ScoutColors.textMuted
-        default: ScoutColors.textMuted
         }
     }
 }

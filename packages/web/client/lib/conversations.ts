@@ -49,9 +49,19 @@ export function isActiveConversationFlight(
 }
 
 export function shouldShowConversationWorkingTurn(
-  flight: Pick<Flight, "state"> | null | undefined,
+  flight: (Pick<Flight, "state"> & Partial<Pick<Flight, "summary">>) | null | undefined,
 ): boolean {
-  return isActiveConversationFlight(flight);
+  return isActiveConversationFlight(flight)
+    && !isRequesterWaitTimeoutConversationFlight(flight);
+}
+
+export function isRequesterWaitTimeoutConversationFlight(
+  flight: Pick<Flight, "summary"> | null | undefined,
+): boolean {
+  return Boolean(
+    flight?.summary?.includes("Scout stopped waiting for a synchronous result")
+      || flight?.summary?.includes("the requester stopped waiting after"),
+  );
 }
 
 export function isStaleConversationWorkingTurn(

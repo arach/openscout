@@ -30,6 +30,7 @@ import {
   conversationShortLabel,
   isActiveConversationFlight,
   isGroupConversation,
+  isRequesterWaitTimeoutConversationFlight,
   isStaleConversationWorkingTurn,
   isStaleConversationWorkingTurnAnswered,
   shouldClearConversationWorkingStateForAgentMessage,
@@ -1682,9 +1683,11 @@ export function ConversationScreen({
 
           trackedInvocationIdsRef.current.add(flight.invocationId);
           const sameTurn = currentFlightRef.current?.id === flight.id;
-          setCurrentFlight(
-            mapEventFlight(flight, conversationId, agentId ?? ""),
-          );
+          const mappedFlight = mapEventFlight(flight, conversationId, agentId ?? "");
+          if (isRequesterWaitTimeoutConversationFlight(mappedFlight)) {
+            setAwaitingResponseSince(null);
+          }
+          setCurrentFlight(mappedFlight);
           if (!sameTurn) {
             setTurnActivity([]);
             setTurnAsk(null);

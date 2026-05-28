@@ -7,7 +7,7 @@
  * current temperature. The point is to NOT be a dashboard — to be a
  * page you'd actually read with coffee.
  *
- * Typography is the whole study. Instrument Serif at scale for the
+ * Typography is the whole study. Display (Play) at scale for the
  * masthead and section titles, Inter Tight for body, mono ONLY for
  * facts (filenames, handles, counts). Hairline rules between columns.
  * No widgets, no charts.

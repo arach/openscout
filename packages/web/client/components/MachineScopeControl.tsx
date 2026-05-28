@@ -64,7 +64,11 @@ function buildMachineOptions(mesh: MeshStatus | null, agents: Agent[], selectedM
   });
 }
 
-export function MachineScopeControl() {
+export function MachineScopeControl({
+  variant = "bar",
+}: {
+  variant?: "bar" | "nav";
+}) {
   const { route, navigate, agents } = useScout();
   const [mesh, setMesh] = useState<MeshStatus | null>(null);
   const selectedMachineId = routeMachineId(route);
@@ -92,7 +96,7 @@ export function MachineScopeControl() {
   if (!routeSupportsMachineScope(route)) return null;
 
   return (
-    <div className="machine-scope-bar">
+    <div className={`machine-scope machine-scope--${variant}`}>
       <label className="machine-scope-label" htmlFor="machine-scope-select">
         Scope
       </label>
