@@ -1666,8 +1666,8 @@ export async function getLocalAgentEndpointSessionSnapshot(endpoint: AgentEndpoi
 
 export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint): Promise<{ externalSessionId?: string | null }> {
   if (endpoint.transport === "codex_app_server") {
-    await ensureCodexAppServerAgentOnline(buildCodexEndpointSessionOptions(endpoint));
-    return {};
+    const result = await ensureCodexAppServerAgentOnline(buildCodexEndpointSessionOptions(endpoint));
+    return { externalSessionId: result.threadId };
   }
 
   if (endpoint.transport === "claude_stream_json") {
@@ -2126,10 +2126,13 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
   requireExistingThread?: boolean;
 } {
   const agentName = endpointAgentName(endpoint);
-  const threadId = endpointMetadataString(endpoint, "threadId")
-    ?? endpointMetadataString(endpoint, "externalSessionId")
-    ?? endpoint.sessionId
-    ?? undefined;
+  const ownsSessionThread = endpoint.metadata?.source === "scoutbot";
+  const threadId = ownsSessionThread
+    ? undefined
+    : endpointMetadataString(endpoint, "threadId")
+      ?? endpointMetadataString(endpoint, "externalSessionId")
+      ?? endpoint.sessionId
+      ?? undefined;
 
   return {
     agentName,
@@ -2140,7 +2143,7 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
     logsDirectory: relayAgentLogsDirectory(agentName),
     launchArgs: [],
     threadId,
-    requireExistingThread: Boolean(threadId),
+    requireExistingThread: Boolean(threadId) && !ownsSessionThread,
   };
 }
 

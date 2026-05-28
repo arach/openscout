@@ -2143,6 +2143,21 @@ function metadataStringValue(metadata: Record<string, unknown> | undefined, key:
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function scoutbotReplyProvenanceMetadata(invocation: InvocationRequest): Record<string, unknown> {
+  if (invocation.targetAgentId !== "scoutbot") {
+    return {};
+  }
+  return {
+    source: metadataStringValue(invocation.metadata, "source") ?? "scoutbot",
+    requestedBy: metadataStringValue(invocation.metadata, "requestedBy") ?? invocation.requesterId,
+    sourceMessageId: metadataStringValue(invocation.metadata, "sourceMessageId") ?? invocation.messageId ?? null,
+    parentScoutbotTurnId: metadataStringValue(invocation.metadata, "parentScoutbotTurnId"),
+    generatedBy: metadataStringValue(invocation.metadata, "generatedBy") ?? "scoutbot",
+    scoutbotThreadId: metadataStringValue(invocation.metadata, "scoutbotThreadId"),
+    targetSessionId: metadataStringValue(invocation.metadata, "targetSessionId"),
+  };
+}
+
 function brokerTargetProjectRoot(agent: AgentDefinition, endpoint: AgentEndpoint | null): string | null {
   return endpoint?.projectRoot
     ?? endpoint?.cwd
@@ -4421,6 +4436,7 @@ async function executeLocalInvocation(
             invocationId: invocation.id,
             flightId: completedFlight.id,
             source: "broker",
+            ...scoutbotReplyProvenanceMetadata(invocation),
             returnAddress: buildScoutReturnAddress({
               actorId: agent.id,
               handle: agent.handle?.trim() || agent.definitionId,
@@ -5964,6 +5980,50 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         displayName: input.displayName,
       });
       json(response, 200, { ok: true, ...result });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/local-sessions/ensure") {
+    try {
+      const input = await readRequestBody<{
+        agentId?: string;
+        endpointId?: string;
+      }>(request);
+      const snapshot = runtime.snapshot();
+      const endpoint = input.endpointId?.trim()
+        ? snapshot.endpoints[input.endpointId.trim()]
+        : Object.values(snapshot.endpoints).find((candidate) => (
+          candidate.agentId === input.agentId?.trim()
+          && candidate.nodeId === nodeId
+          && (candidate.transport === "codex_app_server" || candidate.transport === "claude_stream_json")
+          && candidate.state !== "offline"
+        ));
+      if (!endpoint) {
+        throw new Error("local session endpoint not found");
+      }
+      if (endpoint.transport !== "codex_app_server" && endpoint.transport !== "claude_stream_json") {
+        throw new Error(`endpoint ${endpoint.id} does not use a local session transport`);
+      }
+      const sessionResult = await ensureLocalSessionEndpointOnline(endpoint);
+      const externalSessionId = sessionResult.externalSessionId?.trim();
+      const nextEndpoint: AgentEndpoint = {
+        ...endpoint,
+        state: endpoint.state === "offline" ? "waiting" : endpoint.state,
+        ...(externalSessionId ? { sessionId: externalSessionId } : {}),
+        metadata: {
+          ...(endpoint.metadata ?? {}),
+          ...(externalSessionId ? {
+            externalSessionId,
+            threadId: endpoint.transport === "codex_app_server" ? externalSessionId : endpoint.metadata?.threadId,
+          } : {}),
+          lastEnsuredAt: Date.now(),
+        },
+      };
+      await persistEndpoint(nextEndpoint);
+      json(response, 200, { ok: true, endpoint: nextEndpoint, externalSessionId: externalSessionId ?? null });
     } catch (error) {
       badRequest(response, error);
     }

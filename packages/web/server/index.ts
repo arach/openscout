@@ -112,7 +112,7 @@ async function ensureTerminalRelay(): Promise<ManagedTerminalRelay | null> {
 
 terminalRelay = await startTerminalRelay();
 
-const { app, warmupCaches } = await createOpenScoutWebServer({
+const web = await createOpenScoutWebServer({
   currentDirectory,
   shellStateCacheTtlMs,
   assetMode: useViteProxy ? "vite-proxy" : "static",
@@ -134,7 +134,9 @@ const { app, warmupCaches } = await createOpenScoutWebServer({
     const relay = await ensureTerminalRelay();
     return relay ? relay.healthcheck() : false;
   },
+  scoutbot: { enabled: true },
 });
+const { app, warmupCaches } = web;
 
 const honoFetch = app.fetch;
 const relayWebSocket = createRelayWebSocketProxy();
@@ -223,6 +225,7 @@ const shutdown = async (signal: NodeJS.Signals) => {
   // PTY/tmux sessions) close — otherwise server.stop() would wait the full
   // drain window for those connections to finish on their own.
   stopTerminalRelay();
+  try { await web.stop(); } catch { /* ignore */ }
   try {
     await server.stop();
   } catch (error) {
