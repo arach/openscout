@@ -60,6 +60,7 @@ import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import type {
   Agent,
   Flight,
+  FleetActivity,
   FleetState,
   FleetAsk,
   Message,
@@ -208,6 +209,13 @@ type ConversationPresence = {
   showTyping: boolean;
 };
 
+type TurnSnapshot = {
+  latest: string;
+  signalsLabel: string;
+  elapsedLabel: string;
+  lastSignalLabel: string;
+};
+
 function pathLeaf(path: string | null | undefined): string | null {
   if (!path) return null;
   const normalized = path.replace(/[\\/]+$/, "");
@@ -273,6 +281,127 @@ function mapEventFlight(
     summary: flight.summary ?? null,
     startedAt: flight.startedAt ?? null,
     completedAt: flight.completedAt ?? null,
+  };
+}
+
+function fleetAttentionIds(fleet: FleetState): Set<string> {
+  const ids = new Set<string>();
+  for (const item of fleet.needsAttention) {
+    if (item.conversationId) ids.add(item.conversationId);
+    if (item.agentId) ids.add(item.agentId);
+  }
+  for (const ask of fleet.activeAsks) {
+    if (ask.status === "needs_attention" && ask.conversationId) {
+      ids.add(ask.conversationId);
+    }
+  }
+  return ids;
+}
+
+function emptyFleetState(): FleetState {
+  return {
+    generatedAt: Date.now(),
+    totals: { active: 0, recentCompleted: 0, needsAttention: 0, activity: 0 },
+    activeAsks: [],
+    recentCompleted: [],
+    needsAttention: [],
+    activity: [],
+  };
+}
+
+function selectTurnActivity(
+  activity: FleetActivity[],
+  flight: Flight | null,
+  conversationId: string,
+  agentId: string | null,
+): FleetActivity[] {
+  if (!flight) return [];
+  const startedAt = normalizeTimestampMs(flight.startedAt) ?? 0;
+  const seen = new Set<string>();
+  return activity
+    .filter((item) => {
+      if (item.flightId === flight.id) return true;
+      if (item.invocationId === flight.invocationId) return true;
+      if (!agentId || item.agentId !== agentId) return false;
+      if (item.conversationId !== conversationId) return false;
+      const ts = normalizeTimestampMs(item.ts) ?? 0;
+      return ts >= startedAt;
+    })
+    .filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    })
+    .sort((left, right) => compareTimestampsDesc(left.ts, right.ts));
+}
+
+function selectTurnAsk(
+  asks: FleetAsk[],
+  flight: Flight | null,
+  conversationId: string,
+  agentId: string | null,
+): FleetAsk | null {
+  if (!flight) return null;
+  return (
+    asks.find(
+      (ask) =>
+        ask.flightId === flight.id ||
+        ask.invocationId === flight.invocationId,
+    ) ??
+    asks.find(
+      (ask) =>
+        ask.conversationId === conversationId &&
+        (!agentId || ask.agentId === agentId) &&
+        (ask.status === "queued" || ask.status === "working"),
+    ) ??
+    null
+  );
+}
+
+function turnActivityText(item: FleetActivity): string | null {
+  const summary = item.summary?.trim();
+  if (summary) return summary;
+  const title = item.title?.trim();
+  if (title) return title;
+  return null;
+}
+
+function pluralizeSignal(count: number): string {
+  return count === 1 ? "1 signal" : `${count} signals`;
+}
+
+function buildTurnSnapshot(input: {
+  currentFlight: Flight | null;
+  presence: ConversationPresence;
+  turnActivity: FleetActivity[];
+  turnAsk: FleetAsk | null;
+  nowMs: number;
+}): TurnSnapshot {
+  const { currentFlight, presence, turnActivity, turnAsk, nowMs } = input;
+  const latestActivity = turnActivity.find((item) => turnActivityText(item));
+  const latest =
+    (latestActivity ? turnActivityText(latestActivity) : null) ??
+    turnAsk?.summary?.trim() ??
+    currentFlight?.summary?.trim() ??
+    presence.detail;
+  const startedAt =
+    normalizeTimestampMs(currentFlight?.startedAt) ??
+    normalizeTimestampMs(turnAsk?.startedAt);
+  const lastSignalAt =
+    normalizeTimestampMs(latestActivity?.ts) ??
+    normalizeTimestampMs(turnAsk?.updatedAt) ??
+    startedAt;
+  const signalCount = Math.max(
+    turnActivity.length,
+    turnAsk?.acknowledgedAt ? 1 : 0,
+    currentFlight ? 1 : 0,
+  );
+
+  return {
+    latest,
+    signalsLabel: pluralizeSignal(signalCount),
+    elapsedLabel: startedAt ? timeAgo(startedAt, nowMs) : "now",
+    lastSignalLabel: lastSignalAt ? timeAgo(lastSignalAt, nowMs) : "now",
   };
 }
 
@@ -918,6 +1047,8 @@ export function ConversationScreen({
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
+  const [turnActivity, setTurnActivity] = useState<FleetActivity[]>([]);
+  const [turnAsk, setTurnAsk] = useState<FleetAsk | null>(null);
   const [dismissedWorkingTurnIds, setDismissedWorkingTurnIds] = useState<
     Set<string>
   >(new Set());
@@ -966,20 +1097,7 @@ export function ConversationScreen({
 
     api<FleetState>("/api/fleet")
       .then((fleet) => {
-        const ids = new Set<string>();
-        for (const item of fleet.needsAttention) {
-          if (item.conversationId) ids.add(item.conversationId);
-          if (item.agentId) ids.add(item.agentId);
-        }
-        for (const ask of fleet.activeAsks) {
-          if (
-            ask.status === "needs_attention" &&
-            ask.conversationId
-          ) {
-            ids.add(ask.conversationId);
-          }
-        }
-        setNeedsYouIds(ids);
+        setNeedsYouIds(fleetAttentionIds(fleet));
       })
       .catch(() => {});
   }, []);
@@ -1017,12 +1135,15 @@ export function ConversationScreen({
         return;
       }
 
-      const [conversationMessages, activeFlights] = await Promise.all([
+      const [conversationMessages, activeFlights, fleet] = await Promise.all([
         api<Message[]>(
           `/api/messages?conversationId=${encodeURIComponent(canonicalConversationId)}&limit=300`,
         ),
         api<Flight[]>(
           `/api/flights?conversationId=${encodeURIComponent(canonicalConversationId)}`,
+        ),
+        api<FleetState>("/api/fleet?limit=24&activityLimit=160").catch(() =>
+          emptyFleetState(),
         ),
       ]);
 
@@ -1040,7 +1161,26 @@ export function ConversationScreen({
       trackedInvocationIdsRef.current = new Set(
         activeFlights.map((flight) => flight.invocationId),
       );
-      setCurrentFlight(selectCurrentFlight(activeFlights));
+      const nextCurrentFlight = selectCurrentFlight(activeFlights);
+      const turnAgentId = nextCurrentFlight?.agentId ?? resolvedAgentId ?? null;
+      setCurrentFlight(nextCurrentFlight);
+      setTurnActivity(
+        selectTurnActivity(
+          fleet.activity,
+          nextCurrentFlight,
+          canonicalConversationId,
+          turnAgentId,
+        ),
+      );
+      setTurnAsk(
+        selectTurnAsk(
+          fleet.activeAsks,
+          nextCurrentFlight,
+          canonicalConversationId,
+          turnAgentId,
+        ),
+      );
+      setNeedsYouIds(fleetAttentionIds(fleet));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -1343,9 +1483,17 @@ export function ConversationScreen({
   const workingTurnBadgeLabel = hasStaleWorkingTurnPresence
     ? presence.label
     : "Live";
-  const presenceLineLabel = hasStaleWorkingTurnPresence
-    ? presence.detail
-    : `${agentName} is ${presence.label.toLowerCase()}...`;
+  const workingTurnSnapshot = useMemo(
+    () =>
+      buildTurnSnapshot({
+        currentFlight,
+        presence,
+        turnActivity,
+        turnAsk,
+        nowMs: currentNowMs,
+      }),
+    [currentFlight, currentNowMs, presence, turnActivity, turnAsk],
+  );
   const workingTurnCardClassName = [
     "s-thread-msg-card",
     "s-thread-msg-working-card",
@@ -1367,6 +1515,18 @@ export function ConversationScreen({
   ]
     .filter(Boolean)
     .join(" ");
+  const workingTurnSnapshotClassName = [
+    "s-thread-turn-snapshot",
+    hasStaleWorkingTurnPresence ? "s-thread-turn-snapshot--stale" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const workingTurnPulseClassName = [
+    "s-thread-turn-snapshot-pulse",
+    hasStaleWorkingTurnPresence ? "s-thread-turn-snapshot-pulse--stale" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const presenceLineClassName = [
     "s-thread-presence-line",
     hasStaleWorkingTurnPresence ? "s-thread-presence-line--stale" : null,
@@ -1379,6 +1539,9 @@ export function ConversationScreen({
   ]
     .filter(Boolean)
     .join(" ");
+  const presenceLineLabel = hasStaleWorkingTurnPresence
+    ? presence.detail
+    : `${agentName}: ${workingTurnSnapshot.latest}`;
   const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
   const kindLabel = sessionMeta?.kind
     ? (KIND_LABELS[sessionMeta.kind] ?? sessionMeta.kind)
@@ -1491,6 +1654,8 @@ export function ConversationScreen({
           )
             return;
           trackedInvocationIdsRef.current.add(invocation.id);
+          setTurnActivity([]);
+          setTurnAsk(null);
           setAwaitingResponseSince((current) => current ?? Date.now());
           return;
         }
@@ -1509,17 +1674,24 @@ export function ConversationScreen({
             setCurrentFlight((current) =>
               current?.id === flight.id ? null : current,
             );
+            setTurnActivity([]);
+            setTurnAsk(null);
             setAwaitingResponseSince(null);
             void load();
             return;
           }
 
           trackedInvocationIdsRef.current.add(flight.invocationId);
+          const sameTurn = currentFlightRef.current?.id === flight.id;
           const mappedFlight = mapEventFlight(flight, conversationId, agentId ?? "");
           if (isRequesterWaitTimeoutConversationFlight(mappedFlight)) {
             setAwaitingResponseSince(null);
           }
           setCurrentFlight(mappedFlight);
+          if (!sameTurn) {
+            setTurnActivity([]);
+            setTurnAsk(null);
+          }
           return;
         }
 
@@ -1637,6 +1809,8 @@ export function ConversationScreen({
         setCurrentFlight(
           mapEventFlight(result.flight, conversationId, agentId ?? ""),
         );
+        setTurnActivity([]);
+        setTurnAsk(null);
       }
     } catch (cause) {
       setMessages((previous) =>
@@ -2431,24 +2605,41 @@ export function ConversationScreen({
                       )}
                     </div>
                     <div className="s-thread-msg-working-body">
-                      {hasStaleWorkingTurnPresence ? (
-                        <span
-                          className={staleIndicatorClassName}
-                          aria-hidden="true"
-                        />
-                      ) : (
-                        <span
-                          className="s-thread-typing-indicator"
-                          aria-hidden="true"
-                        >
-                          <span className="s-thread-typing-dot" />
-                          <span className="s-thread-typing-dot" />
-                          <span className="s-thread-typing-dot" />
-                        </span>
-                      )}
-                      <span className="s-thread-msg-working-copy">
-                        {presence.detail}
-                      </span>
+                      <div className={workingTurnSnapshotClassName}>
+                        {hasStaleWorkingTurnPresence ? (
+                          <span
+                            className={staleIndicatorClassName}
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <span
+                            className={workingTurnPulseClassName}
+                            aria-hidden="true"
+                          />
+                        )}
+                        <div className="s-thread-turn-snapshot-main">
+                          <span className="s-thread-turn-snapshot-label">
+                            Latest
+                          </span>
+                          <span className="s-thread-msg-working-copy">
+                            {workingTurnSnapshot.latest}
+                          </span>
+                        </div>
+                      </div>
+                      <dl className="s-thread-turn-snapshot-stats">
+                        <div className="s-thread-turn-snapshot-stat">
+                          <dt>Signals</dt>
+                          <dd>{workingTurnSnapshot.signalsLabel}</dd>
+                        </div>
+                        <div className="s-thread-turn-snapshot-stat">
+                          <dt>Elapsed</dt>
+                          <dd>{workingTurnSnapshot.elapsedLabel}</dd>
+                        </div>
+                        <div className="s-thread-turn-snapshot-stat">
+                          <dt>Last</dt>
+                          <dd>{workingTurnSnapshot.lastSignalLabel}</dd>
+                        </div>
+                      </dl>
                     </div>
                   </div>
                 </div>

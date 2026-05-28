@@ -125,6 +125,7 @@ function projectFleetActivity(row: FleetActivityRow): WebFleetActivity {
 
 export function queryFleetActivity(opts?: {
   limit?: number;
+  lookbackMs?: number;
   agentId?: string | null;
   sessionId?: string | null;
   conversationId?: string | null;
@@ -132,7 +133,13 @@ export function queryFleetActivity(opts?: {
   const filters: string[] = [];
   const params: Array<string | number> = [];
   const activityTsExpression = sqlTimestampMsExpression("ai.ts");
+  const andClauses: string[] = [];
+  const andParams: Array<string | number> = [];
 
+  if (typeof opts?.lookbackMs === "number" && opts.lookbackMs > 0) {
+    andClauses.push(`${activityTsExpression} >= ?`);
+    andParams.push(Date.now() - opts.lookbackMs);
+  }
   if (opts?.agentId) {
     filters.push(`(
       ai.agent_id = ?
@@ -178,12 +185,13 @@ export function queryFleetActivity(opts?: {
   LEFT JOIN actors agent_actor ON agent_actor.id = ai.agent_id
   ${sqlWhereClause([
     staleFlightActivityPredicate("ai"),
+    ...andClauses,
     scopedFilters ? `(${scopedFilters})` : null,
   ])}
   ORDER BY ${activityTsExpression} DESC
   LIMIT ?`;
 
-  const rows = db().prepare(sql).all(...params, opts?.limit ?? 80) as Array<FleetActivityRow>;
+  const rows = db().prepare(sql).all(...andParams, ...params, opts?.limit ?? 80) as Array<FleetActivityRow>;
   return rows.map(projectFleetActivity);
 }
 
@@ -450,6 +458,7 @@ export function queryFleetAttentionRows(requesterIds: string[], limit: number): 
 export function queryFleet(opts?: {
   limit?: number;
   activityLimit?: number;
+  activityLookbackMs?: number;
 }): WebFleetState {
   const limit = opts?.limit ?? 12;
   const activityLimit = opts?.activityLimit ?? 80;
@@ -475,7 +484,10 @@ export function queryFleet(opts?: {
     acceptanceState: row.acceptance_state,
     updatedAt: normalizeTimestampMs(row.updated_at) ?? Date.now(),
   }));
-  const activity = queryFleetActivity({ limit: activityLimit });
+  const activity = queryFleetActivity({
+    limit: activityLimit,
+    lookbackMs: opts?.activityLookbackMs,
+  });
 
   return {
     generatedAt: Date.now(),

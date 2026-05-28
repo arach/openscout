@@ -1191,15 +1191,16 @@ function permissionSetupHint(detail: string): OperatorAttentionItem | null {
   const title = mentionsScoutMcpTool
     ? "Claude needs Scout MCP permission"
     : "Claude needs Scout CLI permission";
+  const remediationDetail = mentionsScoutMcpTool
+    ? "This is a Claude-session permission. Copy the /allow line, paste it into the blocked Claude session, then retry the Scout request."
+    : "This is a Claude-session permission. Copy the allowed-tools snippet into the blocked Claude session or project settings, then retry the Scout request.";
 
   return {
     id: `config:${mentionsScoutMcpTool ? `mcp-scout-${replyTool ? "messages-reply" : "ask"}` : "scout-ask-cli"}`,
     kind: "configuration",
     title,
     summary: compactAttentionSummary(detail),
-    detail: mentionsScoutMcpTool
-      ? "Allow the Scout MCP coordination tool in the Claude session so routed asks can be delivered without stalling."
-      : "Allow the Scout CLI in the Claude session so agents can read context and coordinate without approval loops.",
+    detail: remediationDetail,
     agentId: null,
     agentName: null,
     conversationId: null,
@@ -1209,13 +1210,8 @@ function permissionSetupHint(detail: string): OperatorAttentionItem | null {
     actions: [
       {
         kind: "copy",
-        label: "Copy fix",
+        label: "Copy Claude fix",
         value: command,
-      },
-      {
-        kind: "configure",
-        label: "Open settings",
-        route: { view: "settings" },
       },
     ],
   };
@@ -2650,6 +2646,7 @@ export async function createOpenScoutWebServer(
       queryFleet({
         limit: parseOptionalPositiveInt(c.req.query("limit")),
         activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
+        activityLookbackMs: parseOptionalPositiveInt(c.req.query("activityLookbackMs")),
       }),
     ),
   );

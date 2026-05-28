@@ -1198,3 +1198,104 @@
 .s-link-btn:hover {
   text-decoration: underline;
 }
+
+/* ── Live activity: shape, skeleton, empty, refreshing ────────────── */
+
+.s-fleet-live-shape {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+}
+
+.s-fleet-live-shape > span:nth-child(even) {
+  opacity: 0.5;
+}
+
+.s-mc-window-refreshing {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: s-mc-window-refreshing-pulse 1100ms ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes s-mc-window-refreshing-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1.1); }
+}
+
+.s-fleet-live-stream--skeleton {
+  pointer-events: none;
+}
+
+.s-fleet-live-skeleton-row {
+  display: grid;
+  grid-template-columns: 56px 120px 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.s-fleet-live-skeleton-row:last-child {
+  border-bottom: 0;
+}
+
+.s-fleet-live-skeleton-row > span {
+  display: block;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--border) 60%, transparent) 0%,
+    color-mix(in srgb, var(--border) 90%, transparent) 50%,
+    color-mix(in srgb, var(--border) 60%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: s-fleet-live-shimmer 1400ms linear infinite;
+}
+
+.s-fleet-live-skeleton-time { width: 36px; }
+.s-fleet-live-skeleton-actor { width: 90px; }
+.s-fleet-live-skeleton-text { width: 80%; }
+
+@keyframes s-fleet-live-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.s-fleet-live-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 14px;
+}
+
+.s-fleet-live-empty-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.s-fleet-live-empty-detail {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+.s-fleet-live-empty-actions {
+  margin-top: 4px;
+}
