@@ -8,7 +8,7 @@ import Foundation
 ///   scout://hud/show          — present the panel
 ///   scout://hud/hide          — dismiss
 ///   scout://hud/toggle        — flip current state
-///   scout://hud/tab/<name>    — agents | activity | tail | sessions
+///   scout://hud/tab/<name>    — agents | activity | tail | sessions | assistant
 ///   scout://hud/size/<name>   — compact | medium | large  (also accepts s | m | l)
 ///
 /// All actions are fire-and-forget; current state is mirrored to
@@ -55,6 +55,7 @@ enum HUDURLRouter {
         case "activity": return .activity
         case "tail":     return .tail
         case "sessions": return .sessions
+        case "assistant": return .assistant
         default:         return nil
         }
     }

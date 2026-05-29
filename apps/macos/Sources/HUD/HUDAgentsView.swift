@@ -354,7 +354,9 @@ private struct AgentDetailInline: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)
                 .lineSpacing(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func statKV(label: String, value: String) -> some View {
@@ -369,8 +371,9 @@ private struct AgentDetailInline: View {
                 .foregroundStyle(HUDChrome.inkMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
