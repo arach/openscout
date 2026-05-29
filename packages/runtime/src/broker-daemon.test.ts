@@ -4214,7 +4214,7 @@ describe("broker daemon comms layer", () => {
     );
     expect(deliveries[0]?.metadata?.failureReason).toBe("agent_offline");
     expect(deliveries[0]?.metadata?.reconciledStaleDelivery).toBe(true);
-    expect(deliveries[0]?.metadata?.reconciledReason).toContain("replacement agent is ranger.feature.test-node");
+    expect(deliveries[0]?.metadata?.reconciledReason).toContain("stale local registration superseded by current setup");
   }, 15_000);
 
   test("reconciles replayed active endpoints for the same invocation after restart", async () => {
