@@ -38,18 +38,18 @@ export async function deleteOpenAIApiKey(): Promise<void> {
 }
 
 export async function saveOpenAIKeyToServer(value: string): Promise<ServerCredentialState> {
-  return api<ServerCredentialState>("/api/ranger/credentials/openai", {
+  return api<ServerCredentialState>("/api/scoutbot/credentials/openai", {
     method: "POST",
     body: JSON.stringify({ apiKey: value.trim() }),
   });
 }
 
 export async function deleteOpenAIKeyFromServer(): Promise<ServerCredentialState> {
-  return api<ServerCredentialState>("/api/ranger/credentials/openai", { method: "DELETE" });
+  return api<ServerCredentialState>("/api/scoutbot/credentials/openai", { method: "DELETE" });
 }
 
 export async function getServerCredentialState(): Promise<ServerCredentialState> {
-  return api<ServerCredentialState>("/api/ranger/credentials");
+  return api<ServerCredentialState>("/api/scoutbot/credentials");
 }
 
 export async function ensureOpenAIKeyOnServer(): Promise<ServerCredentialState | null> {

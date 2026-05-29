@@ -19,7 +19,7 @@ export type Block =
   | { kind: "code"; body: string }
   | { kind: "heading"; level: 1 | 2 | 3; tokens: InlineToken[] };
 
-export function parseRangerMarkdown(input: string): Block[] {
+export function parseScoutbotMarkdown(input: string): Block[] {
   const lines = input.replace(/\r\n?/g, "\n").split("\n");
   const blocks: Block[] = [];
   let i = 0;
@@ -196,8 +196,8 @@ function findInlineClose(text: string, start: number, marker: string): number {
   return -1;
 }
 
-export function stripRangerMarkdown(input: string): string {
-  return parseRangerMarkdown(input)
+export function stripScoutbotMarkdown(input: string): string {
+  return parseScoutbotMarkdown(input)
     .map(blockToPlainText)
     .filter((entry) => entry.length > 0)
     .join("\n\n");
@@ -220,8 +220,8 @@ function inlineToPlainText(tokens: InlineToken[]): string {
   return tokens.map((token) => token.body).join("");
 }
 
-export function RangerMarkdown({ text }: { text: string }) {
-  const blocks = parseRangerMarkdown(text);
+export function ScoutbotMarkdown({ text }: { text: string }) {
+  const blocks = parseScoutbotMarkdown(text);
   if (blocks.length === 0) {
     return null;
   }

@@ -1,4 +1,4 @@
-export type RangerReminderIntent = {
+export type ScoutbotReminderIntent = {
   title: string;
   body: string;
   delayMs: number;
@@ -38,10 +38,10 @@ const REMINDER_PATTERNS = [
   new RegExp(String.raw`\bin\s+${AMOUNT}\s+${UNIT}\s+(?:remind\s+me|ping\s+me|nudge\s+me)(?:\s+(?:to|about|on|for)\s+(.+))?`, "i"),
 ];
 
-export function parseRangerReminderIntent(
+export function parseScoutbotReminderIntent(
   input: string,
   now: number = Date.now(),
-): RangerReminderIntent | null {
+): ScoutbotReminderIntent | null {
   const normalized = input.replace(/\s+/g, " ").trim();
   if (!normalized) return null;
 

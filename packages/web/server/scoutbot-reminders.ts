@@ -4,16 +4,16 @@ import { dirname, join } from "node:path";
 
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
-export type RangerReminderSource = "ranger" | "api";
-export type StoredRangerReminderStatus = "scheduled" | "dismissed";
-export type RangerReminderStatus = StoredRangerReminderStatus | "due";
+export type ScoutbotReminderSource = "scoutbot" | "api";
+export type StoredScoutbotReminderStatus = "scheduled" | "dismissed";
+export type ScoutbotReminderStatus = StoredScoutbotReminderStatus | "due";
 
-export type RangerReminder = {
+export type ScoutbotReminder = {
   id: string;
   title: string;
   body: string;
-  status: RangerReminderStatus;
-  source: RangerReminderSource;
+  status: ScoutbotReminderStatus;
+  source: ScoutbotReminderSource;
   createdAt: number;
   updatedAt: number;
   dueAt: number;
@@ -22,18 +22,18 @@ export type RangerReminder = {
   context?: Record<string, unknown>;
 };
 
-type StoredRangerReminder = Omit<RangerReminder, "status" | "dueInMs"> & {
-  status: StoredRangerReminderStatus;
+type StoredScoutbotReminder = Omit<ScoutbotReminder, "status" | "dueInMs"> & {
+  status: StoredScoutbotReminderStatus;
 };
 
-export type RangerReminderState = {
+export type ScoutbotReminderState = {
   generatedAt: number;
-  reminders: RangerReminder[];
-  due: RangerReminder[];
-  scheduled: RangerReminder[];
+  reminders: ScoutbotReminder[];
+  due: ScoutbotReminder[];
+  scheduled: ScoutbotReminder[];
 };
 
-export type RangerReminderCreateInput = {
+export type ScoutbotReminderCreateInput = {
   title?: unknown;
   body?: unknown;
   source?: unknown;
@@ -43,35 +43,35 @@ export type RangerReminderCreateInput = {
   context?: unknown;
 };
 
-type RangerReminderFile = {
+type ScoutbotReminderFile = {
   version: 1;
-  reminders: StoredRangerReminder[];
+  reminders: StoredScoutbotReminder[];
 };
 
-export class RangerReminderError extends Error {
+export class ScoutbotReminderError extends Error {
   readonly status: number;
 
   constructor(message: string, status: number) {
     super(message);
-    this.name = "RangerReminderError";
+    this.name = "ScoutbotReminderError";
     this.status = status;
   }
 }
 
-export function createRangerReminderStore(input: {
+export function createScoutbotReminderStore(input: {
   filePath?: string;
   now?: () => number;
 } = {}) {
-  const filePath = input.filePath ?? join(resolveOpenScoutSupportPaths().controlHome, "ranger-reminders.json");
+  const filePath = input.filePath ?? join(resolveOpenScoutSupportPaths().controlHome, "scoutbot-reminders.json");
   const now = input.now ?? Date.now;
 
-  const readReminders = (): StoredRangerReminder[] => {
+  const readReminders = (): StoredScoutbotReminder[] => {
     if (!existsSync(filePath)) {
       return [];
     }
 
     try {
-      const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Partial<RangerReminderFile>;
+      const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Partial<ScoutbotReminderFile>;
       if (!Array.isArray(parsed.reminders)) {
         return [];
       }
@@ -81,14 +81,14 @@ export function createRangerReminderStore(input: {
     }
   };
 
-  const writeReminders = (reminders: StoredRangerReminder[]): void => {
+  const writeReminders = (reminders: StoredScoutbotReminder[]): void => {
     mkdirSync(dirname(filePath), { recursive: true });
     const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(tmpPath, JSON.stringify({ version: 1, reminders }, null, 2), "utf8");
     renameSync(tmpPath, filePath);
   };
 
-  const stateFrom = (reminders: StoredRangerReminder[]): RangerReminderState => {
+  const stateFrom = (reminders: StoredScoutbotReminder[]): ScoutbotReminderState => {
     const generatedAt = now();
     const publicReminders = reminders
       .map((reminder) => publicReminder(reminder, generatedAt))
@@ -106,22 +106,22 @@ export function createRangerReminderStore(input: {
   };
 
   return {
-    getState: (): RangerReminderState => stateFrom(readReminders()),
-    create: (input: RangerReminderCreateInput): RangerReminderState & { reminder: RangerReminder } => {
+    getState: (): ScoutbotReminderState => stateFrom(readReminders()),
+    create: (input: ScoutbotReminderCreateInput): ScoutbotReminderState & { reminder: ScoutbotReminder } => {
       const createdAt = now();
       const body = stringValue(input.body)?.trim();
       if (!body) {
-        throw new RangerReminderError("reminder body is required", 400);
+        throw new ScoutbotReminderError("reminder body is required", 400);
       }
 
       const dueAt = resolveDueAt(input, createdAt);
-      const source = input.source === "api" ? "api" : "ranger";
+      const source = input.source === "api" ? "api" : "scoutbot";
       const title = firstNonEmptyString(
         stringValue(input.title),
         titleFromBody(body),
       ) ?? "Reminder";
       const context = recordValue(input.context);
-      const stored: StoredRangerReminder = {
+      const stored: StoredScoutbotReminder = {
         id: `rem_${randomUUID()}`,
         title,
         body,
@@ -140,16 +140,16 @@ export function createRangerReminderStore(input: {
         reminder: publicReminder(stored, state.generatedAt),
       };
     },
-    dismiss: (id: string): RangerReminderState => {
+    dismiss: (id: string): ScoutbotReminderState => {
       const trimmedId = id.trim();
       if (!trimmedId) {
-        throw new RangerReminderError("reminder id is required", 400);
+        throw new ScoutbotReminderError("reminder id is required", 400);
       }
       const updatedAt = now();
       const reminders = readReminders();
       const index = reminders.findIndex((reminder) => reminder.id === trimmedId);
       if (index === -1) {
-        throw new RangerReminderError("reminder not found", 404);
+        throw new ScoutbotReminderError("reminder not found", 404);
       }
       reminders[index] = {
         ...reminders[index],
@@ -163,7 +163,7 @@ export function createRangerReminderStore(input: {
   };
 }
 
-function publicReminder(reminder: StoredRangerReminder, now: number): RangerReminder {
+function publicReminder(reminder: StoredScoutbotReminder, now: number): ScoutbotReminder {
   const dueInMs = reminder.dueAt - now;
   const status = reminder.status === "scheduled" && dueInMs <= 0
     ? "due"
@@ -175,7 +175,7 @@ function publicReminder(reminder: StoredRangerReminder, now: number): RangerRemi
   };
 }
 
-function resolveDueAt(input: RangerReminderCreateInput, now: number): number {
+function resolveDueAt(input: ScoutbotReminderCreateInput, now: number): number {
   const explicitDueAt = numberValue(input.dueAt);
   if (explicitDueAt !== null) {
     return validateDueAt(explicitDueAt);
@@ -191,24 +191,24 @@ function resolveDueAt(input: RangerReminderCreateInput, now: number): number {
     return validateDueAt(now + Math.max(0, delayMinutes) * 60_000);
   }
 
-  throw new RangerReminderError("dueAt, delayMs, or delayMinutes is required", 400);
+  throw new ScoutbotReminderError("dueAt, delayMs, or delayMinutes is required", 400);
 }
 
 function validateDueAt(value: number): number {
   if (!Number.isFinite(value) || value <= 0) {
-    throw new RangerReminderError("reminder due time must be a finite timestamp", 400);
+    throw new ScoutbotReminderError("reminder due time must be a finite timestamp", 400);
   }
   return Math.round(value);
 }
 
-function isStoredReminder(value: unknown): value is StoredRangerReminder {
+function isStoredReminder(value: unknown): value is StoredScoutbotReminder {
   if (!value || typeof value !== "object") return false;
-  const record = value as Partial<StoredRangerReminder>;
+  const record = value as Partial<StoredScoutbotReminder>;
   return typeof record.id === "string"
     && typeof record.title === "string"
     && typeof record.body === "string"
     && (record.status === "scheduled" || record.status === "dismissed")
-    && (record.source === "ranger" || record.source === "api")
+    && (record.source === "scoutbot" || record.source === "api")
     && typeof record.createdAt === "number"
     && typeof record.updatedAt === "number"
     && typeof record.dueAt === "number";

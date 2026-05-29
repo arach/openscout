@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { api } from "../lib/api.ts";
-import { RangerMarkdown } from "../lib/ranger-markdown.tsx";
+import { ScoutbotMarkdown } from "../lib/scoutbot-markdown.tsx";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { Route } from "../lib/types.ts";
 import "./system-surfaces-redesign.css";
@@ -207,7 +207,7 @@ function MarkdownLayer({ markdown }: { markdown: string }) {
     <section className="briefing-layer briefing-layer-markdown">
       <LayerHead eyebrow="Layer 0" title="Brief (markdown)" />
       <div className="briefing-markdown">
-        <RangerMarkdown text={markdown} />
+        <ScoutbotMarkdown text={markdown} />
       </div>
     </section>
   );

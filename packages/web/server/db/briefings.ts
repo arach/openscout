@@ -1,5 +1,5 @@
 /**
- * Briefing Room — persistent three-layer archive of Ranger-generated briefs.
+ * Briefing Room — persistent three-layer archive of Scoutbot-generated briefs.
  *
  * Opens its own writeable SQLite handle (separate from the readonly handle in
  * `internal/db.ts`) so the web server can save briefs after generation.

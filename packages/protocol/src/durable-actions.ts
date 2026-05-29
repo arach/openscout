@@ -6,7 +6,7 @@ export type DurableActionKind = "ask" | "message_delivery" | "checkback";
 
 export type DurableCheckbackMode =
   | "notify"
-  | "ranger"
+  | "scoutbot"
   | "agent"
   | "routine";
 

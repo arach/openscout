@@ -398,9 +398,9 @@ CREATE TABLE IF NOT EXISTS mobile_push_registrations (
   updated_at INTEGER NOT NULL
 );
 
--- Briefing Room: persistent archive of Ranger-generated briefs.
+-- Briefing Room: persistent archive of Scoutbot-generated briefs.
 -- Each row carries three layers — snapshot (Layer 1), observations (Layer 2),
--- brief + call (Layer 3) — so an operator can audit not just what Ranger said
+-- brief + call (Layer 3) — so an operator can audit not just what Scoutbot said
 -- but what it read and how it asked. Rolling 100-cap is enforced in code.
 CREATE TABLE IF NOT EXISTS briefings (
   id TEXT PRIMARY KEY,

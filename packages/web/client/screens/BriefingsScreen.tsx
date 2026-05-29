@@ -55,7 +55,7 @@ export function BriefingsScreen({ navigate }: { navigate: (r: Route) => void }) 
         <div className="sys-page-title-group">
           <h2 className="sys-page-title">Briefings</h2>
           <p className="sys-page-subtitle">
-            Ranger's archived fleet briefs — what it told you, when, and what
+            Scoutbot's archived fleet briefs — what it told you, when, and what
             it saw. Rolling 100.
           </p>
         </div>
@@ -78,7 +78,7 @@ export function BriefingsScreen({ navigate }: { navigate: (r: Route) => void }) 
       ) : items.length === 0 ? (
         <EmptyState
           title="No briefings yet"
-          body="Ranger writes here when it generates a fleet brief — either on Home or via tour. Briefs land in this archive automatically."
+          body="Scoutbot writes here when it generates a fleet brief — either on Home or via tour. Briefs land in this archive automatically."
         />
       ) : (
         <ul className="briefings-list">

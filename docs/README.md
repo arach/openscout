@@ -42,7 +42,7 @@ After that, choose the role-specific next read:
 - [`mcp-api-posture.md`](./mcp-api-posture.md) defines the core vs pro Scout MCP tool tiers
 - [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
 - [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
-- [`ranger.md`](./ranger.md) defines Ranger as the direct in-app control-plane assistant
+- [`scoutbot.md`](./scoutbot.md) defines `@scoutbot` as the unified conversational assistant handle
 - [`a2a-alignment.md`](./a2a-alignment.md) explains where Scout intentionally aligns with A2A and where it does not
 - [`agent-identity.md`](./agent-identity.md) explains canonical and minimal agent addresses
 - [`ask-scout.md`](./ask-scout.md) explains how a human reaches their agents through Scout
@@ -82,7 +82,7 @@ After that, choose the role-specific next read:
 - "Which MCP tools are core versus pro integration?" Read [`mcp-api-posture.md`](./mcp-api-posture.md).
 - "Where do host integrations live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
-- "What is Ranger?" Read [`ranger.md`](./ranger.md).
+- "What is `@scoutbot`?" Read [`scoutbot.md`](./scoutbot.md).
 - "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).
 - "How do I get to a first healthy run?" Start with [`quickstart.md`](./quickstart.md).
 - "How do I address or route to an agent?" Read [`agent-identity.md`](./agent-identity.md).

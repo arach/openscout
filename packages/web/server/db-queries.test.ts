@@ -1306,15 +1306,15 @@ describe("web db query agents", () => {
 
     try {
       store.upsertActor({
-        id: "ranger.main.mini",
+        id: "scoutbot.main.mini",
         kind: "agent",
-        displayName: "Ranger",
+        displayName: "Scoutbot",
       });
       store.upsertAgent({
-        id: "ranger.main.mini",
+        id: "scoutbot.main.mini",
         kind: "agent",
-        definitionId: "ranger",
-        displayName: "Ranger",
+        definitionId: "scoutbot",
+        displayName: "Scoutbot",
         agentClass: "general",
         capabilities: ["chat", "invoke", "deliver"],
         wakePolicy: "on_demand",
@@ -1323,21 +1323,21 @@ describe("web db query agents", () => {
         advertiseScope: "local",
       });
       store.upsertEndpoint({
-        id: "endpoint-ranger",
-        agentId: "ranger.main.mini",
+        id: "endpoint-scoutbot",
+        agentId: "scoutbot.main.mini",
         nodeId: "node-1",
         harness: "codex",
         transport: "codex_app_server",
         state: "offline",
         projectRoot: "/tmp/openscout",
         metadata: {
-          lastError: "codex_app_server session unavailable: relay-ranger-codex",
+          lastError: "codex_app_server session unavailable: relay-scoutbot-codex",
         },
       });
 
-      const listEntry = queryAgents(20).find((entry) => entry.id === "ranger.main.mini");
-      const mobileEntry = queryMobileAgents(20).find((entry) => entry.id === "ranger.main.mini");
-      const detail = queryMobileAgentDetail("ranger.main.mini");
+      const listEntry = queryAgents(20).find((entry) => entry.id === "scoutbot.main.mini");
+      const mobileEntry = queryMobileAgents(20).find((entry) => entry.id === "scoutbot.main.mini");
+      const detail = queryMobileAgentDetail("scoutbot.main.mini");
 
       expect(listEntry?.state).toBe("available");
       expect(mobileEntry?.state).toBe("available");
@@ -1390,15 +1390,15 @@ describe("web db query agents", () => {
 
     try {
       store.upsertActor({
-        id: "ranger.old-branch.mini",
+        id: "scoutbot.old-branch.mini",
         kind: "agent",
-        displayName: "Ranger",
+        displayName: "Scoutbot",
       });
       store.upsertAgent({
-        id: "ranger.old-branch.mini",
+        id: "scoutbot.old-branch.mini",
         kind: "agent",
-        definitionId: "ranger",
-        displayName: "Ranger",
+        definitionId: "scoutbot",
+        displayName: "Scoutbot",
         agentClass: "general",
         capabilities: ["chat", "invoke", "deliver"],
         wakePolicy: "on_demand",
@@ -1407,12 +1407,12 @@ describe("web db query agents", () => {
         advertiseScope: "local",
         metadata: {
           staleLocalRegistration: true,
-          replacedByAgentId: "ranger.current-branch.mini",
+          replacedByAgentId: "scoutbot.current-branch.mini",
         },
       });
       store.upsertEndpoint({
-        id: "endpoint-ranger-old",
-        agentId: "ranger.old-branch.mini",
+        id: "endpoint-scoutbot-old",
+        agentId: "scoutbot.old-branch.mini",
         nodeId: "node-1",
         harness: "codex",
         transport: "codex_app_server",
@@ -1420,13 +1420,13 @@ describe("web db query agents", () => {
         projectRoot: "/tmp/openscout",
         metadata: {
           staleLocalRegistration: true,
-          replacedByAgentId: "ranger.current-branch.mini",
+          replacedByAgentId: "scoutbot.current-branch.mini",
         },
       });
 
-      expect(queryAgents(20).some((entry) => entry.id === "ranger.old-branch.mini")).toBe(false);
-      expect(queryMobileAgents(20).some((entry) => entry.id === "ranger.old-branch.mini")).toBe(false);
-      expect(queryMobileAgentDetail("ranger.old-branch.mini")).toBeNull();
+      expect(queryAgents(20).some((entry) => entry.id === "scoutbot.old-branch.mini")).toBe(false);
+      expect(queryMobileAgents(20).some((entry) => entry.id === "scoutbot.old-branch.mini")).toBe(false);
+      expect(queryMobileAgentDetail("scoutbot.old-branch.mini")).toBeNull();
     } finally {
       store.close();
     }

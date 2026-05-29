@@ -1,11 +1,11 @@
 /**
  * Placeholder step sequence driving the Home BRIEFING panel's
- * brief-generation animation while real ranger-scan events aren't yet
+ * brief-generation animation while real scoutbot-scan events aren't yet
  * wired through. The narrative is illustrative — when a live brief lands,
  * the timing/labels read as a plausible sequence of work.
  *
  * Replace with a real-event-driven sequence (or pull the animation
- * entirely) once Ranger emits per-phase progress on the broker.
+ * entirely) once Scoutbot emits per-phase progress on the broker.
  */
 
 import type { BriefStep } from "./types.ts";
@@ -140,7 +140,7 @@ export const briefGenerationSequence: BriefStep[] = [
       type: "plans",
       plans: [
         {
-          title: "UX maximalists — Ranger consolidation",
+          title: "UX maximalists — Scoutbot consolidation",
           owner: "arach",
           status: "in motion",
           files: 8,

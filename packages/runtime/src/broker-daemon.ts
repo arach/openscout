@@ -3722,7 +3722,7 @@ async function ensureCoreLocalAgentsOnline(): Promise<void> {
   }
 
   // configuredCoreAgentIds may be either fully-qualified agent IDs or bare
-  // definitionIds (e.g. "ranger"). Resolve each to the concrete qualified ID
+  // definitionIds (e.g. "scoutbot"). Resolve each to the concrete qualified ID
   // registered on this node so the lookup works regardless of branch.
   const overrides = await readRelayAgentOverrides();
   const resolvedIds = configuredCoreAgentIds.map((configuredId) =>

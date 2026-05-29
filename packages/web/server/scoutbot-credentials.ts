@@ -9,23 +9,23 @@ import {
 import { dirname, join } from "node:path";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
-export type RangerCredentialSource = "local-store";
+export type ScoutbotCredentialSource = "local-store";
 
-export type RangerCredentialProviderState = {
+export type ScoutbotCredentialProviderState = {
   configured: boolean;
-  source: RangerCredentialSource | "missing";
+  source: ScoutbotCredentialSource | "missing";
   preview: string | null;
 };
 
-export type RangerCredentialState = {
-  openai: RangerCredentialProviderState;
+export type ScoutbotCredentialState = {
+  openai: ScoutbotCredentialProviderState;
 };
 
-export type RangerCredentialStore = {
-  getState: () => RangerCredentialState;
+export type ScoutbotCredentialStore = {
+  getState: () => ScoutbotCredentialState;
   getOpenAIKey: () => string | null;
-  setOpenAIKey: (value: string) => RangerCredentialState;
-  deleteOpenAIKey: () => RangerCredentialState;
+  setOpenAIKey: (value: string) => ScoutbotCredentialState;
+  deleteOpenAIKey: () => ScoutbotCredentialState;
 };
 
 type StoredCredentials = {
@@ -40,15 +40,15 @@ type EncryptedSecret = {
   ciphertext: string;
 };
 
-const OPENAI_KEY_AAD = "openscout:ranger:openai:v1";
+const OPENAI_KEY_AAD = "openscout:scoutbot:openai:v1";
 
-export function createRangerCredentialStore(input: {
+export function createScoutbotCredentialStore(input: {
   filePath?: string;
   keyPath?: string;
-} = {}): RangerCredentialStore {
+} = {}): ScoutbotCredentialStore {
   const paths = resolveOpenScoutSupportPaths();
-  const filePath = input.filePath ?? join(paths.controlHome, "ranger-credentials.json");
-  const keyPath = input.keyPath ?? join(paths.controlHome, "ranger-credentials.key");
+  const filePath = input.filePath ?? join(paths.controlHome, "scoutbot-credentials.json");
+  const keyPath = input.keyPath ?? join(paths.controlHome, "scoutbot-credentials.key");
 
   const getOpenAIKey = (): string | null => {
     const stored = readStore(filePath).openai;
@@ -60,7 +60,7 @@ export function createRangerCredentialStore(input: {
     }
   };
 
-  const getState = (): RangerCredentialState => {
+  const getState = (): ScoutbotCredentialState => {
     const key = getOpenAIKey();
     return {
       openai: {

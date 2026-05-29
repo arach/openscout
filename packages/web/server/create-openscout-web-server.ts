@@ -104,13 +104,13 @@ import {
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
 import {
-  createRangerAssistantService,
-  RangerAssistantError,
-  type RangerBrief,
-  type RangerBriefCapture,
-  type RangerBriefObservation,
-  type RangerBriefReference,
-} from "./ranger-assistant.ts";
+  createScoutbotAssistantService,
+  ScoutbotAssistantError,
+  type ScoutbotBrief,
+  type ScoutbotBriefCapture,
+  type ScoutbotBriefObservation,
+  type ScoutbotBriefReference,
+} from "./scoutbot-assistant.ts";
 import {
   deleteBriefing,
   getBriefing,
@@ -119,12 +119,12 @@ import {
   type BriefingKind,
 } from "./db/briefings.ts";
 import {
-  createRangerReminderStore,
-  RangerReminderError,
-} from "./ranger-reminders.ts";
+  createScoutbotReminderStore,
+  ScoutbotReminderError,
+} from "./scoutbot-reminders.ts";
 import {
-  createRangerCredentialStore,
-} from "./ranger-credentials.ts";
+  createScoutbotCredentialStore,
+} from "./scoutbot-credentials.ts";
 import {
   startScoutbotRunner,
   type ScoutbotRunnerHandle,
@@ -312,8 +312,8 @@ const FLEET_HOME_BRIEF_TTL_MS = 30 * 60_000;
 
 function persistBriefing(
   kind: BriefingKind,
-  brief: RangerBrief,
-  capture: RangerBriefCapture,
+  brief: ScoutbotBrief,
+  capture: ScoutbotBriefCapture,
 ): void {
   try {
     const observations = brief.steps.flatMap((step) => step.observations ?? []);
@@ -339,7 +339,7 @@ function persistBriefing(
   }
 }
 
-function buildFleetHomeBrief(brief: RangerBrief): FleetHomeBrief {
+function buildFleetHomeBrief(brief: ScoutbotBrief): FleetHomeBrief {
   const fleetStep = brief.steps.find((step) => step.route?.view === "fleet");
   const statement = (fleetStep?.narration ?? brief.steps[0]?.narration ?? brief.summary).trim();
   const observations = buildFleetHomeBriefObservations(statement || brief.summary, fleetStep?.observations ?? []);
@@ -357,7 +357,7 @@ function buildFleetHomeBrief(brief: RangerBrief): FleetHomeBrief {
 
 function buildFleetHomeBriefObservations(
   statement: string,
-  modelObservations: RangerBriefObservation[],
+  modelObservations: ScoutbotBriefObservation[],
 ): FleetHomeBriefObservation[] {
   const modelItems = modelObservations
     .map((item, index) => ({
@@ -395,7 +395,7 @@ function splitFleetBriefSentences(value: string): string[] {
   return parts.slice(0, 4).map((part) => /[.!?]$/.test(part) ? part : `${part}.`);
 }
 
-function normalizeFleetBriefReference(ref: RangerBriefReference): FleetHomeBriefReference | null {
+function normalizeFleetBriefReference(ref: ScoutbotBriefReference): FleetHomeBriefReference | null {
   const label = ref.label.trim();
   if (!label) return null;
   const id = `${ref.kind}:${label}:${JSON.stringify(ref.route ?? {})}`;
@@ -411,7 +411,7 @@ function normalizeFleetBriefReference(ref: RangerBriefReference): FleetHomeBrief
 function inferFleetBriefReferences(text: string): FleetHomeBriefReference[] {
   const refs: FleetHomeBriefReference[] = [];
   const lower = text.toLowerCase();
-  const agents = queryAgents(200).filter((agent) => !isRangerLikeAgentRecord(agent));
+  const agents = queryAgents(200).filter((agent) => !isScoutbotLikeAgentRecord(agent));
   for (const agent of agents) {
     const names = [agent.name, agent.handle ? `@${agent.handle}` : "", agent.handle ?? ""]
       .map((name) => name.trim())
@@ -998,7 +998,7 @@ function compactAttentionSummary(value: string | null | undefined, max = 220): s
   return compacted.length > max ? `${compacted.slice(0, max - 1)}...` : compacted;
 }
 
-function compactRangerText(value: string | null | undefined, max = 280): string | null {
+function compactScoutbotText(value: string | null | undefined, max = 280): string | null {
   const compacted = (value ?? "").replace(/\s+/g, " ").trim();
   if (!compacted) {
     return null;
@@ -1455,7 +1455,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
   };
 }
 
-async function buildRangerAssistantControlState(currentDirectory: string, route?: unknown) {
+async function buildScoutbotAssistantControlState(currentDirectory: string, route?: unknown) {
   const omittedActiveAgentId = isScoutbotAssistantRoute(route) ? "scoutbot" : null;
   const [attention, mesh, tailDiscovery] = await Promise.all([
     valueOrNull(buildOperatorAttentionState(currentDirectory)),
@@ -1475,8 +1475,8 @@ async function buildRangerAssistantControlState(currentDirectory: string, route?
   const agentLogMessages = agentLogEvents
     .filter((event) => event.kind !== "system")
     .filter((event) => !event.summary.toLowerCase().startsWith("permission-mode"))
-    .map(compactRangerTailEvent);
-  const scoutChatter = queryRecentMessages(50).map(compactRangerMessage);
+    .map(compactScoutbotTailEvent);
+  const scoutChatter = queryRecentMessages(50).map(compactScoutbotMessage);
   const activeRuns = queryRuns({ active: true, limit: 24 })
     .filter((run) => run.agentId !== omittedActiveAgentId);
   const activeFlights = queryFlights({ activeOnly: true })
@@ -1486,7 +1486,7 @@ async function buildRangerAssistantControlState(currentDirectory: string, route?
   return {
     build: loadOpenScoutBuildInfo(currentDirectory),
     agents: queryAgents(40)
-      .filter((agent) => !isRangerLikeAgentRecord(agent))
+      .filter((agent) => !isScoutbotLikeAgentRecord(agent))
       .map((agent) => ({
         id: agent.id,
         name: agent.name,
@@ -1504,10 +1504,10 @@ async function buildRangerAssistantControlState(currentDirectory: string, route?
     fleet: {
       generatedAt: fleet.generatedAt,
       totals: fleet.totals,
-      activeAsks: fleet.activeAsks.slice(0, 12).map(compactRangerFleetAsk),
-      needsAttention: fleet.needsAttention.slice(0, 12).map(compactRangerFleetAttention),
-      recentCompleted: fleet.recentCompleted.slice(0, 8).map(compactRangerFleetAsk),
-      activity: fleet.activity.slice(0, 12).map(compactRangerActivity),
+      activeAsks: fleet.activeAsks.slice(0, 12).map(compactScoutbotFleetAsk),
+      needsAttention: fleet.needsAttention.slice(0, 12).map(compactScoutbotFleetAttention),
+      recentCompleted: fleet.recentCompleted.slice(0, 8).map(compactScoutbotFleetAsk),
+      activity: fleet.activity.slice(0, 12).map(compactScoutbotActivity),
     },
     operatorAttention: attention
       ? {
@@ -1521,17 +1521,17 @@ async function buildRangerAssistantControlState(currentDirectory: string, route?
       windowMs: broker.windowMs,
       totals: broker.totals,
       rates: broker.rates,
-      failedQueries: broker.failedQueries.slice(0, 8).map(compactRangerRouteAttempt),
-      failedDeliveries: broker.failedDeliveries.slice(0, 8).map(compactRangerRouteAttempt),
-      attempts: broker.attempts.slice(0, 12).map(compactRangerRouteAttempt),
-      dialogue: broker.dialogue.slice(0, 12).map(compactRangerDialogue),
+      failedQueries: broker.failedQueries.slice(0, 8).map(compactScoutbotRouteAttempt),
+      failedDeliveries: broker.failedDeliveries.slice(0, 8).map(compactScoutbotRouteAttempt),
+      attempts: broker.attempts.slice(0, 12).map(compactScoutbotRouteAttempt),
+      dialogue: broker.dialogue.slice(0, 12).map(compactScoutbotDialogue),
     },
-    activeWork: queryWorkItems({ activeOnly: true, limit: 20 }).map(compactRangerWorkItem),
+    activeWork: queryWorkItems({ activeOnly: true, limit: 20 }).map(compactScoutbotWorkItem),
     activeRuns,
     activeFlights,
     sessions: querySessions(24),
     recentMessages: scoutChatter.slice(0, 16),
-    recentActivity: queryActivity(16).map(compactRangerActivity),
+    recentActivity: queryActivity(16).map(compactScoutbotActivity),
     briefingEvidence: {
       agentLogMessages,
       scoutChatter,
@@ -1562,7 +1562,7 @@ async function buildRangerAssistantControlState(currentDirectory: string, route?
             pid: p.pid,
             source: p.source,
             harness: p.harness,
-            command: compactRangerText(p.command, 140),
+            command: compactScoutbotText(p.command, 140),
             cwd: p.cwd,
             etime: p.etime,
           })),
@@ -1589,30 +1589,30 @@ function isScoutbotAssistantRoute(route: unknown): boolean {
   );
 }
 
-function compactRangerFleetAsk(ask: ReturnType<typeof queryFleet>["activeAsks"][number]) {
+function compactScoutbotFleetAsk(ask: ReturnType<typeof queryFleet>["activeAsks"][number]) {
   return {
     invocationId: ask.invocationId,
     flightId: ask.flightId,
     agentId: ask.agentId,
     agentName: ask.agentName,
     conversationId: ask.conversationId,
-    task: compactRangerText(ask.task, 260),
+    task: compactScoutbotText(ask.task, 260),
     status: ask.status,
     statusLabel: ask.statusLabel,
     attention: ask.attention,
-    summary: compactRangerText(ask.summary, 260),
+    summary: compactScoutbotText(ask.summary, 260),
     startedAt: ask.startedAt,
     completedAt: ask.completedAt,
     updatedAt: ask.updatedAt,
   };
 }
 
-function compactRangerFleetAttention(item: ReturnType<typeof queryFleet>["needsAttention"][number]) {
+function compactScoutbotFleetAttention(item: ReturnType<typeof queryFleet>["needsAttention"][number]) {
   return {
     kind: item.kind,
     recordId: item.recordId,
-    title: compactRangerText(item.title, 180),
-    summary: compactRangerText(item.summary, 260),
+    title: compactScoutbotText(item.title, 180),
+    summary: compactScoutbotText(item.summary, 260),
     agentId: item.agentId,
     agentName: item.agentName,
     conversationId: item.conversationId,
@@ -1622,20 +1622,20 @@ function compactRangerFleetAttention(item: ReturnType<typeof queryFleet>["needsA
   };
 }
 
-function compactRangerActivity(item: ReturnType<typeof queryActivity>[number]) {
+function compactScoutbotActivity(item: ReturnType<typeof queryActivity>[number]) {
   return {
     id: item.id,
     kind: item.kind,
     ts: item.ts,
     actorName: item.actorName,
-    title: compactRangerText(item.title, 180),
-    summary: compactRangerText(item.summary, 260),
+    title: compactScoutbotText(item.title, 180),
+    summary: compactScoutbotText(item.summary, 260),
     conversationId: item.conversationId,
     workspaceRoot: item.workspaceRoot,
   };
 }
 
-function compactRangerRouteAttempt(attempt: ReturnType<typeof queryBrokerDiagnostics>["attempts"][number]) {
+function compactScoutbotRouteAttempt(attempt: ReturnType<typeof queryBrokerDiagnostics>["attempts"][number]) {
   return {
     id: attempt.id,
     kind: attempt.kind,
@@ -1644,7 +1644,7 @@ function compactRangerRouteAttempt(attempt: ReturnType<typeof queryBrokerDiagnos
     actorName: attempt.actorName,
     target: attempt.target,
     route: attempt.route,
-    detail: compactRangerText(attempt.detail, 320),
+    detail: compactScoutbotText(attempt.detail, 320),
     conversationId: attempt.conversationId,
     messageId: attempt.messageId,
     deliveryId: attempt.deliveryId,
@@ -1652,22 +1652,22 @@ function compactRangerRouteAttempt(attempt: ReturnType<typeof queryBrokerDiagnos
   };
 }
 
-function compactRangerDialogue(item: ReturnType<typeof queryBrokerDiagnostics>["dialogue"][number]) {
+function compactScoutbotDialogue(item: ReturnType<typeof queryBrokerDiagnostics>["dialogue"][number]) {
   return {
     id: item.id,
     ts: item.ts,
     actorName: item.actorName,
     conversationId: item.conversationId,
-    body: compactRangerText(item.body, 320),
+    body: compactScoutbotText(item.body, 320),
     class: item.class,
   };
 }
 
-function compactRangerWorkItem(item: ReturnType<typeof queryWorkItems>[number]) {
+function compactScoutbotWorkItem(item: ReturnType<typeof queryWorkItems>[number]) {
   return {
     id: item.id,
-    title: compactRangerText(item.title, 180),
-    summary: compactRangerText(item.summary, 260),
+    title: compactScoutbotText(item.title, 180),
+    summary: compactScoutbotText(item.summary, 260),
     ownerId: item.ownerId,
     ownerName: item.ownerName,
     nextMoveOwnerId: item.nextMoveOwnerId,
@@ -1681,22 +1681,22 @@ function compactRangerWorkItem(item: ReturnType<typeof queryWorkItems>[number]) 
     activeChildWorkCount: item.activeChildWorkCount,
     activeFlightCount: item.activeFlightCount,
     lastMeaningfulAt: item.lastMeaningfulAt,
-    lastMeaningfulSummary: compactRangerText(item.lastMeaningfulSummary, 260),
+    lastMeaningfulSummary: compactScoutbotText(item.lastMeaningfulSummary, 260),
   };
 }
 
-function compactRangerMessage(message: ReturnType<typeof queryRecentMessages>[number]) {
+function compactScoutbotMessage(message: ReturnType<typeof queryRecentMessages>[number]) {
   return {
     id: message.id,
     conversationId: message.conversationId,
     actorName: message.actorName,
-    body: compactRangerText(message.body, 320),
+    body: compactScoutbotText(message.body, 320),
     createdAt: message.createdAt,
     class: message.class,
   };
 }
 
-function compactRangerTailEvent(event: ReturnType<typeof snapshotRecentEvents>[number]) {
+function compactScoutbotTailEvent(event: ReturnType<typeof snapshotRecentEvents>[number]) {
   return {
     id: event.id,
     ts: event.ts,
@@ -1706,7 +1706,7 @@ function compactRangerTailEvent(event: ReturnType<typeof snapshotRecentEvents>[n
     cwd: event.cwd,
     harness: event.harness,
     kind: event.kind,
-    summary: compactRangerText(event.summary, 360),
+    summary: compactScoutbotText(event.summary, 360),
   };
 }
 
@@ -1718,10 +1718,10 @@ async function valueOrNull<T>(value: Promise<T> | T): Promise<T | null> {
   }
 }
 
-function isRangerLikeAgentRecord(agent: { id: string; name: string; handle: string | null; role: string | null }): boolean {
+function isScoutbotLikeAgentRecord(agent: { id: string; name: string; handle: string | null; role: string | null }): boolean {
   return [agent.id, agent.name, agent.handle ?? "", agent.role ?? ""]
     .map((value) => value.trim().toLowerCase())
-    .some((value) => value === "ranger" || value.startsWith("ranger.") || value.includes(".ranger."));
+    .some((value) => value === "scoutbot" || value.startsWith("scoutbot.") || value.includes(".scoutbot."));
 }
 
 function previewSecret(value: string): string {
@@ -1732,8 +1732,8 @@ function previewSecret(value: string): string {
   return `${trimmed.slice(0, 5)}...${trimmed.slice(-4)}`;
 }
 
-async function resolveRangerCredentialState(
-  rangerCredentials: ReturnType<typeof createRangerCredentialStore>,
+async function resolveScoutbotCredentialState(
+  scoutbotCredentials: ReturnType<typeof createScoutbotCredentialStore>,
 ): Promise<{
   openai: {
     configured: boolean;
@@ -1744,7 +1744,7 @@ async function resolveRangerCredentialState(
   const envKey = process.env.OPENAI_API_KEY?.trim() ?? "";
   const config = await loadScoutRelayConfig().catch(() => ({}));
   const configKey = typeof config.openaiApiKey === "string" ? config.openaiApiKey.trim() : "";
-  const storeKey = rangerCredentials.getOpenAIKey()?.trim() ?? "";
+  const storeKey = scoutbotCredentials.getOpenAIKey()?.trim() ?? "";
   const key = envKey || configKey || storeKey;
   return {
     openai: {
@@ -1979,17 +1979,17 @@ export async function createOpenScoutWebServer(
     loadOpenScoutWebShellState,
     shellTtl,
   );
-  const rangerReminders = createRangerReminderStore();
-  const rangerCredentials = createRangerCredentialStore();
-  const rangerAssistant = createRangerAssistantService({
+  const scoutbotReminders = createScoutbotReminderStore();
+  const scoutbotCredentials = createScoutbotCredentialStore();
+  const scoutbotAssistant = createScoutbotAssistantService({
     currentDirectory,
     loadContext: async (route) => ({
-      ...(await buildRangerAssistantControlState(currentDirectory, route)),
-      reminders: rangerReminders.getState(),
+      ...(await buildScoutbotAssistantControlState(currentDirectory, route)),
+      reminders: scoutbotReminders.getState(),
     }),
     resolveApiKey: async () => {
       const config = await loadScoutRelayConfig().catch(() => null);
-      return config?.openaiApiKey ?? rangerCredentials.getOpenAIKey();
+      return config?.openaiApiKey ?? scoutbotCredentials.getOpenAIKey();
     },
   });
   let scoutbotRunner: ScoutbotRunnerHandle | null = null;
@@ -2014,16 +2014,16 @@ export async function createOpenScoutWebServer(
     if (!force && fleetHomeBriefInFlight) {
       return fleetHomeBriefInFlight;
     }
-    let captured: RangerBriefCapture | null = null;
-    fleetHomeBriefInFlight = rangerAssistant.createBrief({
+    let captured: ScoutbotBriefCapture | null = null;
+    fleetHomeBriefInFlight = scoutbotAssistant.createBrief({
       route: { view: "fleet" },
       ttlMs: FLEET_HOME_BRIEF_TTL_MS,
       mode: "fleet-home",
       onCaptured: (c) => { captured = c; },
     })
-      .then((rangerBrief) => {
-        if (captured) persistBriefing("fleet-home", rangerBrief, captured);
-        return buildFleetHomeBrief(rangerBrief);
+      .then((scoutbotBrief) => {
+        if (captured) persistBriefing("fleet-home", scoutbotBrief, captured);
+        return buildFleetHomeBrief(scoutbotBrief);
       })
       .then((brief) => {
         fleetHomeBrief = brief;
@@ -2086,38 +2086,38 @@ export async function createOpenScoutWebServer(
       return c.json({ error: message }, 500);
     }
   });
-  app.get("/api/ranger/session", (c) => c.json(rangerAssistant.getSessionState()));
-  app.post("/api/ranger/session/reset", (c) => c.json(rangerAssistant.resetSession()));
-  app.post("/api/ranger/session/switch", async (c) => {
+  app.get("/api/scoutbot/session", (c) => c.json(scoutbotAssistant.getSessionState()));
+  app.post("/api/scoutbot/session/reset", (c) => c.json(scoutbotAssistant.resetSession()));
+  app.post("/api/scoutbot/session/switch", async (c) => {
     const body = await c.req.json<{ id?: unknown }>().catch(() => ({}));
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) {
       return c.json({ error: "id is required" }, 400);
     }
     try {
-      return c.json(rangerAssistant.switchSession(id));
+      return c.json(scoutbotAssistant.switchSession(id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Ranger switch failed";
-      const status = error instanceof RangerAssistantError ? error.status : 500;
+      const message = error instanceof Error ? error.message : "Scoutbot switch failed";
+      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
       return c.json({ error: message }, status as 400 | 404 | 500);
     }
   });
-  app.post("/api/ranger/session/archive", async (c) => {
+  app.post("/api/scoutbot/session/archive", async (c) => {
     const body = await c.req.json<{ id?: unknown }>().catch(() => ({}));
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) {
       return c.json({ error: "id is required" }, 400);
     }
     try {
-      return c.json(rangerAssistant.archiveSession(id));
+      return c.json(scoutbotAssistant.archiveSession(id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Ranger archive failed";
-      const status = error instanceof RangerAssistantError ? error.status : 500;
+      const message = error instanceof Error ? error.message : "Scoutbot archive failed";
+      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
       return c.json({ error: message }, status as 400 | 404 | 500);
     }
   });
-  app.get("/api/ranger/reminders", (c) => c.json(rangerReminders.getState()));
-  app.post("/api/ranger/reminders", async (c) => {
+  app.get("/api/scoutbot/reminders", (c) => c.json(scoutbotReminders.getState()));
+  app.post("/api/scoutbot/reminders", async (c) => {
     const body = await c.req.json<{
       title?: unknown;
       body?: unknown;
@@ -2129,73 +2129,73 @@ export async function createOpenScoutWebServer(
     }>().catch(() => ({}));
 
     try {
-      return c.json(rangerReminders.create(body));
+      return c.json(scoutbotReminders.create(body));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Ranger reminder failed";
-      const status = error instanceof RangerReminderError ? error.status : 500;
+      const message = error instanceof Error ? error.message : "Scoutbot reminder failed";
+      const status = error instanceof ScoutbotReminderError ? error.status : 500;
       return c.json({ error: message }, status as 400 | 404 | 500);
     }
   });
-  app.post("/api/ranger/reminders/:id/dismiss", (c) => {
+  app.post("/api/scoutbot/reminders/:id/dismiss", (c) => {
     try {
-      return c.json(rangerReminders.dismiss(c.req.param("id")));
+      return c.json(scoutbotReminders.dismiss(c.req.param("id")));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Ranger reminder failed";
-      const status = error instanceof RangerReminderError ? error.status : 500;
+      const message = error instanceof Error ? error.message : "Scoutbot reminder failed";
+      const status = error instanceof ScoutbotReminderError ? error.status : 500;
       return c.json({ error: message }, status as 400 | 404 | 500);
     }
   });
-  app.get("/api/ranger/config", (c) => c.json(rangerAssistant.getConfig()));
-  app.post("/api/ranger/config", async (c) => {
+  app.get("/api/scoutbot/config", (c) => c.json(scoutbotAssistant.getConfig()));
+  app.post("/api/scoutbot/config", async (c) => {
     const body = await c.req.json<{
       model?: string | null;
       systemPrompt?: string | null;
     }>().catch(() => ({}));
     return c.json({
-      config: rangerAssistant.updateConfig({
+      config: scoutbotAssistant.updateConfig({
         model: body.model,
         systemPrompt: body.systemPrompt,
       }),
     });
   });
-  app.get("/api/ranger/credentials", async (c) => {
-    return c.json(await resolveRangerCredentialState(rangerCredentials));
+  app.get("/api/scoutbot/credentials", async (c) => {
+    return c.json(await resolveScoutbotCredentialState(scoutbotCredentials));
   });
-  app.post("/api/ranger/credentials/openai", async (c) => {
+  app.post("/api/scoutbot/credentials/openai", async (c) => {
     const body = await c.req.json<{ apiKey?: unknown }>().catch(() => ({}));
     try {
       if (typeof body.apiKey !== "string") {
         return c.json({ error: "apiKey is required" }, 400);
       }
-      rangerCredentials.setOpenAIKey(body.apiKey);
-      return c.json(await resolveRangerCredentialState(rangerCredentials));
+      scoutbotCredentials.setOpenAIKey(body.apiKey);
+      return c.json(await resolveScoutbotCredentialState(scoutbotCredentials));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save OpenAI API key.";
       return c.json({ error: message }, 400);
     }
   });
-  app.delete("/api/ranger/credentials/openai", async (c) => {
-    rangerCredentials.deleteOpenAIKey();
-    return c.json(await resolveRangerCredentialState(rangerCredentials));
+  app.delete("/api/scoutbot/credentials/openai", async (c) => {
+    scoutbotCredentials.deleteOpenAIKey();
+    return c.json(await resolveScoutbotCredentialState(scoutbotCredentials));
   });
-  app.post("/api/ranger/chat", async (c) => {
+  app.post("/api/scoutbot/chat", async (c) => {
     const body = await c.req.json<{
       body?: string;
       route?: unknown;
     }>().catch(() => ({}));
 
     try {
-      return c.json(await rangerAssistant.respond({
+      return c.json(await scoutbotAssistant.respond({
         body: body.body ?? "",
         route: body.route,
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Ranger assistant failed";
-      const status = error instanceof RangerAssistantError ? error.status : 500;
+      const message = error instanceof Error ? error.message : "Scoutbot assistant failed";
+      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
       return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
-  app.post("/api/ranger/actions/ask", async (c) => {
+  app.post("/api/scoutbot/actions/ask", async (c) => {
     const body = await c.req.json<{
       targetLabel?: string;
       targetAgentId?: string;
@@ -2244,15 +2244,15 @@ export async function createOpenScoutWebServer(
       targetAgentId: result.flight?.targetAgentId ?? null,
     });
   });
-  app.post("/api/ranger/brief", async (c) => {
+  app.post("/api/scoutbot/brief", async (c) => {
     const body = await c.req.json<{
       route?: unknown;
       ttlMs?: number | null;
     }>().catch(() => ({}));
 
     try {
-      let captured: RangerBriefCapture | null = null;
-      const brief = await rangerAssistant.createBrief({
+      let captured: ScoutbotBriefCapture | null = null;
+      const brief = await scoutbotAssistant.createBrief({
         route: body.route,
         ttlMs: body.ttlMs,
         onCaptured: (cap) => { captured = cap; },
@@ -2261,14 +2261,14 @@ export async function createOpenScoutWebServer(
       emitBroadcast({
         tier: "info",
         text: `Brief · ${brief.title}`,
-        ruleId: "ranger.brief",
-        key: "ranger.brief",
-        agent: "ranger",
+        ruleId: "scoutbot.brief",
+        key: "scoutbot.brief",
+        agent: "scoutbot",
       });
       return c.json(brief);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Ranger brief failed";
-      const status = error instanceof RangerAssistantError ? error.status : 500;
+      const message = error instanceof Error ? error.message : "Scoutbot brief failed";
+      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
       return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
@@ -2637,7 +2637,7 @@ export async function createOpenScoutWebServer(
       return c.json(await loadFleetHomeBrief(refresh === "1" || refresh === "true"));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Fleet brief failed";
-      const status = error instanceof RangerAssistantError ? error.status : 500;
+      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
       return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
     }
   });
@@ -3465,13 +3465,13 @@ export async function createOpenScoutWebServer(
     return c.json(resolveVoxSpeechDefaults());
   });
 
-  // Dev-only: serve generated Ranger FX fixtures for /dev/ranger-fx lab.
-  // Fixtures are produced by packages/web/scripts/generate-ranger-fx-fixtures.mjs
-  // and live in packages/web/dev/ranger-fx-fixtures/ (gitignored).
+  // Dev-only: serve generated Scoutbot FX fixtures for /dev/scoutbot-fx lab.
+  // Fixtures are produced by packages/web/scripts/generate-scoutbot-fx-fixtures.mjs
+  // and live in packages/web/dev/scoutbot-fx-fixtures/ (gitignored).
   if (process.env.NODE_ENV !== "production") {
-    const fixturesRoot = join(process.cwd(), "dev", "ranger-fx-fixtures");
+    const fixturesRoot = join(process.cwd(), "dev", "scoutbot-fx-fixtures");
 
-    app.get("/api/dev/ranger-fx/fixtures", (c) => {
+    app.get("/api/dev/scoutbot-fx/fixtures", (c) => {
       if (!existsSync(fixturesRoot)) {
         return c.json({ fixtures: [], generatedAt: null, available: false });
       }
@@ -3495,7 +3495,7 @@ export async function createOpenScoutWebServer(
       }
     });
 
-    app.get("/api/dev/ranger-fx/audio/:name", (c) => {
+    app.get("/api/dev/scoutbot-fx/audio/:name", (c) => {
       const raw = c.req.param("name");
       // Disallow anything that could escape the fixtures dir.
       if (!raw || raw.includes("/") || raw.includes("\\") || raw.includes("..")) {

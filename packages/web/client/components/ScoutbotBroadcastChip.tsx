@@ -3,33 +3,33 @@ import { Bot, Loader2 } from "lucide-react";
 
 import {
   selectChipBroadcast,
-  toggleRanger,
-  useRangerBroadcastStore,
-} from "../lib/ranger-broadcast-store.ts";
+  toggleScoutbot,
+  useScoutbotBroadcastStore,
+} from "../lib/scoutbot-broadcast-store.ts";
 import {
-  useRangerState,
-  type RangerActivity,
-  type RangerPublicState,
-} from "../scout/ranger/RangerStateContext.tsx";
+  useScoutbotState,
+  type ScoutbotActivity,
+  type ScoutbotPublicState,
+} from "../scout/scoutbot/ScoutbotStateContext.tsx";
 import { useContextMenu, type MenuItem } from "./ContextMenu.tsx";
 import type { BroadcastTier } from "../lib/types.ts";
 
-import "./ranger-broadcast-chip.css";
+import "./scoutbot-broadcast-chip.css";
 
 const BRIEF_FRESH_WINDOW_MS = 5 * 60_000;
 const TICK_MS = 15_000;
 
 type ChipSurface =
-  | { kind: "activity"; activity: RangerActivity; label: string }
+  | { kind: "activity"; activity: ScoutbotActivity; label: string }
   | { kind: "broadcast"; tier: BroadcastTier; text: string; clickTarget: ReturnType<typeof selectChipBroadcast> }
   | { kind: "brief-fresh"; label: string }
   | { kind: "idle" };
 
 function tierClass(tier: BroadcastTier): string {
-  return `s-ranger-chip-dot s-ranger-chip-dot--${tier}`;
+  return `s-scoutbot-chip-dot s-scoutbot-chip-dot--${tier}`;
 }
 
-function activityLabel(activity: RangerActivity): string {
+function activityLabel(activity: ScoutbotActivity): string {
   switch (activity) {
     case "listening":
       return "listening";
@@ -45,7 +45,7 @@ function activityLabel(activity: RangerActivity): string {
   }
 }
 
-function activityShowsSpinner(activity: RangerActivity): boolean {
+function activityShowsSpinner(activity: ScoutbotActivity): boolean {
   return activity === "thinking" || activity === "briefing";
 }
 
@@ -56,7 +56,7 @@ function formatFreshness(ageMs: number): string {
 }
 
 function resolveSurface(
-  state: RangerPublicState,
+  state: ScoutbotPublicState,
   broadcast: ReturnType<typeof selectChipBroadcast>,
   now: number,
 ): ChipSurface {
@@ -84,12 +84,12 @@ function resolveSurface(
   return { kind: "idle" };
 }
 
-function buildTitle(surface: ChipSurface, state: RangerPublicState): string {
+function buildTitle(surface: ChipSurface, state: ScoutbotPublicState): string {
   const session = state.session.title ?? null;
   const lines: string[] = [];
   switch (surface.kind) {
     case "activity":
-      lines.push(`Ranger · ${surface.label}`);
+      lines.push(`Scout · ${surface.label}`);
       break;
     case "broadcast":
       lines.push(surface.text);
@@ -99,7 +99,7 @@ function buildTitle(surface: ChipSurface, state: RangerPublicState): string {
       break;
     case "idle":
     default:
-      lines.push("Toggle Ranger");
+      lines.push("Toggle Scout");
       break;
   }
   if (session) lines.push(session);
@@ -109,10 +109,10 @@ function buildTitle(surface: ChipSurface, state: RangerPublicState): string {
   return lines.join("\n");
 }
 
-export function RangerBroadcastChip() {
-  const snap = useRangerBroadcastStore();
+export function ScoutbotBroadcastChip() {
+  const snap = useScoutbotBroadcastStore();
   const broadcast = selectChipBroadcast(snap);
-  const { state, actions } = useRangerState();
+  const { state, actions } = useScoutbotState();
   const showContextMenu = useContextMenu();
   const [now, setNow] = useState(() => Date.now());
 
@@ -127,23 +127,23 @@ export function RangerBroadcastChip() {
   const variantClass = (() => {
     switch (surface.kind) {
       case "activity":
-        return "s-ranger-chip--activity";
+        return "s-scoutbot-chip--activity";
       case "broadcast":
-        return "s-ranger-chip--active";
+        return "s-scoutbot-chip--active";
       case "brief-fresh":
-        return "s-ranger-chip--fresh";
+        return "s-scoutbot-chip--fresh";
       case "idle":
       default:
-        return "s-ranger-chip--idle";
+        return "s-scoutbot-chip--idle";
     }
   })();
 
   const handlePrimaryClick = () => {
-    // Restore the pre-SCO-035 click behavior: one click toggles the Ranger
+    // Restore the pre-SCO-035 click behavior: one click toggles the Scoutbot
     // panel. The popover-on-click route (SCO-037) added a layout shift
     // operators perceived as broken — it positioned poorly inside the status
     // bar's stacking context and made the primary action a two-click flow.
-    toggleRanger(broadcast ?? null);
+    toggleScoutbot(broadcast ?? null);
   };
 
   const openQuickMenu = (event: ReactMouseEvent) => {
@@ -152,7 +152,7 @@ export function RangerBroadcastChip() {
       { kind: "action", label: "Ask state", onSelect: () => actions.triggerAskState() },
       { kind: "action", label: "New chat", onSelect: () => actions.startNewChat() },
       { kind: "separator" },
-      { kind: "action", label: "Open chat", onSelect: () => actions.focusRanger() },
+      { kind: "action", label: "Open chat", onSelect: () => actions.focusScoutbot() },
     ];
     showContextMenu(event, items);
   };
@@ -160,30 +160,30 @@ export function RangerBroadcastChip() {
   return (
     <button
       type="button"
-      className={`s-ranger-chip ${variantClass}`}
+      className={`s-scoutbot-chip ${variantClass}`}
       onClick={handlePrimaryClick}
       onContextMenu={openQuickMenu}
       title={title}
     >
-      <Bot size={14} className="s-ranger-chip-icon" aria-hidden="true" />
+      <Bot size={14} className="s-scoutbot-chip-icon" aria-hidden="true" />
       {surface.kind === "activity" && (
         <>
           {activityShowsSpinner(surface.activity) ? (
-            <Loader2 size={10} className="s-ranger-chip-spinner" aria-hidden="true" />
+            <Loader2 size={10} className="s-scoutbot-chip-spinner" aria-hidden="true" />
           ) : (
-            <span className="s-ranger-chip-dot s-ranger-chip-dot--pulse" aria-hidden="true" />
+            <span className="s-scoutbot-chip-dot s-scoutbot-chip-dot--pulse" aria-hidden="true" />
           )}
-          <span className="s-ranger-chip-text">{surface.label}</span>
+          <span className="s-scoutbot-chip-text">{surface.label}</span>
         </>
       )}
       {surface.kind === "broadcast" && (
         <>
           <span className={tierClass(surface.tier)} aria-hidden="true" />
-          <span className="s-ranger-chip-text">{surface.text}</span>
+          <span className="s-scoutbot-chip-text">{surface.text}</span>
         </>
       )}
       {surface.kind === "brief-fresh" && (
-        <span className="s-ranger-chip-text">{surface.label}</span>
+        <span className="s-scoutbot-chip-text">{surface.label}</span>
       )}
     </button>
   );

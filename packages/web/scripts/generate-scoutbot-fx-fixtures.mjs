@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// Generate Ranger TTS fixtures for the FX lab.
+// Generate Scoutbot TTS fixtures for the FX lab.
 //
 // Reads Vox runtime port from ~/.vox/runtime.json (or VOX_PORT), calls Vox's
 // `synthesize.generate` over WS for each phrase below, and writes WAV files to
-// packages/web/dev/ranger-fx-fixtures/. The dir is gitignored. Re-run to refresh.
+// packages/web/dev/scoutbot-fx-fixtures/. The dir is gitignored. Re-run to refresh.
 //
 // Usage:
-//   node packages/web/scripts/generate-ranger-fx-fixtures.mjs
-//   node packages/web/scripts/generate-ranger-fx-fixtures.mjs --voice af_bella
+//   node packages/web/scripts/generate-scoutbot-fx-fixtures.mjs
+//   node packages/web/scripts/generate-scoutbot-fx-fixtures.mjs --voice af_bella
 //
 // Env:
 //   VOX_HOME, VOX_PORT, OPENSCOUT_VOX_TTS_MODEL_ID, OPENSCOUT_VOX_TTS_VOICE_ID
@@ -18,14 +18,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
-const VOX_CLIENT_ID = "openscout-ranger-fx-fixtures";
+const VOX_CLIENT_ID = "openscout-scoutbot-fx-fixtures";
 const DEFAULT_VOX_RPC_PORT = 42137;
 const DEFAULT_VOX_RPC_HOST = "127.0.0.1";
 const RPC_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL = "avspeech:system";
 
 const PHRASES = [
-  { slug: "copy-nominal", text: "Ranger, copy. Three lattices reporting nominal. Standing by." },
+  { slug: "copy-nominal", text: "Scoutbot, copy. Three lattices reporting nominal. Standing by." },
   { slug: "agent-online", text: "Heads up — pixel-pirate just came back online. Inbox clear." },
   { slug: "broker-status", text: "Broker is steady. No pending asks. Two work items in flight." },
   { slug: "checkback", text: "Check back in two minutes on the migration. I'll holler if anything moves." },
@@ -34,7 +34,7 @@ const PHRASES = [
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_DIR = resolve(__dirname, "..", "dev", "ranger-fx-fixtures");
+const FIXTURE_DIR = resolve(__dirname, "..", "dev", "scoutbot-fx-fixtures");
 
 function parseArgs(argv) {
   const out = {};
@@ -164,8 +164,8 @@ async function main() {
 
   if (!existsSync(FIXTURE_DIR)) mkdirSync(FIXTURE_DIR, { recursive: true });
 
-  console.log(`[ranger-fx] Vox port=${port} model=${modelId} voice=${voiceId ?? "(default)"}`);
-  console.log(`[ranger-fx] Writing to ${FIXTURE_DIR}`);
+  console.log(`[scoutbot-fx] Vox port=${port} model=${modelId} voice=${voiceId ?? "(default)"}`);
+  console.log(`[scoutbot-fx] Writing to ${FIXTURE_DIR}`);
 
   const manifest = [];
   for (const phrase of PHRASES) {
@@ -195,10 +195,10 @@ async function main() {
 
   const manifestPath = join(FIXTURE_DIR, "manifest.json");
   writeFileSync(manifestPath, `${JSON.stringify({ generatedAt: new Date().toISOString(), fixtures: manifest }, null, 2)}\n`);
-  console.log(`[ranger-fx] Wrote manifest.json (${manifest.length} fixtures)`);
+  console.log(`[scoutbot-fx] Wrote manifest.json (${manifest.length} fixtures)`);
 }
 
 main().catch((error) => {
-  console.error(`[ranger-fx] ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`[scoutbot-fx] ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 });
