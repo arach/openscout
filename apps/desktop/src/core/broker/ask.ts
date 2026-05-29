@@ -229,6 +229,12 @@ function resolveAskProjectPath(
   return trimmed ? resolve(currentDirectory, trimmed) : undefined;
 }
 
+function shouldInferCurrentProjectAskTarget(
+  command: ScoutAskCommand,
+): boolean {
+  return Boolean(command.harness || command.workspace || command.session);
+}
+
 function isProjectRouteTarget(to: string): boolean {
   const parsed = parseScoutComposerRouteTarget(to);
   return parsed?.kind === "project_path";
@@ -259,6 +265,10 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     currentDirectory,
   );
   const requestedTo = command.to?.trim() || "";
+  const inferredProjectPath =
+    !requestedTo && !commandProjectPath && shouldInferCurrentProjectAskTarget(command)
+      ? currentDirectory
+      : undefined;
   if (requestedTo && commandProjectPath) {
     return {
       ok: false,
@@ -283,7 +293,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
   }
   const resolvedTarget = askResolvedTargetFor({
     to: requestedTo,
-    projectPath: commandProjectPath,
+    projectPath: commandProjectPath ?? inferredProjectPath,
   });
   if (!resolvedTarget) {
     return {
