@@ -38,6 +38,7 @@ export interface ScoutRoutePolicy {
   preferLocalNodeId?: ScoutId;
   ambiguous?: ScoutRouteAmbiguousPolicy;
   allowStaleDirectId?: boolean;
+  freshProjectCard?: boolean;
 }
 
 export type ScoutDispatchUnavailableReason =

@@ -6685,8 +6685,8 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
     && (
       input.routePolicy?.freshProjectCard === true
       || (
-      resolved.kind === "unknown"
-      || (resolved.kind === "ambiguous" && (input.execution?.session ?? "new") === "new")
+        resolved.kind === "unknown"
+        || (resolved.kind === "ambiguous" && (input.execution?.session ?? "new") === "new")
       )
     );
   if (!shouldCreateImplicitProjectCard) {
