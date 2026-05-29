@@ -133,8 +133,9 @@ struct HUDTailView: View {
                 TailEmptyView()
             } else {
                 switch state.size {
-                case .compact:           compactBody
-                case .medium, .large:    largeBody
+                case .compact: rowsBody(size: .compact)
+                case .medium:  rowsBody(size: .medium)
+                case .large:   rowsBody(size: .large)
                 }
             }
         }
@@ -208,18 +209,18 @@ struct HUDTailView: View {
         rows.map { $0.id }
     }
 
-    // MARK: - Compact
+    // MARK: - Rows
 
-    private var compactBody: some View {
+    private func rowsBody(size: HUDSize) -> some View {
         VStack(spacing: 0) {
-            TailLiveMeter(count: rows.count, size: .compact, following: following)
+            TailLiveMeter(count: rows.count, size: size, following: following)
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
                             TailRow(
                                 row: row,
-                                size: .compact,
+                                size: size,
                                 cursored: engage.isCursored(row.id),
                                 engaged: engage.isEngaged(row.id),
                                 onTap: {
@@ -233,77 +234,29 @@ struct HUDTailView: View {
                                 TailDetailInline(
                                     row: row,
                                     prev: idx > 0 ? rows[idx - 1] : nil,
-                                    next: idx + 1 < rows.count ? rows[idx + 1] : nil
+                                    next: idx + 1 < rows.count ? rows[idx + 1] : nil,
+                                    size: size
                                 )
                                 .transition(.move(edge: .top).combined(with: .opacity))
                             }
                         }
                     }
-                    .padding(.bottom, 8)
+                    .padding(.bottom, size == .large ? 12 : 8)
                 }
                 .onChange(of: engage.cursoredId) { _, id in
-                    // No anchor → only scroll when the cursor would
-                    // otherwise be off-screen. Rows already visible stay
-                    // put; the list doesn't jump under the operator.
-                    if let id { withAnimation(.easeOut(duration: 0.14)) { proxy.scrollTo(id) } }
-                }
-            }
-        }
-    }
-
-    // MARK: - Large (also serves Medium — same two-pane layout, smaller
-    // panel frame; see HUDState.contentSize)
-
-    // At large the right pane reads as a preview of whatever the cursor
-    // is on (j/k driven), not the engaged row. Engagement opens the
-    // dock; cursor drives the side preview.
-    private var cursoredIdx: Int {
-        if let id = engage.cursoredId, let i = rows.firstIndex(where: { $0.id == id }) {
-            return i
-        }
-        return 0
-    }
-
-    private var largeBody: some View {
-        VStack(spacing: 0) {
-            TailLiveMeter(count: rows.count, size: .large, following: following)
-            HStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { _, row in
-                                TailRow(
-                                    row: row,
-                                    size: .large,
-                                    cursored: engage.isCursored(row.id),
-                                    engaged: engage.isEngaged(row.id),
-                                    onTap: {
-                                        withAnimation(.easeOut(duration: 0.10)) {
-                                            engage.select(row.id)
-                                        }
-                                    }
-                                )
-                                .id(row.id)
-                            }
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        if size == .compact {
+                            // No anchor → only scroll when the cursor would
+                            // otherwise be off-screen. Rows already visible stay
+                            // put; the list doesn't jump under the operator.
+                            proxy.scrollTo(id)
+                        } else {
+                            proxy.scrollTo(id, anchor: .center)
                         }
-                        .padding(.bottom, 10)
-                    }
-                    .onChange(of: engage.cursoredId) { _, id in
-                        if let id { withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .center) } }
                     }
                 }
-                .frame(width: 540)
-
-                Rectangle().fill(HUDChrome.border).frame(width: 0.5)
-
-                TailDetailLarge(
-                    row: rows[cursoredIdx],
-                    prev: cursoredIdx > 0 ? rows[cursoredIdx - 1] : nil,
-                    next: cursoredIdx + 1 < rows.count ? rows[cursoredIdx + 1] : nil
-                )
-                .frame(maxWidth: .infinity)
             }
-            .frame(maxHeight: .infinity)
         }
     }
 
@@ -430,23 +383,14 @@ private struct TailRow: View {
 
     @State private var hovered = false
 
-    // Three states, all as background tints (no border bar — the user's
-    // call: "not like a border thing, just like a kind of background
-    // color thing"):
-    //   cursored → clear warm tint, easy to scan to
-    //   engaged  → heavier tint + the inline expansion below the row
-    //              (the expansion IS the engagement signal — no need
-    //              to compete with the background)
-    //   hovered  → faintest tint (mouse-only)
-    private var fill: Color {
-        if engaged  { return HUDChrome.canvasLift.opacity(0.70) }
-        if cursored { return HUDChrome.canvasLift.opacity(0.42) }
-        if hovered  { return HUDChrome.canvasLift.opacity(0.18) }
-        return Color.clear
+    private var body1: Color {
+        if engaged || cursored { return HUDChrome.ink }
+        return row.emphasized ? HUDChrome.ink : HUDChrome.inkMuted
     }
 
-    private var body1: Color {
-        row.emphasized ? HUDChrome.ink : HUDChrome.inkMuted
+    private var timeColor: Color {
+        if engaged || cursored { return HUDChrome.inkMuted }
+        return HUDChrome.inkDeep
     }
 
     // Bigger font baseline so the firehose reads as content, not chrome.
@@ -486,7 +430,7 @@ private struct TailRow: View {
             Text(row.at)
                 .font(HUDType.mono(fontSize))
                 .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkDeep)
+                .foregroundStyle(timeColor)
                 .frame(width: timeWidth, alignment: .leading)
 
             Text(row.kind.rawValue)
@@ -513,14 +457,13 @@ private struct TailRow: View {
         }
         .padding(.horizontal, padX)
         .padding(.vertical, padY)
-        .background(fill)
-        // No left edge bar — selection is carried entirely by the
-        // background fill above. Per the operator's call, highlight
-        // should read as a tinted row, not a chrome border.
+        .background {
+            TailRowHighlight(cursored: cursored, engaged: engaged, hovered: hovered)
+        }
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HUDChrome.borderSoft)
-                .frame(height: 0.5)
+                .fill((engaged || cursored) ? HUDChrome.accent.opacity(0.36) : HUDChrome.borderSoft)
+                .frame(height: (engaged || cursored) ? 0.75 : 0.5)
         }
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -538,18 +481,71 @@ private struct TailRow: View {
     }
 }
 
+private struct TailRowHighlight: View {
+    let cursored: Bool
+    let engaged: Bool
+    let hovered: Bool
+
+    private var active: Bool { cursored || engaged }
+
+    private var liftOpacity: Double {
+        if engaged { return 0.82 }
+        if cursored { return 0.58 }
+        if hovered { return 0.18 }
+        return 0
+    }
+
+    private var accentOpacity: Double {
+        if engaged { return 0.19 }
+        if cursored { return 0.13 }
+        return 0
+    }
+
+    var body: some View {
+        ZStack {
+            if liftOpacity > 0 {
+                HUDChrome.canvasLift.opacity(liftOpacity)
+            }
+            if active {
+                LinearGradient(
+                    colors: [
+                        HUDChrome.accent.opacity(accentOpacity),
+                        HUDChrome.accent.opacity(accentOpacity * 0.46),
+                        Color.clear,
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            }
+        }
+    }
+}
+
 // MARK: - Engaged inline detail
 
 private struct TailDetailInline: View {
     let row: TailRowModel
     let prev: TailRowModel?
     let next: TailRowModel?
+    var size: HUDSize = .compact
+
+    private var bodyFont: CGFloat {
+        size == .compact ? 11 : 12
+    }
+
+    private var neighborFont: CGFloat {
+        size == .compact ? 10 : 11
+    }
+
+    private var padX: CGFloat {
+        size == .large ? 20 : 14
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HUDEyebrow(text: "RAW", color: HUDChrome.inkFaint)
             Text("[\(row.at)] [\(row.kind.rawValue)] @\(row.source) · \(row.line)")
-                .font(HUDType.mono(11))
+                .font(HUDType.mono(bodyFont))
                 .foregroundStyle(HUDChrome.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)
@@ -565,8 +561,8 @@ private struct TailDetailInline: View {
             }
             .padding(.top, 2)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, padX)
+        .padding(.vertical, size == .compact ? 9 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HUDChrome.canvasAlt.opacity(0.55))
     }
@@ -579,92 +575,10 @@ private struct TailDetailInline: View {
                 .foregroundStyle(HUDChrome.inkDeep)
                 .frame(width: 26, alignment: .leading)
             Text("\(r.at) \(r.kind.rawValue) @\(r.source) · \(r.line)")
-                .font(HUDType.mono(10))
+                .font(HUDType.mono(neighborFont))
                 .foregroundStyle(HUDChrome.inkFaint)
                 .lineLimit(1)
                 .truncationMode(.tail)
-        }
-    }
-}
-
-// MARK: - Large right-pane detail
-
-private struct TailDetailLarge: View {
-    let row: TailRowModel
-    let prev: TailRowModel?
-    let next: TailRowModel?
-
-    var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                HUDEyebrow(text: "RAW LINE", color: HUDChrome.inkFaint)
-
-                Text("[\(row.at)] [\(row.kind.rawValue)] @\(row.source) · \(row.line)")
-                    .font(HUDType.mono(12))
-                    .foregroundStyle(HUDChrome.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-                    .lineSpacing(3)
-
-                Rectangle().fill(HUDChrome.border).frame(height: 0.5)
-
-                HUDEyebrow(text: "WINDOW", color: HUDChrome.inkFaint)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    if let prev {
-                        windowLine(label: "PRV", row: prev, current: false)
-                    }
-                    windowLine(label: "CUR", row: row, current: true)
-                    if let next {
-                        windowLine(label: "NXT", row: next, current: false)
-                    }
-                }
-
-                Rectangle().fill(HUDChrome.border).frame(height: 0.5)
-                    .padding(.top, 4)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    metaRow(label: "KIND", value: row.kind.rawValue)
-                    metaRow(label: "SOURCE", value: "@" + row.source)
-                    metaRow(label: "AT", value: row.at)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func windowLine(label: String, row r: TailRowModel, current: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(label)
-                .font(HUDType.mono(10, weight: .bold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(current ? HUDChrome.accent : HUDChrome.inkDeep)
-                .frame(width: 32, alignment: .leading)
-            Text("\(r.at) \(r.kind.rawValue) @\(r.source) · \(r.line)")
-                .font(HUDType.mono(11))
-                .foregroundStyle(current ? HUDChrome.ink : HUDChrome.inkFaint)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-
-    private func metaRow(label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(label)
-                .font(HUDType.mono(10, weight: .bold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkDeep)
-                .frame(width: 64, alignment: .leading)
-            Text(value)
-                .font(HUDType.mono(11))
-                .foregroundStyle(HUDChrome.ink)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
         }
     }
 }

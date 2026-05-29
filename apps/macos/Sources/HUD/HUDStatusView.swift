@@ -77,6 +77,7 @@ struct HUDStatusView: View {
                 // land the flash row in the middle of the panel.
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .layoutPriority(1)
                 HUDFlashRow()
                 HudMessageDock()
             }
@@ -159,10 +160,11 @@ struct HUDStatusView: View {
 
     @ViewBuilder
     private var content: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             switch state.view {
             case .agents:
                 agentsContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             case .activity:
                 HUDActivityView(
@@ -170,6 +172,7 @@ struct HUDStatusView: View {
                     activity: fleet.activity,
                     isLoading: fleet.isLoading && fleet.activity == nil
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .tail:
                 HUDTailView(
@@ -177,16 +180,19 @@ struct HUDStatusView: View {
                     activity: fleet.activity,
                     isLoading: fleet.isLoading && fleet.activity == nil
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .sessions:
                 HUDSessionsView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             case .assistant:
                 HUDAssistantView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             }
         }
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder

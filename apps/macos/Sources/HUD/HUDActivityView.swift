@@ -5,7 +5,7 @@ import SwiftUI
 //
 // Compact: time-bucketed ledger, single col, inline reveal on engage.
 // Medium:  same ledger but wider time gutter (stacked relative + absolute).
-// Large:   two panes — ledger left (~480), full event detail right.
+// Large:   full-width ledger; details reveal inline on interaction.
 
 private enum ActivityCategory: String, Sendable {
     case presence
@@ -118,94 +118,115 @@ struct HUDActivityView: View {
                 ActivityEmptyView()
             } else {
                 switch state.size {
-                case .compact:           compactBody
-                case .medium, .large:    largeBody
+                case .compact: rowsBody(size: .compact)
+                case .medium:  rowsBody(size: .medium)
+                case .large:   rowsBody(size: .large)
                 }
             }
         }
+        .onAppear { wireNavBus() }
+        .onDisappear { HUDNavBus.shared.clear() }
     }
 
-    // MARK: - Compact
+    private func wireNavBus() {
+        HUDNavBus.shared.cycleNext = {
+            let ids = rowIds()
+            guard !ids.isEmpty else { return }
+            if let cur = engage.cursoredId, let i = ids.firstIndex(of: cur), i + 1 < ids.count {
+                engage.cursor(ids[i + 1])
+            } else {
+                engage.cursor(ids.first)
+            }
+        }
+        HUDNavBus.shared.cyclePrev = {
+            let ids = rowIds()
+            guard !ids.isEmpty else { return }
+            if let cur = engage.cursoredId, let i = ids.firstIndex(of: cur), i > 0 {
+                engage.cursor(ids[i - 1])
+            } else {
+                engage.cursor(ids.last)
+            }
+        }
+        HUDNavBus.shared.jumpTop = {
+            engage.cursor(rowIds().first)
+        }
+        HUDNavBus.shared.jumpBottom = {
+            engage.cursor(rowIds().last)
+        }
+        HUDNavBus.shared.engageSelected = {
+            guard let cursoredId = engage.cursoredId,
+                  let row = rows.first(where: { $0.id == cursoredId }) else { return }
+            if engage.engagedId != cursoredId {
+                engage.toggle(cursoredId)
+            } else {
+                HUDDockState.shared.setTarget(handle: row.handle ?? row.agent, label: row.agent)
+                HUDDockState.shared.focus()
+            }
+        }
+        HUDNavBus.shared.unengageSelected = {
+            if engage.engagedId != nil {
+                engage.unengage()
+                return true
+            }
+            return false
+        }
+    }
 
-    private var compactBody: some View {
+    private func rowIds() -> [String] {
+        rows.map { $0.id }
+    }
+
+    // MARK: - Rows
+
+    private func rowsBody(size: HUDSize) -> some View {
         let lastId = grouped.last?.rows.last?.id
-        return ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                ForEach(grouped, id: \.bucket) { group in
-                    Section {
-                        ForEach(group.rows) { row in
-                            ActivityRowView(
-                                row: row,
-                                size: .compact,
-                                engaged: engage.isSelected(row.id),
-                                isLastInFeed: row.id == lastId,
-                                onTap: {
-                                    withAnimation(.easeOut(duration: 0.12)) {
-                                        engage.toggle(row.id)
-                                    }
-                                }
-                            )
-                            if engage.isSelected(row.id) {
-                                ActivityDetailInline(row: row)
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                            }
-                        }
-                    } header: {
-                        ActivitySectionHeader(bucket: group.bucket)
-                    }
-                }
-
-                ActivityFeedEndMarker()
-            }
-        }
-    }
-
-    // MARK: - Large (also serves Medium — the same two-pane layout, just
-    // in a smaller panel frame; see HUDState.contentSize)
-
-    private var selectedRow: ActivityRowModel {
-        if let id = engage.selectedId, let match = rows.first(where: { $0.id == id }) {
-            return match
-        }
-        return rows[0]
-    }
-
-    private var largeBody: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                // Left ledger
+        return ScrollViewReader { proxy in
+            GeometryReader { viewport in
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        ForEach(grouped, id: \.bucket) { group in
-                            Section {
+                    VStack(spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(grouped, id: \.bucket) { group in
+                                ActivitySectionHeader(bucket: group.bucket)
                                 ForEach(group.rows) { row in
                                     ActivityRowView(
                                         row: row,
-                                        size: .large,
-                                        engaged: row.id == selectedRow.id,
+                                        size: size,
+                                        cursored: engage.isCursored(row.id),
+                                        engaged: engage.isEngaged(row.id),
+                                        isLastInFeed: row.id == lastId,
                                         onTap: {
                                             withAnimation(.easeOut(duration: 0.12)) {
-                                                engage.select(row.id)
+                                                engage.toggle(row.id)
                                             }
                                         }
                                     )
+                                    .id(row.id)
+                                    if engage.isEngaged(row.id) {
+                                        ActivityDetailInline(row: row, size: size)
+                                            .transition(.move(edge: .top).combined(with: .opacity))
+                                    }
                                 }
-                            } header: {
-                                ActivitySectionHeader(bucket: group.bucket)
                             }
                         }
+
+                        Spacer(minLength: 0)
+                        ActivityFeedEndMarker()
                     }
-                    .padding(.bottom, 12)
+                    .frame(minHeight: viewport.size.height, alignment: .top)
                 }
-                .frame(width: 480)
-
-                Rectangle().fill(HUDChrome.border).frame(width: 0.5)
-
-                ActivityDetailLarge(row: selectedRow)
-                    .frame(maxWidth: .infinity)
+                .onChange(of: engage.cursoredId) { _, id in
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        if size == .compact {
+                            proxy.scrollTo(id)
+                        } else {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
+                }
             }
-            .frame(maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var rows: [ActivityRowModel] {
@@ -318,6 +339,7 @@ private struct ActivitySectionHeader: View {
 private struct ActivityRowView: View {
     let row: ActivityRowModel
     let size: HUDSize
+    var cursored: Bool = false
     let engaged: Bool
     var isLastInFeed: Bool = false
     var onTap: () -> Void = {}
@@ -325,7 +347,8 @@ private struct ActivityRowView: View {
     @State private var hovered = false
 
     private var rowFill: Color {
-        if engaged { return HUDChrome.canvasLift.opacity(0.55) }
+        if engaged { return HUDChrome.canvasLift.opacity(0.72) }
+        if cursored { return HUDChrome.canvasLift.opacity(0.48) }
         if hovered { return HUDChrome.canvasLift.opacity(0.30) }
         return Color.clear
     }
@@ -381,8 +404,19 @@ private struct ActivityRowView: View {
             }
             .frame(maxHeight: .infinity, alignment: .top)
 
-            if engaged {
-                Rectangle().fill(HUDChrome.accent).frame(width: 1.5)
+            if engaged || cursored {
+                LinearGradient(
+                    colors: [
+                        HUDChrome.accent.opacity(engaged ? 0.20 : 0.13),
+                        HUDChrome.accent.opacity(engaged ? 0.08 : 0.05),
+                        Color.clear,
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                Rectangle()
+                    .fill(HUDChrome.accent)
+                    .frame(width: engaged ? 1.5 : 1)
             }
 
             // Content
@@ -536,13 +570,18 @@ private struct InitialAvatar: View {
 
 private struct ActivityDetailInline: View {
     let row: ActivityRowModel
+    var size: HUDSize = .compact
+
+    private var padLeading: CGFloat {
+        size == .compact ? 52 : 88
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HUDEyebrow(text: "EVENT DETAIL", color: HUDChrome.inkFaint)
 
             Text(row.title)
-                .font(HUDType.body(12, weight: .semibold))
+                .font(HUDType.body(size == .compact ? 12 : 13, weight: .semibold))
                 .foregroundStyle(HUDChrome.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)
@@ -565,9 +604,9 @@ private struct ActivityDetailInline: View {
                 }
             }
         }
-        .padding(.leading, 52)
-        .padding(.trailing, 14)
-        .padding(.vertical, 10)
+        .padding(.leading, padLeading)
+        .padding(.trailing, size == .large ? 20 : 14)
+        .padding(.vertical, size == .compact ? 10 : 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HUDChrome.canvasAlt.opacity(0.55))
     }
@@ -589,201 +628,10 @@ private struct ActivityDetailInline: View {
     }
 }
 
-// MARK: - Large right-pane detail
-
-private struct ActivityDetailLarge: View {
-    let row: ActivityRowModel
-
-    private var categoryColor: Color {
-        switch row.category {
-        case .work, .coordination: return HUDChrome.accent
-        default: return HUDChrome.inkMuted
-        }
-    }
-
-    var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 6) {
-                    Text("· " + row.category.label)
-                        .font(HUDType.mono(10, weight: .bold))
-                        .tracking(HUDType.eyebrowTracking)
-                        .foregroundStyle(categoryColor)
-                    Text("·")
-                        .font(HUDType.mono(10))
-                        .foregroundStyle(HUDChrome.inkFaint)
-                    Text(row.kind.label)
-                        .font(HUDType.mono(10, weight: .semibold))
-                        .tracking(HUDType.eyebrowTracking)
-                        .foregroundStyle(row.emphasized ? HUDChrome.accent : HUDChrome.inkFaint)
-                    Spacer()
-                    Text("\(row.at)  ·  \(row.ago) ago")
-                        .font(HUDType.mono(10))
-                        .monospacedDigit()
-                        .foregroundStyle(HUDChrome.inkFaint)
-                }
-
-                Text(row.title)
-                    .font(HUDType.body(15, weight: .semibold))
-                    .foregroundStyle(HUDChrome.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-
-                if !row.summary.isEmpty, row.summary != row.title {
-                    Text(row.summary)
-                        .font(HUDType.body(13))
-                        .foregroundStyle(HUDChrome.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                        .lineSpacing(2)
-                }
-
-                if let detail = row.detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(HUDType.body(12))
-                        .foregroundStyle(HUDChrome.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                        .lineSpacing(3)
-                }
-
-                VStack(spacing: 0) {
-                    Rectangle().fill(HUDChrome.border).frame(height: 0.5)
-                    HStack(spacing: 8) {
-                        InitialAvatar(name: row.agent)
-                        Text(row.agent)
-                            .font(HUDType.body(12))
-                            .foregroundStyle(HUDChrome.ink)
-                        if let handle = row.handle {
-                            Text(handle.hasPrefix("@") ? handle : "@" + handle)
-                                .font(HUDType.mono(11))
-                                .foregroundStyle(HUDChrome.inkFaint)
-                        }
-                        Spacer()
-                        if let flight = row.flightId {
-                            Text("flight \(flight)")
-                                .font(HUDType.mono(10))
-                                .monospacedDigit()
-                                .foregroundStyle(HUDChrome.inkMuted)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 2.5)
-                                        .stroke(HUDChrome.border, lineWidth: 0.5)
-                                )
-                        }
-                    }
-                    .padding(.top, 10)
-                }
-
-                Spacer(minLength: 0)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HUDDrillLink(label: "OPEN THREAD", url: threadURL)
-                    HUDDrillLink(label: "FOLLOW EXECUTION", url: followURL)
-                    HUDDrillLink(label: "AGENT PROFILE", url: agentURL)
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    // WHY: every event always gets all three drills with the most-specific
-    // available scope. Each link walks down a deliberate priority chain;
-    // we never fall back to a static index when a scoped surface exists.
-    //
-    // Web routes consulted (see packages/web/client/lib/router.ts):
-    //   /c/<conversationId>                  conversation thread
-    //   /follow/{flight|invocation|session|conversation|agent}/<id>
-    //   /ops/tail?q=<query>                  scoped tail (last resort for follow)
-    //   /agents/<agentId>                    agent profile
-
-    private var threadURL: URL {
-        let base = HudFleetService.webBaseURL()
-        // When a specific message produced the event, deep-link to it via
-        // the #msg-<id> anchor ConversationScreen exposes (see
-        // ConversationScreen.tsx — share-link helper around msg- anchors).
-        let fragment: String = {
-            guard let mid = row.messageId, !mid.isEmpty else { return "" }
-            return "#msg-\(percent(mid))"
-        }()
-        if let cid = row.conversationId, !cid.isEmpty {
-            return relativeURL("/c/\(percent(cid))\(fragment)", base: base)
-        }
-        if let aid = row.agentId, !aid.isEmpty {
-            // No conversation on the event, but the operator's DM with this
-            // agent is the natural "open thread" landing. Mirrors the web
-            // router's conversationForAgent(agentId) helper.
-            return relativeURL("/c/\(percent("dm.operator.\(aid)"))\(fragment)", base: base)
-        }
-        return relativeURL("/conversations", base: base)
-    }
-
-    private var followURL: URL {
-        let base = HudFleetService.webBaseURL()
-        // Pick the narrowest follow target the event carries — flights run
-        // inside invocations inside sessions inside conversations. Each
-        // narrower scope hides less of the surrounding stream.
-        if let f = row.flightId, !f.isEmpty {
-            return relativeURL("/follow/flight/\(percent(f))", base: base)
-        }
-        if let i = row.invocationId, !i.isEmpty {
-            return relativeURL("/follow/invocation/\(percent(i))", base: base)
-        }
-        if let s = row.sessionId, !s.isEmpty {
-            return relativeURL("/follow/session/\(percent(s))", base: base)
-        }
-        if let c = row.conversationId, !c.isEmpty {
-            return relativeURL("/follow/conversation/\(percent(c))", base: base)
-        }
-        if let a = row.agentId, !a.isEmpty {
-            return relativeURL("/follow/agent/\(percent(a))", base: base)
-        }
-        // Last resort is a SCOPED tail, never an empty index. Handle reads
-        // best in /ops/tail's query box (operators type @handle by reflex).
-        if let q = tailQuery() {
-            return relativeURL("/ops/tail?q=\(percentQuery(q))", base: base)
-        }
-        return relativeURL("/ops/tail", base: base)
-    }
-
-    private var agentURL: URL {
-        let base = HudFleetService.webBaseURL()
-        if let aid = row.agentId, !aid.isEmpty {
-            return relativeURL("/agents/\(percent(aid))", base: base)
-        }
-        return relativeURL("/agents", base: base)
-    }
-
-    private func tailQuery() -> String? {
-        if let h = row.handle, !h.isEmpty {
-            return h.hasPrefix("@") ? h : "@" + h
-        }
-        if !row.agent.isEmpty { return row.agent }
-        return nil
-    }
-
-    private func percent(_ s: String) -> String {
-        s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
-    }
-
-    private func percentQuery(_ s: String) -> String {
-        s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
-    }
-
-    private func relativeURL(_ path: String, base: URL) -> URL {
-        URL(string: path, relativeTo: base)?.absoluteURL ?? base
-    }
-}
-
-// MARK: - Drill link (shared by activity + sessions large detail)
+// MARK: - Drill link
 
 /// Underlined "→ LABEL" row that opens a web surface URL in the default
-/// browser. Used in the right-pane detail of Activity and Sessions; each
-/// caller passes a target URL or omits the link entirely when the
-/// underlying ID isn't available.
+/// browser. Used by inline HUD details to jump to a deeper web surface.
 struct HUDDrillLink: View {
     let label: String
     let url: URL

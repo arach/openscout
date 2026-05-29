@@ -5,7 +5,7 @@ import SwiftUI
 //
 // Compact: single-col ledger, inline reveal on engage.
 // Medium:  same ledger, wider meta strip (project + duration + msg), inline reveal.
-// Large:   two panes — list left (~480), lifecycle detail right (REF/HARNESS/MODEL/BRANCH/DURATION).
+// Large:   full-width ledger; lifecycle detail reveals inline on interaction.
 
 private enum SessionStatus: Sendable {
     case running, idle, ended
@@ -61,8 +61,9 @@ struct HUDSessionsView: View {
                 EmptySessions()
             } else {
                 switch state.size {
-                case .compact:           compactBody
-                case .medium, .large:    largeBody
+                case .compact: rowsBody(size: .compact)
+                case .medium:  rowsBody(size: .medium)
+                case .large:   rowsBody(size: .large)
                 }
             }
         }
@@ -125,93 +126,54 @@ struct HUDSessionsView: View {
         HUDNavBus.shared.toggleFollow = nil
     }
 
-    // MARK: - Compact
+    // MARK: - Rows
 
-    private var compactBody: some View {
+    private func rowsBody(size: HUDSize) -> some View {
         ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
-                    SessionsHeader(sessions: sessions)
-                    ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
-                        SessionRow(
-                            session: s,
-                            isFirst: idx == 0,
-                            size: .compact,
-                            cursored: engage.isCursored(s.id),
-                            engaged: engage.isEngaged(s.id),
-                            onTap: {
-                                withAnimation(.easeOut(duration: 0.14)) {
-                                    engage.toggle(s.id)
-                                }
-                            }
-                        )
-                        .id(s.id)
-                        if engage.isEngaged(s.id) {
-                            SessionDetailInline(session: s)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-                    }
-                }
-                .padding(.bottom, 10)
-            }
-            .onChange(of: engage.cursoredId) { _, id in
-                if let id { withAnimation(.easeOut(duration: 0.14)) { proxy.scrollTo(id) } }
-            }
-        }
-    }
-
-    // MARK: - Large (also serves Medium — same two-pane layout, smaller
-    // panel frame; see HUDState.contentSize)
-
-    private var focusedSession: SynthesizedSession {
-        // At large, j/k drives the side preview via cursor. Engagement
-        // (Enter) is reserved for staging the dock target; the right
-        // pane reads as a live preview of whatever the cursor is on.
-        if let id = engage.cursoredId ?? engage.engagedId,
-           let match = sessions.first(where: { $0.id == id }) {
-            return match
-        }
-        return sessions[0]
-    }
-
-    private var largeBody: some View {
-        VStack(spacing: 0) {
-            SessionsHeader(sessions: sessions)
-            HStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
+            GeometryReader { viewport in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
                         LazyVStack(spacing: 0) {
+                            SessionsHeader(sessions: sessions)
                             ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
                                 SessionRow(
                                     session: s,
                                     isFirst: idx == 0,
-                                    size: .large,
+                                    size: size,
                                     cursored: engage.isCursored(s.id),
                                     engaged: engage.isEngaged(s.id),
                                     onTap: {
                                         withAnimation(.easeOut(duration: 0.14)) {
-                                            engage.select(s.id)
+                                            engage.toggle(s.id)
                                         }
                                     }
                                 )
                                 .id(s.id)
+                                if engage.isEngaged(s.id) {
+                                    SessionDetailInline(session: s, size: size)
+                                        .transition(.move(edge: .top).combined(with: .opacity))
+                                }
                             }
                         }
-                        .padding(.bottom, 10)
+
+                        Spacer(minLength: 0)
+                        SessionsFeedEndMarker()
                     }
-                    .onChange(of: engage.cursoredId) { _, id in
-                        if let id { withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .center) } }
+                    .frame(minHeight: viewport.size.height, alignment: .top)
+                }
+                .onChange(of: engage.cursoredId) { _, id in
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        if size == .compact {
+                            proxy.scrollTo(id)
+                        } else {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
                     }
                 }
-                .frame(width: 560)
-
-                Rectangle().fill(HUDChrome.border).frame(width: 0.5)
-
-                SessionDetailLarge(session: focusedSession)
-                    .frame(maxWidth: .infinity)
             }
-            .frame(maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private static func synthesize(from agents: [HudAgent]) -> [SynthesizedSession] {
@@ -488,6 +450,11 @@ private struct HarnessChip: View {
 
 private struct SessionDetailInline: View {
     let session: SynthesizedSession
+    var size: HUDSize = .compact
+
+    private var padX: CGFloat {
+        size == .large ? 20 : 18
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -505,10 +472,18 @@ private struct SessionDetailInline: View {
                 meta(label: "MODEL", value: session.model)
                 meta(label: "BRANCH", value: session.branch)
                 meta(label: "DURATION", value: session.duration)
+                meta(label: "MESSAGES", value: "\(session.messageCount)")
             }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HUDDrillLink(label: "OPEN TRANSCRIPT", url: transcriptURL)
+                HUDDrillLink(label: "FOLLOW LIVE", url: followURL)
+                HUDDrillLink(label: "AGENT PROFILE", url: agentURL)
+            }
+            .padding(.top, 4)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 11)
+        .padding(.horizontal, padX)
+        .padding(.vertical, size == .compact ? 11 : 13)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HUDChrome.canvasAlt.opacity(0.55))
     }
@@ -526,53 +501,6 @@ private struct SessionDetailInline: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-        }
-    }
-}
-
-// MARK: - Large right-pane detail
-
-private struct SessionDetailLarge: View {
-    let session: SynthesizedSession
-
-    var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                header
-
-                metaStrip
-
-                section(label: "LAST TURN") {
-                    Text(session.lastTurn)
-                        .font(HUDType.body(12))
-                        .foregroundStyle(HUDChrome.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                        .lineSpacing(3)
-                }
-
-                section(label: "LIFECYCLE") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        kv(label: "REF", value: session.refId)
-                        kv(label: "HARNESS", value: session.harness)
-                        kv(label: "MODEL", value: session.model)
-                        kv(label: "BRANCH", value: session.branch)
-                        kv(label: "DURATION", value: session.duration)
-                        kv(label: "MESSAGES", value: "\(session.messageCount)")
-                    }
-                }
-
-                Spacer(minLength: 0)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HUDDrillLink(label: "OPEN TRANSCRIPT", url: transcriptURL)
-                    HUDDrillLink(label: "FOLLOW LIVE", url: followURL)
-                    HUDDrillLink(label: "AGENT PROFILE", url: agentURL)
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -644,77 +572,27 @@ private struct SessionDetailLarge: View {
         URL(string: path, relativeTo: base)?.absoluteURL ?? base
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            StatusDot(status: session.status)
-                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
-            Text(session.agentName)
-                .font(HUDType.body(15, weight: .semibold))
-                .foregroundStyle(HUDChrome.ink)
-                .fixedSize()
-            if let handle = session.agentHandle {
-                Text(handle.hasPrefix("@") ? handle : "@" + handle)
-                    .font(HUDType.mono(11))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .fixedSize()
-            }
-            Spacer(minLength: 4)
-            Text(session.status.label)
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(session.status.color)
-        }
-    }
+}
 
-    private var metaStrip: some View {
-        HStack(spacing: 6) {
-            HarnessChip(harness: session.harness)
-            Text(session.refId)
-                .font(HUDType.mono(10))
-                .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkMuted)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 2)
-                        .stroke(HUDChrome.border, lineWidth: 0.5)
-                )
-            Text(session.project.uppercased())
-                .font(HUDType.mono(10))
+private struct SessionsFeedEndMarker: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Rectangle()
+                .fill(HUDChrome.borderSoft)
+                .frame(height: 0.5)
+            Text("END OF SESSIONS")
+                .font(HUDType.mono(9, weight: .semibold))
                 .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkMuted)
-            Text(session.branch)
-                .font(HUDType.mono(10))
                 .foregroundStyle(HUDChrome.inkFaint)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
+                .fixedSize()
+            Rectangle()
+                .fill(HUDChrome.borderSoft)
+                .frame(height: 0.5)
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 16)
     }
-
-    private func section<Content: View>(label: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HUDEyebrow(text: label, color: HUDChrome.inkFaint)
-            content()
-        }
-    }
-
-    private func kv(label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(label)
-                .font(HUDType.mono(10, weight: .bold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkDeep)
-                .frame(width: 80, alignment: .leading)
-            Text(value.isEmpty ? "—" : value)
-                .font(HUDType.mono(11))
-                .foregroundStyle(HUDChrome.ink)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
-        }
-    }
-
 }
 
 // MARK: - Empty
