@@ -304,14 +304,15 @@ private struct MessageBlock: View {
                     .foregroundStyle(HUDChrome.inkFaint)
             }
 
-            HStack(spacing: 0) {
-                Text(buildAttributedBody(spans: message.body, baseSize: bodyFontSize))
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 18)
+            Text(buildAttributedBody(spans: message.body, baseSize: bodyFontSize))
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+                // Force-fill the column so long unbreakable tokens (paths,
+                // URLs) wrap at character boundaries instead of leaking out
+                // the HStack ideal-width and silently truncating the tail.
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 18)
         }
     }
 }

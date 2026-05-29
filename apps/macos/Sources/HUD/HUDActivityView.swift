@@ -341,14 +341,19 @@ private struct ActivityRowView: View {
         row.emphasized ? HUDChrome.accent : HUDChrome.inkFaint
     }
 
-    // WHY: medium/large widen the gutter to fit a stacked relative + absolute timestamp.
-    private var gutterW: CGFloat {
-        size == .compact ? 32 : 48
-    }
-
-    private var spineX: CGFloat {
-        size == .compact ? 40 : 56
-    }
+    // Geometry mirrors the studio React canonical `ACTIVITY_GRID`:
+    //   compact:        outer 16 | gutter 36 | gap 10 | spine 1 | gap 14 | dispatch
+    //   medium / large: outer 16 | gutter 54 | gap 12 | spine 1 | gap 18 | dispatch
+    // Keep these three constants in sync — the spine + tick layer (drawn
+    // in its own ZStack pass) reads `spineX` directly while the content
+    // HStack consumes `gutterW` + `gutterToContent`. Drift between the
+    // two cascades visually as the tick crashing into the timestamp.
+    private var outerPadLeading: CGFloat { 16 }
+    private var gutterW: CGFloat { size == .compact ? 36 : 54 }
+    private var gutterToSpine: CGFloat { size == .compact ? 10 : 12 }
+    private var spineToContent: CGFloat { size == .compact ? 14 : 18 }
+    private var gutterToContent: CGFloat { gutterToSpine + 1 + spineToContent }
+    private var spineX: CGFloat { outerPadLeading + gutterW + gutterToSpine }
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -381,7 +386,7 @@ private struct ActivityRowView: View {
             }
 
             // Content
-            HStack(alignment: .top, spacing: 11) {
+            HStack(alignment: .top, spacing: gutterToContent) {
                 timeGutter
                     .frame(width: gutterW, alignment: .trailing)
                     .padding(.top, 2)
@@ -443,8 +448,8 @@ private struct ActivityRowView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 12)
-            .padding(.trailing, size == .compact ? 14 : 16)
+            .padding(.leading, outerPadLeading)
+            .padding(.trailing, size == .compact ? 14 : (size == .medium ? 16 : 20))
             .padding(.vertical, size == .compact ? 9 : 10)
         }
         .contentShape(Rectangle())

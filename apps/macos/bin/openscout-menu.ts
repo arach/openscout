@@ -97,7 +97,7 @@ Usage:
 HUD control (via scout:// URL scheme):
   bun apps/macos/bin/openscout-menu.ts hud state
   bun apps/macos/bin/openscout-menu.ts hud show|hide|toggle
-  bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|tail|sessions>
+  bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|tail|sessions|assistant>
   bun apps/macos/bin/openscout-menu.ts hud size <compact|medium|large>
   bun apps/macos/bin/openscout-menu.ts hud capture [<out.png>]
   bun apps/macos/bin/openscout-menu.ts hud matrix [<dir>]
@@ -381,10 +381,10 @@ async function main(): Promise<void> {
 // Actions are fired as URLs (`open -g scout://hud/<action>`); the app
 // mirrors current state to /tmp/openscout-hud-state.json on every
 // change. `capture` reads windowId from that file and shells out to
-// screencapture; `matrix` walks the 4×3 grid for a polish review.
+// screencapture; `matrix` walks the 5×3 grid for a polish review.
 
 const HUD_STATE_PATH = "/tmp/openscout-hud-state.json";
-const HUD_TABS = ["agents", "activity", "tail", "sessions"] as const;
+const HUD_TABS = ["agents", "activity", "tail", "sessions", "assistant"] as const;
 const HUD_SIZES = ["compact", "medium", "large"] as const;
 
 type HudState = {
