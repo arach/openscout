@@ -156,6 +156,7 @@ enum OverlayPanelShell {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.level = config.level
+        panel.sharingType = .readOnly
         // Beefier ambient shadow — the panel should *sit* in front of
         // the world. macOS clamps the radius, so we lean on the SwiftUI
         // shadow modifier inside HUDStatusView for the soft penumbra.

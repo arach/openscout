@@ -1,3 +1,4 @@
+import AppKit
 import ScoutNativeCore
 import SwiftUI
 
@@ -91,7 +92,10 @@ struct HudMessageDock: View {
             }
         )
         .onPreferenceChange(DockWidthKey.self) { panelWidth = $0 }
-        .onChange(of: dock.focusRequested) { _, _ in focused = true }
+        .onChange(of: dock.focusRequested) { _, _ in
+            focused = true
+            DockFieldSelection.moveCaretToEndSoon()
+        }
         .onChange(of: dock.blurRequested)  { _, _ in focused = false }
     }
 
@@ -118,6 +122,12 @@ private struct CompactDock: View {
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
+    @ObservedObject private var vox = HudVoxService.shared
+
+    private var showDictationPreview: Bool {
+        text.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
@@ -129,13 +139,19 @@ private struct CompactDock: View {
                     ThreadPill(name: threadName)
                 }
 
-                TextField("talk — / commands · /s search", text: $text)
-                    .textFieldStyle(.plain)
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.ink)
-                    .focused($focused)
-                    .onSubmit(onSubmit)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ZStack(alignment: .leading) {
+                    TextField(showDictationPreview ? "" : "talk — / commands · /s search", text: $text)
+                        .textFieldStyle(.plain)
+                        .font(HUDType.mono(10))
+                        .foregroundStyle(HUDChrome.ink)
+                        .focused($focused)
+                        .onSubmit(onSubmit)
+                    if showDictationPreview {
+                        DictationLivePreview(text: vox.partial)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 SendChip(small: true, dimmed: text.isEmpty || isSending, onTap: onSubmit)
                 EscChip()
@@ -169,12 +185,17 @@ private struct MediumLargeDock: View {
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
+    @ObservedObject private var vox = HudVoxService.shared
+
     private var isLarge: Bool { size == .large }
     private var minInputH: CGFloat { isLarge ? 46 : 36 }
     private var micBox: CGFloat { isLarge ? 28 : 24 }
     private var micGlyph: CGFloat { isLarge ? 16 : 14 }
     // Slightly smaller than the prior sans sizes — mono reads heavier.
     private var placeholderSize: CGFloat { isLarge ? 11.5 : 10.5 }
+    private var showDictationPreview: Bool {
+        text.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
+    }
 
     var body: some View {
         // Top-aligned: chips stay with the first line; the text field
@@ -190,19 +211,26 @@ private struct MediumLargeDock: View {
                     .padding(.top, isLarge ? 6 : 4)
             }
 
-            TextField(
-                "talk to the assistant — / for commands, /s to search",
-                text: $text,
-                axis: .vertical
-            )
-            .textFieldStyle(.plain)
-            .lineLimit(1...5)
-            // Mono small for cockpit voice and to match the message
-            // thread font; matches CompactDock which is already mono.
-            .font(HUDType.mono(placeholderSize))
-            .foregroundStyle(HUDChrome.ink)
-            .focused($focused)
-            .onSubmit(onSubmit)
+            ZStack(alignment: .topLeading) {
+                TextField(
+                    showDictationPreview ? "" : "talk to the assistant — / for commands, /s to search",
+                    text: $text,
+                    axis: .vertical
+                )
+                .textFieldStyle(.plain)
+                .lineLimit(1...5)
+                // Mono small for cockpit voice and to match the message
+                // thread font; matches CompactDock which is already mono.
+                .font(HUDType.mono(placeholderSize))
+                .foregroundStyle(HUDChrome.ink)
+                .focused($focused)
+                .onSubmit(onSubmit)
+                if showDictationPreview {
+                    DictationLivePreview(text: vox.partial, fontSize: placeholderSize)
+                        .allowsHitTesting(false)
+                        .padding(.top, 1)
+                }
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, isLarge ? 4 : 3)
 
@@ -224,6 +252,63 @@ private struct MediumLargeDock: View {
             Rectangle()
                 .fill(HUDChrome.borderRim.opacity(0.55))
                 .frame(height: 0.5)
+        }
+    }
+}
+
+// ─── Dictation insertion affordances ────────────────────────────────
+
+@MainActor
+private enum DockFieldSelection {
+    static func moveCaretToEndSoon() {
+        moveCaretToEnd()
+        Task { @MainActor in
+            await Task.yield()
+            moveCaretToEnd()
+            await Task.yield()
+            moveCaretToEnd()
+        }
+    }
+
+    private static func moveCaretToEnd() {
+        guard let editor = NSApp.windows
+            .compactMap({ $0.firstResponder as? NSText })
+            .first(where: { $0.isEditable })
+        else { return }
+
+        let length = (editor.string as NSString).length
+        editor.selectedRange = NSRange(location: length, length: 0)
+    }
+}
+
+private struct DictationLivePreview: View {
+    let text: String
+    var fontSize: CGFloat = 10
+
+    @State private var caretLit = false
+
+    private var displayText: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if !displayText.isEmpty {
+                Text(displayText)
+                    .font(HUDType.mono(fontSize))
+                    .foregroundStyle(HUDChrome.inkMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            RoundedRectangle(cornerRadius: 0.5, style: .continuous)
+                .fill(HUDChrome.accent.opacity(caretLit ? 0.95 : 0.25))
+                .frame(width: 1, height: max(10, fontSize + 2))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.48).repeatForever(autoreverses: true)) {
+                caretLit = true
+            }
         }
     }
 }
