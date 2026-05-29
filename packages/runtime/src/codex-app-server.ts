@@ -2334,19 +2334,25 @@ class CodexAppServerSession {
 
     const activeTurn = this.activeTurn;
     this.activeTurn = null;
-    if (activeTurn) {
-      for (const watcher of this.drainTurnWatchers(activeTurn)) {
-        watcher.reject(error);
-      }
-      activeTurn.reject(error);
-    }
-
-    for (const pending of this.pendingRequests.values()) {
-      pending.reject(error);
-    }
+    const pendingRequests = Array.from(this.pendingRequests.values());
     this.pendingRequests.clear();
 
-    void appendFile(this.stderrLogPath, `[openscout] ${error.message}\n`).catch(() => undefined);
+    const rejectSessionWaiters = () => {
+      if (activeTurn) {
+        for (const watcher of this.drainTurnWatchers(activeTurn)) {
+          watcher.reject(error);
+        }
+        activeTurn.reject(error);
+      }
+
+      for (const pending of pendingRequests) {
+        pending.reject(error);
+      }
+    };
+
+    void appendFile(this.stderrLogPath, `[openscout] ${error.message}\n`)
+      .catch(() => undefined)
+      .finally(rejectSessionWaiters);
     void this.persistState();
   }
 

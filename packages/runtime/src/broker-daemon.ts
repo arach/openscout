@@ -553,7 +553,9 @@ async function syncRegisteredLocalAgentsIfChanged(reason: string): Promise<void>
 
   if (registeredLocalAgentsSyncInFlight) {
     await registeredLocalAgentsSyncInFlight;
-    return;
+    if (nextSignature === registeredLocalAgentsRegistrySignature) {
+      return;
+    }
   }
 
   registeredLocalAgentsSyncInFlight = (async () => {
@@ -6681,8 +6683,11 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
   const shouldCreateImplicitProjectCard =
     projectPath
     && (
+      input.routePolicy?.freshProjectCard === true
+      || (
       resolved.kind === "unknown"
       || (resolved.kind === "ambiguous" && (input.execution?.session ?? "new") === "new")
+      )
     );
   if (!shouldCreateImplicitProjectCard) {
     return resolved;
