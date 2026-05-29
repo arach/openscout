@@ -66,6 +66,11 @@ function agentProject(agent: Agent): string {
   return "other";
 }
 
+function projectRouteKeyForGroup(group: ParentGroup): string {
+  const firstProject = group.agents[0]?.project?.trim().toLowerCase();
+  return `project:${firstProject || "unscoped"}`;
+}
+
 function buildGroups(agents: Agent[]): ParentGroup[] {
   const map = new Map<string, Agent[]>();
   for (const agent of agents) {
@@ -215,12 +220,13 @@ function ScoutAgentsLeftPanel() {
   const firstMatch = filteredAgents[0] ?? null;
 
   const selectedAgentId = route.view === "agents" ? route.agentId : undefined;
+  const selectedProjectKey = route.view === "agents" && !route.agentId ? route.projectKey : undefined;
 
-  const toggle = (key: string) => {
+  const openProjectGroup = (key: string) => {
     setExpanded((prev) => {
+      if (prev.has(key)) return prev;
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      next.add(key);
       return next;
     });
   };
@@ -266,6 +272,8 @@ function ScoutAgentsLeftPanel() {
           const only = isSingle ? group.agents[0] : null;
           const anySelected = group.agents.some((a) => a.id === selectedAgentId);
           const onlySessionMatch = only ? matchedSessionIdentifier(only, normalizedQuery) : null;
+          const projectRouteKey = projectRouteKeyForGroup(group);
+          const projectSelected = selectedProjectKey === projectRouteKey;
 
           if (isSingle && only) {
             const ask = asksByAgent.get(only.id);
@@ -277,7 +285,7 @@ function ScoutAgentsLeftPanel() {
                 sub={singleAgentSub(only, ask, onlySessionMatch)}
                 tone={normalizeAgentState(only.state)}
                 avatarName={only.name}
-                active={only.id === selectedAgentId}
+                active={only.id === selectedAgentId || projectSelected}
                 title={agentRowTooltip(only, ask, onlySessionMatch)}
                 onClick={() =>
                   navigateToAgent(navigate, only, { observe: Boolean(onlySessionMatch) })
@@ -295,8 +303,12 @@ function ScoutAgentsLeftPanel() {
                 sub={`${group.agents.length} agents`}
                 tone={group.bestState}
                 caret={isOpen ? "open" : "closed"}
-                active={anySelected && !isOpen}
-                onClick={() => toggle(group.key)}
+                active={projectSelected || (anySelected && !isOpen)}
+                selected={anySelected && !projectSelected}
+                onClick={() => {
+                  openProjectGroup(group.key);
+                  navigate({ view: "agents", projectKey: projectRouteKey });
+                }}
               />
               {isOpen &&
                 group.agents.map((agent) => {

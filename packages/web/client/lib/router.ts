@@ -177,6 +177,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const composeMode =
     url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   const agentTab = parseAgentTab(url.searchParams.get("tab"));
+  const agentProjectKey = url.searchParams.get("project")?.trim() || undefined;
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
@@ -207,7 +208,12 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(agentTab ? { tab: agentTab } : {}),
     });
   }
-  if (parts[0] === "agents") return scoped({ view: "agents" });
+  if (parts[0] === "agents") {
+    return scoped({
+      view: "agents",
+      ...(agentProjectKey ? { projectKey: agentProjectKey } : {}),
+    });
+  }
   if (parts[0] === "fleet") return scoped({ view: "fleet" });
   // /c/{conversationId} always opens the conversation surface directly.
   if (parts[0] === "c" && parts[1]) {
@@ -339,6 +345,9 @@ export function routePath(r: Route): string {
       } else if (r.tab && r.tab !== defaultTab) {
         params.set("tab", r.tab);
       }
+      if (!r.agentId && r.projectKey) {
+        params.set("project", r.projectKey);
+      }
       appendMachineScope(params, r);
       const path = r.agentId
         ? isDmConv
@@ -432,7 +441,9 @@ function routeKey(r: Route): string {
         ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}${scope}`
         : r.agentId
           ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
-          : `agents${scope}`;
+          : r.projectKey
+            ? `agents-project:${r.projectKey}${scope}`
+            : `agents${scope}`;
     case "sessions":
       return r.sessionId ? `session:${r.sessionId}${scope}` : `sessions${scope}`;
     case "messages":
