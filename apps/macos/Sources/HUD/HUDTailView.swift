@@ -430,23 +430,14 @@ private struct TailRow: View {
 
     @State private var hovered = false
 
-    // Three states, all as background tints (no border bar — the user's
-    // call: "not like a border thing, just like a kind of background
-    // color thing"):
-    //   cursored → clear warm tint, easy to scan to
-    //   engaged  → heavier tint + the inline expansion below the row
-    //              (the expansion IS the engagement signal — no need
-    //              to compete with the background)
-    //   hovered  → faintest tint (mouse-only)
-    private var fill: Color {
-        if engaged  { return HUDChrome.canvasLift.opacity(0.70) }
-        if cursored { return HUDChrome.canvasLift.opacity(0.42) }
-        if hovered  { return HUDChrome.canvasLift.opacity(0.18) }
-        return Color.clear
+    private var body1: Color {
+        if engaged || cursored { return HUDChrome.ink }
+        return row.emphasized ? HUDChrome.ink : HUDChrome.inkMuted
     }
 
-    private var body1: Color {
-        row.emphasized ? HUDChrome.ink : HUDChrome.inkMuted
+    private var timeColor: Color {
+        if engaged || cursored { return HUDChrome.inkMuted }
+        return HUDChrome.inkDeep
     }
 
     // Bigger font baseline so the firehose reads as content, not chrome.
@@ -486,7 +477,7 @@ private struct TailRow: View {
             Text(row.at)
                 .font(HUDType.mono(fontSize))
                 .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkDeep)
+                .foregroundStyle(timeColor)
                 .frame(width: timeWidth, alignment: .leading)
 
             Text(row.kind.rawValue)
@@ -513,14 +504,13 @@ private struct TailRow: View {
         }
         .padding(.horizontal, padX)
         .padding(.vertical, padY)
-        .background(fill)
-        // No left edge bar — selection is carried entirely by the
-        // background fill above. Per the operator's call, highlight
-        // should read as a tinted row, not a chrome border.
+        .background {
+            TailRowHighlight(cursored: cursored, engaged: engaged, hovered: hovered)
+        }
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HUDChrome.borderSoft)
-                .frame(height: 0.5)
+                .fill((engaged || cursored) ? HUDChrome.accent.opacity(0.36) : HUDChrome.borderSoft)
+                .frame(height: (engaged || cursored) ? 0.75 : 0.5)
         }
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -533,6 +523,46 @@ private struct TailRow: View {
             Button("Copy line") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(row.line, forType: .string)
+            }
+        }
+    }
+}
+
+private struct TailRowHighlight: View {
+    let cursored: Bool
+    let engaged: Bool
+    let hovered: Bool
+
+    private var active: Bool { cursored || engaged }
+
+    private var liftOpacity: Double {
+        if engaged { return 0.82 }
+        if cursored { return 0.58 }
+        if hovered { return 0.18 }
+        return 0
+    }
+
+    private var accentOpacity: Double {
+        if engaged { return 0.19 }
+        if cursored { return 0.13 }
+        return 0
+    }
+
+    var body: some View {
+        ZStack {
+            if liftOpacity > 0 {
+                HUDChrome.canvasLift.opacity(liftOpacity)
+            }
+            if active {
+                LinearGradient(
+                    colors: [
+                        HUDChrome.accent.opacity(accentOpacity),
+                        HUDChrome.accent.opacity(accentOpacity * 0.46),
+                        Color.clear,
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
             }
         }
     }
