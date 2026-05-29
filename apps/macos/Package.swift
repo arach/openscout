@@ -9,12 +9,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../packages/scout-native-core"),
+        .package(path: "../../../vox/swift"),
     ],
     targets: [
         .executableTarget(
             name: "OpenScoutMenu",
             dependencies: [
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
+                .product(name: "VoxCore", package: "swift"),
+                .product(name: "VoxEngine", package: "swift"),
             ],
             path: "Sources"
         ),

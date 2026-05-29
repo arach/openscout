@@ -175,7 +175,7 @@ struct RelayGlyph: View {
 /// Standard call site: glyph at 14pt, 1.5px stroke, tinted by `color`.
 struct ServiceGlyph: View {
     enum Kind {
-        case broker, mesh, web, peers, relay
+        case broker, mesh, web, peers, relay, voice
     }
 
     let kind: Kind
@@ -196,6 +196,10 @@ struct ServiceGlyph: View {
                 PeersGlyph().fill(color)
             case .relay:
                 RelayGlyph().foregroundStyle(color)
+            case .voice:
+                Image(systemName: "waveform")
+                    .font(.system(size: size, weight: .semibold))
+                    .foregroundStyle(color)
             }
         }
         .frame(width: size, height: size)
@@ -208,6 +212,7 @@ struct ServiceGlyph: View {
         case "web":    return .web
         case "peers":  return .peers
         case "mesh":   return .mesh
+        case "voice":  return .voice
         default:       return .broker
         }
     }

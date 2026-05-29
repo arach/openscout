@@ -10,6 +10,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var themeCancellable: AnyCancellable?
     private let frameAutosaveName = "OpenScoutSettingsWindow"
 
+    var isVisible: Bool {
+        window?.isVisible == true
+    }
+
     private override init() {
         super.init()
     }
@@ -18,17 +22,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            OpenScoutActivationCoordinator.shared.refresh()
             return
         }
 
         let hosting = NSHostingController(rootView: SettingsRootView(controller: controller))
         let window = NSWindow(contentViewController: hosting)
-        window.title = "OpenScout Settings"
+        window.title = "OpenScout"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.setContentSize(NSSize(width: 720, height: 540))
-        window.minSize = NSSize(width: 640, height: 460)
+        window.setContentSize(NSSize(width: 820, height: 580))
+        window.minSize = NSSize(width: 700, height: 500)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.setFrameAutosaveName(frameAutosaveName)
@@ -46,6 +51,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        OpenScoutActivationCoordinator.shared.refresh()
     }
 
     func close() {
@@ -55,19 +61,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         themeCancellable = nil
         window = nil
+        OpenScoutActivationCoordinator.shared.refresh()
     }
 }
 
 // MARK: - Root
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
-    case diagnostics, about, advanced, appearance
+    case diagnostics, voice, about, advanced, appearance
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .diagnostics: return "Diagnostics"
+        case .voice:       return "Voice"
         case .about:       return "About"
         case .advanced:    return "Advanced"
         case .appearance:  return "Appearance"
@@ -77,6 +85,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .diagnostics: return "stethoscope"
+        case .voice:       return "waveform"
         case .about:       return "info.circle"
         case .advanced:    return "slider.horizontal.3"
         case .appearance:  return "paintbrush"
@@ -109,10 +118,16 @@ private struct SettingsRootView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         Group {
                             switch selected {
-                            case .diagnostics: DiagnosticsTab(controller: controller)
-                            case .about:       AboutTab(controller: controller)
-                            case .advanced:    AdvancedTab()
-                            case .appearance:  AppearanceTab(theme: theme)
+                            case .diagnostics:
+                                DiagnosticsTab(controller: controller)
+                            case .voice:
+                                VoiceTab()
+                            case .about:
+                                AboutTab(controller: controller)
+                            case .advanced:
+                                AdvancedTab()
+                            case .appearance:
+                                AppearanceTab(theme: theme)
                             }
                         }
                         .padding(16)
@@ -138,7 +153,7 @@ private struct SettingsRootView: View {
                 .font(MenuType.mono(11))
                 .foregroundStyle(ShellPalette.muted)
 
-            Text("SETTINGS")
+            Text("CONTROL CENTER")
                 .font(MenuType.mono(10, weight: .medium))
                 .tracking(1.2)
                 .foregroundStyle(ShellPalette.dim)
@@ -373,6 +388,74 @@ private struct DiagnosticsTab: View {
             NSWorkspace.shared.open([url], withApplicationAt: consoleURL, configuration: NSWorkspace.OpenConfiguration())
         } else {
             revealInFinder(path)
+        }
+    }
+}
+
+// MARK: - Voice
+
+private struct VoiceTab: View {
+    @ObservedObject private var voice = ScoutVoiceService.shared
+
+    var body: some View {
+        let voiceService = voice
+        VStack(alignment: .leading, spacing: 12) {
+            DiagnosticsCard(
+                label: "Voice",
+                status: voiceStatus(),
+                summary: voiceSummary(),
+                detail: voiceDetail(),
+                rows: [
+                    KVEntry(key: "Owner", value: "OpenScout Menu"),
+                    KVEntry(key: "Engine", value: "Embedded Vox"),
+                    KVEntry(key: "Model", value: ScoutVoiceConfig.modelId),
+                    KVEntry(key: "Model cache", value: ScoutVoiceConfig.sharedModelCachePath),
+                    KVEntry(key: "Client", value: ScoutVoiceConfig.clientId),
+                ],
+                logPath: nil,
+                actions: [
+                    ("Recheck", { Task { @MainActor in await voiceService.probe() } }),
+                ]
+            )
+        }
+    }
+
+    private func voiceStatus() -> ServiceLightStatus {
+        switch voice.state {
+        case .idle:
+            return .healthy
+        case .probing, .starting, .recording, .processing:
+            return .pending
+        case .unavailable:
+            return .fail
+        }
+    }
+
+    private func voiceSummary() -> String {
+        switch voice.state {
+        case .probing:       return "Checking"
+        case .idle:          return "Ready"
+        case .starting:      return "Starting"
+        case .recording:     return "Recording"
+        case .processing:    return "Transcribing"
+        case .unavailable:   return "Unavailable"
+        }
+    }
+
+    private func voiceDetail() -> String {
+        switch voice.state {
+        case .probing:
+            return "Checking embedded Vox transcription and microphone authorization without prompting."
+        case .idle:
+            return "Scout Menu owns microphone capture and hands recorded audio to Vox in-process. Models are shared from \(ScoutVoiceConfig.sharedModelCachePath)."
+        case .starting:
+            return "Opening the Scout-owned microphone recording session."
+        case .recording:
+            return "Scout is recording. Stop dictation from the HUD to transcribe."
+        case .processing:
+            return "Scout is passing the captured audio to embedded Vox transcription."
+        case .unavailable(let reason):
+            return reason
         }
     }
 }

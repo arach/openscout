@@ -42,44 +42,17 @@ final class HUDController {
         return (panel.firstResponder as? NSText)?.isEditable == true
     }
 
-    /// Toggle voice dictation; if the Vox companion is unavailable,
+    /// Toggle voice dictation; if embedded transcription is unavailable,
     /// surface the reason via the HUD flash row instead of silently
     /// no-op'ing. Shared by both the panel and global key monitors.
     @MainActor
     private static func toggleMicWithFlash() async {
-        let vox = HudVoxService.shared
+        let vox = ScoutVoiceService.shared
         if case .unavailable(let reason) = vox.state {
-            HUDFlashState.shared.flash(
-                reason,
-                action: .init(label: "LAUNCH VOX", perform: launchVoxApp)
-            )
+            HUDFlashState.shared.flash(reason)
             return
         }
         await HUDDockState.shared.toggleDictation()
-    }
-
-    /// Boot the Vox companion app if it's installed. Tries the standard
-    /// install locations and falls back to a follow-up flash if the app
-    /// can't be found — better than silently failing the action button.
-    @MainActor
-    private static func launchVoxApp() {
-        let candidates = [
-            "/Applications/Vox.app",
-            (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Vox.app"),
-        ]
-        for path in candidates where FileManager.default.fileExists(atPath: path) {
-            let cfg = NSWorkspace.OpenConfiguration()
-            cfg.activates = true
-            NSWorkspace.shared.openApplication(
-                at: URL(fileURLWithPath: path),
-                configuration: cfg,
-                completionHandler: nil
-            )
-            return
-        }
-        HUDFlashState.shared.flash(
-            "Vox.app not found in /Applications. Install the Vox companion to enable dictation."
-        )
     }
 
     func toggle() {

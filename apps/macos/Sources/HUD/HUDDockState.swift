@@ -28,19 +28,19 @@ final class HUDDockState: ObservableObject {
     private let log = Logger(subsystem: "dev.openscout.menu", category: "dock")
 
     private init() {
-        // Watch the Vox client for finalized transcripts and splice them
-        // into the text buffer. The service exposes `lastFinalText` as a
+        // Watch the resident Scout voice service for finalized transcripts
+        // and splice them into the text buffer. It exposes `lastFinalText` as a
         // one-shot signal; we drain it via consumeFinalText() so the
         // same transcript isn't re-appended on subsequent state pushes.
-        voxSubscription = HudVoxService.shared.$lastFinalText
+        voxSubscription = ScoutVoiceService.shared.$lastFinalText
             .receive(on: RunLoop.main)
             .sink { [weak self] text in
                 guard let self else { return }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                self.log.info("vox final received — len=\(trimmed.count)")
+                self.log.info("voice final received — len=\(trimmed.count)")
                 guard !trimmed.isEmpty else { return }
                 self.appendDictatedText(trimmed)
-                HudVoxService.shared.consumeFinalText()
+                ScoutVoiceService.shared.consumeFinalText()
             }
     }
 
@@ -56,9 +56,9 @@ final class HUDDockState: ObservableObject {
 
     /// Mic-tap action. Probes Vox if state is unknown / unavailable,
     /// otherwise toggles recording on/off. Errors surface as state on
-    /// HudVoxService.shared; the dock view reads them for tooltip copy.
+    /// ScoutVoiceService.shared; the dock view reads them for tooltip copy.
     func toggleDictation() async {
-        let vox = HudVoxService.shared
+        let vox = ScoutVoiceService.shared
         switch ScoutDictationController.toggleDecision(for: vox.state) {
         case .probeThenStartIfIdle:
             await vox.probe()
@@ -108,7 +108,7 @@ final class HUDDockState: ObservableObject {
         // Dictation in progress trumps everything — operator pressing ESC
         // while the mic is hot expects the recording to stop, not their
         // composed text to vanish.
-        let vox = HudVoxService.shared
+        let vox = ScoutVoiceService.shared
         if vox.state == .recording || vox.state == .starting {
             vox.cancel()
             return true

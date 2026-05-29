@@ -122,7 +122,7 @@ private struct CompactDock: View {
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
-    @ObservedObject private var vox = HudVoxService.shared
+    @ObservedObject private var vox = ScoutVoiceService.shared
 
     private var showDictationPreview: Bool {
         text.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
@@ -185,7 +185,7 @@ private struct MediumLargeDock: View {
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
-    @ObservedObject private var vox = HudVoxService.shared
+    @ObservedObject private var vox = ScoutVoiceService.shared
 
     private var isLarge: Bool { size == .large }
     private var minInputH: CGFloat { isLarge ? 46 : 36 }
@@ -394,7 +394,7 @@ private struct SendChip: View {
 
 // ─── Mic button (hand-drawn glyph, no SF Symbols) ───────────────────
 
-/// Tap → toggle dictation. Visual state mirrors HudVoxService.state:
+/// Tap -> toggle dictation. Visual state mirrors ScoutVoiceService.state:
 ///   idle/probing      → faint ink stroke
 ///   starting          → ink stroke + soft pulse
 ///   recording         → accent stroke + halo + pulse
@@ -405,7 +405,7 @@ private struct MicButton: View {
     let box: CGFloat
     let glyph: CGFloat
 
-    @ObservedObject private var vox = HudVoxService.shared
+    @ObservedObject private var vox = ScoutVoiceService.shared
     @State private var pulse = false
 
     private var isRecording: Bool {
@@ -429,7 +429,7 @@ private struct MicButton: View {
 
     private var tooltip: String {
         switch vox.state {
-        case .probing:               return "Checking Vox companion…"
+        case .probing:               return "Checking Scout voice…"
         case .idle:                  return "Hold to dictate (or tap to start)"
         case .starting:              return "Starting recording…"
         case .recording:             return "Recording — tap to commit"

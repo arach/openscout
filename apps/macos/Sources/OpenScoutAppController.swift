@@ -103,6 +103,7 @@ final class OpenScoutAppController: ObservableObject {
             return
         }
 
+        ScoutVoiceService.shared.startResident()
         requestRefresh(reason: .startup)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -114,6 +115,8 @@ final class OpenScoutAppController: ObservableObject {
     func stop() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        ScoutVoiceService.shared.stopResident()
+        stopOwnedWebServer()
     }
 
     func refresh() {
@@ -202,9 +205,7 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     func stopWebApp() {
-        webServerProcess?.terminate()
-        webServerProcess = nil
-        webServerStartedByApp = false
+        stopOwnedWebServer()
         refresh()
     }
 
@@ -251,11 +252,7 @@ final class OpenScoutAppController: ObservableObject {
         resetActionLog()
         appendActionLog(.info, "Stopping web server…")
 
-        if let process = webServerProcess, process.isRunning {
-            process.terminate()
-        }
-        webServerProcess = nil
-        webServerStartedByApp = false
+        stopOwnedWebServer()
         appendActionLog(.success, "Stopped")
 
         appendActionLog(.info, "Starting web server…")
@@ -486,7 +483,15 @@ final class OpenScoutAppController: ObservableObject {
         requestRefresh(reason: .manual)
     }
 
-private func ensureWebServerRunning() async throws {
+    private func stopOwnedWebServer() {
+        if let process = webServerProcess, process.isRunning {
+            process.terminate()
+        }
+        webServerProcess = nil
+        webServerStartedByApp = false
+    }
+
+    private func ensureWebServerRunning() async throws {
         if await isWebSurfaceReachable() {
             return
         }

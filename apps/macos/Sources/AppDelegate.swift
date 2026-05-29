@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
 
         contextMenu = buildContextMenu()
+        registerVisibleSurfaces()
 
         // Global HUD hotkey: Hyper (⌃⌥⇧⌘) + H.
         HotkeyManager.shared.register(
@@ -99,6 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         controller.clearActionLog()
     }
 
+    private func registerVisibleSurfaces() {
+        OpenScoutActivationCoordinator.shared.registerSurface(id: "appWindow") {
+            SettingsWindowController.shared.isVisible
+        }
+    }
+
     private func makePopover() -> NSPopover {
         let popover = NSPopover()
         popover.behavior = .transient
@@ -114,9 +121,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let openItem = NSMenuItem(title: "Open OpenScout", action: #selector(openWebApp), keyEquivalent: "")
+        let openItem = NSMenuItem(title: "Open OpenScout", action: #selector(openOpenScout), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
+
+        let openWebItem = NSMenuItem(title: "Open Web App", action: #selector(openWebApp), keyEquivalent: "")
+        openWebItem.target = self
+        menu.addItem(openWebItem)
 
         let openTailscaleItem = NSMenuItem(title: "Open Tailscale", action: #selector(openTailscale), keyEquivalent: "")
         openTailscaleItem.target = self
@@ -155,6 +166,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         )
         image?.isTemplate = true
         return image
+    }
+
+    @objc
+    private func openOpenScout() {
+        SettingsWindowController.shared.show(controller: controller)
     }
 
     @objc

@@ -5,7 +5,7 @@ import SwiftUI
 // "boing" when set; slides out cleanly on dismiss / auto-expire.
 //
 // Any component can fire one:
-//   HUDFlashState.shared.flash("vox companion unreachable.")
+//   HUDFlashState.shared.flash("Scout voice unavailable.")
 //
 // The state owns the auto-dismiss timer so callers don't have to.
 
