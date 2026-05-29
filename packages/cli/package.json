@@ -1,6 +1,6 @@
 {
   "name": "@openscout/scout",
-  "version": "0.2.68",
+  "version": "0.2.69",
   "description": "Public Scout package that installs the `scout` command and bundled local runtime",
   "license": "UNLICENSED",
   "type": "module",
