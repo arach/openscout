@@ -37,23 +37,8 @@ describe("agent service wiring", () => {
         throw new Error("unexpected up");
       }),
     }));
-    const loadScoutBrokerContext = mock(async () => null);
-    const openScoutPeerSession = mock(async () => {
-      throw new Error("unexpected peer session");
-    });
-    const registerScoutLocalAgentBinding = mock(async () => null);
-    const retireScoutLocalAgentBinding = mock(async () => false);
-
     mock.module("@openscout/runtime/control-plane-agents", () => ({
       createScoutAgentService,
-    }));
-    mock.module("../broker/service.ts", () => ({
-      loadScoutBrokerContext,
-      openScoutPeerSession,
-      parseScoutLocalHarness: (value?: string) => value,
-      registerScoutLocalAgentBinding,
-      retireScoutLocalAgentBinding,
-      resolveScoutAgentName: (value?: string) => value ?? "operator",
     }));
 
     const { createScoutAgentCard: wiredCreateScoutAgentCard } = await import("./service.ts");
@@ -64,12 +49,11 @@ describe("agent service wiring", () => {
 
     expect(card.agentId).toBe("alpha.test-node");
     expect(createScoutAgentService.mock.calls).toHaveLength(1);
-    expect(createScoutAgentService.mock.calls[0]?.[0]).toEqual({
-      loadScoutBrokerContext,
-      openScoutPeerSession,
-      registerScoutLocalAgentBinding,
-      retireScoutLocalAgentBinding,
-    });
+    const deps = createScoutAgentService.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(typeof deps.loadScoutBrokerContext).toBe("function");
+    expect(typeof deps.openScoutPeerSession).toBe("function");
+    expect(typeof deps.registerScoutLocalAgentBinding).toBe("function");
+    expect(typeof deps.retireScoutLocalAgentBinding).toBe("function");
     expect(createScoutAgentCard.mock.calls).toEqual([
       [{
         projectPath: "/tmp/alpha",

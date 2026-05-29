@@ -29,14 +29,12 @@ export type {
   UpScoutAgentInput,
 };
 
-export const {
-  cleanupScoutAgentCards,
-  createScoutAgentCard,
-  downAllScoutAgents,
-  downScoutAgent,
-  loadScoutAgentStatuses,
-  retireScoutAgentCard,
-  restartScoutAgents,
-  updateScoutAgentCard,
-  upScoutAgent,
-} = scoutAgentService;
+export const cleanupScoutAgentCards = scoutAgentService.cleanupScoutAgentCards;
+export const createScoutAgentCard = scoutAgentService.createScoutAgentCard;
+export const downAllScoutAgents = scoutAgentService.downAllScoutAgents;
+export const downScoutAgent = scoutAgentService.downScoutAgent;
+export const loadScoutAgentStatuses = scoutAgentService.loadScoutAgentStatuses;
+export const retireScoutAgentCard = scoutAgentService.retireScoutAgentCard;
+export const restartScoutAgents = scoutAgentService.restartScoutAgents;
+export const updateScoutAgentCard = scoutAgentService.updateScoutAgentCard;
+export const upScoutAgent = scoutAgentService.upScoutAgent;

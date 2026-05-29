@@ -39,6 +39,7 @@ describe("runUpCommand", () => {
     }));
     mock.module("../../core/broker/service.ts", () => ({
       parseScoutHarness: (value?: string) => value,
+      parseScoutLocalHarness: (value?: string) => value,
     }));
 
     const { runUpCommand } = await import("./up.ts");
@@ -89,6 +90,7 @@ describe("runUpCommand", () => {
     }));
     mock.module("../../core/broker/service.ts", () => ({
       parseScoutHarness: (value?: string) => value,
+      parseScoutLocalHarness: (value?: string) => value,
     }));
 
     const { runUpCommand } = await import("./up.ts");

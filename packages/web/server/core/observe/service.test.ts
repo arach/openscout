@@ -216,6 +216,7 @@ describe("buildObserveDataFromSnapshot", () => {
         adapterType: "claude-code",
         model: "claude-opus-test",
         cwd: "/Users/arach/dev/openscout",
+        sessionStart: expect.any(Number),
         externalSessionId: "upstream-123",
         gitBranch: "master",
         cliVersion: "2.1.119",

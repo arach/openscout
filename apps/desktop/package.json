@@ -32,6 +32,7 @@
   "scripts": {
     "check": "bunx tsc -p tsconfig.json",
     "scout": "bun ./bin/scout.ts",
+    "test": "bun test --isolate ./src",
     "test:happy": "bun test src/core/pairing/runtime/bridge/fileserver.test.ts"
   },
   "devDependencies": {
