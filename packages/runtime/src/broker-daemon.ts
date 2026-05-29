@@ -2681,7 +2681,8 @@ function staleWorkingFlightReason(
     return `target agent ${flight.targetAgentId} was retired from the fleet`;
   }
   if (agent?.metadata?.staleLocalRegistration === true) {
-    return `target agent ${flight.targetAgentId} is a stale local registration superseded by current setup`;
+    return staleLocalEndpointReason(latestEndpointForAgent(snapshot, flight.targetAgentId))
+      ?? `target agent ${flight.targetAgentId} is a stale local registration superseded by current setup`;
   }
 
   const dispatchEndpointReason = flightDispatchEndpointUnavailableReason(snapshot, flight);
@@ -3189,12 +3190,13 @@ function staleRegistrationMetadataMatches(
   if (metadata?.staleLocalRegistration !== true) {
     return false;
   }
+  if (!replacementAgentId) {
+    return true;
+  }
   const existingReplacement = typeof metadata.replacedByAgentId === "string"
     ? metadata.replacedByAgentId.trim()
     : "";
-  return replacementAgentId
-    ? existingReplacement === replacementAgentId
-    : existingReplacement.length === 0;
+  return existingReplacement === replacementAgentId;
 }
 
 function staleLocalRegistrationMetadata(
@@ -3202,6 +3204,9 @@ function staleLocalRegistrationMetadata(
   staleAt: number,
   replacementAgentId: string | null,
 ): Record<string, unknown> {
+  const existingReplacement = typeof metadata?.replacedByAgentId === "string"
+    ? metadata.replacedByAgentId.trim()
+    : "";
   const next: Record<string, unknown> = {
     ...(metadata ?? {}),
     staleLocalRegistration: true,
@@ -3209,6 +3214,8 @@ function staleLocalRegistrationMetadata(
   };
   if (replacementAgentId) {
     next.replacedByAgentId = replacementAgentId;
+  } else if (existingReplacement) {
+    next.replacedByAgentId = existingReplacement;
   } else {
     delete next.replacedByAgentId;
   }
