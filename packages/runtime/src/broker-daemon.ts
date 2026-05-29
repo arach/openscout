@@ -553,7 +553,9 @@ async function syncRegisteredLocalAgentsIfChanged(reason: string): Promise<void>
 
   if (registeredLocalAgentsSyncInFlight) {
     await registeredLocalAgentsSyncInFlight;
-    return;
+    if (nextSignature === registeredLocalAgentsRegistrySignature) {
+      return;
+    }
   }
 
   registeredLocalAgentsSyncInFlight = (async () => {
@@ -6675,7 +6677,7 @@ function implicitProjectAgentName(projectPath: string): string {
   return `${base}-card-${createRuntimeId("one").slice(-8)}`;
 }
 
-async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
+async function resolveBrokerDeliveryTargetWithAskAgentCard(
   input: BrokerRouteTargetInput & { execution?: InvocationRequest["execution"] },
   options: {
     requesterId?: string;
@@ -6685,13 +6687,13 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
 ): Promise<InvocationResolution> {
   const resolved = resolveBrokerDeliveryTarget(input);
   const projectPath = projectPathRouteTarget(input);
-  const shouldCreateImplicitProjectCard =
+  const sessionPreference = input.execution?.session ?? "new";
+  const shouldCreateAskAgentCard =
     projectPath
-    && (
-      resolved.kind === "unknown"
-      || (resolved.kind === "ambiguous" && (input.execution?.session ?? "new") === "new")
+    && (sessionPreference === "new"
+      || (resolved.kind === "unknown" && sessionPreference !== "existing")
     );
-  if (!shouldCreateImplicitProjectCard) {
+  if (!shouldCreateAskAgentCard) {
     return resolved;
   }
 
@@ -6720,7 +6722,7 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
     projectRoot: status.projectRoot,
     excludeAgentIds: [status.agentId],
   }).catch((error) => {
-    console.warn(`[openscout-runtime] implicit project card cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`[openscout-runtime] ask-defined agent card cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
   });
 
   await syncRegisteredLocalAgentsIfChanged(options.reason);
@@ -6735,7 +6737,7 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
 async function resolveInvocationTarget(
   payload: InvocationRequest & BrokerRouteTargetInput,
 ): Promise<InvocationResolution> {
-  return resolveBrokerDeliveryTargetWithImplicitProjectCard({
+  return resolveBrokerDeliveryTargetWithAskAgentCard({
     target: payload.target,
     targetAgentId: payload.targetAgentId,
     targetSessionId: payload.targetSessionId,
@@ -6745,7 +6747,7 @@ async function resolveInvocationTarget(
   }, {
     requesterId: payload.requesterId,
     currentDirectory: projectPathRouteTarget(payload),
-    reason: "implicit project invocation card",
+    reason: "ask-defined agent card for project invocation",
   });
 }
 
@@ -7534,13 +7536,13 @@ async function acceptBrokerDelivery(
     };
   }
 
-  const resolved = await resolveBrokerDeliveryTargetWithImplicitProjectCard({
+  const resolved = await resolveBrokerDeliveryTargetWithAskAgentCard({
     ...payload,
     execution,
   }, {
     requesterId,
     currentDirectory: projectPathRouteTarget(payload),
-    reason: "implicit project delivery card",
+    reason: "ask-defined agent card for project delivery",
   });
 
   if (resolved.kind !== "resolved") {

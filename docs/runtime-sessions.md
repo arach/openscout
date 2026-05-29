@@ -256,12 +256,11 @@ and max uses), are retired after a peer uses their direct conversation, and are
 pruned by retention so older disposable cards do not crowd `who`/search results.
 Manual CLI cards remain persistent unless created with `scout card create
 --one-time`; `scout card cleanup` retires expired or overflow one-time cards.
-When a caller asks a concrete `projectPath` and no existing project card is a
-clear winner, the broker may create the one-time card itself, accept the work
-against that generated identity, and prune older one-time cards for the same
-sender/project. This includes the case where multiple same-project cards are
-equally plausible but the ask requests fresh work rather than a specific
-session.
+When a caller asks a concrete `projectPath` and the ask needs fresh execution,
+the broker may create a one-time agent card for that project as part of the ask,
+accept the work against that generated identity, and prune older one-time cards
+for the same sender/project. Callers should not need to pre-create or choose
+cards just to get fresh project work routed.
 
 ## Ask Targets And Reply Sessions
 
@@ -281,12 +280,26 @@ work but does not need prior context. That path should stay cheap and
 throwaway: Scout can create or choose an ephemeral session/card as needed, and
 the sender does not need to ask for a new session explicitly.
 
+`session: "new"` may also target an existing agent card. In that shape, the
+card supplies the identity, project, harness profile, and return-address
+metadata; the session policy says the work should enter fresh target context
+instead of continuing a concrete prior session for that card. The broker only
+defines an ask-scoped card when the caller routed by project or otherwise did
+not choose a concrete card.
+
 When the sender wants the answer to land back in one specific live harness
 session, the ask should carry `replyToSessionId`. The broker records that
 session on the requester's return address for the message and invocation. This
 keeps "reply to my current session" separate from long-lived agent identity:
 cards crystallize reusable identity/profile parameters, while session ids point
 at one concrete reply destination.
+
+Scout may infer that return target from the sender's active or most recent
+session when the caller identity is clear. That is the useful "reuse" shape:
+the caller does not need to keep restating their own session id just so replies
+and follow-ups land back in the right place. This inference must not mean
+"continue the target worker's old context"; target continuity remains an exact
+session/ref decision.
 
 ### Session Reuse And Forking
 
@@ -295,8 +308,8 @@ Session policy should be explicit because "which worker should do this" and
 
 | Policy | Meaning | Session id role |
 | --- | --- | --- |
-| `new` | Run the work in fresh model context. | No session id required. Existing project agents should not force user-visible ambiguity. |
-| `reuse` | Prefer an existing compatible session, but start fresh if none is suitable. | Optional optimization hint, not a hard target. |
+| `new` | Run the work in fresh model context. | No session id required. Existing project agents should not force user-visible ambiguity or reuse. |
+| inferred return session | Reuse the sender's active/last session as the reply destination. | The broker may infer `replyToSessionId`; it does not imply target-session reuse. |
 | `existing` | Continue one exact session. | `targetSessionId` is the target and must resolve to that session owner. |
 | `fork` | Start a new session from an excellent prior state. | `forkFromStateId` is preferred; `forkFromSessionId` means derive a source state from that session. |
 

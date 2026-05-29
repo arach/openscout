@@ -13,6 +13,8 @@ describe("renderAskCommandHelp", () => {
     expect(help).toContain("--reply-mode notify");
     expect(help).toContain("--label <label>");
     expect(help).toContain("--project <path>                   -> ask by repo/workspace path");
+    expect(help).toContain("--harness <runtime> with no target");
+    expect(help).toContain("scout ask --harness codex");
     expect(help).toContain("Use --project when you know the project path but do not want to look up or pin an agent id first.");
     expect(help).toContain("scout ask '>> project:../talkie compare auth against this branch'");
   });

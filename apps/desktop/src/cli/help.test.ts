@@ -16,6 +16,7 @@ describe("renderScoutHelp", () => {
     expect(help).toContain("--message-file");
     expect(help).toContain("Project targets:");
     expect(help).toContain("scout ask --project ../talkie");
+    expect(help).toContain("scout ask --harness codex");
     expect(help).toContain("no agent id needed");
     expect(help).toContain("quote >> in shells");
     expect(help).toContain("MCP parity:");

@@ -2248,10 +2248,81 @@ describe("broker daemon comms layer", () => {
     });
   }, 15_000);
 
+  test("routes session-new asks to an existing agent card without creating a new card", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "reviewer.main",
+      kind: "agent",
+      definitionId: "reviewer",
+      displayName: "Reviewer",
+      handle: "reviewer",
+      labels: ["test"],
+      selector: "@reviewer",
+      defaultSelector: "@reviewer",
+      metadata: {
+        source: "test",
+        projectRoot: "/tmp/reviewer-project",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+      flight?: { invocationId: string; targetAgentId: string; state: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-existing-card-session-new",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_id",
+        agentId: "reviewer.main",
+      },
+      body: "Review this in fresh context using the existing reviewer card.",
+      intent: "consult",
+      execution: {
+        harness: "codex",
+        session: "new",
+      },
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toBe("reviewer.main");
+    expect(response.receipt?.targetAgentId).toBe("reviewer.main");
+    expect(response.flight?.targetAgentId).toBe("reviewer.main");
+    expect(response.flight?.state).toBe("queued");
+
+    const snapshot = await getJson<{
+      agents: Record<string, unknown>;
+      invocations: Record<string, { execution?: { harness?: string; session?: string } }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(snapshot.agents["reviewer.main"]).toBeDefined();
+    expect(Object.keys(snapshot.agents).filter((agentId) => agentId.startsWith("reviewer-card-"))).toHaveLength(0);
+
+    const invocation = snapshot.invocations[response.flight!.invocationId];
+    expect(invocation?.execution).toEqual({
+      harness: "codex",
+      session: "new",
+    });
+  }, 15_000);
+
   test("auto-provisions a one-time card for project-target deliveries", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
-    const projectRoot = join(controlHome, "projects", "implicit-project");
+    const projectRoot = join(controlHome, "projects", "implicit-route");
     mkdirSync(projectRoot, { recursive: true });
     writeRelayAgentRegistry(supportDirectory, {});
 
@@ -2289,7 +2360,7 @@ describe("broker daemon comms layer", () => {
 
     expect(response.kind).toBe("delivery");
     expect(response.accepted).toBe(true);
-    expect(response.targetAgentId?.startsWith("implicit-project-card-")).toBe(true);
+    expect(response.targetAgentId?.startsWith("implicit-route-card-")).toBe(true);
     expect(response.targetAgentId?.endsWith(".test-node")).toBe(true);
     expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
     expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
@@ -2328,10 +2399,81 @@ describe("broker daemon comms layer", () => {
     }));
   }, 15_000);
 
+  test("uses a fresh ask-defined agent card for project asks with session new", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "fresh-route");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {
+      "fresh-route": {
+        agentId: "fresh-route",
+        definitionId: "fresh-route",
+        displayName: "Fresh Project",
+        projectName: "Fresh Project",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-fresh-route-codex",
+          wakePolicy: "on_demand",
+        },
+        capabilities: ["chat", "invoke", "deliver"],
+      },
+    });
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+      flight?: { targetAgentId: string; state: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-session-new",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Review this project in fresh Codex context.",
+      intent: "consult",
+      execution: {
+        harness: "codex",
+        session: "new",
+      },
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).not.toBe("fresh-route.test-node");
+    expect(response.targetAgentId?.startsWith("fresh-route-card-")).toBe(true);
+    expect(response.targetAgentId?.endsWith(".test-node")).toBe(true);
+    expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.state).toBe("queued");
+  }, 15_000);
+
   test("auto-provisions a one-time card when project-target delivery has ambiguous existing agents", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
-    const projectRoot = join(controlHome, "projects", "ambiguous-project");
+    const projectRoot = join(controlHome, "projects", "ambiguous-route");
     mkdirSync(projectRoot, { recursive: true });
     writeRelayAgentRegistry(supportDirectory, {
       "ambiguous-one": {
@@ -2408,7 +2550,7 @@ describe("broker daemon comms layer", () => {
 
     expect(response.kind).toBe("delivery");
     expect(response.accepted).toBe(true);
-    expect(response.targetAgentId?.startsWith("ambiguous-project-card-")).toBe(true);
+    expect(response.targetAgentId?.startsWith("ambiguous-route-card-")).toBe(true);
     expect(response.targetAgentId?.endsWith(".test-node")).toBe(true);
     expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
     expect(response.flight?.targetAgentId).toBe(response.targetAgentId);

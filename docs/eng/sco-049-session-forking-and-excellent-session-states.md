@@ -11,9 +11,10 @@ Proposed.
 ## Intent
 
 Define a first-class session continuity contract for Scout asks so callers can
-say whether work should run in fresh context, opportunistically reuse an
-existing context, continue one exact session, or fork from an excellent prior
-session state.
+say whether work should run in fresh context, continue one exact session, or
+fork from an excellent prior session state. Separately, Scout should be able to
+infer the caller's reply session when identity is clear, so follow-ups can land
+back in the right place without the caller restating their own session id.
 
 The immediate motivation is the project-routed ask failure mode that surfaced
 when `ask({ projectPath, harness })` exposed ambiguity from old same-project
@@ -47,7 +48,8 @@ At the same time, there are real cases where prior context matters:
 
 - Continue an active Codex thread because the next instruction depends on its
   working memory.
-- Reuse a warm local session for cheap latency when prior context is harmless.
+- Send replies and follow-ups back to the sender's current/last session without
+  making the caller restate that return address every time.
 - Start fresh work but seed it from a prior session's excellent state, summary,
   or chosen turn.
 - Ask another project worker to branch off from a failed or stale attempt.
@@ -101,7 +103,7 @@ In scope:
 - Session policy vocabulary for asks and invocations
 - Protocol shape for fork source references
 - Session state snapshot and promotion model
-- Broker routing behavior for `new`, `reuse`, `existing`, and `fork`
+- Broker routing behavior for fresh, exact-continuation, and forked work
 - Data ownership rules for fork context assembly
 - Harness capability model for native fork vs synthesized handoff
 - MCP and CLI surface wording
@@ -131,19 +133,22 @@ Out of scope:
 
 ## Session Policy Contract
 
-Scout should expose four caller-facing policies.
+Scout should expose three caller-facing work-session policies. Return-session
+reuse is a separate inference based on caller identity and recent sender state.
 
 | Policy | Meaning | Target behavior |
 | --- | --- | --- |
 | `new` | Run in fresh model context. | Route by project/agent and create a fresh compatible worker if needed. Existing same-project sessions must not force user-visible ambiguity. |
-| `reuse` | Prefer a compatible existing session, but start fresh if none is suitable. | Broker chooses the best warm compatible session as an optimization; user did not request exact continuity. |
 | `existing` | Continue one exact session. | `targetSessionId` is required and resolves to the session owner. Failure is actionable if the session is stale or unavailable. |
 | `fork` | Start a new execution session from a specified source state. | `forkFromStateId` or `forkFromSessionId` identifies source context. Work target remains project/agent unless explicitly inferred. |
 
-Current protocol uses `session: "any"` internally for what the MCP surface calls
-`reuse`. The implementation should either add `reuse` as the public protocol
-spelling and keep `any` as a compatibility alias, or continue mapping
-MCP/CLI `reuse` to wire `any` until the protocol can safely change.
+Existing wire `session: "any"` should be treated as compatibility behavior, not
+as a product promise. If a public escape hatch is ever needed, it should look
+intentionally low-level rather than friendly; the normal UI/CLI should still
+steer callers to fresh work or exact continuation. The useful "reuse" behavior
+is return-address inference: when Scout knows who is asking and which session
+they are currently using, it can attach `replyToSessionId` on the caller's
+behalf. That must not change which target session executes the work.
 
 ## Proposed API Shape
 
@@ -153,7 +158,7 @@ Extend invocation execution preferences:
 type InvocationExecutionPreference = {
   harness?: AgentHarness;
   permissionProfile?: ScoutPermissionProfile;
-  session?: "new" | "reuse" | "any" | "existing" | "fork";
+  session?: "new" | "any" | "existing" | "fork";
   targetSessionId?: ScoutId;
   forkFromStateId?: ScoutId;
   forkFromSessionId?: ScoutId;
@@ -201,13 +206,36 @@ Example:
 ### `new`
 
 The broker resolves work by project or agent identity. If existing candidates
-are ambiguous and no exact target was requested, the broker should create a
-fresh one-time project card/session rather than ask the caller to pick between
-stale or equally plausible workers.
+would otherwise force the caller to choose plumbing, the broker may create a
+one-time agent card for that project and start fresh execution. The caller's
+fresh-vs-continuity intent comes from session policy, not from a separate card
+creation flag.
 
-### `reuse`
+When the caller already targets an existing agent card, `session: "new"` should
+use that card as the stable identity/profile and start the work in fresh target
+context. Creating a new card is only a routing convenience for project-level or
+otherwise cardless asks; it is not the mechanism that expresses freshness.
 
-The broker may choose an existing compatible session by policy:
+### Sender return-session inference
+
+The only reuse behavior that makes sense as a product feature is reusing the
+sender's active or last session as the return target. If Scout can confidently
+identify the caller and their current session, it may attach `replyToSessionId`
+automatically so replies and follow-ups land back in that session.
+
+This must stay separate from target execution policy:
+
+- `new`: fresh project/agent work; the broker may define a one-time agent card
+  for the ask.
+- exact session/ref target: continue prior context.
+- inferred `replyToSessionId`: return to the caller's current/last session.
+
+Compatibility wire values such as `session: "any"` may remain for older callers
+or internal optimization, but callers should not depend on them for continuity.
+If a future public escape hatch exists, it should be explicitly low-level and
+opt-in; it should not be named or documented like a normal ask mode. If a future
+internal warm-session path remains, the broker may choose an existing compatible
+session by policy:
 
 1. exact project root match
 2. requested harness/profile match
@@ -215,7 +243,8 @@ The broker may choose an existing compatible session by policy:
 4. idle/waiting before active
 5. most recently healthy endpoint
 
-If no compatible session exists, start fresh. A `reuse` miss is not an error.
+If no compatible session exists, start fresh. A warm-session miss is not an
+error, and callers should not depend on it for continuity.
 
 ### `existing`
 
@@ -327,7 +356,7 @@ Candidate capability names:
 | `session.fork.native` | Harness can branch from a provider/runtime thread without synthetic context. |
 | `session.fork.synthetic` | Harness can accept a Scout-built handoff in a fresh session. |
 | `session.resume.exact` | Harness can continue a specific session id. |
-| `session.reuse.compatible` | Harness can safely receive asks in an existing compatible session. |
+| `return_session.infer_last` | Broker can infer the caller's current/last session as the reply destination. |
 
 Codex may support native thread resume today, but a true provider-native fork
 needs to be verified before advertising `session.fork.native`. Until then,
@@ -340,8 +369,8 @@ harnesses can opt in later through the same capability registry.
 
 MCP `ask` should describe the session policy plainly:
 
-- no session field: fresh project/agent work
-- `session: "reuse"`: reuse only as an optimization
+- no session field: fresh project/agent work, unless the route is an exact session/ref continuation
+- inferred return session: Scout may attach the caller's current/last session as the reply destination
 - `targetSessionId`: continue exact session
 - `session: "fork" + forkFromStateId`: start new work from a promoted state
 - `session: "fork" + forkFromSessionId`: derive state from a prior session
@@ -350,7 +379,6 @@ CLI examples:
 
 ```bash
 scout ask --project /Users/arach/dev/openscout "review the routing change"
-scout ask --project /Users/arach/dev/openscout --reuse "do the next small fix"
 scout ask --session codex-thread-abc123 "continue exactly here"
 scout ask --project /Users/arach/dev/openscout --fork-from-state state-review-ready "take a fresh pass"
 scout ask --project /Users/arach/dev/openscout --fork-from codex-thread-abc123 "take a fresh pass"
@@ -387,11 +415,11 @@ turns session work into reusable operational capital.
 Rationale: project-routed work should be cheap and low ceremony. Historical
 session state should not leak into fresh asks without an explicit policy.
 
-### `reuse` is best-effort
+### `reuse` / `any` is compatibility-only
 
-Rationale: reuse is an optimization for latency and continuity when harmless.
-If the broker cannot confidently reuse a compatible session, it should start
-fresh rather than block the caller.
+Rationale: reuse is not a clear user promise. It can remain as an internal or
+compatibility optimization, but the product surface should guide callers toward
+fresh work or exact continuation.
 
 ### `existing` is strict
 
@@ -409,8 +437,8 @@ the option to use native provider forks later.
 
 ### Phase 1 — Contract and diagnostics
 
-Update protocol, MCP schemas, CLI parsing, and docs to distinguish `new`,
-`reuse`, `existing`, and `fork`, and to represent source state separately from
+Update protocol, MCP schemas, CLI parsing, and docs to distinguish fresh work,
+exact continuation, and forks, and to represent source state separately from
 target session.
 
 Acceptance criteria:
@@ -418,8 +446,8 @@ Acceptance criteria:
 - `InvocationExecutionPreference` can represent `forkFromSessionId`.
 - `InvocationExecutionPreference` can represent `forkFromStateId`.
 - MCP `ask` rejects invalid combinations with actionable errors.
-- CLI help includes `--reuse`, `--session`, `--fork-from-state`, and
-  `--fork-from` examples.
+- CLI help includes fresh project asks, exact session/ref continuation, and
+  `--fork-from-state` / `--fork-from` examples.
 - Existing `targetSessionId` behavior remains exact-session continuation.
 
 ### Phase 2 — Broker routing policy
@@ -434,8 +462,8 @@ Acceptance criteria:
 - `projectPath + forkFromSessionId` derives source state before creating a new
   execution session.
 - `targetSessionId` still routes to the exact session owner.
-- `reuse` never returns ambiguity solely because multiple old project sessions
-  exist; it starts fresh when no clear compatible session wins.
+- Compatibility `any` never returns ambiguity solely because multiple old
+  project sessions exist; it starts fresh when no clear compatible session wins.
 - Flight metadata records session policy, fork source state, and source session
   when present.
 
@@ -508,8 +536,8 @@ Acceptance criteria:
 
 ## Open Questions
 
-1. Should `reuse` become the public protocol spelling, with `any` retained only
-   as a deprecated wire alias?
+1. Is a public low-level `any`/`use_any` escape hatch ever worth exposing, or
+   should opportunistic target-session reuse remain internal-only?
 2. Do we need `forkFromMessageId` or `forkFromFlightId`, or is session id plus
    broker context enough for V1?
 3. Should `forkFromStateId` be the only stable API after V1, with session,

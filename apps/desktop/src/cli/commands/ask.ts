@@ -25,7 +25,7 @@ const DEFAULT_ASK_ACK_TIMEOUT_SECONDS = 30;
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask (--to <agent> | --ref <ref> | --project <path>) [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--prompt-file <path> | <message>]",
+    "Usage: scout ask [(--to <agent> | --ref <ref> | --project <path>)] [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--new] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -34,6 +34,7 @@ export function renderAskCommandHelp(): string {
     "  --channel <name>                   -> named group thread",
     "  short @name                        -> must resolve to exactly one routable agent",
     "  --project <path>                   -> ask by repo/workspace path; Scout resolves the concrete agent/session",
+    "  --harness <runtime> with no target  -> ask a compatible worker for the current project",
     "  '>> project:<path> ...'             -> composer route form for the same project-path ask",
     "",
     "Use ask when the meaning is \"do this and get back to me.\"",
@@ -41,6 +42,7 @@ export function renderAskCommandHelp(): string {
     `Default inline mode returns once the target has acknowledged, completed immediately, or stays unacknowledged for ${DEFAULT_ASK_ACK_TIMEOUT_SECONDS}s.`,
     "Use the flight id, conversation, notify mode, or an explicit wait to follow the final completion.",
     "Use --project when you know the project path but do not want to look up or pin an agent id first.",
+    "Use --harness without a target when the current project should be handled by that runtime.",
     "",
     "Input:",
     "  inline message                    -> primary prompt body",
@@ -51,7 +53,8 @@ export function renderAskCommandHelp(): string {
     '  scout ask --to hudson "review the parser"',
     '  scout ask --ref 7f3a9c21 "continue from that result"',
     '  scout ask --project ../talkie "how did you handle auth?"',
-    '  scout ask --project ../talkie --harness codex "review this from a fresh Codex session"',
+    '  scout ask --harness codex "review this from a fresh Codex session"',
+    '  scout ask --project ../talkie --harness codex "review Talkie from Codex"',
     "  scout ask '>> project:../talkie compare auth against this branch'",
     "  scout ask --to hudson --prompt-file ./handoff.md",
     '  scout ask --as premotion.master.mini --to hudson "build the editor"',
@@ -233,6 +236,7 @@ export async function runAskWithOptions(
     body,
     channel: options.channel,
     harness: parseScoutHarness(options.harness),
+    session: options.session,
     labels: options.labels,
     currentDirectory,
     source: "scout-cli",
