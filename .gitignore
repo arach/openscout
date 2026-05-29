@@ -105,6 +105,9 @@ apps/ios/build/
 !.agents/
 !.agents/skills/
 !.agents/skills/**
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 !landing/public/.well-known/
 !landing/public/.well-known/scout.json
 

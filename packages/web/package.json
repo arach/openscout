@@ -33,6 +33,7 @@
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpack": "node ../../scripts/restore-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs .",
+    "test": "bun test --isolate ./client ./server && node --test test/*.test.mjs",
     "test:happy": "node --test test/*.test.mjs"
   },
   "dependencies": {

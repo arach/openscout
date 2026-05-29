@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import { clearRouteMachineScope, routeFromUrl, routePath, setRouteMachineScope } from "./router.ts";
+const React = await import("../../node_modules/react/index.js");
+
+mock.module("react", () => React);
+
+const { clearRouteMachineScope, routeFromUrl, routePath, setRouteMachineScope } = await import("./router.ts");
 
 describe("agents route parsing", () => {
   test("conversations routes round-trip", () => {
