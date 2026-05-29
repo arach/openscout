@@ -18,40 +18,22 @@ import type {
   Turn,
   TurnStatus,
 } from "../protocol/primitives.js";
+import { normalizeCodexAppServerLaunchArgs } from "./codex/launch-args.js";
+import {
+  buildUnsupportedCodexServerRequestError as buildUnsupportedServerRequestError,
+  codexErrorMessage as errorMessage,
+  extractCodexReasoningText as extractReasoningText,
+  isCodexNotification as isNotification,
+  isCodexResponse as isResponse,
+  isCodexServerRequest as isServerRequest,
+  parseCodexJsonLine as parseJsonLine,
+  stringifyCodexValue as stringifyValue,
+  type CodexNotification,
+  type CodexRequest,
+  type CodexResponse,
+  type CodexServerRequest,
+} from "./codex/protocol.js";
 import { CodexObservedTopologyTracker } from "./codex/topology.js";
-
-type CodexRequest = {
-  id: string | number;
-  method: string;
-  params?: unknown;
-};
-
-type CodexResponse = {
-  id: string | number;
-  result?: unknown;
-  error?: {
-    message?: string;
-    code?: string | number;
-    data?: unknown;
-  };
-};
-
-type CodexNotification = {
-  method: string;
-  params?: Record<string, unknown>;
-};
-
-type CodexServerRequest = {
-  id: string | number;
-  method: string;
-  params?: Record<string, unknown>;
-};
-
-type CodexErrorResponse = {
-  code: number;
-  message: string;
-  data?: unknown;
-};
 
 type ThreadStartResult = {
   thread: {
@@ -106,67 +88,6 @@ type PendingRequest = {
   reject: (error: Error) => void;
 };
 
-function parseJsonLine(line: string): CodexResponse | CodexNotification | CodexServerRequest | null {
-  try {
-    return JSON.parse(line) as CodexResponse | CodexNotification | CodexServerRequest;
-  } catch {
-    return null;
-  }
-}
-
-function buildUnsupportedServerRequestError(message: CodexServerRequest): CodexErrorResponse {
-  if (message.method === "item/tool/call") {
-    const tool = typeof message.params?.tool === "string" ? message.params.tool : null;
-    const toolLabel = tool ? `dynamic tool call \`${tool}\`` : "dynamic tool call";
-    return {
-      code: -32000,
-      message: `${toolLabel} is not supported by openscout-runtime`,
-    };
-  }
-
-  return {
-    code: -32000,
-    message: `Unsupported server request: ${message.method}`,
-  };
-}
-
-function isResponse(message: unknown): message is CodexResponse {
-  return Boolean(
-    message
-    && typeof message === "object"
-    && "id" in message
-    && ("result" in message || "error" in message),
-  );
-}
-
-function isServerRequest(message: unknown): message is CodexServerRequest {
-  return Boolean(
-    message
-    && typeof message === "object"
-    && "id" in message
-    && "method" in message
-    && !("result" in message)
-    && !("error" in message),
-  );
-}
-
-function isNotification(message: unknown): message is CodexNotification {
-  return Boolean(
-    message
-    && typeof message === "object"
-    && "method" in message
-    && !("id" in message),
-  );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
-}
-
 async function readOptionalFile(filePath: string): Promise<string | null> {
   try {
     const raw = await readFile(filePath, "utf8");
@@ -177,58 +98,6 @@ async function readOptionalFile(filePath: string): Promise<string | null> {
   }
 }
 
-function stringifyValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (value == null) {
-    return "";
-  }
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function extractReasoningText(item: Record<string, unknown>): string {
-  const summary = Array.isArray(item.summary) ? item.summary : [];
-  const content = Array.isArray(item.content) ? item.content : [];
-
-  const summaryText = summary
-    .map((entry) => {
-      if (typeof entry === "string") {
-        return entry;
-      }
-
-      const record = entry as Record<string, unknown>;
-      if (typeof record.text === "string") {
-        return record.text;
-      }
-      if (typeof record.summary === "string") {
-        return record.summary;
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  const contentText = content
-    .map((entry) => {
-      if (typeof entry === "string") {
-        return entry;
-      }
-
-      const record = entry as Record<string, unknown>;
-      return typeof record.text === "string" ? record.text : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  return [summaryText, contentText].filter(Boolean).join("\n\n").trim();
-}
 
 function extractTextDelta(params: Record<string, unknown>): string {
   if (typeof params.delta === "string") {
@@ -404,9 +273,9 @@ export class CodexAdapter extends BaseAdapter {
     const configuredThreadId = this.config.options?.["threadId"] as string | undefined;
     const requireExistingThread = this.config.options?.["requireExistingThread"] as boolean | undefined;
     const rawLaunchArgs = this.config.options?.["launchArgs"];
-    const launchArgs = Array.isArray(rawLaunchArgs)
+    const launchArgs = normalizeCodexAppServerLaunchArgs(Array.isArray(rawLaunchArgs)
       ? rawLaunchArgs.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-      : [];
+      : []);
 
     return {
       agentName: this.session.name,

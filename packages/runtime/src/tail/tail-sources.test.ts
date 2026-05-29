@@ -100,6 +100,17 @@ describe("tail transcript sources", () => {
     expect(event?.sessionId).toBe("claude-session");
     expect(event?.kind).toBe("assistant");
     expect(event?.summary).toBe("hello from claude");
+
+    const preview = ClaudeSource.previewSession({
+      process: makeProcess("claude", "/Users/arach/dev/openscout"),
+      transcript: transcripts[0]!,
+      events: event ? [event] : [],
+      now: Date.parse("2026-04-27T15:00:02.000Z"),
+    });
+    expect(preview.title).toBe("claude-s");
+    expect(preview.summary).toBe("hello from claude");
+    expect(preview.stats.assistantMessages).toBe(1);
+    expect(preview.facts.find((fact) => fact.key === "turns")?.value).toBe("1");
   });
 
   test("discovers and parses Codex rollout files without process discovery", () => {
@@ -150,5 +161,16 @@ describe("tail transcript sources", () => {
     expect(event?.source).toBe("codex");
     expect(event?.kind).toBe("assistant");
     expect(event?.summary).toBe("hello from codex");
+
+    const preview = CodexSource.previewSession({
+      process: makeProcess("codex", "/Users/arach/dev/openscout"),
+      transcript: transcripts[0]!,
+      events: event ? [event] : [],
+      now: Date.parse("2026-04-27T15:00:02.000Z"),
+    });
+    expect(preview.title).toBe("019dcf82");
+    expect(preview.summary).toBe("hello from codex");
+    expect(preview.stats.assistantMessages).toBe(1);
+    expect(preview.facts.find((fact) => fact.key === "events")?.value).toBe("1");
   });
 });

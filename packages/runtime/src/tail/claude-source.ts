@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 
 import { discoverClaudeProcesses } from "./discover.js";
+import { buildTailSessionPreview } from "./session-preview.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -413,5 +414,8 @@ export const ClaudeSource: TranscriptSource = {
   },
   parseLine(line: string, ctx: TailContext): TailEvent | null {
     return parseClaudeLine(line, ctx);
+  },
+  previewSession(input) {
+    return buildTailSessionPreview(input);
   },
 };

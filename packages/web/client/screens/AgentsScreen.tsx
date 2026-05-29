@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { WorkList } from "../components/WorkList.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
@@ -29,6 +29,7 @@ import type {
   SessionCatalogWithResume,
   TailDiscoveredProcess,
   TailDiscoverySnapshot,
+  TailSessionPreview,
   WorkItem,
 } from "../lib/types.ts";
 import { ConversationScreen } from "./ConversationScreen.tsx";
@@ -146,6 +147,7 @@ type NativeSessionRow = {
   status: NativeSessionStatus;
   process: TailDiscoveredProcess | null;
   lastActivityAt: number | null;
+  preview: TailSessionPreview | null;
 };
 
 type ProjectIdentity = {
@@ -172,6 +174,7 @@ type ProjectTreeSessionNode = {
   label: string;
   detail: string | null;
   lastActivityAt: number | null;
+  preview: TailSessionPreview | null;
   route: Route | null;
 };
 
@@ -366,6 +369,7 @@ function buildNativeSessionRows(
         : "idle",
       process,
       lastActivityAt,
+      preview: transcript.preview ?? null,
     });
   }
 
@@ -388,6 +392,7 @@ function buildNativeSessionRows(
       status: "active",
       process,
       lastActivityAt: null,
+      preview: null,
     });
   }
 
@@ -576,6 +581,7 @@ function scoutSessionNode(session: SessionEntry): ProjectTreeSessionNode {
     label: session.title || session.agentName || session.id,
     detail: session.preview ?? session.id,
     lastActivityAt: session.lastMessageAt,
+    preview: null,
     route: { view: "conversation", conversationId: session.id },
   };
 }
@@ -586,9 +592,13 @@ function nativeSessionNode(session: NativeSessionRow): ProjectTreeSessionNode {
     kind: "native",
     status: session.status,
     harness: session.source,
-    label: shortSessionId(session.sessionId ?? session.refId),
-    detail: session.transcriptPath ?? session.process?.command ?? session.cwd,
+    label: session.preview?.title ?? shortSessionId(session.sessionId ?? session.refId),
+    detail: session.preview?.summary
+      ?? session.preview?.subtitle
+      ?? session.process?.command
+      ?? session.cwd,
     lastActivityAt: session.lastActivityAt,
+    preview: session.preview,
     route: session.sessionId || session.transcriptPath
       ? { view: "sessions", sessionId: session.refId }
       : null,
@@ -998,6 +1008,9 @@ function nativeSessionMatchesFilters(
     row.cwd,
     row.transcriptPath,
     row.process?.command,
+    row.preview?.title,
+    row.preview?.subtitle,
+    row.preview?.summary,
   ].filter(Boolean).join(" ").toLowerCase();
   return hay.includes(query);
 }
@@ -2042,7 +2055,7 @@ export function AgentsScreen({
     const [sessionsResult, fleetResult, discoveryResult] = await Promise.allSettled([
       api<SessionEntry[]>("/api/conversations"),
       api<FleetState>("/api/fleet"),
-      api<TailDiscoverySnapshot>("/api/tail/discover"),
+      api<TailDiscoverySnapshot>("/api/tail/discover?previews=true"),
     ]);
     if (sessionsResult.status === "fulfilled") setSessions(sessionsResult.value);
     if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
@@ -2246,6 +2259,12 @@ function AgentsLibrary({
   );
 
   const selectedProjectKey = route.view === "agents" && !route.agentId ? route.projectKey : undefined;
+  const selectedContextAgentId = route.view === "agents" && !route.agentId
+    ? route.contextAgentId
+    : undefined;
+  const selectedContextSessionKey = route.view === "agents" && !route.agentId
+    ? route.contextSessionKey
+    : undefined;
   const selectedProject = useMemo(
     () => selectedProjectKey
       ? allProjects.find((project) => project.key === selectedProjectKey) ?? null
@@ -2471,6 +2490,8 @@ function AgentsLibrary({
             navigate={navigate}
             route={route}
             openAgent={openAgent}
+            selectedContextAgentId={selectedContextAgentId}
+            selectedContextSessionKey={selectedContextSessionKey}
             onSelectProject={selectProject}
           />
         ) : (
@@ -2527,6 +2548,8 @@ function ProjectBoard({
   navigate,
   route,
   openAgent,
+  selectedContextAgentId,
+  selectedContextSessionKey,
   onSelectProject,
 }: {
   projects: ProjectSlice[];
@@ -2537,6 +2560,8 @@ function ProjectBoard({
   navigate: (r: Route) => void;
   route: Route;
   openAgent: (row: AgentInventoryRow) => void;
+  selectedContextAgentId: string | undefined;
+  selectedContextSessionKey: string | undefined;
   onSelectProject: (project: ProjectSlice) => void;
 }) {
   if (projects.length === 0) {
@@ -2575,6 +2600,8 @@ function ProjectBoard({
           navigate={navigate}
           route={route}
           openAgent={openAgent}
+          selectedContextAgentId={selectedContextAgentId}
+          selectedContextSessionKey={selectedContextSessionKey}
           selected={project.key === selectedProjectKey}
           onSelectProject={onSelectProject}
         />
@@ -2588,6 +2615,8 @@ function ProjectSection({
   navigate,
   route,
   openAgent,
+  selectedContextAgentId,
+  selectedContextSessionKey,
   selected,
   onSelectProject,
 }: {
@@ -2595,6 +2624,8 @@ function ProjectSection({
   navigate: (r: Route) => void;
   route: Route;
   openAgent: (row: AgentInventoryRow) => void;
+  selectedContextAgentId: string | undefined;
+  selectedContextSessionKey: string | undefined;
   selected: boolean;
   onSelectProject: (project: ProjectSlice) => void;
 }) {
@@ -2639,6 +2670,8 @@ function ProjectSection({
           navigate={navigate}
           route={route}
           openAgent={openAgent}
+          selectedContextAgentId={selectedContextAgentId}
+          selectedContextSessionKey={selectedContextSessionKey}
         />
       ) : (
         <div className="s-agent-project-body">
@@ -2682,11 +2715,15 @@ function ProjectTreeTable({
   navigate,
   route,
   openAgent,
+  selectedContextAgentId,
+  selectedContextSessionKey,
 }: {
   project: ProjectSlice;
   navigate: (r: Route) => void;
   route: Route;
   openAgent: (row: AgentInventoryRow) => void;
+  selectedContextAgentId: string | undefined;
+  selectedContextSessionKey: string | undefined;
 }) {
   const baseTree = useMemo(() => buildProjectTree(project), [project]);
   const collapsedStorageKey = collapsedProjectTreeStorageKey(project.key);
@@ -2719,10 +2756,33 @@ function ProjectTreeTable({
     openContent(navigate, session.route, { returnTo: route });
   };
 
+  const selectAgentContext = (row: AgentInventoryRow) => {
+    navigate({
+      view: "agents",
+      projectKey: project.key,
+      contextAgentId: row.agent.id,
+    });
+  };
+
+  const selectSessionContext = (session: ProjectTreeSessionNode) => {
+    navigate({
+      view: "agents",
+      projectKey: project.key,
+      contextSessionKey: session.key,
+    });
+  };
+
   const toggleSort = (key: ProjectTreeSortKey) => {
     setSort((prev) => prev.key === key
       ? { key, dir: prev.dir === 1 ? -1 : 1 }
       : { key, dir: projectTreeDefaultDirection(key) });
+  };
+
+  const activateRowFromKeyboard = (event: KeyboardEvent<HTMLDivElement>, onActivate: () => void) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onActivate();
   };
 
   const unassignedKey = `${project.key}:project-sessions`;
@@ -2781,7 +2841,10 @@ function ProjectTreeTable({
                   className="s-agent-project-tree-toggle"
                   aria-label={`${unassignedOpen ? "Collapse" : "Expand"} project sessions`}
                   aria-expanded={unassignedOpen}
-                  onClick={() => toggle(unassignedKey)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggle(unassignedKey);
+                  }}
                 >
                   {unassignedOpen ? "▾" : "▸"}
                 </button>
@@ -2803,7 +2866,10 @@ function ProjectTreeTable({
               <ProjectTreeSessionRow
                 key={session.key}
                 session={session}
+                selected={selectedContextSessionKey === session.key}
+                onSelect={() => selectSessionContext(session)}
                 onOpen={() => openSession(session)}
+                onKeyboardActivate={activateRowFromKeyboard}
               />
             ))}
           </Fragment>
@@ -2812,9 +2878,18 @@ function ProjectTreeTable({
         {tree.agents.map((node) => {
           const expanded = !collapsed.has(node.key);
           const row = node.row;
+          const rowSelected = selectedContextAgentId === row.agent.id;
           return (
             <Fragment key={node.key}>
-              <div className={`s-agent-project-tree-row s-agent-project-tree-row--agent s-agent-project-tree-row--${row.status}`} role="row">
+              <div
+                className={`s-agent-project-tree-row s-agent-project-tree-row--agent s-agent-project-tree-row--clickable${rowSelected ? " s-agent-project-tree-row--selected" : ""} s-agent-project-tree-row--${row.status}`}
+                role="row"
+                aria-selected={rowSelected}
+                tabIndex={0}
+                onClick={() => selectAgentContext(row)}
+                onKeyDown={(event) => activateRowFromKeyboard(event, () => selectAgentContext(row))}
+                title={primaryAgentSelector(row.agent) ?? row.agent.id}
+              >
                 <div className="s-agent-project-tree-target">
                   <button
                     type="button"
@@ -2822,16 +2897,14 @@ function ProjectTreeTable({
                     disabled={node.sessions.length === 0}
                     aria-label={`${expanded ? "Collapse" : "Expand"} ${row.agent.name} sessions`}
                     aria-expanded={expanded}
-                    onClick={() => toggle(node.key)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggle(node.key);
+                    }}
                   >
                     {node.sessions.length === 0 ? "•" : expanded ? "▾" : "▸"}
                   </button>
-                  <button
-                    type="button"
-                    className="s-agent-project-tree-link"
-                    onClick={() => openAgent(row)}
-                    title={primaryAgentSelector(row.agent) ?? row.agent.id}
-                  >
+                  <span className="s-agent-project-tree-link">
                     <span className="s-agent-project-tree-primary">
                       <span
                         className="s-agent-project-tree-dot"
@@ -2841,7 +2914,7 @@ function ProjectTreeTable({
                       {row.agent.name}
                     </span>
                     <span className="s-agent-project-tree-secondary">{row.activeTask ?? row.session?.preview ?? row.agent.id}</span>
-                  </button>
+                  </span>
                 </div>
                 <span className={`s-agent-project-tree-state s-agent-project-tree-state--${row.status}`}>
                   {row.stateLabel.toLowerCase()}
@@ -2857,13 +2930,14 @@ function ProjectTreeTable({
                     <button
                       type="button"
                       className="s-agent-project-tree-action"
-                      onClick={() =>
+                      onClick={(event) => {
+                        event.stopPropagation();
                         openContent(
                           navigate,
                           { view: "conversation", conversationId: row.session!.id },
                           { returnTo: route },
-                        )
-                      }
+                        );
+                      }}
                     >
                       message
                     </button>
@@ -2871,7 +2945,10 @@ function ProjectTreeTable({
                   <button
                     type="button"
                     className="s-agent-project-tree-action"
-                    onClick={() => openAgent(row)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openAgent(row);
+                    }}
                   >
                     open
                   </button>
@@ -2882,7 +2959,10 @@ function ProjectTreeTable({
                 <ProjectTreeSessionRow
                   key={session.key}
                   session={session}
+                  selected={selectedContextSessionKey === session.key}
+                  onSelect={() => selectSessionContext(session)}
                   onOpen={() => openSession(session)}
+                  onKeyboardActivate={activateRowFromKeyboard}
                 />
               ))}
             </Fragment>
@@ -2896,44 +2976,71 @@ function ProjectTreeTable({
 
 function ProjectTreeSessionRow({
   session,
+  selected,
+  onSelect,
   onOpen,
+  onKeyboardActivate,
 }: {
   session: ProjectTreeSessionNode;
+  selected: boolean;
+  onSelect: () => void;
   onOpen: () => void;
+  onKeyboardActivate: (event: KeyboardEvent<HTMLDivElement>, onActivate: () => void) => void;
 }) {
   return (
-    <div className={`s-agent-project-tree-row s-agent-project-tree-row--session s-agent-project-tree-row--${session.kind}`} role="row">
+    <div
+      className={`s-agent-project-tree-row s-agent-project-tree-row--session s-agent-project-tree-row--clickable${selected ? " s-agent-project-tree-row--selected" : ""} s-agent-project-tree-row--${session.kind}`}
+      role="row"
+      aria-selected={selected}
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => onKeyboardActivate(event, onSelect)}
+      title={session.detail ?? session.label}
+    >
       <div className="s-agent-project-tree-target">
         <span className="s-agent-project-tree-branch" aria-hidden />
-        <button
-          type="button"
-          className="s-agent-project-tree-link"
-          disabled={!session.route}
-          onClick={onOpen}
-          title={session.detail ?? session.label}
-        >
+        <span className="s-agent-project-tree-link">
           <span className="s-agent-project-tree-primary">{session.label}</span>
           <span className="s-agent-project-tree-secondary">{session.detail ?? session.kind}</span>
-        </button>
+        </span>
       </div>
       <span className={`s-agent-project-tree-state s-agent-project-tree-state--${classPart(session.status)}`}>
         {session.status}
       </span>
       <span className={harnessChipClass(session.harness)}>{session.harness}</span>
       <span className="s-agent-project-tree-muted">{session.kind}</span>
-      <span className="s-agent-project-tree-muted">—</span>
+      <ProjectTreeSessionFacts facts={session.preview?.facts ?? []} />
       <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}</span>
       <span className="s-agent-project-tree-actions">
         <button
           type="button"
           className="s-agent-project-tree-action"
           disabled={!session.route}
-          onClick={onOpen}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
         >
           {session.kind === "native" ? "observe" : "open"}
         </button>
       </span>
     </div>
+  );
+}
+
+function ProjectTreeSessionFacts({ facts }: { facts: TailSessionPreview["facts"] }) {
+  const visible = facts.filter((fact) => fact.value !== "-").slice(0, 3);
+  if (visible.length === 0) {
+    return <span className="s-agent-project-tree-muted">—</span>;
+  }
+  return (
+    <span className="s-agent-project-tree-facts">
+      {visible.map((fact) => (
+        <span key={fact.key} className="s-agent-project-tree-fact" title={fact.title}>
+          {fact.value} {fact.label}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -3012,7 +3119,9 @@ function ProjectNativeSessionList({
     <div className="s-agent-project-session-list">
       {sessions.map((session) => {
         const canOpen = Boolean(session.sessionId || session.transcriptPath);
-        const label = shortSessionId(session.sessionId ?? session.refId);
+        const label = session.preview?.title ?? shortSessionId(session.sessionId ?? session.refId);
+        const summary = session.preview?.summary
+          ?? (session.process ? session.process.etime : session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live");
         return (
           <button
             key={session.key}
@@ -3023,14 +3132,12 @@ function ProjectNativeSessionList({
               if (!canOpen) return;
               openContent(navigate, { view: "sessions", sessionId: session.refId }, { returnTo: route });
             }}
-            title={session.transcriptPath ?? session.process?.command ?? session.refId}
+            title={session.preview?.detail ?? session.transcriptPath ?? session.process?.command ?? session.refId}
           >
             <span className="s-agent-project-session-status">{session.status}</span>
             <span className={harnessChipClass(session.source)}>{session.source}</span>
             <span className="s-agent-project-session-main">{label}</span>
-            <span className="s-agent-project-session-sub">
-              {session.process ? session.process.etime : session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}
-            </span>
+            <span className="s-agent-project-session-sub">{summary}</span>
           </button>
         );
       })}

@@ -25,6 +25,21 @@
       "bun": "./src/adapters/codex/topology.ts",
       "default": "./dist/adapters/codex/topology.js"
     },
+    "./adapters/codex/launch-args": {
+      "types": "./src/adapters/codex/launch-args.ts",
+      "bun": "./src/adapters/codex/launch-args.ts",
+      "default": "./dist/adapters/codex/launch-args.js"
+    },
+    "./adapters/codex/protocol": {
+      "types": "./src/adapters/codex/protocol.ts",
+      "bun": "./src/adapters/codex/protocol.ts",
+      "default": "./dist/adapters/codex/protocol.js"
+    },
+    "./adapters/codex/snapshot": {
+      "types": "./src/adapters/codex/snapshot.ts",
+      "bun": "./src/adapters/codex/snapshot.ts",
+      "default": "./dist/adapters/codex/snapshot.js"
+    },
     "./codex-executable": {
       "types": "./src/codex-executable.ts",
       "bun": "./src/codex-executable.ts",

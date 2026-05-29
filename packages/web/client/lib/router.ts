@@ -178,6 +178,8 @@ export function routeFromUrl(urlLike: string | URL): Route {
     url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   const agentTab = parseAgentTab(url.searchParams.get("tab"));
   const agentProjectKey = url.searchParams.get("project")?.trim() || undefined;
+  const agentContextId = url.searchParams.get("agent")?.trim() || undefined;
+  const agentContextSessionKey = url.searchParams.get("session")?.trim() || undefined;
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
@@ -212,6 +214,8 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return scoped({
       view: "agents",
       ...(agentProjectKey ? { projectKey: agentProjectKey } : {}),
+      ...(agentContextId ? { contextAgentId: agentContextId } : {}),
+      ...(agentContextSessionKey ? { contextSessionKey: agentContextSessionKey } : {}),
     });
   }
   if (parts[0] === "fleet") return scoped({ view: "fleet" });
@@ -348,6 +352,12 @@ export function routePath(r: Route): string {
       if (!r.agentId && r.projectKey) {
         params.set("project", r.projectKey);
       }
+      if (!r.agentId && r.contextAgentId) {
+        params.set("agent", r.contextAgentId);
+      }
+      if (!r.agentId && r.contextSessionKey) {
+        params.set("session", r.contextSessionKey);
+      }
       appendMachineScope(params, r);
       const path = r.agentId
         ? isDmConv
@@ -441,8 +451,8 @@ function routeKey(r: Route): string {
         ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}${scope}`
         : r.agentId
           ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
-          : r.projectKey
-            ? `agents-project:${r.projectKey}${scope}`
+          : r.projectKey || r.contextAgentId || r.contextSessionKey
+            ? `agents-project:${r.projectKey ?? ""}:agent:${r.contextAgentId ?? ""}:session:${r.contextSessionKey ?? ""}${scope}`
             : `agents${scope}`;
     case "sessions":
       return r.sessionId ? `session:${r.sessionId}${scope}` : `sessions${scope}`;

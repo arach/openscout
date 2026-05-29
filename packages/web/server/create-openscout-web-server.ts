@@ -77,6 +77,7 @@ import {
   loadSessionRefObservePayload,
 } from "./core/observe/service.ts";
 import {
+  buildTailDiscoverySessionPreviews,
   getTailDiscovery,
   readRecentTranscriptEvents,
   snapshotRecentEvents,
@@ -3537,6 +3538,9 @@ export async function createOpenScoutWebServer(
   app.get("/api/tail/discover", async (c) => {
     const force = c.req.query("force") === "true";
     const snapshot = await getTailDiscovery(force);
+    if (c.req.query("previews") !== "false") {
+      return c.json(await buildTailDiscoverySessionPreviews(snapshot));
+    }
     return c.json(snapshot);
   });
 

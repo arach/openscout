@@ -38,6 +38,40 @@ export type {
 } from "./adapters/claude-code/team-topology.js";
 export { createAdapter as createCodexAdapter } from "./adapters/codex.js";
 export {
+  normalizeCodexAppServerLaunchArgs,
+  readCodexAppServerModelFromLaunchArgs,
+  readCodexAppServerReasoningEffortFromLaunchArgs,
+} from "./adapters/codex/launch-args.js";
+export {
+  buildCodexAppServerSessionSnapshot,
+  buildCodexRolloutSessionSnapshot,
+} from "./adapters/codex/snapshot.js";
+export type {
+  CodexRolloutSnapshotProjectionOptions,
+  CodexSessionSnapshotOptions,
+} from "./adapters/codex/snapshot.js";
+export {
+  buildUnsupportedCodexServerRequestError,
+  codexErrorMessage,
+  extractCodexMessageText,
+  extractCodexReasoningText,
+  extractCodexUserMessageText,
+  isCodexNotification,
+  isCodexResponse,
+  isCodexServerRequest,
+  parseCodexJsonLine,
+  parseCodexJsonRecord,
+  parseCodexMaybeJson,
+  stringifyCodexValue,
+} from "./adapters/codex/protocol.js";
+export type {
+  CodexErrorResponse,
+  CodexNotification,
+  CodexRequest,
+  CodexResponse,
+  CodexServerRequest,
+} from "./adapters/codex/protocol.js";
+export {
   CodexObservedTopologyTracker,
 } from "./adapters/codex/topology.js";
 export type {

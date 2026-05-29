@@ -10,6 +10,7 @@ import {
   readCwd,
   type RawProcess,
 } from "./discover.js";
+import { buildTailSessionPreview } from "./session-preview.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -414,5 +415,8 @@ export const CodexSource: TranscriptSource = {
   },
   parseLine(line: string, ctx: TailContext): TailEvent | null {
     return parseCodexLine(line, ctx);
+  },
+  previewSession(input) {
+    return buildTailSessionPreview(input);
   },
 };

@@ -1011,6 +1011,8 @@ export type Route =
       conversationId?: string;
       tab?: AgentTab;
       projectKey?: string;
+      contextAgentId?: string;
+      contextSessionKey?: string;
     } & MachineScopedRoute)
   | ({ view: "fleet" } & MachineScopedRoute)
   | ({ view: "conversations" } & MachineScopedRoute)
@@ -1089,6 +1091,37 @@ export type TailEvent = {
   raw?: unknown;
 };
 
+export type TailSessionPreviewStats = {
+  eventCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  toolResults: number;
+  systemEvents: number;
+  otherEvents: number;
+  transcriptBytes: number | null;
+  processPid: number | null;
+  lastEventAt: number | null;
+  updatedAt: number | null;
+};
+
+export type TailSessionPreviewFact = {
+  key: string;
+  label: string;
+  value: string;
+  title?: string;
+};
+
+export type TailSessionPreview = {
+  title: string;
+  subtitle: string | null;
+  summary: string | null;
+  detail: string | null;
+  updatedAt: number | null;
+  stats: TailSessionPreviewStats;
+  facts: TailSessionPreviewFact[];
+};
+
 export type TailDiscoveredProcess = {
   pid: number;
   ppid: number;
@@ -1112,6 +1145,7 @@ export type TailDiscoveredTranscript = {
   harness: TailHarness;
   mtimeMs: number;
   size: number;
+  preview?: TailSessionPreview;
 };
 
 export type TailDiscoverySnapshot = {

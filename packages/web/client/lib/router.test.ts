@@ -104,6 +104,28 @@ describe("agents route parsing", () => {
     expect(routePath(route)).toBe("/agents/openscout-6.main.mini?tab=observe");
   });
 
+  test("project agent routes preserve selected context rows", () => {
+    const route = routeFromUrl(
+      "http://127.0.0.1:3200/agents?project=project%3Aopenscout&session=native%3Atranscript%3A%2FUsers%2Farach%2F.codex%2Fsessions%2Fsession.jsonl&machineId=node-b",
+    );
+
+    expect(route).toEqual({
+      view: "agents",
+      projectKey: "project:openscout",
+      contextSessionKey: "native:transcript:/Users/arach/.codex/sessions/session.jsonl",
+      machineId: "node-b",
+    });
+    expect(routePath(route)).toBe(
+      "/agents?project=project%3Aopenscout&session=native%3Atranscript%3A%2FUsers%2Farach%2F.codex%2Fsessions%2Fsession.jsonl&machineId=node-b",
+    );
+
+    expect(routePath({
+      view: "agents",
+      projectKey: "project:openscout",
+      contextAgentId: "openscout.main.local",
+    })).toBe("/agents?project=project%3Aopenscout&agent=openscout.main.local");
+  });
+
   test("follow routes preserve Scout ids and preferred view", () => {
     const route = routeFromUrl(
       "http://127.0.0.1:3200/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&workId=work-1&targetAgentId=hudson.main",

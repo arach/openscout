@@ -34,6 +34,37 @@ export type TailEvent = {
   raw?: unknown;
 };
 
+export type TailSessionPreviewStats = {
+  eventCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  toolResults: number;
+  systemEvents: number;
+  otherEvents: number;
+  transcriptBytes: number | null;
+  processPid: number | null;
+  lastEventAt: number | null;
+  updatedAt: number | null;
+};
+
+export type TailSessionPreviewFact = {
+  key: string;
+  label: string;
+  value: string;
+  title?: string;
+};
+
+export type TailSessionPreview = {
+  title: string;
+  subtitle: string | null;
+  summary: string | null;
+  detail: string | null;
+  updatedAt: number | null;
+  stats: TailSessionPreviewStats;
+  facts: TailSessionPreviewFact[];
+};
+
 export type DiscoveredProcess = {
   pid: number;
   ppid: number;
@@ -57,6 +88,7 @@ export type DiscoveredTranscript = {
   harness: TailHarness;
   mtimeMs: number;
   size: number;
+  preview?: TailSessionPreview;
 };
 
 export type DiscoverySnapshot = {
@@ -79,6 +111,13 @@ export type TailContext = {
   lineOffset: number;
 };
 
+export type TailSessionPreviewInput = {
+  process: DiscoveredProcess | null;
+  transcript: DiscoveredTranscript;
+  events: TailEvent[];
+  now?: number;
+};
+
 export interface TranscriptSource {
   readonly name: string;
   discoverProcesses(): Promise<DiscoveredProcess[]> | DiscoveredProcess[];
@@ -87,4 +126,5 @@ export interface TranscriptSource {
     scope?: TailDiscoveryScope,
   ): Promise<DiscoveredTranscript[]> | DiscoveredTranscript[];
   parseLine(line: string, ctx: TailContext): TailEvent | null;
+  previewSession(input: TailSessionPreviewInput): TailSessionPreview;
 }

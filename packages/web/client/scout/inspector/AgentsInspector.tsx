@@ -20,8 +20,12 @@ import type {
   FleetState,
   ObserveData,
   Route,
+  SessionEntry,
   SessionCatalogEntry,
   SessionCatalogWithResume,
+  TailDiscoveredProcess,
+  TailDiscoverySnapshot,
+  TailSessionPreview,
 } from "../../lib/types.ts";
 
 const GROUPED_NUMBER_FORMAT = new Intl.NumberFormat("en-US");
@@ -29,6 +33,30 @@ const COMPACT_NUMBER_FORMAT = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
+const NATIVE_SESSION_ACTIVE_WINDOW_MS = 60_000;
+
+type NativeContextSession = {
+  kind: "native";
+  key: string;
+  label: string;
+  status: "active" | "idle";
+  harness: string;
+  refId: string | null;
+  transcriptPath: string | null;
+  cwd: string | null;
+  sessionId: string | null;
+  process: TailDiscoveredProcess | null;
+  lastActivityAt: number | null;
+  preview: TailSessionPreview | null;
+};
+
+type ScoutContextSession = {
+  kind: "scout";
+  key: string;
+  session: SessionEntry;
+};
+
+type ContextSession = NativeContextSession | ScoutContextSession;
 
 function fmtCompactNumber(value: number | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -72,6 +100,107 @@ function pathLeaf(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
+function normalizeProjectRoot(path: string | null | undefined): string | null {
+  const trimmed = path?.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/[\\/]+$/, "") || null;
+}
+
+function normalizeSessionRef(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const leaf = pathLeaf(trimmed);
+  return leaf.endsWith(".jsonl") ? leaf.slice(0, -".jsonl".length) : leaf;
+}
+
+function nativeSessionProcessKey(source: string, cwd: string | null): string {
+  return `${source}\0${cwd ?? ""}`;
+}
+
+function nativeSessionProcessMap(discovery: TailDiscoverySnapshot): Map<string, TailDiscoveredProcess> {
+  const byCwd = new Map<string, TailDiscoveredProcess>();
+  for (const process of discovery.processes ?? []) {
+    const key = nativeSessionProcessKey(process.source || "unknown", process.cwd);
+    const current = byCwd.get(key);
+    if (!current || process.pid < current.pid) {
+      byCwd.set(key, process);
+    }
+  }
+  return byCwd;
+}
+
+function nativeContextSessionForKey(
+  key: string,
+  discovery: TailDiscoverySnapshot | null,
+): NativeContextSession | null {
+  if (!key.startsWith("native:") || !discovery) return null;
+
+  const nativeKey = key.slice("native:".length);
+  const processByCwd = nativeSessionProcessMap(discovery);
+
+  if (nativeKey.startsWith("transcript:")) {
+    const transcriptPath = nativeKey.slice("transcript:".length);
+    const transcript = (discovery.transcripts ?? []).find((candidate) =>
+      candidate.transcriptPath === transcriptPath
+    );
+    if (!transcript) return null;
+
+    const source = transcript.source || "unknown";
+    const process = processByCwd.get(nativeSessionProcessKey(source, transcript.cwd)) ?? null;
+    const refId = normalizeSessionRef(transcript.sessionId)
+      ?? normalizeSessionRef(transcript.transcriptPath);
+    const lastActivityAt = transcript.mtimeMs || null;
+    return {
+      kind: "native",
+      key,
+      label: shortSessionId(transcript.sessionId ?? refId ?? transcript.transcriptPath),
+      status: process || (lastActivityAt && Date.now() - lastActivityAt <= NATIVE_SESSION_ACTIVE_WINDOW_MS)
+        ? "active"
+        : "idle",
+      harness: source,
+      refId,
+      transcriptPath: transcript.transcriptPath,
+      cwd: transcript.cwd,
+      sessionId: transcript.sessionId,
+      process,
+      lastActivityAt,
+      preview: transcript.preview ?? null,
+    };
+  }
+
+  if (nativeKey.startsWith("process:")) {
+    const processKey = nativeKey.slice("process:".length);
+    const process = (discovery.processes ?? []).find((candidate) =>
+      `${candidate.source || "unknown"}:${candidate.pid}` === processKey
+    );
+    if (!process) return null;
+
+    return {
+      kind: "native",
+      key,
+      label: `pid ${process.pid}`,
+      status: "active",
+      harness: process.source || "unknown",
+      refId: null,
+      transcriptPath: null,
+      cwd: process.cwd,
+      sessionId: null,
+      process,
+      lastActivityAt: null,
+      preview: null,
+    };
+  }
+
+  return null;
+}
+
+function scoutContextSessionForKey(key: string, sessions: SessionEntry[]): ScoutContextSession | null {
+  if (!key.startsWith("scout:")) return null;
+  const sessionId = key.slice("scout:".length);
+  const session = sessions.find((candidate) => candidate.id === sessionId) ?? null;
+  return session ? { kind: "scout", key, session } : null;
+}
+
 async function revealLocalPath(input: {
   path: string;
   basePath?: string | null;
@@ -104,8 +233,19 @@ export function AgentsInspector() {
   const { route, agents, navigate } = useScout();
   if (route.view !== "agents") return null;
 
-  const agent = route.agentId
-    ? agents.find((a) => a.id === route.agentId) ?? null
+  if (!route.agentId && route.contextSessionKey) {
+    return (
+      <ProjectSessionContextPanel
+        sessionKey={route.contextSessionKey}
+        navigate={navigate}
+        route={route}
+      />
+    );
+  }
+
+  const contextAgentId = route.agentId ?? route.contextAgentId;
+  const agent = contextAgentId
+    ? agents.find((a) => a.id === contextAgentId) ?? null
     : null;
 
   if (!agent) {
@@ -130,6 +270,234 @@ export function AgentsInspector() {
       route={route}
       observeMode={route.tab === "observe"}
     />
+  );
+}
+
+function ProjectSessionContextPanel({
+  sessionKey,
+  navigate,
+  route,
+}: {
+  sessionKey: string;
+  navigate: (r: Route) => void;
+  route: Route;
+}) {
+  const [sessions, setSessions] = useState<SessionEntry[]>([]);
+  const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async () => {
+    const [sessionsResult, discoveryResult] = await Promise.all([
+      api<SessionEntry[]>("/api/conversations").catch(() => []),
+      api<TailDiscoverySnapshot>("/api/tail/discover?previews=true").catch(() => null),
+    ]);
+    setSessions(sessionsResult);
+    setDiscovery(discoveryResult);
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    setLoaded(false);
+    void load();
+  }, [load, sessionKey]);
+  useBrokerEvents(() => {
+    void load();
+  });
+
+  const selected = useMemo<ContextSession | null>(() => {
+    return scoutContextSessionForKey(sessionKey, sessions)
+      ?? nativeContextSessionForKey(sessionKey, discovery);
+  }, [discovery, sessionKey, sessions]);
+
+  if (!selected) {
+    return (
+      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+        <div className="border-b border-[var(--scout-chrome-border-soft)] pb-3">
+          <div className="text-[13px] leading-snug text-[var(--scout-chrome-ink-strong)]">
+            Session context
+          </div>
+          <div className="mt-1 font-mono text-[10px] text-[var(--scout-chrome-ink-faint)]">
+            {loaded ? "Selected session is no longer visible." : "Resolving selected session."}
+          </div>
+        </div>
+        <Row label="Key" value={sessionKey} />
+      </div>
+    );
+  }
+
+  if (selected.kind === "scout") {
+    const session = selected.session;
+    const openConversation = () =>
+      openContent(navigate, { view: "conversation", conversationId: session.id }, { returnTo: route });
+    const openAgentProfile = () => {
+      if (!session.agentId) return;
+      navigate({ view: "agents", agentId: session.agentId });
+    };
+
+    return (
+      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+        <div className="border-b border-[var(--scout-chrome-border-soft)] pb-3">
+          <div className="text-[13px] leading-snug text-[var(--scout-chrome-ink-strong)]">
+            {session.title || session.agentName || shortSessionId(session.id)}
+          </div>
+          <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-400/70 mt-1">
+            Scout conversation
+          </div>
+        </div>
+
+        <Section label="State">
+          <Row label="Kind" value={session.kind} />
+          {session.harness && <Row label="Harness" value={session.harness} />}
+          {session.lastMessageAt && <Row label="Last" value={timeAgo(session.lastMessageAt)} />}
+        </Section>
+
+        {(session.currentBranch || session.workspaceRoot) && (
+          <Section label="Workspace">
+            {session.currentBranch && <Row label="Branch" value={session.currentBranch} />}
+            {session.workspaceRoot && <Row label="Root" value={session.workspaceRoot} />}
+          </Section>
+        )}
+
+        {session.preview && (
+          <Section label="Preview">
+            <ContextPreviewPanel
+              summary={session.preview}
+              subtitle={session.agentName ?? session.kind}
+              facts={[
+                ...(session.lastMessageAt ? [{ key: "last", label: "last", value: timeAgo(session.lastMessageAt) }] : []),
+                ...(session.harness ? [{ key: "harness", label: "harness", value: session.harness }] : []),
+              ]}
+            />
+          </Section>
+        )}
+
+        <Section label="Actions">
+          <div className="flex flex-col gap-1.5">
+            <ContextActionButton label="Open conversation" onClick={openConversation} />
+            {session.agentId && <ContextActionButton label="Open agent" onClick={openAgentProfile} />}
+          </div>
+        </Section>
+      </div>
+    );
+  }
+
+  const observeTranscript = () => {
+    if (!selected.refId) return;
+    openContent(navigate, { view: "sessions", sessionId: selected.refId }, { returnTo: route });
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+      <div className="border-b border-[var(--scout-chrome-border-soft)] pb-3">
+        <div className="text-[13px] leading-snug text-[var(--scout-chrome-ink-strong)]">
+          {selected.preview?.title ?? selected.label}
+        </div>
+        <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-400/70 mt-1">
+          {selected.preview?.subtitle ?? "Native session"}
+        </div>
+      </div>
+
+      <Section label="State">
+        <Row label="Status" value={selected.status} />
+        <Row label="Harness" value={selected.harness} />
+        {selected.lastActivityAt && <Row label="Last" value={timeAgo(selected.lastActivityAt)} />}
+      </Section>
+
+      <Section label="Runtime">
+        {selected.cwd && <Row label="Cwd" value={selected.cwd} />}
+        {selected.sessionId && <Row label="Session" value={shortSessionId(selected.sessionId)} />}
+        {selected.process && <Row label="Pid" value={`${selected.process.pid}`} />}
+      </Section>
+
+      {selected.transcriptPath && (
+        <Section label="Transcript">
+          <Row label="Path" value={selected.transcriptPath} />
+        </Section>
+      )}
+
+      {selected.preview && (
+        <Section label="Preview">
+          <ContextPreviewPanel
+            summary={selected.preview.summary}
+            subtitle={selected.preview.subtitle}
+            facts={selected.preview.facts}
+          />
+        </Section>
+      )}
+
+      <Section label="Actions">
+        <div className="flex flex-col gap-1.5">
+          <ContextActionButton
+            label="Observe transcript"
+            onClick={observeTranscript}
+            disabled={!selected.refId}
+          />
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function ContextPreviewPanel({
+  summary,
+  subtitle,
+  facts,
+}: {
+  summary: string | null;
+  subtitle: string | null;
+  facts: TailSessionPreview["facts"];
+}) {
+  return (
+    <div className="rounded-md border border-[color-mix(in_srgb,var(--accent)_30%,var(--scout-chrome-border-soft))] bg-[color-mix(in_srgb,var(--accent)_6%,var(--scout-chrome-hover))] p-3 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--scout-chrome-ink)_7%,transparent)]">
+      {subtitle && (
+        <div className="mb-1.5 font-mono text-[9px] uppercase tracking-[0.13em] text-cyan-400/70">
+          {subtitle}
+        </div>
+      )}
+      <div className="text-[12px] leading-relaxed text-[var(--scout-chrome-ink-strong)]">
+        {summary ?? "No readable preview yet."}
+      </div>
+      <ContextPreviewFacts facts={facts} />
+    </div>
+  );
+}
+
+function ContextPreviewFacts({ facts }: { facts: TailSessionPreview["facts"] }) {
+  const visible = facts.filter((fact) => fact.value !== "-").slice(0, 5);
+  if (visible.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {visible.map((fact) => (
+        <span
+          key={fact.key}
+          title={fact.title}
+          className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
+        >
+          {fact.value} {fact.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ContextActionButton({
+  label,
+  onClick,
+  disabled = false,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1.5 text-left font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-soft)] transition-colors hover:border-[var(--accent)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-default disabled:opacity-45"
+    >
+      {label}
+    </button>
   );
 }
 
@@ -391,19 +759,19 @@ function RunningSessions({
                   : "border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)]"
               }`}
             >
-              <button
-                type="button"
-                title={canObserveTerminal
-                  ? `Observe tmux terminal ${session.id}`
-                  : `Open session ${session.id}`}
-                onClick={() =>
-                  canObserveTerminal
-                    ? openTerminal("observe")
-                    : openSessionDetail(session.id)
-                }
-                className="flex w-full items-center justify-between gap-2 bg-transparent p-0 text-left"
-              >
-                <span className="flex min-w-0 flex-col">
+              <div className="flex min-w-0 items-start gap-2">
+                <button
+                  type="button"
+                  title={canObserveTerminal
+                    ? `Observe tmux terminal ${session.id}`
+                    : `Open session ${session.id}`}
+                  onClick={() =>
+                    canObserveTerminal
+                      ? openTerminal("observe")
+                      : openSessionDetail(session.id)
+                  }
+                  className="min-w-0 flex-1 bg-transparent p-0 text-left"
+                >
                   <span className="flex min-w-0 items-center gap-1.5">
                     {active && (
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
@@ -415,27 +783,30 @@ function RunningSessions({
                       {harnessLabel}
                     </span>
                   </span>
-                  <span className="mt-0.5 truncate font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
-                    {session.cwd ? pathLeaf(session.cwd) : "workspace"}
-                  </span>
+                </button>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {canObserveTerminal && (
+                    <SessionInlineAction label="observe" onClick={() => openTerminal("observe")} />
+                  )}
+                  {canTakeover && (
+                    <SessionInlineAction label="takeover" onClick={runTakeover} />
+                  )}
+                  <SessionInlineAction label="detail" onClick={() => openSessionDetail(session.id)} />
+                </div>
+              </div>
+              <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
+                <span className="truncate font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                  {session.cwd ? pathLeaf(session.cwd) : "workspace"}
                 </span>
-                <span className="flex shrink-0 flex-col items-end">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-cyan-400/70">
+                <span className="flex shrink-0 items-center gap-1.5 font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                  <span className="uppercase tracking-[0.12em] text-cyan-400/70">
                     {active ? "active" : "running"}
                   </span>
-                  <span className="mt-0.5 max-w-[78px] truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                  <span className="max-w-[58px] truncate">
                     {lowerMeta}
                   </span>
                 </span>
-              </button>
-              <button
-                type="button"
-                title="Session actions"
-                onClick={(event) => showContextMenu(event, menuItems)}
-                className="mt-1.5 h-5 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 font-mono text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)]"
-              >
-                ...
-              </button>
+              </div>
             </div>
           );
         })}
@@ -446,6 +817,24 @@ function RunningSessions({
         )}
       </div>
     </Section>
+  );
+}
+
+function SessionInlineAction({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="h-5 rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 font-mono text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)]"
+    >
+      {label}
+    </button>
   );
 }
 
@@ -659,147 +1048,213 @@ function InspectorMesh({
   agents: Agent[];
   onOpenAgent: (agent: Agent) => void;
 }) {
-  const W = 240;
-  const H = 180;
+  const W = 232;
+  const H = 88;
   const CX = W / 2;
-  const CY = H / 2;
-  const R = 68;
-  const others = agents.filter((a) => a.id !== focusAgent.id).slice(0, 8);
+  const CY = 52;
+  const R = 25;
+  const presence = useMemo(() => {
+    const focusProject = normalizeProjectRoot(focusAgent.projectRoot ?? focusAgent.cwd);
+    const focusHost = focusAgent.homeNodeId ?? focusAgent.homeNodeName ?? null;
+    const peers = agents
+      .filter((agent) => agent.id !== focusAgent.id)
+      .map((agent) => ({
+        agent,
+        sameProject: Boolean(
+          focusProject &&
+          normalizeProjectRoot(agent.projectRoot ?? agent.cwd) === focusProject,
+        ),
+        sameHost: Boolean(
+          focusHost &&
+          (agent.homeNodeId === focusHost || agent.homeNodeName === focusHost),
+        ),
+        state: normalizeAgentState(agent.state),
+      }));
+    return {
+      total: peers.length,
+      sameProject: peers.filter((peer) => peer.sameProject).length,
+      sameHost: peers.filter((peer) => peer.sameHost).length,
+      working: peers.filter((peer) => peer.state === "working").length,
+      available: peers.filter((peer) => peer.state === "available").length,
+      offline: peers.filter((peer) => peer.state === "offline").length,
+    };
+  }, [agents, focusAgent]);
 
-  const nodes = useMemo(() => {
-    const result: Array<{
-      agent: Agent;
-      x: number;
-      y: number;
-      focused: boolean;
-    }> = [{ agent: focusAgent, x: CX, y: CY, focused: true }];
-    others.forEach((a, i) => {
-      const angle =
-        (2 * Math.PI * i) / Math.max(others.length, 1) - Math.PI / 2;
-      result.push({
-        agent: a,
-        x: CX + R * Math.cos(angle),
-        y: CY + R * Math.sin(angle),
+  const collaborators = useMemo(() => {
+    const focusProject = normalizeProjectRoot(focusAgent.projectRoot ?? focusAgent.cwd);
+    const focusHost = focusAgent.homeNodeId ?? focusAgent.homeNodeName ?? null;
+    return agents
+      .filter((agent) => agent.id !== focusAgent.id)
+      .map((agent) => {
+        const sameProject = Boolean(
+          focusProject &&
+          normalizeProjectRoot(agent.projectRoot ?? agent.cwd) === focusProject,
+        );
+        const sameHost = Boolean(
+          focusHost &&
+          (agent.homeNodeId === focusHost || agent.homeNodeName === focusHost),
+        );
+        const state = normalizeAgentState(agent.state);
+        const score =
+          (sameProject ? 8 : 0) +
+          (sameHost ? 4 : 0) +
+          (state === "working" ? 3 : state === "available" ? 2 : 0);
+        return { agent, sameProject, sameHost, state, score };
+      })
+      .sort((left, right) =>
+        right.score - left.score || compareTimestampsDesc(left.agent.updatedAt, right.agent.updatedAt)
+      )
+      .slice(0, 7);
+  }, [agents, focusAgent]);
+
+  if (presence.total === 0) {
+    return (
+      <div className="rounded-md border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2.5 py-2 text-[10px] text-[var(--scout-chrome-ink-faint)]">
+        No nearby agents in the current scope.
+      </div>
+    );
+  }
+
+  const nodes = [
+    { agent: focusAgent, x: CX, y: CY, focused: true, state: normalizeAgentState(focusAgent.state) },
+    ...collaborators.map((collaborator, index) => {
+      const angle = (2 * Math.PI * index) / Math.max(collaborators.length, 1) - Math.PI / 2;
+      const stagger = index % 2 === 0 ? 0 : 4;
+      return {
+        ...collaborator,
+        x: CX + (R + stagger) * Math.cos(angle),
+        y: CY + (R - stagger * 0.4) * Math.sin(angle),
         focused: false,
-      });
-    });
-    return result;
-  }, [focusAgent, others, CX, CY, R]);
+      };
+    }),
+  ];
 
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="w-full block"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <defs>
-        <radialGradient id="inspMeshGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.06" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      <circle cx={CX} cy={CY} r={R + 14} fill="url(#inspMeshGlow)" />
-      <circle
-        cx={CX}
-        cy={CY}
-        r={R}
-        fill="none"
-        stroke="var(--border)"
-        strokeDasharray="2 4"
-      />
-
-      {nodes.slice(1).map((n, i) => (
-        <g key={`e-${n.agent.id}`}>
+    <div className="overflow-hidden rounded-md border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)]">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="block h-[88px] w-full"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <radialGradient id="inspMeshMiniGlow" cx="50%" cy="52%" r="56%">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.12" />
+            <stop offset="62%" stopColor="var(--accent)" stopOpacity="0.035" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <rect width={W} height={H} fill="url(#inspMeshMiniGlow)" />
+        <text
+          x="10"
+          y="15"
+          fontFamily="var(--font-mono)"
+          fontSize="10"
+          fill="var(--scout-chrome-ink)"
+        >
+          Collaborators
+        </text>
+        <text
+          x="10"
+          y="27"
+          fontFamily="var(--font-mono)"
+          fontSize="8"
+          letterSpacing="0.4"
+          fill="var(--scout-chrome-ink-faint)"
+        >
+          {presence.sameProject} project · {presence.sameHost} host
+        </text>
+        <text
+          x={W - 10}
+          y="16"
+          textAnchor="end"
+          fontFamily="var(--font-mono)"
+          fontSize="8"
+          fill="var(--scout-chrome-ink-faint)"
+        >
+          {presence.working}w · {presence.available}a · {presence.offline}o
+        </text>
+        <circle
+          cx={CX}
+          cy={CY}
+          r={R + 9}
+          fill="none"
+          stroke="var(--scout-chrome-border-soft)"
+          strokeDasharray="2 7"
+          opacity={0.65}
+        />
+        {nodes.slice(1).map((node) => (
           <line
+            key={`edge-${node.agent.id}`}
             x1={CX}
             y1={CY}
-            x2={n.x}
-            y2={n.y}
-            stroke="var(--accent)"
-            strokeWidth={1}
-            opacity={0.6}
+            x2={node.x}
+            y2={node.y}
+            stroke={node.sameProject ? "var(--accent)" : "var(--scout-chrome-border-soft)"}
+            strokeWidth={node.sameProject ? 1.05 : 0.8}
+            opacity={node.sameProject ? 0.68 : 0.32}
           />
-          <circle r={2} fill="var(--accent)">
-            <animateMotion
-              dur={`${2 + i * 0.3}s`}
-              repeatCount="indefinite"
-              path={`M ${CX},${CY} L ${n.x},${n.y}`}
-            />
-          </circle>
-        </g>
-      ))}
-
-      {nodes.map((n) => {
-        const nState = normalizeAgentState(n.agent.state);
-        const isActive = nState === "working" || nState === "available";
-        const r = n.focused ? 14 : 9;
-        return (
-          <g
-            key={n.agent.id}
-            style={{ cursor: "pointer" }}
-            onClick={() => onOpenAgent(n.agent)}
-          >
-            {isActive && (
+        ))}
+        {nodes.map((node) => {
+          const active = node.state === "working" || node.state === "available";
+          const radius = node.focused ? 12 : 8;
+          return (
+            <g
+              key={node.agent.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpenAgent(node.agent)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onOpenAgent(node.agent);
+                }
+              }}
+              style={{ cursor: "pointer" }}
+            >
+              <title>{node.agent.name}</title>
+              {active && (
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={radius + 3}
+                  fill="none"
+                  stroke={stateColor(node.agent.state)}
+                  strokeWidth={0.8}
+                  opacity={node.focused ? 0.32 : 0.2}
+                />
+              )}
               <circle
-                cx={n.x}
-                cy={n.y}
-                r={r + 5}
-                fill="none"
-                stroke={actorColor(n.agent.name)}
-                strokeWidth={0.8}
-                opacity={0.3}
+                cx={node.x}
+                cy={node.y}
+                r={radius}
+                fill={actorColor(node.agent.name)}
+                stroke={node.focused ? "var(--accent)" : "var(--hud-bg)"}
+                strokeWidth={node.focused ? 1.8 : 1.2}
+              />
+              <circle
+                cx={node.x + radius * 0.55}
+                cy={node.y + radius * 0.52}
+                r={node.focused ? 2.2 : 1.7}
+                fill={stateColor(node.agent.state)}
+                opacity={node.state === "offline" ? 0.45 : 0.95}
+              />
+              <text
+                x={node.x}
+                y={node.y}
+                dy="0.35em"
+                textAnchor="middle"
+                fontFamily="var(--font-mono)"
+                fontSize={node.focused ? 9 : 7}
+                fontWeight={700}
+                fill="var(--scout-chrome-avatar-ink)"
               >
-                <animate
-                  attributeName="r"
-                  values={`${r};${r + 8};${r}`}
-                  dur="2.5s"
-                  repeatCount="indefinite"
-                />
-                <animate
-                  attributeName="opacity"
-                  values="0.3;0;0.3"
-                  dur="2.5s"
-                  repeatCount="indefinite"
-                />
-              </circle>
-            )}
-            <circle
-              cx={n.x}
-              cy={n.y}
-              r={r}
-              fill={actorColor(n.agent.name)}
-              stroke={n.focused ? "var(--accent)" : "var(--surface)"}
-              strokeWidth={n.focused ? 1.5 : 1}
-            />
-            <text
-              x={n.x}
-              y={n.y}
-              dy="0.35em"
-              textAnchor="middle"
-              fontFamily="var(--font-mono)"
-              fontSize={n.focused ? 10 : 8}
-              fontWeight={600}
-              fill="var(--scout-chrome-avatar-ink)"
-            >
-              {n.agent.name[0].toUpperCase()}
-            </text>
-            <text
-              x={n.x}
-              y={n.y + r + 10}
-              textAnchor="middle"
-              fontFamily="var(--font-mono)"
-              fontSize={8}
-              fill="var(--dim)"
-              letterSpacing="0.04em"
-            >
-              {n.agent.name.length > 9
-                ? n.agent.name.slice(0, 8) + "..."
-                : n.agent.name}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+                {node.agent.name[0]?.toUpperCase() ?? "?"}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 

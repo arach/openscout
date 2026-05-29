@@ -1520,7 +1520,7 @@
     minmax(92px, 0.46fr)
     minmax(112px, 0.48fr)
     minmax(120px, 0.64fr)
-    78px
+    minmax(108px, 0.5fr)
     76px
     minmax(112px, 0.48fr);
   align-items: center;
@@ -1623,6 +1623,21 @@
   background: color-mix(in srgb, var(--surface) 28%, transparent);
 }
 
+.s-agent-project-tree-row--clickable {
+  cursor: pointer;
+}
+
+.s-agent-project-tree-row--clickable:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: -2px;
+}
+
+.s-agent-project-tree-row--selected {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 26rem),
+    color-mix(in srgb, var(--surface) 82%, transparent);
+}
+
 .s-agent-project-tree-row--native {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--green) 50%, transparent);
 }
@@ -1705,9 +1720,11 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: inherit;
 }
 
+.s-agent-project-tree-row--clickable:hover .s-agent-project-tree-primary,
+.s-agent-project-tree-row--clickable:focus-visible .s-agent-project-tree-primary,
 .s-agent-project-tree-link:hover .s-agent-project-tree-primary,
 .s-agent-project-tree-link:focus-visible .s-agent-project-tree-primary {
   color: var(--accent);
@@ -1788,6 +1805,26 @@
 .s-agent-project-tree-mono {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.s-agent-project-tree-facts {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.s-agent-project-tree-fact {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 7.5rem;
+  overflow: hidden;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .s-agent-project-tree-actions {

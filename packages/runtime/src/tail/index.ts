@@ -6,11 +6,13 @@
 // logic owned by runtime.
 
 export {
+  buildTailDiscoverySessionPreviews,
   getTailDiscovery,
   readRecentTranscriptEvents,
   snapshotRecentEvents,
   subscribeTail,
 } from "./service.js";
+export { buildTailSessionPreview } from "./session-preview.js";
 
 export type {
   DiscoveredProcess,
@@ -20,6 +22,10 @@ export type {
   TailDiscoveryScope,
   TailEvent,
   TailEventKind,
+  TailSessionPreview,
+  TailSessionPreviewFact,
+  TailSessionPreviewInput,
+  TailSessionPreviewStats,
   TailAttribution,
   TailHarness,
   TranscriptSource,

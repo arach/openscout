@@ -33,6 +33,7 @@ const RAW_MAX_OBJECT_KEYS = 50;
 const RECENT_TRANSCRIPT_READ_BYTES = 512 * 1024;
 const RECENT_TRANSCRIPT_LINES_PER_FILE = 200;
 const RECENT_TRANSCRIPT_MAX_FILES = readPositiveIntEnv("OPENSCOUT_TAIL_RECENT_TRANSCRIPT_MAX_FILES", 24);
+const PREVIEW_TRANSCRIPT_LINES_PER_FILE = readPositiveIntEnv("OPENSCOUT_TAIL_PREVIEW_TRANSCRIPT_LINES_PER_FILE", 80);
 
 type Subscriber = (event: TailEvent) => void;
 
@@ -143,6 +144,67 @@ function processForTranscript(
     harness: transcript.harness,
     parentChain: [],
     source: transcript.source,
+  };
+}
+
+async function readTranscriptPreviewEvents(
+  discovery: DiscoverySnapshot,
+  transcript: DiscoveredTranscript,
+): Promise<{ process: DiscoveredProcess; events: TailEvent[] }> {
+  const source = sources.find((candidate) => candidate.name === transcript.source);
+  const process = processForTranscript(transcript, discovery.processes);
+  if (!source) return { process, events: [] };
+
+  const lines = await readRecentTranscriptLines(
+    transcript.transcriptPath,
+    PREVIEW_TRANSCRIPT_LINES_PER_FILE,
+  );
+  const seenEvents = new Set<string>();
+  const events: TailEvent[] = [];
+  lines.forEach((line, index) => {
+    const event = source.parseLine(line, {
+      process,
+      transcript,
+      transcriptPath: transcript.transcriptPath,
+      lineOffset: index,
+    });
+    if (!event) return;
+    const compacted = compactEvent(event);
+    const eventKey = [
+      compacted.source,
+      compacted.sessionId,
+      compacted.kind,
+      compacted.summary,
+    ].join("\u0000");
+    if (seenEvents.has(eventKey)) return;
+    seenEvents.add(eventKey);
+    events.push(compacted);
+  });
+  events.sort((left, right) => left.ts - right.ts);
+  return { process, events };
+}
+
+export async function buildTailDiscoverySessionPreviews(
+  discovery: DiscoverySnapshot,
+): Promise<DiscoverySnapshot> {
+  const transcripts = await Promise.all(discovery.transcripts.map(async (transcript) => {
+    const source = sources.find((candidate) => candidate.name === transcript.source);
+    if (!source) return transcript;
+    const { process, events } = await readTranscriptPreviewEvents(discovery, transcript);
+    return {
+      ...transcript,
+      preview: source.previewSession({
+        process,
+        transcript,
+        events,
+        now: Date.now(),
+      }),
+    };
+  }));
+
+  return {
+    ...discovery,
+    transcripts,
   };
 }
 
