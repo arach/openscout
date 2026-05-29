@@ -399,7 +399,10 @@ private struct VoiceTab: View {
 
     var body: some View {
         let voiceService = voice
+        let diagnostics = voice.diagnostics
         VStack(alignment: .leading, spacing: 12) {
+            VoiceInputCard(voice: voice)
+
             DiagnosticsCard(
                 label: "Voice",
                 status: voiceStatus(),
@@ -409,18 +412,48 @@ private struct VoiceTab: View {
                     KVEntry(key: "Owner", value: "OpenScout Menu"),
                     KVEntry(key: "Engine", value: "Embedded Vox"),
                     KVEntry(key: "Model", value: ScoutVoiceConfig.modelId),
-                    KVEntry(key: "Model cache", value: ScoutVoiceConfig.sharedModelCachePath),
+                    KVEntry(
+                        key: "Model cache",
+                        value: "\(diagnostics.modelCacheLabel) · \(diagnostics.modelCachePath)",
+                        path: diagnostics.modelCachePath
+                    ),
                     KVEntry(key: "Client", value: ScoutVoiceConfig.clientId),
+                    KVEntry(key: "External Vox", value: diagnostics.externalRuntime.summary),
+                    KVEntry(
+                        key: "Recordings",
+                        value: "\(diagnostics.recordingsCount) file\(diagnostics.recordingsCount == 1 ? "" : "s") · \(diagnostics.recordingsPath)",
+                        path: diagnostics.recordingsPath
+                    ),
                 ],
                 logPath: nil,
                 actions: [
                     ("Recheck", { Task { @MainActor in await voiceService.probe() } }),
+                    ("Open Recordings", { voiceService.openRecordingsDirectory() }),
                 ]
             )
+
+            if let lastRecordingPath = diagnostics.lastRecordingPath {
+                DiagnosticsCard(
+                    label: "Last Recording",
+                    status: .healthy,
+                    summary: URL(fileURLWithPath: lastRecordingPath).lastPathComponent,
+                    detail: "The last Scout-owned capture is retained locally for inspection.",
+                    rows: [
+                        KVEntry(key: "Path", value: lastRecordingPath, path: lastRecordingPath),
+                    ],
+                    logPath: nil,
+                    actions: [
+                        ("Reveal", { voiceService.revealLastRecording() }),
+                    ]
+                )
+            }
         }
     }
 
     private func voiceStatus() -> ServiceLightStatus {
+        if !voice.diagnostics.externalRuntime.isClean {
+            return .warn
+        }
         switch voice.state {
         case .idle:
             return .healthy
@@ -443,6 +476,9 @@ private struct VoiceTab: View {
     }
 
     private func voiceDetail() -> String {
+        if !voice.diagnostics.externalRuntime.isClean {
+            return voice.diagnostics.externalRuntime.detail
+        }
         switch voice.state {
         case .probing:
             return "Checking embedded Vox transcription and microphone authorization without prompting."
@@ -456,6 +492,131 @@ private struct VoiceTab: View {
             return "Scout is passing the captured audio to embedded Vox transcription."
         case .unavailable(let reason):
             return reason
+        }
+    }
+}
+
+private struct VoiceInputCard: View {
+    @ObservedObject var voice: ScoutVoiceService
+
+    var body: some View {
+        let diagnostics = voice.diagnostics
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(permissionStatus.dotColor)
+                    .frame(width: 8, height: 8)
+                    .frame(width: 14, height: 14)
+
+                Image(systemName: "mic")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ShellPalette.ink)
+
+                Text("MICROPHONE")
+                    .font(MenuType.mono(11, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(ShellPalette.ink)
+
+                Text(diagnostics.permissionLabel)
+                    .font(MenuType.mono(12, weight: .semibold))
+                    .foregroundStyle(ShellPalette.ink)
+
+                Spacer()
+            }
+
+            VStack(spacing: 8) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text("INPUT")
+                        .font(MenuType.mono(9, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(ShellPalette.muted)
+                        .frame(width: 92, alignment: .leading)
+
+                    Picker("", selection: selectedInputBinding) {
+                        Text("System Default").tag("")
+                        ForEach(diagnostics.inputDevices) { device in
+                            Text(device.displayName).tag(device.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .disabled(diagnostics.inputDevices.isEmpty || voice.state.isCaptureActive || voice.state.isProcessing)
+                }
+
+                KVRow(entry: KVEntry(key: "Using", value: diagnostics.effectiveInputDeviceName))
+                KVRow(entry: KVEntry(key: "Available", value: "\(diagnostics.inputDevices.count) input\(diagnostics.inputDevices.count == 1 ? "" : "s")"))
+                KVRow(entry: KVEntry(key: "Permission", value: diagnostics.permissionLabel))
+            }
+
+            Text(permissionDetail)
+                .font(MenuType.body(11.5))
+                .foregroundStyle(ShellPalette.copy)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                if diagnostics.microphonePermissionStatus == "not_determined" {
+                    Button("Request Access") {
+                        Task { @MainActor in
+                            await voice.requestMicrophonePermission()
+                        }
+                    }
+                    .buttonStyle(SecondaryPillStyle())
+                }
+                if diagnostics.microphonePermissionStatus == "denied"
+                    || diagnostics.microphonePermissionStatus == "restricted" {
+                    Button("Open Settings") {
+                        voice.openMicrophonePrivacySettings()
+                    }
+                    .buttonStyle(SecondaryPillStyle())
+                }
+                Button("Refresh") {
+                    voice.refreshDiagnostics()
+                }
+                .buttonStyle(SecondaryPillStyle())
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(ShellPalette.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+    }
+
+    private var selectedInputBinding: Binding<String> {
+        Binding(
+            get: { voice.selectedInputDeviceId },
+            set: { voice.updateSelectedInputDevice(id: $0) }
+        )
+    }
+
+    private var permissionStatus: ServiceLightStatus {
+        switch voice.diagnostics.microphonePermissionStatus {
+        case "authorized":     return .healthy
+        case "not_determined": return .warn
+        case "denied", "restricted": return .fail
+        default:               return .fail
+        }
+    }
+
+    private var permissionDetail: String {
+        switch voice.diagnostics.microphonePermissionStatus {
+        case "authorized":
+            return "Scout Menu is authorized to capture microphone audio locally."
+        case "not_determined":
+            return "Scout Menu has not requested microphone access yet. The first dictation action can prompt, or you can request access here."
+        case "denied":
+            return "Microphone access is denied for Scout Menu. Enable it in System Settings to use embedded voice."
+        case "restricted":
+            return "Microphone access is restricted by macOS policy."
+        default:
+            return "Microphone authorization could not be determined."
         }
     }
 }
