@@ -32,8 +32,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.setContentSize(NSSize(width: 820, height: 580))
-        window.minSize = NSSize(width: 700, height: 500)
+        window.setContentSize(NSSize(width: 860, height: 580))
+        window.minSize = NSSize(width: 760, height: 500)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.setFrameAutosaveName(frameAutosaveName)
@@ -98,6 +98,12 @@ private struct SettingsRootView: View {
     @ObservedObject private var theme = ThemeManager.shared
     @State private var selected: SettingsTab = .diagnostics
 
+    private enum Layout {
+        static let sidebarWidth: CGFloat = 156
+        static let trafficLightReserve: CGFloat = 84
+        static let topBarHeight: CGFloat = 38
+    }
+
     var body: some View {
         ZStack {
             ShellPalette.shellBackground
@@ -140,42 +146,52 @@ private struct SettingsRootView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 10) {
-            // Reserve space for the traffic-light buttons.
-            Color.clear.frame(width: 64, height: 1)
+        HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: Layout.trafficLightReserve, height: 1)
 
-            Text("OPENSCOUT")
-                .font(MenuType.mono(11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.ink)
+                Text("OPENSCOUT")
+                    .font(MenuType.mono(10.5, weight: .bold))
+                    .tracking(1.0)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.88)
+                    .foregroundStyle(ShellPalette.ink)
 
-            Text("·")
-                .font(MenuType.mono(11))
-                .foregroundStyle(ShellPalette.muted)
-
-            Text("CONTROL CENTER")
-                .font(MenuType.mono(10, weight: .medium))
-                .tracking(1.2)
-                .foregroundStyle(ShellPalette.dim)
-
-            Spacer()
-
-            Button {
-                controller.refresh()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .semibold))
+                Spacer(minLength: 8)
             }
-            .buttonStyle(HeaderIconButtonStyle())
-            .disabled(controller.isRefreshing)
-            .help("Refresh status")
+            .padding(.trailing, 10)
+            .frame(width: Layout.sidebarWidth, alignment: .leading)
 
-            Text("v\(buildVersion())")
-                .font(MenuType.mono(10))
-                .foregroundStyle(ShellPalette.muted)
+            Rectangle()
+                .fill(ShellPalette.line)
+                .frame(width: 1)
+
+            HStack(spacing: 10) {
+                Text("CONTROL CENTER")
+                    .font(MenuType.mono(10, weight: .medium))
+                    .tracking(1.2)
+                    .foregroundStyle(ShellPalette.dim)
+
+                Spacer()
+
+                Button {
+                    controller.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(HeaderIconButtonStyle())
+                .disabled(controller.isRefreshing)
+                .help("Refresh status")
+
+                Text("v\(buildVersion())")
+                    .font(MenuType.mono(10))
+                    .foregroundStyle(ShellPalette.muted)
+            }
+            .padding(.horizontal, 14)
         }
-        .padding(.horizontal, 14)
-        .frame(height: 38)
+        .frame(height: Layout.topBarHeight)
         .background(ShellPalette.chrome)
     }
 
@@ -188,7 +204,7 @@ private struct SettingsRootView: View {
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 8)
-        .frame(width: 132, alignment: .topLeading)
+        .frame(width: Layout.sidebarWidth, alignment: .topLeading)
         .background(ShellPalette.chromeFooter)
     }
 
@@ -204,7 +220,7 @@ private struct SettingsRootView: View {
 
                 Text(tab.label.uppercased())
                     .font(MenuType.mono(10, weight: active ? .semibold : .regular))
-                    .tracking(0.8)
+                    .tracking(0.35)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
