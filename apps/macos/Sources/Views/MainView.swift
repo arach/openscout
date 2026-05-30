@@ -5,6 +5,13 @@ struct MainView: View {
     @ObservedObject var controller: OpenScoutAppController
     @ObservedObject private var theme = ThemeManager.shared
 
+    let onPopoverGeometryChange: (() -> Void)?
+
+    init(controller: OpenScoutAppController, onPopoverGeometryChange: (() -> Void)? = nil) {
+        self.controller = controller
+        self.onPopoverGeometryChange = onPopoverGeometryChange
+    }
+
     @State private var showQR: Bool = false
 
     static let baseHeight: CGFloat = 168
@@ -63,6 +70,8 @@ struct MainView: View {
         // re-anchor against a status item that's mid-redraw and snap the
         // popover to a default screen position. Keep the size change atomic.
         .animation(.easeInOut(duration: 0.18), value: showQR)
+        .onAppear { onPopoverGeometryChange?() }
+        .onChange(of: popoverHeight) { _, _ in onPopoverGeometryChange?() }
         .preferredColorScheme(theme.colorScheme)
     }
 

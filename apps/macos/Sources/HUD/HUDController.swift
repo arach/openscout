@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import HudsonShell
 import SwiftUI
 
 // Singleton controller for the OpenScout HUD overlay.
@@ -10,9 +11,10 @@ import SwiftUI
 final class HUDController {
     static let shared = HUDController()
 
-    private var panel: OverlayPanel?
+    private var panel: HudOverlayPanel?
     private var clickMonitor: Any?
     private var sizeSubscription: AnyCancellable?
+    private lazy var keyRouter = makeKeyRouter()
 
     var isVisible: Bool {
         guard let panel else { return false }
@@ -68,9 +70,9 @@ final class HUDController {
 
         // Reuse the panel if it already exists (still fading out, etc).
         if let panel {
-            OverlayPanelShell.position(panel, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
+            HudOverlayPanelShell.position(panel, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
             panel.alphaValue = 0
-            OverlayPanelShell.present(panel, activate: false, makeKey: true, orderFrontRegardless: true)
+            HudOverlayPanelShell.present(panel, activate: false, makeKey: true, orderFrontRegardless: true)
             fadeIn(panel)
             installMonitors()
             installSizeObserver()
@@ -83,7 +85,7 @@ final class HUDController {
         })
         .preferredColorScheme(.dark)
 
-        var config = OverlayPanelShell.Config(size: HUDState.shared.size.contentSize())
+        var config = HudOverlayPanelShell.Configuration(size: HUDState.shared.size.contentSize())
         config.isMovableByWindowBackground = true
         config.resizable = true
         config.minContentSize = NSSize(width: 360, height: 380)
@@ -105,80 +107,15 @@ final class HUDController {
         // behind the rounded shape; we don't add any on HUDStatusView.
         config.hasShadow = true
         config.onKeyDown = { [weak self] event in
-            guard let self else { return }
-            // Esc always cascades — it's the only way to blur the dock
-            // back into nav mode, so it must fire even when focused.
-            if event.keyCode == 53 {
-                Task { @MainActor in self.handleEscape() }
-                return
-            }
-            // While the dock is focused the TextField owns the keystroke;
-            // suppress the rest so the operator can type "j", "1", etc.
-            // as text without also cycling rows or switching tabs.
-            if self.isDockFocused { return }
-            switch event.keyCode {
-            case 18: // 1
-                Task { @MainActor in HUDState.shared.select(.agents) }
-            case 19: // 2
-                Task { @MainActor in HUDState.shared.select(.activity) }
-            case 20: // 3
-                Task { @MainActor in HUDState.shared.select(.tail) }
-            case 21: // 4
-                Task { @MainActor in HUDState.shared.select(.sessions) }
-            case 23: // 5
-                Task { @MainActor in HUDState.shared.select(.assistant) }
-            case 36: // Return — engage selected row (focus dock, prefill @target)
-                Task { @MainActor in
-                    HUDNavBus.shared.engageSelected?()
-                    self.activateSelected()
-                }
-            case 38: // j — cycle selection next
-                Task { @MainActor in HUDNavBus.shared.cycleNext?() }
-            case 40: // k — cycle selection prev
-                Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
-            case 34: // i — focus the message dock (vim-style "insert")
-                Task { @MainActor in HUDDockState.shared.focus() }
-            case 46: // m — toggle voice dictation (transcript lands in dock)
-                Task { @MainActor in await Self.toggleMicWithFlash() }
-            case 5: // g — top (G with shift = bottom)
-                if event.modifierFlags.contains(.shift) {
-                    Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
-                } else {
-                    Task { @MainActor in HUDNavBus.shared.jumpTop?() }
-                }
-            case 3: // f — toggle live-follow (tail / stream views)
-                Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
-            case 44: // / (alone) → focus dock + seed slash; ? (shift) → cheatsheet
-                if event.modifierFlags.contains(.shift) {
-                    Task { @MainActor in HUDCheatsheetState.shared.toggle() }
-                } else {
-                    Task { @MainActor in
-                        HUDDockState.shared.text = "/"
-                        HUDDockState.shared.focus()
-                    }
-                }
-            case 33: // [ — step size down
-                Task { @MainActor in HUDState.shared.stepSize(-1) }
-            case 30: // ] — step size up
-                Task { @MainActor in HUDState.shared.stepSize(+1) }
-            case 124: // Right arrow — ⌘→ steps tier up
-                if event.modifierFlags.contains(.command) {
-                    Task { @MainActor in HUDState.shared.stepSize(+1) }
-                }
-            case 123: // Left arrow — ⌘← steps tier down
-                if event.modifierFlags.contains(.command) {
-                    Task { @MainActor in HUDState.shared.stepSize(-1) }
-                }
-            default:
-                break
-            }
+            guard let self else { return false }
+            return self.handleKeyDown(HudOverlayKeyPress(event: event))
         }
 
-        let p = OverlayPanelShell.makePanel(config: config, rootView: view)
-        OverlayPanelShell.position(p, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
+        let p = HudOverlayPanelShell.makePanel(configuration: config, rootView: view)
+        HudOverlayPanelShell.position(p, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
 
         p.alphaValue = 0
-        OverlayPanelShell.present(p, activate: false, makeKey: true, orderFrontRegardless: true)
+        HudOverlayPanelShell.present(p, activate: false, makeKey: true, orderFrontRegardless: true)
         self.panel = p
 
         // Debug hook: write the window number so screencapture -l<id>
@@ -202,16 +139,10 @@ final class HUDController {
         sizeSubscription?.cancel()
         sizeSubscription = nil
 
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.14
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            p.animator().alphaValue = 0
-        }) { [weak self] in
-            Task { @MainActor [weak self] in
-                p.orderOut(nil)
-                self?.panel = nil
-                HUDStateFile.shared.touch()
-            }
+        HudOverlayPanelShell.fadeOut(p) { [weak self] in
+            p.orderOut(nil)
+            self?.panel = nil
+            HUDStateFile.shared.touch()
         }
     }
 
@@ -231,51 +162,11 @@ final class HUDController {
 
     private func applySize(_ size: HUDSize) {
         guard let p = panel else { return }
-        let screen = p.screen ?? NSScreen.main
-        let target = size.contentSize(on: screen)
-
-        // Convert content size → frame size. For .borderless panels the
-        // title-bar contribution is zero, so frame == content; keep the
-        // call symmetric anyway in case the styleMask gains a titlebar.
-        let frameSize = p.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
-
-        let newFrame: NSRect
-        if size.isScreenAnchored, let visible = screen?.visibleFrame {
-            // Dock to top half of the active screen. macOS coordinate
-            // space has origin at bottom-left, so "top half" means y
-            // starts at visible.midY and extends to visible.maxY.
-            newFrame = NSRect(
-                x: visible.minX,
-                y: visible.maxY - frameSize.height,
-                width: frameSize.width,
-                height: frameSize.height
-            )
-        } else {
-            // Compact + Medium: anchor on the panel's current center so the
-            // resize reads as a tier swap, not a jump.
-            let currentFrame = p.frame
-            newFrame = NSRect(
-                x: currentFrame.midX - frameSize.width / 2,
-                y: currentFrame.midY - frameSize.height / 2,
-                width: frameSize.width,
-                height: frameSize.height
-            )
-        }
-
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.22
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            ctx.allowsImplicitAnimation = true
-            p.animator().setFrame(newFrame, display: true)
-        }
+        HudOverlayPanelShell.animateFrame(p, to: size.frame(for: p))
     }
 
     private func fadeIn(_ p: NSPanel) {
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            p.animator().alphaValue = 1.0
-        }
+        HudOverlayPanelShell.fadeIn(p)
     }
 
     // MARK: - Event monitors
@@ -299,73 +190,67 @@ final class HUDController {
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: .keyDown
         ) { [weak self] event in
-            guard let self else { return }
-            let kc = event.keyCode
-            // Esc always cascades.
-            if kc == 53 {
-                Task { @MainActor in self.handleEscape() }
-                return
-            }
-            // Guard against firing nav hotkeys while the dock is the
-            // first responder (typing in the field).
-            if self.isDockFocused { return }
-            switch kc {
-            case 18: // 1
-                Task { @MainActor in HUDState.shared.select(.agents) }
-            case 19: // 2
-                Task { @MainActor in HUDState.shared.select(.activity) }
-            case 20: // 3
-                Task { @MainActor in HUDState.shared.select(.tail) }
-            case 21: // 4
-                Task { @MainActor in HUDState.shared.select(.sessions) }
-            case 23: // 5
-                Task { @MainActor in HUDState.shared.select(.assistant) }
-            case 36: // Return — engage selected row
-                Task { @MainActor in
-                    HUDNavBus.shared.engageSelected?()
-                    self.activateSelected()
-                }
-            case 38: // j — next row
-                Task { @MainActor in HUDNavBus.shared.cycleNext?() }
-            case 40: // k — prev row
-                Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
-            case 34: // i — focus dock
-                Task { @MainActor in HUDDockState.shared.focus() }
-            case 46: // m — toggle voice dictation
-                Task { @MainActor in await Self.toggleMicWithFlash() }
-            case 5: // g / G
-                if event.modifierFlags.contains(.shift) {
-                    Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
-                } else {
-                    Task { @MainActor in HUDNavBus.shared.jumpTop?() }
-                }
-            case 3: // f — toggle follow
-                Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
-            case 44: // / (alone) → focus dock + seed slash; ? (shift) → cheatsheet
-                if event.modifierFlags.contains(.shift) {
-                    Task { @MainActor in HUDCheatsheetState.shared.toggle() }
-                } else {
-                    Task { @MainActor in
-                        HUDDockState.shared.text = "/"
-                        HUDDockState.shared.focus()
-                    }
-                }
-            case 33: // [
-                Task { @MainActor in HUDState.shared.stepSize(-1) }
-            case 30: // ]
-                Task { @MainActor in HUDState.shared.stepSize(+1) }
-            case 126: // Up arrow — ⌘↑
-                if event.modifierFlags.contains(.command) {
-                    Task { @MainActor in HUDState.shared.stepSize(+1) }
-                }
-            case 125: // Down arrow — ⌘↓
-                if event.modifierFlags.contains(.command) {
-                    Task { @MainActor in HUDState.shared.stepSize(-1) }
-                }
-            default:
-                break
-            }
+            let press = HudOverlayKeyPress(event: event)
+            Task { @MainActor in _ = self?.handleKeyDown(press) }
         }
+    }
+
+    private func makeKeyRouter() -> HudOverlayKeyRouter {
+        HudOverlayKeyRouter(commands: [
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.one) { _ in HUDState.shared.select(.agents) },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.two) { _ in HUDState.shared.select(.activity) },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.three) { _ in HUDState.shared.select(.tail) },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.four) { _ in HUDState.shared.select(.sessions) },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.five) { _ in HUDState.shared.select(.assistant) },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.enter) { [weak self] _ in
+                HUDNavBus.shared.engageSelected?()
+                self?.activateSelected()
+            },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.j) { _ in HUDNavBus.shared.cycleNext?() },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.k) { _ in HUDNavBus.shared.cyclePrev?() },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.i) { _ in HUDDockState.shared.focus() },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.m) { _ in
+                Task { @MainActor in await Self.toggleMicWithFlash() }
+            },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.g) { _ in HUDNavBus.shared.jumpTop?() },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.g, modifiers: .contains(.shift)) { _ in
+                HUDNavBus.shared.jumpBottom?()
+            },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.f) { _ in HUDNavBus.shared.toggleFollow?() },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.slash) { _ in
+                HUDDockState.shared.text = "/"
+                HUDDockState.shared.focus()
+            },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.slash, modifiers: .contains(.shift)) { _ in
+                HUDCheatsheetState.shared.toggle()
+            },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.leftBracket) { _ in HUDState.shared.stepSize(-1) },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.rightBracket) { _ in HUDState.shared.stepSize(+1) },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.rightArrow, modifiers: .contains(.command)) { _ in
+                HUDState.shared.stepSize(+1)
+            },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.upArrow, modifiers: .contains(.command)) { _ in
+                HUDState.shared.stepSize(+1)
+            },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.leftArrow, modifiers: .contains(.command)) { _ in
+                HUDState.shared.stepSize(-1)
+            },
+            HudOverlayKeyCommand(keyCode: HudOverlayKeyCode.downArrow, modifiers: .contains(.command)) { _ in
+                HUDState.shared.stepSize(-1)
+            },
+        ])
+    }
+
+    @discardableResult
+    private func handleKeyDown(_ press: HudOverlayKeyPress) -> Bool {
+        // Esc always cascades so the dock can blur back into navigation mode.
+        if press.keyCode == HudOverlayKeyCode.escape {
+            handleEscape()
+            return true
+        }
+        // While the dock is focused, editable text owns ordinary shortcuts.
+        if isDockFocused { return false }
+        return keyRouter.route(press)
     }
 
     private func activateSelected() {

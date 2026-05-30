@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
                 button.image = self?.menuBarImage(symbolName: symbolName)
                 button.toolTip = tooltip
+                self?.schedulePopoverReanchor()
             }
             .store(in: &cancellables)
 
@@ -75,11 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func statusItemClicked(_ sender: Any?) {
-        guard let event = NSApp.currentEvent, let button = statusItem.button else {
+        guard let button = statusItem.button else {
             return
         }
 
-        if event.type == .rightMouseUp {
+        if NSApp.currentEvent?.type == .rightMouseUp {
             contextMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
             return
         }
@@ -92,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let popover = makePopover()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+        schedulePopoverReanchor()
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -111,7 +113,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         popover.appearance = ThemeManager.shared.nsAppearance
-        let host = NSHostingController(rootView: MainView(controller: controller))
+        let host = NSHostingController(
+            rootView: MainView(controller: controller) { [weak self] in
+                self?.schedulePopoverReanchor()
+            }
+        )
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
         self.popover = popover
@@ -166,6 +172,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         )
         image?.isTemplate = true
         return image
+    }
+
+    private func schedulePopoverReanchor() {
+        guard popover?.isShown == true else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.reanchorPopoverToStatusItem()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.reanchorPopoverToStatusItem()
+        }
+    }
+
+    private func reanchorPopoverToStatusItem() {
+        guard popover?.isShown == true,
+              let button = statusItem.button,
+              let buttonWindow = button.window,
+              let popoverWindow = popover?.contentViewController?.view.window else {
+            return
+        }
+
+        let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        guard buttonFrame.width > 0, buttonFrame.height > 0 else { return }
+
+        var frame = popoverWindow.frame
+        let screen = screen(containing: NSPoint(x: buttonFrame.midX, y: buttonFrame.midY))
+            ?? buttonWindow.screen
+            ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            let margin: CGFloat = 8
+            let centeredX = buttonFrame.midX - (frame.width / 2)
+            frame.origin.x = min(
+                max(centeredX, visible.minX + margin),
+                visible.maxX - frame.width - margin
+            )
+            frame.origin.y = buttonFrame.minY - frame.height - 5
+            popoverWindow.setFrame(frame, display: true, animate: false)
+        }
+    }
+
+    private func screen(containing point: NSPoint) -> NSScreen? {
+        NSScreen.screens.first { $0.frame.contains(point) }
     }
 
     @objc

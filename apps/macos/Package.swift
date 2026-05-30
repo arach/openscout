@@ -9,6 +9,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../packages/scout-native-core"),
+        .package(url: "https://github.com/arach/hudson.git", branch: "feat/share-primitive"),
         .package(path: "../../../vox/swift"),
     ],
     targets: [
@@ -16,6 +17,8 @@ let package = Package(
             name: "OpenScoutMenu",
             dependencies: [
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
+                .product(name: "HudsonShell", package: "Hudson"),
+                .product(name: "HudsonUI", package: "Hudson"),
                 .product(name: "VoxCore", package: "swift"),
                 .product(name: "VoxEngine", package: "swift"),
             ],

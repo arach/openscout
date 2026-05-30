@@ -1,9 +1,12 @@
 import AppKit
 import Foundation
+import HudsonShell
 import SwiftUI
 
 // HUD view selection + per-session state.
 // One source of truth for which view the HUD is showing and at what size.
+
+typealias HUDSize = HudOverlaySize
 
 enum HUDView: Int, CaseIterable, Identifiable, Sendable {
     case agents    = 1
@@ -31,52 +34,6 @@ enum HUDView: Int, CaseIterable, Identifiable, Sendable {
 
     var keyLabel: String {
         String(rawValue)
-    }
-}
-
-enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
-    case compact = 0
-    case medium  = 1
-    case large   = 2
-
-    var id: Int { rawValue }
-
-    var label: String {
-        switch self {
-        case .compact: return "S"
-        case .medium:  return "M"
-        case .large:   return "L"
-        }
-    }
-
-    // Resolved content size for `screen`. The .compact and .medium tiers
-    // are fixed presets (panel floats and is center-anchored on resize).
-    // The .large tier is screen-relative: full width × half height of the
-    // visible frame, intended to dock to the top half of the active
-    // display. Caller (HUDController) is responsible for positioning .large
-    // at the top of the screen rather than center-anchoring.
-    //
-    // WHY this shape (S vs M vs L):
-    //   S 560x520     compact single-column overlay — at-a-glance HUD
-    //   M 1280x920    two-pane wide layout — operator workbench
-    //   L screen/top  full-width half-screen dock — context room
-    func contentSize(on screen: NSScreen? = NSScreen.main) -> NSSize {
-        switch self {
-        case .compact:
-            return NSSize(width: 560, height: 520)
-        case .medium:
-            return NSSize(width: 1280, height: 920)
-        case .large:
-            let frame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-            return NSSize(width: frame.width, height: floor(frame.height / 2))
-        }
-    }
-
-    /// Whether this size requires explicit screen-relative positioning by
-    /// the caller (vs. the default center-anchored resize). Today only the
-    /// new .large tier does — it docks to the top half of the active screen.
-    var isScreenAnchored: Bool {
-        self == .large
     }
 }
 
