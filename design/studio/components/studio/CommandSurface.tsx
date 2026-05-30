@@ -13,11 +13,14 @@ export function CommandSurface({
   run,
   body,
   footnote,
+  rerunHref,
 }: {
   shell: string;
   run: Pick<CommandRun<unknown>, "durationMs" | "cached" | "error">;
   body: ReactNode;
   footnote?: ReactNode;
+  /** When provided, renders a "re-run" link that navigates to this URL. */
+  rerunHref?: string;
 }) {
   const badge = run.error
     ? { label: "● error", tone: "text-status-error-fg" }
@@ -31,8 +34,19 @@ export function CommandSurface({
         <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
           command
         </span>
-        <span className={`font-mono text-[9px] uppercase tracking-eyebrow ${badge.tone}`}>
-          {badge.label}
+        <span className="flex items-center gap-2">
+          {rerunHref ? (
+            <a
+              href={rerunHref}
+              className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+              title="Force re-run, bypassing the cache"
+            >
+              re-run ↻
+            </a>
+          ) : null}
+          <span className={`font-mono text-[9px] uppercase tracking-eyebrow ${badge.tone}`}>
+            {badge.label}
+          </span>
         </span>
       </div>
       <pre className="overflow-x-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">

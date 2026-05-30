@@ -19,6 +19,10 @@ import {
 } from "@/lib/studio/commands/enrich-session";
 import { CommandSurface } from "@/components/studio/CommandSurface";
 import {
+  ArtifactPicker,
+  type ArtifactPickerFile,
+} from "@/components/studio/ArtifactPicker";
+import {
   makeRunLogEntry,
   summarizeRunLog,
   type RunLogEntry,
@@ -57,6 +61,8 @@ interface PageProps {
     step?: string;
     /** Active artifact in the Extract panel preview. */
     artifact?: string;
+    /** Stage id whose command should bypass the cache for this request. */
+    force?: string;
   }>;
 }
 
@@ -64,6 +70,8 @@ interface StudySelection {
   sessionId: string;
   stageId: StageId;
   artifact?: string;
+  /** Stage id whose command should be force-rerun. */
+  force?: StageId;
 }
 
 const SESSIONS: SessionSample[] = [
@@ -171,9 +179,9 @@ const STAGES: Stage[] = [
     label: "Extract",
     verb: "derive",
     input: "normalized records",
-    output: "mechanical QMD files",
+    output: "QMD sidecar files",
     summary:
-      "Mechanical pass: emit files.md / tool-calls.md / events-NNN.md / manifest.json from the normalized records. No LLM, always fast. Outputs land at $TMPDIR/scout-study/qmd/<session>/.",
+      "Emit files.md / tool-calls.md / events-NNN.md / manifest.json from the normalized records. Pure derivation, always fast. Outputs land at $TMPDIR/scout-study/qmd/<session>/.",
   },
   {
     id: "enrich",
@@ -201,10 +209,13 @@ export default async function SessionSearchStudyPage({
   const selectedStage = STAGES[stageIndex]!;
   const prevStage = stageIndex > 0 ? STAGES[stageIndex - 1] : undefined;
   const nextStage = stageIndex < STAGES.length - 1 ? STAGES[stageIndex + 1] : undefined;
+  const forceStage =
+    params.force && isStageId(params.force) ? params.force : undefined;
   const selection: StudySelection = {
     sessionId: selectedSession.id,
     stageId,
     artifact: params.artifact,
+    force: forceStage,
   };
 
   // Inventory is cheap and the page header needs its totals. Always run it
@@ -276,7 +287,7 @@ export default async function SessionSearchStudyPage({
         />
 
         <Suspense
-          key={`${selectedSession.id}::${stageId}`}
+          key={`${selectedSession.id}::${stageId}::${forceStage ?? ""}`}
           fallback={
             <StageBodySkeleton
               stageId={stageId}
@@ -311,6 +322,7 @@ async function StageBody({
   inventoryRun: CommandRun<InventoryResult>;
 }) {
   const stageId = stage.id;
+  const force = selection.force;
   const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
   const needsParse = stageId === "normalize" || stageId === "extract" || stageId === "enrich";
   const needsExtract = stageId === "extract" || stageId === "enrich";
@@ -320,30 +332,39 @@ async function StageBody({
   let normalizeRun: CommandRun<ParseSessionResult> | undefined;
   if (needsParse) {
     const limit = stageId === "normalize" ? 14 : 1500;
-    normalizeRun = await runCommand(parseSessionCommand, {
-      path: session.fullPath,
-      limit,
-    });
+    normalizeRun = await runCommand(
+      parseSessionCommand,
+      { path: session.fullPath, limit },
+      { force: force === "normalize" },
+    );
     runLog.push(makeRunLogEntry(parseSessionCommand, normalizeRun));
   }
 
   let extractRun: CommandRun<ExtractQmdResult> | undefined;
   if (needsExtract) {
-    extractRun = await runCommand(extractQmdCommand, {
-      path: session.fullPath,
-      sessionId: sessionSlug,
-      recordLimit: 1500,
-    });
+    extractRun = await runCommand(
+      extractQmdCommand,
+      {
+        path: session.fullPath,
+        sessionId: sessionSlug,
+        recordLimit: 1500,
+      },
+      { force: force === "extract" },
+    );
     runLog.push(makeRunLogEntry(extractQmdCommand, extractRun));
   }
 
   let enrichRun: CommandRun<EnrichSessionResult> | undefined;
   if (stageId === "enrich") {
-    enrichRun = await runCommand(enrichSessionCommand, {
-      path: session.fullPath,
-      sessionId: sessionSlug,
-      recordLimit: 1500,
-    });
+    enrichRun = await runCommand(
+      enrichSessionCommand,
+      {
+        path: session.fullPath,
+        sessionId: sessionSlug,
+        recordLimit: 1500,
+      },
+      { force: force === "enrich" },
+    );
     runLog.push(
       makeRunLogEntry(enrichSessionCommand, enrichRun, (out) =>
         out?.model
@@ -432,7 +453,7 @@ function expectedCommands(stageId: StageId): Array<{
   const parse = { id: "parse-session", label: "Parse session", eta: "~100 ms · cached" };
   const extract = {
     id: "extract-qmd",
-    label: "Extract QMD (mechanical)",
+    label: "Extract QMD",
     eta: "~ms · cached",
   };
   const enrich = {
@@ -675,7 +696,13 @@ function StagePanel({
     case "discover":
       return <DiscoverPanel session={session} inventoryRun={inventoryRun} />;
     case "normalize":
-      return <NormalizePanel session={session} run={normalizeRun!} />;
+      return (
+        <NormalizePanel
+          session={session}
+          run={normalizeRun!}
+          selection={selection}
+        />
+      );
     case "extract":
       return (
         <ExtractPanel
@@ -817,9 +844,11 @@ function InventoryRowsBody({
 function NormalizePanel({
   session,
   run,
+  selection,
 }: {
   session: SessionSample;
   run: CommandRun<ParseSessionResult>;
+  selection: StudySelection;
 }) {
   const limit = 14;
   const records = run.output?.records ?? [];
@@ -830,6 +859,7 @@ function NormalizePanel({
       <CommandSurface
         shell={parseSessionCommand.shell({ path: session.fullPath, limit })}
         run={run}
+        rerunHref={studyHref(selection, { force: "normalize" })}
         body={<NormalizedStreamBody result={run.output} moreCount={more} />}
         footnote={
           run.output && !run.output.error ? (
@@ -1032,12 +1062,8 @@ async function ExtractPanel({
   const result = run.output;
   const files = result?.files ?? [];
   const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
-  const selectedName =
-    files.find((f) => f.name === selection.artifact)?.name ??
-    files.find((f) => f.name === "files.md")?.name ??
-    files[0]?.name;
-  const selected = files.find((f) => f.name === selectedName);
-  const previewContent = selected ? await safeReadFile(selected.path) : "";
+  const filesWithContent = await loadFileContents(files);
+  const initialSelected = selection.artifact ?? "files.md";
 
   return (
     <div className="space-y-4 p-5">
@@ -1047,19 +1073,18 @@ async function ExtractPanel({
           sessionId: sessionSlug,
         })}
         run={run}
+        rerunHref={studyHref(selection, { force: "extract" })}
         body={
-          <ExtractedFilesBody
-            files={files}
-            selection={selection}
-            selected={selected}
-            previewContent={previewContent}
+          <ArtifactPicker
+            files={filesWithContent}
+            initialSelected={initialSelected}
             emptyMessage={result?.error ?? "no extract result"}
           />
         }
         footnote={
           result && !result.error ? (
             <>
-              Wrote {files.length} mechanical files to{" "}
+              Wrote {files.length} files to{" "}
               <code className="font-mono text-[10.5px] text-studio-ink" title={result.outDir}>
                 {shortenTmpPath(result.outDir)}
               </code>{" "}
@@ -1069,6 +1094,18 @@ async function ExtractPanel({
         }
       />
     </div>
+  );
+}
+
+async function loadFileContents(
+  files: Array<{ name: string; path: string; bytes: number }>,
+): Promise<ArtifactPickerFile[]> {
+  return Promise.all(
+    files.map(async (f) => ({
+      name: f.name,
+      bytes: f.bytes,
+      content: await safeReadFile(f.path),
+    })),
   );
 }
 
@@ -1084,12 +1121,8 @@ async function EnrichPanel({
   const result = run.output;
   const files = result?.files ?? [];
   const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
-  const selectedName =
-    files.find((f) => f.name === selection.artifact)?.name ??
-    files.find((f) => f.name === "overview.md")?.name ??
-    files[0]?.name;
-  const selected = files.find((f) => f.name === selectedName);
-  const previewContent = selected ? await safeReadFile(selected.path) : "";
+  const filesWithContent = await loadFileContents(files);
+  const initialSelected = selection.artifact ?? "overview.md";
 
   return (
     <div className="space-y-4 p-5">
@@ -1099,12 +1132,11 @@ async function EnrichPanel({
           sessionId: sessionSlug,
         })}
         run={run}
+        rerunHref={studyHref(selection, { force: "enrich" })}
         body={
-          <EnrichedFilesBody
-            files={files}
-            selection={selection}
-            selected={selected}
-            previewContent={previewContent}
+          <ArtifactPicker
+            files={filesWithContent}
+            initialSelected={initialSelected}
             emptyMessage={result?.error ?? "no enrich result"}
           />
         }
@@ -1151,91 +1183,6 @@ async function safeReadFile(p: string): Promise<string> {
     return `(could not read: ${err instanceof Error ? err.message : String(err)})`;
   }
 }
-
-type ArtifactFile = ExtractedFile | EnrichedFile;
-
-function ArtifactFilesBody({
-  files,
-  selection,
-  selected,
-  previewContent,
-  emptyMessage,
-}: {
-  files: ArtifactFile[];
-  selection: StudySelection;
-  selected: ArtifactFile | undefined;
-  previewContent: string;
-  emptyMessage: string;
-}) {
-  if (files.length === 0) {
-    return (
-      <pre className="px-3 py-2 font-mono text-[10.5px] text-studio-ink-faint">
-        {emptyMessage}
-      </pre>
-    );
-  }
-  return (
-    <div className="grid grid-cols-1 gap-px bg-studio-edge md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
-      <ul className="divide-y divide-studio-edge bg-studio-canvas font-mono text-[10.5px]">
-        <li className="grid grid-cols-[minmax(0,1fr)_64px] gap-2 border-b border-studio-edge px-3 py-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-          <span>file</span>
-          <span className="text-right">bytes</span>
-        </li>
-        {files.map((f) => {
-          const active = selected?.name === f.name;
-          return (
-            <li key={f.name}>
-              <a
-                href={studyHref(selection, { artifact: f.name })}
-                aria-current={active ? "true" : undefined}
-                className={[
-                  "grid grid-cols-[minmax(0,1fr)_64px] items-baseline gap-2 px-3 py-1.5 transition-colors",
-                  active
-                    ? "bg-scout-accent-soft shadow-[inset_2px_0_0_var(--scout-accent)]"
-                    : "hover:bg-studio-canvas-alt",
-                ].join(" ")}
-              >
-                <span className="truncate text-studio-ink">{f.name}</span>
-                <span className="text-right tabular-nums text-studio-ink-faint">
-                  {formatBytes(f.bytes)}
-                </span>
-              </a>
-            </li>
-          );
-        })}
-      </ul>
-      <div className="bg-studio-canvas">
-        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-          preview · {selected?.name ?? "—"}
-        </div>
-        <pre className="max-h-[420px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
-          {previewContent || "(empty)"}
-        </pre>
-      </div>
-    </div>
-  );
-}
-
-function ExtractedFilesBody(props: {
-  files: ExtractedFile[];
-  selection: StudySelection;
-  selected: ExtractedFile | undefined;
-  previewContent: string;
-  emptyMessage: string;
-}) {
-  return <ArtifactFilesBody {...props} />;
-}
-
-function EnrichedFilesBody(props: {
-  files: EnrichedFile[];
-  selection: StudySelection;
-  selected: EnrichedFile | undefined;
-  previewContent: string;
-  emptyMessage: string;
-}) {
-  return <ArtifactFilesBody {...props} />;
-}
-
 
 function isStageId(value: string): value is StageId {
   return STAGES.some((stage) => stage.id === value);
@@ -1337,8 +1284,10 @@ function studyHref(
   const params = new URLSearchParams();
   params.set("session", next.sessionId ?? current.sessionId);
   params.set("step", next.stageId ?? current.stageId);
-  const artifact = next.artifact ?? current.artifact;
+  const artifact = "artifact" in next ? next.artifact : current.artifact;
   if (artifact) params.set("artifact", artifact);
+  const force = "force" in next ? next.force : undefined;
+  if (force) params.set("force", force);
   return `/studies/session-search?${params.toString()}`;
 }
 

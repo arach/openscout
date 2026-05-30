@@ -38,13 +38,12 @@ const DEFAULT_LIMIT = 1500;
 
 export const extractQmdCommand: Command<ExtractQmdInput, ExtractQmdResult> = {
   id: "extract-qmd",
-  label: "Extract QMD (mechanical)",
+  label: "Extract QMD",
   shell: ({ path: p, sessionId }) =>
     [
       `scout qmd extract`,
       `--source ${shellQuote(shrinkPath(p))}`,
       `--out ${shellQuote(shrinkPath(path.join(ROOT, sessionId)))}`,
-      `--mechanical-only`,
     ].join(" "),
   run: async ({ path: filePath, sessionId, recordLimit }) => {
     const limit = recordLimit ?? DEFAULT_LIMIT;

@@ -47,12 +47,13 @@ function entryKey<I>(cmd: Command<I, unknown>, input: I): string {
 export async function runCommand<I, O>(
   cmd: Command<I, O>,
   input: I,
+  options?: { force?: boolean },
 ): Promise<CommandRun<O>> {
   const ttl = cmd.cacheTtlMs ?? 0;
   const key = entryKey(cmd, input);
   const now = Date.now();
 
-  if (ttl > 0) {
+  if (ttl > 0 && !options?.force) {
     const hit = cache.get(key);
     if (hit && now - hit.at < ttl) {
       return { ...(hit.run as CommandRun<O>), cached: true };
