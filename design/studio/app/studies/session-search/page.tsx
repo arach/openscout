@@ -13,6 +13,11 @@ import {
   type ExtractedFile,
 } from "@/lib/studio/commands/extract-qmd";
 import { CommandSurface } from "@/components/studio/CommandSurface";
+import {
+  makeRunLogEntry,
+  summarizeRunLog,
+  type RunLogEntry,
+} from "@/lib/studio/run-log";
 
 type Harness = "Codex" | "Claude";
 type Tier = "large" | "normal" | "small";
@@ -193,6 +198,43 @@ export default async function SessionSearchStudyPage({
     ? "scan failed"
     : `${formatCount(inventory.totalFiles)} files · ${formatBytes(inventory.totalBytes)} · ${inventory.windowDays} days`;
 
+  // ── Orchestrate per-stage runs so the run summary footer can show what
+  // ── happened underneath the current page render.
+  const runLog: RunLogEntry[] = [
+    makeRunLogEntry(inventoryCommand, inventoryRun),
+  ];
+
+  let normalizeRun: CommandRun<ParseSessionResult> | undefined;
+  if (stageId === "normalize") {
+    normalizeRun = await runCommand(parseSessionCommand, {
+      path: selectedSession.fullPath,
+      limit: 14,
+    });
+    runLog.push(makeRunLogEntry(parseSessionCommand, normalizeRun));
+  }
+
+  let extractRun: CommandRun<ExtractQmdResult> | undefined;
+  if (stageId === "extract") {
+    extractRun = await runCommand(extractQmdCommand, {
+      path: selectedSession.fullPath,
+      sessionId: `${selectedSession.harness.toLowerCase()}-${selectedSession.tier}`,
+      recordLimit: 1500,
+      withLlm: true,
+    });
+    runLog.push(
+      makeRunLogEntry(extractQmdCommand, extractRun, (out) =>
+        out?.llm
+          ? {
+              model: out.llm.model,
+              promptTokens: out.llm.usage.promptTokens,
+              completionTokens: out.llm.usage.completionTokens,
+              reasoningTokens: out.llm.usage.reasoningTokens,
+            }
+          : undefined,
+      ),
+    );
+  }
+
   return (
     <main className="mx-auto max-w-page px-7 py-8" data-testid="session-search-study">
       {/* ── Header ─────────────────────────────────────────────────── */}
@@ -257,9 +299,13 @@ export default async function SessionSearchStudyPage({
           stage={selectedStage}
           session={selectedSession}
           inventoryRun={inventoryRun}
+          normalizeRun={normalizeRun}
+          extractRun={extractRun}
           selection={selection}
         />
       </div>
+
+      <RunSummary entries={runLog} />
 
     </main>
   );
@@ -477,20 +523,30 @@ function StagePanel({
   stage,
   session,
   inventoryRun,
+  normalizeRun,
+  extractRun,
   selection,
 }: {
   stage: Stage;
   session: SessionSample;
   inventoryRun: CommandRun<InventoryResult>;
+  normalizeRun?: CommandRun<ParseSessionResult>;
+  extractRun?: CommandRun<ExtractQmdResult>;
   selection: StudySelection;
 }) {
   switch (stage.id) {
     case "discover":
       return <DiscoverPanel session={session} inventoryRun={inventoryRun} />;
     case "normalize":
-      return <NormalizePanel session={session} />;
+      return <NormalizePanel session={session} run={normalizeRun!} />;
     case "extract":
-      return <ExtractPanel session={session} selection={selection} />;
+      return (
+        <ExtractPanel
+          session={session}
+          selection={selection}
+          run={extractRun!}
+        />
+      );
   }
 }
 
@@ -613,12 +669,14 @@ function InventoryRowsBody({
   );
 }
 
-async function NormalizePanel({ session }: { session: SessionSample }) {
+function NormalizePanel({
+  session,
+  run,
+}: {
+  session: SessionSample;
+  run: CommandRun<ParseSessionResult>;
+}) {
   const limit = 14;
-  const run = await runCommand(parseSessionCommand, {
-    path: session.fullPath,
-    limit,
-  });
   const records = run.output?.records ?? [];
   const more = Math.max(0, session.events - records.length);
   const inspectIndex = pickInspectIndex(records);
@@ -820,17 +878,12 @@ function NormalizedRow({ record }: { record: NormalizedRecord }) {
 async function ExtractPanel({
   session,
   selection,
+  run,
 }: {
   session: SessionSample;
   selection: StudySelection;
+  run: CommandRun<ExtractQmdResult>;
 }) {
-  const run = await runCommand(extractQmdCommand, {
-    path: session.fullPath,
-    sessionId: `${session.harness.toLowerCase()}-${session.tier}`,
-    recordLimit: 1500,
-    withLlm: true,
-  });
-
   const result = run.output;
   const files = result?.files ?? [];
   const selectedName = files.find((f) => f.name === selection.artifact)?.name
@@ -975,6 +1028,95 @@ function ExtractBody({
 
 function isStageId(value: string): value is StageId {
   return STAGES.some((stage) => stage.id === value);
+}
+
+// ── Run summary footer ───────────────────────────────────────────
+
+function RunSummary({ entries }: { entries: RunLogEntry[] }) {
+  const sum = summarizeRunLog(entries);
+  return (
+    <section className="mt-4 overflow-hidden rounded-md border border-studio-edge bg-studio-surface">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-studio-edge px-4 py-2.5">
+        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          run trace · what just happened
+        </div>
+        <div className="font-mono text-[10px] text-studio-ink-faint">
+          {entries.length} command{entries.length === 1 ? "" : "s"} ·{" "}
+          <span className="text-studio-ink">{sum.wallMs} ms this request</span>
+          {sum.cached > 0 ? (
+            <>
+              {" · "}
+              <span className="text-studio-ink-faint/80">
+                {sum.cached} cached (saved ~{sum.uncachedMs - sum.wallMs} ms)
+              </span>
+            </>
+          ) : null}
+          {sum.llm.total > 0 ? (
+            <>
+              {" · "}
+              <span className="text-status-info-fg">
+                {sum.llm.total.toLocaleString()} llm tokens
+              </span>
+              {" · "}
+              <span className="text-studio-ink">
+                ~${sum.llm.estCostUsd.toFixed(4)}
+              </span>
+            </>
+          ) : null}
+        </div>
+      </div>
+      <ul className="divide-y divide-studio-edge">
+        {entries.map((e, i) => (
+          <li
+            key={`${e.id}-${i}`}
+            className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,140px)] items-baseline gap-3 px-4 py-2"
+          >
+            <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <span className="flex items-baseline gap-2">
+              <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+                {e.label}
+              </span>
+              <span className="font-mono text-[9.5px] text-studio-ink-faint">
+                {e.id}
+              </span>
+            </span>
+            <span className="font-mono text-[10.5px] text-studio-ink-faint">
+              {e.error ? (
+                <span className="text-status-error-fg">error · {e.error}</span>
+              ) : e.cached ? (
+                <span>
+                  ● cached{" "}
+                  <span className="text-studio-ink-faint/70">
+                    (saved ~{e.durationMs} ms)
+                  </span>
+                </span>
+              ) : (
+                <span className="text-status-ok-fg">● ran · {e.durationMs} ms</span>
+              )}
+            </span>
+            <span className="text-right font-mono text-[10px] text-studio-ink-faint">
+              {e.llm ? (
+                <>
+                  <span className="text-studio-ink">{e.llm.model}</span> ·{" "}
+                  {e.llm.promptTokens}+{e.llm.completionTokens}t
+                  {e.llm.reasoningTokens > 0 ? (
+                    <span className="text-studio-ink-faint/80">
+                      {" "}
+                      ({e.llm.reasoningTokens} reasoning)
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                <span>—</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function studyHref(
