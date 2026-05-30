@@ -104,6 +104,7 @@ final class OpenScoutAppController: ObservableObject {
         }
 
         ScoutVoiceService.shared.startResident()
+        ScoutVoiceBridgeServer.shared.start()
         requestRefresh(reason: .startup)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -115,6 +116,7 @@ final class OpenScoutAppController: ObservableObject {
     func stop() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        ScoutVoiceBridgeServer.shared.stop()
         ScoutVoiceService.shared.stopResident()
         stopOwnedWebServer()
     }
