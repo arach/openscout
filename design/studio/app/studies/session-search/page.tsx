@@ -11,13 +11,7 @@ import { CommandSurface } from "@/components/studio/CommandSurface";
 
 type Harness = "Codex" | "Claude";
 type Tier = "large" | "normal" | "small";
-type StageId =
-  | "discover"
-  | "normalize"
-  | "extract"
-  | "index"
-  | "query"
-  | "drilldown";
+type StageId = "discover" | "normalize";
 
 interface SessionSample {
   id: string;
@@ -41,32 +35,14 @@ interface Stage {
   summary: string;
 }
 
-interface ProducedFile {
-  name: string;
-  kind: string;
-  bytes: number;
-  refs: string;
-}
-
-interface SearchHit {
-  title: string;
-  source: string;
-  score: string;
-  snippet: string;
-}
-
 interface PageProps {
   searchParams: Promise<{
-    artifact?: string;
-    q?: string;
     session?: string;
     step?: string;
   }>;
 }
 
 interface StudySelection {
-  artifactName: string;
-  query: string;
   sessionId: string;
   stageId: StageId;
 }
@@ -171,49 +147,6 @@ const STAGES: Stage[] = [
     summary:
       "Parse JSONL into a uniform event model so downstream code sees the same record shape regardless of harness.",
   },
-  {
-    id: "extract",
-    label: "Extract",
-    verb: "derive",
-    input: "normalized records",
-    output: "QMD-style markdown files",
-    summary:
-      "Write a small sidecar corpus per session: overview, decisions, files, tool calls, and event windows with source refs.",
-  },
-  {
-    id: "index",
-    label: "Index",
-    verb: "compile",
-    input: "derived markdown",
-    output: "fuzzy and FTS rows",
-    summary:
-      "Compile the derived corpus into local SQLite tables. The index is rebuildable and smaller than a transcript copy.",
-  },
-  {
-    id: "query",
-    label: "Query",
-    verb: "rank",
-    input: "operator question",
-    output: "answerable hits",
-    summary:
-      "Ask the derived corpus first. The LLM sees compact retrieved evidence instead of the full raw session.",
-  },
-  {
-    id: "drilldown",
-    label: "Drilldown",
-    verb: "anchor",
-    input: "source refs",
-    output: "raw log coordinates",
-    summary:
-      "Follow a qmd source ref back to the raw JSONL path and event window when the answer needs ground-truth evidence.",
-  },
-];
-
-const SAMPLE_QUERIES = [
-  "which session touched OpenScout search?",
-  "what were the unresolved decisions?",
-  "raw log drilldown for this area",
-  "what codebase area was I working in?",
 ];
 
 const DOC_HREF = "/eng/sco-059-session-knowledge-search-exploration";
@@ -223,25 +156,15 @@ export default async function SessionSearchStudyPage({
 }: PageProps) {
   const params = await searchParams;
   const requestedSession = params.session ?? SESSIONS[0]!.id;
-  const requestedStage = params.step ?? "extract";
+  const requestedStage = params.step ?? "discover";
   const selectedSession =
     SESSIONS.find((session) => session.id === requestedSession) ?? SESSIONS[0]!;
-  const stageId = isStageId(requestedStage) ? requestedStage : "extract";
+  const stageId = isStageId(requestedStage) ? requestedStage : "discover";
   const stageIndex = STAGES.findIndex((s) => s.id === stageId);
   const selectedStage = STAGES[stageIndex]!;
   const prevStage = stageIndex > 0 ? STAGES[stageIndex - 1] : undefined;
   const nextStage = stageIndex < STAGES.length - 1 ? STAGES[stageIndex + 1] : undefined;
-  const producedFiles = buildProducedFiles(selectedSession);
-
-  const selectedArtifact =
-    producedFiles.find((file) => file.name === params.artifact) ??
-    producedFiles[0]!;
-
-  const query = params.q ?? SAMPLE_QUERIES[0]!;
-  const queryResult = buildQueryResult(selectedSession, query);
   const selection: StudySelection = {
-    artifactName: selectedArtifact.name,
-    query,
     sessionId: selectedSession.id,
     stageId,
   };
@@ -315,17 +238,10 @@ export default async function SessionSearchStudyPage({
         <StagePanel
           stage={selectedStage}
           session={selectedSession}
-          selection={selection}
-          producedFiles={producedFiles}
-          selectedArtifact={selectedArtifact}
-          query={query}
-          queryResult={queryResult}
           inventoryRun={inventoryRun}
         />
       </div>
 
-      {/* ── Week budget footer (compact) ─────────────────────────── */}
-      <WeekBudgetFooter />
     </main>
   );
 }
@@ -352,10 +268,7 @@ function SessionPickerRow({
           return (
             <a
               key={session.id}
-              href={studyHref(selection, {
-                sessionId: session.id,
-                artifactName: "overview.md",
-              })}
+              href={studyHref(selection, { sessionId: session.id })}
               data-testid={`session-pill-${session.id}`}
               aria-current={active ? "true" : undefined}
               className={[
@@ -454,9 +367,6 @@ function PipelineStrip({
                 >
                   {stage.label}
                 </span>
-                <span className="hidden font-mono text-[9.5px] tabular-nums text-studio-ink-faint xl:inline">
-                  {stageTiming(session, stage.id)}
-                </span>
                 {active ? (
                   <div className="absolute inset-x-0 bottom-0 h-[2px] bg-scout-accent" />
                 ) : null}
@@ -547,20 +457,10 @@ function StageHeader({
 function StagePanel({
   stage,
   session,
-  selection,
-  producedFiles,
-  selectedArtifact,
-  query,
-  queryResult,
   inventoryRun,
 }: {
   stage: Stage;
   session: SessionSample;
-  selection: StudySelection;
-  producedFiles: ProducedFile[];
-  selectedArtifact: ProducedFile;
-  query: string;
-  queryResult: ReturnType<typeof buildQueryResult>;
   inventoryRun: CommandRun<InventoryResult>;
 }) {
   switch (stage.id) {
@@ -568,33 +468,6 @@ function StagePanel({
       return <DiscoverPanel session={session} inventoryRun={inventoryRun} />;
     case "normalize":
       return <NormalizePanel session={session} />;
-    case "extract":
-      return (
-        <ExtractPanel
-          session={session}
-          selection={selection}
-          producedFiles={producedFiles}
-          selectedArtifact={selectedArtifact}
-        />
-      );
-    case "index":
-      return (
-        <IndexPanel
-          session={session}
-          selectedArtifact={selectedArtifact}
-        />
-      );
-    case "query":
-      return (
-        <QueryPanel
-          session={session}
-          selection={selection}
-          query={query}
-          result={queryResult}
-        />
-      );
-    case "drilldown":
-      return <DrilldownPanel session={session} selection={selection} />;
   }
 }
 
@@ -627,7 +500,7 @@ function DiscoverPanel({
               on the {inventory.rows.length} most-recent files.{" "}
               Selected for walkthrough:{" "}
               <span className="font-mono text-[11px] text-studio-ink">
-                {qmdSlug(session)}
+                {session.harness.toLowerCase()}/{session.tier}
               </span>
               .
             </>
@@ -723,31 +596,133 @@ async function NormalizePanel({ session }: { session: SessionSample }) {
     path: session.fullPath,
     limit,
   });
-  const more = Math.max(0, session.events - (run.output?.records.length ?? 0));
+  const records = run.output?.records ?? [];
+  const more = Math.max(0, session.events - records.length);
+  const inspectIndex = pickInspectIndex(records);
   return (
-    <div className="p-5">
+    <div className="space-y-4 p-5">
       <CommandSurface
         shell={parseSessionCommand.shell({ path: session.fullPath, limit })}
         run={run}
-        body={
-          <NormalizedStreamBody result={run.output} moreCount={more} />
-        }
+        body={<NormalizedStreamBody result={run.output} moreCount={more} />}
         footnote={
           run.output && !run.output.error ? (
             <>
-              Read the first {run.output.scannedLines} lines from the real{" "}
+              Parsed the first {run.output.scannedLines} JSONL lines (
+              {formatBytes(run.output.bytesRead)}) from{" "}
               <code className="font-mono text-[11px] text-studio-ink">
-                {session.harness}/{session.tier}
-              </code>{" "}
-              JSONL ({formatBytes(run.output.bytesRead)}). Every downstream
-              stage reads this uniform record shape regardless of source
-              harness.
+                {run.output.harness}
+              </code>
+              . Normalization remaps the source schema to a uniform record
+              shape:{" "}
+              <code className="font-mono text-[11px] text-studio-ink">kind</code>,{" "}
+              <code className="font-mono text-[11px] text-studio-ink">text</code>,{" "}
+              <code className="font-mono text-[11px] text-studio-ink">tool</code>,{" "}
+              <code className="font-mono text-[11px] text-studio-ink">result</code>,{" "}
+              <code className="font-mono text-[11px] text-studio-ink">refs</code>,{" "}
+              <code className="font-mono text-[11px] text-studio-ink">sourceOffset</code>.
             </>
           ) : null
         }
       />
+      {inspectIndex != null && run.output ? (
+        <NormalizeInspect
+          raw={run.output.rawLines[inspectIndex] ?? ""}
+          record={records[inspectIndex]!}
+        />
+      ) : null}
     </div>
   );
+}
+
+function pickInspectIndex(records: NormalizedRecord[]): number | undefined {
+  const meaningful = records.findIndex(
+    (r) => r.kind === "user_turn" || r.kind === "command_or_tool",
+  );
+  if (meaningful >= 0) return meaningful;
+  return records.length > 0 ? 0 : undefined;
+}
+
+function NormalizeInspect({
+  raw,
+  record,
+}: {
+  raw: string;
+  record: NormalizedRecord;
+}) {
+  return (
+    <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
+      <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
+        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          inspect record [{String(record.i).padStart(3, "0")}] · {record.kind}
+        </span>
+        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          source offset {record.sourceOffset}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-px bg-studio-edge md:grid-cols-2">
+        <div className="bg-studio-canvas">
+          <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            raw · {record.sourceType}
+          </div>
+          <pre className="max-h-[260px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+            {formatRaw(raw)}
+          </pre>
+        </div>
+        <div className="bg-studio-canvas">
+          <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            normalized record
+          </div>
+          <pre className="max-h-[260px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+            {JSON.stringify(stripUndefined(record), null, 2)}
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatRaw(raw: string): string {
+  if (!raw) return "";
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out as T;
+}
+
+function summarizeRecord(record: NormalizedRecord): string {
+  if (record.text) return record.text;
+  if (record.tool) {
+    const input = trimDisplay(JSON.stringify(record.tool.input ?? {}), 60);
+    return `name=${record.tool.name} input=${input}`;
+  }
+  if (record.result) {
+    const out = typeof record.result.output === "string"
+      ? record.result.output
+      : JSON.stringify(record.result.output ?? "");
+    return trimDisplay(out, 100);
+  }
+  if (record.meta) {
+    const model = record.meta.model ?? record.meta.model_provider;
+    const cwd = record.meta.cwd;
+    if (model || cwd) return `model=${model ?? "?"} cwd=${trimDisplay(String(cwd ?? "?"), 50)}`;
+    return trimDisplay(JSON.stringify(record.meta), 80);
+  }
+  return "";
+}
+
+function trimDisplay(s: string, n: number): string {
+  const oneLine = s.replace(/\s+/g, " ").trim();
+  return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
 }
 
 const NORMALIZED_KIND_TONE: Record<NormalizedKind, string> = {
@@ -800,6 +775,7 @@ function NormalizedStreamBody({
 }
 
 function NormalizedRow({ record }: { record: NormalizedRecord }) {
+  const detail = summarizeRecord(record);
   return (
     <li className="grid grid-cols-[40px_148px_72px_minmax(0,1fr)] items-baseline gap-3 px-3 py-1.5">
       <span className="tabular-nums text-studio-ink-faint">
@@ -809,695 +785,13 @@ function NormalizedRow({ record }: { record: NormalizedRecord }) {
       <span className="truncate text-studio-ink-faint" title={record.sourceType}>
         {record.tag ?? record.sourceType}
       </span>
-      <span className="truncate text-studio-ink" title={record.detail}>
-        {record.detail}
+      <span className="truncate text-studio-ink" title={detail}>
+        {trimDisplay(detail, 200)}
       </span>
     </li>
   );
 }
 
-function ExtractPanel({
-  session,
-  selection,
-  producedFiles,
-  selectedArtifact,
-}: {
-  session: SessionSample;
-  selection: StudySelection;
-  producedFiles: ProducedFile[];
-  selectedArtifact: ProducedFile;
-}) {
-  return (
-    <PanelGrid
-      leftLabel={`${producedFiles.length} derived files · ${formatBytes(estimateDerivedBytes(session))}`}
-      left={
-        <ul className="divide-y divide-studio-edge -mx-5">
-          {producedFiles.map((file) => {
-            const active = file.name === selectedArtifact.name;
-            return (
-              <li key={file.name}>
-                <a
-                  href={studyHref(selection, { artifactName: file.name })}
-                  data-testid={`artifact-${artifactTestId(file.name)}`}
-                  aria-current={active ? "true" : undefined}
-                  className={[
-                    "grid w-full grid-cols-[minmax(0,1fr)_60px] gap-3 px-5 py-2.5 text-left transition-colors",
-                    active
-                      ? "bg-scout-accent-soft shadow-[inset_2px_0_0_var(--scout-accent)]"
-                      : "hover:bg-studio-canvas-alt",
-                  ].join(" ")}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-mono text-[11px] text-studio-ink">
-                      {file.name}
-                    </span>
-                    <span className="mt-0.5 block font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-                      {file.kind} · {file.refs}
-                    </span>
-                  </span>
-                  <span className="text-right font-mono text-[10px] tabular-nums text-studio-ink-faint">
-                    {formatBytes(file.bytes)}
-                  </span>
-                </a>
-              </li>
-            );
-          })}
-        </ul>
-      }
-      rightLabel={`preview · ${selectedArtifact.name}`}
-      right={<CodeBlock content={artifactPreview(session, selectedArtifact)} maxHeight={360} />}
-    />
-  );
-}
-
-function IndexPanel({
-  session,
-  selectedArtifact,
-}: {
-  session: SessionSample;
-  selectedArtifact: ProducedFile;
-}) {
-  const indexBytes = estimateIndexBytes(session);
-  const rows = databaseRows(session, selectedArtifact, indexBytes);
-  return (
-    <PanelGrid
-      leftLabel="local sqlite · 5 tables touched"
-      left={
-        <ul className="divide-y divide-studio-edge -mx-5">
-          {rows.map((row) => (
-            <li key={`${row.table}-${row.key}`} className="px-5 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-                  {row.table}
-                </span>
-                <span className="font-mono text-[9px] text-studio-ink-faint">
-                  {row.ref}
-                </span>
-              </div>
-              <div className="mt-1 font-mono text-[11px] text-studio-ink">{row.key}</div>
-              <div className="mt-0.5 font-sans text-[12px] leading-snug text-studio-ink-faint">
-                {row.value}
-              </div>
-            </li>
-          ))}
-        </ul>
-      }
-      rightLabel="cli + budget"
-      right={
-        <div>
-          <CliBlock
-            lines={[
-              "$ scout session index .scout/session-knowledge",
-              `→ documents=6 logical groups`,
-              `→ chunks=${estimateChunkCount(session)}`,
-              `→ fts_bytes=${formatBytes(indexBytes)}`,
-              "→ vectors=optional later",
-              "→ transcripts=observed source only",
-            ]}
-          />
-          <p className="mt-3 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
-            The index is rebuildable. Scout owns the rows; raw harness logs
-            stay observed source material.
-          </p>
-        </div>
-      }
-    />
-  );
-}
-
-function QueryPanel({
-  session,
-  selection,
-  query,
-  result,
-}: {
-  session: SessionSample;
-  selection: StudySelection;
-  query: string;
-  result: ReturnType<typeof buildQueryResult>;
-}) {
-  return (
-    <div className="p-5">
-      <form action="/studies/session-search" method="get" className="block">
-        <input type="hidden" name="session" value={selection.sessionId} />
-        <input type="hidden" name="step" value={selection.stageId} />
-        <input type="hidden" name="artifact" value={selection.artifactName} />
-        <label className="block">
-          <span className="mb-1.5 block font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-            ask the {session.harness.toLowerCase()} {session.tier} corpus
-          </span>
-          <span className="flex gap-2">
-            <input
-              data-testid="session-query-input"
-              name="q"
-              defaultValue={query}
-              className="h-10 min-w-0 flex-1 rounded-[4px] border border-studio-edge bg-studio-canvas px-3 font-sans text-[13px] text-studio-ink outline-none transition-colors placeholder:text-studio-ink-faint focus:border-scout-accent"
-              placeholder="Ask the derived corpus"
-            />
-            <button
-              type="submit"
-              className="h-10 rounded-[4px] border border-scout-accent bg-scout-accent-soft px-3.5 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink transition-colors hover:border-studio-edge-strong"
-            >
-              Run
-            </button>
-          </span>
-        </label>
-      </form>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {SAMPLE_QUERIES.map((sample) => {
-          const active = sample === query;
-          return (
-            <a
-              key={sample}
-              href={studyHref(selection, { query: sample })}
-              data-testid="sample-query"
-              className={[
-                "rounded-full border px-2.5 py-0.5 font-mono text-[10px] transition-colors",
-                active
-                  ? "border-scout-accent bg-scout-accent-soft text-studio-ink"
-                  : "border-studio-edge bg-studio-canvas-alt text-studio-ink-faint hover:border-studio-edge-strong hover:text-studio-ink",
-              ].join(" ")}
-            >
-              {sample}
-            </a>
-          );
-        })}
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="rounded-[4px] border border-studio-edge bg-studio-canvas-alt p-3.5">
-          <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-            assistant synthesis
-          </div>
-          <p className="mt-1.5 font-sans text-[13px] leading-relaxed text-studio-ink">
-            {result.answer}
-          </p>
-        </div>
-        <div>
-          <div className="mb-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-            ranked hits
-          </div>
-          <div className="space-y-2">
-            {result.hits.map((hit) => (
-              <article
-                key={hit.source}
-                className="rounded-[4px] border border-studio-edge bg-studio-canvas px-3 py-2"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-mono text-[10.5px] text-studio-ink">
-                    {hit.title}
-                  </span>
-                  <span className="font-mono text-[9px] text-status-ok-fg">
-                    {hit.score}
-                  </span>
-                </div>
-                <p className="mt-1 font-sans text-[12px] leading-snug text-studio-ink-faint">
-                  {hit.snippet}
-                </p>
-                <code className="mt-1 block truncate font-mono text-[10px] text-studio-ink-muted">
-                  {hit.source}
-                </code>
-              </article>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DrilldownPanel({
-  session,
-  selection,
-}: {
-  session: SessionSample;
-  selection: StudySelection;
-}) {
-  const slug = qmdSlug(session);
-  const ref = `qmd://session-search/${slug}/events-001.md:44`;
-  const excerpt = [
-    "events-001.md (excerpt)",
-    "",
-    "## window 001",
-    "043 assistant_turn source_event=143",
-    "044 tool_call(name=apply_patch) source_event=144",
-    "045 tool_result(ok=true) source_event=145",
-    "",
-    "raw://" + session.fullPath,
-  ].join("\n");
-  return (
-    <PanelGrid
-      leftLabel="source ref"
-      left={
-        <div className="space-y-3">
-          <div>
-            <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-              ref
-            </div>
-            <div className="mt-1 break-all font-mono text-[11.5px] text-studio-ink">
-              {ref}
-            </div>
-          </div>
-          <div>
-            <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-              resolves to
-            </div>
-            <div className="mt-1 break-all font-mono text-[11.5px] text-studio-ink">
-              {session.fullPath}
-            </div>
-          </div>
-          <div>
-            <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-              purpose
-            </div>
-            <p className="mt-1 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
-              Evidence, not bulk import. The raw transcript stays observed
-              source material; only the qmd ref + event window come into
-              Scout&apos;s view.
-            </p>
-          </div>
-          <a
-            href={studyHref(selection, { stageId: "query" })}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[4px] border border-studio-edge bg-studio-canvas-alt px-2.5 font-mono text-[10px] text-studio-ink-faint transition-colors hover:border-studio-edge-strong hover:text-studio-ink"
-          >
-            <span aria-hidden>←</span> back to query
-          </a>
-        </div>
-      }
-      rightLabel="excerpt"
-      right={<CodeBlock content={excerpt} />}
-    />
-  );
-}
-
-// ── Panel atoms ──────────────────────────────────────────────────
-
-function PanelGrid({
-  leftLabel,
-  left,
-  rightLabel,
-  right,
-}: {
-  leftLabel: string;
-  left: React.ReactNode;
-  rightLabel: string;
-  right: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-1 gap-px bg-studio-edge lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-      <div className="bg-studio-surface p-5">
-        <PanelLabel>{leftLabel}</PanelLabel>
-        <div className="mt-2.5">{left}</div>
-      </div>
-      <div className="bg-studio-canvas-alt p-5">
-        <PanelLabel>{rightLabel}</PanelLabel>
-        <div className="mt-2.5">{right}</div>
-      </div>
-    </div>
-  );
-}
-
-function PanelLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-      {children}
-    </div>
-  );
-}
-
-function CliBlock({ lines }: { lines: string[] }) {
-  return (
-    <pre className="overflow-x-auto rounded-[4px] border border-studio-edge bg-studio-canvas p-3 font-mono text-[10.5px] leading-relaxed text-studio-ink">
-      {lines.join("\n")}
-    </pre>
-  );
-}
-
-function CommandRecipe({
-  cmd,
-  output,
-  run = false,
-}: {
-  cmd: string;
-  output: string[];
-  run?: boolean;
-}) {
-  return (
-    <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
-      <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-          command
-        </span>
-        <span className="font-mono text-[9px] uppercase tracking-eyebrow text-status-ok-fg">
-          {run ? "● ran" : "○ recipe"}
-        </span>
-      </div>
-      <pre className="overflow-x-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
-        $ {cmd}
-      </pre>
-      <div className="border-t border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-        output
-      </div>
-      <pre className="overflow-x-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
-        {output.join("\n")}
-      </pre>
-    </div>
-  );
-}
-
-function CodeBlock({ content, maxHeight }: { content: string; maxHeight?: number }) {
-  return (
-    <pre
-      className="overflow-auto rounded-[4px] border border-studio-edge bg-studio-canvas p-3 font-mono text-[10.5px] leading-relaxed text-studio-ink"
-      style={maxHeight ? { maxHeight } : undefined}
-    >
-      {content}
-    </pre>
-  );
-}
-
-// ── Week budget footer ───────────────────────────────────────────
-
-function WeekBudgetFooter() {
-  return (
-    <section className="mt-4 overflow-hidden rounded-md border border-studio-edge bg-studio-surface">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-studio-edge px-4 py-2.5">
-        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-          heavy week · expected mechanical pass
-        </div>
-        <div className="font-mono text-[10px] text-studio-ink-faint">
-          search starts before LLM enrichment completes
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-px bg-studio-edge md:grid-cols-4">
-        <BudgetCell label="Inventory" value="1–5 s" detail="scan paths + mtimes" />
-        <BudgetCell label="Mechanical docs" value="30–120 s" detail="25–100 MiB markdown" />
-        <BudgetCell label="Fuzzy index" value="30–180 s" detail="75–300 MiB SQLite" />
-        <BudgetCell label="LLM enrichment" value="10–60 m" detail="async + selective" />
-      </div>
-    </section>
-  );
-}
-
-function BudgetCell({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <div className="bg-studio-surface px-4 py-3">
-      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-        {label}
-      </div>
-      <div className="mt-1.5 font-sans text-[15px] font-semibold tracking-tight text-studio-ink">
-        {value}
-      </div>
-      <div className="mt-0.5 font-mono text-[10px] text-studio-ink-faint">
-        {detail}
-      </div>
-    </div>
-  );
-}
-
-// ── Data helpers (unchanged) ──────────────────────────────────────
-
-function buildProducedFiles(session: SessionSample): ProducedFile[] {
-  const derived = estimateDerivedBytes(session);
-  const windows = estimateEventWindows(session);
-  return [
-    {
-      name: "manifest.json",
-      kind: "metadata",
-      bytes: Math.max(1_600, Math.round(derived * 0.03)),
-      refs: "collection config",
-    },
-    {
-      name: "overview.md",
-      kind: "summary",
-      bytes: Math.max(2_400, Math.round(derived * 0.18)),
-      refs: "session-level",
-    },
-    {
-      name: "decisions.md",
-      kind: "summary",
-      bytes: Math.max(1_800, Math.round(derived * 0.11)),
-      refs: "decision refs",
-    },
-    {
-      name: "files.md",
-      kind: "catalog",
-      bytes: Math.max(1_800, Math.round(derived * 0.13)),
-      refs: "path refs",
-    },
-    {
-      name: "tool-calls.md",
-      kind: "catalog",
-      bytes: Math.max(2_000, Math.round(derived * 0.15)),
-      refs: "command refs",
-    },
-    {
-      name:
-        windows === 1
-          ? "events-001.md"
-          : `events-001..${String(windows).padStart(3, "0")}.md`,
-      kind: "event windows",
-      bytes: Math.max(3_200, Math.round(derived * 0.4)),
-      refs: `${windows} windows`,
-    },
-  ];
-}
-
-function databaseRows(
-  session: SessionSample,
-  artifact: ProducedFile,
-  indexBytes: number,
-) {
-  const slug = qmdSlug(session);
-  const chunks = estimateChunkCount(session);
-  return [
-    {
-      table: "collections",
-      key: "session_search_samples",
-      value: "Local derived knowledge collection for selected external transcripts.",
-      ref: "root",
-    },
-    {
-      table: "sessions",
-      key: slug,
-      value: `${session.harness} ${session.tier}, ${formatBytes(session.sizeBytes)}, ${formatCount(session.events)} source events.`,
-      ref: "observed",
-    },
-    {
-      table: "documents",
-      key: artifact.name,
-      value: `${artifact.kind}, ${formatBytes(artifact.bytes)}, derived from ${session.displayPath}.`,
-      ref: "qmd doc",
-    },
-    {
-      table: "chunks",
-      key: `${chunks} searchable chunks`,
-      value: "Chunk rows keep markdown offsets plus source JSONL coordinates for raw drilldown.",
-      ref: "fts",
-    },
-    {
-      table: "terms",
-      key: formatBytes(indexBytes),
-      value: "Rebuildable lexical/fuzzy index, not a second copy of the transcript.",
-      ref: "local",
-    },
-  ];
-}
-
-function buildQueryResult(session: SessionSample, query: string) {
-  const normalized = query.toLowerCase();
-  const slug = qmdSlug(session);
-  const wantsDecision = normalized.includes("decision") || normalized.includes("unresolved");
-  const wantsRaw = normalized.includes("raw") || normalized.includes("drill");
-  const wantsCode = normalized.includes("code") || normalized.includes("area") || normalized.includes("search");
-  const answer = wantsDecision
-    ? `${session.harness} ${session.tier} has a compact decision trail in decisions.md, with unresolved items linked back to event windows instead of summarized away.`
-    : wantsRaw
-      ? `The derived hit is enough to choose the session; the next hop is a source coordinate into ${session.displayPath}.`
-      : wantsCode
-        ? `This sample is indexed as work around ${session.codeArea}; files.md and overview.md are the cheap first-pass surfaces.`
-        : `The fuzzy layer searches the derived ${session.harness} ${session.tier} corpus first, then keeps raw transcript access one click away.`;
-
-  const hits: SearchHit[] = [
-    {
-      title: wantsDecision ? "decisions.md" : "overview.md",
-      source: `qmd://session-search/${slug}/${wantsDecision ? "decisions.md" : "overview.md"}:12`,
-      score: "BM25 0.91",
-      snippet: wantsDecision
-        ? "Open decisions, follow-ups, and ownerless questions extracted from the session."
-        : `${session.focus}; indexed as ${formatTokenEstimate(session.sizeBytes)} of raw-token equivalent source.`,
-    },
-    {
-      title: wantsCode ? "files.md" : "events-001.md",
-      source: `qmd://session-search/${slug}/${wantsCode ? "files.md" : "events-001.md"}:44`,
-      score: "BM25 0.78",
-      snippet: wantsCode
-        ? `Code area signal: ${session.codeArea}.`
-        : "Event window preserves the original ordering and source refs for verification.",
-    },
-    {
-      title: "manifest.json",
-      source: `qmd://session-search/${slug}/manifest.json:1`,
-      score: "BM25 0.62",
-      snippet: "Collection metadata records the harness, path, event count, byte count, and extraction recipe.",
-    },
-  ];
-
-  return { answer, hits };
-}
-
-function artifactPreview(session: SessionSample, file: ProducedFile): string {
-  const slug = qmdSlug(session);
-  if (file.name === "manifest.json") {
-    return JSON.stringify(
-      {
-        id: slug,
-        harness: session.harness,
-        tier: session.tier,
-        source: session.fullPath,
-        bytes: session.sizeBytes,
-        events: session.events,
-        modified: session.modified,
-        extraction: {
-          recipe: "qmd-lite",
-          eventWindowSize: 350,
-          derivedBytes: estimateDerivedBytes(session),
-          indexBytes: estimateIndexBytes(session),
-        },
-      },
-      null,
-      2,
-    );
-  }
-
-  if (file.name === "overview.md") {
-    return [
-      `# ${session.harness} ${session.tier} session`,
-      "",
-      `source: ${session.displayPath}`,
-      `events: ${formatCount(session.events)}`,
-      `raw-token-eq: ${formatTokenEstimate(session.sizeBytes)}`,
-      "",
-      "## Working summary",
-      `- ${session.focus}.`,
-      `- Primary code area signal: ${session.codeArea}.`,
-      "- Store policy: derived knowledge is Scout-owned; raw harness logs stay observed source material.",
-      "",
-      "## Source refs",
-      `- qmd://session-search/${slug}/events-001.md:1`,
-      `- raw://${session.fullPath}`,
-    ].join("\n");
-  }
-
-  if (file.name === "decisions.md") {
-    return [
-      "# Decisions",
-      "",
-      "- Use a two-step memory path: QMD-style extraction first, fuzzy index second.",
-      "- Keep the engineering doc static; put moving exploration in Studio studies.",
-      "- Do not import external harness transcripts as Scout-owned messages.",
-      "",
-      "## Follow-ups",
-      "- Decide which extraction recipe becomes the first real implementation target.",
-      "- Measure LLM enrichment only after the mechanical pass is useful.",
-    ].join("\n");
-  }
-
-  if (file.name === "files.md") {
-    return [
-      "# File and code area signals",
-      "",
-      `primary_area: ${session.codeArea}`,
-      "",
-      "| path | signal | source |",
-      "| --- | --- | --- |",
-      "| packages/web/client | product search surface | events-001.md:44 |",
-      "| design/studio/app/studies | interactive study surface | events-002.md:18 |",
-      "| docs/eng | durable engineering record | overview.md:21 |",
-    ].join("\n");
-  }
-
-  if (file.name === "tool-calls.md") {
-    return [
-      "# Tool calls",
-      "",
-      "| command | reason | source |",
-      "| --- | --- | --- |",
-      "| rg | locate routes, docs, and prior study patterns | events-001.md:9 |",
-      "| bun --cwd design/studio dev | preview the Studio study | events-002.md:4 |",
-      "| browser verification | check layout and interactions | events-002.md:36 |",
-      "",
-      "Large sessions would have many more rows; this preview keeps the shape compact.",
-    ].join("\n");
-  }
-
-  return [
-    "# Event windows",
-    "",
-    `window_size: 350 events`,
-    `windows: ${estimateEventWindows(session)}`,
-    "",
-    "## events-001.md",
-    "001 user_request source_event=0",
-    "002 assistant_update source_event=1",
-    "003 tool_call source_event=2",
-    "",
-    "Each line keeps enough source coordinate data to reopen the raw JSONL excerpt.",
-  ].join("\n");
-}
-
-function estimateDerivedBytes(session: SessionSample): number {
-  return Math.max(8_192, Math.round(session.sizeBytes * 0.12));
-}
-
-function estimateIndexBytes(session: SessionSample): number {
-  return Math.round(estimateDerivedBytes(session) * 3.2);
-}
-
-function estimateEventWindows(session: SessionSample): number {
-  return Math.max(1, Math.ceil(session.events / 350));
-}
-
-function estimateChunkCount(session: SessionSample): number {
-  return Math.max(3, Math.ceil(estimateDerivedBytes(session) / 2_400));
-}
-
-function stageTiming(session: SessionSample, stage: StageId): string {
-  const sizeMiB = session.sizeBytes / 1024 / 1024;
-  const sizeFactor = Math.max(0.2, sizeMiB);
-
-  switch (stage) {
-    case "discover":
-      return sizeMiB > 20 ? "400–900 ms" : "80–350 ms";
-    case "normalize":
-      return secondsRange(sizeFactor * 0.8, sizeFactor * 1.7);
-    case "extract":
-      return secondsRange(sizeFactor * 1.2, sizeFactor * 2.6);
-    case "index":
-      return secondsRange(sizeFactor * 0.35, sizeFactor * 0.9);
-    case "query":
-      return "20–100 ms";
-    case "drilldown":
-      return "10–80 ms";
-  }
-}
-
-function secondsRange(low: number, high: number): string {
-  const lo = Math.max(0.1, low);
-  const hi = Math.max(lo + 0.1, high);
-  if (hi < 1) return "<1 s";
-  if (hi < 10) return `${Math.round(lo)}–${Math.round(hi)} s`;
-  return `${Math.round(lo)}–${Math.round(hi)} s`;
-}
 
 function isStageId(value: string): value is StageId {
   return STAGES.some((stage) => stage.id === value);
@@ -1510,8 +804,6 @@ function studyHref(
   const params = new URLSearchParams();
   params.set("session", next.sessionId ?? current.sessionId);
   params.set("step", next.stageId ?? current.stageId);
-  params.set("artifact", next.artifactName ?? current.artifactName);
-  params.set("q", next.query ?? current.query);
   return `/studies/session-search?${params.toString()}`;
 }
 
@@ -1536,11 +828,4 @@ function formatBytes(bytes: number): string {
 
 function formatCount(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
-}
-
-function formatTokenEstimate(bytes: number): string {
-  const tokens = Math.round(bytes / 4);
-  if (tokens >= 1_000_000) return `~${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 1_000) return `~${Math.round(tokens / 1_000)}k`;
-  return `~${tokens}`;
 }

@@ -177,31 +177,134 @@ function normalizeCodex(
       refs: { sessionId: payload.id as string | undefined },
     };
   }
-  if (type === "message") {
-    const role = String(payload.role ?? "");
-    const text = extractCodexText(payload.content);
-    if (role === "user") return { ...base, kind: "user_turn", tag: "user", text };
-    if (role === "assistant") return { ...base, kind: "assistant_turn", tag: "assistant", text };
-    return { ...base, kind: "system_record", tag: role, text };
+  // Codex wraps most events inside response_item or event_msg. Unwrap and
+  // dispatch on the inner payload.type so the stream reads as real turns,
+  // not opaque system_records.
+  if (type === "response_item") {
+    return normalizeCodexResponseItem(payload, base);
   }
+  if (type === "event_msg") {
+    return normalizeCodexEventMsg(payload, base);
+  }
+  if (type === "turn_context") {
+    return { ...base, kind: "system_record", tag: "turn_context", meta: payload };
+  }
+  // Legacy / un-wrapped events (older sessions).
+  if (type === "message") return normalizeCodexMessage(payload, base);
   if (type === "function_call" || type === "local_shell_call") {
-    const name = String(payload.name ?? payload.command ?? "tool");
-    const input = payload.arguments ?? payload.args ?? payload.input ?? {};
-    return { ...base, kind: "command_or_tool", tag: name, tool: { name, input } };
+    return normalizeCodexFunctionCall(payload, base);
   }
   if (type === "function_call_output" || type === "local_shell_call_output") {
-    const output = payload.output ?? payload.content ?? "";
-    return { ...base, kind: "observation", tag: "result", result: { output } };
+    return normalizeCodexFunctionCallOutput(payload, base);
   }
-  if (type === "reasoning") {
+  if (type === "reasoning") return normalizeCodexReasoning(payload, base);
+  return { ...base, kind: "system_record", text: JSON.stringify(payload) };
+}
+
+type CodexBase = {
+  i: number;
+  ts?: string;
+  sourceType: string;
+  sourceOffset: number;
+};
+
+function normalizeCodexResponseItem(
+  payload: Record<string, unknown>,
+  base: CodexBase,
+): NormalizedRecord {
+  const inner = String(payload.type ?? "");
+  if (inner === "message") return normalizeCodexMessage(payload, base);
+  if (inner === "reasoning") return normalizeCodexReasoning(payload, base);
+  if (inner === "function_call" || inner === "local_shell_call") {
+    return normalizeCodexFunctionCall(payload, base);
+  }
+  if (inner === "function_call_output" || inner === "local_shell_call_output") {
+    return normalizeCodexFunctionCallOutput(payload, base);
+  }
+  return {
+    ...base,
+    kind: "system_record",
+    tag: inner || "response_item",
+    meta: payload,
+  };
+}
+
+function normalizeCodexEventMsg(
+  payload: Record<string, unknown>,
+  base: CodexBase,
+): NormalizedRecord {
+  const inner = String(payload.type ?? "");
+  if (inner === "user_message") {
+    return {
+      ...base,
+      kind: "user_turn",
+      tag: "user",
+      text: String(payload.message ?? payload.text ?? ""),
+    };
+  }
+  if (inner === "agent_message") {
     return {
       ...base,
       kind: "assistant_turn",
-      tag: "reasoning",
-      text: String(payload.content ?? ""),
+      tag: "assistant",
+      text: String(payload.message ?? payload.text ?? ""),
     };
   }
-  return { ...base, kind: "system_record", text: JSON.stringify(payload) };
+  return {
+    ...base,
+    kind: "system_record",
+    tag: inner || "event_msg",
+    meta: payload,
+  };
+}
+
+function normalizeCodexMessage(
+  payload: Record<string, unknown>,
+  base: CodexBase,
+): NormalizedRecord {
+  const role = String(payload.role ?? "");
+  const text = extractCodexText(payload.content);
+  if (role === "user") return { ...base, kind: "user_turn", tag: "user", text };
+  if (role === "assistant") return { ...base, kind: "assistant_turn", tag: "assistant", text };
+  if (role === "developer") return { ...base, kind: "system_record", tag: "developer", text };
+  return { ...base, kind: "system_record", tag: role || "message", text };
+}
+
+function normalizeCodexFunctionCall(
+  payload: Record<string, unknown>,
+  base: CodexBase,
+): NormalizedRecord {
+  const name = String(payload.name ?? payload.command ?? "tool");
+  const input = payload.arguments ?? payload.args ?? payload.input ?? {};
+  return { ...base, kind: "command_or_tool", tag: name, tool: { name, input } };
+}
+
+function normalizeCodexFunctionCallOutput(
+  payload: Record<string, unknown>,
+  base: CodexBase,
+): NormalizedRecord {
+  const output = payload.output ?? payload.content ?? "";
+  return { ...base, kind: "observation", tag: "result", result: { output } };
+}
+
+function normalizeCodexReasoning(
+  payload: Record<string, unknown>,
+  base: CodexBase,
+): NormalizedRecord {
+  // Reasoning often carries a `summary` array of {type:"summary_text", text}
+  // and/or an `encrypted_content`. Surface the summary text when available.
+  let text = "";
+  if (Array.isArray(payload.summary)) {
+    text = payload.summary
+      .map((s) => {
+        const block = s as { text?: string };
+        return block?.text ?? "";
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+  if (!text && payload.content) text = String(payload.content);
+  return { ...base, kind: "assistant_turn", tag: "reasoning", text };
 }
 
 function normalizeClaude(
