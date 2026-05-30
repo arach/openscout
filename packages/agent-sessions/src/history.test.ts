@@ -403,16 +403,213 @@ describe("history snapshot replay", () => {
     );
   });
 
-  test("marks unsupported harness history clearly", () => {
-    const path = "/Users/arach/.codex/history.jsonl";
+  test("reconstructs a Codex snapshot from external jsonl history", () => {
+    const basePath = "/Users/arach/.codex/sessions/2026/05/29/rollout-2026-05-29T21-08-19-codex-session.jsonl";
+    const content = [
+      JSON.stringify({
+        timestamp: "2026-05-30T01:08:36.827Z",
+        type: "session_meta",
+        payload: {
+          id: "codex-session",
+          cwd: "/Users/arach/dev/openscout",
+          originator: "Codex Desktop",
+          cli_version: "0.133.0-alpha.1",
+          source: "vscode",
+          thread_source: "user",
+          model_provider: "openai",
+          git: {
+            branch: "codex/embed-vox-transcription",
+            commit_hash: "abc123",
+            repository_url: "https://github.com/arach/openscout.git",
+          },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:08:36.827Z",
+        type: "event_msg",
+        payload: {
+          type: "task_started",
+          turn_id: "turn-codex-1",
+          started_at: 1780103316,
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:08:36.839Z",
+        type: "turn_context",
+        payload: {
+          cwd: "/Users/arach/dev/openscout",
+          model: "gpt-5.5",
+          approval_policy: "never",
+          timezone: "America/Toronto",
+          effort: "xhigh",
+          sandbox_policy: { type: "danger-full-access" },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:08:36.848Z",
+        type: "event_msg",
+        payload: {
+          type: "user_message",
+          message: "inspect the repo",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:08:51.653Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "I am checking the repo.",
+          phase: "commentary",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:09:12.371Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: "pwd",
+            workdir: "/Users/arach/dev/openscout",
+          }),
+          call_id: "call-shell-1",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:09:12.782Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-shell-1",
+          output: "Exit code: 0\nOutput:\n/Users/arach/dev/openscout\n",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:09:13.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          name: "apply_patch",
+          input: "*** Begin Patch\n*** End Patch\n",
+          call_id: "call-patch-1",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:09:13.100Z",
+        type: "event_msg",
+        payload: {
+          type: "patch_apply_end",
+          call_id: "call-patch-1",
+          stdout: "Success. Updated the following files:\nM file.ts\n",
+          stderr: "",
+          success: true,
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:09:14.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 40,
+              output_tokens: 20,
+              reasoning_output_tokens: 7,
+            },
+          },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:09:15.000Z",
+        type: "event_msg",
+        payload: {
+          type: "task_complete",
+          completed_at: 1780103355,
+        },
+      }),
+    ].join("\n");
 
-    expect(inferHistorySessionAdapterType(path)).toBe("codex");
+    expect(inferHistorySessionAdapterType(basePath)).toBe("codex");
+    expect(supportsHistorySessionSnapshotForPath(basePath)).toBe(true);
+
+    const result = createHistorySessionSnapshot({
+      path: basePath,
+      content,
+    });
+
+    expect(result.adapterType).toBe("codex");
+    expect(result.lineCount).toBe(11);
+    expect(result.parsedLineCount).toBe(11);
+    expect(result.skippedLineCount).toBe(0);
+
+    const snapshot = result.snapshot;
+    expect(snapshot.session.adapterType).toBe("codex");
+    expect(snapshot.session.name).toBe("openscout");
+    expect(snapshot.session.cwd).toBe("/Users/arach/dev/openscout");
+    expect(snapshot.session.model).toBe("gpt-5.5");
+    expect(snapshot.session.providerMeta).toEqual(
+      expect.objectContaining({
+        historyPath: basePath,
+        historyAdapterType: "codex",
+        source: "external_history",
+        externalSessionId: "codex-session",
+        observeRuntime: expect.objectContaining({
+          originator: "Codex Desktop",
+          cliVersion: "0.133.0-alpha.1",
+          modelProvider: "openai",
+          approvalPolicy: "never",
+          gitBranch: "codex/embed-vox-transcription",
+        }),
+        observeUsage: expect.objectContaining({
+          inputTokens: 100,
+          outputTokens: 20,
+          reasoningOutputTokens: 7,
+          cacheReadInputTokens: 40,
+          tokenEvents: 1,
+        }),
+      }),
+    );
+    expect(snapshot.currentTurnId).toBeUndefined();
+    expect(snapshot.turns).toHaveLength(1);
+
+    const turn = snapshot.turns[0]!;
+    expect(turn.status).toBe("completed");
+    expect(turn.blocks).toHaveLength(3);
+
+    const textBlock = turn.blocks[0]!.block;
+    expect(textBlock.type).toBe("text");
+    if (textBlock.type === "text") {
+      expect(textBlock.text).toBe("I am checking the repo.");
+    }
+
+    const commandBlock = turn.blocks[1]!.block;
+    expect(commandBlock.type).toBe("action");
+    if (commandBlock.type === "action") {
+      expect(commandBlock.action.kind).toBe("command");
+      expect(commandBlock.action.status).toBe("completed");
+      expect(commandBlock.action.output).toContain("/Users/arach/dev/openscout");
+    }
+
+    const patchBlock = turn.blocks[2]!.block;
+    expect(patchBlock.type).toBe("action");
+    if (patchBlock.type === "action") {
+      expect(patchBlock.action.kind).toBe("tool_call");
+      expect(patchBlock.action.status).toBe("completed");
+      expect(patchBlock.action.output).toContain("Success. Updated");
+    }
+  });
+
+  test("marks unsupported harness history clearly", () => {
+    const path = "/Users/arach/.unknown/history.jsonl";
+
+    expect(inferHistorySessionAdapterType(path)).toBe("unknown");
     expect(supportsHistorySessionSnapshotForPath(path)).toBe(false);
     expect(() =>
       createHistorySessionSnapshot({
         path,
         content: `${JSON.stringify({ cwd: "/tmp/project" })}\n`,
       }),
-    ).toThrow('History snapshot is not supported for adapter type "codex".');
+    ).toThrow('History snapshot is not supported for adapter type "unknown".');
   });
 });

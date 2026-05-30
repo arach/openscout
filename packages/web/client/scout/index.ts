@@ -60,6 +60,14 @@ const intents: AppIntent[] = [
     shortcut: "Cmd+4",
   },
   {
+    commandId: "nav:search",
+    title: "Go to Search",
+    description:
+      "Navigate to the session knowledge search surface for extraction, search, and raw-log drilldown planning",
+    category: "navigation",
+    keywords: ["search", "knowledge", "qmd", "history"],
+  },
+  {
     commandId: "nav:channels",
     title: "Go to Channels",
     description: "Navigate to the channels browser for group conversations",

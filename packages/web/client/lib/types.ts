@@ -1021,6 +1021,7 @@ export type Route =
       sort?: MessagesSort;
     } & MachineScopedRoute)
   | ({ view: "sessions"; sessionId?: string } & MachineScopedRoute)
+  | { view: "search" }
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
   | { view: "broker" }

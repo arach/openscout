@@ -7,7 +7,6 @@ import {
   type NormalizedRecord,
   type ParseSessionResult,
 } from "@/lib/studio/commands/parse-session";
-import { callMinimax, type MinimaxUsage } from "@/lib/llm/minimax";
 
 export interface ExtractQmdInput {
   /** Absolute path to the source JSONL session. */
@@ -16,15 +15,12 @@ export interface ExtractQmdInput {
   sessionId: string;
   /** Cap on records parsed/extracted. Avoids loading huge sessions. */
   recordLimit?: number;
-  /** Whether to run the LLM pass for overview.md / decisions.md. */
-  withLlm?: boolean;
 }
 
 export interface ExtractedFile {
   name: string;
   path: string;
   bytes: number;
-  kind: "mechanical" | "llm";
 }
 
 export interface ExtractQmdResult {
@@ -32,13 +28,6 @@ export interface ExtractQmdResult {
   files: ExtractedFile[];
   recordsScanned: number;
   mechanicalMs: number;
-  llmMs: number;
-  llm?: {
-    model: string;
-    usage: MinimaxUsage;
-    finishReason: string;
-    reasoning: string;
-  };
   parseResult: ParseSessionResult;
   error?: string;
 }
@@ -49,21 +38,17 @@ const DEFAULT_LIMIT = 1500;
 
 export const extractQmdCommand: Command<ExtractQmdInput, ExtractQmdResult> = {
   id: "extract-qmd",
-  label: "Extract QMD",
-  shell: ({ path: p, sessionId, withLlm }) =>
+  label: "Extract QMD (mechanical)",
+  shell: ({ path: p, sessionId }) =>
     [
       `scout qmd extract`,
       `--source ${shellQuote(shrinkPath(p))}`,
       `--out ${shellQuote(shrinkPath(path.join(ROOT, sessionId)))}`,
-      withLlm === false ? "--no-llm" : "",
-    ]
-      .filter(Boolean)
-      .join(" "),
-  run: async ({ path: filePath, sessionId, recordLimit, withLlm = true }) => {
+      `--mechanical-only`,
+    ].join(" "),
+  run: async ({ path: filePath, sessionId, recordLimit }) => {
     const limit = recordLimit ?? DEFAULT_LIMIT;
 
-    // Reuse the existing parser command at a higher limit. It has its own
-    // 60s cache, so this is cheap on re-renders against the same input.
     const parseRun = await parseSessionCommand.run({ path: filePath, limit });
 
     if (parseRun.error) {
@@ -77,40 +62,18 @@ export const extractQmdCommand: Command<ExtractQmdInput, ExtractQmdResult> = {
     const mechanical = await writeMechanical(outDir, parseRun, filePath);
     const mechanicalMs = Date.now() - mechStart;
 
-    let llmFiles: ExtractedFile[] = [];
-    let llmInfo: ExtractQmdResult["llm"] | undefined;
-    let llmMs = 0;
-    if (withLlm) {
-      const t = Date.now();
-      try {
-        const out = await writeLlm(outDir, parseRun);
-        llmFiles = out.files;
-        llmInfo = out.info;
-      } catch (err) {
-        // Don't abort the whole extraction on LLM failure — keep mechanical
-        // and report the LLM error inline.
-        llmInfo = undefined;
-        const errMsg = err instanceof Error ? err.message : String(err);
-        await fs.writeFile(path.join(outDir, "_llm-error.txt"), errMsg);
-      }
-      llmMs = Date.now() - t;
-    }
-
     return {
       outDir,
-      files: [...mechanical, ...llmFiles].sort((a, b) => a.name.localeCompare(b.name)),
+      files: mechanical.sort((a, b) => a.name.localeCompare(b.name)),
       recordsScanned: parseRun.records.length,
       mechanicalMs,
-      llmMs,
-      llm: llmInfo,
       parseResult: parseRun,
     };
   },
-  cacheKey: ({ path: p, sessionId, recordLimit, withLlm }) =>
-    `${sessionId}::${p}::${recordLimit ?? DEFAULT_LIMIT}::${withLlm === false ? "0" : "1"}`,
-  // Cache for an hour. LLM calls are expensive and the inputs don't change
-  // between page reloads.
-  cacheTtlMs: 60 * 60 * 1000,
+  cacheKey: ({ path: p, sessionId, recordLimit }) =>
+    `${sessionId}::${p}::${recordLimit ?? DEFAULT_LIMIT}`,
+  // Mechanical is cheap; short cache is fine.
+  cacheTtlMs: 5 * 60 * 1000,
 };
 
 function outDirFor(sessionId: string): string {
@@ -145,13 +108,13 @@ async function writeMechanical(
   sourcePath: string,
 ): Promise<ExtractedFile[]> {
   const files: ExtractedFile[] = [];
-  files.push(await writeFile(outDir, "manifest.json", buildManifest(parseRun, sourcePath), "mechanical"));
-  files.push(await writeFile(outDir, "files.md", buildFilesMd(parseRun), "mechanical"));
-  files.push(await writeFile(outDir, "tool-calls.md", buildToolCallsMd(parseRun), "mechanical"));
+  files.push(await writeFile(outDir, "manifest.json", buildManifest(parseRun, sourcePath)));
+  files.push(await writeFile(outDir, "files.md", buildFilesMd(parseRun)));
+  files.push(await writeFile(outDir, "tool-calls.md", buildToolCallsMd(parseRun)));
   const windows = buildEventWindows(parseRun.records);
   for (let i = 0; i < windows.length; i++) {
     const idx = String(i + 1).padStart(3, "0");
-    files.push(await writeFile(outDir, `events-${idx}.md`, windows[i]!, "mechanical"));
+    files.push(await writeFile(outDir, `events-${idx}.md`, windows[i]!));
   }
   return files;
 }
@@ -305,136 +268,17 @@ function trim(s: string, n: number): string {
   return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
 }
 
-// ── LLM pass ──────────────────────────────────────────────────────────────
-
-async function writeLlm(
-  outDir: string,
-  parseRun: ParseSessionResult,
-): Promise<{ files: ExtractedFile[]; info: NonNullable<ExtractQmdResult["llm"]> }> {
-  const condensed = condenseForLlm(parseRun.records);
-  const system = [
-    "You are a careful technical analyst reading a transcript of a coding-agent session.",
-    "Your job is to produce two short markdown documents about the session.",
-    "Be specific and concrete; cite paths, commands, or file types when relevant.",
-    "Never invent details that aren't in the transcript.",
-  ].join(" ");
-  const user = [
-    "Below is a condensed transcript of a coding-agent session. Each line is one",
-    "normalized event, prefixed with [NNNN] kind (tag) — detail.",
-    "",
-    "Produce exactly two top-level markdown sections, in this order:",
-    "",
-    "# Overview",
-    "",
-    "Two short paragraphs describing what this session was about: the user's goal,",
-    "the area of the codebase touched, and what the agent ended up doing.",
-    "",
-    "# Decisions",
-    "",
-    "A bulleted list of concrete decisions made or unresolved questions. Each bullet",
-    "should reference a specific event or file when possible. Include a final",
-    '"## Follow-ups" subsection if there are loose threads.',
-    "",
-    "Transcript:",
-    "```",
-    condensed,
-    "```",
-  ].join("\n");
-
-  const result = await callMinimax({ system, user, maxTokens: 4000, temperature: 0.2 });
-  const content = result.content || "";
-  const { overview, decisions } = splitOverviewDecisions(content);
-
-  const files: ExtractedFile[] = [];
-  files.push(await writeFile(outDir, "overview.md", overview, "llm"));
-  files.push(await writeFile(outDir, "decisions.md", decisions, "llm"));
-  files.push(
-    await writeFile(
-      outDir,
-      "_llm-call.json",
-      JSON.stringify(
-        {
-          model: result.model,
-          usage: result.usage,
-          finishReason: result.finishReason,
-          latencyMs: result.latencyMs,
-          promptChars: user.length,
-        },
-        null,
-        2,
-      ),
-      "llm",
-    ),
-  );
-
-  return {
-    files,
-    info: {
-      model: result.model,
-      usage: result.usage,
-      finishReason: result.finishReason,
-      reasoning: result.reasoning,
-    },
-  };
-}
-
-/**
- * Pick a smaller representative slice of the normalized stream to feed the LLM.
- * Strategy: keep all user turns, the first assistant turn after each user turn,
- * tool names + short args, and short observations. Aggressive trim per line.
- */
-function condenseForLlm(records: NormalizedRecord[]): string {
-  const lines: string[] = [];
-  for (const r of records) {
-    const idx = String(r.i).padStart(4, "0");
-    if (r.kind === "user_turn") {
-      lines.push(`[${idx}] user — ${trim(r.text ?? "", 240)}`);
-    } else if (r.kind === "assistant_turn") {
-      lines.push(`[${idx}] assistant (${r.tag ?? ""}) — ${trim(r.text ?? "", 200)}`);
-    } else if (r.kind === "command_or_tool" && r.tool) {
-      lines.push(`[${idx}] tool ${r.tool.name} ${oneLineInput(r.tool.input)}`);
-    } else if (r.kind === "observation" && r.result) {
-      const out =
-        typeof r.result.output === "string" ? r.result.output : JSON.stringify(r.result.output ?? "");
-      lines.push(`[${idx}] result — ${trim(out, 140)}`);
-    } else if (r.kind === "session_meta") {
-      const model = r.meta?.model_provider ?? r.meta?.model ?? "?";
-      const cwd = r.meta?.cwd ?? "?";
-      lines.push(`[${idx}] meta model=${model} cwd=${trim(String(cwd), 80)}`);
-    }
-    // Skip system_record / unknown — usually noise.
-  }
-  // Cap total length to keep token budget reasonable.
-  const joined = lines.join("\n");
-  const cap = 24_000; // ~6k tokens at 4 chars/token
-  return joined.length > cap ? joined.slice(0, cap) + "\n… (transcript truncated)" : joined;
-}
-
-function splitOverviewDecisions(content: string): {
-  overview: string;
-  decisions: string;
-} {
-  const decisionsIdx = content.indexOf("# Decisions");
-  if (decisionsIdx === -1) {
-    return { overview: content.trim(), decisions: "# Decisions\n\n_not produced_\n" };
-  }
-  const overview = content.slice(0, decisionsIdx).trim();
-  const decisions = content.slice(decisionsIdx).trim();
-  return { overview, decisions };
-}
-
 // ── File writer ───────────────────────────────────────────────────────────
 
 async function writeFile(
   outDir: string,
   name: string,
   content: string,
-  kind: ExtractedFile["kind"],
 ): Promise<ExtractedFile> {
   const fullPath = path.join(outDir, name);
   await fs.writeFile(fullPath, content);
   const stat = await fs.stat(fullPath);
-  return { name, path: fullPath, bytes: stat.size, kind };
+  return { name, path: fullPath, bytes: stat.size };
 }
 
 // ── Display helpers ───────────────────────────────────────────────────────

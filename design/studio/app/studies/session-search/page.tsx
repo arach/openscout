@@ -12,6 +12,11 @@ import {
   type ExtractQmdResult,
   type ExtractedFile,
 } from "@/lib/studio/commands/extract-qmd";
+import {
+  enrichSessionCommand,
+  type EnrichSessionResult,
+  type EnrichedFile,
+} from "@/lib/studio/commands/enrich-session";
 import { CommandSurface } from "@/components/studio/CommandSurface";
 import {
   makeRunLogEntry,
@@ -21,7 +26,7 @@ import {
 
 type Harness = "Codex" | "Claude";
 type Tier = "large" | "normal" | "small";
-type StageId = "discover" | "normalize" | "extract";
+type StageId = "discover" | "normalize" | "extract" | "enrich";
 
 interface SessionSample {
   id: string;
@@ -165,9 +170,18 @@ const STAGES: Stage[] = [
     label: "Extract",
     verb: "derive",
     input: "normalized records",
-    output: "QMD sidecar files",
+    output: "mechanical QMD files",
     summary:
-      "Mechanical pass writes files.md / tool-calls.md / events-NNN.md. LLM pass writes overview.md / decisions.md by summarizing the condensed transcript through MiniMax. Outputs land on disk under /tmp/scout-study/qmd/<session>/.",
+      "Mechanical pass: emit files.md / tool-calls.md / events-NNN.md / manifest.json from the normalized records. No LLM, always fast. Outputs land at $TMPDIR/scout-study/qmd/<session>/.",
+  },
+  {
+    id: "enrich",
+    label: "Enrich",
+    verb: "summarize",
+    input: "condensed transcript",
+    output: "overview.md + decisions.md (LLM)",
+    summary:
+      "One MiniMax-M2 call per session, cached for an hour. Reads the parsed records, condenses to a token-bounded transcript, asks the model for an overview + decisions doc, writes them next to the mechanical files.",
   },
 ];
 
@@ -204,31 +218,45 @@ export default async function SessionSearchStudyPage({
     makeRunLogEntry(inventoryCommand, inventoryRun),
   ];
 
+  const sessionSlug = `${selectedSession.harness.toLowerCase()}-${selectedSession.tier}`;
+  const needsParse = stageId === "normalize" || stageId === "extract" || stageId === "enrich";
+  const needsExtract = stageId === "extract" || stageId === "enrich";
+
   let normalizeRun: CommandRun<ParseSessionResult> | undefined;
-  if (stageId === "normalize") {
+  if (needsParse) {
+    const limit = stageId === "normalize" ? 14 : 1500;
     normalizeRun = await runCommand(parseSessionCommand, {
       path: selectedSession.fullPath,
-      limit: 14,
+      limit,
     });
     runLog.push(makeRunLogEntry(parseSessionCommand, normalizeRun));
   }
 
   let extractRun: CommandRun<ExtractQmdResult> | undefined;
-  if (stageId === "extract") {
+  if (needsExtract) {
     extractRun = await runCommand(extractQmdCommand, {
       path: selectedSession.fullPath,
-      sessionId: `${selectedSession.harness.toLowerCase()}-${selectedSession.tier}`,
+      sessionId: sessionSlug,
       recordLimit: 1500,
-      withLlm: true,
+    });
+    runLog.push(makeRunLogEntry(extractQmdCommand, extractRun));
+  }
+
+  let enrichRun: CommandRun<EnrichSessionResult> | undefined;
+  if (stageId === "enrich") {
+    enrichRun = await runCommand(enrichSessionCommand, {
+      path: selectedSession.fullPath,
+      sessionId: sessionSlug,
+      recordLimit: 1500,
     });
     runLog.push(
-      makeRunLogEntry(extractQmdCommand, extractRun, (out) =>
-        out?.llm
+      makeRunLogEntry(enrichSessionCommand, enrichRun, (out) =>
+        out?.model
           ? {
-              model: out.llm.model,
-              promptTokens: out.llm.usage.promptTokens,
-              completionTokens: out.llm.usage.completionTokens,
-              reasoningTokens: out.llm.usage.reasoningTokens,
+              model: out.model,
+              promptTokens: out.usage.promptTokens,
+              completionTokens: out.usage.completionTokens,
+              reasoningTokens: out.usage.reasoningTokens,
             }
           : undefined,
       ),
@@ -301,6 +329,7 @@ export default async function SessionSearchStudyPage({
           inventoryRun={inventoryRun}
           normalizeRun={normalizeRun}
           extractRun={extractRun}
+          enrichRun={enrichRun}
           selection={selection}
         />
       </div>
@@ -525,6 +554,7 @@ function StagePanel({
   inventoryRun,
   normalizeRun,
   extractRun,
+  enrichRun,
   selection,
 }: {
   stage: Stage;
@@ -532,6 +562,7 @@ function StagePanel({
   inventoryRun: CommandRun<InventoryResult>;
   normalizeRun?: CommandRun<ParseSessionResult>;
   extractRun?: CommandRun<ExtractQmdResult>;
+  enrichRun?: CommandRun<EnrichSessionResult>;
   selection: StudySelection;
 }) {
   switch (stage.id) {
@@ -545,6 +576,14 @@ function StagePanel({
           session={session}
           selection={selection}
           run={extractRun!}
+        />
+      );
+    case "enrich":
+      return (
+        <EnrichPanel
+          session={session}
+          selection={selection}
+          run={enrichRun!}
         />
       );
   }
@@ -886,9 +925,11 @@ async function ExtractPanel({
 }) {
   const result = run.output;
   const files = result?.files ?? [];
-  const selectedName = files.find((f) => f.name === selection.artifact)?.name
-    ?? files.find((f) => f.name === "overview.md")?.name
-    ?? files[0]?.name;
+  const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
+  const selectedName =
+    files.find((f) => f.name === selection.artifact)?.name ??
+    files.find((f) => f.name === "files.md")?.name ??
+    files[0]?.name;
   const selected = files.find((f) => f.name === selectedName);
   const previewContent = selected ? await safeReadFile(selected.path) : "";
 
@@ -897,41 +938,93 @@ async function ExtractPanel({
       <CommandSurface
         shell={extractQmdCommand.shell({
           path: session.fullPath,
-          sessionId: `${session.harness.toLowerCase()}-${session.tier}`,
-          withLlm: true,
+          sessionId: sessionSlug,
         })}
         run={run}
         body={
-          <ExtractBody
-            result={result}
-            selection={selection}
+          <ExtractedFilesBody
             files={files}
+            selection={selection}
             selected={selected}
             previewContent={previewContent}
+            emptyMessage={result?.error ?? "no extract result"}
           />
         }
         footnote={
           result && !result.error ? (
             <>
-              Wrote {files.length} files to{" "}
+              Wrote {files.length} mechanical files to{" "}
               <code className="font-mono text-[10.5px] text-studio-ink" title={result.outDir}>
                 {shortenTmpPath(result.outDir)}
               </code>{" "}
-              · mechanical {result.mechanicalMs} ms · llm {result.llmMs} ms
-              {result.llm ? (
-                <>
-                  {" · "}model{" "}
-                  <code className="font-mono text-[11px] text-studio-ink">
-                    {result.llm.model}
-                  </code>{" "}
-                  · {result.llm.usage.promptTokens}+{result.llm.usage.completionTokens}t
-                  ({result.llm.usage.reasoningTokens} reasoning)
-                </>
-              ) : null}
+              · {result.mechanicalMs} ms · {result.recordsScanned} records scanned
             </>
           ) : null
         }
       />
+    </div>
+  );
+}
+
+async function EnrichPanel({
+  session,
+  selection,
+  run,
+}: {
+  session: SessionSample;
+  selection: StudySelection;
+  run: CommandRun<EnrichSessionResult>;
+}) {
+  const result = run.output;
+  const files = result?.files ?? [];
+  const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
+  const selectedName =
+    files.find((f) => f.name === selection.artifact)?.name ??
+    files.find((f) => f.name === "overview.md")?.name ??
+    files[0]?.name;
+  const selected = files.find((f) => f.name === selectedName);
+  const previewContent = selected ? await safeReadFile(selected.path) : "";
+
+  return (
+    <div className="space-y-4 p-5">
+      <CommandSurface
+        shell={enrichSessionCommand.shell({
+          path: session.fullPath,
+          sessionId: sessionSlug,
+        })}
+        run={run}
+        body={
+          <EnrichedFilesBody
+            files={files}
+            selection={selection}
+            selected={selected}
+            previewContent={previewContent}
+            emptyMessage={result?.error ?? "no enrich result"}
+          />
+        }
+        footnote={
+          result && !result.error && result.model ? (
+            <>
+              <code className="font-mono text-[10.5px] text-studio-ink">{result.model}</code>{" "}
+              · prompt {result.promptChars.toLocaleString()} chars (
+              {result.usage.promptTokens}t) · completion{" "}
+              {result.usage.completionTokens}t ({result.usage.reasoningTokens}{" "}
+              reasoning) · llm latency {result.llmLatencyMs} ms · finish{" "}
+              {result.finishReason}
+            </>
+          ) : null
+        }
+      />
+      {result?.reasoning ? (
+        <details className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
+          <summary className="cursor-pointer border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            model reasoning · {result.reasoning.length.toLocaleString()} chars
+          </summary>
+          <pre className="max-h-[300px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+            {result.reasoning}
+          </pre>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -953,31 +1046,32 @@ async function safeReadFile(p: string): Promise<string> {
   }
 }
 
-function ExtractBody({
-  result,
-  selection,
+type ArtifactFile = ExtractedFile | EnrichedFile;
+
+function ArtifactFilesBody({
   files,
+  selection,
   selected,
   previewContent,
+  emptyMessage,
 }: {
-  result: ExtractQmdResult | undefined;
+  files: ArtifactFile[];
   selection: StudySelection;
-  files: ExtractedFile[];
-  selected: ExtractedFile | undefined;
+  selected: ArtifactFile | undefined;
   previewContent: string;
+  emptyMessage: string;
 }) {
-  if (!result || result.error) {
+  if (files.length === 0) {
     return (
       <pre className="px-3 py-2 font-mono text-[10.5px] text-studio-ink-faint">
-        {result?.error ?? "no extract result"}
+        {emptyMessage}
       </pre>
     );
   }
   return (
     <div className="grid grid-cols-1 gap-px bg-studio-edge md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
       <ul className="divide-y divide-studio-edge bg-studio-canvas font-mono text-[10.5px]">
-        <li className="grid grid-cols-[40px_minmax(0,1fr)_64px] gap-2 border-b border-studio-edge px-3 py-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-          <span>kind</span>
+        <li className="grid grid-cols-[minmax(0,1fr)_64px] gap-2 border-b border-studio-edge px-3 py-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
           <span>file</span>
           <span className="text-right">bytes</span>
         </li>
@@ -989,21 +1083,12 @@ function ExtractBody({
                 href={studyHref(selection, { artifact: f.name })}
                 aria-current={active ? "true" : undefined}
                 className={[
-                  "grid grid-cols-[40px_minmax(0,1fr)_64px] items-baseline gap-2 px-3 py-1.5 transition-colors",
+                  "grid grid-cols-[minmax(0,1fr)_64px] items-baseline gap-2 px-3 py-1.5 transition-colors",
                   active
                     ? "bg-scout-accent-soft shadow-[inset_2px_0_0_var(--scout-accent)]"
                     : "hover:bg-studio-canvas-alt",
                 ].join(" ")}
               >
-                <span
-                  className={
-                    f.kind === "llm"
-                      ? "text-status-info-fg"
-                      : "text-studio-ink-faint"
-                  }
-                >
-                  {f.kind === "llm" ? "llm" : "mech"}
-                </span>
                 <span className="truncate text-studio-ink">{f.name}</span>
                 <span className="text-right tabular-nums text-studio-ink-faint">
                   {formatBytes(f.bytes)}
@@ -1023,6 +1108,26 @@ function ExtractBody({
       </div>
     </div>
   );
+}
+
+function ExtractedFilesBody(props: {
+  files: ExtractedFile[];
+  selection: StudySelection;
+  selected: ExtractedFile | undefined;
+  previewContent: string;
+  emptyMessage: string;
+}) {
+  return <ArtifactFilesBody {...props} />;
+}
+
+function EnrichedFilesBody(props: {
+  files: EnrichedFile[];
+  selection: StudySelection;
+  selected: EnrichedFile | undefined;
+  previewContent: string;
+  emptyMessage: string;
+}) {
+  return <ArtifactFilesBody {...props} />;
 }
 
 

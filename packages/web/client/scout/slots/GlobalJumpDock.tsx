@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, Compass, GitBranch, MessageSquare, ScrollText } from "lucide-react";
+import { Activity, Compass, Database, GitBranch, MessageSquare, ScrollText } from "lucide-react";
 import { useScout } from "../Provider.tsx";
 import { MeshCanvasMinimap } from "./MeshCanvasMinimap.tsx";
 import type { Route } from "../../lib/types.ts";
@@ -89,6 +89,7 @@ export function GlobalJumpDock() {
 
 const JUMPS: { id: string; label: string; icon: ReactNode; route: Route }[] = [
   { id: "sessions", label: "Sessions", icon: <MessageSquare size={13} strokeWidth={1.6} />, route: { view: "sessions" } },
+  { id: "search", label: "Search", icon: <Database size={13} strokeWidth={1.6} />, route: { view: "search" } },
   { id: "tail", label: "Tail", icon: <ScrollText size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "tail" } },
   { id: "control", label: "Control", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" } },
   { id: "fleet", label: "Fleet", icon: <Activity size={13} strokeWidth={1.6} />, route: { view: "fleet" } },

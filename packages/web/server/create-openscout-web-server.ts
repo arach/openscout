@@ -6,7 +6,6 @@ import { homedir } from "node:os";
 
 import { Hono, type Context } from "hono";
 import type {
-  AgentHarness,
   CollaborationEvent,
   CollaborationKind,
   ConversationDefinition,
@@ -178,7 +177,6 @@ import {
 } from "@openscout/runtime/setup";
 import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
-import { SUPPORTED_LOCAL_AGENT_HARNESSES } from "@openscout/runtime/local-agents";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
   const trimmed = value?.trim();
@@ -1893,7 +1891,7 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
       workspaceRoots: settings?.discovery.workspaceRoots ?? [],
       hiddenProjectCount: settings?.discovery.hiddenProjectRoots.length ?? 0,
       defaultHarness: settings?.agents.defaultHarness ?? "claude",
-      defaultTransport: settings?.agents.defaultTransport ?? "claude_stream_json",
+      defaultTransport: settings?.agents.defaultTransport ?? "tmux",
       defaultCapabilities: settings?.agents.defaultCapabilities ?? [],
       sessionPrefix: settings?.agents.sessionPrefix ?? "relay",
     },
@@ -1966,177 +1964,6 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
       "External runtime API-server harness and session adapter",
     ],
   };
-}
-
-const RUNNER_MODEL_PRESETS = [
-  { id: "sonnet", label: "Sonnet", harnesses: ["claude"] },
-  { id: "opus", label: "Opus", harnesses: ["claude"] },
-  { id: "haiku", label: "Haiku", harnesses: ["claude"] },
-  { id: "gpt-5.4", label: "GPT-5.4", harnesses: ["codex"] },
-  { id: "gpt-5.4-mini", label: "GPT-5.4 mini", harnesses: ["codex"] },
-  { id: "gpt-5.5", label: "GPT-5.5", harnesses: ["codex"] },
-] as const;
-
-function localRunnerHarness(value: unknown): AgentHarness | undefined {
-  const normalized = optionalString(value)?.trim() as AgentHarness | undefined;
-  if (normalized && SUPPORTED_LOCAL_AGENT_HARNESSES.includes(normalized)) {
-    return normalized;
-  }
-  return undefined;
-}
-
-function resolveRunnerDirectory(value: unknown, currentDirectory: string): string {
-  const raw = optionalString(value)?.trim();
-  if (!raw) {
-    throw new Error("directory is required");
-  }
-  const resolved = resolve(currentDirectory, expandHomePath(raw));
-  const realPath = realpathSync(resolved);
-  const stats = statSync(realPath);
-  if (!stats.isDirectory()) {
-    throw new Error(`${realPath} is not a directory`);
-  }
-  return realPath;
-}
-
-function recommendedRunnerModel(
-  harness: AgentHarness | undefined,
-  models: Array<{ id: string; harnesses: ReadonlyArray<string> }>,
-): string | undefined {
-  if (!harness) return undefined;
-  const candidates = models.filter((model) =>
-    model.id.trim().length > 0
-    && (model.harnesses.length === 0 || model.harnesses.includes(harness))
-  );
-  const preference = harness === "claude"
-    ? ["claude-opus-4-7", "opus", "sonnet", "haiku"]
-    : harness === "codex"
-      ? ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
-      : [];
-  for (const preferred of preference) {
-    const match = candidates.find((model) => model.id.toLowerCase() === preferred);
-    if (match) return match.id;
-  }
-  return candidates[0]?.id;
-}
-
-async function buildAgentRunnerOptions(currentDirectory: string) {
-  const [settingsResult, setupResult, catalogResult] = await Promise.allSettled([
-    readOpenScoutSettings({ currentDirectory }),
-    loadResolvedRelayAgents({ currentDirectory }),
-    loadHarnessCatalogSnapshot(),
-  ]);
-  const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
-  const setup = setupResult.status === "fulfilled" ? setupResult.value : null;
-  const catalog = catalogResult.status === "fulfilled" ? catalogResult.value : null;
-  const agents = queryAgents(200);
-  const seenModels = new Set<string>();
-  const observedModels = agents
-    .map((agent) => ({
-      id: agent.model?.trim() ?? "",
-      harness: agent.harness?.trim() ?? "",
-    }))
-    .filter((entry) => entry.id.length > 0)
-    .filter((entry) => {
-      const key = `${entry.harness}:${entry.id}`;
-      if (seenModels.has(key)) return false;
-      seenModels.add(key);
-      return true;
-    })
-    .map((entry) => ({
-      id: entry.id,
-      label: entry.id,
-      harnesses: entry.harness ? [entry.harness] : [],
-      source: "observed" as const,
-    }));
-  const models = [
-    ...observedModels,
-    ...RUNNER_MODEL_PRESETS.map((model) => ({
-      ...model,
-      harnesses: [...model.harnesses],
-      source: "preset" as const,
-    })),
-  ];
-  const defaultHarness = localRunnerHarness(settings?.agents.defaultHarness) ?? "claude";
-
-  return {
-    generatedAt: Date.now(),
-    defaults: {
-      runner: "scout",
-      directory: currentDirectory,
-      harness: defaultHarness,
-      model: recommendedRunnerModel(defaultHarness, models),
-      persistence: "sticky" as const,
-    },
-    runners: [
-      {
-        id: "scout",
-        label: "Scout",
-        description: "Create or route to a Scout project agent, then deliver a broker-owned ask.",
-        supports: ["project_path", "harness", "model", "sticky_agent", "voice_instructions"],
-      },
-    ],
-    harnesses: (catalog?.entries ?? [])
-      .filter((entry) => SUPPORTED_LOCAL_AGENT_HARNESSES.includes(entry.harness as AgentHarness))
-      .map((entry) => ({
-        id: entry.harness,
-        name: entry.name,
-        label: entry.label,
-        description: entry.description,
-        state: entry.readinessReport.state,
-        ready: entry.readinessReport.ready,
-        detail: entry.readinessReport.detail,
-        binaryPath: entry.readinessReport.binaryPath,
-        loginCommand: entry.readinessReport.loginCommand,
-        capabilities: entry.capabilities,
-      })),
-    models,
-    agents: agents.map((agent) => ({
-      id: agent.id,
-      name: agent.name,
-      handle: agent.handle,
-      status: agent.state ?? "offline",
-      harness: agent.harness,
-      model: agent.model,
-      projectRoot: agent.projectRoot,
-      cwd: agent.cwd,
-      harnessSessionId: agent.harnessSessionId,
-    })),
-    projects: (setup?.projectInventory ?? []).slice(0, 120).map((project) => ({
-      id: project.agentId,
-      title: project.displayName,
-      root: project.projectRoot,
-      source: project.source,
-      registrationKind: project.registrationKind,
-      defaultHarness: project.defaultHarness,
-    })),
-  };
-}
-
-function runnerRequestTargetDirectory(body: Record<string, unknown>, currentDirectory: string): string {
-  const target = recordInput(body.target);
-  const targetKind = optionalString(target?.kind)?.trim();
-  if (target && targetKind && targetKind !== "project_path") {
-    throw new Error(`unsupported runner target kind: ${targetKind}`);
-  }
-  return resolveRunnerDirectory(
-    target?.path
-      ?? target?.projectPath
-      ?? body.directory
-      ?? body.projectPath,
-    currentDirectory,
-  );
-}
-
-function runnerRequestSession(value: unknown): "new" | "existing" | "any" | undefined {
-  const normalized = optionalString(value)?.trim();
-  return normalized === "new" || normalized === "existing" || normalized === "any"
-    ? normalized
-    : undefined;
-}
-
-function runnerRequestPersistence(value: unknown): "one_time" | "sticky" {
-  return optionalString(value)?.trim() === "one_time" ? "one_time" : "sticky";
 }
 
 export async function createOpenScoutWebServer(
@@ -2691,87 +2518,6 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  const runnerOptionsHandler = async (c: Context) =>
-    c.json(await buildAgentRunnerOptions(currentDirectory));
-  const runnerAskHandler = async (c: Context) => {
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-    const runner = optionalString(body.runner)?.trim() || "scout";
-    if (runner !== "scout") {
-      return c.json({ error: `unsupported runner: ${runner}` }, 400);
-    }
-
-    let directory: string;
-    try {
-      directory = runnerRequestTargetDirectory(body, currentDirectory);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return c.json({ error: message }, 400);
-    }
-
-    const instructions = (optionalString(body.instructions) ?? optionalString(body.body) ?? "").trim();
-    if (!instructions) {
-      return c.json({ error: "instructions are required" }, 400);
-    }
-
-    const execution = recordInput(body.execution) ?? {};
-    const agent = recordInput(body.agent) ?? {};
-    const harness = localRunnerHarness(execution.harness ?? body.harness);
-    const model = optionalString(execution.model ?? body.model)?.trim() || undefined;
-    const session = runnerRequestSession(execution.session ?? body.session);
-    const persistence = runnerRequestPersistence(agent.persistence ?? body.persistence);
-    const agentName = optionalString(agent.name ?? agent.agentName ?? body.agentName)?.trim() || undefined;
-    const displayName = optionalString(agent.displayName ?? body.displayName)?.trim() || undefined;
-
-    const result = await askScoutQuestion({
-      senderId: resolveOperatorName().trim() || "operator",
-      target: {
-        kind: "project_path",
-        projectPath: directory,
-      },
-      targetLabel: directory,
-      body: instructions,
-      ...(harness ? { executionHarness: harness } : {}),
-      ...(model ? { executionModel: model } : {}),
-      executionSession: session ?? (persistence === "sticky" ? "any" : "new"),
-      projectAgent: {
-        persistence,
-        ...(agentName ? { agentName } : {}),
-        ...(displayName ? { displayName } : {}),
-      },
-      currentDirectory: directory,
-      source: "runner-api",
-    });
-
-    if (!result.usedBroker) {
-      return c.json({ error: "broker unreachable" }, 502);
-    }
-    if (result.unresolvedTarget) {
-      return c.json(
-        {
-          error: `could not route ask for ${result.unresolvedTarget}`,
-          targetDiagnostic: result.targetDiagnostic ?? null,
-        },
-        409,
-      );
-    }
-
-    shellStateCache.invalidate();
-    return c.json({
-      ok: true,
-      runner: "scout",
-      directory,
-      persistence,
-      flight: result.flight ?? null,
-      conversationId: result.conversationId ?? null,
-      messageId: result.messageId ?? null,
-      targetAgentId: result.flight?.targetAgentId ?? null,
-    });
-  };
-  app.get("/api/runner/options", runnerOptionsHandler);
-  app.post("/api/runner/ask", runnerAskHandler);
-  // Back-compat for the exploration endpoint shape used by early HUD builds.
-  app.get("/api/agent-runner/options", runnerOptionsHandler);
-  app.post("/api/agent-runner/scout/ask", runnerAskHandler);
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/agents/:id", (c) => {
     const agent = queryAgentById(c.req.param("id"));
@@ -2820,6 +2566,7 @@ export async function createOpenScoutWebServer(
       systemPrompt: optionalString(body.systemPrompt) ?? existing.systemPrompt,
       launchArgs: stringList(body.launchArgs, existing.launchArgs),
       model,
+      channelEnabled: hasOwn(body, "channelEnabled") ? body.channelEnabled === true : existing.channelEnabled,
       capabilities: stringList(body.capabilities, existing.capabilities),
     });
     if (!nextConfig) {
@@ -3710,7 +3457,7 @@ export async function createOpenScoutWebServer(
         signal: c.req.raw.signal,
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Vox speech failed";
+      const message = error instanceof Error ? error.message : "Voice speech failed";
       return c.json({ error: message }, 503);
     }
   });

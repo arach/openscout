@@ -29,8 +29,8 @@ export type HistorySessionEvent = {
   event: PairingEvent;
 };
 
-export type SupportedHistoryAdapterType = "claude-code";
-export type HistoryAdapterType = SupportedHistoryAdapterType | "codex" | "unknown";
+export type SupportedHistoryAdapterType = "claude-code" | "codex";
+export type HistoryAdapterType = SupportedHistoryAdapterType | "unknown";
 
 export interface HistorySessionSnapshotInput {
   path: string;
@@ -187,6 +187,35 @@ function renderToolResultContent(content: unknown): string {
   return stringifyUnknown(content);
 }
 
+function renderContentPartsText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry;
+      }
+      if (!isRecord(entry)) {
+        return "";
+      }
+      if (typeof entry.text === "string") {
+        return entry.text;
+      }
+      if (typeof entry.content === "string") {
+        return entry.content;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 function extractReasoningText(item: Record<string, unknown>): string {
   const summary = Array.isArray(item.summary) ? item.summary : [];
   const content = Array.isArray(item.content) ? item.content : [];
@@ -272,8 +301,8 @@ function inferHistoryAdapterType(path: string, adapterType?: string | null): His
 }
 
 export function supportsHistorySessionSnapshot(adapterType: string | null | undefined): boolean {
-  return inferHistoryAdapterType("", adapterType ?? undefined) === "claude-code"
-    || adapterType === "claude-code";
+  const inferred = inferHistoryAdapterType("", adapterType ?? undefined);
+  return inferred === "claude-code" || inferred === "codex";
 }
 
 function buildBaseHistorySession(input: HistorySessionSnapshotInput, adapterType: HistoryAdapterType): Session {
@@ -1103,6 +1132,609 @@ class ClaudeCodeHistoryParser {
   }
 }
 
+class CodexHistoryParser {
+  private readonly events: HistorySessionEvent[] = [];
+  private currentTurn: Turn | null = null;
+  private turnCounter = 0;
+  private blockIndex = 0;
+  private blockById = new Map<string, Block>();
+  private toolBlockMap = new Map<string, string>();
+  private assistantMessageTextThisTurn = new Set<string>();
+  private inputTokens = 0;
+  private outputTokens = 0;
+  private reasoningOutputTokens = 0;
+  private cachedInputTokens = 0;
+  private tokenEventCount = 0;
+
+  constructor(
+    private readonly session: Session,
+    private readonly baseTimestampMs: number,
+  ) {}
+
+  parse(content: string): {
+    events: HistorySessionEvent[];
+    lineCount: number;
+    parsedLineCount: number;
+    skippedLineCount: number;
+  } {
+    const lines = content.split(/\r?\n/u);
+    let parsedLineCount = 0;
+    let skippedLineCount = 0;
+    let lineCount = 0;
+    let lastCapturedAt = this.baseTimestampMs;
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const rawLine = lines[index];
+      const trimmed = rawLine.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      lineCount += 1;
+
+      let record: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (!isRecord(parsed)) {
+          skippedLineCount += 1;
+          continue;
+        }
+        record = parsed;
+      } catch {
+        skippedLineCount += 1;
+        continue;
+      }
+
+      const capturedAt = extractRecordTimestamp(record) ?? (this.baseTimestampMs + index);
+      lastCapturedAt = capturedAt;
+      if (this.handleRecord(record, capturedAt)) {
+        parsedLineCount += 1;
+      } else {
+        skippedLineCount += 1;
+      }
+    }
+
+    if (this.persistUsageMetadata()) {
+      this.emitSessionUpdate(lastCapturedAt);
+    }
+
+    return {
+      events: this.events,
+      lineCount,
+      parsedLineCount,
+      skippedLineCount,
+    };
+  }
+
+  private handleRecord(record: Record<string, unknown>, capturedAt: number): boolean {
+    const type = maybeString(record.type);
+    if (!type) {
+      return false;
+    }
+
+    switch (type) {
+      case "session_meta":
+        this.handleSessionMeta(record, capturedAt);
+        return true;
+      case "turn_context":
+        this.handleTurnContext(record, capturedAt);
+        return true;
+      case "event_msg":
+        this.handleEventMessage(record, capturedAt);
+        return true;
+      case "response_item":
+        this.handleResponseItem(record, capturedAt);
+        return true;
+      case "compacted":
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private handleSessionMeta(record: Record<string, unknown>, capturedAt: number): void {
+    const payload = isRecord(record.payload) ? record.payload : {};
+    let changed = false;
+    const providerMeta = this.ensureProviderMeta();
+
+    const externalSessionId = maybeString(payload.id);
+    if (externalSessionId && providerMeta.externalSessionId !== externalSessionId) {
+      providerMeta.externalSessionId = externalSessionId;
+      changed = true;
+    }
+
+    const cwd = maybeString(payload.cwd);
+    if (cwd && this.session.cwd !== cwd) {
+      this.session.cwd = cwd;
+      if (!this.session.name || /^\d+$/u.test(this.session.name)) {
+        this.session.name = basename(cwd) || "Codex Session";
+      }
+      changed = true;
+    }
+
+    const git = isRecord(payload.git) ? payload.git : null;
+    const runtime = this.ensureObserveMetaRecord("observeRuntime");
+    changed = this.assignObserveString(runtime, "originator", payload.originator) || changed;
+    changed = this.assignObserveString(runtime, "cliVersion", payload.cli_version) || changed;
+    changed = this.assignObserveString(runtime, "source", payload.source) || changed;
+    changed = this.assignObserveString(runtime, "threadSource", payload.thread_source) || changed;
+    changed = this.assignObserveString(runtime, "modelProvider", payload.model_provider) || changed;
+    changed = this.assignObserveString(runtime, "gitBranch", git?.branch) || changed;
+    changed = this.assignObserveString(runtime, "gitCommitHash", git?.commit_hash) || changed;
+    changed = this.assignObserveString(runtime, "repositoryUrl", git?.repository_url) || changed;
+
+    if (changed) {
+      this.emitSessionUpdate(capturedAt);
+    }
+  }
+
+  private handleTurnContext(record: Record<string, unknown>, capturedAt: number): void {
+    const payload = isRecord(record.payload) ? record.payload : {};
+    let changed = false;
+
+    const cwd = maybeString(payload.cwd);
+    if (cwd && this.session.cwd !== cwd) {
+      this.session.cwd = cwd;
+      changed = true;
+    }
+
+    const model = maybeString(payload.model);
+    if (model && this.session.model !== model) {
+      this.session.model = model;
+      changed = true;
+    }
+
+    const runtime = this.ensureObserveMetaRecord("observeRuntime");
+    changed = this.assignObserveString(runtime, "approvalPolicy", payload.approval_policy) || changed;
+    changed = this.assignObserveString(runtime, "currentDate", payload.current_date) || changed;
+    changed = this.assignObserveString(runtime, "timezone", payload.timezone) || changed;
+    changed = this.assignObserveString(runtime, "effort", payload.effort) || changed;
+    changed = this.assignObserveString(runtime, "personality", payload.personality) || changed;
+
+    if (isRecord(payload.sandbox_policy) && runtime.sandboxPolicy !== payload.sandbox_policy) {
+      runtime.sandboxPolicy = payload.sandbox_policy;
+      changed = true;
+    }
+
+    if (changed) {
+      this.emitSessionUpdate(capturedAt);
+    }
+  }
+
+  private handleEventMessage(record: Record<string, unknown>, capturedAt: number): void {
+    const payload = isRecord(record.payload) ? record.payload : {};
+    const eventType = maybeString(payload.type);
+    if (!eventType) {
+      return;
+    }
+
+    switch (eventType) {
+      case "task_started": {
+        const startedAt = normalizeTimestamp(payload.started_at) ?? capturedAt;
+        this.startTurn(startedAt, maybeString(payload.turn_id));
+        break;
+      }
+      case "user_message":
+        this.ensureTurn(capturedAt);
+        break;
+      case "agent_message": {
+        const message = maybeString(payload.message);
+        if (message) {
+          this.appendCompletedText(capturedAt, message);
+          this.assistantMessageTextThisTurn.add(message);
+        }
+        break;
+      }
+      case "patch_apply_end":
+        this.handleToolOutput(
+          capturedAt,
+          maybeString(payload.call_id),
+          [maybeString(payload.stdout), maybeString(payload.stderr)].filter(Boolean).join("\n"),
+          payload.success === false,
+        );
+        break;
+      case "token_count":
+        this.captureTokenUsage(payload.info);
+        break;
+      case "task_complete":
+        this.endTurn("completed", normalizeTimestamp(payload.completed_at) ?? capturedAt);
+        break;
+      case "context_compacted":
+      case "web_search_end":
+        break;
+      default:
+        break;
+    }
+  }
+
+  private handleResponseItem(record: Record<string, unknown>, capturedAt: number): void {
+    const payload = isRecord(record.payload) ? record.payload : {};
+    const itemType = maybeString(payload.type);
+    if (!itemType) {
+      return;
+    }
+
+    switch (itemType) {
+      case "message":
+        this.handleResponseMessage(payload, capturedAt);
+        break;
+      case "reasoning":
+        this.handleReasoning(payload, capturedAt);
+        break;
+      case "function_call":
+      case "custom_tool_call":
+        this.handleToolCall(payload, capturedAt);
+        break;
+      case "function_call_output":
+      case "custom_tool_call_output":
+        this.handleToolOutput(
+          capturedAt,
+          maybeString(payload.call_id),
+          renderToolResultContent(payload.output),
+          false,
+        );
+        break;
+      case "web_search_call":
+        this.handleWebSearchCall(payload, capturedAt);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private handleResponseMessage(payload: Record<string, unknown>, capturedAt: number): void {
+    const role = maybeString(payload.role);
+    if (role !== "assistant") {
+      return;
+    }
+
+    const text = renderContentPartsText(payload.content).trim();
+    if (!text || this.assistantMessageTextThisTurn.has(text)) {
+      return;
+    }
+
+    this.appendCompletedText(capturedAt, text);
+    this.assistantMessageTextThisTurn.add(text);
+  }
+
+  private handleReasoning(payload: Record<string, unknown>, capturedAt: number): void {
+    const text = extractReasoningText(payload);
+    if (!text) {
+      return;
+    }
+
+    const turn = this.ensureTurn(capturedAt);
+    const block = this.startBlock<Extract<Block, { type: "reasoning" }>>(turn, capturedAt, {
+      type: "reasoning",
+      text,
+      status: "completed",
+    });
+    this.emitBlockEnd(capturedAt, turn, block, "completed");
+  }
+
+  private handleToolCall(payload: Record<string, unknown>, capturedAt: number): void {
+    const turn = this.ensureTurn(capturedAt);
+    const toolName = maybeString(payload.name) ?? "unknown";
+    const toolCallId = maybeString(payload.call_id) ?? `${turn.id}:tool:${this.blockIndex}`;
+    const input = this.parseToolInput(payload.arguments ?? payload.input);
+    const action = this.buildAction(toolName, toolCallId, input);
+
+    const block = this.startBlock<Extract<Block, { type: "action" }>>(turn, capturedAt, {
+      id: `${turn.id}:action:${toolCallId}`,
+      type: "action",
+      action,
+      status: "streaming",
+    });
+    this.toolBlockMap.set(toolCallId, block.id);
+  }
+
+  private handleWebSearchCall(payload: Record<string, unknown>, capturedAt: number): void {
+    const turn = this.ensureTurn(capturedAt);
+    const toolCallId = `${turn.id}:web-search:${this.blockIndex}`;
+    const action: Action = {
+      kind: "tool_call",
+      toolName: "web_search",
+      toolCallId,
+      input: payload.action,
+      result: payload.status,
+      status: maybeString(payload.status) === "failed" ? "failed" : "completed",
+      output: "",
+    };
+    const block = this.startBlock<Extract<Block, { type: "action" }>>(turn, capturedAt, {
+      id: `${turn.id}:action:${toolCallId}`,
+      type: "action",
+      action,
+      status: "completed",
+    });
+    this.emitBlockEnd(capturedAt, turn, block, "completed");
+  }
+
+  private parseToolInput(value: unknown): unknown {
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    try {
+      return JSON.parse(trimmed) as unknown;
+    } catch {
+      return value;
+    }
+  }
+
+  private buildAction(toolName: string, toolCallId: string, input: unknown): Action {
+    const inputRecord = isRecord(input) ? input : {};
+
+    if (toolName === "exec_command") {
+      return {
+        kind: "command",
+        command: maybeString(inputRecord.cmd) ?? "",
+        status: "running",
+        output: "",
+      };
+    }
+
+    return {
+      kind: "tool_call",
+      toolName,
+      toolCallId,
+      input,
+      status: "running",
+      output: "",
+    };
+  }
+
+  private handleToolOutput(
+    capturedAt: number,
+    toolCallId: string | undefined,
+    output: string,
+    isError: boolean,
+  ): void {
+    if (!toolCallId) {
+      return;
+    }
+
+    const blockId = this.toolBlockMap.get(toolCallId);
+    const turn = this.currentTurn;
+    if (!blockId || !turn) {
+      return;
+    }
+
+    if (output) {
+      this.emitEvent(capturedAt, {
+        event: "block:action:output",
+        sessionId: this.session.id,
+        turnId: turn.id,
+        blockId,
+        output,
+      });
+    }
+
+    const exitCode = this.extractExitCode(output);
+    const status = isError || (exitCode != null && exitCode !== 0) ? "failed" : "completed";
+    this.emitEvent(capturedAt, {
+      event: "block:action:status",
+      sessionId: this.session.id,
+      turnId: turn.id,
+      blockId,
+      status,
+      ...(exitCode != null ? { meta: { exitCode } } : {}),
+    });
+
+    const block = this.blockById.get(blockId);
+    if (block) {
+      this.emitBlockEnd(capturedAt, turn, block, status === "failed" ? "failed" : "completed");
+    }
+    this.toolBlockMap.delete(toolCallId);
+  }
+
+  private extractExitCode(output: string): number | null {
+    const match = output.match(/(?:exit code|exited with code):\s*(-?\d+)/iu);
+    if (!match) {
+      return null;
+    }
+
+    const exitCode = Number(match[1]);
+    return Number.isFinite(exitCode) ? exitCode : null;
+  }
+
+  private captureTokenUsage(info: unknown): void {
+    if (!isRecord(info)) {
+      return;
+    }
+
+    const total = isRecord(info.total_token_usage) ? info.total_token_usage : {};
+    this.inputTokens = maybeNumber(total.input_tokens) ?? this.inputTokens;
+    this.outputTokens = maybeNumber(total.output_tokens) ?? this.outputTokens;
+    this.reasoningOutputTokens = maybeNumber(total.reasoning_output_tokens) ?? this.reasoningOutputTokens;
+    this.cachedInputTokens = maybeNumber(total.cached_input_tokens) ?? this.cachedInputTokens;
+    this.tokenEventCount += 1;
+  }
+
+  private persistUsageMetadata(): boolean {
+    if (this.tokenEventCount === 0) {
+      return false;
+    }
+
+    const usage = this.ensureObserveMetaRecord("observeUsage");
+    let changed = false;
+    const assignNumber = (key: string, value: number): void => {
+      if (value > 0 && usage[key] !== value) {
+        usage[key] = value;
+        changed = true;
+      }
+    };
+
+    assignNumber("inputTokens", this.inputTokens);
+    assignNumber("outputTokens", this.outputTokens);
+    assignNumber("reasoningOutputTokens", this.reasoningOutputTokens);
+    assignNumber("cacheReadInputTokens", this.cachedInputTokens);
+    assignNumber("tokenEvents", this.tokenEventCount);
+    return changed;
+  }
+
+  private startTurn(capturedAt: number, turnId?: string): Turn {
+    if (this.currentTurn) {
+      this.endTurn("stopped", capturedAt);
+    }
+
+    this.turnCounter += 1;
+    this.blockIndex = 0;
+    this.blockById.clear();
+    this.toolBlockMap.clear();
+    this.assistantMessageTextThisTurn.clear();
+
+    this.session.status = "active";
+    this.emitSessionUpdate(capturedAt);
+
+    const turn: Turn = {
+      id: turnId || `history-turn-${this.turnCounter}`,
+      sessionId: this.session.id,
+      status: "started",
+      startedAt: new Date(capturedAt).toISOString(),
+      blocks: [],
+    };
+    this.currentTurn = turn;
+
+    this.emitEvent(capturedAt, {
+      event: "turn:start",
+      sessionId: this.session.id,
+      turn,
+    });
+
+    return turn;
+  }
+
+  private ensureTurn(capturedAt: number): Turn {
+    return this.currentTurn ?? this.startTurn(capturedAt);
+  }
+
+  private endTurn(status: TurnStatus, capturedAt: number): void {
+    const turn = this.currentTurn;
+    if (!turn) {
+      return;
+    }
+
+    turn.status = status;
+    turn.endedAt = new Date(capturedAt).toISOString();
+    this.emitEvent(capturedAt, {
+      event: "turn:end",
+      sessionId: this.session.id,
+      turnId: turn.id,
+      status,
+    });
+
+    this.currentTurn = null;
+    this.blockById.clear();
+    this.toolBlockMap.clear();
+    this.assistantMessageTextThisTurn.clear();
+
+    this.session.status = "idle";
+    this.emitSessionUpdate(capturedAt);
+  }
+
+  private appendCompletedText(capturedAt: number, text: string): void {
+    const turn = this.ensureTurn(capturedAt);
+    const block = this.startBlock<Extract<Block, { type: "text" }>>(turn, capturedAt, {
+      type: "text",
+      text,
+      status: "completed",
+    });
+    this.emitBlockEnd(capturedAt, turn, block, "completed");
+  }
+
+  private startBlock<T extends Block>(
+    turn: Turn,
+    capturedAt: number,
+    partial: Omit<T, "turnId" | "index" | "id"> & { id?: string },
+  ): T {
+    const block = {
+      ...partial,
+      id: partial.id || `${turn.id}:block:${this.blockIndex}`,
+      turnId: turn.id,
+      index: this.blockIndex,
+    } as T;
+    this.blockIndex += 1;
+    turn.blocks.push(block);
+    this.blockById.set(block.id, block);
+
+    this.emitEvent(capturedAt, {
+      event: "block:start",
+      sessionId: this.session.id,
+      turnId: turn.id,
+      block,
+    });
+
+    return block;
+  }
+
+  private emitBlockEnd(
+    capturedAt: number,
+    turn: Turn,
+    block: Block,
+    status: Block["status"],
+  ): void {
+    block.status = status;
+    this.emitEvent(capturedAt, {
+      event: "block:end",
+      sessionId: this.session.id,
+      turnId: turn.id,
+      blockId: block.id,
+      status,
+    });
+  }
+
+  private ensureProviderMeta(): Record<string, unknown> {
+    const providerMeta = isRecord(this.session.providerMeta) ? this.session.providerMeta : {};
+    this.session.providerMeta = providerMeta;
+    return providerMeta;
+  }
+
+  private ensureObserveMetaRecord(key: "observeRuntime" | "observeUsage"): Record<string, unknown> {
+    const providerMeta = this.ensureProviderMeta();
+    const existing = providerMeta[key];
+    if (isRecord(existing)) {
+      return existing;
+    }
+
+    const next: Record<string, unknown> = {};
+    providerMeta[key] = next;
+    return next;
+  }
+
+  private assignObserveString(
+    target: Record<string, unknown>,
+    key: string,
+    value: unknown,
+  ): boolean {
+    const next = maybeString(value);
+    if (!next || target[key] === next) {
+      return false;
+    }
+
+    target[key] = next;
+    return true;
+  }
+
+  private emitSessionUpdate(capturedAt: number): void {
+    this.emitEvent(capturedAt, {
+      event: "session:update",
+      session: { ...this.session },
+    });
+  }
+
+  private emitEvent(capturedAt: number, event: PairingEvent): void {
+    this.events.push({
+      capturedAt,
+      event: structuredClone(event),
+    });
+  }
+}
+
 export function inferHistorySessionAdapterType(
   path: string,
   adapterType?: string | null,
@@ -1114,20 +1746,23 @@ export function supportsHistorySessionSnapshotForPath(
   path: string,
   adapterType?: string | null,
 ): boolean {
-  return inferHistoryAdapterType(path, adapterType) === "claude-code";
+  const inferred = inferHistoryAdapterType(path, adapterType);
+  return inferred === "claude-code" || inferred === "codex";
 }
 
 export function createHistorySessionSnapshot(
   input: HistorySessionSnapshotInput,
 ): HistorySessionSnapshotResult {
   const adapterType = inferHistoryAdapterType(input.path, input.adapterType);
-  if (adapterType !== "claude-code") {
+  if (adapterType !== "claude-code" && adapterType !== "codex") {
     throw new Error(`History snapshot is not supported for adapter type "${adapterType}".`);
   }
 
   const session = buildBaseHistorySession(input, adapterType);
   const baseTimestampMs = normalizeTimestamp(input.baseTimestampMs) ?? Date.now();
-  const parser = new ClaudeCodeHistoryParser(session, baseTimestampMs);
+  const parser = adapterType === "codex"
+    ? new CodexHistoryParser(session, baseTimestampMs)
+    : new ClaudeCodeHistoryParser(session, baseTimestampMs);
   const replay = parser.parse(input.content);
 
   const tracker = new StateTracker();

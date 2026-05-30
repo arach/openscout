@@ -87,6 +87,11 @@ export function useScoutCommands(): CommandOption[] {
         action: () => navigate({ view: "sessions" }),
       },
       {
+        id: "nav:search",
+        label: "Go to Search",
+        action: () => navigate({ view: "search" }),
+      },
+      {
         id: "nav:activity",
         label: "Go to Activity",
         action: () => navigate({ view: "activity" }),
@@ -275,6 +280,7 @@ const VIEW_LABELS: Record<string, string> = {
   fleet: "Fleet",
   conversations: "Conversations",
   sessions: "Sessions",
+  search: "Search",
   channels: "Channels",
   activity: "Activity",
   mesh: "Mesh",
@@ -292,6 +298,7 @@ export function useScoutNavCenter(): ReactNode | null {
     { label: "Agents", view: "agents" },
     { label: "Messages", view: "messages" },
     { label: "Sessions", view: "sessions" },
+    { label: "Search", view: "search" },
     { label: "Mesh", view: "mesh" },
     { label: "Broker", view: "broker" },
     ...(opsEnabled ? [{ label: "Ops" as const, view: "ops" as Route["view"] }] : []),

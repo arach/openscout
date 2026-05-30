@@ -14,7 +14,6 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import {
-  isScoutbotAgent,
   scoutbotConversationId,
   resolveScoutbotAgentId,
   type ScoutbotUiAction,
@@ -195,7 +194,7 @@ export function ScoutProvider({
     const request = (async () => {
       const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
       if (agentsResult) {
-        setAgents(agentsResult.filter((agent) => !isScoutbotAgent(agent)));
+        setAgents(agentsResult);
       }
     })();
 

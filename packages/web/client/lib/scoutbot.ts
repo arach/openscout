@@ -1,6 +1,6 @@
 import type { Agent, OpsMode, Route } from "./types.ts";
 
-export const DEFAULT_SCOUTBOT_AGENT_ID = "scoutbot.main.mini";
+export const DEFAULT_SCOUTBOT_AGENT_ID = "scoutbot";
 
 const SCOUTBOT_AGENT_IDS = new Set([
   DEFAULT_SCOUTBOT_AGENT_ID,
