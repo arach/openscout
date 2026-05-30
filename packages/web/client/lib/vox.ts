@@ -119,7 +119,7 @@ export type VoxLaunchContext = {
   };
 };
 
-const DEFAULT_VOX_BRIDGE = "http://127.0.0.1:43115";
+const DEFAULT_SCOUT_VOICE_BRIDGE = "http://127.0.0.1:43116";
 const VOX_CLIENT_ID = "openscout-web";
 
 export class VoxBrowserClient {
@@ -127,7 +127,7 @@ export class VoxBrowserClient {
   private unavailableReason: string | null = null;
   private client: ReturnType<typeof createVoxdClient>;
 
-  constructor(private readonly baseUrl = DEFAULT_VOX_BRIDGE) {
+  constructor(private readonly baseUrl = DEFAULT_SCOUT_VOICE_BRIDGE) {
     this.client = this.createClient();
   }
 

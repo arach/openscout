@@ -8,7 +8,7 @@ import ScoutNativeCore
 final class ScoutVoiceBridgeServer {
     static let shared = ScoutVoiceBridgeServer()
 
-    private let port: NWEndpoint.Port = 43115
+    private let port: NWEndpoint.Port = 43116
     private let queue = DispatchQueue(label: "dev.openscout.menu.voice-bridge")
     private let log = Logger(subsystem: "dev.openscout.menu", category: "voice-bridge")
     private var listener: NWListener?
