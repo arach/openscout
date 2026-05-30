@@ -23,6 +23,7 @@ import {
   summarizeRunLog,
   type RunLogEntry,
 } from "@/lib/studio/run-log";
+import { Suspense } from "react";
 
 type Harness = "Codex" | "Claude";
 type Tier = "large" | "normal" | "small";
@@ -206,62 +207,13 @@ export default async function SessionSearchStudyPage({
     artifact: params.artifact,
   };
 
+  // Inventory is cheap and the page header needs its totals. Always run it
+  // synchronously before sending chrome to the client.
   const inventoryRun = await runCommand(inventoryCommand, { since: "7d" });
   const inventory = inventoryRun.output;
   const weekFootprint = inventoryRun.error
     ? "scan failed"
     : `${formatCount(inventory.totalFiles)} files · ${formatBytes(inventory.totalBytes)} · ${inventory.windowDays} days`;
-
-  // ── Orchestrate per-stage runs so the run summary footer can show what
-  // ── happened underneath the current page render.
-  const runLog: RunLogEntry[] = [
-    makeRunLogEntry(inventoryCommand, inventoryRun),
-  ];
-
-  const sessionSlug = `${selectedSession.harness.toLowerCase()}-${selectedSession.tier}`;
-  const needsParse = stageId === "normalize" || stageId === "extract" || stageId === "enrich";
-  const needsExtract = stageId === "extract" || stageId === "enrich";
-
-  let normalizeRun: CommandRun<ParseSessionResult> | undefined;
-  if (needsParse) {
-    const limit = stageId === "normalize" ? 14 : 1500;
-    normalizeRun = await runCommand(parseSessionCommand, {
-      path: selectedSession.fullPath,
-      limit,
-    });
-    runLog.push(makeRunLogEntry(parseSessionCommand, normalizeRun));
-  }
-
-  let extractRun: CommandRun<ExtractQmdResult> | undefined;
-  if (needsExtract) {
-    extractRun = await runCommand(extractQmdCommand, {
-      path: selectedSession.fullPath,
-      sessionId: sessionSlug,
-      recordLimit: 1500,
-    });
-    runLog.push(makeRunLogEntry(extractQmdCommand, extractRun));
-  }
-
-  let enrichRun: CommandRun<EnrichSessionResult> | undefined;
-  if (stageId === "enrich") {
-    enrichRun = await runCommand(enrichSessionCommand, {
-      path: selectedSession.fullPath,
-      sessionId: sessionSlug,
-      recordLimit: 1500,
-    });
-    runLog.push(
-      makeRunLogEntry(enrichSessionCommand, enrichRun, (out) =>
-        out?.model
-          ? {
-              model: out.model,
-              promptTokens: out.usage.promptTokens,
-              completionTokens: out.usage.completionTokens,
-              reasoningTokens: out.usage.reasoningTokens,
-            }
-          : undefined,
-      ),
-    );
-  }
 
   return (
     <main className="mx-auto max-w-page px-7 py-8" data-testid="session-search-study">
@@ -323,21 +275,175 @@ export default async function SessionSearchStudyPage({
           next={nextStage}
         />
 
-        <StagePanel
-          stage={selectedStage}
-          session={selectedSession}
-          inventoryRun={inventoryRun}
-          normalizeRun={normalizeRun}
-          extractRun={extractRun}
-          enrichRun={enrichRun}
-          selection={selection}
-        />
+        <Suspense
+          key={`${selectedSession.id}::${stageId}`}
+          fallback={
+            <StageBodySkeleton
+              stageId={stageId}
+              stageLabel={selectedStage.label}
+            />
+          }
+        >
+          <StageBody
+            stage={selectedStage}
+            session={selectedSession}
+            selection={selection}
+            inventoryRun={inventoryRun}
+          />
+        </Suspense>
       </div>
-
-      <RunSummary entries={runLog} />
 
     </main>
   );
+}
+
+// ── Stage body (streams in after commands resolve) ───────────────
+
+async function StageBody({
+  stage,
+  session,
+  selection,
+  inventoryRun,
+}: {
+  stage: Stage;
+  session: SessionSample;
+  selection: StudySelection;
+  inventoryRun: CommandRun<InventoryResult>;
+}) {
+  const stageId = stage.id;
+  const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
+  const needsParse = stageId === "normalize" || stageId === "extract" || stageId === "enrich";
+  const needsExtract = stageId === "extract" || stageId === "enrich";
+
+  const runLog: RunLogEntry[] = [makeRunLogEntry(inventoryCommand, inventoryRun)];
+
+  let normalizeRun: CommandRun<ParseSessionResult> | undefined;
+  if (needsParse) {
+    const limit = stageId === "normalize" ? 14 : 1500;
+    normalizeRun = await runCommand(parseSessionCommand, {
+      path: session.fullPath,
+      limit,
+    });
+    runLog.push(makeRunLogEntry(parseSessionCommand, normalizeRun));
+  }
+
+  let extractRun: CommandRun<ExtractQmdResult> | undefined;
+  if (needsExtract) {
+    extractRun = await runCommand(extractQmdCommand, {
+      path: session.fullPath,
+      sessionId: sessionSlug,
+      recordLimit: 1500,
+    });
+    runLog.push(makeRunLogEntry(extractQmdCommand, extractRun));
+  }
+
+  let enrichRun: CommandRun<EnrichSessionResult> | undefined;
+  if (stageId === "enrich") {
+    enrichRun = await runCommand(enrichSessionCommand, {
+      path: session.fullPath,
+      sessionId: sessionSlug,
+      recordLimit: 1500,
+    });
+    runLog.push(
+      makeRunLogEntry(enrichSessionCommand, enrichRun, (out) =>
+        out?.model
+          ? {
+              model: out.model,
+              promptTokens: out.usage.promptTokens,
+              completionTokens: out.usage.completionTokens,
+              reasoningTokens: out.usage.reasoningTokens,
+            }
+          : undefined,
+      ),
+    );
+  }
+
+  return (
+    <>
+      <StagePanel
+        stage={stage}
+        session={session}
+        inventoryRun={inventoryRun}
+        normalizeRun={normalizeRun}
+        extractRun={extractRun}
+        enrichRun={enrichRun}
+        selection={selection}
+      />
+      <div className="border-t border-studio-edge">
+        <RunSummary entries={runLog} />
+      </div>
+    </>
+  );
+}
+
+function StageBodySkeleton({
+  stageId,
+  stageLabel,
+}: {
+  stageId: StageId;
+  stageLabel: string;
+}) {
+  const expected = expectedCommands(stageId);
+  return (
+    <div className="p-5">
+      <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
+        <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
+          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            running {stageLabel.toLowerCase()}
+          </span>
+          <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-status-info-fg">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-status-info-fg" />
+            in flight
+          </span>
+        </div>
+        <ul className="divide-y divide-studio-edge font-mono text-[10.5px]">
+          {expected.map((cmd, i) => (
+            <li
+              key={cmd.id}
+              className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,200px)] items-center gap-3 px-3 py-2"
+            >
+              <span className="tabular-nums text-studio-ink-faint">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <span className="text-studio-ink">
+                {cmd.label}
+                <span className="ml-2 text-studio-ink-faint">{cmd.id}</span>
+              </span>
+              <span className="text-right text-studio-ink-faint">
+                {cmd.eta}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="border-t border-studio-edge bg-studio-canvas-alt px-3 py-2 font-sans text-[11.5px] text-studio-ink-faint">
+          Chrome rendered; panel and run trace stream in when commands resolve.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function expectedCommands(stageId: StageId): Array<{
+  id: string;
+  label: string;
+  eta: string;
+}> {
+  const inv = { id: "inventory", label: "Inventory", eta: "cached if recent" };
+  const parse = { id: "parse-session", label: "Parse session", eta: "~100 ms · cached" };
+  const extract = {
+    id: "extract-qmd",
+    label: "Extract QMD (mechanical)",
+    eta: "~ms · cached",
+  };
+  const enrich = {
+    id: "enrich-session",
+    label: "Enrich (LLM)",
+    eta: "first run: 5–15 s",
+  };
+  if (stageId === "discover") return [inv];
+  if (stageId === "normalize") return [inv, parse];
+  if (stageId === "extract") return [inv, parse, extract];
+  return [inv, parse, extract, enrich];
 }
 
 // ── Session picker (single inline row) ───────────────────────────
