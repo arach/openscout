@@ -7,11 +7,16 @@ import {
   type NormalizedRecord,
   type ParseSessionResult,
 } from "@/lib/studio/commands/parse-session";
+import {
+  extractQmdCommand,
+  type ExtractQmdResult,
+  type ExtractedFile,
+} from "@/lib/studio/commands/extract-qmd";
 import { CommandSurface } from "@/components/studio/CommandSurface";
 
 type Harness = "Codex" | "Claude";
 type Tier = "large" | "normal" | "small";
-type StageId = "discover" | "normalize";
+type StageId = "discover" | "normalize" | "extract";
 
 interface SessionSample {
   id: string;
@@ -39,12 +44,15 @@ interface PageProps {
   searchParams: Promise<{
     session?: string;
     step?: string;
+    /** Active artifact in the Extract panel preview. */
+    artifact?: string;
   }>;
 }
 
 interface StudySelection {
   sessionId: string;
   stageId: StageId;
+  artifact?: string;
 }
 
 const SESSIONS: SessionSample[] = [
@@ -147,6 +155,15 @@ const STAGES: Stage[] = [
     summary:
       "Parse JSONL into a uniform event model so downstream code sees the same record shape regardless of harness.",
   },
+  {
+    id: "extract",
+    label: "Extract",
+    verb: "derive",
+    input: "normalized records",
+    output: "QMD sidecar files",
+    summary:
+      "Mechanical pass writes files.md / tool-calls.md / events-NNN.md. LLM pass writes overview.md / decisions.md by summarizing the condensed transcript through MiniMax. Outputs land on disk under /tmp/scout-study/qmd/<session>/.",
+  },
 ];
 
 const DOC_HREF = "/eng/sco-059-session-knowledge-search-exploration";
@@ -167,6 +184,7 @@ export default async function SessionSearchStudyPage({
   const selection: StudySelection = {
     sessionId: selectedSession.id,
     stageId,
+    artifact: params.artifact,
   };
 
   const inventoryRun = await runCommand(inventoryCommand, { since: "7d" });
@@ -239,6 +257,7 @@ export default async function SessionSearchStudyPage({
           stage={selectedStage}
           session={selectedSession}
           inventoryRun={inventoryRun}
+          selection={selection}
         />
       </div>
 
@@ -458,16 +477,20 @@ function StagePanel({
   stage,
   session,
   inventoryRun,
+  selection,
 }: {
   stage: Stage;
   session: SessionSample;
   inventoryRun: CommandRun<InventoryResult>;
+  selection: StudySelection;
 }) {
   switch (stage.id) {
     case "discover":
       return <DiscoverPanel session={session} inventoryRun={inventoryRun} />;
     case "normalize":
       return <NormalizePanel session={session} />;
+    case "extract":
+      return <ExtractPanel session={session} selection={selection} />;
   }
 }
 
@@ -792,6 +815,163 @@ function NormalizedRow({ record }: { record: NormalizedRecord }) {
   );
 }
 
+// ── Extract panel ────────────────────────────────────────────────
+
+async function ExtractPanel({
+  session,
+  selection,
+}: {
+  session: SessionSample;
+  selection: StudySelection;
+}) {
+  const run = await runCommand(extractQmdCommand, {
+    path: session.fullPath,
+    sessionId: `${session.harness.toLowerCase()}-${session.tier}`,
+    recordLimit: 1500,
+    withLlm: true,
+  });
+
+  const result = run.output;
+  const files = result?.files ?? [];
+  const selectedName = files.find((f) => f.name === selection.artifact)?.name
+    ?? files.find((f) => f.name === "overview.md")?.name
+    ?? files[0]?.name;
+  const selected = files.find((f) => f.name === selectedName);
+  const previewContent = selected ? await safeReadFile(selected.path) : "";
+
+  return (
+    <div className="space-y-4 p-5">
+      <CommandSurface
+        shell={extractQmdCommand.shell({
+          path: session.fullPath,
+          sessionId: `${session.harness.toLowerCase()}-${session.tier}`,
+          withLlm: true,
+        })}
+        run={run}
+        body={
+          <ExtractBody
+            result={result}
+            selection={selection}
+            files={files}
+            selected={selected}
+            previewContent={previewContent}
+          />
+        }
+        footnote={
+          result && !result.error ? (
+            <>
+              Wrote {files.length} files to{" "}
+              <code className="font-mono text-[10.5px] text-studio-ink" title={result.outDir}>
+                {shortenTmpPath(result.outDir)}
+              </code>{" "}
+              · mechanical {result.mechanicalMs} ms · llm {result.llmMs} ms
+              {result.llm ? (
+                <>
+                  {" · "}model{" "}
+                  <code className="font-mono text-[11px] text-studio-ink">
+                    {result.llm.model}
+                  </code>{" "}
+                  · {result.llm.usage.promptTokens}+{result.llm.usage.completionTokens}t
+                  ({result.llm.usage.reasoningTokens} reasoning)
+                </>
+              ) : null}
+            </>
+          ) : null
+        }
+      />
+    </div>
+  );
+}
+
+function shortenTmpPath(p: string): string {
+  // macOS tmpdir is /var/folders/.../T/...; trim to a readable suffix.
+  const m = p.match(/\/T\/(.+)$/);
+  return m ? `$TMPDIR/${m[1]}` : p;
+}
+
+async function safeReadFile(p: string): Promise<string> {
+  try {
+    const { promises: fs } = await import("node:fs");
+    const buf = await fs.readFile(p);
+    const text = buf.toString("utf8");
+    return text.length > 20_000 ? text.slice(0, 20_000) + "\n\n… (truncated)" : text;
+  } catch (err) {
+    return `(could not read: ${err instanceof Error ? err.message : String(err)})`;
+  }
+}
+
+function ExtractBody({
+  result,
+  selection,
+  files,
+  selected,
+  previewContent,
+}: {
+  result: ExtractQmdResult | undefined;
+  selection: StudySelection;
+  files: ExtractedFile[];
+  selected: ExtractedFile | undefined;
+  previewContent: string;
+}) {
+  if (!result || result.error) {
+    return (
+      <pre className="px-3 py-2 font-mono text-[10.5px] text-studio-ink-faint">
+        {result?.error ?? "no extract result"}
+      </pre>
+    );
+  }
+  return (
+    <div className="grid grid-cols-1 gap-px bg-studio-edge md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+      <ul className="divide-y divide-studio-edge bg-studio-canvas font-mono text-[10.5px]">
+        <li className="grid grid-cols-[40px_minmax(0,1fr)_64px] gap-2 border-b border-studio-edge px-3 py-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span>kind</span>
+          <span>file</span>
+          <span className="text-right">bytes</span>
+        </li>
+        {files.map((f) => {
+          const active = selected?.name === f.name;
+          return (
+            <li key={f.name}>
+              <a
+                href={studyHref(selection, { artifact: f.name })}
+                aria-current={active ? "true" : undefined}
+                className={[
+                  "grid grid-cols-[40px_minmax(0,1fr)_64px] items-baseline gap-2 px-3 py-1.5 transition-colors",
+                  active
+                    ? "bg-scout-accent-soft shadow-[inset_2px_0_0_var(--scout-accent)]"
+                    : "hover:bg-studio-canvas-alt",
+                ].join(" ")}
+              >
+                <span
+                  className={
+                    f.kind === "llm"
+                      ? "text-status-info-fg"
+                      : "text-studio-ink-faint"
+                  }
+                >
+                  {f.kind === "llm" ? "llm" : "mech"}
+                </span>
+                <span className="truncate text-studio-ink">{f.name}</span>
+                <span className="text-right tabular-nums text-studio-ink-faint">
+                  {formatBytes(f.bytes)}
+                </span>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="bg-studio-canvas">
+        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          preview · {selected?.name ?? "—"}
+        </div>
+        <pre className="max-h-[420px] overflow-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-studio-ink">
+          {previewContent || "(empty)"}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 
 function isStageId(value: string): value is StageId {
   return STAGES.some((stage) => stage.id === value);
@@ -804,6 +984,8 @@ function studyHref(
   const params = new URLSearchParams();
   params.set("session", next.sessionId ?? current.sessionId);
   params.set("step", next.stageId ?? current.stageId);
+  const artifact = next.artifact ?? current.artifact;
+  if (artifact) params.set("artifact", artifact);
   return `/studies/session-search?${params.toString()}`;
 }
 
