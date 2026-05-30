@@ -18,6 +18,14 @@ export type ScoutDeliverIntent = "tell" | "consult";
 
 export type ScoutDeliverRouteKind = "dm" | "channel" | "broadcast";
 
+export type ScoutProjectAgentPersistence = "one_time" | "sticky";
+
+export interface ScoutProjectAgentSpec {
+  persistence?: ScoutProjectAgentPersistence;
+  agentName?: string;
+  displayName?: string;
+}
+
 export type ScoutDeliveryRemediationKind =
   | "choose_target"
   | "register_target"
@@ -49,6 +57,7 @@ export interface ScoutDeliverRequest {
   speechText?: string;
   ensureAwake?: boolean;
   execution?: InvocationExecutionPreference;
+  projectAgent?: ScoutProjectAgentSpec;
   labels?: string[];
   createdAt?: number;
   collaborationRecordId?: ScoutId;

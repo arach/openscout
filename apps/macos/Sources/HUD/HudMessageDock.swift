@@ -45,6 +45,7 @@ enum HudDockSize {
 struct HudMessageDock: View {
     @ObservedObject private var dock = HUDDockState.shared
     @ObservedObject private var compose = HudComposeService.shared
+    @ObservedObject private var fleet = HudFleetService.shared
     @FocusState private var focused: Bool
     @State private var panelWidth: CGFloat = 0
 
@@ -86,6 +87,19 @@ struct HudMessageDock: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .topLeading) {
+            if dock.suggestionsVisible {
+                DockSuggestionPopover(
+                    suggestions: dock.suggestions,
+                    selectedIndex: dock.selectedSuggestionIndex,
+                    onHover: { dock.selectSuggestion(index: $0) },
+                    onSelect: { dock.applySuggestion($0) }
+                )
+                .padding(.horizontal, size.horizontalPadding)
+                .offset(y: -suggestionPopoverHeight(count: dock.suggestions.count) - 4)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(key: DockWidthKey.self, value: proxy.size.width)
@@ -97,9 +111,13 @@ struct HudMessageDock: View {
             DockFieldSelection.moveCaretToEndSoon()
         }
         .onChange(of: dock.blurRequested)  { _, _ in focused = false }
+        .onChange(of: dock.text) { _, _ in refreshSuggestions() }
+        .onReceive(fleet.$agents) { _ in refreshSuggestions() }
+        .onAppear { refreshSuggestions() }
     }
 
     private func submit() {
+        if dock.applySelectedSuggestion() { return }
         // Snapshot + clear synchronously so the field empties on the
         // same runloop tick as the keypress — no Task hop between the
         // user pressing return and SwiftUI seeing an empty binding.
@@ -108,6 +126,122 @@ struct HudMessageDock: View {
         let outgoing = dock.text
         dock.text = ""
         Task { await dock.send(body: outgoing) }
+    }
+
+    private func refreshSuggestions() {
+        dock.refreshSuggestions(agents: fleet.agents ?? [])
+    }
+
+    private func suggestionPopoverHeight(count: Int) -> CGFloat {
+        25 + CGFloat(min(max(count, 1), 7)) * 38
+    }
+}
+
+// ─── Suggestion popover ─────────────────────────────────────────────
+
+private struct DockSuggestionPopover: View {
+    let suggestions: [HUDDockSuggestion]
+    let selectedIndex: Int
+    let onHover: (Int) -> Void
+    let onSelect: (HUDDockSuggestion) -> Void
+
+    private var visibleSuggestions: ArraySlice<HUDDockSuggestion> {
+        suggestions.prefix(7)
+    }
+
+    private var eyebrow: String {
+        suggestions.first?.kind.eyebrow ?? "SUGGEST"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HUDEyebrow(text: eyebrow, color: HUDChrome.inkFaint)
+                .padding(.horizontal, 10)
+                .padding(.top, 7)
+                .padding(.bottom, 4)
+
+            ForEach(Array(visibleSuggestions.enumerated()), id: \.element.id) { index, suggestion in
+                Button {
+                    onSelect(suggestion)
+                } label: {
+                    DockSuggestionRow(
+                        suggestion: suggestion,
+                        selected: index == selectedIndex
+                    )
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering { onHover(index) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(HUDChrome.canvasAlt)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(HUDChrome.borderStrong, lineWidth: 0.75)
+        )
+        .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 4)
+    }
+}
+
+private struct DockSuggestionRow: View {
+    let suggestion: HUDDockSuggestion
+    let selected: Bool
+
+    private var accent: Color {
+        switch suggestion.kind {
+        case .command: return HUDChrome.accent
+        case .agent: return HUDChrome.ink
+        case .session: return HUDChrome.accentDim
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Text(kindMark)
+                .font(HUDType.mono(9, weight: .bold))
+                .foregroundStyle(selected ? accent : HUDChrome.inkFaint)
+                .frame(width: 24, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(suggestion.label)
+                    .font(HUDType.mono(11, weight: .semibold))
+                    .foregroundStyle(selected ? HUDChrome.ink : HUDChrome.inkMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(suggestion.detail)
+                    .font(HUDType.body(10))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+        .background(
+            Rectangle()
+                .fill(selected ? HUDChrome.canvasLift.opacity(0.62) : Color.clear)
+        )
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(selected ? accent : Color.clear)
+                .frame(width: 1.5)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var kindMark: String {
+        switch suggestion.kind {
+        case .command: return "/"
+        case .agent: return "@"
+        case .session: return "sid"
+        }
     }
 }
 
@@ -140,7 +274,7 @@ private struct CompactDock: View {
                 }
 
                 ZStack(alignment: .leading) {
-                    TextField(showDictationPreview ? "" : "talk — / commands · /s search", text: $text)
+                    TextField(showDictationPreview ? "" : "talk — / commands · @ agents", text: $text)
                         .textFieldStyle(.plain)
                         .font(HUDType.mono(10))
                         .foregroundStyle(HUDChrome.ink)
@@ -213,7 +347,7 @@ private struct MediumLargeDock: View {
 
             ZStack(alignment: .topLeading) {
                 TextField(
-                    showDictationPreview ? "" : "talk to the assistant — / for commands, /s to search",
+                    showDictationPreview ? "" : "talk to the assistant — / commands, @ for agents",
                     text: $text,
                     axis: .vertical
                 )

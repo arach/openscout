@@ -85,6 +85,10 @@ struct HUDStatusView: View {
             // `?` cheatsheet — drawn on top of the panel body, masthead
             // and dock stay visible underneath. Toggled from HUDController.
             HUDCheatsheetOverlay()
+
+            // Runner draft — a HUD-local composer for broker-owned project
+            // asks. Swift gathers helpful inputs; TS owns routing.
+            HUDRunnerOverlay()
         }
         .frame(
             minWidth: minPanelW, maxWidth: .infinity,

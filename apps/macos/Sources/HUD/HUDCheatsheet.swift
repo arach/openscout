@@ -57,8 +57,8 @@ struct HUDCheatsheetOverlay: View {
             }
 
             section("Navigation") {
-                kbd("j", "next row")
-                kbd("k", "prev row")
+                kbd("j / ↓", "next row")
+                kbd("k / ↑", "prev row")
                 kbd("g", "top")
                 kbd("⇧G", "bottom")
                 kbd("↵", "engage row (and again to stage @target on dock)")
@@ -77,9 +77,13 @@ struct HUDCheatsheetOverlay: View {
             section("Dock") {
                 kbd("i", "focus the message dock (insert)")
                 kbd("/", "focus dock and start a slash command")
-                kbd("m", "toggle voice dictation — transcript lands in dock")
+                kbd("/spin", "open the Scout runner draft")
+                kbd("@", "stage an agent target from the dock")
+                kbd("sid:", "complete a known session id")
+                kbd("↑ ↓", "move through open suggestions")
+                kbd("m", "toggle voice dictation — transcript lands in active draft")
                 kbd("↵", "send message")
-                kbd("Esc", "cascade: clear text → target → blur → unengage → dismiss")
+                kbd("Esc", "cascade: suggestions → text → target → blur → dismiss")
             }
 
             HStack(spacing: 6) {

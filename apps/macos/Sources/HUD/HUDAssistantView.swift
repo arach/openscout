@@ -407,7 +407,7 @@ private struct RailCmd: View {
     @State private var hovered = false
 
     var body: some View {
-        Button(action: {}) {
+        Button(action: perform) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(cmd)
                     .font(HUDType.mono(11, weight: .semibold))
@@ -424,6 +424,15 @@ private struct RailCmd: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+    }
+
+    private func perform() {
+        if cmd == "/spin" {
+            HUDRunnerState.shared.open()
+            return
+        }
+        HUDDockState.shared.text = cmd + " "
+        HUDDockState.shared.focus()
     }
 }
 

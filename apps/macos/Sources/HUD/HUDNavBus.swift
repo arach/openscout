@@ -38,6 +38,11 @@ final class HUDNavBus: ObservableObject {
     /// the cursor anchors the visible window and rows pile up below.
     var toggleFollow: (() -> Void)?
 
+    /// Create a new item from the current surface. Agents uses this for
+    /// Command-N to open the runner without routing that policy through
+    /// HUDController.
+    var createNew: (() -> Void)?
+
     private init() {}
 
     /// Drop all closures — call from a view's onDisappear so a torn-down
@@ -50,5 +55,6 @@ final class HUDNavBus: ObservableObject {
         engageSelected = nil
         unengageSelected = nil
         toggleFollow = nil
+        createNew = nil
     }
 }

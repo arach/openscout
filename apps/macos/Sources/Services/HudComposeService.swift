@@ -393,7 +393,7 @@ enum HudComposeError: LocalizedError {
 // blocks on a private serial queue, calling `onEvent` for each complete
 // `event:` / `data:` pair separated by a blank line.
 
-private final class SSEDelegate: NSObject, URLSessionDataDelegate {
+private final class SSEDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     typealias OnConnected = (Int) -> Void
     typealias OnEvent = (String, String) -> Void
     typealias OnComplete = (Error?) -> Void

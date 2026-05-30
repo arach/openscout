@@ -15,41 +15,65 @@ struct HUDAgentsView: View {
     @StateObject private var engage = HUDEngageState()
 
     var body: some View {
-        if agents.isEmpty {
-            FleetEmptyState()
-        } else {
-            switch state.size {
-            case .compact:           compactBody
-            case .medium, .large:    largeBody
+        Group {
+            if agents.isEmpty {
+                FleetEmptyState()
+            } else {
+                switch state.size {
+                case .compact:           compactBody
+                case .medium, .large:    largeBody
+                }
             }
         }
+        .onAppear {
+            reconcileCursorWithAgents()
+            wireNavBus()
+        }
+        .onChange(of: rowIds()) { _, _ in
+            reconcileCursorWithAgents()
+            wireNavBus()
+        }
+        .onChange(of: activeAgentId) { _, _ in
+            reconcileCursorWithAgents()
+        }
+        .onDisappear { HUDNavBus.shared.clear() }
     }
 
     // MARK: - Compact (shipped)
 
     private var compactBody: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 0) {
-                HUDAgentsHeader(count: agents.count)
-                ForEach(Array(agents.enumerated()), id: \.element.id) { idx, agent in
-                    AgentRowCompact(
-                        agent: agent,
-                        isFirst: idx == 0,
-                        isActive: agent.id == activeAgentId,
-                        isEngaged: engage.isSelected(agent.id),
-                        onTap: {
-                            withAnimation(.easeOut(duration: 0.14)) {
-                                engage.toggle(agent.id)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    HUDAgentsHeader(count: agents.count, onCreate: openRunnerForSelectedProject)
+                    ForEach(Array(agents.enumerated()), id: \.element.id) { idx, agent in
+                        AgentRowCompact(
+                            agent: agent,
+                            isFirst: idx == 0,
+                            isActive: agent.id == activeAgentId,
+                            isCursored: engage.isCursored(agent.id),
+                            isEngaged: engage.isSelected(agent.id),
+                            onTap: {
+                                withAnimation(.easeOut(duration: 0.14)) {
+                                    engage.toggle(agent.id)
+                                }
                             }
+                        )
+                        .id(agent.id)
+                        if engage.isSelected(agent.id) {
+                            AgentDetailInline(agent: agent)
+                                .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                    )
-                    if engage.isSelected(agent.id) {
-                        AgentDetailInline(agent: agent)
-                            .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
+                .padding(.bottom, 8)
             }
-            .padding(.bottom, 8)
+            .onChange(of: engage.cursoredId) { _, id in
+                scrollAgentList(to: id, proxy: proxy)
+            }
+            .onAppear {
+                scrollAgentList(to: selectedAgent.id, proxy: proxy, animated: false)
+            }
         }
     }
 
@@ -58,6 +82,9 @@ struct HUDAgentsView: View {
     // bump.)
 
     private var selectedAgent: HudAgent {
+        if let id = engage.cursoredId, let match = agents.first(where: { $0.id == id }) {
+            return match
+        }
         if let id = engage.selectedId, let match = agents.first(where: { $0.id == id }) {
             return match
         }
@@ -69,7 +96,7 @@ struct HUDAgentsView: View {
 
     private var largeBody: some View {
         VStack(spacing: 0) {
-            HUDAgentsHeader(count: agents.count)
+            HUDAgentsHeader(count: agents.count, onCreate: openRunnerForSelectedProject)
             HStack(spacing: 0) {
                 AgentColumnA(
                     agents: agents,
@@ -87,17 +114,131 @@ struct HUDAgentsView: View {
             .frame(maxHeight: .infinity)
         }
     }
+
+    private func wireNavBus() {
+        HUDNavBus.shared.cycleNext = {
+            let ids = rowIds()
+            guard !ids.isEmpty else { return }
+            let current = engage.cursoredId ?? engage.engagedId ?? activeAgentId
+            if let current, let index = ids.firstIndex(of: current), index + 1 < ids.count {
+                engage.cursor(ids[index + 1])
+            } else {
+                engage.cursor(ids.first)
+            }
+        }
+        HUDNavBus.shared.cyclePrev = {
+            let ids = rowIds()
+            guard !ids.isEmpty else { return }
+            let current = engage.cursoredId ?? engage.engagedId ?? activeAgentId
+            if let current, let index = ids.firstIndex(of: current), index > 0 {
+                engage.cursor(ids[index - 1])
+            } else {
+                engage.cursor(ids.last)
+            }
+        }
+        HUDNavBus.shared.jumpTop = {
+            engage.cursor(rowIds().first)
+        }
+        HUDNavBus.shared.jumpBottom = {
+            engage.cursor(rowIds().last)
+        }
+        HUDNavBus.shared.engageSelected = {
+            guard let id = engage.cursoredId ?? engage.engagedId ?? activeAgentId ?? agents.first?.id,
+                  let agent = agents.first(where: { $0.id == id }) else { return }
+            if engage.engagedId != id {
+                engage.toggle(id)
+            } else {
+                stageTarget(agent)
+            }
+        }
+        HUDNavBus.shared.unengageSelected = {
+            if engage.engagedId != nil {
+                engage.unengage()
+                return true
+            }
+            return false
+        }
+        HUDNavBus.shared.createNew = {
+            openRunnerForSelectedProject()
+        }
+    }
+
+    private func rowIds() -> [String] {
+        agents.map { $0.id }
+    }
+
+    private func reconcileCursorWithAgents() {
+        guard !agents.isEmpty else {
+            engage.clear()
+            return
+        }
+        if let cursored = engage.cursoredId,
+           agents.contains(where: { $0.id == cursored }) {
+            return
+        }
+        if let engaged = engage.engagedId,
+           agents.contains(where: { $0.id == engaged }) {
+            engage.cursor(engaged)
+            return
+        }
+        if let activeAgentId, agents.contains(where: { $0.id == activeAgentId }) {
+            engage.cursor(activeAgentId)
+        } else {
+            engage.cursor(agents.first?.id)
+        }
+    }
+
+    private func scrollAgentList(
+        to id: String?,
+        proxy: ScrollViewProxy,
+        animated: Bool = true
+    ) {
+        guard let id else { return }
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    proxy.scrollTo(id)
+                }
+            } else {
+                proxy.scrollTo(id)
+            }
+        }
+    }
+
+    private func stageTarget(_ agent: HudAgent) {
+        let handle = agent.handle ?? agent.name
+        HUDDockState.shared.setTarget(handle: handle, label: agent.name)
+        HUDDockState.shared.focus()
+    }
+
+    private func openRunnerForSelectedProject() {
+        HUDRunnerState.shared.open(projectRoot: selectedAgent.projectRoot)
+    }
 }
 
 // MARK: - Section header
 
 private struct HUDAgentsHeader: View {
     let count: Int
+    var onCreate: () -> Void = {}
 
     // Tab name lives in the masthead (`1 agents`). No redundant
     // big title under the eyebrow — eyebrow + count is enough.
     var body: some View {
-        HUDEyebrow(text: "ROSTER  ·  \(count) AGENT\(count == 1 ? "" : "S")", color: HUDChrome.inkFaint)
+        HStack(spacing: 10) {
+            HUDEyebrow(text: "ROSTER  ·  \(count) AGENT\(count == 1 ? "" : "S")", color: HUDChrome.inkFaint)
+            Spacer()
+            Button(action: onCreate) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(HUDChrome.inkMuted)
+            .background(HUDChrome.canvasLift.opacity(0.34))
+            .overlay(Rectangle().stroke(HUDChrome.borderSoft, lineWidth: 1))
+            .help("New agent")
+        }
             .padding(.horizontal, 16)
             .padding(.top, 10)
             .padding(.bottom, 8)
@@ -138,6 +279,7 @@ private struct AgentRowCompact: View {
     let agent: HudAgent
     let isFirst: Bool
     let isActive: Bool
+    let isCursored: Bool
     let isEngaged: Bool
     var onTap: () -> Void = {}
 
@@ -170,7 +312,7 @@ private struct AgentRowCompact: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowFill)
         .overlay(alignment: .leading) {
-            if isEngaged || isActive {
+            if isEngaged || isCursored || isActive {
                 Rectangle()
                     .fill(HUDChrome.accent)
                     .frame(width: 1.5)
@@ -338,6 +480,17 @@ private struct AgentDetailInline: View {
                 }
                 statKV(label: "MODEL", value: agent.tokens)
             }
+
+            HStack(spacing: 8) {
+                compactAction(label: "MESSAGES") {
+                    openAgentMessages(agent)
+                }
+                if agent.projectRoot != nil {
+                    compactAction(label: "OPEN") {
+                        openAgentProjectRoot(agent)
+                    }
+                }
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 11)
@@ -375,6 +528,19 @@ private struct AgentDetailInline: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private func compactAction(label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(HUDType.mono(9, weight: .bold))
+                .tracking(HUDType.eyebrowMicro)
+                .foregroundStyle(HUDChrome.accent)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .overlay(Rectangle().stroke(HUDChrome.accent.opacity(0.55), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 // MARK: - Large pane: Column A (roster list)
@@ -385,15 +551,43 @@ private struct AgentColumnA: View {
     var onSelect: (String) -> Void
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 0) {
-                ForEach(agents) { a in
-                    AgentColARow(
-                        agent: a,
-                        selected: a.id == selectedId,
-                        onSelect: { onSelect(a.id) }
-                    )
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    ForEach(agents) { a in
+                        AgentColARow(
+                            agent: a,
+                            selected: a.id == selectedId,
+                            onSelect: { onSelect(a.id) }
+                        )
+                        .id(a.id)
+                    }
                 }
+            }
+            .onChange(of: selectedId) { _, id in
+                scrollToSelected(id, proxy: proxy)
+            }
+            .onChange(of: agents.map(\.id)) { _, _ in
+                scrollToSelected(selectedId, proxy: proxy, animated: false)
+            }
+            .onAppear {
+                scrollToSelected(selectedId, proxy: proxy, animated: false)
+            }
+        }
+    }
+
+    private func scrollToSelected(
+        _ id: String,
+        proxy: ScrollViewProxy,
+        animated: Bool = true
+    ) {
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    proxy.scrollTo(id)
+                }
+            } else {
+                proxy.scrollTo(id)
             }
         }
     }
@@ -635,11 +829,12 @@ private struct AgentColumnC: View {
         VStack(alignment: .leading, spacing: 6) {
             HUDEyebrow(text: "ENGAGE", color: HUDChrome.inkFaint)
                 .padding(.bottom, 2)
-            engageRow(verb: "SEND",   hint: "↵ deliver a directive", enabled: true,  action: sendAction)
-            engageRow(verb: "TAIL",   hint: "open this agent's tail", enabled: false, action: {})
-            engageRow(verb: "OPEN",   hint: "reveal project root",    enabled: agent.projectRoot != nil, action: openAction)
-            engageRow(verb: "SNOOZE", hint: "park asks for 1h",       enabled: false, action: {})
-            engageRow(verb: "MUTE",   hint: "suppress nudges",        enabled: false, action: {})
+            engageRow(verb: "SEND",     hint: "↵ deliver a directive", enabled: true,  action: sendAction)
+            engageRow(verb: "MESSAGES", hint: "jump to message thread", enabled: true, action: messagesAction)
+            engageRow(verb: "TAIL",     hint: "open this agent's tail", enabled: false, action: {})
+            engageRow(verb: "OPEN",     hint: "reveal project root",    enabled: agent.projectRoot != nil, action: openAction)
+            engageRow(verb: "SNOOZE",   hint: "park asks for 1h",       enabled: false, action: {})
+            engageRow(verb: "MUTE",     hint: "suppress nudges",        enabled: false, action: {})
         }
     }
 
@@ -650,7 +845,7 @@ private struct AgentColumnC: View {
                     .font(HUDType.mono(10, weight: .bold))
                     .tracking(HUDType.eyebrowTracking)
                     .foregroundStyle(enabled ? HUDChrome.ink : HUDChrome.inkFaint)
-                    .frame(width: 56, alignment: .leading)
+                    .frame(width: 68, alignment: .leading)
                 Text(hint)
                     .font(HUDType.body(11))
                     .foregroundStyle(enabled ? HUDChrome.inkMuted : HUDChrome.inkFaint)
@@ -673,10 +868,12 @@ private struct AgentColumnC: View {
         HUDDockState.shared.focus()
     }
 
+    private func messagesAction() {
+        openAgentMessages(agent)
+    }
+
     private func openAction() {
-        guard let root = agent.projectRoot else { return }
-        let expanded = (root as NSString).expandingTildeInPath
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: expanded)])
+        openAgentProjectRoot(agent)
     }
 
     private var bufferStrip: some View {
@@ -699,6 +896,35 @@ private struct AgentColumnC: View {
             }
         }
     }
+}
+
+private func openAgentMessages(_ agent: HudAgent) {
+    NSWorkspace.shared.open(agentMessagesURL(agent))
+}
+
+private func openAgentProjectRoot(_ agent: HudAgent) {
+    guard let root = agent.projectRoot else { return }
+    let expanded = (root as NSString).expandingTildeInPath
+    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: expanded)])
+}
+
+private func agentMessagesURL(_ agent: HudAgent) -> URL {
+    let base = HudFleetService.webBaseURL()
+    if let cid = agent.conversationId, !cid.isEmpty {
+        return agentRelativeURL("/c/\(agentPercent(cid))", base: base)
+    }
+    if !agent.id.isEmpty {
+        return agentRelativeURL("/c/\(agentPercent("dm.operator.\(agent.id)"))", base: base)
+    }
+    return agentRelativeURL("/agents", base: base)
+}
+
+private func agentRelativeURL(_ path: String, base: URL) -> URL {
+    URL(string: path, relativeTo: base)?.absoluteURL ?? base
+}
+
+private func agentPercent(_ value: String) -> String {
+    value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
 }
 
 // MARK: - Empty state
