@@ -748,6 +748,192 @@ describe("broker daemon comms layer", () => {
     expect(flight?.metadata?.replyMessageId).toBe("msg-fabric-completes-invocation");
   }, 15_000);
 
+  test("routes Claude channel endpoints as notification-backed invocations", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "claude-channel-fabric",
+      agentId: "fabric",
+      nodeId: harness.nodeId,
+      harness: "claude",
+      transport: "claude_channel",
+      state: "active",
+      sessionId: "claude-session-fabric",
+      cwd: "/tmp/fabric",
+      projectRoot: "/tmp/fabric",
+      metadata: {
+        source: "scout-channel",
+        lastSeenAt: Date.now(),
+      },
+    });
+
+    const accepted = await postJson<{
+      accepted: boolean;
+      conversation: { id: string; visibility: "workspace" | "private" | "public" };
+      message: { id: string };
+      flight: { id: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-claude-channel-fabric",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_id",
+        agentId: "fabric",
+      },
+      body: "Please handle this through the Claude channel.",
+      intent: "consult",
+      createdAt: Date.now(),
+    });
+
+    expect(accepted.accepted).toBe(true);
+
+    const waiting = await waitFor(
+      () => getJson<{
+        endpoints: Record<string, { state: string; metadata?: Record<string, unknown> }>;
+        flights: Record<string, {
+          state: string;
+          summary?: string;
+          error?: string;
+          metadata?: Record<string, unknown>;
+        }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => snapshot.flights[accepted.flight.id]?.state === "waiting",
+    );
+
+    expect(waiting.endpoints["claude-channel-fabric"]?.state).toBe("waiting");
+    expect(waiting.flights[accepted.flight.id]?.summary).toContain("claude_channel");
+    expect(waiting.flights[accepted.flight.id]?.error).toBeUndefined();
+    expect(waiting.flights[accepted.flight.id]?.metadata?.notificationOnlyDispatch).toBe(true);
+    expect((waiting.flights[accepted.flight.id]?.metadata?.dispatchAck as Record<string, unknown>)?.transport)
+      .toBe("claude_channel");
+
+    const pendingDeliveries = await getJson<Array<{ id: string; status: string }>>(
+      harness.baseUrl,
+      `/v1/deliveries?messageId=${accepted.message.id}&targetId=fabric`,
+    );
+    const pendingDelivery = pendingDeliveries.find((item) => item.status === "pending");
+    expect(pendingDelivery?.id).toBeTruthy();
+
+    const inbox = await waitFor(
+      () => getJson<Array<{ id: string; messageId?: string; status: string }>>(
+        harness.baseUrl,
+        "/v1/inbox?targetId=fabric&status=pending",
+      ),
+      (items) => items.some((item) => item.messageId === accepted.message.id),
+    );
+    const inboxItem = inbox.find((item) => item.messageId === accepted.message.id)!;
+    const leaseOwner = "test-claude-channel";
+
+    const claimed = await postJson<{
+      claimed: { id: string; message?: { id: string; body: string } } | null;
+    }>(harness.baseUrl, "/v1/inbox/claim", {
+      itemId: inboxItem.id,
+      targetId: "fabric",
+      leaseOwner,
+    });
+
+    expect(claimed.claimed?.message?.id).toBe(accepted.message.id);
+
+    await postJson(harness.baseUrl, "/v1/inbox/ack", {
+      itemId: inboxItem.id,
+      leaseOwner,
+    });
+
+    const acknowledged = await waitFor(
+      () => getJson<{
+        flights: Record<string, { state: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) =>
+        snapshot.flights[accepted.flight.id]?.state === "waiting"
+        && snapshot.flights[accepted.flight.id]?.metadata?.notificationDeliveryAcknowledgedBy === leaseOwner,
+    );
+    expect(acknowledged.flights[accepted.flight.id]?.metadata?.notificationDeliveryId).toBe(inboxItem.id);
+
+    await postJson(harness.baseUrl, "/v1/messages", {
+      id: "msg-claude-channel-reply",
+      conversationId: accepted.conversation.id,
+      actorId: "fabric",
+      originNodeId: harness.nodeId,
+      class: "agent",
+      body: "Handled through the channel.",
+      replyToMessageId: accepted.message.id,
+      audience: {
+        notify: ["operator"],
+      },
+      visibility: accepted.conversation.visibility,
+      policy: "durable",
+      createdAt: Date.now(),
+    });
+
+    const completed = await waitFor(
+      () => getJson<{
+        endpoints: Record<string, { state: string; metadata?: Record<string, unknown> }>;
+        flights: Record<string, { state: string; output?: string; error?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => snapshot.flights[accepted.flight.id]?.state === "completed",
+    );
+
+    expect(completed.flights[accepted.flight.id]?.output).toBe("Handled through the channel.");
+    expect(completed.flights[accepted.flight.id]?.error).toBeUndefined();
+    expect(completed.flights[accepted.flight.id]?.metadata?.completedByBrokerReply).toBe(true);
+    expect(completed.endpoints["claude-channel-fabric"]?.state).toBe("idle");
+
+    const tell = await postJson<{
+      accepted: boolean;
+      message: { id: string };
+      flight: { id: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-claude-channel-fabric-tell",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_id",
+        agentId: "fabric",
+      },
+      body: "FYI: the channel is notification-only.",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
+    expect(tell.accepted).toBe(true);
+
+    const tellInbox = await waitFor(
+      () => getJson<Array<{ id: string; messageId?: string; status: string }>>(
+        harness.baseUrl,
+        "/v1/inbox?targetId=fabric&status=pending",
+      ),
+      (items) => items.some((item) => item.messageId === tell.message.id),
+    );
+    const tellInboxItem = tellInbox.find((item) => item.messageId === tell.message.id)!;
+    const tellLeaseOwner = "test-claude-channel-tell";
+    await postJson(harness.baseUrl, "/v1/inbox/claim", {
+      itemId: tellInboxItem.id,
+      targetId: "fabric",
+      leaseOwner: tellLeaseOwner,
+    });
+    await postJson(harness.baseUrl, "/v1/inbox/ack", {
+      itemId: tellInboxItem.id,
+      leaseOwner: tellLeaseOwner,
+    });
+
+    const tellCompleted = await waitFor(
+      () => getJson<{
+        endpoints: Record<string, { state: string }>;
+        flights: Record<string, { state: string; summary?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => snapshot.flights[tell.flight.id]?.state === "completed",
+    );
+
+    expect(tellCompleted.flights[tell.flight.id]?.summary).toContain("received the message");
+    expect(tellCompleted.flights[tell.flight.id]?.metadata?.notificationDeliveryAcknowledgedBy).toBe(tellLeaseOwner);
+    expect(tellCompleted.endpoints["claude-channel-fabric"]?.state).toBe("idle");
+  }, 15_000);
+
   test("projects target deliveries as claimable inbox items", async () => {
     const harness = await startBroker();
     await seedBasicConversation(harness);

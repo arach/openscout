@@ -1374,6 +1374,10 @@ async function reconcileMessageDeliveriesForFlight(
   flight: FlightRecord,
   invocation: InvocationRequest | undefined,
 ): Promise<void> {
+  if (isNotificationOnlyInvocationFlight(flight)) {
+    return;
+  }
+
   const status = deliveryStatusForFlight(flight);
   if (!status || !invocation?.messageId) {
     return;
@@ -1977,6 +1981,21 @@ function isWorkingFlightState(state: FlightRecord["state"]): boolean {
 
 function isTerminalFlightState(state: FlightRecord["state"]): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";
+}
+
+function metadataRecordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function isNotificationOnlyInvocationFlight(flight: Pick<FlightRecord, "metadata">): boolean {
+  if (flight.metadata?.notificationOnlyDispatch === true) {
+    return true;
+  }
+
+  const dispatchAck = metadataRecordValue(flight.metadata?.dispatchAck);
+  return dispatchAck?.transport === "claude_channel";
 }
 
 function flightTimestamp(flight: FlightRecord): number {
@@ -2712,6 +2731,7 @@ function staleWorkingFlightReason(
     endpoint.state === "active"
     && endpointInvocationId === flight.invocationId
     && !activeInvocationTasks.has(flight.invocationId)
+    && !isNotificationOnlyInvocationFlight(flight)
     && startedEndpointAt >= startedAt
   ) {
     return `endpoint ${endpoint.id} was replayed active for invocation ${flight.invocationId} without a live broker task`;
@@ -4097,6 +4117,116 @@ async function postInvocationStatusMessage(
   });
 }
 
+function allKnownInvocationRecords(): InvocationRequest[] {
+  const byId = new Map<string, InvocationRequest>();
+  for (const invocation of Object.values(runtime.snapshot().invocations)) {
+    byId.set(invocation.id, invocation);
+  }
+  for (const [id, invocation] of knownInvocations) {
+    byId.set(id, invocation);
+  }
+  return [...byId.values()];
+}
+
+function notificationInvocationForMessageDelivery(
+  delivery: DeliveryIntent | undefined,
+): InvocationRequest | null {
+  if (!delivery?.messageId) {
+    return null;
+  }
+
+  return allKnownInvocationRecords().find((invocation) =>
+    invocation.messageId === delivery.messageId
+    && invocation.targetAgentId === delivery.targetId
+  ) ?? null;
+}
+
+async function updateNotificationOnlyEndpointState(
+  flight: FlightRecord,
+  state: AgentEndpoint["state"],
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const endpointId = flightDispatchEndpointId(flight);
+  if (!endpointId) {
+    return;
+  }
+
+  const endpoint = runtime.snapshot().endpoints[endpointId];
+  if (!endpoint || endpoint.transport !== "claude_channel") {
+    return;
+  }
+
+  await persistEndpoint({
+    ...endpoint,
+    state,
+    metadata: {
+      ...(endpoint.metadata ?? {}),
+      ...metadata,
+    },
+  });
+}
+
+async function markNotificationOnlyEndpointIdle(flight: FlightRecord, at: number): Promise<void> {
+  await updateNotificationOnlyEndpointState(flight, "idle", {
+    lastCompletedAt: at,
+  });
+}
+
+async function acknowledgeNotificationOnlyInvocationDelivery(
+  deliveryId: string,
+  leaseOwner: string,
+): Promise<void> {
+  const delivery = journal.listDeliveries({ limit: 5000 })
+    .find((candidate) => candidate.id === deliveryId);
+  const invocation = notificationInvocationForMessageDelivery(delivery);
+  if (!invocation) {
+    return;
+  }
+
+  const flight = runtime.flightForInvocation(invocation.id);
+  if (!flight || !isNotificationOnlyInvocationFlight(flight) || isTerminalFlightState(flight.state)) {
+    return;
+  }
+
+  const agent = runtime.agent(invocation.targetAgentId);
+  const now = Date.now();
+  const acknowledgedMetadata = {
+    ...(flight.metadata ?? {}),
+    notificationDeliveryAcknowledgedAt: now,
+    notificationDeliveryAcknowledgedBy: leaseOwner,
+    notificationDeliveryId: deliveryId,
+  };
+
+  if (invocation.action === "wake") {
+    const completedFlight: FlightRecord = {
+      ...flight,
+      state: "completed",
+      summary: `${agent?.displayName ?? invocation.targetAgentId} received the message via claude_channel.`,
+      output: flight.output,
+      error: undefined,
+      completedAt: now,
+      metadata: acknowledgedMetadata,
+    };
+    await persistFlight(completedFlight);
+    await markNotificationOnlyEndpointIdle(completedFlight, now);
+    return;
+  }
+
+  const waitingFlight: FlightRecord = {
+    ...flight,
+    state: "waiting",
+    summary: `${agent?.displayName ?? invocation.targetAgentId} received the request via claude_channel; waiting for a threaded reply.`,
+    error: undefined,
+    completedAt: undefined,
+    metadata: acknowledgedMetadata,
+  };
+  await persistFlight(waitingFlight);
+  await updateNotificationOnlyEndpointState(waitingFlight, "waiting", {
+    notificationDeliveryAcknowledgedAt: now,
+    notificationDeliveryId: deliveryId,
+  });
+}
+
 function existingBrokerReplyForInvocation(
   invocation: InvocationRequest,
   agentId: string,
@@ -4170,7 +4300,11 @@ async function completeInvocationForBrokerReply(
     return false;
   }
 
-  await persistFlight(completedFlightFromBrokerReply(invocation, flight, reply));
+  const completedFlight = completedFlightFromBrokerReply(invocation, flight, reply);
+  await persistFlight(completedFlight);
+  if (isNotificationOnlyInvocationFlight(completedFlight)) {
+    await markNotificationOnlyEndpointIdle(completedFlight, completedFlight.completedAt ?? Date.now());
+  }
   return true;
 }
 
@@ -4210,11 +4344,32 @@ function activeLocalEndpointForAgent(
     }
     return targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true;
   });
-  return candidates.find((endpoint) => (
-    endpoint.transport === "pairing_bridge"
-      ? endpoint.state !== "offline"
-      : isLocalAgentEndpointAlive(endpoint)
-  ));
+  return candidates
+    .filter((endpoint) => (
+      endpoint.transport === "pairing_bridge"
+        ? endpoint.state !== "offline"
+        : isLocalAgentEndpointAlive(endpoint)
+    ))
+    .sort((left, right) => {
+      const rank = localInvocationEndpointRank(left) - localInvocationEndpointRank(right);
+      return rank !== 0 ? rank : endpointStartedAt(right) - endpointStartedAt(left);
+    })[0];
+}
+
+function localInvocationEndpointRank(endpoint: AgentEndpoint): number {
+  switch (endpoint.transport) {
+    case "pairing_bridge":
+      return 0;
+    case "codex_app_server":
+    case "claude_stream_json":
+      return 1;
+    case "tmux":
+      return 2;
+    case "claude_channel":
+      return 3;
+    default:
+      return 9;
+  }
 }
 
 function dispatchAckStrategyForEndpoint(input: {
@@ -4222,6 +4377,9 @@ function dispatchAckStrategyForEndpoint(input: {
   endpoint: AgentEndpoint;
   previousEndpoint?: AgentEndpoint;
 }): string {
+  if (input.endpoint.transport === "claude_channel") {
+    return "notify";
+  }
   if (input.invocation.execution?.session === "existing") {
     return "steer";
   }
@@ -4287,7 +4445,14 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     requestedHarness,
     targetSessionId,
   );
-  if (existing && (sessionPreference !== "new" || existing.transport === "pairing_bridge")) {
+  if (
+    existing
+    && (
+      sessionPreference !== "new"
+      || existing.transport === "pairing_bridge"
+      || existing.transport === "claude_channel"
+    )
+  ) {
     return existing;
   }
 
@@ -4426,6 +4591,50 @@ async function executeLocalInvocation(
       summary: `Message stored for ${agent?.displayName ?? invocation.targetAgentId}. Will deliver when online.`,
     };
     await persistFlight(queuedFlight);
+    return;
+  }
+
+  if (endpoint.transport === "claude_channel") {
+    const waitingEndpoint: AgentEndpoint = {
+      ...endpoint,
+      state: "waiting",
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        lastInvocationId: invocation.id,
+        lastStartedAt: Date.now(),
+        notificationOnlyDispatch: true,
+      },
+    };
+    await persistEndpoint(waitingEndpoint);
+
+    const dispatchAck = {
+      strategy: dispatchAckStrategyForEndpoint({
+        invocation,
+        endpoint: waitingEndpoint,
+        previousEndpoint,
+      }),
+      endpointId: waitingEndpoint.id,
+      transport: waitingEndpoint.transport,
+      harness: waitingEndpoint.harness,
+      sessionId: waitingEndpoint.sessionId ?? null,
+      nodeId: waitingEndpoint.nodeId,
+      acknowledgedAt: Date.now(),
+    };
+    const waitingFlight: FlightRecord = {
+      ...initialFlight,
+      state: "waiting",
+      summary: invocation.action === "wake"
+        ? `${agent.displayName} notification queued via claude_channel.`
+        : `${agent.displayName} notified via claude_channel; waiting for a threaded broker reply.`,
+      error: undefined,
+      completedAt: undefined,
+      metadata: {
+        ...(initialFlight.metadata ?? {}),
+        dispatchAck,
+        notificationOnlyDispatch: true,
+      },
+    };
+    await persistFlight(waitingFlight);
     return;
   }
 
@@ -5616,6 +5825,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         expectedLeaseOwner: leaseOwner,
         requireActiveLease: true,
       });
+      await acknowledgeNotificationOnlyInvocationDelivery(itemId, leaseOwner);
       json(response, 200, { ok: true, itemId, status: "acknowledged" });
     } catch (error) {
       if (error instanceof Error && /delivery (not found|lease)/.test(error.message)) {
