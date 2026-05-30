@@ -148,6 +148,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Info-dense agent tile — identity · state · task · project · capabilities.",
   },
   {
+    href: "/studies/session-search",
+    label: "Session Search",
+    bucket: "studies",
+    surface: "web",
+    family: "session-search",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/session-search/page.tsx",
+      "docs/eng/sco-059-session-knowledge-search-exploration.md",
+    ],
+    blurb: "Interactive QMD-style pass over six real sessions: files, index rows, queries, and raw drilldown.",
+  },
+  {
     href: "/studies/tree-viewer",
     label: "Tree Viewer",
     bucket: "studies",
