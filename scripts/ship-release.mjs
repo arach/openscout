@@ -276,7 +276,7 @@ function printPlan(version, options) {
     run("gh", [
       "workflow",
       "run",
-      "npm-publish.yml",
+      "release-package-npm.yml",
       "--ref",
       "main",
       "--field",
@@ -394,7 +394,7 @@ function main() {
     run("gh", [
       "workflow",
       "run",
-      "npm-publish.yml",
+      "release-package-npm.yml",
       "--ref",
       "main",
       "--field",
