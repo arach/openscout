@@ -215,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let url = URL(string: urlString)
         else { return }
         Task { @MainActor in
-            HUDURLRouter.handle(url: url)
+            HUDURLRouter.handle(url: url, controller: controller)
         }
     }
 }

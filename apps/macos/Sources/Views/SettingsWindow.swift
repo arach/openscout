@@ -18,15 +18,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    func show(controller: OpenScoutAppController) {
+    func show(controller: OpenScoutAppController, selectedTab: SettingsTab? = nil) {
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            if let selectedTab {
+                NotificationCenter.default.post(
+                    name: .openScoutSettingsTab,
+                    object: selectedTab.rawValue
+                )
+            }
             OpenScoutActivationCoordinator.shared.refresh()
             return
         }
 
-        let hosting = NSHostingController(rootView: SettingsRootView(controller: controller))
+        let hosting = NSHostingController(
+            rootView: SettingsRootView(controller: controller, initialTab: selectedTab ?? .diagnostics)
+        )
         let window = NSWindow(contentViewController: hosting)
         window.title = "OpenScout"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
@@ -67,7 +75,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
 // MARK: - Root
 
-private enum SettingsTab: String, CaseIterable, Identifiable {
+enum SettingsTab: String, CaseIterable, Identifiable {
     case diagnostics, voice, about, advanced, appearance
 
     var id: String { rawValue }
@@ -93,10 +101,19 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
+private extension Notification.Name {
+    static let openScoutSettingsTab = Notification.Name("OpenScoutSettingsTab")
+}
+
 private struct SettingsRootView: View {
     @ObservedObject var controller: OpenScoutAppController
     @ObservedObject private var theme = ThemeManager.shared
-    @State private var selected: SettingsTab = .diagnostics
+    @State private var selected: SettingsTab
+
+    init(controller: OpenScoutAppController, initialTab: SettingsTab = .diagnostics) {
+        self.controller = controller
+        _selected = State(initialValue: initialTab)
+    }
 
     private enum Layout {
         static let sidebarWidth: CGFloat = 156
@@ -143,6 +160,13 @@ private struct SettingsRootView: View {
             }
         }
         .preferredColorScheme(theme.colorScheme)
+        .onReceive(NotificationCenter.default.publisher(for: .openScoutSettingsTab)) { notification in
+            guard
+                let rawTab = notification.object as? String,
+                let tab = SettingsTab(rawValue: rawTab)
+            else { return }
+            selected = tab
+        }
     }
 
     private var topBar: some View {

@@ -162,19 +162,11 @@ export class VoxBrowserClient {
   }
 
   launch(options: VoxLaunchOptions = {}): void {
-    window.location.href = buildVoxUrl("launch", {
-      source: options.source,
-      returnTo: options.returnTo ?? currentBrowserOrigin(),
-      context: encodeLaunchContext(options.context),
-    });
+    window.location.href = buildScoutVoiceSettingsUrl(options);
   }
 
   openSettings(options: VoxLaunchOptions = {}): void {
-    window.location.href = buildVoxUrl("settings", {
-      source: options.source,
-      returnTo: options.returnTo ?? currentBrowserOrigin(),
-      context: encodeLaunchContext(options.context),
-    });
+    window.location.href = buildScoutVoiceSettingsUrl(options);
   }
 
   async startLive(callbacks: VoxLiveCallbacks = {}): Promise<VoxLiveHandle> {
@@ -294,7 +286,7 @@ export async function playPreparedVoxSpeech(
       };
       const onError = () => {
         cleanup();
-        reject(new Error("Vox audio playback failed."));
+        reject(new Error("Scout voice audio playback failed."));
       };
       const onAbort = () => {
         cleanup();
@@ -425,13 +417,22 @@ function normalizeFinal(raw: SessionFinalEvent): VoxLiveFinal {
   };
 }
 
-function buildVoxUrl(host: "launch" | "settings", params: Record<string, string | undefined>): string {
+function buildScoutVoiceSettingsUrl(options: VoxLaunchOptions): string {
+  return buildScoutUrl("settings", ["voice"], {
+    source: options.source,
+    returnTo: options.returnTo ?? currentBrowserOrigin(),
+    context: encodeLaunchContext(options.context),
+  });
+}
+
+function buildScoutUrl(host: "settings", path: string[], params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value) search.set(key, value);
   }
   const query = search.toString();
-  return query ? `vox://${host}?${query}` : `vox://${host}`;
+  const suffix = path.length > 0 ? `/${path.map(encodeURIComponent).join("/")}` : "";
+  return query ? `scout://${host}${suffix}?${query}` : `scout://${host}${suffix}`;
 }
 
 function encodeLaunchContext(context: VoxLaunchContext | undefined): string | undefined {
@@ -450,10 +451,18 @@ function currentBrowserOrigin(): string | undefined {
 function humanVoxError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof VoxDError && error.code === "http_error" && /origin not allowed/i.test(message)) {
-    return "Vox blocked this OpenScout URL. Restart OpenScout so it can register its Vox browser origin, then try again.";
+    return "Scout Menu blocked this OpenScout URL. Restart Scout Menu so it can register this browser origin, then try again.";
   }
   if (/origin not allowed/i.test(message)) {
-    return "Vox blocked this OpenScout URL. Restart OpenScout so it can register its Vox browser origin, then try again.";
+    return "Scout Menu blocked this OpenScout URL. Restart Scout Menu so it can register this browser origin, then try again.";
   }
-  return message || "Vox request failed.";
+  return sanitizeScoutVoiceError(message) || "Scout voice request failed.";
+}
+
+function sanitizeScoutVoiceError(message: string): string {
+  return message
+    .replace(/\bVox Companion\b/g, "Scout Menu voice")
+    .replace(/\bVoxD\b/g, "Scout voice service")
+    .replace(/\bvoxd\b/gi, "Scout voice service")
+    .replace(/\bVox\b/g, "Scout voice");
 }

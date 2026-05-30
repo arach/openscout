@@ -30,7 +30,7 @@ final class HUDFlashState: ObservableObject {
         enum Kind { case error, info }
 
         struct Action {
-            let label: String       // e.g. "LAUNCH VOX"
+            let label: String       // e.g. "VOICE SETUP"
             let perform: () -> Void // ran on tap
         }
     }

@@ -54,7 +54,7 @@ final class HUDDockState: ObservableObject {
 
     // MARK: - Dictation
 
-    /// Mic-tap action. Probes Vox if state is unknown / unavailable,
+    /// Mic-tap action. Probes Scout voice if state is unknown / unavailable,
     /// otherwise toggles recording on/off. Errors surface as state on
     /// ScoutVoiceService.shared; the dock view reads them for tooltip copy.
     func toggleDictation() async {

@@ -2,7 +2,7 @@
    Shared composer affordance. One tap to record, one tap to stop;
    the final transcript is appended to the surrounding draft. Sits
    alongside the send button in any turn composer (channels, DMs,
-   focus, etc.). Vox handles transcription under the hood. */
+   focus, etc.). Scout Menu handles transcription under the hood. */
 
 .s-dictation-mic {
   width: 34px;

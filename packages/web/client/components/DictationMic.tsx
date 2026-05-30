@@ -32,7 +32,7 @@ export function DictationMic({
         setUnavailableReason(null);
       } else {
         setState("unavailable");
-        setUnavailableReason(client.lastUnavailableReason ?? "Voice unavailable — open Ranger to launch Vox.");
+        setUnavailableReason(client.lastUnavailableReason ?? "Scout Menu voice is unavailable.");
       }
     });
     return () => {
@@ -81,15 +81,22 @@ export function DictationMic({
     }
   }, []);
 
+  const openVoiceSettings = useCallback(() => {
+    const client = clientRef.current ?? new VoxBrowserClient();
+    clientRef.current = client;
+    client.openSettings({ source: "openscout" });
+  }, []);
+
   const onClick = useCallback(() => {
-    if (state === "recording") void stopRecording();
+    if (state === "unavailable") openVoiceSettings();
+    else if (state === "recording") void stopRecording();
     else if (state === "idle") void startRecording();
-  }, [state, startRecording, stopRecording]);
+  }, [openVoiceSettings, state, startRecording, stopRecording]);
 
   const isBusy = state === "starting" || state === "processing";
-  const isUnavailable = state === "unavailable" || state === "probing";
+  const isProbing = state === "probing";
   const title =
-    state === "unavailable" ? (unavailableReason ?? "Voice unavailable")
+    state === "unavailable" ? `Open Scout voice settings${unavailableReason ? ` — ${unavailableReason}` : ""}`
     : state === "probing" ? "Checking voice…"
     : state === "recording" ? "Stop dictation"
     : isBusy ? "Working…"
@@ -110,7 +117,7 @@ export function DictationMic({
       aria-label={title}
       aria-pressed={state === "recording"}
       onClick={onClick}
-      disabled={disabled || isUnavailable || isBusy}
+      disabled={disabled || isProbing || isBusy}
       className={["s-dictation-mic", stateClass, className].filter(Boolean).join(" ")}
     >
       <Icon

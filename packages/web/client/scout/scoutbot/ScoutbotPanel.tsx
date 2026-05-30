@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Archive, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, Loader2, Map, Mic, Radio, RefreshCw, Rocket, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
+import { Archive, Bot, CheckCircle2, ChevronDown, ChevronUp, Compass, Copy, Gauge, History, Loader2, Map, Mic, Radio, RefreshCw, SendHorizontal, Settings, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
@@ -87,7 +87,7 @@ async function releaseVoxLive(
   await withTimeout(
     live.cancel(),
     VOX_LIVE_CANCEL_TIMEOUT_MS,
-    "Timed out releasing Vox live session.",
+    "Timed out releasing Scout voice session.",
   ).catch(() => undefined);
 }
 
@@ -239,7 +239,7 @@ type ScoutbotAskAgentResult = {
   targetAgentId: string | null;
 };
 
-type VoiceProbeState = "idle" | "probing" | "launching";
+type VoiceProbeState = "idle" | "probing" | "opening";
 
 const STATE_PROMPT =
   "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.";
@@ -379,7 +379,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     void speech.promise
       .catch((err) => {
         if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Vox speech failed.");
+          setError(err instanceof Error ? err.message : "Scout voice failed.");
         }
       })
       .finally(() => {
@@ -679,7 +679,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
     const ok = await client.probe();
     setVoiceAvailable(ok);
-    setVoiceIssue(ok ? null : client.lastUnavailableReason ?? "Vox Companion is not reachable.");
+    setVoiceIssue(ok ? null : client.lastUnavailableReason ?? "Scout Menu voice is not reachable.");
     setVoiceProbeState("idle");
     return ok;
   }, []);
@@ -698,22 +698,16 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     };
   }, [probeVoice]);
 
-  const launchVox = useCallback(() => {
+  const openScoutVoiceSettings = useCallback(() => {
     const client = clientRef.current ?? new VoxBrowserClient();
     clientRef.current = client;
     setError(null);
-    setVoiceProbeState("launching");
-    client.launch({ source: "openscout", context: makeScoutAudioLaunchContext() });
+    setVoiceProbeState("opening");
+    client.openSettings({ source: "openscout", context: makeScoutAudioLaunchContext() });
     window.setTimeout(() => {
       void probeVoice();
     }, 2400);
   }, [probeVoice]);
-
-  const openVoxSettings = useCallback(() => {
-    const client = clientRef.current ?? new VoxBrowserClient();
-    clientRef.current = client;
-    client.openSettings({ source: "openscout", context: makeScoutAudioLaunchContext() });
-  }, []);
 
   const handleScoutbotReply = useCallback((body: string) => {
     const replyText = stripScoutbotUiFences(body);
@@ -822,7 +816,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     })
       .catch((err) => {
         if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Vox speech failed.");
+          setError(err instanceof Error ? err.message : "Scout voice failed.");
         }
         return null;
       })
@@ -989,7 +983,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         }
       } catch (err) {
         if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Vox speech failed.");
+          setError(err instanceof Error ? err.message : "Scout voice failed.");
         }
       }
     } else {
@@ -1002,7 +996,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
           await playback;
         } catch (err) {
           if (!isVoxSpeechStopped(err)) {
-            setError(err instanceof Error ? err.message : "Vox speech failed.");
+            setError(err instanceof Error ? err.message : "Scout voice failed.");
           }
         }
       }
@@ -1160,7 +1154,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       }
       setVoiceState(wasCancellation ? null : "error");
       if (!wasCancellation) {
-        setError(err instanceof Error ? err.message : "Vox recording failed.");
+        setError(err instanceof Error ? err.message : "Scout voice recording failed.");
       }
     } finally {
       await cleanupLive();
@@ -1176,7 +1170,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       await withTimeout(
         live.stop(),
         VOX_LIVE_STOP_TIMEOUT_MS,
-        "Vox did not finish processing the recording.",
+        "Scout voice did not finish processing the recording.",
       );
     } catch (err) {
       liveCancelReasonRef.current = "stop-failed";
@@ -1187,7 +1181,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         setPartial("");
         setVoiceState("error");
       }
-      setError(err instanceof Error ? `Vox recording did not finish: ${err.message}` : "Vox recording did not finish.");
+      setError(err instanceof Error ? `Scout voice recording did not finish: ${err.message}` : "Scout voice recording did not finish.");
     }
   }, []);
 
@@ -1373,7 +1367,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       emitClientBroadcast({
         key: "voice.offline",
         tier: "warn",
-        text: "Voice setup needed",
+        text: "Scout voice setup needed",
       });
     } else if (voiceAvailable === true) {
       clearClientBroadcast("voice.offline");
@@ -1394,9 +1388,9 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"
-    : voiceProbeState === "probing" ? "Checking Vox"
-    : voiceProbeState === "launching" ? "Opening Vox"
-    : voiceAvailable === false ? "Launch Vox" : "Start Talking";
+    : voiceProbeState === "probing" ? "Checking Voice"
+    : voiceProbeState === "opening" ? "Opening Scout"
+    : voiceAvailable === false ? "Voice Setup" : "Start Talking";
   const activeSession = sessionState?.session ?? null;
   const activeSessionId = activeSession?.id ?? null;
   const sessionStartedLabel = activeSession?.createdAt
@@ -1506,7 +1500,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
               </span>
             </label>
             <div className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
-              Vox Voice
+              Reply Voice
               <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] normal-case tracking-normal text-[var(--scout-chrome-ink)]">
                 {voiceDefaults
                   ? `${voiceDefaults.modelId}${voiceDefaults.voiceId ? ` / ${voiceDefaults.voiceId}` : ""}`
@@ -1590,12 +1584,11 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-3 pt-2 pb-2.5">
         {voiceAvailable === false && (
-          <VoxSetupPanel
+          <ScoutVoiceSetupPanel
             issue={voiceIssue}
             probeState={voiceProbeState}
-            onLaunch={launchVox}
+            onOpenSettings={openScoutVoiceSettings}
             onRetry={() => void probeVoice()}
-            onSettings={openVoxSettings}
           />
         )}
 
@@ -1628,11 +1621,11 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
           sending={sending}
           recording={recording}
           voiceLabel={voiceLabel}
-          voiceBusy={voiceState === "processing" || voiceProbeState === "probing" || voiceProbeState === "launching"}
+          voiceBusy={voiceState === "processing" || voiceProbeState === "probing" || voiceProbeState === "opening"}
           voiceUnavailable={voiceAvailable === false}
           onMicClick={() => {
             if (voiceAvailable === false) {
-              launchVox();
+              openScoutVoiceSettings();
               return;
             }
             void (recording ? stopVoice() : startVoice());
@@ -1674,9 +1667,9 @@ function shortenForMenu(path: string): string {
 function makeScoutAudioLaunchContext() {
   return {
     requesterName: "OpenScout",
-    productName: "Scout Audio",
-    headline: "Turn on local voice",
-    body: "Scout Audio uses Vox for local speech capture and spoken replies. Start Vox, then return here to talk with your workspace.",
+    productName: "Scout Voice",
+    headline: "Turn on Scout voice",
+    body: "Scout Menu handles microphone capture and local transcription. Choose the microphone, grant permission, then return here to talk with your workspace.",
     actionLabel: "Return to OpenScout",
     logo: {
       url: new URL("/openscout-icon.png", window.location.href).toString(),
@@ -1986,7 +1979,7 @@ function ChatInput({
   onMicClick: () => void;
 }) {
   let micTitle = "Start talking";
-  if (voiceUnavailable) micTitle = "Launch Vox";
+  if (voiceUnavailable) micTitle = "Open Scout voice settings";
   if (recording) micTitle = "Stop talking";
   if (voiceBusy) micTitle = voiceLabel;
   const showVoiceLabel = voiceUnavailable || voiceBusy || recording;
@@ -2162,29 +2155,27 @@ function ScoutbotActionButton({
   );
 }
 
-function VoxSetupPanel({
+function ScoutVoiceSetupPanel({
   issue,
   probeState,
-  onLaunch,
+  onOpenSettings,
   onRetry,
-  onSettings,
 }: {
   issue: string | null;
   probeState: VoiceProbeState;
-  onLaunch: () => void;
+  onOpenSettings: () => void;
   onRetry: () => void;
-  onSettings: () => void;
 }) {
-  const isBusy = probeState === "probing" || probeState === "launching";
+  const isBusy = probeState === "probing" || probeState === "opening";
 
   return (
     <div className="rounded border border-lime-300/25 bg-lime-300/[0.06] px-3 py-3 font-mono text-[10px] text-[var(--scout-chrome-ink)]">
       <div className="flex items-start gap-2">
-        <Rocket size={14} className="mt-0.5 shrink-0 text-lime-300" />
+        <Mic size={14} className="mt-0.5 shrink-0 text-lime-300" />
         <div className="min-w-0">
-          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Vox</div>
+          <div className="uppercase tracking-[0.14em] text-lime-200">Scout Voice</div>
           <p className="mt-1 leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-            Start Vox, then retry once the menu bar icon is visible.
+            Scout Menu owns microphone capture. Open Voice settings, choose a microphone, grant permission, then retry.
           </p>
           {issue && (
             <p className="mt-2 break-words leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
@@ -2194,34 +2185,27 @@ function VoxSetupPanel({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <VoxSetupButton
-          icon={probeState === "launching" ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
-          label={probeState === "launching" ? "Opening" : "Launch Vox"}
-          onClick={onLaunch}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <ScoutVoiceSetupButton
+          icon={probeState === "opening" ? <Loader2 size={12} className="animate-spin" /> : <Settings size={12} />}
+          label={probeState === "opening" ? "Opening" : "Voice Settings"}
+          onClick={onOpenSettings}
           disabled={probeState === "probing"}
-          title="Launch Vox"
+          title="Open Scout voice settings"
         />
-        <VoxSetupButton
+        <ScoutVoiceSetupButton
           icon={probeState === "probing" ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           label="Retry"
           onClick={onRetry}
           disabled={isBusy}
-          title="Check Vox again"
-        />
-        <VoxSetupButton
-          icon={<Settings size={12} />}
-          label="Settings"
-          onClick={onSettings}
-          disabled={probeState === "probing"}
-          title="Open Vox settings"
+          title="Check Scout voice again"
         />
       </div>
     </div>
   );
 }
 
-function VoxSetupButton({
+function ScoutVoiceSetupButton({
   icon,
   label,
   onClick,
