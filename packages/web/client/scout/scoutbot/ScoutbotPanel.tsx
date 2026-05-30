@@ -87,7 +87,7 @@ async function releaseVoxLive(
   await withTimeout(
     live.cancel(),
     VOX_LIVE_CANCEL_TIMEOUT_MS,
-    "Timed out releasing Scout voice session.",
+    "Timed out releasing voice session.",
   ).catch(() => undefined);
 }
 
@@ -379,7 +379,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     void speech.promise
       .catch((err) => {
         if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Scout voice failed.");
+          setError(err instanceof Error ? err.message : "Voice failed.");
         }
       })
       .finally(() => {
@@ -679,7 +679,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
     const ok = await client.probe();
     setVoiceAvailable(ok);
-    setVoiceIssue(ok ? null : client.lastUnavailableReason ?? "Scout Menu voice is not reachable.");
+    setVoiceIssue(ok ? null : client.lastUnavailableReason ?? "Voice is not reachable.");
     setVoiceProbeState("idle");
     return ok;
   }, []);
@@ -816,7 +816,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     })
       .catch((err) => {
         if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Scout voice failed.");
+          setError(err instanceof Error ? err.message : "Voice failed.");
         }
         return null;
       })
@@ -983,7 +983,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         }
       } catch (err) {
         if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Scout voice failed.");
+          setError(err instanceof Error ? err.message : "Voice failed.");
         }
       }
     } else {
@@ -996,7 +996,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
           await playback;
         } catch (err) {
           if (!isVoxSpeechStopped(err)) {
-            setError(err instanceof Error ? err.message : "Scout voice failed.");
+            setError(err instanceof Error ? err.message : "Voice failed.");
           }
         }
       }
@@ -1154,7 +1154,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       }
       setVoiceState(wasCancellation ? null : "error");
       if (!wasCancellation) {
-        setError(err instanceof Error ? err.message : "Scout voice recording failed.");
+        setError(err instanceof Error ? err.message : "Voice recording failed.");
       }
     } finally {
       await cleanupLive();
@@ -1170,7 +1170,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       await withTimeout(
         live.stop(),
         VOX_LIVE_STOP_TIMEOUT_MS,
-        "Scout voice did not finish processing the recording.",
+        "Voice did not finish processing the recording.",
       );
     } catch (err) {
       liveCancelReasonRef.current = "stop-failed";
@@ -1181,7 +1181,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         setPartial("");
         setVoiceState("error");
       }
-      setError(err instanceof Error ? `Scout voice recording did not finish: ${err.message}` : "Scout voice recording did not finish.");
+      setError(err instanceof Error ? `Voice recording did not finish: ${err.message}` : "Voice recording did not finish.");
     }
   }, []);
 
@@ -1367,7 +1367,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       emitClientBroadcast({
         key: "voice.offline",
         tier: "warn",
-        text: "Scout voice setup needed",
+        text: "Voice setup needed",
       });
     } else if (voiceAvailable === true) {
       clearClientBroadcast("voice.offline");
@@ -1390,7 +1390,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     ? voiceState === "processing" ? "Sending" : "Stop"
     : voiceProbeState === "probing" ? "Checking Voice"
     : voiceProbeState === "opening" ? "Opening Scout"
-    : voiceAvailable === false ? "Voice Setup" : "Start Talking";
+    : voiceAvailable === false ? "Settings" : "Start Talking";
   const activeSession = sessionState?.session ?? null;
   const activeSessionId = activeSession?.id ?? null;
   const sessionStartedLabel = activeSession?.createdAt
@@ -1667,9 +1667,9 @@ function shortenForMenu(path: string): string {
 function makeScoutAudioLaunchContext() {
   return {
     requesterName: "OpenScout",
-    productName: "Scout Voice",
-    headline: "Turn on Scout voice",
-    body: "Scout Menu handles microphone capture and local transcription. Choose the microphone, grant permission, then return here to talk with your workspace.",
+    productName: "Voice",
+    headline: "Turn on voice",
+    body: "Choose a microphone, grant access, then return.",
     actionLabel: "Return to OpenScout",
     logo: {
       url: new URL("/openscout-icon.png", window.location.href).toString(),
@@ -1979,7 +1979,7 @@ function ChatInput({
   onMicClick: () => void;
 }) {
   let micTitle = "Start talking";
-  if (voiceUnavailable) micTitle = "Open Scout voice settings";
+  if (voiceUnavailable) micTitle = "Open voice settings";
   if (recording) micTitle = "Stop talking";
   if (voiceBusy) micTitle = voiceLabel;
   const showVoiceLabel = voiceUnavailable || voiceBusy || recording;
@@ -2173,9 +2173,9 @@ function ScoutVoiceSetupPanel({
       <div className="flex items-start gap-2">
         <Mic size={14} className="mt-0.5 shrink-0 text-lime-300" />
         <div className="min-w-0">
-          <div className="uppercase tracking-[0.14em] text-lime-200">Scout Voice</div>
+          <div className="uppercase tracking-[0.14em] text-lime-200">Voice</div>
           <p className="mt-1 leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-            Scout Menu owns microphone capture. Open Voice settings, choose a microphone, grant permission, then retry.
+            Open Settings, then retry.
           </p>
           {issue && (
             <p className="mt-2 break-words leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
@@ -2188,17 +2188,17 @@ function ScoutVoiceSetupPanel({
       <div className="mt-3 grid grid-cols-2 gap-2">
         <ScoutVoiceSetupButton
           icon={probeState === "opening" ? <Loader2 size={12} className="animate-spin" /> : <Settings size={12} />}
-          label={probeState === "opening" ? "Opening" : "Voice Settings"}
+          label={probeState === "opening" ? "Opening" : "Settings"}
           onClick={onOpenSettings}
           disabled={probeState === "probing"}
-          title="Open Scout voice settings"
+          title="Open voice settings"
         />
         <ScoutVoiceSetupButton
           icon={probeState === "probing" ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           label="Retry"
           onClick={onRetry}
           disabled={isBusy}
-          title="Check Scout voice again"
+          title="Check voice again"
         />
       </div>
     </div>

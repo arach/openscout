@@ -3456,7 +3456,7 @@ export async function createOpenScoutWebServer(
         signal: c.req.raw.signal,
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Scout voice speech failed";
+      const message = error instanceof Error ? error.message : "Voice speech failed";
       return c.json({ error: message }, 503);
     }
   });

@@ -286,7 +286,7 @@ export async function playPreparedVoxSpeech(
       };
       const onError = () => {
         cleanup();
-        reject(new Error("Scout voice audio playback failed."));
+        reject(new Error("Voice audio playback failed."));
       };
       const onAbort = () => {
         cleanup();
@@ -451,18 +451,18 @@ function currentBrowserOrigin(): string | undefined {
 function humanVoxError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof VoxDError && error.code === "http_error" && /origin not allowed/i.test(message)) {
-    return "Scout Menu blocked this OpenScout URL. Restart Scout Menu so it can register this browser origin, then try again.";
+    return "Voice blocked this OpenScout URL. Restart Scout Menu, then try again.";
   }
   if (/origin not allowed/i.test(message)) {
-    return "Scout Menu blocked this OpenScout URL. Restart Scout Menu so it can register this browser origin, then try again.";
+    return "Voice blocked this OpenScout URL. Restart Scout Menu, then try again.";
   }
-  return sanitizeScoutVoiceError(message) || "Scout voice request failed.";
+  return sanitizeScoutVoiceError(message) || "Voice request failed.";
 }
 
 function sanitizeScoutVoiceError(message: string): string {
   return message
-    .replace(/\bVox Companion\b/g, "Scout Menu voice")
-    .replace(/\bVoxD\b/g, "Scout voice service")
-    .replace(/\bvoxd\b/gi, "Scout voice service")
-    .replace(/\bVox\b/g, "Scout voice");
+    .replace(/\bVox Companion\b/g, "Voice")
+    .replace(/\bVoxD\b/g, "Voice service")
+    .replace(/\bvoxd\b/gi, "Voice service")
+    .replace(/\bVox\b/g, "Voice");
 }

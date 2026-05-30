@@ -429,7 +429,7 @@ private struct MicButton: View {
 
     private var tooltip: String {
         switch vox.state {
-        case .probing:               return "Checking Scout voice…"
+        case .probing:               return "Checking voice…"
         case .idle:                  return "Hold to dictate (or tap to start)"
         case .starting:              return "Starting recording…"
         case .recording:             return "Recording — tap to commit"

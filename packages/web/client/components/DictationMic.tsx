@@ -32,7 +32,7 @@ export function DictationMic({
         setUnavailableReason(null);
       } else {
         setState("unavailable");
-        setUnavailableReason(client.lastUnavailableReason ?? "Scout Menu voice is unavailable.");
+        setUnavailableReason(client.lastUnavailableReason ?? "Voice is unavailable.");
       }
     });
     return () => {
@@ -96,7 +96,7 @@ export function DictationMic({
   const isBusy = state === "starting" || state === "processing";
   const isProbing = state === "probing";
   const title =
-    state === "unavailable" ? `Open Scout voice settings${unavailableReason ? ` — ${unavailableReason}` : ""}`
+    state === "unavailable" ? `Open voice settings${unavailableReason ? ` — ${unavailableReason}` : ""}`
     : state === "probing" ? "Checking voice…"
     : state === "recording" ? "Stop dictation"
     : isBusy ? "Working…"

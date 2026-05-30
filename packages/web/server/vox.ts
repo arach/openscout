@@ -116,7 +116,7 @@ export async function synthesizeVoxSpeech(input: {
 
   const audioBase64 = stringValue(result.audioBase64);
   if (!audioBase64) {
-    throw new Error("Scout voice returned no audio.");
+    throw new Error("Voice returned no audio.");
   }
 
   const metrics = recordValue(result.metrics);
@@ -231,7 +231,7 @@ async function callVoxRpc(
 
     const onAbort = () => {
       cleanup();
-      reject(abortError(`Scout voice ${method} aborted.`));
+      reject(abortError(`Voice ${method} aborted.`));
     };
 
     if (options.signal?.aborted) {
@@ -242,7 +242,7 @@ async function callVoxRpc(
 
     timeout = setTimeout(() => {
       cleanup();
-      reject(new Error(`Scout voice ${method} timed out after ${timeoutMs}ms.`));
+      reject(new Error(`Voice ${method} timed out after ${timeoutMs}ms.`));
     }, timeoutMs);
 
     socket.onopen = () => {
@@ -264,12 +264,12 @@ async function callVoxRpc(
 
     socket.onerror = () => {
       cleanup();
-      reject(new Error(`Could not connect to Scout voice on port ${port}.`));
+      reject(new Error(`Could not connect to voice on port ${port}.`));
     };
 
     socket.onclose = () => {
       cleanup();
-      reject(new Error("Scout voice closed the connection before returning a result."));
+      reject(new Error("Voice closed the connection before returning a result."));
     };
   });
 }
