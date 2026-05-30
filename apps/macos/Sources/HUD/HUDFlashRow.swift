@@ -27,7 +27,7 @@ final class HUDFlashState: ObservableObject {
         let body: String
         let action: Action?
 
-        enum Kind { case error, info }
+        enum Kind { case error, info, success }
 
         struct Action {
             let label: String       // e.g. "LAUNCH VOX"
@@ -161,6 +161,7 @@ struct HUDFlashRow: View {
         // a flash needs to read as alert, not ambient status.
         case .error: return Color(red: 1.0, green: 0.28, blue: 0.28)
         case .info:  return HUDChrome.inkMuted
+        case .success: return HUDChrome.accent
         }
     }
 }

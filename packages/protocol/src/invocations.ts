@@ -20,6 +20,7 @@ export type FlightState =
 
 export interface InvocationExecutionPreference {
   harness?: AgentHarness;
+  model?: string;
   permissionProfile?: ScoutPermissionProfile;
   /**
    * Controls whether a handoff should enter fresh model context or continue an

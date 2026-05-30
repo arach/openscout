@@ -51,6 +51,7 @@ import {
   type ScoutDeliverRequest,
   type ScoutDeliverResponse,
   type ScoutDeliverRouteKind,
+  type ScoutProjectAgentSpec,
   type ThreadWatchCloseRequest,
   type ThreadWatchOpenRequest,
   type ThreadWatchRenewRequest,
@@ -6639,19 +6640,26 @@ function supportedRouteHarness(value: string | undefined): AgentHarness | undefi
   return undefined;
 }
 
+function supportedRouteModel(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized || undefined;
+}
+
 function executionWithRouteParams(payload: ScoutDeliverRequest): InvocationRequest["execution"] | undefined {
   const label = agentLabelForRouteParams(payload);
   const identity = label
     ? parseAgentIdentity(label.startsWith("@") ? label : `@${label}`)
     : null;
-  const harness = supportedRouteHarness(identity?.harness);
-  if (!harness || payload.execution?.harness) {
+  const harness = payload.execution?.harness ? undefined : supportedRouteHarness(identity?.harness);
+  const model = payload.execution?.model ? undefined : supportedRouteModel(identity?.model);
+  if (!harness && !model) {
     return payload.execution;
   }
 
   return {
     ...(payload.execution ?? {}),
-    harness,
+    ...(harness ? { harness } : {}),
+    ...(model ? { model } : {}),
   };
 }
 
@@ -6675,8 +6683,56 @@ function implicitProjectAgentName(projectPath: string): string {
   return `${base}-card-${createRuntimeId("one").slice(-8)}`;
 }
 
-async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
-  input: BrokerRouteTargetInput & { execution?: InvocationRequest["execution"] },
+function projectAgentPersistence(
+  spec: ScoutProjectAgentSpec | undefined,
+): "one_time" | "sticky" {
+  return spec?.persistence === "sticky" ? "sticky" : "one_time";
+}
+
+function compactProjectAgentName(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized || undefined;
+}
+
+function shouldMaterializeProjectAgent(input: {
+  projectPath?: string;
+  resolved: InvocationResolution;
+  persistence: "one_time" | "sticky";
+  projectAgent?: ScoutProjectAgentSpec;
+  execution?: InvocationRequest["execution"];
+}): boolean {
+  if (!input.projectPath) {
+    return false;
+  }
+
+  // Explicit one-time runner requests should not inherit a stable project
+  // session. They get a short-lived card even when a sticky agent exists.
+  if (input.projectAgent?.persistence === "one_time") {
+    return true;
+  }
+
+  // Explicit sticky requests may carry profile details that should become the
+  // stable project agent config before the ask is routed.
+  if (input.projectAgent?.persistence === "sticky") {
+    return input.resolved.kind !== "resolved"
+      || Boolean(input.projectAgent.agentName?.trim())
+      || Boolean(input.projectAgent.displayName?.trim())
+      || Boolean(input.execution?.harness)
+      || Boolean(input.execution?.model?.trim())
+      || Boolean(input.execution?.permissionProfile);
+  }
+
+  // Legacy project-path asks keep the old implicit card behavior: only
+  // materialize when there is no target or fresh context must disambiguate.
+  return input.resolved.kind === "unknown"
+    || (input.resolved.kind === "ambiguous" && (input.execution?.session ?? "new") === "new");
+}
+
+async function resolveBrokerDeliveryTargetWithImplicitProjectAgent(
+  input: BrokerRouteTargetInput & {
+    execution?: InvocationRequest["execution"];
+    projectAgent?: ScoutProjectAgentSpec;
+  },
   options: {
     requesterId?: string;
     currentDirectory?: string;
@@ -6685,43 +6741,60 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
 ): Promise<InvocationResolution> {
   const resolved = resolveBrokerDeliveryTarget(input);
   const projectPath = projectPathRouteTarget(input);
-  const shouldCreateImplicitProjectCard =
-    projectPath
-    && (
-      resolved.kind === "unknown"
-      || (resolved.kind === "ambiguous" && (input.execution?.session ?? "new") === "new")
-    );
-  if (!shouldCreateImplicitProjectCard) {
+  const persistence = projectAgentPersistence(input.projectAgent);
+  if (!shouldMaterializeProjectAgent({
+    projectPath,
+    resolved,
+    persistence,
+    projectAgent: input.projectAgent,
+    execution: input.execution,
+  })) {
+    return resolved;
+  }
+  if (!projectPath) {
     return resolved;
   }
 
   const createdAt = Date.now();
   const requesterId = options.requesterId?.trim();
+  const agentName = persistence === "sticky"
+    ? compactProjectAgentName(input.projectAgent?.agentName)
+    : implicitProjectAgentName(projectPath);
+  const displayName = compactProjectAgentName(input.projectAgent?.displayName);
   const status = await startLocalAgent({
     projectPath,
-    agentName: implicitProjectAgentName(projectPath),
+    ...(agentName ? { agentName } : {}),
+    ...(displayName ? { displayName } : {}),
     currentDirectory: options.currentDirectory ?? projectPath,
     harness: input.execution?.harness,
+    model: input.execution?.model,
+    permissionProfile: input.execution?.permissionProfile,
     ensureOnline: false,
     card: {
-      kind: "one_time",
+      kind: persistence === "sticky" ? "persistent" : "one_time",
       createdAt,
       ...(requesterId ? { createdById: requesterId } : {}),
-      expiresAt: createdAt + DEFAULT_IMPLICIT_PROJECT_CARD_TTL_MS,
-      maxUses: 1,
+      ...(persistence === "one_time"
+        ? {
+            expiresAt: createdAt + DEFAULT_IMPLICIT_PROJECT_CARD_TTL_MS,
+            maxUses: 1,
+          }
+        : {}),
     },
   }).catch((error) => {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`could not create an agent card for project ${projectPath}: ${detail}`);
+    throw new Error(`could not create a ${persistence} agent for project ${projectPath}: ${detail}`);
   });
 
-  await pruneOneTimeLocalAgentCards({
-    ...(requesterId ? { createdById: requesterId } : {}),
-    projectRoot: status.projectRoot,
-    excludeAgentIds: [status.agentId],
-  }).catch((error) => {
-    console.warn(`[openscout-runtime] implicit project card cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
+  if (persistence === "one_time") {
+    await pruneOneTimeLocalAgentCards({
+      ...(requesterId ? { createdById: requesterId } : {}),
+      projectRoot: status.projectRoot,
+      excludeAgentIds: [status.agentId],
+    }).catch((error) => {
+      console.warn(`[openscout-runtime] implicit project card cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
 
   await syncRegisteredLocalAgentsIfChanged(options.reason);
   const agent = runtime.snapshot().agents[status.agentId];
@@ -6735,13 +6808,14 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectCard(
 async function resolveInvocationTarget(
   payload: InvocationRequest & BrokerRouteTargetInput,
 ): Promise<InvocationResolution> {
-  return resolveBrokerDeliveryTargetWithImplicitProjectCard({
+  return resolveBrokerDeliveryTargetWithImplicitProjectAgent({
     target: payload.target,
     targetAgentId: payload.targetAgentId,
     targetSessionId: payload.targetSessionId,
     targetLabel: payload.targetLabel,
     routePolicy: payload.routePolicy,
     execution: payload.execution,
+    projectAgent: undefined,
   }, {
     requesterId: payload.requesterId,
     currentDirectory: projectPathRouteTarget(payload),
@@ -7534,7 +7608,7 @@ async function acceptBrokerDelivery(
     };
   }
 
-  const resolved = await resolveBrokerDeliveryTargetWithImplicitProjectCard({
+  const resolved = await resolveBrokerDeliveryTargetWithImplicitProjectAgent({
     ...payload,
     execution,
   }, {

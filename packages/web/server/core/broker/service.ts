@@ -25,6 +25,8 @@ import {
   type MessageRecord,
   type ScoutDeliverResponse,
   type ScoutDispatchRecord,
+  type ScoutProjectAgentSpec,
+  type ScoutRouteTarget,
   type WakePolicy,
   type ScoutReturnAddress,
   type UnblockRequestEvent,
@@ -508,6 +510,25 @@ function renderScoutTargetLabel(targetLabel: string): string {
     return "";
   }
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+}
+
+function renderedScoutAskTarget(target: ScoutRouteTarget): string {
+  switch (target.kind) {
+    case "agent_id":
+      return target.agentId.trim();
+    case "agent_label":
+      return target.label.trim();
+    case "session_id":
+      return `session:${target.sessionId.trim()}`;
+    case "binding_ref":
+      return `ref:${target.ref.trim()}`;
+    case "project_path":
+      return target.projectPath.trim();
+    case "channel":
+      return `channel:${target.channel.trim()}`;
+    case "broadcast":
+      return "broadcast";
+  }
 }
 
 function scoutTargetDiagnosticFromDeliveryFailure(
@@ -2034,18 +2055,27 @@ export async function sendScoutDirectMessage(input: {
 
 export async function askScoutQuestion(input: {
   senderId: string;
-  targetLabel: string;
+  targetLabel?: string;
   targetAgentId?: string;
+  target?: ScoutRouteTarget;
   body: string;
   channel?: string;
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionSession?: "new" | "existing" | "any";
+  projectAgent?: ScoutProjectAgentSpec;
   currentDirectory?: string;
+  source?: string;
 }): Promise<ScoutAskResult> {
+  const renderedTarget = input.targetLabel?.trim()
+    || (input.target ? renderedScoutAskTarget(input.target) : "")
+    || input.targetAgentId?.trim()
+    || "";
   const broker = await loadScoutBrokerContext();
   if (!broker) {
-    return { usedBroker: false, unresolvedTarget: input.targetLabel };
+    return { usedBroker: false, unresolvedTarget: renderedTarget };
   }
   const currentDirectory = input.currentDirectory ?? process.cwd();
   const senderId = await resolveConversationActorId(
@@ -2055,9 +2085,14 @@ export async function askScoutQuestion(input: {
     input.senderId,
     currentDirectory,
   );
-  const normalizedTargetLabel = renderScoutTargetLabel(input.targetLabel);
+  if (!renderedTarget) {
+    return { usedBroker: true, unresolvedTarget: renderedTarget };
+  }
+  const normalizedTargetLabel = input.target?.kind === "project_path"
+    ? ""
+    : renderScoutTargetLabel(renderedTarget);
   const explicitTargetAgentId = input.targetAgentId?.trim()
-    || broker.snapshot.agents[input.targetLabel.trim()]?.id;
+    || (input.target ? undefined : broker.snapshot.agents[renderedTarget]?.id);
   if (explicitTargetAgentId) {
     await ensureTargetRelayAgentRegistered(
       broker.baseUrl,
@@ -2067,14 +2102,19 @@ export async function askScoutQuestion(input: {
       currentDirectory,
     );
   }
-  const messageBody = input.body.trim().startsWith(normalizedTargetLabel)
+  const messageBody = normalizedTargetLabel && input.body.trim().startsWith(normalizedTargetLabel)
     ? input.body.trim()
-    : `${normalizedTargetLabel} ${input.body.trim()}`;
+    : normalizedTargetLabel
+    ? `${normalizedTargetLabel} ${input.body.trim()}`
+    : input.body.trim();
+  const createdAt = input.createdAtMs ?? Date.now();
+  const source = input.source?.trim() || "scout-cli";
   const delivery = await brokerPostDeliver(broker.baseUrl, {
-    id: `deliver-${(input.createdAtMs ?? Date.now()).toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: senderId,
     requesterNodeId: broker.node.id,
-    targetLabel: input.targetLabel,
+    ...(input.target ? { target: input.target } : {}),
+    targetLabel: renderedTarget,
     targetAgentId: explicitTargetAgentId,
     body: messageBody,
     intent: "consult",
@@ -2082,22 +2122,24 @@ export async function askScoutQuestion(input: {
     speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(messageBody) : undefined,
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
-      session: "new",
+      ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
+      session: input.executionSession ?? "new",
     },
+    ...(input.projectAgent ? { projectAgent: input.projectAgent } : {}),
     ensureAwake: true,
-    createdAt: input.createdAtMs ?? Date.now(),
+    createdAt,
     messageMetadata: {
-      source: "scout-cli",
+      source,
     },
     invocationMetadata: {
-      source: "scout-cli",
+      source,
     },
   });
 
   if (delivery.kind !== "delivery") {
     return {
       usedBroker: true,
-      unresolvedTarget: input.targetLabel,
+      unresolvedTarget: renderedTarget,
       targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
     };
   }

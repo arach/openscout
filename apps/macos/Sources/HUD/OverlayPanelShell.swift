@@ -30,12 +30,26 @@ final class OverlayPanel: NSPanel {
         // Let text fields consume their own input. Without this guard,
         // typing in a dock TextField sends '1','2',… through to the
         // panel's nav hotkeys and the user can't compose a message.
-        // Esc + ⌘-modified keys still reach onKeyDown so two-stage
-        // clear + ⌘-nav keep working while typing.
+        // Esc and the dock suggestion keys still reach onKeyDown so
+        // completion can be accepted/dismissed while typing.
         let kc = event.keyCode
         let isEscape = kc == 53
         let hasCommand = event.modifierFlags.contains(.command)
-        if firstResponderIsTextEditing && !isEscape && !hasCommand {
+        let isSuggestionKey = HUDDockState.shared.suggestionsVisible
+            && (kc == 36 || kc == 48 || kc == 125 || kc == 126)
+        let isRunnerProjectKey = HUDRunnerState.shared.isPresented
+            && HUDRunnerState.shared.shouldShowProjectMatches
+            && (kc == 36 || kc == 48 || kc == 125 || kc == 126)
+        let isIdleAgentRosterArrow = HUDState.shared.view == .agents
+            && !HUDDockState.shared.suggestionsVisible
+            && HUDDockState.shared.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (kc == 125 || kc == 126)
+        if firstResponderIsTextEditing
+            && !isEscape
+            && !hasCommand
+            && !isSuggestionKey
+            && !isRunnerProjectKey
+            && !isIdleAgentRosterArrow {
             super.keyDown(with: event)
             return
         }
