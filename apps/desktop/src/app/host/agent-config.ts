@@ -41,6 +41,7 @@ export type ScoutDesktopAgentConfigState = {
   runtime: ScoutDesktopAgentConfigRuntime;
   systemPrompt: string;
   toolUse: ScoutDesktopAgentConfigToolUse;
+  channelEnabled: boolean;
   capabilitiesText: string;
 };
 
@@ -55,6 +56,7 @@ export type ScoutDesktopUpdateAgentConfigInput = {
   };
   systemPrompt: string;
   toolUse: ScoutDesktopAgentConfigToolUse;
+  channelEnabled?: boolean;
   capabilitiesText: string;
 };
 
@@ -147,6 +149,7 @@ function buildUnavailableAgentState(agentId: string): ScoutDesktopAgentConfigSta
     toolUse: {
       launchArgsText: "",
     },
+    channelEnabled: false,
     capabilitiesText: "",
   };
 }
@@ -181,6 +184,7 @@ function buildLocalAgentConfigState(
     toolUse: {
       launchArgsText: agentConfig.launchArgs.join("\n"),
     },
+    channelEnabled: agentConfig.channelEnabled,
     capabilitiesText: agentConfig.capabilities.join(", "),
   };
 }
@@ -235,6 +239,7 @@ function buildBrokerAgentConfigState(
     toolUse: {
       launchArgsText: "",
     },
+    channelEnabled: false,
     capabilitiesText: Array.isArray(agent.capabilities) ? agent.capabilities.join(", ") : "",
   };
 }
@@ -266,6 +271,7 @@ export async function updateScoutDesktopAgentConfig(
     systemPrompt: input.systemPrompt,
     launchArgs: splitLines(input.toolUse.launchArgsText),
     model: input.model,
+    channelEnabled: input.channelEnabled,
     capabilities: splitDelimitedTokens(input.capabilitiesText) as AgentCapability[],
   });
 

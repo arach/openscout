@@ -44,6 +44,8 @@ function startBrokerSubscription(
   onMessage: (message: MessageRecord) => Promise<boolean> | boolean,
   signal: AbortSignal,
 ): void {
+  const deliveredMessageIds = new Set<string>();
+
   const connect = async () => {
     while (!signal.aborted) {
       try {
@@ -111,8 +113,16 @@ function startBrokerSubscription(
               if (!claim?.message) {
                 continue;
               }
+              if (deliveredMessageIds.has(claim.message.id)) {
+                await ackInboxItem(broker, {
+                  itemId: claim.id,
+                  leaseOwner: `scout-channel:${agentId}`,
+                });
+                continue;
+              }
               const delivered = await onMessage(claim.message);
               if (delivered) {
+                deliveredMessageIds.add(claim.message.id);
                 await ackInboxItem(broker, {
                   itemId: claim.id,
                   leaseOwner: `scout-channel:${agentId}`,

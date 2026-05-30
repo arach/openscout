@@ -16,8 +16,8 @@ const HELP_FLAGS = new Set(["help", "--help", "-h"]);
 export function renderCardCommandHelp(): string {
   return [
     "Usage:",
-    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--one-time] [--no-input] [--path <path>]",
-    `  scout card update <agent> [--harness <claude|codex|pi>] [--model <model>|--clear-model] [--reasoning-effort <effort>|--clear-reasoning-effort] [--permission-profile <${formatScoutPermissionProfiles()}>|--clear-permission-profile] [--restart]`,
+    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--channel-enabled] [--as <requester>] [--one-time] [--no-input] [--path <path>]",
+    `  scout card update <agent> [--harness <claude|codex|pi>] [--model <model>|--clear-model] [--reasoning-effort <effort>|--clear-reasoning-effort] [--permission-profile <${formatScoutPermissionProfiles()}>|--clear-permission-profile] [--channel-enabled|--no-channel] [--restart]`,
     "  scout card cleanup [--all]",
     "  scout card retire <agent>",
     "",
@@ -41,6 +41,7 @@ type CardUpdateOptions = {
   model?: string | null;
   reasoningEffort?: string | null;
   permissionProfile?: string | null;
+  channelEnabled?: boolean;
   restart: boolean;
 };
 
@@ -102,6 +103,14 @@ function parseCardUpdateOptions(args: string[]): { target: string; options: Card
       options.permissionProfile = null;
       continue;
     }
+    if (current === "--channel-enabled" || current === "--enable-channel") {
+      options.channelEnabled = true;
+      continue;
+    }
+    if (current === "--no-channel" || current === "--channel-disabled") {
+      options.channelEnabled = false;
+      continue;
+    }
     if (current === "--restart") {
       options.restart = true;
       continue;
@@ -136,6 +145,7 @@ function renderCardUpdateResult(value: {
     `Session: ${value.config.runtime.sessionId}`,
     `Model: ${value.config.model ?? "default"}`,
     `Permission: ${value.config.permissionProfile ?? "default"}`,
+    `Channel: ${value.config.channelEnabled ? "enabled" : "disabled"}`,
     `Restarted: ${value.restarted ? "yes" : "no"}`,
   ].join("\n");
 }
@@ -187,6 +197,7 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
       model: options.model,
       reasoningEffort: options.reasoningEffort,
       permissionProfile: options.permissionProfile,
+      channelEnabled: options.channelEnabled,
       restart: options.restart,
     });
     if (!config) {
@@ -288,6 +299,7 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
     model: options.model,
     reasoningEffort: options.reasoningEffort,
     permissionProfile: options.permissionProfile,
+    channelEnabled: options.channelEnabled,
     currentDirectory: options.currentDirectory,
     createdById: resolveScoutAgentName(options.requesterId),
     oneTimeUse: options.oneTimeUse,

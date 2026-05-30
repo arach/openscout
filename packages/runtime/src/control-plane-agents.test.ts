@@ -352,6 +352,7 @@ describe("createScoutAgentService", () => {
         wakePolicy: "on_demand" as const,
       },
       launchArgs: ["--model", "claude-opus-4-7"],
+      channelEnabled: false,
       capabilities: ["chat", "invoke", "deliver"],
       applyMode: "restart" as const,
       templateHint: "hint",

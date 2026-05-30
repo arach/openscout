@@ -107,6 +107,7 @@ type LocalAgentRecord = {
   capabilities?: AgentCapability[];
   launchArgs?: string[];
   permissionProfile?: ScoutPermissionProfile;
+  channelEnabled?: boolean;
   card?: RelayAgentCardLifecycle;
 };
 
@@ -124,6 +125,7 @@ export type LocalAgentConfigState = {
     wakePolicy: "on_demand";
   };
   launchArgs: string[];
+  channelEnabled: boolean;
   capabilities: AgentCapability[];
   applyMode: "restart";
   templateHint: string;
@@ -134,6 +136,7 @@ export type UpdateLocalAgentCardInput = {
   model?: string | null;
   reasoningEffort?: string | null;
   permissionProfile?: ScoutPermissionProfile | string | null;
+  channelEnabled?: boolean;
 };
 
 export type LocalAgentContextPolicy = {
@@ -187,6 +190,7 @@ export type StartLocalAgentInput = {
   model?: string;
   reasoningEffort?: string;
   permissionProfile?: ScoutPermissionProfile | string;
+  channelEnabled?: boolean;
   branch?: string;
   /** Override the agent's working directory (e.g., for git worktrees). */
   cwdOverride?: string;
@@ -882,6 +886,8 @@ export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
   "Bash(scout:*)",
 ] as const;
 
+export const SCOUT_CLAUDE_CHANNEL_SERVER_NAME = "scout-channel";
+
 function hasClaudeAllowedToolsArg(launchArgs: string[]): boolean {
   return launchArgs.some((arg) =>
     arg === "--allowedTools"
@@ -901,6 +907,67 @@ export function normalizeClaudeRuntimeLaunchArgs(value: unknown): string[] {
     ...launchArgs,
     "--allowedTools",
     DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
+  ];
+}
+
+export function buildScoutClaudeChannelMcpConfig(): string {
+  return JSON.stringify({
+    mcpServers: {
+      [SCOUT_CLAUDE_CHANNEL_SERVER_NAME]: {
+        command: "scout",
+        args: ["channel"],
+      },
+    },
+  });
+}
+
+function hasScoutClaudeChannelActivationArg(launchArgs: string[]): boolean {
+  return launchArgs.some((arg, index) => {
+    const next = launchArgs[index + 1] ?? "";
+    if (arg === "--dangerously-load-development-channels" || arg === "--channels") {
+      return next === `server:${SCOUT_CLAUDE_CHANNEL_SERVER_NAME}`;
+    }
+    return arg === `--dangerously-load-development-channels=server:${SCOUT_CLAUDE_CHANNEL_SERVER_NAME}`
+      || arg === `--channels=server:${SCOUT_CLAUDE_CHANNEL_SERVER_NAME}`;
+  });
+}
+
+function hasScoutClaudeChannelMcpConfigArg(launchArgs: string[]): boolean {
+  return launchArgs.some((arg, index) => {
+    const value = arg === "--mcp-config"
+      ? launchArgs[index + 1]
+      : arg.startsWith("--mcp-config=")
+        ? arg.slice("--mcp-config=".length)
+        : undefined;
+    return Boolean(value?.includes(SCOUT_CLAUDE_CHANNEL_SERVER_NAME));
+  });
+}
+
+export function normalizeClaudeTmuxLaunchArgs(
+  value: unknown,
+  options: { channelEnabled?: boolean } = {},
+): string[] {
+  const launchArgs = normalizeClaudeRuntimeLaunchArgs(value);
+  if (options.channelEnabled !== true && !hasScoutClaudeChannelActivationArg(launchArgs)) {
+    return launchArgs;
+  }
+
+  const withMcpConfig = hasScoutClaudeChannelMcpConfigArg(launchArgs)
+    ? launchArgs
+    : [
+        ...launchArgs,
+        "--mcp-config",
+        buildScoutClaudeChannelMcpConfig(),
+      ];
+
+  if (hasScoutClaudeChannelActivationArg(withMcpConfig)) {
+    return withMcpConfig;
+  }
+
+  return [
+    ...withMcpConfig,
+    "--dangerously-load-development-channels",
+    `server:${SCOUT_CLAUDE_CHANNEL_SERVER_NAME}`,
   ];
 }
 
@@ -1168,6 +1235,17 @@ function launchArgsForOverrideHarness(
   return [];
 }
 
+function channelEnabledForOverrideHarness(
+  override: RelayAgentOverride,
+  harness: ManagedAgentHarness,
+): boolean {
+  const profile = override.harnessProfiles?.[harness];
+  if (profile) {
+    return profile.channelEnabled === true;
+  }
+  return harness === defaultHarnessForOverride(override, harness) && override.channelEnabled === true;
+}
+
 function overrideHarnessProfile(
   override: RelayAgentOverride,
   harness: ManagedAgentHarness,
@@ -1179,6 +1257,7 @@ function overrideHarnessProfile(
     sessionId: normalizeTmuxSessionName(profile?.sessionId, `${override.agentId}-${harness}`),
     launchArgs: launchArgsForOverrideHarness(override, harness),
     ...(profile?.permissionProfile ? { permissionProfile: profile.permissionProfile } : {}),
+    ...(channelEnabledForOverrideHarness(override, harness) ? { channelEnabled: true } : {}),
   };
 }
 
@@ -1211,6 +1290,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       sessionId: normalizeTmuxSessionName(profile.sessionId, `${agentId}-${harness}`),
       launchArgs: normalizeLaunchArgsForHarness(harness, profile.launchArgs),
       ...(profile.permissionProfile ? { permissionProfile: profile.permissionProfile } : {}),
+      ...(profile.channelEnabled === true ? { channelEnabled: true } : {}),
     };
   }
   const runtimeHarness = normalizeManagedHarness(record.harness, defaultHarness);
@@ -1222,6 +1302,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       sessionId: normalizeTmuxSessionName(record.tmuxSession, `${agentId}-${runtimeHarness}`),
       launchArgs: normalizeLaunchArgsForHarness(runtimeHarness, record.launchArgs),
       ...(record.permissionProfile ? { permissionProfile: record.permissionProfile } : {}),
+      ...(record.channelEnabled === true ? { channelEnabled: true } : {}),
     };
   }
 
@@ -1232,6 +1313,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       sessionId: normalizeTmuxSessionName(record.tmuxSession, `${agentId}-${defaultHarness}`),
       launchArgs: normalizeLaunchArgsForHarness(defaultHarness, record.launchArgs),
       ...(record.permissionProfile ? { permissionProfile: record.permissionProfile } : {}),
+      ...(record.channelEnabled === true ? { channelEnabled: true } : {}),
     };
   }
 
@@ -1246,6 +1328,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       sessionId: normalizeTmuxSessionName(profile.sessionId, `${agentId}-${harness}`),
       launchArgs: normalizeLaunchArgsForHarness(harness, profile.launchArgs),
       ...(profile.permissionProfile ? { permissionProfile: profile.permissionProfile } : {}),
+      ...(profile.channelEnabled === true ? { channelEnabled: true } : {}),
     } satisfies RelayHarnessProfile;
   }
 
@@ -1281,6 +1364,7 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
       transport: fallbackTransport,
       launchArgs: normalizeLaunchArgsForHarness(selectedHarness, normalized.launchArgs),
       ...(normalized.permissionProfile ? { permissionProfile: normalized.permissionProfile } : {}),
+      ...(normalized.channelEnabled === true ? { channelEnabled: true } : {}),
       harnessProfiles: {
         ...normalized.harnessProfiles,
         [selectedHarness]: {
@@ -1289,6 +1373,7 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
           sessionId: fallbackSessionId,
           launchArgs: normalizeLaunchArgsForHarness(selectedHarness, normalized.launchArgs),
           ...(normalized.permissionProfile ? { permissionProfile: normalized.permissionProfile } : {}),
+          ...(normalized.channelEnabled === true ? { channelEnabled: true } : {}),
         },
       },
     };
@@ -1303,6 +1388,7 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
     transport: profile.transport,
     launchArgs: profile.launchArgs,
     permissionProfile: profile.permissionProfile,
+    channelEnabled: profile.channelEnabled === true,
   };
 }
 
@@ -1374,6 +1460,7 @@ function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): L
     capabilities: normalizeLocalAgentCapabilities(record.capabilities),
     launchArgs: activeProfile?.launchArgs ?? normalizeLaunchArgsForHarness(harness, record.launchArgs),
     permissionProfile: activeProfile?.permissionProfile ?? record.permissionProfile,
+    channelEnabled: activeProfile?.channelEnabled === true,
     registrationSource: record.registrationSource,
     card: normalizeLocalAgentCardLifecycle(record.card),
   };
@@ -1426,6 +1513,7 @@ function localAgentRecordFromResolvedConfig(config: ResolvedRelayAgentConfig): L
     transport: config.runtime.transport,
     capabilities: config.capabilities,
     launchArgs: config.launchArgs,
+    channelEnabled: config.channelEnabled,
   });
 }
 
@@ -1448,6 +1536,7 @@ function localAgentRecordFromRelayAgentOverride(
     transport: normalizeLocalAgentTransport(override.runtime?.transport, normalizeLocalAgentHarness(override.runtime?.harness)),
     capabilities: override.capabilities,
     launchArgs: override.launchArgs,
+    channelEnabled: override.channelEnabled,
     card: override.card,
   });
 }
@@ -1475,6 +1564,7 @@ function relayAgentOverrideFromLocalAgentRecord(
       normalizeLocalAgentHarness(normalizedRecord.harness),
       normalizedRecord.launchArgs,
     ),
+    ...(normalizedRecord.channelEnabled ? { channelEnabled: true } : {}),
     capabilities: normalizeLocalAgentCapabilities(normalizedRecord.capabilities),
     defaultHarness: normalizeManagedHarness(normalizedRecord.defaultHarness, "claude"),
     harnessProfiles: normalizedRecord.harnessProfiles,
@@ -1506,6 +1596,7 @@ function buildLocalAgentConfigState(agentId: string, record: LocalAgentRecord): 
       wakePolicy: "on_demand",
     },
     launchArgs,
+    channelEnabled: record.channelEnabled === true,
     capabilities: normalizeLocalAgentCapabilities(record.capabilities),
     applyMode: "restart",
     templateHint: LOCAL_AGENT_SYSTEM_PROMPT_TEMPLATE_HINT,
@@ -1577,6 +1668,7 @@ export async function updateLocalAgentCard(
     model,
     reasoningEffort: input.reasoningEffort,
     permissionProfile: input.permissionProfile,
+    channelEnabled: input.channelEnabled,
     capabilities: existing.capabilities,
   });
 }
@@ -1719,6 +1811,7 @@ export async function updateLocalAgentConfig(
     model?: string | null;
     reasoningEffort?: string | null;
     permissionProfile?: ScoutPermissionProfile | string | null;
+    channelEnabled?: boolean;
     capabilities: string[];
   },
 ): Promise<LocalAgentConfigState | null> {
@@ -1731,6 +1824,7 @@ export async function updateLocalAgentConfig(
   if (!record) {
     return null;
   }
+  const normalizedRecord = normalizeLocalAgentRecord(agentId, record);
 
   const cwd = normalizeProjectPath(input.runtime.cwd || record.cwd);
   await assertDirectoryExists(cwd);
@@ -1760,6 +1854,9 @@ export async function updateLocalAgentConfig(
     : input.permissionProfile === null
       ? undefined
       : parseScoutPermissionProfile(input.permissionProfile);
+  const nextChannelEnabled = input.channelEnabled === undefined
+    ? normalizedRecord.channelEnabled === true
+    : input.channelEnabled === true;
 
   const nextRecord = normalizeLocalAgentRecord(agentId, {
     ...record,
@@ -1775,12 +1872,14 @@ export async function updateLocalAgentConfig(
         sessionId: normalizeTmuxSessionName(input.runtime.sessionId, `${agentId}-${normalizeManagedHarness(input.runtime.harness, "claude")}`),
         launchArgs: nextLaunchArgs,
         ...(nextPermissionProfile ? { permissionProfile: nextPermissionProfile } : {}),
+        ...(nextChannelEnabled ? { channelEnabled: true } : {}),
       },
     },
     transport: nextTransport,
     systemPrompt: input.systemPrompt.trim() || undefined,
     launchArgs: nextLaunchArgs,
     permissionProfile: nextPermissionProfile,
+    channelEnabled: nextChannelEnabled,
     capabilities: input.capabilities as AgentCapability[],
   });
 
@@ -2871,7 +2970,7 @@ function buildLocalAgentLaunchCommand(
   const harness = normalizeLocalAgentHarness(record.harness);
   const extraArgs = shellQuoteArguments(
     harness === "claude"
-      ? normalizeClaudeRuntimeLaunchArgs(record.launchArgs)
+      ? normalizeClaudeTmuxLaunchArgs(record.launchArgs, { channelEnabled: record.channelEnabled === true })
       : normalizeLaunchArgsForHarness(harness, record.launchArgs),
   );
   if (harness === "codex") {
@@ -3478,6 +3577,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const effectiveCwd = input.cwdOverride ? normalizeProjectPath(input.cwdOverride) : undefined;
   const shouldEnsureOnline = input.ensureOnline !== false;
   const requestedPermissionProfile = parseScoutPermissionProfile(input.permissionProfile);
+  const requestedChannelEnabled = input.channelEnabled;
   const cardLifecycle = normalizeLocalAgentCardLifecycle(input.card);
   const requestedDefinitionId = input.agentName?.trim()
     ? normalizeAgentSelectorSegment(input.agentName.trim())
@@ -3586,6 +3686,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       startedAt: nowSeconds(),
       ...(operatorAugmentDefaults ? { systemPrompt: operatorAugmentDefaults.systemPrompt } : {}),
       launchArgs,
+      ...(requestedChannelEnabled === true ? { channelEnabled: true } : {}),
       defaultHarness: effectiveHarness,
       ...(cardLifecycle ? { card: cardLifecycle } : {}),
       harnessProfiles: {
@@ -3595,6 +3696,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
           sessionId,
           launchArgs,
           ...(requestedPermissionProfile ? { permissionProfile: requestedPermissionProfile } : {}),
+          ...(requestedChannelEnabled === true ? { channelEnabled: true } : {}),
         },
       },
       runtime: {
@@ -3640,6 +3742,9 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       preferredHarness ? undefined : matchingOverride.runtime?.transport,
       nextHarness,
     );
+    const nextChannelEnabled = requestedChannelEnabled === undefined
+      ? channelEnabledForOverrideHarness(matchingOverride, nextHarness)
+      : requestedChannelEnabled === true;
     const operatorAugmentDefaults = operatorAugmentDefaultsForDefinitionId(requestedDefinitionId);
     overrides[instance.id] = {
       agentId: instance.id,
@@ -3654,6 +3759,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       launchArgs: nextHarness === nextDefaultHarness
         ? nextLaunchArgs
         : matchingOverride.launchArgs,
+      ...(nextChannelEnabled ? { channelEnabled: true } : {}),
       capabilities: matchingOverride.capabilities,
       defaultHarness: nextDefaultHarness,
       ...(cardLifecycle ? { card: cardLifecycle } : {}),
@@ -3665,6 +3771,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
           sessionId: nextSessionId,
           launchArgs: nextLaunchArgs,
           ...(requestedPermissionProfile ? { permissionProfile: requestedPermissionProfile } : {}),
+          ...(nextChannelEnabled ? { channelEnabled: true } : {}),
         },
       },
       runtime: {
@@ -3684,7 +3791,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const shouldApplyOperatorAugmentPrompt = Boolean(
       operatorAugmentDefaults && !matchingOverride.systemPrompt?.trim(),
     );
-    if (input.model || input.reasoningEffort || requestedPermissionProfile || cardLifecycle || shouldApplyOperatorAugmentPrompt) {
+    if (input.model || input.reasoningEffort || requestedPermissionProfile || requestedChannelEnabled !== undefined || cardLifecycle || shouldApplyOperatorAugmentPrompt) {
       const existingHarness = normalizeManagedHarness(
         preferredHarness ?? matchingOverride.defaultHarness ?? matchingOverride.runtime?.harness,
         "claude",
@@ -3697,6 +3804,9 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
           reasoningEffort: input.reasoningEffort,
         },
       );
+      const nextChannelEnabled = requestedChannelEnabled === undefined
+        ? channelEnabledForOverrideHarness(matchingOverride, existingHarness)
+        : requestedChannelEnabled === true;
 
       overrides[matchingAgentId!] = {
         ...matchingOverride,
@@ -3705,12 +3815,14 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
         launchArgs: existingHarness === defaultHarnessForOverride(matchingOverride, existingHarness)
           ? nextLaunchArgs
           : matchingOverride.launchArgs,
+        ...(nextChannelEnabled ? { channelEnabled: true } : { channelEnabled: undefined }),
         harnessProfiles: {
           ...(matchingOverride.harnessProfiles ?? {}),
           [existingHarness]: {
             ...overrideHarnessProfile(matchingOverride, existingHarness),
             launchArgs: nextLaunchArgs,
             ...(requestedPermissionProfile ? { permissionProfile: requestedPermissionProfile } : {}),
+            ...(nextChannelEnabled ? { channelEnabled: true } : { channelEnabled: undefined }),
           },
         },
       };
@@ -3896,6 +4008,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(normalizedRecord.channelEnabled ? { channelEnabled: "true" } : {}),
         ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,
@@ -3932,6 +4045,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(normalizedRecord.channelEnabled ? { channelEnabled: "true" } : {}),
         ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,
@@ -3973,6 +4087,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(normalizedRecord.channelEnabled ? { channelEnabled: "true" } : {}),
         ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,

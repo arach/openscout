@@ -664,7 +664,24 @@ function InspectorMesh({
   const CX = W / 2;
   const CY = H / 2;
   const R = 68;
-  const others = agents.filter((a) => a.id !== focusAgent.id).slice(0, 8);
+  const others = useMemo(() => {
+    const peers = agents.filter((a) => a.id !== focusAgent.id);
+    const stateRank = (s: string) => {
+      const n = normalizeAgentState(s);
+      if (n === "working") return 0;
+      if (n === "available") return 1;
+      return 2;
+    };
+    return peers
+      .slice()
+      .sort((a, b) => {
+        const sa = stateRank(a.state ?? "");
+        const sb = stateRank(b.state ?? "");
+        if (sa !== sb) return sa - sb;
+        return compareTimestampsDesc(a.updatedAt, b.updatedAt);
+      })
+      .slice(0, 8);
+  }, [agents, focusAgent.id]);
 
   const nodes = useMemo(() => {
     const result: Array<{
@@ -687,11 +704,13 @@ function InspectorMesh({
   }, [focusAgent, others, CX, CY, R]);
 
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="w-full block"
-      xmlns="http://www.w3.org/2000/svg"
-    >
+    <div className="flex flex-wrap items-start gap-3">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="block shrink-0 w-full"
+        style={{ maxWidth: W }}
+        xmlns="http://www.w3.org/2000/svg"
+      >
       <defs>
         <radialGradient id="inspMeshGlow" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.06" />
@@ -799,7 +818,39 @@ function InspectorMesh({
           </g>
         );
       })}
-    </svg>
+      </svg>
+      {others.length > 0 && (
+        <ul className="flex-1 min-w-[120px] flex flex-col gap-1 m-0 p-0 list-none">
+          {others.map((peer) => {
+            const nState = normalizeAgentState(peer.state);
+            return (
+              <li key={peer.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenAgent(peer)}
+                  className="w-full flex items-center gap-2 py-1 px-1.5 rounded hover:bg-[var(--surface-hover)] text-left"
+                >
+                  <span
+                    aria-hidden
+                    className="shrink-0 w-2 h-2 rounded-full"
+                    style={{ background: actorColor(peer.name) }}
+                  />
+                  <span className="flex-1 truncate text-[11px] font-mono text-[var(--scout-chrome-ink)]">
+                    {peer.name}
+                  </span>
+                  <span
+                    aria-hidden
+                    title={agentStateLabel(peer.state)}
+                    className="shrink-0 w-1.5 h-1.5 rounded-full"
+                    style={{ background: stateColor(nState) }}
+                  />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 

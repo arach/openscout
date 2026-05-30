@@ -2085,17 +2085,29 @@ export function ConversationScreen({
             {stackedAvatarAgents.length > 0 && (
               <div className="s-thread-center-avatars">
                 {stackedAvatarAgents.map((a) => (
-                  <div
+                  <button
                     key={a.id}
-                    className="s-ops-avatar"
+                    type="button"
+                    className="s-ops-avatar s-ops-avatar--nav"
                     style={{
                       "--size": "22px",
                       background: actorColor(a.name),
                     } as React.CSSProperties}
-                    title={a.name}
+                    title={`View profile for ${a.name}`}
+                    aria-label={`View profile for ${a.name}`}
+                    onClick={() =>
+                      openContent(
+                        navigate,
+                        {
+                          view: "agent-info",
+                          conversationId: conversationForAgent(a.id),
+                        },
+                        { returnTo: route },
+                      )
+                    }
                   >
                     {a.name[0]?.toUpperCase() ?? "?"}
-                  </div>
+                  </button>
                 ))}
                 <span className="s-thread-center-participant-count">
                   {participantCount}
@@ -2563,15 +2575,40 @@ export function ConversationScreen({
             <div className="s-thread-feed-block">
               <div className="s-thread-msg" aria-live="polite">
                 <div className={workingTurnCardClassName}>
-                  <div
-                    className="s-ops-avatar s-thread-msg-avatar"
-                    style={{
-                      "--size": "28px",
-                      background: actorColor(agentName),
-                    } as React.CSSProperties}
-                  >
-                    {agentName[0]?.toUpperCase() ?? "?"}
-                  </div>
+                  {agentId ? (
+                    <button
+                      type="button"
+                      className="s-ops-avatar s-thread-msg-avatar s-ops-avatar--nav"
+                      style={{
+                        "--size": "28px",
+                        background: actorColor(agentName),
+                      } as React.CSSProperties}
+                      title={`View profile for ${agentName}`}
+                      aria-label={`View profile for ${agentName}`}
+                      onClick={() =>
+                        openContent(
+                          navigate,
+                          {
+                            view: "agent-info",
+                            conversationId: conversationForAgent(agentId),
+                          },
+                          { returnTo: route },
+                        )
+                      }
+                    >
+                      {agentName[0]?.toUpperCase() ?? "?"}
+                    </button>
+                  ) : (
+                    <div
+                      className="s-ops-avatar s-thread-msg-avatar"
+                      style={{
+                        "--size": "28px",
+                        background: actorColor(agentName),
+                      } as React.CSSProperties}
+                    >
+                      {agentName[0]?.toUpperCase() ?? "?"}
+                    </div>
+                  )}
                   <div className="s-thread-msg-card-content">
                     <div className="s-thread-msg-header">
                       <div className="s-thread-msg-meta">
@@ -2653,15 +2690,40 @@ export function ConversationScreen({
         {presence.showTyping && (
           <div className={presenceLineClassName}>
             <div className="s-thread-presence-line-avatars">
-              <div
-                className="s-ops-avatar"
-                style={{
-                  "--size": "20px",
-                  background: actorColor(agentName),
-                } as React.CSSProperties}
-              >
-                {agentName[0]?.toUpperCase() ?? "?"}
-              </div>
+              {agentId ? (
+                <button
+                  type="button"
+                  className="s-ops-avatar s-ops-avatar--nav"
+                  style={{
+                    "--size": "20px",
+                    background: actorColor(agentName),
+                  } as React.CSSProperties}
+                  title={`View profile for ${agentName}`}
+                  aria-label={`View profile for ${agentName}`}
+                  onClick={() =>
+                    openContent(
+                      navigate,
+                      {
+                        view: "agent-info",
+                        conversationId: conversationForAgent(agentId),
+                      },
+                      { returnTo: route },
+                    )
+                  }
+                >
+                  {agentName[0]?.toUpperCase() ?? "?"}
+                </button>
+              ) : (
+                <div
+                  className="s-ops-avatar"
+                  style={{
+                    "--size": "20px",
+                    background: actorColor(agentName),
+                  } as React.CSSProperties}
+                >
+                  {agentName[0]?.toUpperCase() ?? "?"}
+                </div>
+              )}
             </div>
             <span className="s-thread-presence-line-label">
               {presenceLineLabel}

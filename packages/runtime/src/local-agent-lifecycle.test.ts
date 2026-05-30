@@ -444,6 +444,31 @@ describe("local agent lifecycle", () => {
     expect(override?.runtime?.sessionId).not.toContain(".");
     expect(override?.harnessProfiles?.claude?.transport).toBe("tmux");
     expect(override?.harnessProfiles?.claude?.sessionId).not.toContain(".");
+    expect(override?.harnessProfiles?.claude?.channelEnabled).toBeUndefined();
+    expect((await getLocalAgentConfig(status.agentId))?.channelEnabled).toBe(false);
+  });
+
+  test("stores Claude channel opt-in on the active tmux profile", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "gamma-channel");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "gamma-channel",
+      harness: "claude",
+      channelEnabled: true,
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+    const config = await getLocalAgentConfig(status.agentId);
+
+    expect(config?.channelEnabled).toBe(true);
+    expect(override?.channelEnabled).toBe(true);
+    expect(override?.harnessProfiles?.claude?.channelEnabled).toBe(true);
   });
 
   test("preserves explicit Claude stream-json configuration for specialized agents", async () => {

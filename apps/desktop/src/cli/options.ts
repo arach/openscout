@@ -85,6 +85,7 @@ export type ScoutCardCreateCommandOptions = ContextRootOptions & {
   model?: string;
   reasoningEffort?: string;
   permissionProfile?: string;
+  channelEnabled?: boolean;
   requesterId: string | null;
   noInput?: boolean;
   oneTimeUse?: boolean;
@@ -1041,6 +1042,7 @@ export function parseCardCreateCommandOptions(
   let model: string | undefined;
   let reasoningEffort: string | undefined;
   let permissionProfile: string | undefined;
+  let channelEnabled: boolean | undefined;
   let requesterId: string | null = null;
   let noInput = false;
   let oneTimeUse = false;
@@ -1089,6 +1091,14 @@ export function parseCardCreateCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--channel-enabled" || current === "--enable-channel") {
+      channelEnabled = true;
+      continue;
+    }
+    if (current === "--no-channel" || current === "--channel-disabled") {
+      channelEnabled = false;
+      continue;
+    }
     if (current === "--as" || current.startsWith("--as=")) {
       const value = parseFlagValue(parsed.args, index, "--as");
       requesterId = value.value;
@@ -1131,6 +1141,7 @@ export function parseCardCreateCommandOptions(
     model,
     reasoningEffort,
     permissionProfile,
+    channelEnabled,
     requesterId,
     noInput,
     oneTimeUse,

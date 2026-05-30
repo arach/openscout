@@ -2566,6 +2566,7 @@ export async function createOpenScoutWebServer(
       systemPrompt: optionalString(body.systemPrompt) ?? existing.systemPrompt,
       launchArgs: stringList(body.launchArgs, existing.launchArgs),
       model,
+      channelEnabled: hasOwn(body, "channelEnabled") ? body.channelEnabled === true : existing.channelEnabled,
       capabilities: stringList(body.capabilities, existing.capabilities),
     });
     if (!nextConfig) {

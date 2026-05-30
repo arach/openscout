@@ -76,6 +76,12 @@ This is the only current native push path inspected here. It is provider-specifi
 the server advertises experimental `claude/channel`, and the notification method
 is `notifications/claude/channel`.
 
+Scout-managed Claude tmux agents can opt in to this push path by setting
+`channelEnabled: true` on the active Claude runtime profile. The opt-in causes
+the tmux launch command to inject a bare `scout-channel` MCP server and enable
+Claude Code's channel listener for `server:scout-channel`. The non-interactive
+`claude_stream_json` path does not attach this channel.
+
 Observed limitation: `scout_reply` accepts `conversation_id`, but the current
 implementation sends a fresh message to the target agent id via
 `sendScoutMessageToAgentIds` and does not pass a reply-to message id or preserve

@@ -611,19 +611,22 @@
   margin-top: 3px;
 }
 
-.s-thread-msg-avatar--nav {
+.s-thread-msg-avatar--nav,
+.s-ops-avatar--nav {
   border: none;
   padding: 0;
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.15s ease;
 }
 
-.s-thread-msg-avatar--nav:hover {
+.s-thread-msg-avatar--nav:hover,
+.s-ops-avatar--nav:hover {
   transform: scale(1.05);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
-.s-thread-msg-avatar--nav:focus-visible {
+.s-thread-msg-avatar--nav:focus-visible,
+.s-ops-avatar--nav:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

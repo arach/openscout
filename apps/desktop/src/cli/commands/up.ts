@@ -22,6 +22,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   let model: string | undefined;
   let reasoningEffort: string | undefined;
   let permissionProfile: string | undefined;
+  let channelEnabled: boolean | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const current = args[index] ?? "";
@@ -94,6 +95,14 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
       permissionProfile = current.slice("--permission-profile=".length);
       continue;
     }
+    if (current === "--channel-enabled" || current === "--enable-channel") {
+      channelEnabled = true;
+      continue;
+    }
+    if (current === "--no-channel" || current === "--channel-disabled") {
+      channelEnabled = false;
+      continue;
+    }
     if (current.startsWith("--")) {
       throw new ScoutCliError(`unexpected argument for up: ${current}`);
     }
@@ -104,7 +113,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   }
 
   if (!target) {
-    throw new ScoutCliError(`usage: scout up <name|path> [--name <alias>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <${formatScoutPermissionProfiles()}>]`);
+    throw new ScoutCliError(`usage: scout up <name|path> [--name <alias>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <${formatScoutPermissionProfiles()}>] [--channel-enabled|--no-channel]`);
   }
 
   let projectPath: string;
@@ -132,9 +141,10 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
     projectPath,
     agentName,
     harness: parseScoutLocalHarness(harness),
-    model,
-    reasoningEffort,
-    permissionProfile,
+    ...(model ? { model } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(permissionProfile ? { permissionProfile } : {}),
+    ...(channelEnabled !== undefined ? { channelEnabled } : {}),
     currentDirectory: defaultScoutContextDirectory(context),
   });
 

@@ -37,6 +37,7 @@ describe("runCardCommand", () => {
         wakePolicy: "on_demand",
       },
       launchArgs: ["--model", "claude-opus-4-7"],
+      channelEnabled: true,
       capabilities: ["chat", "invoke", "deliver"],
       applyMode: "restart",
       templateHint: "hint",
@@ -90,6 +91,7 @@ describe("runCardCommand", () => {
         model: "claude-opus-4-7",
         reasoningEffort: undefined,
         permissionProfile: undefined,
+        channelEnabled: undefined,
         restart: true,
       }],
     ]);

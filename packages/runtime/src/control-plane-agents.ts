@@ -32,6 +32,7 @@ export type CreateScoutAgentCardInput = {
   model?: string;
   reasoningEffort?: string;
   permissionProfile?: ScoutPermissionProfile | string;
+  channelEnabled?: boolean;
   currentDirectory?: string;
   createdById?: string;
   oneTimeUse?: boolean;
@@ -55,6 +56,7 @@ export type UpScoutAgentInput = {
   model?: string;
   reasoningEffort?: string;
   permissionProfile?: ScoutPermissionProfile | string;
+  channelEnabled?: boolean;
   branch?: string;
 };
 
@@ -227,6 +229,7 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
         model: input.model,
         reasoningEffort: input.reasoningEffort,
         permissionProfile: input.permissionProfile,
+        channelEnabled: input.channelEnabled,
         currentDirectory: input.currentDirectory,
         ...(lifecycle ? { card: lifecycle } : {}),
         // Card creation should publish a routable identity, not make this

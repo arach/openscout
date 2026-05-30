@@ -37,6 +37,7 @@ export type RelayHarnessProfile = {
   sessionId: string;
   launchArgs: string[];
   permissionProfile?: ScoutPermissionProfile;
+  channelEnabled?: boolean;
 };
 
 export type RelayHarnessProfiles = Partial<Record<ManagedAgentHarness, RelayHarnessProfile>>;
@@ -47,6 +48,7 @@ export type RelayHarnessProfileInput = {
   sessionId?: string;
   launchArgs?: string[];
   permissionProfile?: ScoutPermissionProfile;
+  channelEnabled?: boolean;
 };
 
 export type OpenScoutProjectScriptSet = {
@@ -114,6 +116,7 @@ export type OpenScoutProjectConfig = {
         launchArgs?: string[];
         permissionProfile?: ScoutPermissionProfile;
         capabilities?: AgentCapability[];
+        channelEnabled?: boolean;
       };
     };
   };
@@ -230,6 +233,7 @@ export type RelayAgentOverride = {
   systemPrompt?: string;
   launchArgs?: string[];
   capabilities?: AgentCapability[];
+  channelEnabled?: boolean;
   defaultHarness?: AgentHarness;
   harnessProfiles?: Partial<Record<ManagedAgentHarness, RelayHarnessProfileInput>>;
   card?: {
@@ -264,6 +268,7 @@ export type ResolvedRelayAgentConfig = {
   systemPrompt?: string;
   launchArgs: string[];
   capabilities: AgentCapability[];
+  channelEnabled: boolean;
   defaultHarness: ManagedAgentHarness;
   harnessProfiles: RelayHarnessProfiles;
   instance: {
@@ -892,6 +897,7 @@ function normalizeHarnessProfile(
     sessionPrefix: string;
     fallbackLaunchArgs?: string[];
     fallbackPermissionProfile?: ScoutPermissionProfile;
+    fallbackChannelEnabled?: boolean;
   },
 ): RelayHarnessProfile {
   const permissionProfile = normalizeScoutPermissionProfile(
@@ -899,6 +905,9 @@ function normalizeHarnessProfile(
       ? profile.permissionProfile
       : options.fallbackPermissionProfile,
   );
+  const channelEnabled = typeof profile?.channelEnabled === "boolean"
+    ? profile.channelEnabled
+    : options.fallbackChannelEnabled === true;
   return {
     cwd: profile?.cwd ? normalizeProjectRelativePath(options.projectRoot, profile.cwd) : options.projectRoot,
     transport: normalizeTransport(profile?.transport, harness, harness === "codex" ? "codex_app_server" : DEFAULT_TRANSPORT),
@@ -909,6 +918,7 @@ function normalizeHarnessProfile(
     ),
     launchArgs: normalizeLaunchArgs(profile?.launchArgs ?? options.fallbackLaunchArgs),
     ...(permissionProfile ? { permissionProfile } : {}),
+    ...(channelEnabled ? { channelEnabled: true } : {}),
   };
 }
 
@@ -923,9 +933,11 @@ function buildHarnessProfiles(input: {
     harness?: AgentHarness;
     transport?: RelayRuntimeTransport;
     sessionId?: string;
+    channelEnabled?: boolean;
   };
   launchArgs?: string[];
   permissionProfile?: ScoutPermissionProfile;
+  channelEnabled?: boolean;
 }): RelayHarnessProfiles {
   const profiles: RelayHarnessProfiles = {};
   const runtimeHarness = normalizeManagedHarness(
@@ -934,8 +946,13 @@ function buildHarnessProfiles(input: {
       : undefined,
     input.defaultHarness,
   );
+  const runtimeChannelEnabled = typeof input.runtime === "object"
+    && input.runtime
+    && "channelEnabled" in input.runtime
+    ? input.runtime.channelEnabled === true
+    : input.channelEnabled === true;
 
-  if (input.runtime || (input.launchArgs ?? []).length > 0) {
+  if (input.runtime || (input.launchArgs ?? []).length > 0 || runtimeChannelEnabled) {
     profiles[runtimeHarness] = normalizeHarnessProfile({
       cwd: typeof input.runtime === "object" && input.runtime && "cwd" in input.runtime
         ? (input.runtime as { cwd?: string }).cwd
@@ -947,12 +964,14 @@ function buildHarnessProfiles(input: {
         ? (input.runtime as { sessionId?: string }).sessionId
         : undefined,
       launchArgs: input.launchArgs,
+      channelEnabled: runtimeChannelEnabled,
     }, runtimeHarness, {
       projectRoot: input.projectRoot,
       sessionKey: input.sessionKey,
       sessionPrefix: input.sessionPrefix,
       fallbackLaunchArgs: input.launchArgs,
       fallbackPermissionProfile: input.permissionProfile,
+      fallbackChannelEnabled: input.channelEnabled,
     });
   }
 
@@ -968,6 +987,7 @@ function buildHarnessProfiles(input: {
         sessionPrefix: input.sessionPrefix,
         fallbackLaunchArgs: profiles[harness]?.launchArgs ?? input.launchArgs,
         fallbackPermissionProfile: profiles[harness]?.permissionProfile ?? input.permissionProfile,
+        fallbackChannelEnabled: profiles[harness]?.channelEnabled ?? input.channelEnabled,
       });
     }
   }
@@ -979,6 +999,7 @@ function buildHarnessProfiles(input: {
       sessionPrefix: input.sessionPrefix,
       fallbackLaunchArgs: input.launchArgs,
       fallbackPermissionProfile: input.permissionProfile,
+      fallbackChannelEnabled: input.channelEnabled,
     });
   profiles[input.defaultHarness] = ensuredHarness;
 
@@ -988,7 +1009,7 @@ function buildHarnessProfiles(input: {
 function resolvedRuntimeView(
   defaultHarness: ManagedAgentHarness,
   harnessProfiles: RelayHarnessProfiles,
-): { runtime: ResolvedRelayAgentConfig["runtime"]; launchArgs: string[] } {
+): { runtime: ResolvedRelayAgentConfig["runtime"]; launchArgs: string[]; channelEnabled: boolean } {
   const profile = harnessProfiles[defaultHarness];
   if (!profile) {
     throw new Error(`missing harness profile for ${defaultHarness}`);
@@ -1003,6 +1024,7 @@ function resolvedRuntimeView(
       wakePolicy: "on_demand",
     },
     launchArgs: [...profile.launchArgs],
+    channelEnabled: profile.channelEnabled === true,
   };
 }
 
@@ -1046,6 +1068,14 @@ function isConfiguredRelayAgentOverride(
   }
 
   if (normalizeLaunchArgs(override.launchArgs).length > 0) {
+    return true;
+  }
+
+  if (override.channelEnabled === true) {
+    return true;
+  }
+
+  if (Object.values(override.harnessProfiles ?? {}).some((profile) => profile?.channelEnabled === true)) {
     return true;
   }
 
@@ -1941,6 +1971,7 @@ export async function readRelayAgentOverrides(): Promise<Record<string, RelayAge
         profiles: record.harnessProfiles,
         runtime: record.runtime,
         launchArgs: record.launchArgs,
+        channelEnabled: record.channelEnabled,
       });
       const resolved = resolvedRuntimeView(defaultHarness, harnessProfiles);
       return [
@@ -1957,6 +1988,7 @@ export async function readRelayAgentOverrides(): Promise<Record<string, RelayAge
           harnessProfiles,
           runtime: resolved.runtime,
           launchArgs: resolved.launchArgs,
+          ...(resolved.channelEnabled ? { channelEnabled: true } : {}),
           capabilities: normalizeCapabilities(record.capabilities),
         } satisfies RelayAgentOverride,
       ];
@@ -1984,6 +2016,7 @@ export async function writeRelayAgentOverrides(overrides: Record<string, RelayAg
         profiles: record.harnessProfiles,
         runtime: record.runtime,
         launchArgs: record.launchArgs,
+        channelEnabled: record.channelEnabled,
       });
       const resolved = resolvedRuntimeView(defaultHarness, harnessProfiles);
       return [
@@ -2000,6 +2033,7 @@ export async function writeRelayAgentOverrides(overrides: Record<string, RelayAg
           startedAt: Number.isFinite(record.startedAt) && record.startedAt ? Math.floor(record.startedAt) : nowSeconds(),
           runtime: resolved.runtime,
           launchArgs: resolved.launchArgs,
+          ...(resolved.channelEnabled ? { channelEnabled: true } : {}),
           capabilities: normalizeCapabilities(record.capabilities),
         } satisfies RelayAgentOverride,
       ];
@@ -2385,6 +2419,7 @@ function mergeResolvedAgentConfig(
     },
     runtime: manifestOwnsResolvedConfig ? undefined : override.runtime,
     launchArgs: manifestOwnsResolvedConfig ? base.launchArgs : overrideLaunchArgs,
+    channelEnabled: manifestOwnsResolvedConfig ? base.channelEnabled : override.channelEnabled,
   });
   const view = resolvedRuntimeView(defaultHarness, harnessProfiles);
 
@@ -2408,6 +2443,7 @@ function mergeResolvedAgentConfig(
     capabilities: manifestOwnsResolvedConfig
       ? (base.capabilities.length > 0 ? base.capabilities : overrideCapabilities)
       : (overrideCapabilities.length > 0 ? overrideCapabilities : base.capabilities),
+    channelEnabled: view.channelEnabled,
     defaultHarness,
     harnessProfiles,
     instance,
@@ -2429,6 +2465,7 @@ function relayAgentOverrideFromResolvedConfig(config: ResolvedRelayAgentConfig):
     defaultHarness: config.defaultHarness,
     harnessProfiles: config.harnessProfiles,
     launchArgs: config.launchArgs,
+    ...(config.channelEnabled ? { channelEnabled: true } : {}),
     capabilities: config.capabilities,
     runtime: {
       cwd: config.runtime.cwd,
@@ -2536,6 +2573,7 @@ async function resolveManifestBackedAgent(
     runtime: runtimeDefaults,
     launchArgs: normalizeLaunchArgs(runtimeDefaults?.launchArgs),
     permissionProfile: normalizeScoutPermissionProfile(runtimeDefaults?.permissionProfile),
+    channelEnabled: runtimeDefaults?.channelEnabled,
   });
   const view = resolvedRuntimeView(defaultHarness, harnessProfiles);
   const base: ResolvedRelayAgentConfig = {
@@ -2551,6 +2589,7 @@ async function resolveManifestBackedAgent(
     systemPrompt: config.agent?.prompt?.template?.trim() || undefined,
     launchArgs: view.launchArgs,
     capabilities: normalizeCapabilities(runtimeDefaults?.capabilities),
+    channelEnabled: view.channelEnabled,
     defaultHarness,
     harnessProfiles,
     instance,
@@ -2581,6 +2620,7 @@ async function resolveInferredAgent(
     profiles: override?.harnessProfiles,
     runtime: override?.runtime,
     launchArgs: normalizeLaunchArgs(override?.launchArgs),
+    channelEnabled: override?.channelEnabled,
   });
   const view = resolvedRuntimeView(defaultHarness, harnessProfiles);
   const base: ResolvedRelayAgentConfig = {
@@ -2596,6 +2636,7 @@ async function resolveInferredAgent(
     systemPrompt: override?.systemPrompt?.trim() || undefined,
     launchArgs: view.launchArgs,
     capabilities: normalizeCapabilities(override?.capabilities),
+    channelEnabled: view.channelEnabled,
     defaultHarness,
     harnessProfiles,
     instance,
@@ -3007,6 +3048,7 @@ export async function ensureScoutRelayAgentConfigured(options: {
       profiles: existing?.harnessProfiles,
       runtime: existing?.runtime,
       launchArgs: normalizeLaunchArgs(existing?.launchArgs),
+      channelEnabled: existing?.channelEnabled,
     }),
     runtime: {
       cwd: resolvedProjectRoot,
@@ -3017,6 +3059,11 @@ export async function ensureScoutRelayAgentConfigured(options: {
     },
   };
   nextOverride.launchArgs = nextOverride.harnessProfiles?.claude?.launchArgs ?? [];
+  if (nextOverride.harnessProfiles?.claude?.channelEnabled === true) {
+    nextOverride.channelEnabled = true;
+  } else {
+    delete nextOverride.channelEnabled;
+  }
 
   if (overrides[SCOUT_AGENT_ID]) {
     delete overrides[SCOUT_AGENT_ID];

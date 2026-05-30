@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  SCOUT_CLAUDE_CHANNEL_SERVER_NAME,
   DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
   SUPPORTED_SCOUT_HARNESSES,
@@ -11,7 +12,9 @@ import {
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
+  buildScoutClaudeChannelMcpConfig,
   normalizeClaudeRuntimeLaunchArgs,
+  normalizeClaudeTmuxLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
@@ -393,6 +396,51 @@ describe("local agent prompts", () => {
       "--model",
       "sonnet",
     ]);
+  });
+
+  test("claude tmux launch args omit the Scout channel server by default", () => {
+    const args = normalizeClaudeTmuxLaunchArgs(["--model", "sonnet"]);
+
+    expect(args).toEqual([
+      "--model",
+      "sonnet",
+      "--allowedTools",
+      DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
+    ]);
+  });
+
+  test("claude tmux launch args attach the Scout channel server when enabled", () => {
+    const args = normalizeClaudeTmuxLaunchArgs(["--model", "sonnet"], { channelEnabled: true });
+    const mcpConfigIndex = args.indexOf("--mcp-config");
+    const developmentChannelIndex = args.indexOf("--dangerously-load-development-channels");
+
+    expect(args.slice(0, 2)).toEqual(["--model", "sonnet"]);
+    expect(args).toContain("--allowedTools");
+    expect(mcpConfigIndex).toBeGreaterThan(-1);
+    expect(JSON.parse(args[mcpConfigIndex + 1]!)).toEqual({
+      mcpServers: {
+        [SCOUT_CLAUDE_CHANNEL_SERVER_NAME]: {
+          command: "scout",
+          args: ["channel"],
+        },
+      },
+    });
+    expect(developmentChannelIndex).toBeGreaterThan(-1);
+    expect(args[developmentChannelIndex + 1]).toBe(`server:${SCOUT_CLAUDE_CHANNEL_SERVER_NAME}`);
+  });
+
+  test("claude tmux launch args do not duplicate Scout channel setup", () => {
+    const args = normalizeClaudeTmuxLaunchArgs([
+      "--model",
+      "sonnet",
+      "--mcp-config",
+      buildScoutClaudeChannelMcpConfig(),
+      "--dangerously-load-development-channels",
+      `server:${SCOUT_CLAUDE_CHANNEL_SERVER_NAME}`,
+    ], { channelEnabled: true });
+
+    expect(args.filter((arg) => arg === "--mcp-config")).toHaveLength(1);
+    expect(args.filter((arg) => arg === "--dangerously-load-development-channels")).toHaveLength(1);
   });
 });
 
