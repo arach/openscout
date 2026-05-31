@@ -70,8 +70,18 @@ interface StudySelection {
   sessionId: string;
   stageId: StageId;
   artifact?: string;
-  /** Stage id whose command should be force-rerun. */
-  force?: StageId;
+  /**
+   * What to force-rerun (bypassing cache):
+   * - "all" — every command in the active pipeline
+   * - a stage id ("discover" | "normalize" | "extract" | "enrich") — just that one
+   */
+  force?: string;
+}
+
+const FORCE_ALL = "all";
+
+function shouldForce(force: string | undefined, stageId: StageId): boolean {
+  return force === FORCE_ALL || force === stageId;
 }
 
 const SESSIONS: SessionSample[] = [
@@ -209,18 +219,25 @@ export default async function SessionSearchStudyPage({
   const selectedStage = STAGES[stageIndex]!;
   const prevStage = stageIndex > 0 ? STAGES[stageIndex - 1] : undefined;
   const nextStage = stageIndex < STAGES.length - 1 ? STAGES[stageIndex + 1] : undefined;
-  const forceStage =
-    params.force && isStageId(params.force) ? params.force : undefined;
+  const force = params.force
+    ? params.force === FORCE_ALL || isStageId(params.force)
+      ? params.force
+      : undefined
+    : undefined;
   const selection: StudySelection = {
     sessionId: selectedSession.id,
     stageId,
     artifact: params.artifact,
-    force: forceStage,
+    force,
   };
 
   // Inventory is cheap and the page header needs its totals. Always run it
   // synchronously before sending chrome to the client.
-  const inventoryRun = await runCommand(inventoryCommand, { since: "7d" });
+  const inventoryRun = await runCommand(
+    inventoryCommand,
+    { since: "7d" },
+    { force: shouldForce(force, "discover") },
+  );
   const inventory = inventoryRun.output;
   const weekFootprint = inventoryRun.error
     ? "scan failed"
@@ -250,6 +267,14 @@ export default async function SessionSearchStudyPage({
               ({inventory.cached ? "cached" : `${inventory.durationMs} ms`})
             </span>
           </span>
+          <span className="text-studio-edge-strong">·</span>
+          <a
+            href={studyHref(selection, { force: FORCE_ALL })}
+            className="inline-flex items-center gap-1 text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+            title="Force re-run every command in the active pipeline"
+          >
+            re-run all ↻
+          </a>
           <span className="text-studio-edge-strong">·</span>
           <a
             href={DOC_HREF}
@@ -287,7 +312,7 @@ export default async function SessionSearchStudyPage({
         />
 
         <Suspense
-          key={`${selectedSession.id}::${stageId}::${forceStage ?? ""}`}
+          key={`${selectedSession.id}::${stageId}::${force ?? ""}`}
           fallback={
             <StageBodySkeleton
               stageId={stageId}
@@ -331,11 +356,13 @@ async function StageBody({
 
   let normalizeRun: CommandRun<ParseSessionResult> | undefined;
   if (needsParse) {
-    const limit = stageId === "normalize" ? 14 : 1500;
+    // One limit across normalize / extract / enrich so the parse cache is
+    // shared. Older builds capped normalize at 14 records, which made the
+    // force-rerun report meaningless timing (~20 ms over a 128 KB head read).
     normalizeRun = await runCommand(
       parseSessionCommand,
-      { path: session.fullPath, limit },
-      { force: force === "normalize" },
+      { path: session.fullPath, limit: 1500 },
+      { force: shouldForce(force, "normalize") },
     );
     runLog.push(makeRunLogEntry(parseSessionCommand, normalizeRun));
   }
@@ -349,7 +376,7 @@ async function StageBody({
         sessionId: sessionSlug,
         recordLimit: 1500,
       },
-      { force: force === "extract" },
+      { force: shouldForce(force, "extract") },
     );
     runLog.push(makeRunLogEntry(extractQmdCommand, extractRun));
   }
@@ -363,7 +390,7 @@ async function StageBody({
         sessionId: sessionSlug,
         recordLimit: 1500,
       },
-      { force: force === "enrich" },
+      { force: shouldForce(force, "enrich") },
     );
     runLog.push(
       makeRunLogEntry(enrichSessionCommand, enrichRun, (out) =>
@@ -391,7 +418,7 @@ async function StageBody({
         selection={selection}
       />
       <div className="border-t border-studio-edge">
-        <RunSummary entries={runLog} />
+        <RunSummary entries={runLog} selection={selection} />
       </div>
     </>
   );
@@ -991,6 +1018,8 @@ const NORMALIZED_KIND_TONE: Record<NormalizedKind, string> = {
   unknown: "text-status-error-fg",
 };
 
+const STREAM_DISPLAY_CAP = 30;
+
 function NormalizedStreamBody({
   result,
   moreCount,
@@ -1005,6 +1034,9 @@ function NormalizedStreamBody({
       </pre>
     );
   }
+  const visible = result.records.slice(0, STREAM_DISPLAY_CAP);
+  const cappedHere = Math.max(0, result.records.length - visible.length);
+  const totalTail = cappedHere + moreCount;
   return (
     <div className="font-mono text-[10.5px]">
       <div className="grid grid-cols-[40px_148px_72px_minmax(0,1fr)] gap-3 border-b border-studio-edge px-3 py-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
@@ -1014,15 +1046,19 @@ function NormalizedStreamBody({
         <span>detail</span>
       </div>
       <ul className="divide-y divide-studio-edge">
-        {result.records.map((r) => (
+        {visible.map((r) => (
           <NormalizedRow key={r.i} record={r} />
         ))}
-        {moreCount > 0 ? (
+        {totalTail > 0 ? (
           <li className="grid grid-cols-[40px_148px_72px_minmax(0,1fr)] items-baseline gap-3 px-3 py-1.5 italic text-[10px] text-studio-ink-faint">
             <span>…</span>
-            <span>{formatCount(moreCount)} more</span>
+            <span>{formatCount(totalTail)} more</span>
             <span>—</span>
-            <span>source-ordered</span>
+            <span>
+              {cappedHere > 0
+                ? `${formatCount(cappedHere)} parsed but hidden · ${formatCount(moreCount)} not parsed`
+                : "not parsed in this run"}
+            </span>
           </li>
         ) : null}
       </ul>
@@ -1190,7 +1226,20 @@ function isStageId(value: string): value is StageId {
 
 // ── Run summary footer ───────────────────────────────────────────
 
-function RunSummary({ entries }: { entries: RunLogEntry[] }) {
+const COMMAND_TO_STAGE: Record<string, StageId> = {
+  inventory: "discover",
+  "parse-session": "normalize",
+  "extract-qmd": "extract",
+  "enrich-session": "enrich",
+};
+
+function RunSummary({
+  entries,
+  selection,
+}: {
+  entries: RunLogEntry[];
+  selection: StudySelection;
+}) {
   const sum = summarizeRunLog(entries);
   return (
     <section className="mt-4 overflow-hidden rounded-md border border-studio-edge bg-studio-surface">
@@ -1224,54 +1273,66 @@ function RunSummary({ entries }: { entries: RunLogEntry[] }) {
         </div>
       </div>
       <ul className="divide-y divide-studio-edge">
-        {entries.map((e, i) => (
-          <li
-            key={`${e.id}-${i}`}
-            className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,140px)] items-baseline gap-3 px-4 py-2"
-          >
-            <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
-              {String(i + 1).padStart(2, "0")}
-            </span>
-            <span className="flex items-baseline gap-2">
-              <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
-                {e.label}
+        {entries.map((e, i) => {
+          const targetStage = COMMAND_TO_STAGE[e.id];
+          return (
+            <li
+              key={`${e.id}-${i}`}
+              className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,180px)] items-baseline gap-3 px-4 py-2"
+            >
+              <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+                {String(i + 1).padStart(2, "0")}
               </span>
-              <span className="font-mono text-[9.5px] text-studio-ink-faint">
-                {e.id}
-              </span>
-            </span>
-            <span className="font-mono text-[10.5px] text-studio-ink-faint">
-              {e.error ? (
-                <span className="text-status-error-fg">error · {e.error}</span>
-              ) : e.cached ? (
-                <span>
-                  ● cached{" "}
-                  <span className="text-studio-ink-faint/70">
-                    (saved ~{e.durationMs} ms)
-                  </span>
+              <span className="flex items-baseline gap-2">
+                <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+                  {e.label}
                 </span>
-              ) : (
-                <span className="text-status-ok-fg">● ran · {e.durationMs} ms</span>
-              )}
-            </span>
-            <span className="text-right font-mono text-[10px] text-studio-ink-faint">
-              {e.llm ? (
-                <>
-                  <span className="text-studio-ink">{e.llm.model}</span> ·{" "}
-                  {e.llm.promptTokens}+{e.llm.completionTokens}t
-                  {e.llm.reasoningTokens > 0 ? (
-                    <span className="text-studio-ink-faint/80">
-                      {" "}
-                      ({e.llm.reasoningTokens} reasoning)
+                <span className="font-mono text-[9.5px] text-studio-ink-faint">
+                  {e.id}
+                </span>
+                {targetStage ? (
+                  <a
+                    href={studyHref(selection, { force: targetStage })}
+                    className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+                    title={`Force re-run ${e.label}`}
+                  >
+                    re-run ↻
+                  </a>
+                ) : null}
+              </span>
+              <span className="font-mono text-[10.5px] text-studio-ink-faint">
+                {e.error ? (
+                  <span className="text-status-error-fg">error · {e.error}</span>
+                ) : e.cached ? (
+                  <span>
+                    ● cached{" "}
+                    <span className="text-studio-ink-faint/70">
+                      (saved ~{e.durationMs} ms)
                     </span>
-                  ) : null}
-                </>
-              ) : (
-                <span>—</span>
-              )}
-            </span>
-          </li>
-        ))}
+                  </span>
+                ) : (
+                  <span className="text-status-ok-fg">● ran · {e.durationMs} ms</span>
+                )}
+              </span>
+              <span className="text-right font-mono text-[10px] text-studio-ink-faint">
+                {e.llm ? (
+                  <>
+                    <span className="text-studio-ink">{e.llm.model}</span> ·{" "}
+                    {e.llm.promptTokens}+{e.llm.completionTokens}t
+                    {e.llm.reasoningTokens > 0 ? (
+                      <span className="text-studio-ink-faint/80">
+                        {" "}
+                        ({e.llm.reasoningTokens} reasoning)
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span>—</span>
+                )}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

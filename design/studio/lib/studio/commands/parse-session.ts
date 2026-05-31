@@ -118,25 +118,36 @@ function detectHarness(filePath: string): "codex" | "claude" | "unknown" {
 }
 
 async function readHeadLines(filePath: string, limit: number): Promise<string> {
-  // Read up to ~128 KB to cover N lines for typical sessions. If lines are
-  // unusually long, the parser will just deliver fewer records than asked
-  // for — fine for a stream preview.
+  // Stream from the head until we have `limit` newlines (or hit EOF). Keeps
+  // memory bounded while letting normalize see a real workload, not just the
+  // first 128 KB.
   const fh = await fs.open(filePath, "r");
   try {
-    const buf = Buffer.alloc(128 * 1024);
-    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
-    const text = buf.slice(0, bytesRead).toString("utf8");
-    // Trim to roughly the requested number of lines so we don't carry a
-    // huge tail of the buffer into the parser.
-    let cut = 0;
-    let seen = 0;
-    for (let i = 0; i < text.length && seen <= limit; i++) {
-      if (text[i] === "\n") {
-        seen++;
-        cut = i + 1;
+    const chunk = Buffer.alloc(64 * 1024);
+    const collected: Buffer[] = [];
+    let lines = 0;
+    let pos = 0;
+    let lastCutTotal = 0;
+    let runningTotal = 0;
+    while (lines <= limit) {
+      const { bytesRead } = await fh.read(chunk, 0, chunk.length, pos);
+      if (bytesRead === 0) break;
+      pos += bytesRead;
+      const slice = Buffer.from(chunk.subarray(0, bytesRead));
+      collected.push(slice);
+      for (let i = 0; i < bytesRead; i++) {
+        if (slice[i] === 0x0a) {
+          lines++;
+          if (lines > limit) {
+            lastCutTotal = runningTotal + i + 1;
+            break;
+          }
+        }
       }
+      runningTotal += bytesRead;
     }
-    return cut > 0 ? text.slice(0, cut) : text;
+    const text = Buffer.concat(collected).toString("utf8");
+    return lastCutTotal > 0 ? text.slice(0, lastCutTotal) : text;
   } finally {
     await fh.close();
   }
