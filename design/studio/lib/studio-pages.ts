@@ -161,6 +161,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Interactive QMD-style pass over six real sessions: files, index rows, queries, and raw drilldown.",
   },
   {
+    href: "/studies/data",
+    label: "Session DB Explorer",
+    bucket: "studies",
+    surface: "web",
+    family: "session-search",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/data/page.tsx",
+      "design/studio/lib/studio/commands/inspect-db.ts",
+    ],
+    blurb: "Read-only window into the session-search index.db — schema, FTS5 MATCH, ad-hoc SELECT, schema-aware shortcuts.",
+  },
+  {
     href: "/studies/tree-viewer",
     label: "Tree Viewer",
     bucket: "studies",

@@ -21,6 +21,14 @@ import {
   indexCorpusCommand,
   type IndexCorpusResult,
 } from "@/lib/studio/commands/index-corpus";
+import {
+  dbAskCommand,
+  type AskHit,
+  type AskResult,
+} from "@/lib/studio/commands/inspect-db";
+import path from "node:path";
+import { tmpdir } from "node:os";
+import { QueryForm } from "@/app/studies/data/QueryForm";
 import { CommandSurface } from "@/components/studio/CommandSurface";
 import {
   ArtifactPicker,
@@ -32,11 +40,12 @@ import {
   summarizeRunLog,
   type RunLogEntry,
 } from "@/lib/studio/run-log";
+import Link from "next/link";
 import { Suspense } from "react";
 
 type Harness = "Codex" | "Claude";
 type Tier = "large" | "normal" | "small";
-type StageId = "discover" | "normalize" | "extract" | "enrich" | "index";
+type StageId = "discover" | "normalize" | "extract" | "enrich" | "index" | "ask";
 
 interface SessionSample {
   id: string;
@@ -68,6 +77,8 @@ interface PageProps {
     artifact?: string;
     /** Stage id whose command should bypass the cache for this request. */
     force?: string;
+    /** Question for the Step 6 Ask field. */
+    ask?: string;
   }>;
 }
 
@@ -81,6 +92,8 @@ interface StudySelection {
    * - a stage id ("discover" | "normalize" | "extract" | "enrich") — just that one
    */
   force?: string;
+  /** Step 6 Ask question — preserved in the URL so refresh / re-run works. */
+  ask?: string;
 }
 
 const FORCE_ALL = "all";
@@ -216,6 +229,15 @@ const STAGES: Stage[] = [
     summary:
       "Walks every $TMPDIR/scout-study/qmd/<session>/ directory, splits each markdown file into H2 sections, and writes rows into a real better-sqlite3 db at $TMPDIR/scout-study/index.db. Schema: sessions, documents, chunks, chunks_fts (FTS5 over chunks.text).",
   },
+  {
+    id: "ask",
+    label: "Ask",
+    verb: "converse",
+    input: "natural-language question",
+    output: "ranked chunks from the corpus",
+    summary:
+      "The agentic step. A question in plain English goes to MiniMax, which extracts FTS5 search terms; those terms run against chunks_fts and the top-ranked chunks come back with snippets. The pipeline's consumption surface lives in the Session DB Explorer.",
+  },
 ];
 
 const DOC_HREF = "/eng/sco-059-session-knowledge-search-exploration";
@@ -243,6 +265,7 @@ export default async function SessionSearchStudyPage({
     stageId,
     artifact: params.artifact,
     force,
+    ask: params.ask,
   };
 
   // Inventory is cheap and the page header needs its totals. Always run it
@@ -327,7 +350,7 @@ export default async function SessionSearchStudyPage({
         />
 
         <Suspense
-          key={`${selectedSession.id}::${stageId}`}
+          key={`${selectedSession.id}::${stageId}::${stageId === "ask" ? (selection.ask ?? "").trim() : ""}`}
           fallback={
             <StageBodySkeleton
               stageId={stageId}
@@ -561,11 +584,17 @@ function expectedCommands(stageId: StageId): Array<{
     label: "Index corpus",
     eta: "first run: ~ms · cached",
   };
+  const ask = {
+    id: "db-ask",
+    label: "Ask the data",
+    eta: "LLM 1–6 s · FTS5 ~ms",
+  };
   if (stageId === "discover") return [inv];
   if (stageId === "normalize") return [inv, parse];
   if (stageId === "extract") return [inv, parse, extract];
   if (stageId === "enrich") return [inv, parse, extract, enrich];
-  return [inv, parse, extract, enrich, index];
+  if (stageId === "index") return [inv, parse, extract, enrich, index];
+  return [inv, parse, extract, enrich, index, ask];
 }
 
 // ── Session picker (single inline row) ───────────────────────────
@@ -824,7 +853,249 @@ function StagePanel({
       );
     case "index":
       return <IndexPanel session={session} selection={selection} run={indexRun!} />;
+    case "ask":
+      return <AskPanel session={session} selection={selection} />;
   }
+}
+
+const ASK_DB_PATH = path.join(tmpdir(), "scout-study", "index.db");
+
+const ASK_SUGGESTIONS: { label: string; question: string }[] = [
+  { label: "Files edited", question: "what files did the agent edit?" },
+  { label: "Decisions", question: "what decisions were made?" },
+  { label: "Tools used", question: "what tools were used?" },
+  { label: "Summary", question: "summarise the session" },
+  { label: "User asks", question: "what did the user ask for?" },
+];
+
+async function AskPanel({
+  session,
+  selection,
+}: {
+  session: SessionSample;
+  selection: StudySelection;
+}) {
+  const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
+  const question = (selection.ask ?? "").toString();
+  const trimmed = question.trim();
+  const force = selection.force === "ask" || selection.force === FORCE_ALL;
+
+  const run = await runCommand(
+    dbAskCommand,
+    { dbPath: ASK_DB_PATH, question },
+    { force },
+  );
+  const out = run.output;
+  const badge = run.error
+    ? { label: "● error", tone: "text-status-error-fg" }
+    : run.cached
+      ? { label: "● cached", tone: "text-studio-ink-faint" }
+      : { label: `● ran ${run.durationMs} ms`, tone: "text-status-ok-fg" };
+
+  return (
+    <div className="p-5">
+      <div className="overflow-hidden rounded-[4px] border border-studio-edge bg-studio-canvas">
+        <div className="flex items-center justify-between gap-3 border-b border-studio-edge bg-studio-canvas-alt px-3 py-1.5">
+          <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink">
+            <span className="text-studio-ink-faint">step 6 ·</span>
+            <span>ask · {sessionSlug}</span>
+          </span>
+          <span className="flex items-center gap-2">
+            {trimmed ? (
+              <RerunLink
+                href={studyHref(selection, { force: "ask" })}
+                className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+                title="Force re-run, bypassing the cache"
+                pendingLabel="running ↻"
+              >
+                re-run ↻
+              </RerunLink>
+            ) : null}
+            <span className={`font-mono text-[9px] uppercase tracking-eyebrow ${badge.tone}`}>
+              {badge.label}
+            </span>
+          </span>
+        </div>
+
+        <QueryForm
+          paramName="ask"
+          basePath="/studies/session-search"
+          defaultValue={question}
+          placeholder="ask the indexed corpus — e.g. what files did the agent edit?"
+          multiline
+          submitLabel="ask ↻"
+        />
+
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-studio-canvas-alt bg-studio-canvas-alt/40 px-3 py-2">
+          <span className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+            try ·
+          </span>
+          {ASK_SUGGESTIONS.map((s) => (
+            <Link
+              key={s.label}
+              href={studyHref(selection, { ask: s.question, force: undefined })}
+              scroll={false}
+              title={s.question}
+              className="rounded border border-studio-canvas-alt bg-studio-canvas px-2 py-0.5 font-mono text-[10px] text-studio-ink-faint hover:border-studio-edge hover:text-studio-ink"
+            >
+              {s.label}
+            </Link>
+          ))}
+        </div>
+
+        <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          {trimmed
+            ? `answer · ${out?.hits.length ?? 0} chunks`
+            : "answer"}
+        </div>
+
+        {run.error ? (
+          <pre className="overflow-x-auto px-3 py-2 font-mono text-[10.5px] leading-relaxed text-status-error-fg">
+            {run.error}
+          </pre>
+        ) : (
+          <AskPanelBody result={out} hasQuestion={trimmed.length > 0} />
+        )}
+
+        <div className="border-t border-studio-canvas-alt bg-studio-canvas-alt px-3 py-2 font-sans text-[11.5px] leading-relaxed text-studio-ink-faint">
+          {askPanelFootnote(out, trimmed.length > 0)}
+        </div>
+
+        <details className="border-t border-studio-canvas-alt bg-studio-canvas-alt/40 group">
+          <summary className="cursor-pointer list-none px-3 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink">
+            as shell ›
+          </summary>
+          <pre className="overflow-x-auto border-t border-studio-canvas-alt px-3 py-1.5 font-mono text-[10px] leading-relaxed text-studio-ink-faint">
+            $ {dbAskCommand.shell({ dbPath: ASK_DB_PATH, question: trimmed || "<question>" })}
+          </pre>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+function AskPanelBody({
+  result,
+  hasQuestion,
+}: {
+  result: AskResult | undefined;
+  hasQuestion: boolean;
+}) {
+  if (!hasQuestion) {
+    return (
+      <pre className="px-3 py-2 font-mono text-[11px] text-studio-ink-faint">
+        Type a question above, or click a suggestion to load one.
+      </pre>
+    );
+  }
+  if (!result) return null;
+  if (result.rejectedReason && result.hits.length === 0) {
+    return (
+      <pre className="px-3 py-2 font-mono text-[11px] text-status-error-fg">
+        {result.rejectedReason}
+      </pre>
+    );
+  }
+  return (
+    <div className="flex flex-col">
+      <div className="border-b border-studio-canvas-alt bg-studio-canvas-alt/40 px-3 py-1.5 font-mono text-[10px] text-studio-ink-faint">
+        <span className="uppercase tracking-eyebrow">tokens · </span>
+        {result.extractedTerms.length === 0 ? (
+          <span className="italic">no content tokens</span>
+        ) : (
+          result.extractedTerms.map((t) => (
+            <span
+              key={t}
+              className="ml-1 inline-block rounded bg-studio-canvas px-1.5 py-0.5 text-studio-ink"
+            >
+              {t}
+            </span>
+          ))
+        )}
+        {result.droppedTerms.length > 0 ? (
+          <span className="ml-3 text-studio-ink-faint">
+            (dropped: {result.droppedTerms.slice(0, 6).join(", ")}
+            {result.droppedTerms.length > 6 ? "…" : ""})
+          </span>
+        ) : null}
+        {result.matchQuery ? (
+          <span className="ml-2 text-studio-ink-faint">
+            → MATCH <code className="font-mono">{result.matchQuery}</code>
+          </span>
+        ) : null}
+      </div>
+      {result.hits.length === 0 ? (
+        <pre className="px-3 py-2 font-mono text-[11px] text-studio-ink-faint">
+          (no chunks matched these tokens)
+        </pre>
+      ) : (
+        <ol className="flex flex-col divide-y divide-studio-canvas-alt">
+          {result.hits.map((h) => (
+            <AskHitRow key={h.rowid} hit={h} />
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function AskHitRow({ hit }: { hit: AskHit }) {
+  return (
+    <li className="px-3 py-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
+          {hit.session_id ?? "?"} • {hit.document_kind ?? "?"}
+          {hit.source_ref ? ` • ${hit.source_ref}` : ""}
+        </span>
+        <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
+          rank {hit.rank.toFixed(3)}
+        </span>
+      </div>
+      <p
+        className="mt-1 whitespace-pre-wrap font-sans text-[12px] leading-relaxed text-studio-ink"
+        dangerouslySetInnerHTML={{ __html: renderAskSnippet(hit.snippet) }}
+      />
+    </li>
+  );
+}
+
+function askPanelFootnote(
+  result: AskResult | undefined,
+  hasQuestion: boolean,
+): React.ReactNode {
+  if (!hasQuestion) {
+    return (
+      <span>
+        Local tokeniser strips stopwords, FTS5 ranks the matches. No LLM in the
+        loop — sub-millisecond turnaround.
+      </span>
+    );
+  }
+  if (!result || (result.rejectedReason && !result.matchQuery)) {
+    return null;
+  }
+  const tok = result.tokenizeLatencyMs;
+  const fts = result.matchLatencyMs;
+  const total = tok + fts;
+  const dropped = result.droppedTerms.length;
+  return (
+    <span>
+      local tokenise {tok} ms + FTS5 {fts} ms = {total} ms
+      {dropped > 0 ? ` · dropped ${dropped} stopword${dropped === 1 ? "" : "s"}` : ""}
+    </span>
+  );
+}
+
+function renderAskSnippet(snippet: string): string {
+  const escaped = snippet
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+  return escaped
+    .replace(/«/g, '<mark class="rounded bg-status-ok-bg/30 px-0.5 text-studio-ink">')
+    .replace(/»/g, "</mark>");
 }
 
 // ── Stage panels ─────────────────────────────────────────────────
@@ -1584,6 +1855,8 @@ function studyHref(
   if (artifact) params.set("artifact", artifact);
   const force = "force" in next ? next.force : undefined;
   if (force) params.set("force", force);
+  const ask = "ask" in next ? next.ask : current.ask;
+  if (ask) params.set("ask", ask);
   return `/studies/session-search?${params.toString()}`;
 }
 

@@ -33,7 +33,7 @@ export function RerunLink({
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
     startTransition(() => {
-      router.push(href);
+      router.push(href, { scroll: false });
     });
   }
 
