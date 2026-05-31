@@ -13,8 +13,8 @@ export interface ExtractQmdInput {
   path: string;
   /** Stable session id used for the output directory name. */
   sessionId: string;
-  /** Cap on records parsed/extracted. Avoids loading huge sessions. */
-  recordLimit?: number;
+  /** Cap on records parsed/extracted, or "all" to parse the entire file. */
+  recordLimit?: number | "all";
 }
 
 export interface ExtractedFile {
@@ -34,7 +34,7 @@ export interface ExtractQmdResult {
 
 const ROOT = path.join(tmpdir(), "scout-study", "qmd");
 const WINDOW = 350;
-const DEFAULT_LIMIT = 1500;
+const DEFAULT_LIMIT: number | "all" = "all";
 
 export const extractQmdCommand: Command<ExtractQmdInput, ExtractQmdResult> = {
   id: "extract-qmd",

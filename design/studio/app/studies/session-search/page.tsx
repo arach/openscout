@@ -367,7 +367,7 @@ async function StageBody({
 
   let normalizeRun: CommandRun<ParseSessionResult> | undefined;
   if (needsParse) {
-    const parseInput = { path: session.fullPath, limit: 1500 };
+    const parseInput = { path: session.fullPath, limit: "all" as const };
     // One limit across normalize / extract / enrich so the parse cache is
     // shared. Older builds capped normalize at 14 records, which made the
     // force-rerun report meaningless timing (~20 ms over a 128 KB head read).
@@ -390,7 +390,7 @@ async function StageBody({
     const extractInput = {
       path: session.fullPath,
       sessionId: sessionSlug,
-      recordLimit: 1500,
+      recordLimit: "all" as const,
     };
     extractRun = await runCommand(extractQmdCommand, extractInput, {
       force: shouldForce(force, "extract"),
@@ -411,7 +411,7 @@ async function StageBody({
     const enrichInput = {
       path: session.fullPath,
       sessionId: sessionSlug,
-      recordLimit: 1500,
+      recordLimit: "all" as const,
     };
     enrichRun = await runCommand(enrichSessionCommand, enrichInput, {
       force: shouldForce(force, "enrich"),

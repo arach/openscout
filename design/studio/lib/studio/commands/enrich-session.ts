@@ -14,8 +14,8 @@ export interface EnrichSessionInput {
   path: string;
   /** Stable session id used for output directory. */
   sessionId: string;
-  /** Cap on records considered. Matches the extract step's cap. */
-  recordLimit?: number;
+  /** Cap on records considered, or "all" to read the entire parse result. */
+  recordLimit?: number | "all";
 }
 
 export interface EnrichedFile {
@@ -39,7 +39,7 @@ export interface EnrichSessionResult {
 }
 
 const ROOT = path.join(tmpdir(), "scout-study", "qmd");
-const DEFAULT_LIMIT = 1500;
+const DEFAULT_LIMIT: number | "all" = "all";
 const PROMPT_CHAR_CAP = 24_000;
 
 export const enrichSessionCommand: Command<EnrichSessionInput, EnrichSessionResult> = {

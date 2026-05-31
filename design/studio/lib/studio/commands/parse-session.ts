@@ -5,8 +5,8 @@ import type { Command } from "@/lib/studio/command";
 export interface ParseSessionInput {
   /** Absolute path to a Codex or Claude JSONL session file. */
   path: string;
-  /** Number of records to read from the head. */
-  limit: number;
+  /** Number of records to read from the head, or "all" to parse the entire file. */
+  limit: number | "all";
 }
 
 export type NormalizedKind =
@@ -57,17 +57,21 @@ export const parseSessionCommand: Command<ParseSessionInput, ParseSessionResult>
   id: "parse-session",
   label: "Parse session",
   shell: ({ path: p, limit }) =>
-    `head -n ${limit} ${shellQuote(shrinkPath(p))} | jq -c '.'`,
+    limit === "all"
+      ? `cat ${shellQuote(shrinkPath(p))} | jq -c '.'`
+      : `head -n ${limit} ${shellQuote(shrinkPath(p))} | jq -c '.'`,
   run: async ({ path: filePath, limit }) => {
     try {
-      const text = await readHeadLines(filePath, limit);
+      const effectiveLimit =
+        limit === "all" ? Number.POSITIVE_INFINITY : limit;
+      const text = await readHeadLines(filePath, effectiveLimit);
       const harness = detectHarness(filePath);
       const records: NormalizedRecord[] = [];
       const rawLines: string[] = [];
       let offset = 0;
       let i = 0;
       for (const line of text.split("\n")) {
-        if (i >= limit) break;
+        if (i >= effectiveLimit) break;
         if (line.length === 0) {
           offset += 1; // empty line + its \n
           continue;
