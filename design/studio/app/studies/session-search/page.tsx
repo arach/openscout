@@ -22,6 +22,7 @@ import {
   ArtifactPicker,
   type ArtifactPickerFile,
 } from "@/components/studio/ArtifactPicker";
+import { RerunLink } from "@/components/studio/RerunLink";
 import {
   makeRunLogEntry,
   summarizeRunLog,
@@ -268,13 +269,14 @@ export default async function SessionSearchStudyPage({
             </span>
           </span>
           <span className="text-studio-edge-strong">·</span>
-          <a
+          <RerunLink
             href={studyHref(selection, { force: FORCE_ALL })}
             className="inline-flex items-center gap-1 text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
             title="Force re-run every command in the active pipeline"
+            pendingLabel="running ↻"
           >
             re-run all ↻
-          </a>
+          </RerunLink>
           <span className="text-studio-edge-strong">·</span>
           <a
             href={DOC_HREF}
@@ -312,7 +314,7 @@ export default async function SessionSearchStudyPage({
         />
 
         <Suspense
-          key={`${selectedSession.id}::${stageId}::${force ?? ""}`}
+          key={`${selectedSession.id}::${stageId}`}
           fallback={
             <StageBodySkeleton
               stageId={stageId}
@@ -352,57 +354,86 @@ async function StageBody({
   const needsParse = stageId === "normalize" || stageId === "extract" || stageId === "enrich";
   const needsExtract = stageId === "extract" || stageId === "enrich";
 
-  const runLog: RunLogEntry[] = [makeRunLogEntry(inventoryCommand, inventoryRun)];
+  const inventoryInput = { since: "7d" } as const;
+  const runLog: RunLogEntry[] = [
+    makeRunLogEntry(inventoryCommand, inventoryInput, inventoryRun, {
+      summarizeInput: (i) => `since=${i.since}`,
+      summarizeOutput: (o) =>
+        o
+          ? `${o.totalFiles} files · ${o.totalBytes} bytes · ${o.rows.length} rows w/ events`
+          : "no result",
+    }),
+  ];
 
   let normalizeRun: CommandRun<ParseSessionResult> | undefined;
   if (needsParse) {
+    const parseInput = { path: session.fullPath, limit: 1500 };
     // One limit across normalize / extract / enrich so the parse cache is
     // shared. Older builds capped normalize at 14 records, which made the
     // force-rerun report meaningless timing (~20 ms over a 128 KB head read).
-    normalizeRun = await runCommand(
-      parseSessionCommand,
-      { path: session.fullPath, limit: 1500 },
-      { force: shouldForce(force, "normalize") },
+    normalizeRun = await runCommand(parseSessionCommand, parseInput, {
+      force: shouldForce(force, "normalize"),
+    });
+    runLog.push(
+      makeRunLogEntry(parseSessionCommand, parseInput, normalizeRun, {
+        summarizeInput: (i) => `limit=${i.limit} · ${i.path.split("/").pop()}`,
+        summarizeOutput: (o) =>
+          o
+            ? `harness=${o.harness} · ${o.records.length} records · ${o.bytesRead} bytes read`
+            : "no result",
+      }),
     );
-    runLog.push(makeRunLogEntry(parseSessionCommand, normalizeRun));
   }
 
   let extractRun: CommandRun<ExtractQmdResult> | undefined;
   if (needsExtract) {
-    extractRun = await runCommand(
-      extractQmdCommand,
-      {
-        path: session.fullPath,
-        sessionId: sessionSlug,
-        recordLimit: 1500,
-      },
-      { force: shouldForce(force, "extract") },
+    const extractInput = {
+      path: session.fullPath,
+      sessionId: sessionSlug,
+      recordLimit: 1500,
+    };
+    extractRun = await runCommand(extractQmdCommand, extractInput, {
+      force: shouldForce(force, "extract"),
+    });
+    runLog.push(
+      makeRunLogEntry(extractQmdCommand, extractInput, extractRun, {
+        summarizeInput: (i) => `sessionId=${i.sessionId} · limit=${i.recordLimit}`,
+        summarizeOutput: (o) =>
+          o
+            ? `${o.files.length} files · ${o.recordsScanned} records · ${o.mechanicalMs} ms mech`
+            : "no result",
+      }),
     );
-    runLog.push(makeRunLogEntry(extractQmdCommand, extractRun));
   }
 
   let enrichRun: CommandRun<EnrichSessionResult> | undefined;
   if (stageId === "enrich") {
-    enrichRun = await runCommand(
-      enrichSessionCommand,
-      {
-        path: session.fullPath,
-        sessionId: sessionSlug,
-        recordLimit: 1500,
-      },
-      { force: shouldForce(force, "enrich") },
-    );
+    const enrichInput = {
+      path: session.fullPath,
+      sessionId: sessionSlug,
+      recordLimit: 1500,
+    };
+    enrichRun = await runCommand(enrichSessionCommand, enrichInput, {
+      force: shouldForce(force, "enrich"),
+    });
     runLog.push(
-      makeRunLogEntry(enrichSessionCommand, enrichRun, (out) =>
-        out?.model
-          ? {
-              model: out.model,
-              promptTokens: out.usage.promptTokens,
-              completionTokens: out.usage.completionTokens,
-              reasoningTokens: out.usage.reasoningTokens,
-            }
-          : undefined,
-      ),
+      makeRunLogEntry(enrichSessionCommand, enrichInput, enrichRun, {
+        summarizeInput: (i) =>
+          `sessionId=${i.sessionId} · limit=${i.recordLimit}`,
+        summarizeOutput: (o) =>
+          o && o.model
+            ? `${o.model} · ${o.usage.totalTokens}t · ${o.files.length} files`
+            : "no result",
+        extractLlm: (out) =>
+          out?.model
+            ? {
+                model: out.model,
+                promptTokens: out.usage.promptTokens,
+                completionTokens: out.usage.completionTokens,
+                reasoningTokens: out.usage.reasoningTokens,
+              }
+            : undefined,
+      }),
     );
   }
 
@@ -1224,6 +1255,40 @@ function isStageId(value: string): value is StageId {
   return STAGES.some((stage) => stage.id === value);
 }
 
+function TraceRowInspect({ entry }: { entry: RunLogEntry }) {
+  if (!entry.trace) {
+    return (
+      <div className="border-t border-studio-edge bg-studio-canvas-alt px-4 py-3 font-mono text-[10.5px] text-studio-ink-faint">
+        no trace data
+        {entry.error ? <> · error: {entry.error}</> : null}
+      </div>
+    );
+  }
+  const { shell, input, output, cacheKey } = entry.trace;
+  return (
+    <div className="border-t border-studio-edge bg-studio-canvas-alt">
+      <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 px-4 py-3 font-mono text-[10.5px]">
+        <dt className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          shell
+        </dt>
+        <dd className="break-all text-studio-ink">$ {shell}</dd>
+        <dt className="mt-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          input
+        </dt>
+        <dd className="mt-1.5 break-all text-studio-ink">{input}</dd>
+        <dt className="mt-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          output
+        </dt>
+        <dd className="mt-1.5 break-all text-studio-ink">{output}</dd>
+        <dt className="mt-1.5 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          cache key
+        </dt>
+        <dd className="mt-1.5 break-all text-studio-ink-faint">{cacheKey}</dd>
+      </dl>
+    </div>
+  );
+}
+
 // ── Run summary footer ───────────────────────────────────────────
 
 const COMMAND_TO_STAGE: Record<string, StageId> = {
@@ -1276,60 +1341,66 @@ function RunSummary({
         {entries.map((e, i) => {
           const targetStage = COMMAND_TO_STAGE[e.id];
           return (
-            <li
-              key={`${e.id}-${i}`}
-              className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,180px)] items-baseline gap-3 px-4 py-2"
-            >
-              <span className="font-mono text-[10px] tabular-nums text-studio-ink-faint">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <span className="flex items-baseline gap-2">
-                <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
-                  {e.label}
-                </span>
-                <span className="font-mono text-[9.5px] text-studio-ink-faint">
-                  {e.id}
-                </span>
-                {targetStage ? (
-                  <a
-                    href={studyHref(selection, { force: targetStage })}
-                    className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
-                    title={`Force re-run ${e.label}`}
-                  >
-                    re-run ↻
-                  </a>
-                ) : null}
-              </span>
-              <span className="font-mono text-[10.5px] text-studio-ink-faint">
-                {e.error ? (
-                  <span className="text-status-error-fg">error · {e.error}</span>
-                ) : e.cached ? (
-                  <span>
-                    ● cached{" "}
-                    <span className="text-studio-ink-faint/70">
-                      (saved ~{e.durationMs} ms)
+            <li key={`${e.id}-${i}`}>
+              <details className="group">
+                <summary className="grid cursor-pointer grid-cols-[28px_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,180px)] items-baseline gap-3 px-4 py-2 transition-colors hover:bg-studio-canvas-alt [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center gap-1 font-mono text-[10px] tabular-nums text-studio-ink-faint">
+                    <span aria-hidden className="select-none text-[8px] text-studio-ink-faint/60 transition-transform group-open:rotate-90">
+                      ▶
                     </span>
+                    {String(i + 1).padStart(2, "0")}
                   </span>
-                ) : (
-                  <span className="text-status-ok-fg">● ran · {e.durationMs} ms</span>
-                )}
-              </span>
-              <span className="text-right font-mono text-[10px] text-studio-ink-faint">
-                {e.llm ? (
-                  <>
-                    <span className="text-studio-ink">{e.llm.model}</span> ·{" "}
-                    {e.llm.promptTokens}+{e.llm.completionTokens}t
-                    {e.llm.reasoningTokens > 0 ? (
-                      <span className="text-studio-ink-faint/80">
-                        {" "}
-                        ({e.llm.reasoningTokens} reasoning)
-                      </span>
+                  <span className="flex items-baseline gap-2">
+                    <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
+                      {e.label}
+                    </span>
+                    <span className="font-mono text-[9.5px] text-studio-ink-faint">
+                      {e.id}
+                    </span>
+                    {targetStage ? (
+                      <RerunLink
+                        href={studyHref(selection, { force: targetStage })}
+                        className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
+                        title={`Force re-run ${e.label}`}
+                        pendingLabel="running ↻"
+                      >
+                        re-run ↻
+                      </RerunLink>
                     ) : null}
-                  </>
-                ) : (
-                  <span>—</span>
-                )}
-              </span>
+                  </span>
+                  <span className="font-mono text-[10.5px] text-studio-ink-faint">
+                    {e.error ? (
+                      <span className="text-status-error-fg">error · {e.error}</span>
+                    ) : e.cached ? (
+                      <span>
+                        ● cached{" "}
+                        <span className="text-studio-ink-faint/70">
+                          (saved ~{e.durationMs} ms)
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-status-ok-fg">● ran · {e.durationMs} ms</span>
+                    )}
+                  </span>
+                  <span className="text-right font-mono text-[10px] text-studio-ink-faint">
+                    {e.llm ? (
+                      <>
+                        <span className="text-studio-ink">{e.llm.model}</span> ·{" "}
+                        {e.llm.promptTokens}+{e.llm.completionTokens}t
+                        {e.llm.reasoningTokens > 0 ? (
+                          <span className="text-studio-ink-faint/80">
+                            {" "}
+                            ({e.llm.reasoningTokens} reasoning)
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span>—</span>
+                    )}
+                  </span>
+                </summary>
+                <TraceRowInspect entry={e} />
+              </details>
             </li>
           );
         })}

@@ -15,6 +15,17 @@ export interface RunLlmCost {
   reasoningTokens: number;
 }
 
+export interface RunTrace {
+  /** Copyable shell-equivalent for the run with bound input. */
+  shell: string;
+  /** One-line summary of the bound input. */
+  input: string;
+  /** One-line summary of the run output. */
+  output: string;
+  /** Cache key used for this run. */
+  cacheKey: string;
+}
+
 export interface RunLogEntry {
   id: string;
   label: string;
@@ -22,6 +33,7 @@ export interface RunLogEntry {
   cached: boolean;
   error?: string;
   llm?: RunLlmCost;
+  trace?: RunTrace;
 }
 
 export interface RunLogSummary {
@@ -53,17 +65,47 @@ const RATES: Record<string, { input: number; output: number }> = {
 
 export function makeRunLogEntry<I, O>(
   cmd: Command<I, O>,
+  input: I,
   run: CommandRun<O>,
-  extractLlm?: (output: O) => RunLlmCost | undefined,
+  options?: {
+    extractLlm?: (output: O) => RunLlmCost | undefined;
+    summarizeInput?: (input: I) => string;
+    summarizeOutput?: (output: O) => string;
+  },
 ): RunLogEntry {
+  const trace: RunTrace | undefined = run.error
+    ? undefined
+    : {
+        shell: cmd.shell(input),
+        input: options?.summarizeInput
+          ? options.summarizeInput(input)
+          : safeJson(input),
+        output: options?.summarizeOutput
+          ? options.summarizeOutput(run.output)
+          : safeJson(run.output, 200),
+        cacheKey: cmd.cacheKey ? cmd.cacheKey(input) : JSON.stringify(input),
+      };
   return {
     id: cmd.id,
     label: cmd.label,
     durationMs: run.durationMs,
     cached: run.cached,
     error: run.error,
-    llm: !run.error && extractLlm ? extractLlm(run.output) : undefined,
+    llm:
+      !run.error && options?.extractLlm ? options.extractLlm(run.output) : undefined,
+    trace,
   };
+}
+
+function safeJson(value: unknown, max = 240): string {
+  let text: string;
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    text = String(value);
+  }
+  if (!text) text = "";
+  return text.length > max ? text.slice(0, max - 1) + "…" : text;
 }
 
 export function summarizeRunLog(entries: RunLogEntry[]): RunLogSummary {

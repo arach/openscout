@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { CommandRun } from "@/lib/studio/command";
+import { RerunLink } from "@/components/studio/RerunLink";
 
 /**
  * Chrome around a single command run.
@@ -36,13 +37,14 @@ export function CommandSurface({
         </span>
         <span className="flex items-center gap-2">
           {rerunHref ? (
-            <a
+            <RerunLink
               href={rerunHref}
               className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint underline-offset-4 hover:text-studio-ink hover:underline"
               title="Force re-run, bypassing the cache"
+              pendingLabel="running ↻"
             >
               re-run ↻
-            </a>
+            </RerunLink>
           ) : null}
           <span className={`font-mono text-[9px] uppercase tracking-eyebrow ${badge.tone}`}>
             {badge.label}
