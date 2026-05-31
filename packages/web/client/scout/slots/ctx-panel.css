@@ -776,6 +776,10 @@
   word-break: break-word;
 }
 
+.ctx-panel-live-actions {
+  margin: 0 12px 2px;
+}
+
 .ctx-panel-conversation-rows {
   display: flex;
   flex-direction: column;

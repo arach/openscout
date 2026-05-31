@@ -340,6 +340,10 @@
   gap: 24px;
 }
 
+.s-agent-profile-page {
+  container-type: inline-size;
+}
+
 .s-agent-casefile-hero,
 .s-agent-profile-hero,
 .s-work-casefile-hero {
@@ -582,6 +586,27 @@
   gap: 8px;
   align-items: stretch;
   justify-content: flex-start;
+}
+
+.s-agent-profile-hero-actions {
+  width: min(360px, 32vw);
+  min-width: 260px;
+}
+
+.s-agent-profile-hero-actions .agent-live-actions,
+.s-agent-profile-hero-actions > .s-btn {
+  width: 100%;
+}
+
+@container (max-width: 760px) {
+  .s-agent-profile-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-agent-profile-hero-actions {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .s-agent-spotlight-card {

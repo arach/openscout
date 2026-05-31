@@ -28,7 +28,9 @@ struct CommsItem: Identifiable, Decodable, Sendable {
     let title: String
     let alias: String?
     let participantIds: [String]
+    let agentId: String?
     let agentName: String?
+    let harness: String?
     let preview: String?
     let messageCount: Int
     let lastMessageAt: TimeInterval?
@@ -78,7 +80,9 @@ struct CommsItem: Identifiable, Decodable, Sendable {
         case title
         case alias
         case participantIds
+        case agentId
         case agentName
+        case harness
         case preview
         case messageCount
         case lastMessageAt
@@ -94,7 +98,9 @@ struct CommsItem: Identifiable, Decodable, Sendable {
         title = try c.decode(String.self, forKey: .title)
         alias = try c.decodeIfPresent(String.self, forKey: .alias)
         participantIds = try c.decodeIfPresent([String].self, forKey: .participantIds) ?? []
+        agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
         agentName = try c.decodeIfPresent(String.self, forKey: .agentName)
+        harness = try c.decodeIfPresent(String.self, forKey: .harness)
         preview = try c.decodeIfPresent(String.self, forKey: .preview)
         messageCount = try c.decodeIfPresent(Int.self, forKey: .messageCount) ?? 0
         lastMessageAt = try c.decodeIfPresent(TimeInterval.self, forKey: .lastMessageAt)

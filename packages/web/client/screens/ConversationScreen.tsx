@@ -420,19 +420,64 @@ function readMessageReturnAddressActorId(message: Message): string | null {
     : null;
 }
 
+function readMessageReturnAddressField(message: Message, key: string): string | null {
+  const returnAddress = message.metadata?.["returnAddress"];
+  if (!returnAddress || typeof returnAddress !== "object") return null;
+  const value = (returnAddress as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function normalizeAgentLookupValue(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/^@+/, "").toLowerCase();
+}
+
+function agentLookupValues(agent: Agent): Set<string> {
+  return new Set(
+    [
+      agent.id,
+      agent.handle,
+      agent.selector,
+      agent.defaultSelector,
+      agent.conversationId,
+    ]
+      .map(normalizeAgentLookupValue)
+      .filter((value): value is string => value !== null),
+  );
+}
+
+function resolveAgentByIdentity(
+  agents: Agent[],
+  identities: Array<string | null | undefined>,
+): Agent | null {
+  for (const identity of identities) {
+    const normalized = normalizeAgentLookupValue(identity);
+    if (!normalized) continue;
+    const matches = agents.filter((agent) => agentLookupValues(agent).has(normalized));
+    if (matches.length === 1) return matches[0]!;
+  }
+  return null;
+}
+
 function resolveMessageAgent(
   message: Message,
   agents: Agent[],
   fallbackAgentId: string | null | undefined,
 ): Agent | null {
   const actorId = message.actorId ?? readMessageReturnAddressActorId(message);
-  if (actorId) {
-    const exact = agents.find((agent) => agent.id === actorId);
-    if (exact) return exact;
-  }
+  const identityMatch = resolveAgentByIdentity(agents, [
+    actorId,
+    readMessageReturnAddressField(message, "selector"),
+    readMessageReturnAddressField(message, "defaultSelector"),
+    readMessageReturnAddressField(message, "handle"),
+  ]);
+  if (identityMatch) return identityMatch;
 
   if (fallbackAgentId) {
-    const fallback = agents.find((agent) => agent.id === fallbackAgentId);
+    const fallback = resolveAgentByIdentity(agents, [fallbackAgentId]);
     if (fallback) return fallback;
   }
 
@@ -864,17 +909,21 @@ function PresenceSidebar({
   agents,
   flights,
   conversationId,
+  navigate,
+  route,
 }: {
   sessionMeta: SessionEntry | null;
   agents: Agent[];
   flights: Flight[];
   conversationId: string;
+  navigate: (r: Route) => void;
+  route: Route;
 }) {
   const participantAgents = useMemo(() => {
     if (!sessionMeta) return [];
     return sessionMeta.participantIds
       .filter((id) => id !== "operator")
-      .map((id) => agents.find((a) => a.id === id) ?? null)
+      .map((id) => resolveAgentByIdentity(agents, [id]))
       .filter((a): a is Agent => a !== null);
   }, [sessionMeta, agents]);
 
@@ -884,15 +933,17 @@ function PresenceSidebar({
     handle: "operator",
     activity: null as string | null,
     state: "available" as const,
+    agent: null as Agent | null,
   };
 
   const participantEntries = useMemo(() => {
     return participantAgents.map((a) => ({
       id: a.id,
       name: a.name,
-      handle: minimalAgentHandle(a) ?? `@${compactAgentId(a.id) ?? a.id}`,
+      handle: minimalAgentHandle(a) ?? compactAgentId(a.id) ?? a.id,
       activity: deriveParticipantActivity(a, flights, conversationId),
       state: normalizeAgentState(a.state),
+      agent: a,
     }));
   }, [participantAgents, flights, conversationId]);
 
@@ -902,50 +953,76 @@ function PresenceSidebar({
     <aside className="s-thread-sidebar">
       <div className="s-thread-sidebar-section">
         <div className="s-thread-sidebar-label">In this conversation</div>
-        {allParticipants.map((p) => (
-          <div key={p.id} className="s-thread-sidebar-participant">
-            <div
-              className="s-ops-avatar"
-              style={{
-                "--size": "28px",
-                background: actorColor(p.name),
-              } as React.CSSProperties}
-            >
-              {p.name[0]?.toUpperCase() ?? "?"}
-            </div>
-            <div className="s-thread-sidebar-participant-info">
-              <span className="s-thread-sidebar-participant-name">
-                {p.name}
-              </span>
-              <span className="s-thread-sidebar-participant-handle">
-                @{p.handle}
-              </span>
-            </div>
-            <div className="s-thread-sidebar-participant-activity">
-              {p.activity ? (
-                <>
+        {allParticipants.map((p) => {
+          const content = (
+            <>
+              <div
+                className="s-ops-avatar"
+                style={{
+                  "--size": "28px",
+                  background: actorColor(p.name),
+                } as React.CSSProperties}
+              >
+                {p.name[0]?.toUpperCase() ?? "?"}
+              </div>
+              <div className="s-thread-sidebar-participant-info">
+                <span className="s-thread-sidebar-participant-name">
+                  {p.name}
+                </span>
+                <span className="s-thread-sidebar-participant-handle">
+                  @{p.handle}
+                </span>
+              </div>
+              <div className="s-thread-sidebar-participant-activity">
+                {p.activity ? (
+                  <>
+                    <span
+                      className="s-thread-sidebar-activity-dot s-thread-sidebar-activity-dot--pulse"
+                      style={{ background: "var(--green)" }}
+                    />
+                    <span className="s-thread-sidebar-activity-label">
+                      {p.activity}
+                    </span>
+                  </>
+                ) : p.state === "available" || p.id === "operator" ? (
                   <span
-                    className="s-thread-sidebar-activity-dot s-thread-sidebar-activity-dot--pulse"
-                    style={{ background: "var(--green)" }}
+                    className="s-thread-sidebar-activity-dot"
+                    style={{ background: stateColor(p.state) }}
                   />
-                  <span className="s-thread-sidebar-activity-label">
-                    {p.activity}
-                  </span>
-                </>
-              ) : p.state === "available" || p.id === "operator" ? (
-                <span
-                  className="s-thread-sidebar-activity-dot"
-                  style={{ background: stateColor(p.state) }}
-                />
-              ) : (
-                <span
-                  className="s-thread-sidebar-activity-dot"
-                  style={{ background: "var(--dim)" }}
-                />
-              )}
-            </div>
-          </div>
-        ))}
+                ) : (
+                  <span
+                    className="s-thread-sidebar-activity-dot"
+                    style={{ background: "var(--dim)" }}
+                  />
+                )}
+              </div>
+            </>
+          );
+          if (!p.agent) {
+            return (
+              <div key={p.id} className="s-thread-sidebar-participant">
+                {content}
+              </div>
+            );
+          }
+          return (
+            <button
+              key={p.id}
+              type="button"
+              className="s-thread-sidebar-participant s-thread-sidebar-participant--clickable"
+              onClick={() =>
+                openContent(
+                  navigate,
+                  { view: "agent-info", conversationId: conversationForAgent(p.agent!.id) },
+                  { returnTo: route },
+                )
+              }
+              title={`Open ${p.name} profile`}
+            >
+              {content}
+            </button>
+          );
+        })}
       </div>
 
       {participantEntries.length > 0 && (
@@ -1937,8 +2014,8 @@ export function ConversationScreen({
       .filter((id) => id !== "operator")
       .slice(0, 4)
       .map((id) => {
-        const a = scopedAgents.find((ag) => ag.id === id);
-        return { id, name: a?.name ?? id };
+        const a = resolveAgentByIdentity(scopedAgents, [id]);
+        return { id, name: a?.name ?? id, agent: a ?? null };
       });
   }, [sessionMeta, scopedAgents]);
 
@@ -2108,19 +2185,41 @@ export function ConversationScreen({
             )}
             {stackedAvatarAgents.length > 0 && (
               <div className="s-thread-center-avatars">
-                {stackedAvatarAgents.map((a) => (
-                  <div
-                    key={a.id}
-                    className="s-ops-avatar"
-                    style={{
-                      "--size": "22px",
-                      background: actorColor(a.name),
-                    } as React.CSSProperties}
-                    title={a.name}
-                  >
-                    {a.name[0]?.toUpperCase() ?? "?"}
-                  </div>
-                ))}
+                {stackedAvatarAgents.map((a) => {
+                  const avatarStyle = {
+                    "--size": "22px",
+                    background: actorColor(a.name),
+                  } as React.CSSProperties;
+                  return a.agent ? (
+                    <button
+                      key={a.id}
+                      type="button"
+                      className="s-ops-avatar s-thread-center-avatar-button"
+                      style={avatarStyle}
+                      title={`Open ${a.name} profile`}
+                      aria-label={`Open ${a.name} profile`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openContent(
+                          navigate,
+                          { view: "agent-info", conversationId: conversationForAgent(a.agent!.id) },
+                          { returnTo: route },
+                        );
+                      }}
+                    >
+                      {a.name[0]?.toUpperCase() ?? "?"}
+                    </button>
+                  ) : (
+                    <div
+                      key={a.id}
+                      className="s-ops-avatar"
+                      style={avatarStyle}
+                      title={a.name}
+                    >
+                      {a.name[0]?.toUpperCase() ?? "?"}
+                    </div>
+                  );
+                })}
                 <span className="s-thread-center-participant-count">
                   {participantCount}
                 </span>

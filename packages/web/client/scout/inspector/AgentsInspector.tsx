@@ -12,7 +12,9 @@ import { compareTimestampsDesc, timeAgo } from "../../lib/time.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
+import { agentIdFromConversation } from "../../lib/router.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
+import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
 import type {
   Agent,
   AgentObservePayload,
@@ -22,6 +24,7 @@ import type {
   Route,
   SessionCatalogEntry,
   SessionCatalogWithResume,
+  SessionEntry,
 } from "../../lib/types.ts";
 
 const GROUPED_NUMBER_FORMAT = new Intl.NumberFormat("en-US");
@@ -102,6 +105,17 @@ function revealPath(input: {
 
 export function AgentsInspector() {
   const { route, agents, navigate } = useScout();
+  if (route.view === "agent-info") {
+    return (
+      <AgentInfoRouteInspector
+        conversationId={route.conversationId}
+        agents={agents}
+        navigate={navigate}
+        route={route}
+      />
+    );
+  }
+
   if (route.view !== "agents") return null;
 
   const agent = route.agentId
@@ -129,6 +143,99 @@ export function AgentsInspector() {
       navigate={navigate}
       route={route}
       observeMode={route.tab === "observe"}
+    />
+  );
+}
+
+function AgentInfoRouteInspector({
+  conversationId,
+  agents,
+  navigate,
+  route,
+}: {
+  conversationId: string;
+  agents: Agent[];
+  navigate: (r: Route) => void;
+  route: Route;
+}) {
+  const legacyAgentId = agentIdFromConversation(conversationId);
+  const [session, setSession] = useState<SessionEntry | null>(null);
+  const [agentDetail, setAgentDetail] = useState<Agent | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  const loadSession = useCallback(async () => {
+    const sessionEntry = await api<SessionEntry>(
+      `/api/session/${encodeURIComponent(conversationId)}`,
+    ).catch(() => null);
+    setSession(sessionEntry);
+    setLoaded(true);
+  }, [conversationId]);
+
+  useEffect(() => {
+    setLoaded(false);
+    void loadSession();
+  }, [loadSession]);
+
+  useBrokerEvents(() => {
+    void loadSession();
+  });
+
+  const resolvedAgentId = session?.agentId ?? legacyAgentId;
+  useEffect(() => {
+    if (!resolvedAgentId || agents.some((candidate) => candidate.id === resolvedAgentId)) {
+      setAgentDetail(null);
+      return;
+    }
+
+    let cancelled = false;
+    api<Agent>(`/api/agents/${encodeURIComponent(resolvedAgentId)}`)
+      .then((next) => {
+        if (!cancelled) setAgentDetail(next);
+      })
+      .catch(() => {
+        if (!cancelled) setAgentDetail(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agents, resolvedAgentId]);
+
+  const agent = useMemo(
+    () =>
+      resolvedAgentId
+        ? agents.find((candidate) => candidate.id === resolvedAgentId) ??
+          (agentDetail?.id === resolvedAgentId ? agentDetail : null)
+        : null,
+    [agentDetail, agents, resolvedAgentId],
+  );
+
+  if (!loaded) {
+    return (
+      <div className="flex h-full items-center justify-center p-4 text-center text-[11px] italic text-[var(--scout-chrome-ink-faint)]">
+        Loading agent context...
+      </div>
+    );
+  }
+
+  if (!agent) {
+    return (
+      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+        <Row label="Conversation" value={conversationId} />
+        <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
+          No live agent registration matches this profile.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <AgentContextPanel
+      agent={agent}
+      agents={agents}
+      navigate={navigate}
+      route={route}
+      observeMode={false}
     />
   );
 }
@@ -201,6 +308,14 @@ function AgentContextPanel({
           )}
         </div>
       </div>
+
+      <AgentLiveActions
+        agent={agent}
+        catalog={sessionCatalog}
+        navigate={navigate}
+        returnTo={route}
+        variant="compact"
+      />
 
       {/* State */}
       <Section label="State">

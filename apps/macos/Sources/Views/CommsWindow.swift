@@ -1,37 +1,53 @@
 import AppKit
+import ScoutNativeCore
 import SwiftUI
+import WebKit
 
 @MainActor
-final class CommsWindowController {
+final class CommsWindowController: NSObject, NSWindowDelegate {
     static let shared = CommsWindowController()
 
-    private let service = CommsService.shared
-    private var panel: OverlayPanel?
+    fileprivate static let baseContentSize = NSSize(width: 1020, height: 720)
+    private static let observePeekWidth: CGFloat = 86
+    private static let observeAttachOverlap: CGFloat = 10
+    private static let observeMinWidth: CGFloat = 340
+    private static let observeMaxWidth: CGFloat = 820
+    fileprivate static let observeShelfWidth: CGFloat = 430
 
-    private init() {}
+    private let service = CommsService.shared
+    private var window: NSWindow?
+    private var observeWindow: NSWindow?
+    private var observeTarget: CommsObserveTarget?
+    private var pendingObserveID: String?
+    private var observeWindowWidth = observePeekWidth
+    private var expandedObserveWindowWidth = observeShelfWidth
+    private var observeResizeStartWidth: CGFloat?
+    private var lastObserveResizeFrameAt: TimeInterval = 0
+    private var familyDragStartFrame: NSRect?
+    private var promotedActivationPolicy = false
+
+    private override init() {
+        super.init()
+    }
 
     func show(cId: String? = nil) {
         service.start(preferredCId: cId)
-        if panel == nil {
-            panel = OverlayPanelShell.makePanel(
-                config: OverlayPanelShell.Config(
-                    size: NSSize(width: 1020, height: 720),
-                    title: "OpenScout Comms",
-                    isMovableByWindowBackground: true,
-                    activatesOnMouseDown: true,
-                    resizable: true,
-                    minContentSize: NSSize(width: 780, height: 540)
-                ),
-                rootView: CommsRootView(service: service)
-            )
+        if window == nil {
+            window = makeWindow()
         }
-        guard let panel else { return }
-        OverlayPanelShell.position(panel, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
-        OverlayPanelShell.present(panel, activate: true)
+        guard let window else { return }
+        promoteToAppWindowMode()
+        if !window.isVisible {
+            window.setContentSize(Self.baseContentSize)
+            OverlayPanelShell.position(window, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
+        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        positionObserveWindow()
     }
 
     func toggle() {
-        if panel?.isVisible == true {
+        if window?.isVisible == true {
             dismiss()
         } else {
             show()
@@ -39,9 +55,240 @@ final class CommsWindowController {
     }
 
     func dismiss() {
-        panel?.orderOut(nil)
+        HudVoxService.shared.cancel()
+        closeObserve()
+        window?.orderOut(nil)
         service.stop()
+        restoreAccessoryMode()
     }
+
+    fileprivate func showObserve(_ target: CommsObserveTarget) {
+        guard window != nil else { return }
+        observeTarget = target
+        pendingObserveID = target.id
+        observeWindowWidth = Self.observePeekWidth
+
+        if observeWindow == nil {
+            observeWindow = makeObserveWindow(target: target)
+        } else {
+            observeWindow?.contentViewController = NSHostingController(
+                rootView: CommsObserveSidecarView(target: target) {
+                    CommsWindowController.shared.closeObserve()
+                } onReady: {
+                    CommsWindowController.shared.presentObserveIfReady(targetID: target.id)
+                }
+            )
+        }
+
+        guard let observeWindow else { return }
+        positionObserveWindow()
+        observeWindow.alphaValue = 1
+        if observeWindow.parent == nil, let window {
+            window.addChildWindow(observeWindow, ordered: .below)
+        }
+        observeWindow.orderFront(nil)
+    }
+
+    func closeObserve() {
+        let closedTarget = observeTarget
+        observeTarget = nil
+        pendingObserveID = nil
+        observeWindowWidth = Self.observePeekWidth
+        if let observeWindow {
+            window?.removeChildWindow(observeWindow)
+            observeWindow.orderOut(nil)
+        }
+        observeWindow = nil
+        NotificationCenter.default.post(name: .commsObserveClosed, object: closedTarget)
+    }
+
+    func presentObserveIfReady(targetID: String) {
+        guard pendingObserveID == targetID,
+              let observeWindow
+        else { return }
+        pendingObserveID = nil
+        observeWindowWidth = expandedObserveWindowWidth
+        observeWindow.alphaValue = 1
+        positionObserveWindow(animated: true)
+        observeWindow.orderFront(nil)
+    }
+
+    func beginObserveResize() {
+        guard pendingObserveID == nil else { return }
+        observeResizeStartWidth = observeWindowWidth
+    }
+
+    func resizeObserveWindow(translationWidth: CGFloat) {
+        guard pendingObserveID == nil else { return }
+        if observeResizeStartWidth == nil {
+            observeResizeStartWidth = observeWindowWidth
+        }
+        let startWidth = observeResizeStartWidth ?? observeWindowWidth
+        let nextWidth = min(
+            Self.observeMaxWidth,
+            max(Self.observeMinWidth, startWidth + translationWidth)
+        )
+        expandedObserveWindowWidth = nextWidth
+        observeWindowWidth = nextWidth
+        let now = Date.timeIntervalSinceReferenceDate
+        guard now - lastObserveResizeFrameAt >= (1.0 / 60.0) else { return }
+        lastObserveResizeFrameAt = now
+        positionObserveWindow(display: false)
+    }
+
+    func endObserveResize() {
+        observeResizeStartWidth = nil
+        lastObserveResizeFrameAt = 0
+        positionObserveWindow(display: true)
+    }
+
+    func beginFamilyDrag() {
+        familyDragStartFrame = window?.frame
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func dragFamily(screenTranslation: CGSize) {
+        guard let window else { return }
+        if familyDragStartFrame == nil {
+            familyDragStartFrame = window.frame
+            window.makeKeyAndOrderFront(nil)
+        }
+        guard let startFrame = familyDragStartFrame else { return }
+        var nextFrame = startFrame
+        nextFrame.origin.x += screenTranslation.width
+        nextFrame.origin.y += screenTranslation.height
+        window.setFrame(nextFrame, display: false)
+    }
+
+    func endFamilyDrag() {
+        familyDragStartFrame = nil
+        positionObserveWindow(display: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        closeObserve()
+        service.stop()
+        window = nil
+        restoreAccessoryMode()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        positionObserveWindow()
+    }
+
+    /// True while the Comms panel is on screen. The HUD dock checks this so
+    /// the foreground Comms surface owns Vox dictation (splice + consume)
+    /// rather than the dock stealing the final transcript.
+    var isPresented: Bool { window?.isVisible == true }
+
+    private func makeWindow() -> NSWindow {
+        let hosting = NSHostingController(rootView: CommsRootView(service: service))
+        let window = CommsAppWindow(
+            contentRect: NSRect(origin: .zero, size: Self.baseContentSize),
+            styleMask: [.borderless, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hosting
+        window.title = "OpenScout Comms"
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 780, height: 540)
+        window.minSize = NSSize(width: 780, height: 540)
+        window.level = .normal
+        window.collectionBehavior = []
+        window.sharingType = .readOnly
+        window.hasShadow = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.delegate = self
+        window.setContentSize(Self.baseContentSize)
+        return window
+    }
+
+    private func makeObserveWindow(target: CommsObserveTarget) -> NSWindow {
+        let window = CommsSidecarWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: NSSize(width: Self.observeShelfWidth, height: Self.baseContentSize.height)
+            ),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = NSHostingController(
+            rootView: CommsObserveSidecarView(target: target) {
+                CommsWindowController.shared.closeObserve()
+            } onReady: {
+                CommsWindowController.shared.presentObserveIfReady(targetID: target.id)
+            }
+        )
+        window.title = "OpenScout Observe"
+        window.level = self.window?.level ?? .normal
+        window.collectionBehavior = [.fullScreenAuxiliary]
+        window.sharingType = .readOnly
+        window.hasShadow = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.appearance = NSAppearance(named: .darkAqua)
+        return window
+    }
+
+    private func positionObserveWindow(animated: Bool = false, display: Bool = true) {
+        guard let window, let observeWindow else { return }
+        let frame = window.frame
+        let contentFrame = window.convertToScreen(window.contentLayoutRect)
+        let nextFrame = NSRect(
+            x: frame.maxX - Self.observeAttachOverlap,
+            y: contentFrame.minY,
+            width: observeWindowWidth + Self.observeAttachOverlap,
+            height: contentFrame.height
+        )
+
+        guard animated else {
+            observeWindow.setFrame(nextFrame, display: display)
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.allowsImplicitAnimation = true
+            observeWindow.animator().setFrame(nextFrame, display: true)
+        }
+    }
+
+    private func promoteToAppWindowMode() {
+        guard NSApp.activationPolicy() != .regular else { return }
+        promotedActivationPolicy = true
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    private func restoreAccessoryMode() {
+        guard promotedActivationPolicy else { return }
+        promotedActivationPolicy = false
+        NSApp.setActivationPolicy(.accessory)
+    }
+
+}
+
+private final class CommsAppWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+private final class CommsSidecarWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+private extension Notification.Name {
+    static let commsObserveClosed = Notification.Name("OpenScoutCommsObserveClosed")
 }
 
 struct CommsRootView: View {
@@ -56,10 +303,14 @@ struct CommsRootView: View {
     @State private var showCommands = false
     @State private var commandQuery = ""
     @State private var commandIndex = 0
+    @State private var observeTarget: CommsObserveTarget?
     @FocusState private var focus: Field?
+    @ObservedObject private var vox = HudVoxService.shared
+
+    private let observeClosedPublisher = NotificationCenter.default.publisher(for: .commsObserveClosed)
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .leading) {
             VisualEffectBackground(material: .hudWindow, cornerRadius: 8)
             HUDChrome.canvas
             HUDPaperGrain(opacity: 0.03)
@@ -69,16 +320,26 @@ struct CommsRootView: View {
                 HUDHairline()
                 main
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(keyboardCommands)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(HUDChrome.borderRim, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .preferredColorScheme(.dark)
-        .onAppear { focusComposerSoon() }
-        .onChange(of: service.selectedCId) { _, _ in focusComposerSoon() }
+        .onAppear {
+            focusComposerSoon()
+        }
+        .onChange(of: service.selectedCId) { _, _ in
+            closeObserve()
+            focusComposerSoon()
+        }
+        .onReceive(observeClosedPublisher) { _ in
+            observeTarget = nil
+        }
     }
 
     private var header: some View {
@@ -146,7 +407,9 @@ struct CommsRootView: View {
                 .frame(width: 304)
             HUDHairline(axis: .vertical)
             detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var rail: some View {
@@ -192,6 +455,7 @@ struct CommsRootView: View {
                 .scrollIndicators(.hidden)
             }
         }
+        .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(HUDChrome.canvas)
     }
 
@@ -289,6 +553,7 @@ struct CommsRootView: View {
                 HUDHairline()
                 composer
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(HUDChrome.canvas)
         } else {
             VStack(spacing: 14) {
@@ -324,7 +589,7 @@ struct CommsRootView: View {
                 HStack(spacing: 8) {
                     CommsChip(text: item.scopeLabel.uppercased())
                     CommsChip(text: item.cIdShort)
-                    CommsChip(text: "\(item.participantIds.count) member\(item.participantIds.count == 1 ? "" : "s")")
+                    CommsMemberStrip(item: item)
                 }
             }
             Spacer(minLength: 12)
@@ -335,6 +600,19 @@ struct CommsRootView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: 180, alignment: .trailing)
+            }
+            if let target = observeTarget(for: item) {
+                Button {
+                    openObserve(target)
+                } label: {
+                    Label("Observe", systemImage: "eye")
+                        .font(HUDType.mono(10, weight: .bold))
+                        .tracking(0.8)
+                        .frame(height: 30)
+                        .padding(.horizontal, 10)
+                }
+                .buttonStyle(CommsPillButtonStyle(isActive: observeTarget == target))
+                .help(observeTarget == target ? "Close observe" : "Peek into this agent's work")
             }
         }
         .padding(.horizontal, 20)
@@ -349,7 +627,9 @@ struct CommsRootView: View {
                     ForEach(Array(service.messages.enumerated()), id: \.element.id) { index, message in
                         CommsMessageRow(
                             message: message,
-                            showsHeader: Self.showsHeader(at: index, in: service.messages)
+                            showsHeader: Self.showsHeader(at: index, in: service.messages),
+                            observeTarget: observeTarget(for: message),
+                            onObserve: openObserve
                         )
                         .id(message.id)
                         .padding(.top, Self.showsHeader(at: index, in: service.messages) ? 8 : 0)
@@ -409,11 +689,11 @@ struct CommsRootView: View {
 
             HStack(alignment: .bottom, spacing: 10) {
                 Button {
-                    startDictation()
+                    toggleDictation()
                 } label: {
-                    Image(systemName: "mic.fill")
+                    Image(systemName: micSymbol)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(HUDChrome.inkMuted)
+                        .foregroundStyle(isDictating ? HUDChrome.accent : HUDChrome.inkMuted)
                         .frame(width: 38, height: 38)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -421,11 +701,11 @@ struct CommsRootView: View {
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .stroke(HUDChrome.border, lineWidth: 1)
+                                .stroke(isDictating ? HUDChrome.accentDim : HUDChrome.border, lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
-                .help("Dictate — or press Fn twice")
+                .help(isDictating ? "Stop dictation" : "Dictate with Vox")
 
                 Button {
                     showCommands ? closeCommands() : openCommands()
@@ -484,7 +764,29 @@ struct CommsRootView: View {
                 .help("Send")
             }
 
-            if !currentDraftEmpty {
+            if isDictating {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(HUDChrome.accent)
+                        .frame(width: 6, height: 6)
+                    Text(voxStatusLine)
+                        .font(HUDType.mono(9))
+                        .foregroundStyle(HUDChrome.inkMuted)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    Spacer()
+                }
+            } else if let reason = voxUnavailableReason {
+                HStack(spacing: 6) {
+                    Image(systemName: "mic.slash")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(reason)
+                        .font(HUDType.mono(9))
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .foregroundStyle(HUDChrome.inkFaint)
+            } else if !currentDraftEmpty {
                 HStack(spacing: 0) {
                     Spacer()
                     Text("⏎ to send · ⇧⏎ newline")
@@ -496,6 +798,9 @@ struct CommsRootView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .background(HUDChrome.canvasAlt)
+        .onReceive(vox.$lastFinalText) { text in
+            spliceDictatedFinal(text)
+        }
     }
 
     private func sendDraft() {
@@ -559,15 +864,110 @@ struct CommsRootView: View {
 
     // Routes to the focused field's editor via the standard responder action,
     // the same one Edit ▸ Start Dictation uses. No-op if nothing accepts it.
-    private func startDictation() {
+    // ── Dictation (Vox companion, same path as the HUD dock) ────────────
+    // Routes to HudVoxService — the local Vox transcription daemon — via the
+    // shared ScoutDictationController decision table, exactly like
+    // HUDDockState.toggleDictation(). No macOS system dictation, no extra
+    // mic-usage prompt (capture lives in the Vox process).
+    private func toggleDictation() {
         focus = .composer
-        NSApp.sendAction(Selector(("startDictation:")), to: nil, from: nil)
+        Task {
+            switch ScoutDictationController.toggleDecision(for: vox.state) {
+            case .probeThenStartIfIdle:
+                await vox.probe()
+                if case .idle = vox.state { vox.start() }
+            case .start:
+                vox.start()
+            case .stop:
+                vox.stop()
+            case .ignore:
+                break
+            }
+        }
+    }
+
+    private var isDictating: Bool {
+        switch vox.state {
+        case .starting, .recording, .processing: return true
+        default: return false
+        }
+    }
+
+    private var micSymbol: String {
+        switch vox.state {
+        case .recording: return "stop.fill"
+        case .starting, .processing: return "waveform"
+        default: return "mic.fill"
+        }
+    }
+
+    private var voxStatusLine: String {
+        if !vox.partial.isEmpty { return vox.partial }
+        switch vox.state {
+        case .starting: return "Starting Vox…"
+        case .processing: return "Transcribing…"
+        default: return "Listening…"
+        }
+    }
+
+    private var voxUnavailableReason: String? {
+        if case .unavailable(let reason) = vox.state { return reason }
+        return nil
+    }
+
+    // Splice a finalized transcript into the current channel's draft, then
+    // drain lastFinalText so it isn't re-applied. Mirrors the dock's append.
+    private func spliceDictatedFinal(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let cId = service.selectedCId else { return }
+        drafts[cId] = ScoutDictationBuffer.appending(trimmed, to: drafts[cId] ?? "")
+        HudVoxService.shared.consumeFinalText()
+        focus = .composer
     }
 
     private func copyCId() {
         guard let cId = service.selectedCId else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cId, forType: .string)
+    }
+
+    private func openObserve(_ target: CommsObserveTarget) {
+        if observeTarget == target {
+            closeObserve()
+            return
+        }
+        observeTarget = target
+        CommsWindowController.shared.showObserve(target)
+        focus = .composer
+    }
+
+    private func closeObserve() {
+        observeTarget = nil
+        CommsWindowController.shared.closeObserve()
+        focus = .composer
+    }
+
+    private func observeTarget(for item: CommsItem) -> CommsObserveTarget? {
+        let agentId = item.agentId ?? item.participantIds.first { participant in
+            participant != "operator" && !participant.isEmpty
+        }
+        guard let agentId, !agentId.isEmpty else { return nil }
+        return CommsObserveTarget(
+            agentId: agentId,
+            title: item.agentName?.nilIfEmpty ?? item.displayTitle
+        )
+    }
+
+    private func observeTarget(for message: CommsMessage) -> CommsObserveTarget? {
+        guard !message.isOperator,
+              let actorId = message.actorId,
+              !actorId.isEmpty
+        else { return nil }
+        return CommsObserveTarget(agentId: actorId, title: message.actorName)
+    }
+
+    private var selectedObserveTarget: CommsObserveTarget? {
+        service.selectedItem.flatMap(observeTarget(for:))
     }
 
     // ── Command area ────────────────────────────────────────────────────
@@ -592,7 +992,7 @@ struct CommsRootView: View {
     }
 
     private var commands: [CommsCommand] {
-        [
+        var next = [
             CommsCommand(id: "jump", title: "Jump to channel", hint: "⌘K", systemImage: "magnifyingglass", keywords: ["search", "find", "goto"]) { focus = .search },
             CommsCommand(id: "next", title: "Next channel", hint: "⌘↓", systemImage: "chevron.down", keywords: ["down"]) { moveSelection(1) },
             CommsCommand(id: "prev", title: "Previous channel", hint: "⌘↑", systemImage: "chevron.up", keywords: ["up"]) { moveSelection(-1) },
@@ -603,9 +1003,18 @@ struct CommsRootView: View {
                 service.refresh(force: true)
                 service.loadMessages()
             },
-            CommsCommand(id: "dictate", title: "Dictate message", hint: "fn fn", systemImage: "mic", keywords: ["voice", "speak"]) { startDictation() },
+            CommsCommand(id: "dictate", title: "Dictate message", hint: "", systemImage: "mic", keywords: ["voice", "speak", "vox"]) { toggleDictation() },
             CommsCommand(id: "copy", title: "Copy cId", hint: "", systemImage: "doc.on.doc", keywords: ["clipboard", "id"]) { copyCId() },
         ]
+        if let target = selectedObserveTarget {
+            next.insert(
+                CommsCommand(id: "observe", title: "Observe agent", hint: "⌘O", systemImage: "eye", keywords: ["peek", "work", "agent", "trace"]) {
+                    openObserve(target)
+                },
+                at: 3
+            )
+        }
+        return next
     }
 
     private var filteredCommands: [CommsCommand] {
@@ -729,6 +1138,9 @@ struct CommsRootView: View {
             Button("") { focus = .composer }.keyboardShortcut("l", modifiers: .command)
             Button("") { focus = .search }.keyboardShortcut("k", modifiers: .command)
             Button("") { showCommands ? closeCommands() : openCommands() }.keyboardShortcut("p", modifiers: .command)
+            Button("") {
+                if let target = selectedObserveTarget { openObserve(target) }
+            }.keyboardShortcut("o", modifiers: .command)
         }
         .opacity(0)
         .frame(width: 0, height: 0)
@@ -851,6 +1263,10 @@ private struct CommsRailRow: View {
 private struct CommsMessageRow: View {
     let message: CommsMessage
     var showsHeader: Bool = true
+    var observeTarget: CommsObserveTarget?
+    var onObserve: (CommsObserveTarget) -> Void = { _ in }
+
+    @State private var rowWidth: CGFloat = 0
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
@@ -868,16 +1284,23 @@ private struct CommsMessageRow: View {
                         Text(formatShortTime(message.createdAt))
                             .font(HUDType.mono(9))
                             .foregroundStyle(HUDChrome.inkFaint)
+                        if let observeTarget {
+                            Button {
+                                onObserve(observeTarget)
+                            } label: {
+                                Image(systemName: "eye")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .frame(width: 18, height: 18)
+                            }
+                            .buttonStyle(CommsTinyIconButtonStyle())
+                            .help("Observe \(observeTarget.title)")
+                        }
                     }
                 }
 
-                Text(message.body)
-                    .font(HUDType.body(13))
-                    .foregroundStyle(HUDChrome.ink)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                CommsMessageMarkup(text: message.body)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 11)
                     .background(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .fill(message.isOperator ? HUDChrome.accentWhisper : HUDChrome.canvasAlt)
@@ -887,13 +1310,35 @@ private struct CommsMessageRow: View {
                             .stroke(message.isOperator ? HUDChrome.accentSoft : HUDChrome.borderSoft, lineWidth: 1)
                     )
             }
-            .frame(maxWidth: 560, alignment: message.isOperator ? .trailing : .leading)
+            .frame(maxWidth: bubbleMaxWidth, alignment: message.isOperator ? .trailing : .leading)
 
             if !message.isOperator {
                 Spacer(minLength: 54)
             }
         }
         .frame(maxWidth: .infinity, alignment: message.isOperator ? .trailing : .leading)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: CommsMessageRowWidthKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(CommsMessageRowWidthKey.self) { width in
+            rowWidth = width
+        }
+    }
+
+    private var bubbleMaxWidth: CGFloat {
+        guard rowWidth > 0 else { return 560 }
+        let readableWidth = max(560, (rowWidth - 108) * 0.78)
+        return min(920, readableWidth)
+    }
+}
+
+private struct CommsMessageRowWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -920,6 +1365,154 @@ private struct CommsChip: View {
     }
 }
 
+private struct CommsMemberStrip: View {
+    let item: CommsItem
+
+    private var names: [String] { item.participantDisplayNames }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            HStack(spacing: -5) {
+                ForEach(Array(names.prefix(4).enumerated()), id: \.offset) { index, name in
+                    CommsMemberAvatar(name: name, index: index)
+                }
+                if names.count > 4 {
+                    Text("+\(names.count - 4)")
+                        .font(HUDType.mono(8, weight: .bold))
+                        .foregroundStyle(HUDChrome.inkMuted)
+                        .frame(width: 20, height: 20)
+                        .background(
+                            Circle()
+                                .fill(HUDChrome.canvasLift)
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(HUDChrome.border, lineWidth: 1)
+                        )
+                }
+            }
+
+            Text(names.joined(separator: " + "))
+                .font(HUDType.body(11, weight: .medium))
+                .foregroundStyle(HUDChrome.inkMuted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 280, alignment: .leading)
+        }
+        .padding(.leading, 3)
+        .padding(.trailing, 8)
+        .frame(height: 22)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(HUDChrome.canvasLift)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .stroke(HUDChrome.border, lineWidth: 1)
+        )
+        .help("\(names.count) member\(names.count == 1 ? "" : "s"): \(names.joined(separator: ", "))")
+    }
+}
+
+private struct CommsMemberAvatar: View {
+    let name: String
+    let index: Int
+
+    var body: some View {
+        Text(initial)
+            .font(HUDType.mono(8, weight: .bold))
+            .foregroundStyle(HUDChrome.canvas)
+            .frame(width: 20, height: 20)
+            .background(
+                Circle()
+                    .fill(color)
+            )
+            .overlay(
+                Circle()
+                    .stroke(HUDChrome.canvasLift, lineWidth: 1.5)
+            )
+            .zIndex(Double(8 - index))
+    }
+
+    private var initial: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "?"
+    }
+
+    private var color: Color {
+        if name.lowercased() == "operator" {
+            return HUDChrome.accent
+        }
+        return HUDChrome.agentHue(Double(stableHueSeed(for: name)), lightness: 0.78, saturation: 0.58)
+    }
+
+    private func stableHueSeed(for text: String) -> Int {
+        var hash: UInt64 = 5381
+        for byte in text.lowercased().utf8 {
+            hash = (hash &* 33) &+ UInt64(byte)
+        }
+        return Int(hash % 360)
+    }
+}
+
+private extension CommsItem {
+    var participantDisplayNames: [String] {
+        if scope == .private {
+            let peer = agentName?.nilIfEmpty
+                ?? participantIds.first(where: { displayName(for: $0) != "Operator" }).map(displayName(for:))
+                ?? displayTitle
+            return uniqueMemberNames(["Operator", peer])
+        }
+
+        var names: [String] = []
+        for participant in participantIds {
+            let name = displayName(for: participant)
+            if !names.contains(name) {
+                names.append(name)
+            }
+        }
+
+        if names.isEmpty {
+            names.append(displayTitle)
+        }
+
+        return uniqueMemberNames(names)
+    }
+
+    private func displayName(for participant: String) -> String {
+        let trimmed = participant.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Unknown" }
+        if trimmed == "operator" { return "Operator" }
+        if trimmed == agentId, let agentName = agentName?.nilIfEmpty { return agentName }
+        if let agentName = agentName?.nilIfEmpty,
+           trimmed.lowercased().contains(agentName.lowercased()) {
+            return agentName
+        }
+
+        let withoutHandle = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+        let compact = withoutHandle.split(separator: ".").first.map(String.init) ?? withoutHandle
+        return compact
+            .replacingOccurrences(of: "-", with: " ")
+            .split(separator: " ")
+            .map { part in
+                guard let first = part.first else { return "" }
+                return first.uppercased() + part.dropFirst()
+            }
+            .joined(separator: " ")
+    }
+
+    private func uniqueMemberNames(_ names: [String]) -> [String] {
+        var result: [String] = []
+        for name in names {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if !result.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                result.append(trimmed)
+            }
+        }
+        return result
+    }
+}
+
 private struct CommsIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -932,6 +1525,21 @@ private struct CommsIconButtonStyle: ButtonStyle {
             .overlay(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .stroke(HUDChrome.border, lineWidth: 1)
+            )
+    }
+}
+
+private struct CommsTinyIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(configuration.isPressed ? HUDChrome.accent : HUDChrome.inkFaint)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(configuration.isPressed ? HUDChrome.canvasLift : HUDChrome.canvasAlt)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(HUDChrome.borderSoft, lineWidth: 1)
             )
     }
 }
@@ -955,6 +1563,468 @@ private struct CommsCommand: Identifiable {
     let systemImage: String
     let keywords: [String]
     let run: () -> Void
+}
+
+private struct CommsObserveTarget: Identifiable, Equatable {
+    let agentId: String
+    let title: String
+
+    var id: String { agentId }
+
+    var url: URL {
+        HudFleetService.webBaseURL()
+            .appending(path: "embed")
+            .appending(path: "observe")
+            .appending(path: agentId)
+    }
+}
+
+private struct CommsObserveSidecarView: View {
+    let target: CommsObserveTarget
+    let onClose: () -> Void
+    let onReady: () -> Void
+
+    @State private var reloadToken = UUID()
+    @State private var isReady = false
+
+    var body: some View {
+        ZStack {
+            VisualEffectBackground(material: .hudWindow, cornerRadius: 8)
+            HUDChrome.canvas
+            HUDPaperGrain(opacity: 0.03)
+
+            VStack(spacing: 0) {
+                header
+                HUDHairline()
+                CommsObserveWebView(
+                    url: target.url,
+                    reloadToken: reloadToken,
+                    onReady: handleReady
+                )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(HUDChrome.canvas)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .opacity(isReady ? 1 : 0.001)
+
+            if !isReady {
+                CommsObserveMaterializingView()
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if isReady {
+                CommsObserveResizeHandle()
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .animation(.easeOut(duration: 0.12), value: isReady)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(HUDChrome.borderRim, lineWidth: 1)
+                .allowsHitTesting(false)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .preferredColorScheme(.dark)
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "eye")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(HUDChrome.accent)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(HUDChrome.accentWhisper)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(HUDChrome.accentSoft, lineWidth: 1)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("OBSERVE")
+                        .font(HUDType.mono(10, weight: .bold))
+                        .tracking(HUDType.eyebrowTracking)
+                        .foregroundStyle(HUDChrome.inkMuted)
+                    Text(target.title)
+                        .font(HUDType.body(13, weight: .semibold))
+                        .foregroundStyle(HUDChrome.ink)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                Spacer(minLength: 8)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .overlay {
+                CommsObserveFamilyDragCapture()
+            }
+
+            Button {
+                isReady = false
+                reloadToken = UUID()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(CommsIconButtonStyle())
+            .help("Reload observe")
+
+            Button(action: onClose) {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(CommsIconButtonStyle())
+            .help("Close observe")
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 58)
+        .background(HUDChrome.canvasAlt)
+    }
+
+    private func handleReady() {
+        guard !isReady else { return }
+        isReady = true
+        onReady()
+    }
+
+}
+
+private struct CommsObserveFamilyDragCapture: NSViewRepresentable {
+    func makeNSView(context: Context) -> CommsObserveFamilyDragCaptureView {
+        CommsObserveFamilyDragCaptureView()
+    }
+
+    func updateNSView(_ nsView: CommsObserveFamilyDragCaptureView, context: Context) {}
+}
+
+@MainActor
+private final class CommsObserveFamilyDragCaptureView: NSView {
+    private var dragStartMouseLocation = NSPoint.zero
+
+    override var acceptsFirstResponder: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        dragStartMouseLocation = NSEvent.mouseLocation
+        CommsWindowController.shared.beginFamilyDrag()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let current = NSEvent.mouseLocation
+        CommsWindowController.shared.dragFamily(
+            screenTranslation: CGSize(
+                width: current.x - dragStartMouseLocation.x,
+                height: current.y - dragStartMouseLocation.y
+            )
+        )
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        CommsWindowController.shared.endFamilyDrag()
+    }
+}
+
+private struct CommsObserveResizeHandle: View {
+    @State private var isHovering = false
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            CommsObserveResizeCapture(isHovering: $isHovering)
+                .frame(width: 34)
+
+            Capsule(style: .continuous)
+                .fill(isHovering ? HUDChrome.accentSoft : HUDChrome.borderSoft)
+                .frame(width: isHovering ? 3 : 2, height: isHovering ? 64 : 42)
+                .padding(.trailing, 5)
+                .opacity(isHovering ? 0.95 : 0.42)
+                .allowsHitTesting(false)
+        }
+        .frame(width: 34)
+        .help("Resize observe")
+    }
+}
+
+private struct CommsObserveResizeCapture: NSViewRepresentable {
+    @Binding var isHovering: Bool
+
+    func makeNSView(context: Context) -> CommsObserveResizeCaptureView {
+        let view = CommsObserveResizeCaptureView()
+        view.onHover = { hovering in
+            isHovering = hovering
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: CommsObserveResizeCaptureView, context: Context) {
+        nsView.onHover = { hovering in
+            isHovering = hovering
+        }
+    }
+}
+
+@MainActor
+private final class CommsObserveResizeCaptureView: NSView {
+    var onHover: ((Bool) -> Void)?
+    private var trackingAreaRef: NSTrackingArea?
+    private var dragTranslation: CGFloat = 0
+
+    override var acceptsFirstResponder: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaRef {
+            removeTrackingArea(trackingAreaRef)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        trackingAreaRef = trackingArea
+        addTrackingArea(trackingArea)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHover?(true)
+        NSCursor.resizeLeftRight.set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHover?(false)
+        NSCursor.arrow.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        dragTranslation = 0
+        CommsWindowController.shared.beginObserveResize()
+        onHover?(true)
+        NSCursor.resizeLeftRight.set()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        dragTranslation += event.deltaX
+        CommsWindowController.shared.resizeObserveWindow(translationWidth: dragTranslation)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        CommsWindowController.shared.endObserveResize()
+        dragTranslation = 0
+        onHover?(bounds.contains(convert(event.locationInWindow, from: nil)))
+        NSCursor.resizeLeftRight.set()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.invalidateCursorRects(for: self)
+    }
+
+    deinit {
+        NSCursor.arrow.set()
+    }
+}
+
+private struct CommsObserveMaterializingView: View {
+    var body: some View {
+        TimelineView(.animation) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate
+            VStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(HUDChrome.accentWhisper)
+                        .frame(width: 38, height: 38)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(HUDChrome.accentSoft, lineWidth: 1)
+                        )
+
+                    Image(systemName: "eye.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(HUDChrome.accent)
+                        .opacity(0.72 + 0.18 * sin(phase * 8.0))
+                }
+
+                PixelDither(phase: phase)
+                    .frame(width: 34, height: 22)
+
+                Text("OBSERVE")
+                    .font(HUDType.mono(8, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundStyle(HUDChrome.inkFaint)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(HUDChrome.canvas.opacity(0.96))
+        }
+    }
+}
+
+private struct PixelDither: View {
+    let phase: TimeInterval
+
+    var body: some View {
+        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+            ForEach(0..<3, id: \.self) { row in
+                GridRow {
+                    ForEach(0..<5, id: \.self) { column in
+                        let offset = Double(row * 5 + column)
+                        Rectangle()
+                            .fill(HUDChrome.accent)
+                            .frame(width: 4, height: 4)
+                            .opacity(0.18 + 0.72 * pulse(offset))
+                    }
+                }
+            }
+        }
+    }
+
+    private func pulse(_ offset: Double) -> Double {
+        let wave = sin(phase * 7.0 - offset * 0.55)
+        return max(0.0, min(1.0, (wave + 1.0) / 2.0))
+    }
+}
+
+private struct CommsObserveWebView: NSViewRepresentable {
+    let url: URL
+    let reloadToken: UUID
+    let onReady: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onReady: onReady)
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.allowsBackForwardNavigationGestures = true
+        webView.navigationDelegate = context.coordinator
+        webView.setValue(false, forKey: "drawsBackground")
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        guard context.coordinator.currentURL != url || context.coordinator.reloadToken != reloadToken else {
+            return
+        }
+        context.coordinator.currentURL = url
+        context.coordinator.reloadToken = reloadToken
+        context.coordinator.readyURL = nil
+        context.coordinator.navigationStartedAt = Date()
+        context.coordinator.navigationToken = UUID()
+        webView.load(URLRequest(url: url))
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        private let minimumLoaderDwell: TimeInterval = 0.42
+        private let maximumRenderWait: TimeInterval = 2.0
+        private let renderPollInterval: TimeInterval = 0.05
+
+        let onReady: () -> Void
+        var currentURL: URL?
+        var reloadToken: UUID?
+        var readyURL: URL?
+        var navigationStartedAt = Date.distantPast
+        var navigationToken = UUID()
+
+        init(onReady: @escaping () -> Void) {
+            self.onReady = onReady
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard let currentURL, readyURL != currentURL else { return }
+            waitForObserveRender(in: webView, url: currentURL, token: navigationToken)
+        }
+
+        private func waitForObserveRender(in webView: WKWebView, url: URL, token: UUID) {
+            guard token == navigationToken, readyURL != url else { return }
+
+            let script = """
+            (() => {
+              const title = document.querySelector('.s-observe-embed-empty-title')?.textContent || '';
+              const resolving = title.includes('Resolving');
+              const timeline = Boolean(document.querySelector('.s-observe-stream'));
+              const terminal = Boolean(document.querySelector('.s-observe-embed-empty')) && !resolving;
+              const bodyText = document.body?.innerText || '';
+              return {
+                ready: (timeline || terminal) && !resolving,
+                hasText: bodyText.trim().length > 0
+              };
+            })()
+            """
+
+            webView.evaluateJavaScript(script) { result, _ in
+                DispatchQueue.main.async {
+                    guard token == self.navigationToken, self.readyURL != url else { return }
+                    let elapsed = Date().timeIntervalSince(self.navigationStartedAt)
+                    let payload = result as? [String: Any]
+                    let rendered = payload?["ready"] as? Bool ?? false
+                    let hasText = payload?["hasText"] as? Bool ?? false
+                    let canReveal = rendered && hasText && elapsed >= self.minimumLoaderDwell
+                    if canReveal || elapsed >= self.maximumRenderWait {
+                        self.markReady(url)
+                        return
+                    }
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + self.renderPollInterval) {
+                        self.waitForObserveRender(in: webView, url: url, token: token)
+                    }
+                }
+            }
+        }
+
+        private func markReady(_ url: URL) {
+            guard readyURL != url else { return }
+            readyURL = url
+            // Give React/WebKit one final paint beat after the DOM says the
+            // observe surface exists, so the sidecar expands with content in it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.onReady()
+            }
+        }
+    }
+}
+
+private struct CommsPillButtonStyle: ButtonStyle {
+    let isActive: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isActive ? HUDChrome.canvas : HUDChrome.inkMuted)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isActive ? HUDChrome.accent : HUDChrome.canvasLift)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(isActive ? HUDChrome.accentDim : HUDChrome.border, lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+    }
 }
 
 private extension Array {

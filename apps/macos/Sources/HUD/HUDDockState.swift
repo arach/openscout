@@ -95,6 +95,11 @@ final class HUDDockState: ObservableObject {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.log.info("vox final received — len=\(trimmed.count)")
                 guard !trimmed.isEmpty else { return }
+                if CommsWindowController.shared.isPresented {
+                    // Comms panel is foreground and owns dictation; its own
+                    // subscription splices the transcript and drains it.
+                    return
+                }
                 if HUDRunnerState.shared.isPresented {
                     HUDRunnerState.shared.appendDictatedText(trimmed)
                     HudVoxService.shared.consumeFinalText()

@@ -14,6 +14,7 @@ import { formatLabel } from "../lib/text.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
+import { AgentLiveActions } from "../components/AgentLiveActions.tsx";
 import type { Agent, Route, SessionEntry } from "../lib/types.ts";
 
 type ProfileField = {
@@ -262,6 +263,11 @@ export function AgentInfoScreen({
           </div>
         </div>
         <div className="s-agent-profile-hero-actions">
+          <AgentLiveActions
+            agent={agent}
+            navigate={navigate}
+            returnTo={route}
+          />
           <button
             type="button"
             className="s-btn s-btn-primary"

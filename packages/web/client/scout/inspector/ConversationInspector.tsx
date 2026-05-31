@@ -5,6 +5,7 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
+import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
 import {
   compactAgentId,
   minimalAgentDisplayName,
@@ -202,6 +203,19 @@ export function ConversationInspector() {
               </div>
             )}
           </div>
+        </section>
+      )}
+
+      {agent && (
+        <section className="ctx-panel-section">
+          <div className="ctx-panel-section-label">Agent</div>
+          <AgentLiveActions
+            agent={agent}
+            navigate={navigate}
+            returnTo={route}
+            variant="compact"
+            className="ctx-panel-live-actions"
+          />
         </section>
       )}
 

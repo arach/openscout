@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 
 import { OpenScoutAppShell } from "./OpenScoutAppShell.tsx";
 import { createScoutApp } from "./scout";
+import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import {
   applyScoutThemeToDocument,
   resolveScoutStartupTheme,
@@ -20,9 +21,19 @@ const initialTheme = resolveScoutStartupTheme();
 applyScoutThemeToDocument(initialTheme);
 
 const isScoutbotFxLab = window.location.pathname === "/dev/scoutbot-fx";
+const observeEmbedMatch = window.location.pathname.match(/^\/embed\/observe\/([^/]+)$/);
+const scoutApp = createScoutApp({ initialTheme });
 
 createRoot(el).render(
   <StrictMode>
-    {isScoutbotFxLab ? <ScoutbotFxLab /> : <OpenScoutAppShell app={createScoutApp({ initialTheme })} />}
+    {isScoutbotFxLab ? (
+      <ScoutbotFxLab />
+    ) : observeEmbedMatch ? (
+      <scoutApp.Provider>
+        <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
+      </scoutApp.Provider>
+    ) : (
+      <OpenScoutAppShell app={scoutApp} />
+    )}
   </StrictMode>,
 );
