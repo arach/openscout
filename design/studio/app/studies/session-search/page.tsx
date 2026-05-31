@@ -17,6 +17,10 @@ import {
   type EnrichSessionResult,
   type EnrichedFile,
 } from "@/lib/studio/commands/enrich-session";
+import {
+  indexCorpusCommand,
+  type IndexCorpusResult,
+} from "@/lib/studio/commands/index-corpus";
 import { CommandSurface } from "@/components/studio/CommandSurface";
 import {
   ArtifactPicker,
@@ -32,7 +36,7 @@ import { Suspense } from "react";
 
 type Harness = "Codex" | "Claude";
 type Tier = "large" | "normal" | "small";
-type StageId = "discover" | "normalize" | "extract" | "enrich";
+type StageId = "discover" | "normalize" | "extract" | "enrich" | "index";
 
 interface SessionSample {
   id: string;
@@ -203,6 +207,15 @@ const STAGES: Stage[] = [
     summary:
       "One MiniMax-M2 call per session, cached for an hour. Reads the parsed records, condenses to a token-bounded transcript, asks the model for an overview + decisions doc, writes them next to the mechanical files.",
   },
+  {
+    id: "index",
+    label: "Index",
+    verb: "store",
+    input: "qmd sidecar files",
+    output: "sqlite tables + FTS5",
+    summary:
+      "Walks every $TMPDIR/scout-study/qmd/<session>/ directory, splits each markdown file into H2 sections, and writes rows into a real better-sqlite3 db at $TMPDIR/scout-study/index.db. Schema: sessions, documents, chunks, chunks_fts (FTS5 over chunks.text).",
+  },
 ];
 
 const DOC_HREF = "/eng/sco-059-session-knowledge-search-exploration";
@@ -351,8 +364,11 @@ async function StageBody({
   const stageId = stage.id;
   const force = selection.force;
   const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
-  const needsParse = stageId === "normalize" || stageId === "extract" || stageId === "enrich";
-  const needsExtract = stageId === "extract" || stageId === "enrich";
+  const needsParse =
+    stageId === "normalize" || stageId === "extract" || stageId === "enrich" || stageId === "index";
+  const needsExtract =
+    stageId === "extract" || stageId === "enrich" || stageId === "index";
+  const needsEnrich = stageId === "enrich" || stageId === "index";
 
   const inventoryInput = { since: "7d" } as const;
   const runLog: RunLogEntry[] = [
@@ -407,7 +423,7 @@ async function StageBody({
   }
 
   let enrichRun: CommandRun<EnrichSessionResult> | undefined;
-  if (stageId === "enrich") {
+  if (needsEnrich) {
     const enrichInput = {
       path: session.fullPath,
       sessionId: sessionSlug,
@@ -437,6 +453,26 @@ async function StageBody({
     );
   }
 
+  let indexRun: CommandRun<IndexCorpusResult> | undefined;
+  if (stageId === "index") {
+    const indexInput = { sessionIds: [sessionSlug] };
+    indexRun = await runCommand(indexCorpusCommand, indexInput, {
+      force: shouldForce(force, "index"),
+    });
+    runLog.push(
+      makeRunLogEntry(indexCorpusCommand, indexInput, indexRun, {
+        summarizeInput: (i) =>
+          i.sessionIds && i.sessionIds.length > 0
+            ? `sessionIds=${i.sessionIds.join(",")}`
+            : "sessionIds=all",
+        summarizeOutput: (o) =>
+          o
+            ? `${o.sessions} sessions · ${o.documents} docs · ${o.chunks} chunks · ${o.ftsRows} fts rows · ${o.dbBytes} db bytes`
+            : "no result",
+      }),
+    );
+  }
+
   return (
     <>
       <StagePanel
@@ -446,6 +482,7 @@ async function StageBody({
         normalizeRun={normalizeRun}
         extractRun={extractRun}
         enrichRun={enrichRun}
+        indexRun={indexRun}
         selection={selection}
       />
       <div className="border-t border-studio-edge">
@@ -519,10 +556,16 @@ function expectedCommands(stageId: StageId): Array<{
     label: "Enrich (LLM)",
     eta: "first run: 5–15 s",
   };
+  const index = {
+    id: "index-corpus",
+    label: "Index corpus",
+    eta: "first run: ~ms · cached",
+  };
   if (stageId === "discover") return [inv];
   if (stageId === "normalize") return [inv, parse];
   if (stageId === "extract") return [inv, parse, extract];
-  return [inv, parse, extract, enrich];
+  if (stageId === "enrich") return [inv, parse, extract, enrich];
+  return [inv, parse, extract, enrich, index];
 }
 
 // ── Session picker (single inline row) ───────────────────────────
@@ -740,6 +783,7 @@ function StagePanel({
   normalizeRun,
   extractRun,
   enrichRun,
+  indexRun,
   selection,
 }: {
   stage: Stage;
@@ -748,6 +792,7 @@ function StagePanel({
   normalizeRun?: CommandRun<ParseSessionResult>;
   extractRun?: CommandRun<ExtractQmdResult>;
   enrichRun?: CommandRun<EnrichSessionResult>;
+  indexRun?: CommandRun<IndexCorpusResult>;
   selection: StudySelection;
 }) {
   switch (stage.id) {
@@ -777,6 +822,8 @@ function StagePanel({
           run={enrichRun!}
         />
       );
+    case "index":
+      return <IndexPanel session={session} selection={selection} run={indexRun!} />;
   }
 }
 
@@ -1234,6 +1281,122 @@ async function EnrichPanel({
   );
 }
 
+function IndexPanel({
+  session,
+  selection,
+  run,
+}: {
+  session: SessionSample;
+  selection: StudySelection;
+  run: CommandRun<IndexCorpusResult>;
+}) {
+  const result = run.output;
+  const sessionSlug = `${session.harness.toLowerCase()}-${session.tier}`;
+  const indexedHere = result?.indexedSessions.find(
+    (s) => s.sessionId === sessionSlug,
+  );
+  return (
+    <div className="space-y-4 p-5">
+      <CommandSurface
+        shell={indexCorpusCommand.shell({ sessionIds: [sessionSlug] })}
+        run={run}
+        rerunHref={studyHref(selection, { force: "index" })}
+        body={<IndexBody result={result} indexedHere={indexedHere} />}
+        footnote={
+          result && !run.error ? (
+            <>
+              {result.schemaWasFresh ? "Created schema · " : "Reused schema · "}
+              db at{" "}
+              <code className="font-mono text-[10.5px] text-studio-ink" title={result.dbPath}>
+                {shortenTmpPath(result.dbPath)}
+              </code>{" "}
+              · {formatBytes(result.dbBytes)} ·{" "}
+              {result.sessions} sessions · {result.documents} docs ·{" "}
+              {result.chunks} chunks · {result.ftsRows} fts rows
+            </>
+          ) : null
+        }
+      />
+    </div>
+  );
+}
+
+function IndexBody({
+  result,
+  indexedHere,
+}: {
+  result: IndexCorpusResult | undefined;
+  indexedHere?: IndexedSessionSummaryLocal;
+}) {
+  if (!result) {
+    return (
+      <pre className="px-3 py-2 font-mono text-[10.5px] text-studio-ink-faint">
+        no index result
+      </pre>
+    );
+  }
+  const schemaRows: Array<{ table: string; rows: number; note: string }> = [
+    { table: "sessions", rows: result.sessions, note: "one per QMD directory" },
+    { table: "documents", rows: result.documents, note: "one per markdown / json file" },
+    { table: "chunks", rows: result.chunks, note: "one per H2 section" },
+    { table: "chunks_fts", rows: result.ftsRows, note: "FTS5 virtual table" },
+  ];
+  return (
+    <div className="grid grid-cols-1 gap-px bg-studio-edge md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="bg-studio-canvas">
+        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          schema · row counts
+        </div>
+        <ul className="divide-y divide-studio-edge font-mono text-[10.5px]">
+          {schemaRows.map((r) => (
+            <li
+              key={r.table}
+              className="grid grid-cols-[minmax(0,1fr)_70px_minmax(0,1fr)] items-baseline gap-3 px-3 py-1.5"
+            >
+              <span className="text-studio-ink">{r.table}</span>
+              <span className="text-right tabular-nums text-studio-ink">
+                {r.rows.toLocaleString()}
+              </span>
+              <span className="text-studio-ink-faint">{r.note}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="bg-studio-canvas">
+        <div className="border-b border-studio-edge px-3 py-1.5 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          this session
+        </div>
+        <div className="px-3 py-2 font-mono text-[10.5px] text-studio-ink">
+          {indexedHere ? (
+            <>
+              <div>session_id = <span>{indexedHere.sessionId}</span></div>
+              <div>documents = {indexedHere.documents}</div>
+              <div>chunks = {indexedHere.chunks}</div>
+            </>
+          ) : (
+            <span className="text-studio-ink-faint">
+              this session has no QMD output yet — run Extract first
+            </span>
+          )}
+        </div>
+        <div className="border-t border-studio-edge px-3 py-2 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          Chunks are one per H2 section. Walks every file in{" "}
+          <code className="font-mono text-[11px] text-studio-ink">$TMPDIR/scout-study/qmd/&lt;session&gt;/</code>{" "}
+          (skipping <code className="font-mono text-[11px] text-studio-ink">_</code>-prefixed metadata).
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Local mirror of the indexed-session shape so the panel doesn't import the
+// command module's interface twice.
+type IndexedSessionSummaryLocal = {
+  sessionId: string;
+  documents: number;
+  chunks: number;
+};
+
 function shortenTmpPath(p: string): string {
   // macOS tmpdir is /var/folders/.../T/...; trim to a readable suffix.
   const m = p.match(/\/T\/(.+)$/);
@@ -1296,6 +1459,7 @@ const COMMAND_TO_STAGE: Record<string, StageId> = {
   "parse-session": "normalize",
   "extract-qmd": "extract",
   "enrich-session": "enrich",
+  "index-corpus": "index",
 };
 
 function RunSummary({
