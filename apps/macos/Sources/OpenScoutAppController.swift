@@ -189,6 +189,12 @@ final class OpenScoutAppController: ObservableObject {
         openWebPath("/")
     }
 
+    func openComms(cId: String? = nil) {
+        Task {
+            await openCommsNow(cId: cId)
+        }
+    }
+
     func openWebPath(_ path: String) {
         Task {
             await openWebSurfaceNow(path: path)
@@ -486,7 +492,29 @@ final class OpenScoutAppController: ObservableObject {
         requestRefresh(reason: .manual)
     }
 
-private func ensureWebServerRunning() async throws {
+    private func openCommsNow(cId: String?) async {
+        guard !webActionPending else {
+            return
+        }
+
+        webActionPending = true
+        defer {
+            webActionPending = false
+        }
+
+        lastError = nil
+
+        do {
+            try await ensureWebServerRunning()
+            CommsWindowController.shared.show(cId: cId)
+        } catch {
+            lastError = error.localizedDescription
+        }
+
+        requestRefresh(reason: .manual)
+    }
+
+    private func ensureWebServerRunning() async throws {
         if await isWebSurfaceReachable() {
             return
         }

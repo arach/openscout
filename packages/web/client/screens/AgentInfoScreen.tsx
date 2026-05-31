@@ -192,7 +192,7 @@ export function AgentInfoScreen({
     ...(agent.capabilities.length > 0 ? [{ label: "Capabilities", value: <CapabilityTokens values={agent.capabilities} /> }] : []),
   ];
   const conversationItems: ProfileField[] = [
-    { label: "Thread ID", value: conversationId },
+    { label: "Conversation UID", value: conversationId },
     ...(session?.workspaceRoot ? [{ label: "Workspace", value: session.workspaceRoot }] : []),
     ...(session?.currentBranch ? [{ label: "Session branch", value: session.currentBranch }] : []),
     ...(session?.messageCount != null ? [{ label: "Messages", value: String(session.messageCount) }] : []),

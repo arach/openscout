@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ConversationDefinition } from "@openscout/protocol";
+import {
+  directChannelNaturalKey,
+  type ConversationDefinition,
+} from "@openscout/protocol";
 
 import { SQLiteControlPlaneStore } from "../sqlite-store.ts";
 import { conversationIdForAgent } from "./legacy-ids.ts";
@@ -106,7 +109,7 @@ describe("Conversations", () => {
     }
   });
 
-  test("findByNaturalKey returns null in SCO-031 (column lands in SCO-030)", () => {
+  test("findByNaturalKey returns null when no metadata natural key exists", () => {
     const store = createStore();
     try {
       seedActorsAndNode(store, ["operator", "agent-1"]);
@@ -226,12 +229,13 @@ describe("Conversations", () => {
     }
   });
 
-  test("ensureByNaturalKey uses the naturalKey as the row id (SCO-031 transitional)", () => {
+  test("ensureByNaturalKey mints an opaque id and stores the natural key", () => {
     const store = createStore();
     try {
       seedActorsAndNode(store, ["operator", "agent-1"]);
+      const naturalKey = directChannelNaturalKey(["operator", "agent-1"]);
       const created = store.conversations.ensureByNaturalKey({
-        naturalKey: "dm.operator.agent-1",
+        naturalKey,
         kind: "direct",
         title: "Direct",
         visibility: "private",
@@ -239,11 +243,44 @@ describe("Conversations", () => {
         authorityNodeId: "node-1",
         participantIds: ["operator", "agent-1"],
       });
-      expect(created.id).toBe("dm.operator.agent-1");
+      expect(created.id).toMatch(/^c\.[0-9a-f-]{36}$/);
+      expect(created.metadata?.naturalKey).toBe(naturalKey);
 
-      const reloaded = store.conversations.findById("dm.operator.agent-1");
+      const reloaded = store.conversations.findById(created.id);
       expect(reloaded?.kind).toBe("direct");
       expect(reloaded?.participantIds.sort()).toEqual(["agent-1", "operator"]);
+      expect(store.conversations.findByNaturalKey(naturalKey)?.id).toBe(created.id);
+
+      const duplicate = store.conversations.ensureByNaturalKey({
+        naturalKey,
+        kind: "direct",
+        title: "Direct again",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator", "agent-1"],
+      });
+      expect(duplicate.id).toBe(created.id);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("findByAgent resolves opaque direct conversations by natural key", () => {
+    const store = createStore();
+    try {
+      seedActorsAndNode(store, ["operator", "agent-1"]);
+      const created = store.conversations.ensureByNaturalKey({
+        naturalKey: directChannelNaturalKey(["operator", "agent-1"]),
+        kind: "direct",
+        title: "Direct",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator", "agent-1"],
+      });
+
+      expect(store.conversations.findByAgent("agent-1")?.id).toBe(created.id);
     } finally {
       store.close();
     }
@@ -258,6 +295,27 @@ describe("Conversations", () => {
 
       const resolved = store.conversations.resolveLegacyId(id);
       expect(resolved?.id).toBe(id);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("resolveLegacyId resolves structural direct ids to opaque natural-key rows", () => {
+    const store = createStore();
+    try {
+      seedActorsAndNode(store, ["operator", "agent-1"]);
+      const created = store.conversations.ensureByNaturalKey({
+        naturalKey: directChannelNaturalKey(["operator", "agent-1"]),
+        kind: "direct",
+        title: "Direct",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator", "agent-1"],
+      });
+
+      const resolved = store.conversations.resolveLegacyId(conversationIdForAgent("agent-1"));
+      expect(resolved?.id).toBe(created.id);
     } finally {
       store.close();
     }

@@ -16,9 +16,9 @@ import { isActiveConversationFlight } from "../../lib/conversations.ts";
 import type { Flight, Message, SessionEntry } from "../../lib/types.ts";
 
 const KIND_LABELS: Record<string, string> = {
-  direct: "Direct message",
-  channel: "Channel",
-  group_direct: "Group",
+  direct: "Conversation",
+  channel: "Conversation",
+  group_direct: "Conversation",
   thread: "Thread",
 };
 
@@ -230,7 +230,7 @@ export function ConversationInspector() {
             <Row label="Messages" value={`${messageCount}`} />
           )}
           {typeof participantCount === "number" && (
-            <Row label="In thread" value={`${participantCount}`} />
+            <Row label="In conversation" value={`${participantCount}`} />
           )}
           {lastAt && (
             <Row

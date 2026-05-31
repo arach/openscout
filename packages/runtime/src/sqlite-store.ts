@@ -2710,7 +2710,7 @@ export class SQLiteControlPlaneStore {
       return "ask_replied";
     }
 
-    if (agentId && message.actorId !== agentId) {
+    if (agentId && message.actorId !== agentId && this.isDirectConversation(message.conversationId)) {
       return "ask_opened";
     }
 
@@ -2719,6 +2719,18 @@ export class SQLiteControlPlaneStore {
     }
 
     return "message_posted";
+  }
+
+  private isDirectConversation(conversationId: string | undefined, db: Database = this.readDb): boolean {
+    if (!conversationId) {
+      return false;
+    }
+    const row = queryGet<{ kind: string }, [string]>(
+      db,
+      "SELECT kind FROM conversations WHERE id = ?1 LIMIT 1",
+      conversationId,
+    );
+    return row?.kind === "direct";
   }
 
   private resolveActivityAgentIdForMessage(message: MessageRecord): string | null {

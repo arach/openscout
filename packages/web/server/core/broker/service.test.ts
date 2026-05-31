@@ -9,7 +9,13 @@ import {
   writeProjectConfig,
 } from "@openscout/runtime/setup";
 
-import { askScoutQuestion, openScoutPeerSession, sendScoutConversationMessage } from "./service.ts";
+import {
+  askScoutQuestion,
+  loadScoutMessages,
+  openScoutPeerSession,
+  sendScoutConversationMessage,
+  sendScoutMessage,
+} from "./service.ts";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -383,6 +389,86 @@ describe("askScoutQuestion", () => {
   }, 15000);
 });
 
+describe("sendScoutMessage", () => {
+  test("creates named channels with opaque conversation ids and alias metadata", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const requests: Array<{ method: string; path: string; search: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, search: url.search, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: {
+              id: "operator",
+              kind: "person",
+              displayName: "Operator",
+            },
+          },
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/conversations") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      body: "ship the channel primitive",
+      channel: "talkie-next",
+      currentDirectory: home,
+      createdAtMs: 12345,
+    });
+
+    const conversationPost = requests.find((request) => request.path === "/v1/conversations");
+    const messagePost = requests.find((request) => request.path === "/v1/messages");
+
+    expect(result).toEqual({
+      usedBroker: true,
+      invokedTargets: [],
+      unresolvedTargets: [],
+    });
+    expect(conversationPost?.body).toEqual(expect.objectContaining({
+      kind: "channel",
+      title: "talkie-next",
+      visibility: "workspace",
+      metadata: expect.objectContaining({
+        channel: "talkie-next",
+        naturalKey: "channel:talkie-next",
+        legacyId: "channel.talkie-next",
+      }),
+    }));
+    expect(conversationPost?.body?.id).toMatch(/^c\.[0-9a-f-]{36}$/);
+    expect(messagePost?.body).toMatchObject({
+      conversationId: conversationPost?.body?.id,
+      actorId: "operator",
+      body: "ship the channel primitive",
+      metadata: {
+        relayChannel: "talkie-next",
+      },
+    });
+  }, 15000);
+});
+
 describe("sendScoutConversationMessage", () => {
   test("appends operator contributions to the existing conversation", async () => {
     const home = useIsolatedOpenScoutHome();
@@ -475,6 +561,65 @@ describe("sendScoutConversationMessage", () => {
           destinationId: "dm.hudson.main.mini.narrative-studio.main.mini",
         },
       });
+  }, 15000);
+});
+
+describe("loadScoutMessages", () => {
+  test("resolves channel aliases to opaque conversation ids", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const requests: Array<{ method: string; path: string; search: string }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      requests.push({ method: request.method, path: url.pathname, search: url.search });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {
+            "conv.11111111-1111-4111-8111-111111111111": {
+              id: "conv.11111111-1111-4111-8111-111111111111",
+              kind: "channel",
+              title: "talkie-next",
+              visibility: "workspace",
+              authorityNodeId: "node-1",
+              participantIds: ["operator"],
+              metadata: {
+                channel: "talkie-next",
+                naturalKey: "channel:talkie-next",
+                legacyId: "channel.talkie-next",
+              },
+            },
+          },
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/messages") {
+        return jsonResponse([]);
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const messages = await loadScoutMessages({
+      channel: "talkie-next",
+      baseUrl: "http://broker.test",
+    });
+
+    const messagesRequest = requests.find((request) => request.path === "/v1/messages");
+    const params = new URLSearchParams(messagesRequest?.search ?? "");
+
+    expect(messages).toEqual([]);
+    expect(params.get("conversationId")).toBe("conv.11111111-1111-4111-8111-111111111111");
   }, 15000);
 });
 

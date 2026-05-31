@@ -22,6 +22,7 @@ import {
 
 const HELP_FLAGS = new Set(["--help", "-h"]);
 const DEFAULT_ASK_ACK_TIMEOUT_SECONDS = 30;
+const DEFAULT_ASK_DISPATCH_SETTLE_MS = 4_000;
 
 export function renderAskCommandHelp(): string {
   return [
@@ -64,9 +65,10 @@ export function renderAskCommandHelp(): string {
   ].join("\n");
 }
 
-function renderScoutAskReceipt(value: {
+export function renderScoutAskReceipt(value: {
   receipt: ScoutAskReceipt;
   replyMode: NonNullable<ScoutAskCommandOptions["replyMode"]>;
+  flight?: ScoutFlightRecord | null;
 }): string {
   const { ids } = value.receipt;
   const pieces = [
@@ -75,12 +77,44 @@ function renderScoutAskReceipt(value: {
     ids.conversationId ? renderConversationRoute(ids.conversationId) : null,
     renderBindingRef(ids.bindingRef),
   ].filter((piece): piece is string => Boolean(piece));
+  const delivery = renderScoutAskDeliveryStatus(value.flight);
   const suffix = value.replyMode === "notify"
-    ? "Scout will surface the completion when it arrives."
-    : ids.invocationId
-      ? `Next: scout wait ${ids.invocationId} --timeout 600`
-      : "Follow the ask receipt to continue.";
+    ? delivery
+      ? `${delivery} Scout will surface the completion when it arrives.`
+      : "Scout will surface the completion when it arrives."
+    : delivery
+      ? `${delivery} ${ids.invocationId ? `Next: scout wait ${ids.invocationId} --timeout 600` : "Follow the ask receipt to continue."}`
+      : ids.invocationId
+        ? `Next: scout wait ${ids.invocationId} --timeout 600`
+        : "Follow the ask receipt to continue.";
   return `${pieces.join(" · ")}. ${suffix}`;
+}
+
+function renderScoutAskDeliveryStatus(
+  flight?: ScoutFlightRecord | null,
+): string | null {
+  if (!flight) {
+    return null;
+  }
+
+  const detail = flight.error ?? flight.summary ?? flight.output;
+  const renderedDetail = detail ? ` ${detail}` : "";
+  if (flight.state === "running" || flight.state === "waiting") {
+    return `Dispatch acknowledged:${renderedDetail}`;
+  }
+  if (flight.state === "completed") {
+    return `Completed:${renderedDetail}`;
+  }
+  if (flight.state === "failed" || flight.state === "cancelled") {
+    return `Dispatch ${flight.state}:${renderedDetail}`;
+  }
+  if (flight.state === "queued" && isStoredUntilOnlineFlight(flight)) {
+    return `Queued until target is online:${renderedDetail}`;
+  }
+  if (flight.state === "queued" || flight.state === "waking") {
+    return `Dispatch ${flight.state}:${renderedDetail}`;
+  }
+  return `Dispatch state ${flight.state}:${renderedDetail}`;
 }
 
 function renderScoutTargetLabel(targetLabel: string): string {
@@ -109,6 +143,47 @@ function renderConversationRoute(conversationId?: string): string {
 
 function waitReferenceForFlight(flight: ScoutFlightRecord): string {
   return flight.invocationId || flight.id;
+}
+
+function isStoredUntilOnlineFlight(flight: ScoutFlightRecord): boolean {
+  const dispatchOutcome = flight.metadata?.dispatchOutcome;
+  if (
+    dispatchOutcome
+    && typeof dispatchOutcome === "object"
+    && !Array.isArray(dispatchOutcome)
+    && (dispatchOutcome as { status?: unknown }).status === "queued_until_online"
+  ) {
+    return true;
+  }
+  return /will deliver when online|message stored/i.test(flight.summary ?? "");
+}
+
+function isSettledInitialDispatchFlight(flight: ScoutFlightRecord): boolean {
+  if (flight.state === "running"
+    || flight.state === "waiting"
+    || flight.state === "completed"
+    || flight.state === "failed"
+    || flight.state === "cancelled") {
+    return true;
+  }
+  return flight.state === "queued";
+}
+
+async function loadInitialScoutAskFlight(
+  brokerUrl: string,
+  flightId: string,
+  timeoutMs = DEFAULT_ASK_DISPATCH_SETTLE_MS,
+): Promise<ScoutFlightRecord | null> {
+  const deadline = Date.now() + timeoutMs;
+  let latest: ScoutFlightRecord | null = null;
+  while (Date.now() < deadline) {
+    latest = await loadScoutFlight(brokerUrl, flightId);
+    if (!latest || isSettledInitialDispatchFlight(latest)) {
+      return latest;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return latest ?? await loadScoutFlight(brokerUrl, flightId);
 }
 
 function renderBindingRef(bindingRef?: string | null): string | null {
@@ -248,6 +323,10 @@ export async function runAskWithOptions(
 
   const replyMode = options.replyMode ?? "inline";
   if (replyMode !== "inline") {
+    const flight = receipt.ids.flightId
+      ? await loadInitialScoutAskFlight(resolveScoutBrokerUrl(), receipt.ids.flightId)
+        .catch(() => null)
+      : null;
     context.output.writeValue(
       {
         senderId,
@@ -256,6 +335,7 @@ export async function runAskWithOptions(
         bindingRef: renderBindingRef(receipt.ids.bindingRef),
         receipt,
         replyMode,
+        flight,
       },
       renderScoutAskReceipt,
     );

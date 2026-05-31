@@ -24,6 +24,7 @@ import { DictationMic } from "../components/DictationMic.tsx";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import { useAgentHovercard } from "../components/AgentHoverCard.tsx";
 import type { Agent, Message, Route, SessionEntry } from "../lib/types.ts";
+import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./conversation-screen.css";
 import "./channel-screen.css";
 
@@ -668,7 +669,7 @@ function NoChannelSelected({ count }: { count: number }) {
 
 export function ChannelsScreen({
   channelId,
-  navigate: _navigate,
+  navigate,
 }: {
   channelId?: string;
   navigate: (r: Route) => void;
@@ -718,6 +719,16 @@ export function ChannelsScreen({
       void loadSessions();
     }
   });
+
+  if (channelId) {
+    return (
+      <ConversationScreen
+        conversationId={channelId}
+        navigate={navigate}
+        showBackNav={false}
+      />
+    );
+  }
 
   return (
     <div className="ch-screen">

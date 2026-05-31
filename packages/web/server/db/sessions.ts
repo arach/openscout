@@ -12,6 +12,12 @@
  */
 import { db } from "./internal/db.ts";
 import {
+  namedChannelNaturalKey,
+  channelLegacyIdFromMetadata,
+  channelNaturalKeyFromMetadata,
+  directChannelNaturalKey,
+} from "@openscout/protocol";
+import {
   configuredOperatorActorIds,
   conversationIdForAgent,
   isLikelyLocalSessionAgentId,
@@ -151,6 +157,96 @@ type SessionConversationRow = {
   last_message_at: number | null;
 };
 
+function parseMetadataJson(raw: string | null): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function metadataString(
+  metadata: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function formatChannelAlias(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+}
+
+function conversationAliasForRow(
+  row: Pick<SessionConversationRow, "id" | "kind" | "title">,
+  metadata: Record<string, unknown>,
+): string | null {
+  const explicitAlias = metadataString(metadata, "alias");
+  if (explicitAlias) return explicitAlias;
+
+  const channel = metadataString(metadata, "channel");
+  if (channel && channel !== "system") {
+    return formatChannelAlias(channel);
+  }
+
+  if (row.kind === "channel") {
+    if (row.id.startsWith("channel.")) {
+      return formatChannelAlias(row.id.slice("channel.".length));
+    }
+    return formatChannelAlias(row.title);
+  }
+
+  return null;
+}
+
+function conversationIdentityFields(
+  row: Pick<SessionConversationRow, "id" | "kind" | "title">,
+  metadata: Record<string, unknown>,
+): Partial<MobileSessionSummary> {
+  const alias = conversationAliasForRow(row, metadata);
+  const naturalKey = channelNaturalKeyFromMetadata(metadata);
+  const legacyId = channelLegacyIdFromMetadata(metadata);
+  return {
+    ...(alias ? { alias } : {}),
+    ...(naturalKey ? { naturalKey } : {}),
+    ...(legacyId ? { legacyId } : {}),
+  };
+}
+
+function resolveConversationAlias(conversationId: string): string | null {
+  const byMetadata = db().prepare(
+    `SELECT id, metadata_json
+     FROM conversations
+     ORDER BY created_at ASC`,
+  ).all() as Array<{ id: string; metadata_json: string | null }>;
+  const directConversation = parseDirectConversationId(conversationId);
+  const naturalKey = directConversation
+    ? directChannelNaturalKey([directConversation.operatorId, directConversation.agentId])
+    : conversationId.startsWith("channel.")
+      ? namedChannelNaturalKey(conversationId.slice("channel.".length))
+      : null;
+
+  for (const row of byMetadata) {
+    const metadata = parseMetadataJson(row.metadata_json);
+    if (channelLegacyIdFromMetadata(metadata) === conversationId) {
+      return row.id;
+    }
+    if (naturalKey && channelNaturalKeyFromMetadata(metadata) === naturalKey) {
+      return row.id;
+    }
+  }
+
+  return null;
+}
+
 function projectSessionConversationRows(
   rows: SessionConversationRow[],
   opts?: {
@@ -189,6 +285,7 @@ function projectSessionConversationRows(
   );
 
   const summaries = rows.flatMap((r) => {
+    const conversationMetadata = parseMetadataJson(r.metadata_json);
     const participants = (memberStmt.all(r.id) as Array<{ actor_id: string }>)
       .map((m) => m.actor_id);
     const agentParticipants = agentMemberStmt.all(r.id) as Array<{
@@ -258,11 +355,13 @@ function projectSessionConversationRows(
     }
 
     const preview = (previewStmt.get(r.id) as { body: string } | null)?.body ?? null;
+    const identityFields = conversationIdentityFields(r, conversationMetadata);
 
     return [{
       id: r.id,
       kind: r.kind,
       title: agentName ?? r.title,
+      ...identityFields,
       participantIds: participants,
       agentId,
       agentName,
@@ -346,7 +445,7 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
 
 export function querySessionById(conversationId: string): MobileSessionSummary | null {
   const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
-  const row = db().prepare(
+  const readRow = (id: string) => db().prepare(
     `SELECT
        c.id,
        c.kind,
@@ -363,12 +462,24 @@ export function querySessionById(conversationId: string): MobileSessionSummary |
      ) ms ON ms.conversation_id = c.id
      WHERE c.id = ?
      LIMIT 1`,
-  ).get(conversationId, conversationId) as SessionConversationRow | null;
+  ).get(id, id) as SessionConversationRow | null;
+  const row = readRow(conversationId);
   const existing = row
     ? projectSessionConversationRows([row], { dedupeLocalSessionDirects: false, limit: 1 })[0] ?? null
     : null;
   if (existing) {
     return existing;
+  }
+
+  const resolvedConversationId = resolveConversationAlias(conversationId);
+  if (resolvedConversationId) {
+    const resolvedRow = readRow(resolvedConversationId);
+    const resolved = resolvedRow
+      ? projectSessionConversationRows([resolvedRow], { dedupeLocalSessionDirects: false, limit: 1 })[0] ?? null
+      : null;
+    if (resolved) {
+      return resolved;
+    }
   }
 
   const directConversation = parseDirectConversationId(conversationId);

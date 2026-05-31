@@ -6,8 +6,6 @@ import type {
 import { api } from "../lib/api.ts";
 import {
   filterAgentsByMachineScope,
-  filterSessionsByMachineScope,
-  machineScopedAgentIds,
 } from "../lib/machine-scope.ts";
 import {
   compactAgentId,
@@ -29,7 +27,6 @@ import {
   TERMINAL_CONVERSATION_FLIGHT_STATES,
   conversationShortLabel,
   isActiveConversationFlight,
-  isGroupConversation,
   isRequesterWaitTimeoutConversationFlight,
   isStaleConversationWorkingTurn,
   isStaleConversationWorkingTurnAnswered,
@@ -72,9 +69,9 @@ import "./conversation-screen.css";
 import "./ops-screen.css";
 
 const KIND_LABELS: Record<string, string> = {
-  direct: "Direct message",
-  channel: "Channel",
-  group_direct: "Group",
+  direct: "Conversation",
+  channel: "Conversation",
+  group_direct: "Conversation",
   thread: "Thread",
 };
 
@@ -191,13 +188,6 @@ type SendResult = {
   flight?: EventFlightRecord | null;
 };
 
-type ChannelSendResult = {
-  unresolvedTargets?: string[];
-  targetDiagnostic?: {
-    detail?: string;
-  };
-};
-
 type ComposeMode = "tell" | "ask";
 type ComposeAction = "tell" | "ask" | "steer";
 
@@ -222,10 +212,6 @@ function pathLeaf(path: string | null | undefined): string | null {
   if (!normalized) return null;
   const parts = normalized.split(/[\\/]/).filter(Boolean);
   return parts.at(-1) ?? normalized;
-}
-
-function sanitizeChannelSlug(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
 }
 
 function deriveDisplayTitle(session: SessionEntry): string {
@@ -482,6 +468,16 @@ function defaultFlightDetail(agentName: string, state: string): string {
   }
 }
 
+function displayNameForActor(
+  actorId: string | null | undefined,
+  agents: Agent[],
+  operatorName: string,
+): string {
+  if (!actorId || actorId === "operator") return operatorName;
+  const agent = agents.find((candidate) => candidate.id === actorId);
+  return agent?.name ?? compactAgentId(actorId) ?? actorId;
+}
+
 function describePresence(input: {
   agentName: string;
   agentState: string | null;
@@ -669,6 +665,23 @@ function participantListLabel(session: SessionEntry | null): string | null {
   return participants
     .map((participant) => compactAgentId(participant) ?? participant)
     .join(", ");
+}
+
+function shortConversationIdentity(id: string): string {
+  if (id.startsWith("conv.")) {
+    return `conv.${id.slice("conv.".length, "conv.".length + 8)}`;
+  }
+  if (id.startsWith("channel.")) {
+    return `#${id.slice("channel.".length)}`;
+  }
+  if (id.startsWith("dm.")) {
+    return "legacy DM";
+  }
+  return id.length > 22 ? `${id.slice(0, 10)}...${id.slice(-7)}` : id;
+}
+
+function conversationIdentityLabel(id: string): string {
+  return id.startsWith("conv.") ? "UID" : "ID";
 }
 
 type RailWorkspaceGroup = {
@@ -888,7 +901,7 @@ function PresenceSidebar({
   return (
     <aside className="s-thread-sidebar">
       <div className="s-thread-sidebar-section">
-        <div className="s-thread-sidebar-label">In this thread</div>
+        <div className="s-thread-sidebar-label">In this conversation</div>
         {allParticipants.map((p) => (
           <div key={p.id} className="s-thread-sidebar-participant">
             <div
@@ -937,7 +950,7 @@ function PresenceSidebar({
 
       {participantEntries.length > 0 && (
         <div className="s-thread-sidebar-section">
-          <div className="s-thread-sidebar-label">Thread mesh</div>
+          <div className="s-thread-sidebar-label">Conversation mesh</div>
           <MiniMeshSvg participants={participantEntries} />
         </div>
       )}
@@ -970,7 +983,7 @@ function MiniMeshSvg({
 
   return (
     <div className="s-thread-mini-mesh">
-      <svg viewBox="0 0 260 160" aria-label="Thread participant mesh">
+      <svg viewBox="0 0 260 160" aria-label="Conversation participant mesh">
         {nodes.map((node) => (
           <line
             key={`edge-${node.id}`}
@@ -1027,19 +1040,17 @@ export function ConversationScreen({
   initialDraft,
   navigate,
   embedded,
+  showBackNav = true,
 }: {
   conversationId: string;
   initialComposeMode?: ComposeMode;
   initialDraft?: string;
   navigate: (r: Route) => void;
   embedded?: boolean;
+  showBackNav?: boolean;
 }) {
   const { agents, route } = useScout();
   const machineId = routeMachineId(route);
-  const scopedAgentIds = useMemo(
-    () => machineScopedAgentIds(agents, machineId),
-    [agents, machineId],
-  );
   const scopedAgents = useMemo(
     () => filterAgentsByMachineScope(agents, machineId),
     [agents, machineId],
@@ -1061,53 +1072,25 @@ export function ConversationScreen({
   const lastForegroundRefreshAtRef = useRef(0);
   const appliedInitialDraftKeyRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (conversationId.startsWith("channel.")) {
-      navigate({ view: "channels", channelId: conversationId });
-    }
-  }, [conversationId, navigate]);
-
   const legacyAgentId = agentIdFromConversation(conversationId);
-  const agentId = sessionMeta?.agentId ?? legacyAgentId;
-  const isDm = sessionMeta?.kind === "direct" || legacyAgentId !== null;
+  const agentId = sessionMeta ? sessionMeta.agentId : legacyAgentId;
+  const isDm = sessionMeta ? sessionMeta.kind === "direct" : legacyAgentId !== null;
   const agent = useMemo<Agent | null>(
     () =>
       agentId ? (scopedAgents.find((item) => item.id === agentId) ?? null) : null,
     [scopedAgents, agentId],
   );
 
-  const [railSessions, setRailSessions] = useState<SessionEntry[]>([]);
-  const scopedRailSessions = useMemo(
-    () => filterSessionsByMachineScope(railSessions, scopedAgentIds, machineId),
-    [railSessions, scopedAgentIds, machineId],
-  );
   const [needsYouIds, setNeedsYouIds] = useState<Set<string>>(new Set());
   const [lastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
 
   useEffect(() => {
-    api<SessionEntry[]>("/api/conversations")
-      .then((data) =>
-        setRailSessions(
-          data.sort(
-            (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
-          ),
-        ),
-      )
-      .catch(() => {});
-
     api<FleetState>("/api/fleet")
       .then((fleet) => {
         setNeedsYouIds(fleetAttentionIds(fleet));
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    const current = scopedRailSessions.find((session) => session.id === conversationId);
-    if (current && isGroupConversation(current)) {
-      navigate({ view: "channels", channelId: conversationId });
-    }
-  }, [conversationId, navigate, scopedRailSessions]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -1120,7 +1103,9 @@ export function ConversationScreen({
       const resolvedAgentId = meta?.agentId ?? legacyAgentId;
 
       const canonicalConversationId =
-        meta?.kind === "direct" &&
+        meta?.id && meta.id !== conversationId
+          ? meta.id
+        : meta?.kind === "direct" &&
         resolvedAgentId &&
         resolvedAgentId.startsWith("local-session-agent-")
           ? conversationForAgent(resolvedAgentId)
@@ -1235,22 +1220,20 @@ export function ConversationScreen({
   const [composeMode, setComposeMode] = useState<ComposeMode>(
     initialComposeMode === "ask" ? "ask" : "tell",
   );
-  const [addToChannelOpen, setAddToChannelOpen] = useState(false);
-  const [addToChannelSlug, setAddToChannelSlug] = useState("");
-  const [addToChannelNote, setAddToChannelNote] = useState("");
-  const [addToChannelError, setAddToChannelError] = useState<string | null>(null);
-  const [addingToChannel, setAddingToChannel] = useState(false);
+  const [addParticipantOpen, setAddParticipantOpen] = useState(false);
+  const [addParticipantId, setAddParticipantId] = useState("");
+  const [addParticipantError, setAddParticipantError] = useState<string | null>(null);
+  const [addingParticipant, setAddingParticipant] = useState(false);
 
   useEffect(() => {
     setComposeMode(isDm && initialComposeMode === "ask" ? "ask" : "tell");
   }, [conversationId, initialComposeMode, isDm]);
 
   useEffect(() => {
-    setAddToChannelOpen(false);
-    setAddToChannelSlug("");
-    setAddToChannelNote("");
-    setAddToChannelError(null);
-    setAddingToChannel(false);
+    setAddParticipantOpen(false);
+    setAddParticipantId("");
+    setAddParticipantError(null);
+    setAddingParticipant(false);
   }, [conversationId]);
 
   useEffect(() => {
@@ -1444,11 +1427,12 @@ export function ConversationScreen({
     workingTurnIsStale &&
     normalizeAgentState(agent?.state ?? null) === "offline";
   const shouldPollOutstandingTurn =
-    sending || awaitingResponseSince !== null || showWorkingTurn;
+    isDm && (sending || awaitingResponseSince !== null || showWorkingTurn);
   const hasOutstandingReply =
-    sending ||
-    awaitingResponseSince !== null ||
-    (showWorkingTurn && !workingTurnIsStale);
+    isDm &&
+    (sending ||
+      awaitingResponseSince !== null ||
+      (showWorkingTurn && !workingTurnIsStale));
 
   const agentName = minimalAgentDisplayName({
     name: agent?.name,
@@ -1457,8 +1441,17 @@ export function ConversationScreen({
     title: sessionMeta?.title,
   });
   const presence = useMemo(
-    () =>
-      describePresence({
+    () => {
+      if (!isDm) {
+        return {
+          label: "Open",
+          detail: "",
+          tone: "idle",
+          showStrip: false,
+          showTyping: false,
+        } satisfies ConversationPresence;
+      }
+      return describePresence({
         agentName,
         agentState: agent?.state ?? null,
         sending,
@@ -1467,12 +1460,14 @@ export function ConversationScreen({
         workingTurnIsGone,
         workingTurnIsStale,
         nowMs: currentNowMs,
-      }),
+      });
+    },
     [
       agent?.state,
       agentName,
       currentFlight,
       currentNowMs,
+      isDm,
       sending,
       showWorkingTurn,
       workingTurnIsGone,
@@ -1543,6 +1538,12 @@ export function ConversationScreen({
     ? presence.detail
     : `${agentName}: ${workingTurnSnapshot.latest}`;
   const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
+  const canonicalConversationId = sessionMeta?.id ?? conversationId;
+  const conversationAlias = sessionMeta?.alias?.trim() || null;
+  const legacyConversationId =
+    sessionMeta?.legacyId && sessionMeta.legacyId !== sessionMeta.id
+      ? sessionMeta.legacyId
+      : null;
   const kindLabel = sessionMeta?.kind
     ? (KIND_LABELS[sessionMeta.kind] ?? sessionMeta.kind)
     : "Conversation";
@@ -1590,15 +1591,18 @@ export function ConversationScreen({
           )?.message;
           if (!message || message.conversationId !== conversationId) return;
 
-          const isAgentMessage = message.actorId === agentId;
+          const isOperatorActor = message.actorId === "operator";
+          const isAgentMessage = isDm && message.actorId === agentId;
           const nextMessage: Message = {
             id: message.id,
             conversationId: message.conversationId,
             actorId: message.actorId,
-            actorName: isAgentMessage ? agentName : operatorName,
+            actorName: isAgentMessage
+              ? agentName
+              : displayNameForActor(message.actorId, scopedAgents, operatorName),
             body: message.body,
             createdAt: message.createdAt,
-            class: isAgentMessage ? message.class : "operator",
+            class: isOperatorActor ? "operator" : message.class,
             attachments: message.attachments,
             metadata: message.metadata,
           };
@@ -1606,7 +1610,7 @@ export function ConversationScreen({
           setMessages((previous) => {
             if (previous.some((candidate) => candidate.id === message.id))
               return previous;
-            if (!isAgentMessage) {
+            if (isOperatorActor) {
               const optimisticIndex = previous.findIndex(
                 (candidate) =>
                   candidate.id.startsWith("optimistic-") &&
@@ -1703,7 +1707,7 @@ export function ConversationScreen({
           void load();
         }
       },
-      [agentId, agentName, conversationId, load, operatorName],
+      [agentId, agentName, conversationId, isDm, load, operatorName, scopedAgents],
     ),
   );
 
@@ -1783,7 +1787,9 @@ export function ConversationScreen({
     };
 
     setSending(true);
-    setAwaitingResponseSince(optimisticCreatedAt);
+    if (isDm) {
+      setAwaitingResponseSince(optimisticCreatedAt);
+    }
     setError(null);
     setMessages((previous) => sortMessages([...previous, optimisticMessage]));
 
@@ -1851,15 +1857,17 @@ export function ConversationScreen({
     : "tell";
   const composePlaceholder = isDm
     ? `Reply — or type / to route, @ to mention an agent, ? to ask a question`
-    : `Message ${agentName}...`;
+    : sessionMeta?.kind === "channel"
+      ? `Message #${conversationShortLabel(sessionMeta)}...`
+      : `Message ${threadTitle}...`;
   const composeModeDetail =
     composeAction === "ask"
-      ? "Ask creates owned work in this DM and expects a reply here."
+      ? "Ask creates owned work in this private conversation and expects a reply here."
       : composeAction === "steer"
-        ? "Follow-up stays in this DM while the current turn is active."
+        ? "Follow-up stays in this private conversation while the current turn is active."
         : isDm
-          ? "Tell is for heads-up, replies, and status in this DM."
-          : "Channels are for group coordination and shared updates.";
+          ? "Tell is for heads-up, replies, and status in this private conversation."
+          : "Shared conversations are for group coordination and shared updates.";
   const isStopMode = !draft.trim() && isAgentBusy;
 
   const showContextMenu = useContextMenu();
@@ -1934,57 +1942,79 @@ export function ConversationScreen({
       });
   }, [sessionMeta, scopedAgents]);
 
-  const existingChannelSlugs = useMemo(() => {
-    const values = scopedRailSessions
-      .filter((session) => session.kind === "channel" || session.id.startsWith("channel."))
-      .map((session) => conversationShortLabel(session))
-      .filter((slug) => slug.trim().length > 0);
-    return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-  }, [scopedRailSessions]);
+  const addableParticipantAgents = useMemo(() => {
+    if (!sessionMeta) return [];
+    const currentParticipants = new Set(sessionMeta.participantIds);
+    return scopedAgents
+      .filter((candidate) =>
+        !currentParticipants.has(candidate.id) &&
+        !candidate.retiredFromFleet
+      )
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [sessionMeta, scopedAgents]);
 
-  const submitAddToChannel = useCallback(async () => {
-    if (!agentId || !isDm) return;
-    const channelSlug = sanitizeChannelSlug(addToChannelSlug);
-    const channelConversationId = `channel.${channelSlug}`;
-    const trimmedNote = addToChannelNote.trim();
-    const body = trimmedNote
-      ? `@${agentId} ${trimmedNote}`
-      : `@${agentId} Continue this in #${channelSlug}.`;
+  useEffect(() => {
+    if (!addParticipantOpen) return;
+    setAddParticipantId((current) => {
+      if (current && addableParticipantAgents.some((agent) => agent.id === current)) {
+        return current;
+      }
+      return addableParticipantAgents[0]?.id ?? "";
+    });
+  }, [addParticipantOpen, addableParticipantAgents]);
 
-    setAddingToChannel(true);
-    setAddToChannelError(null);
+  const canAddParticipants = Boolean(
+    sessionMeta &&
+    ["direct", "group_direct", "channel"].includes(sessionMeta.kind) &&
+    addableParticipantAgents.length > 0,
+  );
+
+  const submitAddParticipant = useCallback(async () => {
+    if (!sessionMeta) return;
+    const actorId = addParticipantId.trim();
+    if (!actorId) return;
+
+    setAddingParticipant(true);
+    setAddParticipantError(null);
     try {
-      const result = await api<ChannelSendResult>("/api/send", {
+      const result = await api<{
+        ok: true;
+        kind: string;
+        participantIds: string[];
+        session?: SessionEntry | null;
+      }>(`/api/conversations/${encodeURIComponent(sessionMeta.id)}/members`, {
         method: "POST",
-        body: JSON.stringify({
-          body,
-          conversationId: channelConversationId,
-        }),
+        body: JSON.stringify({ actorId }),
       });
 
-      if ((result.unresolvedTargets?.length ?? 0) > 0) {
-        setAddToChannelError(
-          result.targetDiagnostic?.detail
-            ?? `Couldn't resolve ${result.unresolvedTargets!.join(", ")} for this channel.`,
+      if (result.session) {
+        setSessionMeta(result.session);
+      } else {
+        setSessionMeta((previous) =>
+          previous
+            ? {
+                ...previous,
+                kind: result.kind,
+                participantIds: result.participantIds,
+              }
+            : previous,
         );
-        return;
       }
 
-      setAddToChannelOpen(false);
-      setAddToChannelNote("");
-      setAddToChannelSlug("");
-      navigate({ view: "channels", channelId: channelConversationId });
+      setAddParticipantOpen(false);
+      setAddParticipantId("");
+      await load();
     } catch (cause) {
-      setAddToChannelError(cause instanceof Error ? cause.message : String(cause));
+      setAddParticipantError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setAddingToChannel(false);
+      setAddingParticipant(false);
     }
-  }, [addToChannelNote, addToChannelSlug, agentId, isDm, navigate]);
+  }, [addParticipantId, load, sessionMeta]);
 
   return (
     <div className={`s-thread-layout${embedded ? " s-thread-layout--embedded" : ""}`}>
       <div className="s-thread-center">
-        {!embedded && (
+        {!embedded && showBackNav && (
           <BackToPicker
             slot="conversation"
             fallback={{ view: "inbox" }}
@@ -1997,7 +2027,7 @@ export function ConversationScreen({
             isDm
               ? openContent(
                   navigate,
-                  { view: "agent-info", conversationId },
+                  { view: "agent-info", conversationId: canonicalConversationId },
                   { returnTo: route },
                 )
               : undefined
@@ -2026,7 +2056,7 @@ export function ConversationScreen({
               kind: "action",
               label: "Copy Conversation ID",
               onSelect: () => {
-                void copyTextToClipboard(conversationId);
+                void copyTextToClipboard(canonicalConversationId);
               },
             });
             showContextMenu(e, items);
@@ -2063,23 +2093,17 @@ export function ConversationScreen({
                 ))}
               </div>
             )}
-            {!embedded && isDm && agentId && (
+            {!embedded && canAddParticipants && (
               <button
                 type="button"
-                className="s-btn s-btn-sm s-thread-add-channel-trigger"
+                className="s-btn s-btn-sm s-thread-add-participant-trigger"
                 onClick={(event) => {
                   event.stopPropagation();
-                  setAddToChannelError(null);
-                  setAddToChannelOpen((open) => {
-                    const nextOpen = !open;
-                    if (nextOpen && addToChannelSlug.trim().length === 0) {
-                      setAddToChannelSlug(existingChannelSlugs[0] ?? "");
-                    }
-                    return nextOpen;
-                  });
+                  setAddParticipantError(null);
+                  setAddParticipantOpen((open) => !open);
                 }}
               >
-                Add to channel
+                Add participant
               </button>
             )}
             {stackedAvatarAgents.length > 0 && (
@@ -2105,85 +2129,93 @@ export function ConversationScreen({
           </div>
         </div>}
 
-        {!embedded && isDm && agentId && addToChannelOpen && (
+        {!embedded && sessionMeta && (
+          <div className="s-thread-identity-row">
+            <button
+              type="button"
+              className="s-thread-identity-chip"
+              title={canonicalConversationId}
+              onClick={() => void copyTextToClipboard(canonicalConversationId)}
+            >
+              <span>{conversationIdentityLabel(canonicalConversationId)}</span>
+              <strong>{shortConversationIdentity(canonicalConversationId)}</strong>
+            </button>
+            {conversationAlias && (
+              <span className="s-thread-identity-chip" title={conversationAlias}>
+                <span>Alias</span>
+                <strong>{conversationAlias}</strong>
+              </span>
+            )}
+            {legacyConversationId && (
+              <button
+                type="button"
+                className="s-thread-identity-chip"
+                title={legacyConversationId}
+                onClick={() => void copyTextToClipboard(legacyConversationId)}
+              >
+                <span>Legacy</span>
+                <strong>{shortConversationIdentity(legacyConversationId)}</strong>
+              </button>
+            )}
+          </div>
+        )}
+
+        {!embedded && addParticipantOpen && canAddParticipants && (
           <form
-            className="s-thread-add-channel"
+            className="s-thread-add-participant"
             onSubmit={(event) => {
               event.preventDefault();
-              void submitAddToChannel();
+              void submitAddParticipant();
             }}
           >
-            <div className="s-thread-add-channel-row">
-              <div className="s-thread-add-channel-field">
+            <div className="s-thread-add-participant-row">
+              <div className="s-thread-add-participant-field">
                 <label
-                  className="s-thread-add-channel-label"
-                  htmlFor="thread-add-channel-input"
+                  className="s-thread-add-participant-label"
+                  htmlFor="thread-add-participant-select"
                 >
-                  Channel
+                  Agent
                 </label>
-                <input
-                  id="thread-add-channel-input"
-                  className="s-thread-add-channel-input"
-                  value={addToChannelSlug}
-                  onChange={(event) => setAddToChannelSlug(event.target.value)}
-                  placeholder="ops"
-                  list="thread-add-channel-suggestions"
+                <select
+                  id="thread-add-participant-select"
+                  className="s-thread-add-participant-select"
+                  value={addParticipantId}
+                  onChange={(event) => setAddParticipantId(event.target.value)}
                   autoFocus
-                />
-                <datalist id="thread-add-channel-suggestions">
-                  {existingChannelSlugs.map((slug) => (
-                    <option key={slug} value={slug} />
+                >
+                  {addableParticipantAgents.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                    </option>
                   ))}
-                </datalist>
+                </select>
               </div>
 
-              <div className="s-thread-add-channel-actions">
+              <div className="s-thread-add-participant-actions">
                 <button
                   type="button"
                   className="s-btn s-btn-sm"
                   onClick={() => {
-                    setAddToChannelOpen(false);
-                    setAddToChannelError(null);
+                    setAddParticipantOpen(false);
+                    setAddParticipantError(null);
                   }}
-                  disabled={addingToChannel}
+                  disabled={addingParticipant}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="s-btn s-btn-primary s-btn-sm"
-                  disabled={addingToChannel || addToChannelSlug.trim().length === 0}
+                  disabled={addingParticipant || addParticipantId.trim().length === 0}
                 >
-                  {addingToChannel ? "Adding…" : "Add"}
+                  {addingParticipant ? "Adding..." : "Add"}
                 </button>
               </div>
             </div>
 
-            <div className="s-thread-add-channel-field">
-              <label
-                className="s-thread-add-channel-label"
-                htmlFor="thread-add-channel-note"
-              >
-                Intro note
-              </label>
-              <textarea
-                id="thread-add-channel-note"
-                className="s-thread-add-channel-textarea"
-                value={addToChannelNote}
-                onChange={(event) => setAddToChannelNote(event.target.value)}
-                placeholder={`Optional note for ${agentName}`}
-                rows={2}
-              />
-            </div>
-
-            <div className="s-thread-add-channel-hint">
-              Scout will send a channel message that mentions {agentName}, so
-              the broker adds them to the shared thread.
-            </div>
-
-            {addToChannelError && (
-              <div className="s-thread-add-channel-error">
-                {addToChannelError}
+            {addParticipantError && (
+              <div className="s-thread-add-participant-error">
+                {addParticipantError}
               </div>
             )}
           </form>
@@ -2334,7 +2366,7 @@ export function ConversationScreen({
               <p>
                 {isDm
                   ? "No messages yet. Use Tell for quick updates or Ask to create owned work with a reply."
-                  : "No messages yet. Start the thread below."}
+                  : "No messages yet. Start the conversation below."}
               </p>
               {(workspaceName || sessionMeta?.currentBranch) && (
                 <div className="s-thread-empty-chips">

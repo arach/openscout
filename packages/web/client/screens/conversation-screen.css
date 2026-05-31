@@ -276,29 +276,85 @@
   margin-left: 4px;
 }
 
-.s-thread-add-channel-trigger {
+.s-thread-add-participant-trigger {
   flex-shrink: 0;
 }
 
-.s-thread-add-channel {
-  margin: 12px 20px 0;
-  padding: 14px 16px;
+.s-thread-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 20px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 46%, transparent);
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.s-thread-identity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  min-height: 20px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+button.s-thread-identity-chip {
+  cursor: pointer;
+}
+
+button.s-thread-identity-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  color: var(--ink);
+}
+
+.s-thread-identity-chip span {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.s-thread-identity-chip strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.s-thread-add-participant {
+  margin: 10px 20px 0;
+  padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-  border-radius: 12px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 5%, var(--surface));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-.s-thread-add-channel-row {
+.s-thread-add-participant-row {
   display: flex;
   align-items: flex-end;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.s-thread-add-channel-field {
+.s-thread-add-participant-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -306,7 +362,7 @@
   min-width: 220px;
 }
 
-.s-thread-add-channel-label {
+.s-thread-add-participant-label {
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 600;
@@ -315,39 +371,31 @@
   color: var(--dim);
 }
 
-.s-thread-add-channel-input,
-.s-thread-add-channel-textarea {
+.s-thread-add-participant-select {
   width: 100%;
-  border-radius: 10px;
+  min-height: 36px;
+  border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--border) 86%, var(--surface));
   background: var(--bg);
   color: var(--ink);
   font: inherit;
-  padding: 10px 12px;
-  resize: vertical;
+  padding: 0 10px;
 }
 
-.s-thread-add-channel-input:focus-visible,
-.s-thread-add-channel-textarea:focus-visible {
+.s-thread-add-participant-select:focus-visible {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.s-thread-add-channel-actions {
+.s-thread-add-participant-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.s-thread-add-channel-hint {
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--muted);
-}
-
-.s-thread-add-channel-error {
+.s-thread-add-participant-error {
   font-size: 11px;
   color: var(--red);
 }

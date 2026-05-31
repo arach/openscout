@@ -45,6 +45,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 HUDController.shared.toggle()
             }
         }
+        HotkeyManager.shared.register(
+            id: 2,
+            keyCode: CarbonKeyCode.c,
+            modifiers: CarbonModifier.hyper
+        ) {
+            Task { @MainActor in
+                OpenScoutAppController.shared.openComms()
+            }
+        }
 
         controller.$menuBarSymbolName
             .combineLatest(controller.$menuBarTooltip)
@@ -114,6 +123,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
+        let commsItem = NSMenuItem(title: "Open Comms", action: #selector(openComms), keyEquivalent: "c")
+        commsItem.target = self
+        commsItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
+        menu.addItem(commsItem)
+
         let openItem = NSMenuItem(title: "Open OpenScout", action: #selector(openWebApp), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
@@ -160,6 +174,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func openWebApp() {
         controller.openWebApp()
+    }
+
+    @objc
+    private func openComms() {
+        controller.openComms()
     }
 
     @objc

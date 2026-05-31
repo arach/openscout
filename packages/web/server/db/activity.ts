@@ -33,10 +33,12 @@ export function queryActivity(limit = 60): WebActivityItem[] {
          ai.invocation_id,
          ai.session_id,
          ai.message_id,
-         ai.record_id
+         ai.record_id,
+         c.kind AS conversation_kind
        FROM activity_items ai
        LEFT JOIN actors ac ON ac.id = ai.actor_id
        LEFT JOIN actors agent_actor ON agent_actor.id = ai.agent_id
+       LEFT JOIN conversations c ON c.id = ai.conversation_id
        WHERE ai.kind != 'ask_replied'
          AND ${staleFlightActivityPredicate("ai")}
        ORDER BY ${activityTsExpression} DESC
@@ -58,11 +60,17 @@ export function queryActivity(limit = 60): WebActivityItem[] {
     session_id: string | null;
     message_id: string | null;
     record_id: string | null;
+    conversation_kind: string | null;
   }>;
 
   const items = rows.map((r) => ({
     id: r.id,
-    kind: r.kind,
+    kind: normalizeActivityKind(r.kind, {
+      conversationKind: r.conversation_kind,
+      messageId: r.message_id,
+      invocationId: r.invocation_id,
+      flightId: r.flight_id,
+    }),
     ts: r.ts,
     actorName: r.actor_name,
     title: r.title,
@@ -79,6 +87,27 @@ export function queryActivity(limit = 60): WebActivityItem[] {
   }));
 
   return items.filter((item, index) => !isDuplicateActivityFeedItem(items[index - 1] ?? null, item));
+}
+
+function normalizeActivityKind(
+  kind: string,
+  input: {
+    conversationKind: string | null;
+    messageId: string | null;
+    invocationId: string | null;
+    flightId: string | null;
+  },
+): string {
+  if (
+    kind === "ask_opened"
+    && input.messageId
+    && !input.invocationId
+    && !input.flightId
+    && input.conversationKind !== "direct"
+  ) {
+    return "message_posted";
+  }
+  return kind;
 }
 
 /* ── Heartrate: smoothed activity over a trailing 7-day window ── */
