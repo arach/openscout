@@ -246,6 +246,7 @@ function AgentHoverCardPopover({
           pinned
           onOpen={openAgentPage}
           onClose={onRequestClose}
+          onAction={onRequestClose}
           style={cardStyle}
           className="agent-card--mention"
         />

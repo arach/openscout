@@ -2,55 +2,14 @@ import Combine
 import Foundation
 import os.log
 import ScoutNativeCore
+import ScoutSharedUI
 import SwiftUI
 
-enum HUDDockSuggestionKind: String {
-    case command
-    case agent
-    case session
-
-    var eyebrow: String {
-        switch self {
-        case .command: return "COMMANDS"
-        case .agent: return "AGENTS"
-        case .session: return "SESSIONS"
-        }
-    }
-}
-
-enum HUDDockSuggestionAction: String {
-    case openRunner
-}
-
-struct HUDDockSuggestion: Identifiable, Equatable {
-    let id: String
-    let kind: HUDDockSuggestionKind
-    let label: String
-    let detail: String
-    let replacement: String
-    let targetHandle: String?
-    let targetLabel: String?
-    let action: HUDDockSuggestionAction?
-}
-
-private struct HUDDockSuggestionTrigger: Equatable {
-    let kind: HUDDockSuggestionKind
-    let token: String
-    let query: String
-    let startOffset: Int
-    let endOffset: Int
-
-    var signature: String {
-        "\(kind.rawValue):\(startOffset):\(token)"
-    }
-}
-
-private struct HUDDockCommandCandidate {
-    let command: String
-    let detail: String
-    let replacement: String
-    let action: HUDDockSuggestionAction?
-}
+typealias HUDDockSuggestionKind = MessageSuggestionKind
+typealias HUDDockSuggestionAction = MessageSuggestionAction
+typealias HUDDockSuggestion = MessageSuggestion
+private typealias HUDDockSuggestionTrigger = MessageSuggestionTrigger
+private typealias HUDDockCommandCandidate = MessageCommandCandidate
 
 /// Owns the universal message dock's editable state — the text buffer,
 /// the routing target (an agent handle or nil = default channel), and
@@ -95,6 +54,11 @@ final class HUDDockState: ObservableObject {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.log.info("vox final received — len=\(trimmed.count)")
                 guard !trimmed.isEmpty else { return }
+                if CommsWindowController.shared.isPresented {
+                    // Comms panel is foreground and owns dictation; its own
+                    // subscription splices the transcript and drains it.
+                    return
+                }
                 if HUDRunnerState.shared.isPresented {
                     HUDRunnerState.shared.appendDictatedText(trimmed)
                     HudVoxService.shared.consumeFinalText()
@@ -375,194 +339,32 @@ private extension HUDDockState {
     ]
 
     static func detectSuggestionTrigger(in value: String) -> HUDDockSuggestionTrigger? {
-        guard !value.isEmpty else { return nil }
-        let end = value.endIndex
-        var start = end
-        while start > value.startIndex {
-            let previous = value.index(before: start)
-            if value[previous].isWhitespace {
-                break
-            }
-            start = previous
-        }
-
-        let token = String(value[start..<end])
-        guard !token.isEmpty else { return nil }
-        let startOffset = value.distance(from: value.startIndex, to: start)
-        let endOffset = value.distance(from: value.startIndex, to: end)
-
-        if token.hasPrefix("/") {
-            let query = String(token.dropFirst())
-            guard isSimpleQuery(query) else { return nil }
-            return HUDDockSuggestionTrigger(
-                kind: .command,
-                token: token,
-                query: query,
-                startOffset: startOffset,
-                endOffset: endOffset
-            )
-        }
-
-        if token.hasPrefix("@") {
-            let query = String(token.dropFirst())
-            guard isHandleQuery(query) else { return nil }
-            return HUDDockSuggestionTrigger(
-                kind: .agent,
-                token: token,
-                query: query,
-                startOffset: startOffset,
-                endOffset: endOffset
-            )
-        }
-
-        if token.lowercased().hasPrefix("sid:") {
-            let query = String(token.dropFirst(4))
-            guard isSessionQuery(query) else { return nil }
-            return HUDDockSuggestionTrigger(
-                kind: .session,
-                token: token,
-                query: query,
-                startOffset: startOffset,
-                endOffset: endOffset
-            )
-        }
-
-        return nil
+        MessageSuggestionEngine.detectTrigger(in: value)
     }
 
     static func suggestions(for trigger: HUDDockSuggestionTrigger, agents: [HudAgent]) -> [HUDDockSuggestion] {
-        switch trigger.kind {
-        case .command:
-            return commandSuggestions(query: trigger.query)
-        case .agent:
-            return agentSuggestions(query: trigger.query, agents: agents)
-        case .session:
-            return sessionSuggestions(query: trigger.query, agents: agents)
-        }
-    }
-
-    static func commandSuggestions(query: String) -> [HUDDockSuggestion] {
-        let q = query.lowercased()
-        return commandCandidates
-            .filter { candidate in
-                q.isEmpty
-                    || candidate.command.dropFirst().lowercased().hasPrefix(q)
-                    || candidate.command.lowercased().contains(q)
-                    || candidate.detail.lowercased().contains(q)
-            }
-            .prefix(8)
-            .map { candidate in
-                HUDDockSuggestion(
-                    id: "command:\(candidate.command)",
-                    kind: .command,
-                    label: candidate.command,
-                    detail: candidate.detail,
-                    replacement: candidate.replacement,
-                    targetHandle: nil,
-                    targetLabel: nil,
-                    action: candidate.action
-                )
-            }
-    }
-
-    static func agentSuggestions(query: String, agents: [HudAgent]) -> [HUDDockSuggestion] {
-        let q = query.lowercased()
-        var seen = Set<String>()
-        return agents
-            .compactMap { agent -> HUDDockSuggestion? in
-                guard let handle = suggestionHandle(for: agent) else { return nil }
-                let key = handle.lowercased()
-                guard !seen.contains(key) else { return nil }
-                guard q.isEmpty
-                    || handle.lowercased().contains(q)
-                    || agent.name.lowercased().contains(q)
-                    || agent.id.lowercased().contains(q) else {
-                    return nil
-                }
-                seen.insert(key)
-                return HUDDockSuggestion(
-                    id: "agent:\(key)",
-                    kind: .agent,
-                    label: "@\(handle)",
-                    detail: agentSuggestionDetail(agent),
-                    replacement: "",
-                    targetHandle: handle,
-                    targetLabel: agent.name,
-                    action: nil
-                )
-            }
-            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
-            .prefix(7)
-            .map { $0 }
-    }
-
-    static func sessionSuggestions(query: String, agents: [HudAgent]) -> [HUDDockSuggestion] {
-        let q = query.lowercased()
-        var seen = Set<String>()
-        return agents
-            .compactMap { agent -> HUDDockSuggestion? in
-                guard let sessionId = agent.harnessSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !sessionId.isEmpty else {
-                    return nil
-                }
-                let key = sessionId.lowercased()
-                guard !seen.contains(key) else { return nil }
-                guard q.isEmpty
-                    || key.contains(q)
-                    || agent.name.lowercased().contains(q)
-                    || (agent.handle ?? "").lowercased().contains(q) else {
-                    return nil
-                }
-                seen.insert(key)
-                return HUDDockSuggestion(
-                    id: "session:\(key)",
-                    kind: .session,
-                    label: "sid:\(sessionId)",
-                    detail: "\(agent.name) · \(agent.state.rawValue)",
-                    replacement: "sid:\(sessionId) ",
-                    targetHandle: nil,
-                    targetLabel: nil,
-                    action: nil
-                )
-            }
-            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
-            .prefix(7)
-            .map { $0 }
-    }
-
-    static func suggestionHandle(for agent: HudAgent) -> String? {
-        let raw = agent.handle ?? agent.name
-        let trimmed = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func agentSuggestionDetail(_ agent: HudAgent) -> String {
-        let scope = (agent.projectRoot as NSString?)?.lastPathComponent ?? agent.role
-        return "\(agent.name) · \(agent.state.rawValue) · \(scope)"
-    }
-
-    static func isSimpleQuery(_ value: String) -> Bool {
-        value.allSatisfy { ch in
-            ch.isLetter || ch.isNumber || ch == "-" || ch == "_"
-        }
-    }
-
-    static func isHandleQuery(_ value: String) -> Bool {
-        value.allSatisfy { ch in
-            ch.isLetter || ch.isNumber || ch == "-" || ch == "_" || ch == "."
-        }
-    }
-
-    static func isSessionQuery(_ value: String) -> Bool {
-        value.allSatisfy { ch in
-            ch.isLetter || ch.isNumber || ch == "-" || ch == "_" || ch == "."
-        }
+        MessageSuggestionEngine.suggestions(
+            for: trigger,
+            agents: agents.map(MessageSuggestionAgent.init),
+            commands: commandCandidates
+        )
     }
 
     static func index(in value: String, offset: Int) -> String.Index? {
-        guard offset >= 0, offset <= value.count else { return nil }
-        return value.index(value.startIndex, offsetBy: offset, limitedBy: value.endIndex)
+        MessageSuggestionEngine.index(in: value, offset: offset)
+    }
+}
+
+private extension MessageSuggestionAgent {
+    init(_ agent: HudAgent) {
+        self.init(
+            id: agent.id,
+            name: agent.name,
+            handle: agent.handle,
+            state: agent.state.rawValue,
+            role: agent.role,
+            workspaceRoot: agent.projectRoot,
+            harnessSessionId: agent.harnessSessionId
+        )
     }
 }

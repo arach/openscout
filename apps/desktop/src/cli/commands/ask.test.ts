@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatScoutAskRoutingError, renderAskCommandHelp } from "./ask.ts";
+import { formatScoutAskRoutingError, renderAskCommandHelp, renderScoutAskReceipt } from "./ask.ts";
 
 describe("renderAskCommandHelp", () => {
   test("documents owned-work semantics and DM default routing", () => {
@@ -90,5 +90,60 @@ describe("formatScoutAskRoutingError", () => {
     expect(message).toContain("@vox.harness:codex");
     expect(message).toContain("@vox.harness:claude");
     expect(message).toContain("Re-run with the fully qualified form");
+  });
+});
+
+describe("renderScoutAskReceipt", () => {
+  test("makes offline queued delivery explicit in notify mode", () => {
+    expect(renderScoutAskReceipt({
+      replyMode: "notify",
+      receipt: {
+        ok: true,
+        state: "queued",
+        ids: {
+          targetAgentId: "talkie-shell-claude",
+          invocationId: "inv-1",
+          flightId: "flt-1",
+          conversationId: "dm.operator.talkie-shell-claude",
+        },
+      },
+      flight: {
+        id: "flt-1",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "talkie-shell-claude",
+        state: "queued",
+        summary: "Message stored for Talkie Shell Claude. Will deliver when online.",
+        metadata: {
+          dispatchOutcome: {
+            status: "queued_until_online",
+            reason: "no_runnable_endpoint",
+          },
+        },
+      },
+    })).toContain("Queued until target is online: Message stored for Talkie Shell Claude. Will deliver when online.");
+  });
+
+  test("calls out acknowledged dispatch separately from final completion", () => {
+    expect(renderScoutAskReceipt({
+      replyMode: "notify",
+      receipt: {
+        ok: true,
+        state: "queued",
+        ids: {
+          targetAgentId: "openscout-card",
+          invocationId: "inv-2",
+          flightId: "flt-2",
+        },
+      },
+      flight: {
+        id: "flt-2",
+        invocationId: "inv-2",
+        requesterId: "operator",
+        targetAgentId: "openscout-card",
+        state: "running",
+        summary: "Openscout Card acknowledged via spawn.",
+      },
+    })).toContain("Dispatch acknowledged: Openscout Card acknowledged via spawn.");
   });
 });

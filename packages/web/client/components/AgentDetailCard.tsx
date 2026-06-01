@@ -5,6 +5,7 @@ import type { Agent } from "../lib/types.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import { stateColor } from "../lib/colors.ts";
 import { timeAgo } from "../lib/time.ts";
+import { AgentLiveActions } from "./AgentLiveActions.tsx";
 
 function homify(path: string | null | undefined): string | null {
   if (!path) return null;
@@ -16,12 +17,13 @@ export type AgentDetailCardProps = {
   pinned: boolean;
   onOpen: () => void;
   onClose: () => void;
+  onAction?: () => void;
   style?: React.CSSProperties;
   className?: string;
 };
 
 export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
-  function AgentDetailCard({ agent, pinned, onOpen, onClose, style, className }, ref) {
+  function AgentDetailCard({ agent, pinned, onOpen, onClose, onAction, style, className }, ref) {
     const state = normalizeAgentState(agent.state);
     const cwd = homify(agent.cwd) ?? homify(agent.projectRoot);
     const name = agent.handle ?? agent.name;
@@ -125,6 +127,12 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
             </Field>
           )}
         </div>
+
+        <AgentLiveActions
+          agent={agent}
+          variant="compact"
+          onNavigate={onAction}
+        />
 
         <footer className="agent-card-foot">
           <button type="button" className="agent-card-link" onClick={onOpen}>

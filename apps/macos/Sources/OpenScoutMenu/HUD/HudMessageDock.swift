@@ -1,5 +1,6 @@
 import AppKit
 import ScoutNativeCore
+import ScoutSharedUI
 import SwiftUI
 
 // HudMessageDock — universal bottom-of-panel conversational dock.
@@ -89,9 +90,10 @@ struct HudMessageDock: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .topLeading) {
             if dock.suggestionsVisible {
-                DockSuggestionPopover(
+                MessageSuggestionPopover(
                     suggestions: dock.suggestions,
                     selectedIndex: dock.selectedSuggestionIndex,
+                    style: .hud,
                     onHover: { dock.selectSuggestion(index: $0) },
                     onSelect: { dock.applySuggestion($0) }
                 )
@@ -137,112 +139,28 @@ struct HudMessageDock: View {
     }
 }
 
-// ─── Suggestion popover ─────────────────────────────────────────────
+// ─── Shared input atom styles ───────────────────────────────────────
 
-private struct DockSuggestionPopover: View {
-    let suggestions: [HUDDockSuggestion]
-    let selectedIndex: Int
-    let onHover: (Int) -> Void
-    let onSelect: (HUDDockSuggestion) -> Void
-
-    private var visibleSuggestions: ArraySlice<HUDDockSuggestion> {
-        suggestions.prefix(7)
-    }
-
-    private var eyebrow: String {
-        suggestions.first?.kind.eyebrow ?? "SUGGEST"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HUDEyebrow(text: eyebrow, color: HUDChrome.inkFaint)
-                .padding(.horizontal, 10)
-                .padding(.top, 7)
-                .padding(.bottom, 4)
-
-            ForEach(Array(visibleSuggestions.enumerated()), id: \.element.id) { index, suggestion in
-                Button {
-                    onSelect(suggestion)
-                } label: {
-                    DockSuggestionRow(
-                        suggestion: suggestion,
-                        selected: index == selectedIndex
-                    )
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { onHover(index) }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(HUDChrome.canvasAlt)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(HUDChrome.borderStrong, lineWidth: 0.75)
-        )
-        .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 4)
-    }
-}
-
-private struct DockSuggestionRow: View {
-    let suggestion: HUDDockSuggestion
-    let selected: Bool
-
-    private var accent: Color {
-        switch suggestion.kind {
-        case .command: return HUDChrome.accent
-        case .agent: return HUDChrome.ink
-        case .session: return HUDChrome.accentDim
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 9) {
-            Text(kindMark)
-                .font(HUDType.mono(9, weight: .bold))
-                .foregroundStyle(selected ? accent : HUDChrome.inkFaint)
-                .frame(width: 24, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(suggestion.label)
-                    .font(HUDType.mono(11, weight: .semibold))
-                    .foregroundStyle(selected ? HUDChrome.ink : HUDChrome.inkMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(suggestion.detail)
-                    .font(HUDType.body(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-        .background(
-            Rectangle()
-                .fill(selected ? HUDChrome.canvasLift.opacity(0.62) : Color.clear)
-        )
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(selected ? accent : Color.clear)
-                .frame(width: 1.5)
-        }
-        .contentShape(Rectangle())
-    }
-
-    private var kindMark: String {
-        switch suggestion.kind {
-        case .command: return "/"
-        case .agent: return "@"
-        case .session: return "sid"
-        }
-    }
+private extension MessageSuggestionPopoverStyle {
+    static let hud = MessageSuggestionPopoverStyle(
+        eyebrowFont: HUDType.mono(10, weight: .bold),
+        markFont: HUDType.mono(9, weight: .bold),
+        labelFont: HUDType.mono(11, weight: .semibold),
+        detailFont: HUDType.body(10),
+        eyebrowColor: HUDChrome.inkFaint,
+        commandAccent: HUDChrome.accent,
+        agentAccent: HUDChrome.ink,
+        sessionAccent: HUDChrome.accentDim,
+        selectedLabelColor: HUDChrome.ink,
+        labelColor: HUDChrome.inkMuted,
+        detailColor: HUDChrome.inkFaint,
+        selectedBackgroundColor: HUDChrome.canvasLift.opacity(0.62),
+        backgroundColor: HUDChrome.canvasAlt,
+        borderColor: HUDChrome.borderStrong,
+        shadowColor: Color.black.opacity(0.24),
+        cornerRadius: 6,
+        borderWidth: 0.75
+    )
 }
 
 // ─── Compact — single 32px row ──────────────────────────────────────
@@ -269,8 +187,8 @@ private struct CompactDock: View {
                 MicButton(box: 20, glyph: 12)
 
                 if let target {
-                    TargetChip(label: target)
-                    ThreadPill(name: threadName)
+                    MessageRouteChip(label: target, style: .hud)
+                    MessageContextPill(name: threadName, style: .hud)
                 }
 
                 ZStack(alignment: .leading) {
@@ -287,7 +205,7 @@ private struct CompactDock: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                SendChip(small: true, dimmed: text.isEmpty || isSending, onTap: onSubmit)
+                MessageSendChip(isEnabled: !text.isEmpty, isSending: isSending, style: .hud(small: true), action: onSubmit)
                 EscChip()
                 HyperKeyChip()
             }
@@ -339,9 +257,9 @@ private struct MediumLargeDock: View {
             MicButton(box: micBox, glyph: micGlyph)
 
             if let target {
-                TargetChip(label: target)
+                MessageRouteChip(label: target, style: .hud)
                     .padding(.top, isLarge ? 6 : 4)
-                ThreadPill(name: threadName)
+                MessageContextPill(name: threadName, style: .hud)
                     .padding(.top, isLarge ? 6 : 4)
             }
 
@@ -368,7 +286,7 @@ private struct MediumLargeDock: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, isLarge ? 4 : 3)
 
-            SendChip(small: false, dimmed: text.isEmpty || isSending, onTap: onSubmit)
+            MessageSendChip(isEnabled: !text.isEmpty, isSending: isSending, style: .hud(small: false), action: onSubmit)
                 .padding(.top, isLarge ? 6 : 4)
 
             HStack(spacing: 8) {
@@ -447,82 +365,38 @@ private struct DictationLivePreview: View {
     }
 }
 
-// ─── Target chip (telegraphs routing) ───────────────────────────────
+private extension MessageRouteChipStyle {
+    static let hud = MessageRouteChipStyle(
+        font: HUDType.mono(10, weight: .semibold),
+        textColor: HUDChrome.accent,
+        borderColor: HUDChrome.accent.opacity(0.45),
+        horizontalPadding: 6,
+        verticalPadding: 2,
+        cornerRadius: 3
+    )
+}
 
-private struct TargetChip: View {
-    let label: String
+private extension MessageContextPillStyle {
+    static let hud = MessageContextPillStyle(
+        separatorFont: HUDType.mono(10, weight: .semibold),
+        textFont: HUDType.mono(10),
+        separatorColor: HUDChrome.inkFaint,
+        textColor: HUDChrome.inkMuted
+    )
+}
 
-    var body: some View {
-        HStack(spacing: 3) {
-            Text(label.hasPrefix("@") ? label : "@" + label)
-                .font(HUDType.mono(10, weight: .semibold))
-                .foregroundStyle(HUDChrome.accent)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .overlay(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .stroke(HUDChrome.accent.opacity(0.45), lineWidth: 0.5)
+private extension MessageSendChipStyle {
+    static func hud(small: Bool) -> MessageSendChipStyle {
+        MessageSendChipStyle(
+            keyFont: HUDType.mono(small ? 9 : 10, weight: .semibold),
+            titleFont: HUDType.mono(small ? 9 : 10, weight: .semibold),
+            tracking: HUDType.eyebrowMicro,
+            enabledColor: HUDChrome.accent,
+            hoverColor: HUDChrome.ink,
+            disabledColor: HUDChrome.inkFaint,
+            horizontalPadding: 4,
+            verticalPadding: 2
         )
-        .fixedSize()
-    }
-}
-
-// ─── Thread pill (which scoutbot thread the send lands in) ──────────
-//
-// Subtle, borderless, mid-dot separator: reads as secondary metadata
-// next to the @target chip rather than a second chip competing for
-// attention. Static in stage 1; stage 2 will swap this for an
-// interactive switcher.
-private struct ThreadPill: View {
-    let name: String
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Text("·")
-                .font(HUDType.mono(10, weight: .semibold))
-                .foregroundStyle(HUDChrome.inkFaint)
-            Text(name)
-                .font(HUDType.mono(10))
-                .foregroundStyle(HUDChrome.inkMuted)
-        }
-        .fixedSize()
-    }
-}
-
-// ─── SEND chip (lights up when text is present) ─────────────────────
-
-private struct SendChip: View {
-    let small: Bool
-    let dimmed: Bool
-    let onTap: () -> Void
-
-    @State private var hovered = false
-
-    private var color: Color {
-        if dimmed { return HUDChrome.inkFaint }
-        return hovered ? HUDChrome.ink : HUDChrome.accent
-    }
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 4) {
-                Text("↵")
-                    .font(HUDType.mono(small ? 9 : 10, weight: .semibold))
-                    .foregroundStyle(color)
-                Text("SEND")
-                    .font(HUDType.mono(small ? 9 : 10, weight: .semibold))
-                    .tracking(HUDType.eyebrowMicro)
-                    .foregroundStyle(color)
-            }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(dimmed)
-        .onHover { hovered = $0 }
-        .help(dimmed ? "" : "Send (↵)")
     }
 }
 

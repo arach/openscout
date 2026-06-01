@@ -299,6 +299,7 @@ export function useAgentHoverCard({
           pinned={pinnedId === activeAgent.id}
           onOpen={handleOpen}
           onClose={clear}
+          onAction={clear}
           style={cardStyle}
           className={`agent-card--side-${position.side}${pinnedId === activeAgent.id ? "" : " agent-card--preview"}`}
         />,

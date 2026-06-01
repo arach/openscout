@@ -1,0 +1,131 @@
+.agent-live-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
+}
+
+.agent-live-actions--inline {
+  align-self: flex-start;
+  width: min(100%, 520px);
+}
+
+.agent-live-actions--compact {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  padding: 8px 0 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.agent-live-actions-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.agent-live-actions-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.agent-live-actions--live .agent-live-actions-dot {
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+.agent-live-actions-status-main,
+.agent-live-actions-status-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-live-actions-status-main {
+  color: var(--ink);
+}
+
+.agent-live-actions-status-detail {
+  color: var(--dim);
+}
+
+.agent-live-actions-buttons {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.agent-live-actions-button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.agent-live-actions-button:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--ink);
+}
+
+.agent-live-actions-button--primary {
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  color: var(--accent);
+}
+
+.agent-live-actions--compact .agent-live-actions-buttons {
+  justify-content: flex-start;
+}
+
+.agent-live-actions--compact .agent-live-actions-button {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 9px;
+}
+
+@media (max-width: 720px) {
+  .agent-live-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agent-live-actions-buttons {
+    justify-content: flex-start;
+  }
+}

@@ -23,6 +23,9 @@ export type MobileSessionSummary = {
   id: string;
   kind: string;
   title: string;
+  alias?: string | null;
+  naturalKey?: string | null;
+  legacyId?: string | null;
   participantIds: string[];
   agentId: string | null;
   agentName: string | null;

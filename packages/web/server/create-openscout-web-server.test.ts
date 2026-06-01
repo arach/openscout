@@ -23,6 +23,7 @@ const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutConversationMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
 const askScoutQuestionCalls: Array<Record<string, unknown>> = [];
+const upsertScoutConversationCalls: Array<Record<string, unknown>> = [];
 const queryRunsCalls: Array<Record<string, unknown>> = [];
 const decidePairingApprovalCalls: Array<Record<string, unknown>> = [];
 const upsertUnblockRequestCalls: Array<Record<string, unknown>> = [];
@@ -37,8 +38,22 @@ let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
 
 let querySessionByIdImpl: (conversationId: string) => {
+  id?: string;
   kind: string;
   agentId: string | null;
+  participantIds: string[];
+} | null = () => null;
+let queryConversationDefinitionByIdImpl: (conversationId: string) => {
+  id: string;
+  kind: string;
+  title: string;
+  visibility: string;
+  shareMode: string;
+  authorityNodeId: string;
+  topic: string | null;
+  parentConversationId: string | null;
+  messageId: string | null;
+  metadata: Record<string, unknown>;
   participantIds: string[];
 } | null = () => null;
 let sendScoutMessageResult: unknown = {
@@ -78,7 +93,8 @@ mock.module("./db-queries.ts", () => ({
   queryActivity: () => [],
   queryBrokerDiagnostics: () => brokerDiagnosticsResult,
   queryAgentById: () => null,
-  queryConversationDefinitionById: () => null,
+  queryConversationDefinitionById: (conversationId: string) =>
+    queryConversationDefinitionByIdImpl(conversationId),
   queryHeartrate: () => [],
   queryFleet: () => ({
     generatedAt: Date.now(),
@@ -153,7 +169,9 @@ mock.module("./core/broker/service.ts", () => ({
     askScoutQuestionCalls.push(input);
     return askScoutQuestionResult;
   },
-  upsertScoutConversation: async () => null,
+  upsertScoutConversation: async (input: Record<string, unknown>) => {
+    upsertScoutConversationCalls.push(input);
+  },
   upsertScoutFlight: async () => null,
   upsertScoutUnblockRequest: async (input: Record<string, unknown>) => {
     upsertUnblockRequestCalls.push(input);
@@ -390,6 +408,7 @@ beforeEach(() => {
     process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL = originalScoutbotAssistantModel;
   }
   querySessionByIdImpl = () => null;
+  queryConversationDefinitionByIdImpl = () => null;
   scoutBrokerContextResult = null;
   agentObservePayloadResult = null;
   sessionRefObservePayloadResult = null;
@@ -428,6 +447,7 @@ beforeEach(() => {
   sendScoutConversationMessageCalls.length = 0;
   sendScoutDirectMessageCalls.length = 0;
   askScoutQuestionCalls.length = 0;
+  upsertScoutConversationCalls.length = 0;
   queryRunsCalls.length = 0;
   decidePairingApprovalCalls.length = 0;
   upsertUnblockRequestCalls.length = 0;
@@ -570,7 +590,7 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
-  test("serves unified conversations from the broker-backed service", async () => {
+  test("serves unified comms from the broker-backed service", async () => {
     scoutBrokerContextResult = {
       snapshot: {
         conversations: {
@@ -635,16 +655,18 @@ describe("createOpenScoutWebServer", () => {
       assetMode: "static",
       staticRoot: makeStaticRoot(),
     });
-    const response = await server.app.request("http://localhost/api/conversations");
+    const response = await server.app.request("http://localhost/api/comms");
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual([
       expect.objectContaining({
+        cId: "channel.general",
         id: "channel.general",
         kind: "channel",
         preview: "hello from channel",
       }),
       expect.objectContaining({
+        cId: "dm.operator.agent-1",
         id: "dm.operator.agent-1",
         kind: "direct",
         preview: "hello from dm",
@@ -946,7 +968,7 @@ describe("createOpenScoutWebServer", () => {
     ]);
   });
 
-  test("routes direct DM tells through sendScoutDirectMessage", async () => {
+  test("routes direct DM tells through cId", async () => {
     querySessionByIdImpl = () => ({
       kind: "direct",
       agentId: "agent-1",
@@ -963,7 +985,7 @@ describe("createOpenScoutWebServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         body: "Status update",
-        conversationId: "dm.operator.agent-1",
+        cId: "dm.operator.agent-1",
       }),
     });
 
@@ -1047,6 +1069,97 @@ describe("createOpenScoutWebServer", () => {
     ]);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("routes promoted legacy DM URLs as conversation sends", async () => {
+    querySessionByIdImpl = () => ({
+      id: "dm.operator.agent-1",
+      kind: "group_direct",
+      agentId: null,
+      participantIds: ["operator", "agent-1", "agent-2"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Status update",
+        conversationId: "dm.operator.agent-1",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationMessageCalls).toEqual([
+      {
+        conversationId: "dm.operator.agent-1",
+        senderId: "operator",
+        body: "Status update",
+        currentDirectory: "/tmp/openscout",
+        source: "scout-web",
+      },
+    ]);
+    expect(sendScoutDirectMessageCalls).toHaveLength(0);
+    expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("promotes direct conversations to group direct when adding a participant", async () => {
+    querySessionByIdImpl = (conversationId) => ({
+      id: conversationId,
+      kind: upsertScoutConversationCalls.length > 0 ? "group_direct" : "direct",
+      agentId: upsertScoutConversationCalls.length > 0 ? null : "agent-1",
+      participantIds: upsertScoutConversationCalls.length > 0
+        ? ["agent-1", "agent-2", "operator"]
+        : ["agent-1", "operator"],
+    });
+    queryConversationDefinitionByIdImpl = (conversationId) => ({
+      id: conversationId,
+      kind: "direct",
+      title: "Agent One",
+      visibility: "private",
+      shareMode: "local",
+      authorityNodeId: "node-1",
+      topic: null,
+      parentConversationId: null,
+      messageId: null,
+      metadata: {},
+      participantIds: ["operator", "agent-1"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/conversations/conv.1/members", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorId: "agent-2" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(upsertScoutConversationCalls).toEqual([
+      expect.objectContaining({
+        id: "conv.1",
+        kind: "group_direct",
+        participantIds: ["agent-1", "agent-2", "operator"],
+      }),
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      kind: "group_direct",
+      participantIds: ["agent-1", "agent-2", "operator"],
+      session: {
+        id: "conv.1",
+        kind: "group_direct",
+        agentId: null,
+        participantIds: ["agent-1", "agent-2", "operator"],
+      },
+    });
   });
 
   test("serves runtime bootstrap config for the client", async () => {

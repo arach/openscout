@@ -2,9 +2,23 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
+    paths:
+      - ".github/workflows/*.yml"
+      - "apps/cloud/**"
+      - "apps/desktop/**"
+      - "apps/mesh-front-door/**"
+      - "packages/agent-sessions/**"
+      - "packages/cli/**"
+      - "packages/protocol/**"
+      - "packages/runtime/**"
+      - "packages/session-trace/**"
+      - "packages/session-trace-react/**"
+      - "packages/web/**"
+      - "scripts/**"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig*.json"
+  workflow_call:
 
 permissions:
   contents: read

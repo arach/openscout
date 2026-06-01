@@ -1621,6 +1621,53 @@ describe("web db query agents", () => {
       store.close();
     }
   });
+
+  test("classifies channel posts as message activity rather than asks", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.upsertConversation({
+        id: "channel.talkie-next",
+        kind: "channel",
+        title: "talkie-next",
+        visibility: "workspace",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-1", "operator"],
+      });
+      store.recordMessage({
+        id: "msg-channel-post",
+        conversationId: "channel.talkie-next",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "hi!",
+        visibility: "workspace",
+        policy: "durable",
+        createdAt: now,
+      });
+
+      expect(queryActivity(20).find((item) => item.messageId === "msg-channel-post"))
+        .toMatchObject({ kind: "message_posted" });
+
+      const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
+      try {
+        rawDb.query(
+          "UPDATE activity_items SET kind = 'ask_opened' WHERE id = 'activity:message:msg-channel-post'",
+        ).run();
+      } finally {
+        rawDb.close();
+      }
+
+      expect(queryActivity(20).find((item) => item.messageId === "msg-channel-post"))
+        .toMatchObject({ kind: "message_posted" });
+      expect(queryFleet({ limit: 10, activityLimit: 20 }).activity.find((item) => item.messageId === "msg-channel-post"))
+        .toMatchObject({ kind: "message_posted" });
+    } finally {
+      store.close();
+    }
+  });
 });
 
 describe("web db query fleet", () => {

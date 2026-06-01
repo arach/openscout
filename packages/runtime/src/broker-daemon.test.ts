@@ -1447,6 +1447,23 @@ describe("broker daemon comms layer", () => {
     expect(
       events.some((event) => event.kind === "flight.updated" && event.payload.flight?.targetAgentId === "ghost" && event.payload.flight?.state === "waking"),
     ).toBe(true);
+
+    const snapshot = await waitFor(
+      () => getJson<{
+        flights: Record<string, {
+          state: string;
+          summary?: string;
+          metadata?: Record<string, unknown>;
+        }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (value) => value.flights[response.flightId]?.state === "queued",
+    );
+    const flight = snapshot.flights[response.flightId];
+    expect(flight?.summary).toBe("Message stored for Ghost. Will deliver when online.");
+    expect(flight?.metadata?.dispatchOutcome).toEqual(expect.objectContaining({
+      status: "queued_until_online",
+      reason: "no_runnable_endpoint",
+    }));
   }, 15_000);
 
   test("keeps replayed invocations available to daemon routes after restart", async () => {

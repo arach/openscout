@@ -1,9 +1,4 @@
-import { useEffect, useState } from "react";
-import { api } from "../lib/api.ts";
-import { isGroupConversation } from "../lib/conversations.ts";
-import { useBrokerEvents } from "../lib/sse.ts";
-import type { Route, SessionEntry } from "../lib/types.ts";
-import { ChannelsScreen } from "./ChannelsScreen.tsx";
+import type { Route } from "../lib/types.ts";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 
 export function MessagesScreen({
@@ -13,56 +8,15 @@ export function MessagesScreen({
   conversationId?: string;
   navigate: (route: Route) => void;
 }) {
-  const [entry, setEntry] = useState<SessionEntry | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!conversationId) {
-      setEntry(null);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`)
-      .then((data) => {
-        if (!cancelled) setEntry(data);
-      })
-      .catch(() => {
-        if (!cancelled) setEntry(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [conversationId]);
-
-  useBrokerEvents((event) => {
-    if (!conversationId) return;
-    if (event.kind === "conversation.upserted") {
-      api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`)
-        .then((data) => setEntry(data))
-        .catch(() => {});
-    }
-  });
-
   if (!conversationId) {
     return <MessagesEmptyState />;
-  }
-
-  if (loading && !entry) {
-    return <MessagesLoadingState />;
-  }
-
-  if (entry && isGroupConversation(entry)) {
-    return (
-      <ChannelsScreen channelId={conversationId} navigate={navigate} />
-    );
   }
 
   return (
     <ConversationScreen
       conversationId={conversationId}
       navigate={navigate}
+      showBackNav={false}
     />
   );
 }
@@ -92,31 +46,12 @@ function MessagesEmptyState() {
             marginBottom: 8,
           }}
         >
-          Messages
+          Conversations
         </div>
         <p style={{ lineHeight: 1.6, margin: 0 }}>
-          Pick a DM or channel from the left rail. Use the filter chips to
-          switch scopes and the sort selector to reorder.
+          Select a conversation from the rail.
         </p>
       </div>
-    </div>
-  );
-}
-
-function MessagesLoadingState() {
-  return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "var(--muted)",
-        fontFamily: "var(--font-mono)",
-        fontSize: 12,
-      }}
-    >
-      Loading conversation…
     </div>
   );
 }

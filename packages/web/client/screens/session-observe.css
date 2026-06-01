@@ -20,6 +20,50 @@
   max-width: min(1040px, 100%);
 }
 
+.s-observe-embed-page {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.s-observe-embed-page .s-observe-main {
+  padding: 18px 18px 34px;
+}
+
+.s-observe-embed-page .s-observe-stream {
+  max-width: 100%;
+  padding-left: 58px;
+}
+
+.s-observe-embed-empty {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 28px;
+  text-align: center;
+}
+
+.s-observe-embed-empty-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.s-observe-embed-empty-detail {
+  max-width: 320px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--dim);
+  word-break: break-word;
+}
+
 /* ── Main timeline ── */
 
 .s-observe-main {

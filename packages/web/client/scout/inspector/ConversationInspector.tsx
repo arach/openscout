@@ -5,6 +5,7 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
+import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
 import {
   compactAgentId,
   minimalAgentDisplayName,
@@ -16,9 +17,9 @@ import { isActiveConversationFlight } from "../../lib/conversations.ts";
 import type { Flight, Message, SessionEntry } from "../../lib/types.ts";
 
 const KIND_LABELS: Record<string, string> = {
-  direct: "Direct message",
-  channel: "Channel",
-  group_direct: "Group",
+  direct: "Conversation",
+  channel: "Conversation",
+  group_direct: "Conversation",
   thread: "Thread",
 };
 
@@ -205,6 +206,19 @@ export function ConversationInspector() {
         </section>
       )}
 
+      {agent && (
+        <section className="ctx-panel-section">
+          <div className="ctx-panel-section-label">Agent</div>
+          <AgentLiveActions
+            agent={agent}
+            navigate={navigate}
+            returnTo={route}
+            variant="compact"
+            className="ctx-panel-live-actions"
+          />
+        </section>
+      )}
+
       <section className="ctx-panel-section">
         <div className="ctx-panel-section-label">Workspace</div>
         <div className="ctx-panel-conversation-rows">
@@ -230,7 +244,7 @@ export function ConversationInspector() {
             <Row label="Messages" value={`${messageCount}`} />
           )}
           {typeof participantCount === "number" && (
-            <Row label="In thread" value={`${participantCount}`} />
+            <Row label="In conversation" value={`${participantCount}`} />
           )}
           {lastAt && (
             <Row

@@ -53,6 +53,7 @@ type FleetActivityRow = {
   flight_id: string | null;
   record_id: string | null;
   session_id: string | null;
+  conversation_kind: string | null;
 };
 
 type FleetAskRow = {
@@ -105,7 +106,7 @@ type FleetAttentionRow = {
 function projectFleetActivity(row: FleetActivityRow): WebFleetActivity {
   return {
     id: row.id,
-    kind: row.kind,
+    kind: normalizeFleetActivityKind(row),
     ts: row.ts,
     actorName: row.actor_name,
     title: row.title,
@@ -121,6 +122,19 @@ function projectFleetActivity(row: FleetActivityRow): WebFleetActivity {
     recordId: row.record_id,
     sessionId: row.session_id,
   };
+}
+
+function normalizeFleetActivityKind(row: FleetActivityRow): string {
+  if (
+    row.kind === "ask_opened"
+    && row.message_id
+    && !row.invocation_id
+    && !row.flight_id
+    && row.conversation_kind !== "direct"
+  ) {
+    return "message_posted";
+  }
+  return row.kind;
 }
 
 export function queryFleetActivity(opts?: {
@@ -179,10 +193,12 @@ export function queryFleetActivity(opts?: {
     ai.invocation_id,
     ai.flight_id,
     ai.record_id,
-    ai.session_id
+    ai.session_id,
+    c.kind AS conversation_kind
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
   LEFT JOIN actors agent_actor ON agent_actor.id = ai.agent_id
+  LEFT JOIN conversations c ON c.id = ai.conversation_id
   ${sqlWhereClause([
     staleFlightActivityPredicate("ai"),
     ...andClauses,

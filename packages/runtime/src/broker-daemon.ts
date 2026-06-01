@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { lstat, mkdir, stat, unlink } from "node:fs/promises";
@@ -18,6 +19,8 @@ import {
   assertValidUnblockRequestEvent,
   assertValidUnblockRequestRecord,
   buildScoutReturnAddress,
+  namedChannelNaturalKey,
+  channelNaturalKeyFromMetadata,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -52,6 +55,8 @@ import {
   type ScoutDeliverResponse,
   type ScoutDeliverRouteKind,
   type ScoutProjectAgentSpec,
+  directChannelNaturalKey,
+  mintChannelId,
   type ThreadWatchCloseRequest,
   type ThreadWatchOpenRequest,
   type ThreadWatchRenewRequest,
@@ -61,6 +66,7 @@ import {
   OPENSCOUT_MESH_PROTOCOL_VERSION,
   OPENSCOUT_COORDINATOR_AGENT_ID,
   SCOUT_DISPATCHER_AGENT_ID,
+  systemChannelNaturalKey,
   normalizeAgentSelectorSegment,
   parseAgentIdentity,
   type AgentHarness,
@@ -2160,6 +2166,9 @@ function brokerConversationChannel(snapshot: ReturnType<typeof runtime.snapshot>
     return null;
   }
 
+  if (typeof conversation.metadata?.channel === "string") {
+    return conversation.metadata.channel;
+  }
   return conversation.id.startsWith("channel.")
     ? conversation.id.replace(/^channel\./, "")
     : null;
@@ -2215,11 +2224,14 @@ function brokerTargetLabel(agent: AgentDefinition): string {
   return `@${handle && handle.length > 0 ? handle : agent.id}`;
 }
 
-function brokerRouteKind(conversation: Pick<ConversationDefinition, "id" | "kind">): ScoutDeliverRouteKind {
+function brokerRouteKind(conversation: Pick<ConversationDefinition, "id" | "kind" | "metadata">): ScoutDeliverRouteKind {
   if (conversation.kind === "direct") {
     return "dm";
   }
-  return conversation.id === BROKER_SHARED_CHANNEL_ID ? "broadcast" : "channel";
+  return conversation.id === BROKER_SHARED_CHANNEL_ID
+      || conversation.metadata?.channel === "shared"
+    ? "broadcast"
+    : "channel";
 }
 
 function normalizeBrokerProductTarget(value: string): string {
@@ -2314,6 +2326,20 @@ function directConversationIdForActors(sourceId: string, targetId: string): stri
   return `dm.${[sourceId, targetId].sort().join(".")}`;
 }
 
+function findConversationByIdentity(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  naturalKey: string,
+  legacyId?: string,
+): ConversationDefinition | undefined {
+  if (legacyId && snapshot.conversations[legacyId]) {
+    return snapshot.conversations[legacyId];
+  }
+  return Object.values(snapshot.conversations).find(
+    (conversation) =>
+      channelNaturalKeyFromMetadata(conversation.metadata) === naturalKey,
+  );
+}
+
 async function ensureBrokerActorForDelivery(actorId: string): Promise<void> {
   const snapshot = runtime.snapshot();
   if (snapshot.actors[actorId] || snapshot.agents[actorId]) {
@@ -2339,12 +2365,16 @@ async function ensureBrokerDeliveryConversation(input: {
   const targetAgentId = input.targetAgentId?.trim();
 
   if (!normalizedChannel && targetAgentId) {
-    const conversationId = targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId
+    const legacyConversationId = targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId
       ? BROKER_SHARED_CHANNEL_ID
       : directConversationIdForActors(input.requesterId, targetAgentId);
     const participantIds = [...new Set([input.requesterId, targetAgentId])].sort();
     const shareMode = resolveConversationShareMode(snapshot, participantIds, "local");
-    const existing = snapshot.conversations[conversationId];
+    const naturalKey = directChannelNaturalKey(participantIds);
+    const existing = targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId
+      ? snapshot.conversations[legacyConversationId]
+      : findConversationByIdentity(snapshot, naturalKey, legacyConversationId);
+    const conversationId = existing?.id ?? mintChannelId(randomUUID);
     const alreadyMatches = existing
       && existing.kind === "direct"
       && existing.visibility === "private"
@@ -2368,6 +2398,8 @@ async function ensureBrokerDeliveryConversation(input: {
       participantIds,
       metadata: {
         surface: "broker",
+        naturalKey,
+        legacyId: legacyConversationId,
         ...(targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId ? { role: "partner" } : {}),
       },
     };
@@ -2385,48 +2417,77 @@ async function ensureBrokerDeliveryConversation(input: {
 
   let definition: ConversationDefinition;
   if (channel === "voice") {
+    const naturalKey = namedChannelNaturalKey("voice");
+    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_VOICE_CHANNEL_ID);
     definition = {
-      id: BROKER_VOICE_CHANNEL_ID,
+      id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
       title: "voice",
       visibility: "workspace",
       shareMode: resolveConversationShareMode(snapshot, scopedParticipants, "local"),
       authorityNodeId: nodeId,
       participantIds: scopedParticipants,
-      metadata: { surface: "broker", channel: "voice" },
+      metadata: {
+        surface: "broker",
+        channel: "voice",
+        naturalKey,
+        legacyId: BROKER_VOICE_CHANNEL_ID,
+      },
     };
   } else if (channel === "system") {
+    const naturalKey = systemChannelNaturalKey("system");
+    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SYSTEM_CHANNEL_ID);
     definition = {
-      id: BROKER_SYSTEM_CHANNEL_ID,
+      id: existing?.id ?? mintChannelId(randomUUID),
       kind: "system",
       title: "system",
       visibility: "system",
       shareMode: "local",
       authorityNodeId: nodeId,
       participantIds: [operatorActorId, input.requesterId].sort(),
-      metadata: { surface: "broker", channel: "system" },
+      metadata: {
+        surface: "broker",
+        channel: "system",
+        naturalKey,
+        legacyId: BROKER_SYSTEM_CHANNEL_ID,
+      },
     };
   } else if (channel === "shared") {
+    const naturalKey = namedChannelNaturalKey("shared");
+    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SHARED_CHANNEL_ID);
     definition = {
-      id: BROKER_SHARED_CHANNEL_ID,
+      id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
       title: "shared-channel",
       visibility: "workspace",
       shareMode: "shared",
       authorityNodeId: nodeId,
       participantIds: sharedParticipants,
-      metadata: { surface: "broker", channel: "shared" },
+      metadata: {
+        surface: "broker",
+        channel: "shared",
+        naturalKey,
+        legacyId: BROKER_SHARED_CHANNEL_ID,
+      },
     };
   } else {
+    const legacyChannelId = `channel.${sanitizeConversationSegment(channel)}`;
+    const naturalKey = namedChannelNaturalKey(channel);
+    const existing = findConversationByIdentity(snapshot, naturalKey, legacyChannelId);
     definition = {
-      id: `channel.${sanitizeConversationSegment(channel)}`,
+      id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
       title: channel,
       visibility: "workspace",
       shareMode: resolveConversationShareMode(snapshot, scopedParticipants, "local"),
       authorityNodeId: nodeId,
       participantIds: scopedParticipants,
-      metadata: { surface: "broker", channel },
+      metadata: {
+        surface: "broker",
+        channel,
+        naturalKey,
+        legacyId: legacyChannelId,
+      },
     };
   }
 
@@ -4443,6 +4504,14 @@ async function executeLocalInvocation(
       ...initialFlight,
       state: "queued" as const,
       summary: `Message stored for ${agent?.displayName ?? invocation.targetAgentId}. Will deliver when online.`,
+      metadata: {
+        ...(initialFlight.metadata ?? {}),
+        dispatchOutcome: {
+          status: "queued_until_online",
+          reason: "no_runnable_endpoint",
+          checkedAt: Date.now(),
+        },
+      },
     };
     await persistFlight(queuedFlight);
     return;

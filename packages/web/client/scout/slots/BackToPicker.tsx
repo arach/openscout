@@ -27,7 +27,7 @@ function defaultLabel(route: Route): string {
     case "agents":
       return route.agentId ? "Back to agent" : "All agents";
     case "messages":
-      return "Back to messages";
+      return "Back to conversations";
     case "conversation":
       return "Back to conversation";
     case "inbox":
@@ -35,7 +35,7 @@ function defaultLabel(route: Route): string {
     case "sessions":
       return "Back to sessions";
     case "channels":
-      return "Back to channels";
+      return "Back to conversations";
     case "fleet":
       return "Back to fleet";
     case "work":

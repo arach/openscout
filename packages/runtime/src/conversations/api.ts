@@ -17,6 +17,8 @@
  * `./legacy-ids.ts` for the structural form definitions.
  */
 
+import { randomUUID } from "node:crypto";
+
 import type { Database } from "bun:sqlite";
 
 import type {
@@ -26,6 +28,11 @@ import type {
   ScoutId,
   ShareMode,
   VisibilityScope,
+} from "@openscout/protocol";
+import {
+  channelNaturalKeyFromMetadata,
+  directChannelNaturalKey,
+  mintChannelId,
 } from "@openscout/protocol";
 
 import type { SQLiteControlPlaneStore } from "../sqlite-store.js";
@@ -81,12 +88,23 @@ export class Conversations implements ConversationsApi {
     return this.store.getConversation(id);
   }
 
-  /**
-   * SCO-030 (Opaque Conversation IDs) introduces the `natural_key` column and
-   * fills this body. In SCO-031 the method exists so call sites can be
-   * migrated without waiting on the schema change — it always returns `null`.
-   */
-  findByNaturalKey(_key: string): ConversationDefinition | null {
+  findByNaturalKey(key: string): ConversationDefinition | null {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      return null;
+    }
+    const rows = this.readDb.query(
+      "SELECT id FROM conversations ORDER BY created_at ASC",
+    ).all() as ConversationRow[];
+    for (const row of rows) {
+      const conversation = this.findById(row.id);
+      if (
+        conversation &&
+        channelNaturalKeyFromMetadata(conversation.metadata) === normalizedKey
+      ) {
+        return conversation;
+      }
+    }
     return null;
   }
 
@@ -96,7 +114,8 @@ export class Conversations implements ConversationsApi {
    * pattern that used to live in `db-queries.ts`.
    */
   findByAgent(agentId: ScoutId): ConversationDefinition | null {
-    return this.findById(conversationIdForAgent(agentId));
+    return this.findById(conversationIdForAgent(agentId))
+      ?? this.findByNaturalKey(directChannelNaturalKey(["operator", agentId]));
   }
 
   findByParent(parentId: ScoutId): ConversationDefinition[] {
@@ -159,12 +178,6 @@ export class Conversations implements ConversationsApi {
     return winner ? this.findById(winner.id) : null;
   }
 
-  /**
-   * SCO-030 transitional bridge (per SCO-031 §13 Q5): in SCO-031 we use the
-   * `naturalKey` as the row's literal `id`. SCO-030 swaps this for an opaque
-   * id + `natural_key` lookup; the method shape stays the same so callers
-   * don't move twice.
-   */
   ensureByNaturalKey(input: EnsureConversationInput): ConversationDefinition {
     const existing = this.findByNaturalKey(input.naturalKey);
     if (existing) {
@@ -172,7 +185,7 @@ export class Conversations implements ConversationsApi {
     }
 
     const conversation: ConversationDefinition = {
-      id: input.naturalKey,
+      id: mintChannelId(randomUUID),
       kind: input.kind,
       title: input.title,
       visibility: input.visibility,
@@ -181,7 +194,10 @@ export class Conversations implements ConversationsApi {
       participantIds: input.participantIds,
       parentConversationId: input.parentConversationId,
       topic: input.topic,
-      metadata: input.metadata,
+      metadata: {
+        ...(input.metadata ?? {}),
+        naturalKey: input.naturalKey,
+      },
     };
     this.upsert(conversation);
     return conversation;
@@ -214,6 +230,12 @@ export class Conversations implements ConversationsApi {
 
     const parsedDirect = parseDirectConversationId(rawId);
     if (parsedDirect) {
+      const byNaturalKey = this.findByNaturalKey(
+        directChannelNaturalKey([parsedDirect.operatorId, parsedDirect.agentId]),
+      );
+      if (byNaturalKey) {
+        return byNaturalKey;
+      }
       for (const candidate of directConversationIdCandidates(parsedDirect.agentId)) {
         const hit = this.findById(candidate);
         if (hit) {
@@ -224,6 +246,12 @@ export class Conversations implements ConversationsApi {
 
     const legacyScoutAgentId = parseLegacyScoutSessionConversationId(rawId);
     if (legacyScoutAgentId) {
+      const byNaturalKey = this.findByNaturalKey(
+        directChannelNaturalKey(["operator", legacyScoutAgentId]),
+      );
+      if (byNaturalKey) {
+        return byNaturalKey;
+      }
       for (const candidate of directConversationIdCandidates(legacyScoutAgentId)) {
         const hit = this.findById(candidate);
         if (hit) {
