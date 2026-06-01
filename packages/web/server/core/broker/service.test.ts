@@ -454,7 +454,6 @@ describe("sendScoutMessage", () => {
       metadata: expect.objectContaining({
         channel: "talkie-next",
         naturalKey: "channel:talkie-next",
-        legacyId: "channel.talkie-next",
       }),
     }));
     expect(conversationPost?.body?.id).toMatch(/^c\.[0-9a-f-]{36}$/);
@@ -595,7 +594,6 @@ describe("loadScoutMessages", () => {
               metadata: {
                 channel: "talkie-next",
                 naturalKey: "channel:talkie-next",
-                legacyId: "channel.talkie-next",
               },
             },
           },

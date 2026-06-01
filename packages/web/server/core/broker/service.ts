@@ -751,11 +751,10 @@ function resolveConversationIdForChannel(
   channel?: string,
 ): string {
   const normalizedChannel = channel?.trim() || "shared";
-  const legacyId = scoutConversationIdForChannel(normalizedChannel);
   const naturalKey = normalizedChannel === "system"
     ? systemChannelNaturalKey("system")
     : namedChannelNaturalKey(normalizedChannel);
-  return findConversationByIdentity(snapshot, naturalKey, legacyId)?.id ?? legacyId;
+  return findConversationByIdentity(snapshot, naturalKey)?.id ?? scoutConversationIdForChannel(normalizedChannel);
 }
 
 function buildMentionCandidate(
@@ -1426,7 +1425,7 @@ function conversationDefinition(
 
   if (normalizedChannel === "voice") {
     const naturalKey = namedChannelNaturalKey("voice");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_VOICE_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
@@ -1439,13 +1438,12 @@ function conversationDefinition(
         surface: "scout-cli",
         channel: "voice",
         naturalKey,
-        legacyId: BROKER_VOICE_CHANNEL_ID,
       },
     };
   }
   if (normalizedChannel === "system") {
     const naturalKey = systemChannelNaturalKey("system");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SYSTEM_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "system",
@@ -1458,13 +1456,12 @@ function conversationDefinition(
         surface: "scout-cli",
         channel: "system",
         naturalKey,
-        legacyId: BROKER_SYSTEM_CHANNEL_ID,
       },
     };
   }
   if (normalizedChannel === "shared") {
     const naturalKey = namedChannelNaturalKey("shared");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SHARED_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
@@ -1477,13 +1474,11 @@ function conversationDefinition(
         surface: "scout-cli",
         channel: "shared",
         naturalKey,
-        legacyId: BROKER_SHARED_CHANNEL_ID,
       },
     };
   }
-  const legacyChannelId = `channel.${sanitizeConversationSegment(normalizedChannel)}`;
   const naturalKey = namedChannelNaturalKey(normalizedChannel);
-  const existing = findConversationByIdentity(snapshot, naturalKey, legacyChannelId);
+  const existing = findConversationByIdentity(snapshot, naturalKey);
   return {
     id: existing?.id ?? mintChannelId(randomUUID),
     kind: "channel",
@@ -1496,7 +1491,6 @@ function conversationDefinition(
       surface: "scout-cli",
       channel: normalizedChannel,
       naturalKey,
-      legacyId: legacyChannelId,
     },
   };
 }
@@ -1532,25 +1526,10 @@ async function ensureBrokerConversation(
   return existing;
 }
 
-function directConversationIdForActors(sourceId: string, targetId: string): string {
-  if (sourceId === targetId) {
-    return `dm.${sourceId}.${targetId}`;
-  }
-  if (sourceId === OPERATOR_ID || targetId === OPERATOR_ID) {
-    const peerId = sourceId === OPERATOR_ID ? targetId : sourceId;
-    return `dm.${OPERATOR_ID}.${peerId}`;
-  }
-  return `dm.${[sourceId, targetId].sort().join(".")}`;
-}
-
 function findConversationByIdentity(
   snapshot: ScoutBrokerSnapshot,
   naturalKey: string,
-  legacyId?: string,
 ): ScoutBrokerConversationRecord | undefined {
-  if (legacyId && snapshot.conversations[legacyId]) {
-    return snapshot.conversations[legacyId];
-  }
   return Object.values(snapshot.conversations).find(
     (conversation) =>
       channelNaturalKeyFromMetadata(conversation.metadata) === naturalKey,
@@ -1564,14 +1543,9 @@ async function ensureBrokerDirectConversationBetween(
   sourceId: string,
   targetId: string,
 ): Promise<ScoutDirectSessionResult> {
-  const legacyConversationId = targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
-    ? BROKER_SHARED_CHANNEL_ID
-    : directConversationIdForActors(sourceId, targetId);
   const participantIds = [...new Set([sourceId, targetId])].sort();
   const naturalKey = directChannelNaturalKey(participantIds);
-  const existing = targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
-    ? snapshot.conversations[legacyConversationId]
-    : findConversationByIdentity(snapshot, naturalKey, legacyConversationId);
+  const existing = findConversationByIdentity(snapshot, naturalKey);
   const conversationId = existing?.id ?? mintChannelId(randomUUID);
   const nextShareMode = resolveConversationShareMode(
     snapshot,
@@ -1610,7 +1584,6 @@ async function ensureBrokerDirectConversationBetween(
     metadata: {
       surface: "scout",
       naturalKey,
-      legacyId: legacyConversationId,
       ...(targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID ? { role: "partner" } : {}),
     },
   };

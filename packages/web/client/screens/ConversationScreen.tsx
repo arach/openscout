@@ -1617,10 +1617,6 @@ export function ConversationScreen({
   const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
   const canonicalConversationId = sessionMeta?.id ?? conversationId;
   const conversationAlias = sessionMeta?.alias?.trim() || null;
-  const legacyConversationId =
-    sessionMeta?.legacyId && sessionMeta.legacyId !== sessionMeta.id
-      ? sessionMeta.legacyId
-      : null;
   const kindLabel = sessionMeta?.kind
     ? (KIND_LABELS[sessionMeta.kind] ?? sessionMeta.kind)
     : "Conversation";
@@ -2244,17 +2240,6 @@ export function ConversationScreen({
                 <span>Alias</span>
                 <strong>{conversationAlias}</strong>
               </span>
-            )}
-            {legacyConversationId && (
-              <button
-                type="button"
-                className="s-thread-identity-chip"
-                title={legacyConversationId}
-                onClick={() => void copyTextToClipboard(legacyConversationId)}
-              >
-                <span>Legacy</span>
-                <strong>{shortConversationIdentity(legacyConversationId)}</strong>
-              </button>
             )}
           </div>
         )}

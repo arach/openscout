@@ -2182,10 +2182,6 @@ function titleCaseName(value: string): string {
     .join(" ");
 }
 
-function sanitizeConversationSegment(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
-}
-
 function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -2315,25 +2311,10 @@ function resolveConversationShareMode(
   return hasRemoteParticipant ? "shared" : fallback;
 }
 
-function directConversationIdForActors(sourceId: string, targetId: string): string {
-  if (sourceId === targetId) {
-    return `dm.${sourceId}.${targetId}`;
-  }
-  if (sourceId === operatorActorId || targetId === operatorActorId) {
-    const peerId = sourceId === operatorActorId ? targetId : sourceId;
-    return `dm.${operatorActorId}.${peerId}`;
-  }
-  return `dm.${[sourceId, targetId].sort().join(".")}`;
-}
-
 function findConversationByIdentity(
   snapshot: ReturnType<typeof runtime.snapshot>,
   naturalKey: string,
-  legacyId?: string,
 ): ConversationDefinition | undefined {
-  if (legacyId && snapshot.conversations[legacyId]) {
-    return snapshot.conversations[legacyId];
-  }
   return Object.values(snapshot.conversations).find(
     (conversation) =>
       channelNaturalKeyFromMetadata(conversation.metadata) === naturalKey,
@@ -2365,15 +2346,10 @@ async function ensureBrokerDeliveryConversation(input: {
   const targetAgentId = input.targetAgentId?.trim();
 
   if (!normalizedChannel && targetAgentId) {
-    const legacyConversationId = targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId
-      ? BROKER_SHARED_CHANNEL_ID
-      : directConversationIdForActors(input.requesterId, targetAgentId);
     const participantIds = [...new Set([input.requesterId, targetAgentId])].sort();
     const shareMode = resolveConversationShareMode(snapshot, participantIds, "local");
     const naturalKey = directChannelNaturalKey(participantIds);
-    const existing = targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId
-      ? snapshot.conversations[legacyConversationId]
-      : findConversationByIdentity(snapshot, naturalKey, legacyConversationId);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     const conversationId = existing?.id ?? mintChannelId(randomUUID);
     const alreadyMatches = existing
       && existing.kind === "direct"
@@ -2399,7 +2375,6 @@ async function ensureBrokerDeliveryConversation(input: {
       metadata: {
         surface: "broker",
         naturalKey,
-        legacyId: legacyConversationId,
         ...(targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId ? { role: "partner" } : {}),
       },
     };
@@ -2418,7 +2393,7 @@ async function ensureBrokerDeliveryConversation(input: {
   let definition: ConversationDefinition;
   if (channel === "voice") {
     const naturalKey = namedChannelNaturalKey("voice");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_VOICE_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     definition = {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
@@ -2431,12 +2406,11 @@ async function ensureBrokerDeliveryConversation(input: {
         surface: "broker",
         channel: "voice",
         naturalKey,
-        legacyId: BROKER_VOICE_CHANNEL_ID,
       },
     };
   } else if (channel === "system") {
     const naturalKey = systemChannelNaturalKey("system");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SYSTEM_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     definition = {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "system",
@@ -2449,12 +2423,11 @@ async function ensureBrokerDeliveryConversation(input: {
         surface: "broker",
         channel: "system",
         naturalKey,
-        legacyId: BROKER_SYSTEM_CHANNEL_ID,
       },
     };
   } else if (channel === "shared") {
     const naturalKey = namedChannelNaturalKey("shared");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SHARED_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     definition = {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
@@ -2467,13 +2440,11 @@ async function ensureBrokerDeliveryConversation(input: {
         surface: "broker",
         channel: "shared",
         naturalKey,
-        legacyId: BROKER_SHARED_CHANNEL_ID,
       },
     };
   } else {
-    const legacyChannelId = `channel.${sanitizeConversationSegment(channel)}`;
     const naturalKey = namedChannelNaturalKey(channel);
-    const existing = findConversationByIdentity(snapshot, naturalKey, legacyChannelId);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     definition = {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
@@ -2486,7 +2457,6 @@ async function ensureBrokerDeliveryConversation(input: {
         surface: "broker",
         channel,
         naturalKey,
-        legacyId: legacyChannelId,
       },
     };
   }

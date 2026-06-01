@@ -668,6 +668,9 @@ function readHistorySnapshot(
     adapterType: candidate.adapterType,
     baseTimestampMs: stat.mtimeMs,
   });
+  if (replay.events.length === 0) {
+    return null;
+  }
 
   const nextEntry: HistorySnapshotCacheEntry = {
     historyPath: candidate.path,
