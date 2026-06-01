@@ -9,11 +9,14 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
     static let shared = CommsWindowController()
 
     fileprivate static let baseContentSize = NSSize(width: 1020, height: 720)
+    private static let observeLaunchWidth: CGFloat = 24
     private static let observePeekWidth: CGFloat = 86
     private static let observeAttachOverlap: CGFloat = 10
     private static let observeMinWidth: CGFloat = 340
     private static let observeMaxWidth: CGFloat = 820
     fileprivate static let observeShelfWidth: CGFloat = 430
+    private static let observePeekRevealDuration: TimeInterval = 0.18
+    private static let observeExpandDuration: TimeInterval = 0.22
 
     private let service = CommsService.shared
     private var window: NSWindow?
@@ -67,7 +70,7 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
         guard window != nil else { return }
         observeTarget = target
         pendingObserveID = target.id
-        observeWindowWidth = Self.observePeekWidth
+        observeWindowWidth = Self.observeLaunchWidth
 
         if observeWindow == nil {
             observeWindow = makeObserveWindow(target: target)
@@ -75,19 +78,32 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
             observeWindow?.contentViewController = NSHostingController(
                 rootView: CommsObserveSidecarView(target: target) {
                     CommsWindowController.shared.closeObserve()
-                } onReady: {
-                    CommsWindowController.shared.presentObserveIfReady(targetID: target.id)
+                } onReady: { revealWebView in
+                    CommsWindowController.shared.presentObserveIfReady(
+                        targetID: target.id,
+                        completion: revealWebView
+                    )
                 }
             )
         }
 
         guard let observeWindow else { return }
-        positionObserveWindow()
-        observeWindow.alphaValue = 1
+        positionObserveWindow(display: false)
+        observeWindow.alphaValue = 0
         if observeWindow.parent == nil, let window {
             window.addChildWindow(observeWindow, ordered: .below)
         }
         observeWindow.orderFront(nil)
+        observeWindowWidth = Self.observePeekWidth
+        positionObserveWindow(
+            animated: true,
+            duration: Self.observePeekRevealDuration
+        )
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.observePeekRevealDuration
+            context.allowsImplicitAnimation = true
+            observeWindow.animator().alphaValue = 1
+        }
     }
 
     func closeObserve() {
@@ -103,14 +119,23 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
         NotificationCenter.default.post(name: .commsObserveClosed, object: closedTarget)
     }
 
-    func presentObserveIfReady(targetID: String) {
+    fileprivate func presentObserveIfReady(targetID: String, completion: @escaping CommsObserveRevealCompletion) {
         guard pendingObserveID == targetID,
               let observeWindow
-        else { return }
+        else {
+            if pendingObserveID == nil {
+                completion()
+            }
+            return
+        }
         pendingObserveID = nil
         observeWindowWidth = expandedObserveWindowWidth
         observeWindow.alphaValue = 1
-        positionObserveWindow(animated: true)
+        positionObserveWindow(
+            animated: true,
+            duration: Self.observeExpandDuration,
+            completion: completion
+        )
         observeWindow.orderFront(nil)
     }
 
@@ -226,8 +251,11 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
         window.contentViewController = NSHostingController(
             rootView: CommsObserveSidecarView(target: target) {
                 CommsWindowController.shared.closeObserve()
-            } onReady: {
-                CommsWindowController.shared.presentObserveIfReady(targetID: target.id)
+            } onReady: { revealWebView in
+                CommsWindowController.shared.presentObserveIfReady(
+                    targetID: target.id,
+                    completion: revealWebView
+                )
             }
         )
         window.title = "OpenScout Observe"
@@ -241,7 +269,12 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
         return window
     }
 
-    private func positionObserveWindow(animated: Bool = false, display: Bool = true) {
+    private func positionObserveWindow(
+        animated: Bool = false,
+        display: Bool = true,
+        duration: TimeInterval = 0.22,
+        completion: CommsObserveRevealCompletion? = nil
+    ) {
         guard let window, let observeWindow else { return }
         let frame = window.frame
         let contentFrame = window.convertToScreen(window.contentLayoutRect)
@@ -254,13 +287,18 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
 
         guard animated else {
             observeWindow.setFrame(nextFrame, display: display)
+            completion?()
             return
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = duration
             context.allowsImplicitAnimation = true
             observeWindow.animator().setFrame(nextFrame, display: true)
+        } completionHandler: {
+            Task { @MainActor in
+                completion?()
+            }
         }
     }
 
@@ -1580,13 +1618,26 @@ private struct CommsObserveTarget: Identifiable, Equatable {
     }
 }
 
+private enum CommsObserveRevealPhase: Equatable {
+    case materializing
+    case snapping
+    case revealed
+}
+
+private typealias CommsObserveRevealCompletion = @MainActor @Sendable () -> Void
+
 private struct CommsObserveSidecarView: View {
     let target: CommsObserveTarget
     let onClose: () -> Void
-    let onReady: () -> Void
+    let onReady: (@escaping CommsObserveRevealCompletion) -> Void
 
     @State private var reloadToken = UUID()
-    @State private var isReady = false
+    @State private var revealPhase: CommsObserveRevealPhase = .materializing
+    @State private var revealToken = UUID()
+
+    private var isRevealed: Bool {
+        revealPhase == .revealed
+    }
 
     var body: some View {
         ZStack {
@@ -1606,21 +1657,21 @@ private struct CommsObserveSidecarView: View {
                     .background(HUDChrome.canvas)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .opacity(isReady ? 1 : 0.001)
+            .opacity(isRevealed ? 1 : 0.001)
 
-            if !isReady {
-                CommsObserveMaterializingView()
+            if !isRevealed {
+                CommsObserveMaterializingView(phase: revealPhase)
                     .transition(.opacity)
             }
         }
         .overlay(alignment: .trailing) {
-            if isReady {
+            if isRevealed {
                 CommsObserveResizeHandle()
                     .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .animation(.easeOut(duration: 0.12), value: isReady)
+        .animation(.easeOut(duration: 0.14), value: revealPhase)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(HUDChrome.borderRim, lineWidth: 1)
@@ -1667,7 +1718,7 @@ private struct CommsObserveSidecarView: View {
             }
 
             Button {
-                isReady = false
+                restartObserveLoad()
                 reloadToken = UUID()
             } label: {
                 Image(systemName: "arrow.clockwise")
@@ -1689,9 +1740,25 @@ private struct CommsObserveSidecarView: View {
     }
 
     private func handleReady() {
-        guard !isReady else { return }
-        isReady = true
-        onReady()
+        guard revealPhase == .materializing else { return }
+        let token = UUID()
+        revealToken = token
+        withAnimation(.easeInOut(duration: 0.12)) {
+            revealPhase = .snapping
+        }
+        onReady { @MainActor @Sendable in
+            guard revealToken == token else { return }
+            withAnimation(.easeOut(duration: 0.16)) {
+                revealPhase = .revealed
+            }
+        }
+    }
+
+    private func restartObserveLoad() {
+        revealToken = UUID()
+        withAnimation(.easeInOut(duration: 0.1)) {
+            revealPhase = .materializing
+        }
     }
 
 }
@@ -1848,41 +1915,96 @@ private final class CommsObserveResizeCaptureView: NSView {
 }
 
 private struct CommsObserveMaterializingView: View {
+    let phase: CommsObserveRevealPhase
+
+    private var isSnapping: Bool {
+        phase == .snapping
+    }
+
     var body: some View {
         TimelineView(.animation) { context in
-            let phase = context.date.timeIntervalSinceReferenceDate
-            VStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(HUDChrome.accentWhisper)
-                        .frame(width: 38, height: 38)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(HUDChrome.accentSoft, lineWidth: 1)
+            let tick = context.date.timeIntervalSinceReferenceDate
+            ZStack {
+                HUDChrome.canvas.opacity(0.96)
+
+                GeometryReader { proxy in
+                    let width = max(proxy.size.width, 1)
+                    let sweep = CGFloat((tick * 0.62).truncatingRemainder(dividingBy: 1.0)) * (width + 96) - 72
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.clear,
+                                    HUDChrome.accent.opacity(isSnapping ? 0.18 : 0.10),
+                                    Color.clear
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         )
-
-                    Image(systemName: "eye.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(HUDChrome.accent)
-                        .opacity(0.72 + 0.18 * sin(phase * 8.0))
+                        .frame(width: isSnapping ? 52 : 38)
+                        .rotationEffect(.degrees(12))
+                        .offset(x: sweep)
+                        .blendMode(.screen)
                 }
+                .allowsHitTesting(false)
 
-                PixelDither(phase: phase)
-                    .frame(width: 34, height: 22)
+                VStack(spacing: 12) {
+                    ZStack {
+                        ForEach(0..<3, id: \.self) { index in
+                            let wave = ringWave(tick, index: index)
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(HUDChrome.accent.opacity((isSnapping ? 0.34 : 0.22) * (1.0 - wave)), lineWidth: 1)
+                                .frame(width: 40 + 18 * wave, height: 40 + 18 * wave)
+                        }
 
-                Text("OBSERVE")
-                    .font(HUDType.mono(8, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundStyle(HUDChrome.inkFaint)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(isSnapping ? HUDChrome.accentSoft : HUDChrome.accentWhisper)
+                            .frame(width: 38, height: 38)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(isSnapping ? HUDChrome.accent : HUDChrome.accentSoft, lineWidth: 1)
+                            )
+                            .shadow(color: HUDChrome.accent.opacity(isSnapping ? 0.24 : 0.12), radius: isSnapping ? 18 : 10)
+
+                        Image(systemName: isSnapping ? "eye.circle.fill" : "eye.fill")
+                            .font(.system(size: isSnapping ? 17 : 15, weight: .semibold))
+                            .foregroundStyle(HUDChrome.accent)
+                            .opacity(0.78 + 0.18 * sin(tick * 8.0))
+                            .scaleEffect(isSnapping ? 1.04 : 1)
+                    }
+                    .frame(width: 70, height: 62)
+
+                    PixelDither(phase: tick, isSnapping: isSnapping)
+                        .frame(width: 34, height: 22)
+
+                    VStack(spacing: 4) {
+                        Text("OBSERVE")
+                            .font(HUDType.mono(8, weight: .bold))
+                            .tracking(1.2)
+                            .foregroundStyle(isSnapping ? HUDChrome.accent : HUDChrome.inkFaint)
+                        Text(isSnapping ? "READY" : "MATERIALIZING")
+                            .font(HUDType.mono(7, weight: .semibold))
+                            .tracking(0.9)
+                            .foregroundStyle(HUDChrome.inkFaint.opacity(0.78))
+                    }
+                }
+                .scaleEffect(isSnapping ? 1.035 : 1)
+                .animation(.interpolatingSpring(stiffness: 260, damping: 22), value: isSnapping)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(HUDChrome.canvas.opacity(0.96))
         }
+    }
+
+    private func ringWave(_ tick: TimeInterval, index: Int) -> Double {
+        let raw = (tick * 0.82 + Double(index) * 0.33).truncatingRemainder(dividingBy: 1.0)
+        return raw < 0 ? raw + 1 : raw
     }
 }
 
 private struct PixelDither: View {
     let phase: TimeInterval
+    let isSnapping: Bool
 
     var body: some View {
         Grid(horizontalSpacing: 3, verticalSpacing: 3) {
@@ -1892,8 +2014,8 @@ private struct PixelDither: View {
                         let offset = Double(row * 5 + column)
                         Rectangle()
                             .fill(HUDChrome.accent)
-                            .frame(width: 4, height: 4)
-                            .opacity(0.18 + 0.72 * pulse(offset))
+                            .frame(width: isSnapping ? 5 : 4, height: isSnapping ? 5 : 4)
+                            .opacity((isSnapping ? 0.38 : 0.18) + (isSnapping ? 0.58 : 0.72) * pulse(offset))
                     }
                 }
             }

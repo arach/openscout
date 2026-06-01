@@ -21,6 +21,11 @@ struct ScoutRootView: View {
     @State private var currentSuggestionTrigger: MessageSuggestionTrigger?
     @State private var dismissedSuggestionSignature: String?
     @State private var conversationListResizePreviewWidth: CGFloat?
+    @State private var observeSidecarAgent: ScoutAgent?
+    @State private var observeSidecarStagingWidth = ScoutObserveSidecarMetrics.peekWidth
+    @State private var observeRestoresInspectorCollapsed = false
+    @State private var agentPreviewPanelAgent: ScoutAgent?
+    @State private var agentPreviewRestoresInspectorCollapsed = false
     @FocusState private var composerFocused: Bool
     @AppStorage("scout.navigationSidebar.labelWidth") private var navigationSidebarLabelWidth = 142.0
     @AppStorage("scout.conversationList.width") private var conversationListWidth = 286.0
@@ -75,11 +80,7 @@ struct ScoutRootView: View {
                 }
             )
         } trailing: {
-            HudInspector(isCollapsed: $inspectorCollapsed) {
-                inspectorHeader
-            } content: {
-                inspectorContent
-            }
+            trailingPanel
         } content: {
             content
         } statusBar: {
@@ -120,11 +121,17 @@ struct ScoutRootView: View {
             HudChromeTitlebarAction(
                 id: "scout.inspector",
                 placement: .trailing,
-                label: inspectorCollapsed ? "Show context" : "Hide context",
+                label: trailingPanelActionLabel,
                 systemImage: "sidebar.right"
             ) {
                 withAnimation(.easeOut(duration: 0.14)) {
-                    inspectorCollapsed.toggle()
+                    if observeSidecarAgent != nil {
+                        closeObserveSidecar()
+                    } else if agentPreviewPanelAgent != nil {
+                        closeAgentPreviewPanel()
+                    } else {
+                        inspectorCollapsed.toggle()
+                    }
                 }
             },
         ]
@@ -201,7 +208,9 @@ struct ScoutRootView: View {
                     if let channel = store.selectedChannel {
                         HudBadge(channel.scope.label, tint: channel.scope == .direct ? HudPalette.statusInfo : HudPalette.statusOk)
                         HudBadge(channel.cIdShort, tint: HudPalette.muted)
-                        ScoutMemberStrip(names: channel.participantDisplayNames)
+                        ScoutMemberStrip(members: selectedChannelMembers) { agent in
+                            previewAgent(agent)
+                        }
                     } else {
                         HudBadge("No channel", tint: HudPalette.muted)
                     }
@@ -212,9 +221,7 @@ struct ScoutRootView: View {
 
             if let agent = store.selectedAgent {
                 HudButton("Agent", icon: "person.crop.circle", style: .secondary) {
-                    store.selectAgent(agent.id)
-                    agentContentMode = .roster
-                    section = .agents
+                    previewAgent(agent)
                 }
             }
 
@@ -244,7 +251,11 @@ struct ScoutRootView: View {
                         .frame(maxWidth: .infinity, minHeight: 360)
                     } else {
                         ForEach(store.messages) { message in
-                            ScoutMessageRow(message: message)
+                            ScoutMessageRow(
+                                message: message,
+                                agent: agent(for: message),
+                                previewAgent: previewAgent
+                            )
                                 .id(message.id)
                         }
                     }
@@ -551,7 +562,7 @@ struct ScoutRootView: View {
                                 agent: agent,
                                 isSelected: store.selectedAgentId == agent.id || store.selectedChannel?.agentId == agent.id
                             ) {
-                                store.selectAgent(agent.id)
+                                previewAgent(agent)
                             } observe: {
                                 observeAgent(agent)
                             } openChannel: {
@@ -576,6 +587,71 @@ struct ScoutRootView: View {
                 HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
             }
         }
+    }
+
+    private var observeSidecarResolvedAgent: ScoutAgent? {
+        guard let observeSidecarAgent else { return nil }
+        return store.agents.first { $0.id == observeSidecarAgent.id } ?? observeSidecarAgent
+    }
+
+    private var agentPreviewResolvedAgent: ScoutAgent? {
+        guard let agentPreviewPanelAgent else { return nil }
+        return store.agents.first { $0.id == agentPreviewPanelAgent.id } ?? agentPreviewPanelAgent
+    }
+
+    private var trailingPanelActionLabel: String {
+        if observeSidecarAgent != nil { return "Close observe" }
+        if agentPreviewPanelAgent != nil { return "Close agent preview" }
+        return inspectorCollapsed ? "Show context" : "Hide context"
+    }
+
+    @ViewBuilder
+    private var trailingPanel: some View {
+        Group {
+            if let agent = observeSidecarResolvedAgent {
+                ScoutObserveSidecarPanel(
+                    agent: agent,
+                    stagingWidth: observeSidecarStagingWidth,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            closeObserveSidecar()
+                        }
+                    },
+                    onOpenWeb: {
+                        ScoutWeb.open(path: "/embed/observe/\(agent.id)")
+                    }
+                )
+                .id(agent.id)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else if let agent = agentPreviewResolvedAgent {
+                ScoutAgentPreviewPanel(
+                    agent: agent,
+                    selectedChannel: store.selectedChannel,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            closeAgentPreviewPanel()
+                        }
+                    },
+                    openObserve: {
+                        observeAgent(agent)
+                    },
+                    openProfile: {
+                        ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile")
+                    }
+                )
+                .id("preview-\(agent.id)")
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                HudInspector(isCollapsed: $inspectorCollapsed) {
+                    inspectorHeader
+                } content: {
+                    inspectorContent
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: observeSidecarResolvedAgent?.id)
+        .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: agentPreviewResolvedAgent?.id)
     }
 
     @ViewBuilder
@@ -641,6 +717,29 @@ struct ScoutRootView: View {
         return store.visibleChannels
     }
 
+    private var selectedChannelMembers: [ScoutMemberIdentity] {
+        guard let channel = store.selectedChannel else { return [] }
+        let names = channel.participantDisplayNames
+        guard !names.isEmpty else { return [] }
+
+        return names.enumerated().map { index, name in
+            let participantId = channel.participantIds.indices.contains(index)
+                ? channel.participantIds[index]
+                : nil
+            let agent = agent(
+                participantId: participantId,
+                displayName: name,
+                channel: channel
+            )
+
+            return ScoutMemberIdentity(
+                id: agent?.id ?? "\(index)-\(name)",
+                name: name,
+                agent: agent
+            )
+        }
+    }
+
     private func filterChannels(_ channels: [ScoutChannel]) -> [ScoutChannel] {
         let trimmed = store.channelQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return channels }
@@ -651,11 +750,107 @@ struct ScoutRootView: View {
         }
     }
 
+    private func agent(for message: ScoutMessage) -> ScoutAgent? {
+        guard !message.isOperator else { return nil }
+        return resolveAgent(id: message.actorId, name: message.actorName)
+            ?? store.selectedChannel.flatMap { channel in
+                agent(participantId: message.actorId, displayName: message.actorName, channel: channel)
+            }
+    }
+
+    private func agent(
+        participantId: String?,
+        displayName: String,
+        channel: ScoutChannel
+    ) -> ScoutAgent? {
+        if displayName.localizedCaseInsensitiveCompare("Operator") == .orderedSame {
+            return nil
+        }
+
+        if let resolved = resolveAgent(id: participantId, name: displayName) {
+            return resolved
+        }
+
+        if let agentId = channel.agentId,
+           let channelAgent = store.agents.first(where: { $0.id == agentId }) {
+            if channel.agentName == nil
+                || displayName.localizedCaseInsensitiveCompare(channelAgent.displayName) == .orderedSame
+                || displayName.localizedCaseInsensitiveCompare(channel.agentName ?? "") == .orderedSame {
+                return channelAgent
+            }
+        }
+
+        return nil
+    }
+
+    private func resolveAgent(id: String?, name: String?) -> ScoutAgent? {
+        let probes = [id, name]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.localizedCaseInsensitiveCompare("operator") != .orderedSame }
+
+        for probe in probes {
+            if let exact = store.agents.first(where: { agent in
+                agent.id.localizedCaseInsensitiveCompare(probe) == .orderedSame
+                    || agent.displayName.localizedCaseInsensitiveCompare(probe) == .orderedSame
+                    || agent.name.localizedCaseInsensitiveCompare(probe) == .orderedSame
+                    || agent.handle?.localizedCaseInsensitiveCompare(probe) == .orderedSame
+            }) {
+                return exact
+            }
+        }
+
+        for probe in probes where probe.count >= 3 {
+            let normalizedProbe = probe.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+            if let fuzzy = store.agents.first(where: { agent in
+                agent.id.localizedCaseInsensitiveContains(normalizedProbe)
+                    || normalizedProbe.localizedCaseInsensitiveContains(agent.id)
+                    || agent.displayName.localizedCaseInsensitiveContains(normalizedProbe)
+                    || agent.handle?.localizedCaseInsensitiveContains(normalizedProbe) == true
+            }) {
+                return fuzzy
+            }
+        }
+
+        return nil
+    }
+
     private func observeAgent(_ agent: ScoutAgent) {
+        let openingFromIdle = observeSidecarAgent == nil
+        if openingFromIdle {
+            observeRestoresInspectorCollapsed = inspectorCollapsed
+            observeSidecarStagingWidth = inspectorCollapsed
+                ? ScoutObserveSidecarMetrics.peekWidth
+                : HudLayout.panelWidth
+        } else {
+            observeSidecarStagingWidth = ScoutObserveSidecarMetrics.expandedWidth
+        }
+
         store.selectAgent(agent.id)
-        agentContentMode = .observe
-        section = .agents
-        store.loadObserve(agentId: agent.id, force: true)
+        agentContentMode = .roster
+        observeSidecarAgent = agent
+    }
+
+    private func previewAgent(_ agent: ScoutAgent) {
+        if agentPreviewPanelAgent == nil {
+            agentPreviewRestoresInspectorCollapsed = observeSidecarAgent == nil
+                ? inspectorCollapsed
+                : observeRestoresInspectorCollapsed
+        }
+
+        store.selectAgent(agent.id)
+        agentContentMode = .roster
+        observeSidecarAgent = nil
+        agentPreviewPanelAgent = agent
+    }
+
+    private func closeObserveSidecar() {
+        observeSidecarAgent = nil
+        inspectorCollapsed = observeRestoresInspectorCollapsed
+    }
+
+    private func closeAgentPreviewPanel() {
+        agentPreviewPanelAgent = nil
+        inspectorCollapsed = agentPreviewRestoresInspectorCollapsed
     }
 
     private var statusBar: some View {
@@ -1241,27 +1436,57 @@ private struct ScoutCompactChannelRow: View {
     }
 }
 
+private struct ScoutMemberIdentity: Identifiable {
+    let id: String
+    let name: String
+    let agent: ScoutAgent?
+}
+
 private struct ScoutMemberStrip: View {
-    let names: [String]
+    let members: [ScoutMemberIdentity]
+    let selectAgent: (ScoutAgent) -> Void
 
     var body: some View {
         HStack(spacing: HudSpacing.sm) {
             HStack(spacing: -4) {
-                ForEach(Array(names.prefix(4).enumerated()), id: \.offset) { index, name in
-                    Text(name.first.map { String($0).uppercased() } ?? "?")
-                        .font(HudFont.mono(8, weight: .bold))
-                        .foregroundStyle(HudPalette.bg)
-                        .frame(width: 18, height: 18)
-                        .background(Circle().fill(memberTint(name)))
-                        .overlay(Circle().stroke(HudPalette.bg, lineWidth: 1.2))
+                ForEach(Array(members.prefix(4).enumerated()), id: \.element.id) { index, member in
+                    memberAvatar(member)
                         .zIndex(Double(8 - index))
                 }
             }
-            Text(names.joined(separator: " + "))
+            Text(members.map(\.name).joined(separator: " + "))
                 .font(HudFont.ui(11, weight: .medium))
                 .foregroundStyle(HudPalette.muted)
                 .lineLimit(1)
         }
+    }
+
+    @ViewBuilder
+    private func memberAvatar(_ member: ScoutMemberIdentity) -> some View {
+        if let agent = member.agent {
+            Button {
+                selectAgent(agent)
+            } label: {
+                avatarGlyph(for: member)
+            }
+            .buttonStyle(.plain)
+            .help("Preview \(agent.displayName)")
+        } else {
+            avatarGlyph(for: member)
+        }
+    }
+
+    private func avatarGlyph(for member: ScoutMemberIdentity) -> some View {
+        Text(member.name.first.map { String($0).uppercased() } ?? "?")
+            .font(HudFont.mono(8, weight: .bold))
+            .foregroundStyle(HudPalette.bg)
+            .frame(width: 18, height: 18)
+            .background(Circle().fill(memberTint(member.name)))
+            .overlay(
+                Circle()
+                    .stroke(member.agent == nil ? HudPalette.bg : HudPalette.accent.opacity(0.82), lineWidth: member.agent == nil ? 1.2 : 1.4)
+            )
+            .contentShape(Circle())
     }
 
     private func memberTint(_ name: String) -> Color {
@@ -1280,15 +1505,17 @@ private struct ScoutMemberStrip: View {
 
 private struct ScoutMessageRow: View {
     let message: ScoutMessage
+    let agent: ScoutAgent?
+    let previewAgent: (ScoutAgent) -> Void
+
+    @State private var isHoveringAgent = false
 
     var body: some View {
         HStack(alignment: .top) {
             if message.isOperator { Spacer(minLength: 80) }
             VStack(alignment: .leading, spacing: HudSpacing.sm) {
                 HStack(spacing: HudSpacing.md) {
-                    Text(message.actorName.uppercased())
-                        .font(HudFont.mono(9, weight: .bold))
-                        .foregroundStyle(message.isOperator ? HudPalette.accent : HudPalette.muted)
+                    actorChip
                     Text(ScoutRelativeTime.format(message.createdAt))
                         .font(HudFont.mono(9))
                         .foregroundStyle(HudPalette.dim)
@@ -1308,6 +1535,85 @@ private struct ScoutMessageRow: View {
             if !message.isOperator { Spacer(minLength: 80) }
         }
         .frame(maxWidth: .infinity, alignment: message.isOperator ? .trailing : .leading)
+    }
+
+    @ViewBuilder
+    private var actorChip: some View {
+        if let agent {
+            Button {
+                previewAgent(agent)
+            } label: {
+                actorLabel
+            }
+            .buttonStyle(.plain)
+            .onHover { isHoveringAgent = $0 }
+            .overlay(alignment: .topLeading) {
+                if isHoveringAgent {
+                    ScoutAgentHoverCard(agent: agent)
+                        .offset(x: 0, y: -86)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .zIndex(20)
+                }
+            }
+            .help("Preview \(agent.displayName)")
+        } else {
+            actorLabel
+        }
+    }
+
+    private var actorLabel: some View {
+        HStack(spacing: HudSpacing.xs) {
+            Text(message.actorName.uppercased())
+                .font(HudFont.mono(9, weight: .bold))
+            if agent != nil {
+                Image(systemName: "info.circle")
+                    .font(HudFont.ui(9, weight: .semibold))
+            }
+        }
+        .foregroundStyle(message.isOperator ? HudPalette.accent : (agent == nil ? HudPalette.muted : HudPalette.accent))
+        .contentShape(Rectangle())
+        .animation(.easeOut(duration: 0.10), value: isHoveringAgent)
+    }
+}
+
+private struct ScoutAgentHoverCard: View {
+    let agent: ScoutAgent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            HStack(spacing: HudSpacing.sm) {
+                Text(agent.displayName)
+                    .font(HudFont.ui(12, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                Spacer(minLength: HudSpacing.sm)
+                HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
+            }
+
+            if !agent.detail.isEmpty {
+                Text(agent.detail)
+                    .font(HudFont.ui(10))
+                    .foregroundStyle(HudPalette.muted)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: HudSpacing.md) {
+                Label(agent.branchLabel, systemImage: "arrow.triangle.branch")
+                Label(agent.updatedLabel, systemImage: "clock")
+            }
+            .font(HudFont.mono(8))
+            .foregroundStyle(HudPalette.dim)
+            .lineLimit(1)
+        }
+        .padding(HudSpacing.lg)
+        .frame(width: 260, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutDesign.chrome))
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+        )
+        .shadow(color: Color.black.opacity(0.32), radius: 18, x: 0, y: 10)
+        .allowsHitTesting(false)
     }
 }
 
@@ -1750,6 +2056,75 @@ private struct ScoutAgentInspector: View {
                 HudButton("Profile", icon: "person.text.rectangle", style: .secondary, action: openProfile)
             }
         }
+    }
+}
+
+private struct ScoutAgentPreviewPanel: View {
+    let agent: ScoutAgent
+    let selectedChannel: ScoutChannel?
+    let onClose: () -> Void
+    let openObserve: () -> Void
+    let openProfile: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            HudDivider(color: ScoutDesign.hairline)
+
+            ScrollView {
+                ScoutAgentInspector(
+                    agent: agent,
+                    selectedChannel: selectedChannel,
+                    openObserve: openObserve,
+                    openProfile: openProfile
+                )
+                .padding(HudSpacing.xl)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.visible)
+        }
+        .frame(width: ScoutObserveSidecarMetrics.expandedWidth)
+        .frame(maxHeight: .infinity)
+        .background(ScoutDesign.chrome)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(ScoutDesign.hairlineStrong)
+                .frame(width: HudStrokeWidth.thin)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: HudSpacing.md) {
+            Image(systemName: "person.crop.circle")
+                .font(HudFont.ui(12, weight: .semibold))
+                .foregroundStyle(HudPalette.accent)
+                .frame(width: 26, height: 26)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(HudPalette.accentSoft))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HudSectionLabel("Agent")
+                Text(agent.displayName)
+                    .font(HudFont.ui(13, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onClose) {
+                Image(systemName: "sidebar.right")
+                    .font(HudFont.ui(12, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(HudPalette.muted)
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+            .help("Close agent preview")
+        }
+        .padding(.horizontal, HudSpacing.lg)
+        .frame(height: HudLayout.navHeight)
+        .background(ScoutDesign.chrome)
     }
 }
 
