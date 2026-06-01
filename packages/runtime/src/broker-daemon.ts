@@ -6971,7 +6971,12 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectAgent(
     });
   }
 
-  await syncRegisteredLocalAgentsIfChanged(options.reason);
+  // Materialized project cards must be visible to the broker before routing.
+  // Do a direct sync here instead of relying on mtime/size signature checks,
+  // which can be too weak on fast CI filesystems immediately after a write.
+  clearGitBranchCache();
+  console.log(`[openscout-runtime] local agent registry changed (${options.reason}); refreshing registered agents`);
+  await syncRegisteredLocalAgents();
   const agent = runtime.snapshot().agents[status.agentId];
   if (agent && !isInactiveLocalAgent(agent)) {
     return { kind: "resolved", agent };
