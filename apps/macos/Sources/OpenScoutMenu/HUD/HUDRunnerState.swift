@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import ScoutNativeCore
+import ScoutSharedUI
 
 @MainActor
 final class HUDRunnerState: ObservableObject {

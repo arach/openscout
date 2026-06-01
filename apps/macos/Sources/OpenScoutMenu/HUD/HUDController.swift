@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import ScoutSharedUI
 import SwiftUI
 
 // Singleton controller for the OpenScout HUD overlay.

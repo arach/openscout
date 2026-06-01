@@ -17,15 +17,15 @@ import ScoutNativeCore
 /// again to commit and surface the final transcript on `lastFinalText`.
 /// ESC cascade in the dock calls `cancel()` to abandon.
 @MainActor
-final class HudVoxService: ObservableObject {
-    static let shared = HudVoxService()
+public final class ScoutVoxService: ObservableObject {
+    public static let shared = ScoutVoxService()
 
-    @Published private(set) var state: ScoutDictationState = .probing
+    @Published public private(set) var state: ScoutDictationState = .probing
     /// Most recent partial transcript while recording. Cleared on stop.
-    @Published private(set) var partial: String = ""
+    @Published public private(set) var partial: String = ""
     /// Most recent final transcript. The dock observes this via Combine
     /// and appends it to the text buffer once it transitions to non-empty.
-    @Published private(set) var lastFinalText: String = ""
+    @Published public private(set) var lastFinalText: String = ""
 
     private let baseURL = URL(string: "http://127.0.0.1:43115")!
     private let clientId = "openscout-hud"
@@ -45,7 +45,7 @@ final class HudVoxService: ObservableObject {
 
     /// Check whether the companion is reachable. Updates `state` to
     /// `.idle` if healthy, `.unavailable(reason:)` otherwise.
-    func probe() async {
+    public func probe() async {
         state = .probing
         var req = URLRequest(url: baseURL.appendingPathComponent("health"))
         req.timeoutInterval = 1.2
@@ -73,7 +73,7 @@ final class HudVoxService: ObservableObject {
     /// Open a live transcription session. The companion starts capturing
     /// from its own microphone; we read NDJSON events from the response
     /// body until the session emits `session.final` (or errors out).
-    func start() {
+    public func start() {
         switch state {
         case .recording, .starting, .processing:
             log.info("start() ignored — already \(String(describing: self.state))")
@@ -95,7 +95,7 @@ final class HudVoxService: ObservableObject {
     /// Commit the in-flight session — companion finalizes and emits
     /// `session.final`. We move to `.processing` until the final event
     /// lands (or the stream closes).
-    func stop() {
+    public func stop() {
         guard state == .recording || state == .starting else { return }
         state = .processing
         let target = sessionId
@@ -106,7 +106,7 @@ final class HudVoxService: ObservableObject {
 
     /// Abort the in-flight session without surfacing a transcript.
     /// Safe to call from any state.
-    func cancel() {
+    public func cancel() {
         streamTask?.cancel()
         streamTask = nil
         let target = sessionId
@@ -125,7 +125,7 @@ final class HudVoxService: ObservableObject {
     /// Reset `lastFinalText` after the consumer (the dock) has appended
     /// it to its buffer, so we don't re-fire on the next subscription
     /// or duplicate the transcript across sessions.
-    func consumeFinalText() {
+    public func consumeFinalText() {
         lastFinalText = ""
     }
 
@@ -250,3 +250,5 @@ final class HudVoxService: ObservableObject {
         _ = try? await URLSession.shared.data(for: req)
     }
 }
+
+public typealias HudVoxService = ScoutVoxService
