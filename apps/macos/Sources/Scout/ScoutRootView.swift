@@ -389,7 +389,7 @@ struct ScoutRootView: View {
         if let reason = voxUnavailableReason { return reason }
         if store.isSending { return "Sending..." }
         if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Type / for commands · @ for agents · sid: for sessions"
+            return "Type / for commands · @ for agents · session: for sessions"
         }
         return "↵ send · ⇧↵ newline"
     }

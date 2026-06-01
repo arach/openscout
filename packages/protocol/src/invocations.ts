@@ -25,7 +25,9 @@ export interface InvocationExecutionPreference {
   /**
    * Controls whether a handoff should enter fresh model context or continue an
    * already-running session. Broker-owned label delivery should default to
-   * "new" so stable agent names do not silently inherit unrelated context.
+   * "new" so stable agent names do not silently inherit unrelated context. The
+   * legacy "any" value is a compatibility hint only; exact continuation
+   * requires targetSessionId.
    */
   session?: "new" | "existing" | "any";
   targetSessionId?: ScoutId;

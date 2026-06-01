@@ -211,6 +211,26 @@ describe("resolveAgentLabel", () => {
     }
   });
 
+  test("does not resolve labels that only match stale local agents", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "arc.stale",
+        definitionId: "arc",
+        metadata: {
+          staleLocalRegistration: true,
+          replacedByAgentId: "arc.fresh",
+        },
+      }),
+    ]);
+    const result = resolveAgentLabel(snapshot, "@arc", {
+      helpers: {
+        ...helpers,
+        isStale: (agent) => agent?.metadata?.staleLocalRegistration === true,
+      },
+    });
+    expect(result.kind).toBe("unknown");
+  });
+
   test("resolves shorthand harness and model labels from endpoint metadata", () => {
     const codex55 = makeAgent({ id: "lattices.codex-55", definitionId: "lattices" });
     const codex54 = makeAgent({ id: "lattices.codex-54", definitionId: "lattices" });

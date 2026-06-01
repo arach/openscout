@@ -112,7 +112,7 @@ describe("scoutbot prefilter", () => {
   });
 
   test("accepts slash actions and session directives anywhere in the message", () => {
-    const reply = prefilterHandle("can you /doing Hudson sid:3234", {
+    const reply = prefilterHandle("can you /doing Hudson session:3234", {
       actors: {},
       agents: {
         hudson: {
@@ -148,7 +148,7 @@ describe("scoutbot prefilter", () => {
   });
 
   test("steers a ScoutBot thread to an explicit session target", () => {
-    const reply = prefilterHandle("/steer sid:3234", {
+    const reply = prefilterHandle("/steer session:3234", {
       actors: {}, agents: {}, endpoints: {}, conversations: {}, messages: {}, nodes: {}, flights: {},
     }, 1234);
 

@@ -60,6 +60,9 @@ finalized; package manifests currently use `UNLICENSED`.
 - If you do not have a specific agent/session in mind, pass `projectPath` to
   MCP `ask` or use `scout ask --project <path>`; the broker resolves or creates
   the concrete agent instance for that project.
+- Agent cards, labels, and exact agent ids are fresh-session targets for new
+  work; use `targetSessionId` / `session:<id>` only to continue exact prior
+  harness context.
 - Treat the base agent identity as the vanilla project/workspace identity.
   Harness, model, profile, node, and session details are instance constraints
   layered onto that identity only when the caller needs them.

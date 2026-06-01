@@ -160,7 +160,7 @@ final class HUDRunnerState: ObservableObject {
     }
 
     var routingLabel: String {
-        persistence == "sticky" ? "Find or create agent" : "Start fresh"
+        persistence == "sticky" ? "Agent card" : "One-time card"
     }
 
     func projectMatches(limit: Int = 6) -> [HudRunnerProjectOption] {

@@ -276,6 +276,12 @@ existing harness session over many turns. Repeating the session id means
 "continue here"; omitting it means Scout may route by agent/project and create
 the lightest usable fresh session for the request.
 
+Agent cards and labels are fresh-session targets by default. A card carries
+identity, harness/profile/model hints, project root, and return-address
+metadata; it does not mean "reuse whatever thread was last attached." Scout
+should consult stale session metadata only when the request names an exact
+`targetSessionId`/`session:<id>` and that session cannot be reached.
+
 Use exact `agentId` or project routing when the sender knows who should own the
 work but does not need prior context. That path should stay cheap and
 throwaway: Scout can create or choose an ephemeral session/card as needed, and
@@ -296,7 +302,7 @@ Session policy should be explicit because "which worker should do this" and
 | Policy | Meaning | Session id role |
 | --- | --- | --- |
 | `new` | Run the work in fresh model context. | No session id required. Existing project agents should not force user-visible ambiguity. |
-| `reuse` | Prefer an existing compatible session, but start fresh if none is suitable. | Optional optimization hint, not a hard target. |
+| `reuse` | Deprecated compatibility hint. Card routing must not rely on this for sticky context. | Ignored unless a concrete session id is also present. |
 | `existing` | Continue one exact session. | `targetSessionId` is the target and must resolve to that session owner. |
 | `fork` | Start a new session from an excellent prior state. | `forkFromStateId` is preferred; `forkFromSessionId` means derive a source state from that session. |
 

@@ -164,7 +164,7 @@ unless the caller is intentionally selecting a specialized profile.
 
 Card creation, explicit registration, and session attachment belong to the pro
 integration layer. They are appropriate for hosts and Scout-native agents that
-need to manage durable return addresses or sticky sessions directly, but they
+need to manage durable return addresses or explicit session attachments, but they
 are not the default way to ask another agent for work.
 
 ## Collaboration Semantics

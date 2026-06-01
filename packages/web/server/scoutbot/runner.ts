@@ -725,7 +725,7 @@ async function postScoutbotInvocation(input: {
     messageId: input.message.id,
     ...(Object.keys(context).length > 0 ? { context } : {}),
     execution: {
-      session: "existing",
+      session: transportSessionId ? "existing" : "new",
       ...(transportSessionId ? { targetSessionId: transportSessionId } : {}),
     },
     ensureAwake: true,

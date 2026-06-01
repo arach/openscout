@@ -17,7 +17,7 @@ public enum MessageSuggestionKind: String, Sendable {
         switch self {
         case .command: return "/"
         case .agent: return "@"
-        case .session: return "sid"
+        case .session: return "session"
         }
     }
 }
@@ -138,7 +138,7 @@ public enum MessageSuggestionEngine {
         MessageCommandCandidate(command: "/recent", detail: "Show recent messages from an agent", replacement: "/recent "),
         MessageCommandCandidate(command: "/doing", detail: "Show active work for an agent", replacement: "/doing "),
         MessageCommandCandidate(command: "/flight", detail: "Inspect a flight by id", replacement: "/flight "),
-        MessageCommandCandidate(command: "/steer", detail: "Target this thread at a session", replacement: "/steer sid:"),
+        MessageCommandCandidate(command: "/steer", detail: "Target this thread at a session", replacement: "/steer session:"),
         MessageCommandCandidate(command: "/spin", detail: "Open the agent runner", replacement: "", action: .openRunner),
     ]
 
@@ -171,8 +171,10 @@ public enum MessageSuggestionEngine {
             return MessageSuggestionTrigger(kind: .agent, token: token, query: query, startOffset: startOffset, endOffset: endOffset)
         }
 
-        if token.lowercased().hasPrefix("sid:") {
-            let query = String(token.dropFirst(4))
+        let lowerToken = token.lowercased()
+        if lowerToken.hasPrefix("session:") || lowerToken.hasPrefix("sid:") {
+            let prefixLength = lowerToken.hasPrefix("session:") ? 8 : 4
+            let query = String(token.dropFirst(prefixLength))
             guard isSessionQuery(query) else { return nil }
             return MessageSuggestionTrigger(kind: .session, token: token, query: query, startOffset: startOffset, endOffset: endOffset)
         }
@@ -276,9 +278,9 @@ public enum MessageSuggestionEngine {
                 return MessageSuggestion(
                     id: "session:\(key)",
                     kind: .session,
-                    label: "sid:\(sessionId)",
+                    label: "session:\(sessionId)",
                     detail: "\(agent.name) · \(agent.state)",
-                    replacement: "sid:\(sessionId) ",
+                    replacement: "session:\(sessionId) ",
                     targetHandle: nil,
                     targetLabel: nil,
                     action: nil

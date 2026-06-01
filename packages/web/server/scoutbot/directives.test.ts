@@ -3,7 +3,7 @@ import { parseScoutbotDirectives, scoutbotDirectiveMetadata } from "./directives
 
 describe("scoutbot directives", () => {
   test("parses effort and session directives anywhere in the message", () => {
-    const parsed = parseScoutbotDirectives("can you /status Hudson eff:low sid:3234");
+    const parsed = parseScoutbotDirectives("can you /status Hudson eff:low session:3234");
 
     expect(parsed.command).toEqual({
       name: "status",
@@ -19,7 +19,7 @@ describe("scoutbot directives", () => {
   });
 
   test("normalizes effort aliases and lets the last scalar directive win", () => {
-    const parsed = parseScoutbotDirectives("inspect eff:quick sid:old eff:med sid:new");
+    const parsed = parseScoutbotDirectives("inspect eff:quick session:old eff:med sid:new");
 
     expect(parsed.directives.reasoningEffort).toBe("medium");
     expect(parsed.directives.targetSessionId).toBe("new");
@@ -27,7 +27,7 @@ describe("scoutbot directives", () => {
   });
 
   test("exports flat directive metadata for broker records", () => {
-    const parsed = parseScoutbotDirectives("/steer sid:abc-123 eff:high");
+    const parsed = parseScoutbotDirectives("/steer session:abc-123 eff:high");
 
     expect(scoutbotDirectiveMetadata(parsed)).toEqual({
       scoutbotAction: "steer",

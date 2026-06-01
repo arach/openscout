@@ -15,7 +15,7 @@ such as `@talkie`.
 
 An **agent instance** is the concrete attachment Scout routes to for that base
 identity: a Claude or Codex harness, a model choice, a machine/node, and
-possibly a sticky session/thread. Asking for a specific instance should refine
+optionally an explicit session id. Asking for a specific instance should refine
 the route, not create the impression that `talkie#codex` and `talkie#claude`
 are separate base agents.
 
@@ -29,6 +29,12 @@ scout ask --project ../talkie "Review this."
 ```ts
 ask({ projectPath: "../talkie", body: "Review this." })
 ```
+
+When routing by an agent card, label, or exact agent id, Scout treats the target
+as a fresh-session request. Use `session:<id>` or MCP `targetSessionId` only
+when the caller intentionally wants to continue one concrete prior harness
+session. Stale session records are diagnostics for that explicit session path,
+not fallback candidates for normal card routing.
 
 Specialized profiles may become first-class over time. For example,
 `@scout.profile:investigator` could name a profile with a dedicated tool set

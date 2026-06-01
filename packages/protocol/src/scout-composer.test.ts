@@ -56,6 +56,11 @@ describe("Scout composer route operator", () => {
       agentId: "agent-123",
       value: "id:agent-123",
     });
+    expect(parseScoutComposerRouteTarget("sid:session-123")).toEqual({
+      kind: "session_id",
+      sessionId: "session-123",
+      value: "session:session-123",
+    });
     expect(parseScoutComposerRouteTarget("channel:ops")).toEqual({
       kind: "channel",
       channel: "ops",

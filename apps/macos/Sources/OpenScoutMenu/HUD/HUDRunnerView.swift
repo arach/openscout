@@ -204,8 +204,8 @@ struct HUDRunnerOverlay: View {
                 VStack(alignment: .leading, spacing: 6) {
                     runnerLabel("ROUTE")
                     Picker("", selection: $runner.persistence) {
-                        Text("Find or create").tag("sticky")
-                        Text("Fresh run").tag("one_time")
+                        Text("Agent card").tag("sticky")
+                        Text("One-time").tag("one_time")
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 230)
@@ -270,7 +270,7 @@ struct HUDRunnerOverlay: View {
 
     private var footer: some View {
         HStack {
-            Text(runner.persistence == "sticky" ? "will reuse a matching agent when possible" : "will start a fresh agent for this ask")
+            Text(runner.persistence == "sticky" ? "uses a matching agent card; session context is fresh" : "uses a one-time agent card; session context is fresh")
                 .font(HUDType.mono(10))
                 .foregroundStyle(HUDChrome.inkFaint)
             Spacer()

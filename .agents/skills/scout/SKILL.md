@@ -14,7 +14,8 @@ receipt:
 
 ```bash
 scout send --to x "msg"    # durable message/update; returns ids
-scout ask --to x "msg"     # invocation for requested reply/work; returns ids + lifecycle
+scout ask --to x "msg"     # card/label ask; fresh session, returns ids + lifecycle
+scout ask --to session:<id> "msg" # continue one exact existing session
 scout ask --project ../x "msg" # project known; concrete agent/session chosen by Scout
 ```
 
@@ -96,7 +97,8 @@ The semantics do not change by host. Only the verbs change:
 | Inspect broker-native messages/status/errors | `scout latest` | `broker_feed` | use when delivery, dispatch, unblock, or flight status matters |
 | Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | use when direct routing is ambiguous |
 | Message / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
-| Invocation / requested reply | `scout ask --to x "msg"` | `ask` with `to` | one target -> DM |
+| Invocation / requested reply | `scout ask --to x "msg"` | `ask` with `to` | one target -> DM; card target starts fresh |
+| Continue exact prior context | `scout ask --to session:<id> "msg"` | `ask` with `targetSessionId` | only path that reuses/stickies a harness session |
 | Project-routed invocation | `scout ask --project ../x "msg"` | `ask` with `projectPath` | use when the project is known but no concrete agent/session is selected |
 | Progress / waiting / review / done | same DM, plus work handle when available | `work_update` | stay in the same DM or channel |
 | Fresh reply-ready identity | `scout card create` | `card_create` | pro integration layer; identity and return address, not normal work routing |
@@ -118,6 +120,12 @@ Do not invent a second routing model for Claude, Codex, the CLI, MCP, or the UI.
 Scout agents are stable identities. Scout sessions are concrete harness
 conversations/processes that can receive work. Use **session** as the noun when
 talking about Claude, Codex, or future harness lifecycle.
+
+Agent cards, labels, and exact agent ids are fresh-session targets for new
+work. They carry identity, project, harness/profile/model hints, and return
+address information; they do not mean "reuse the last thread." Use
+`session:<id>` or MCP `targetSessionId` only when the user explicitly wants one
+concrete prior Codex/Claude session.
 
 `scout card create` creates or describes an identity and return address. It does
 not guarantee a live harness session unless a command explicitly starts one.

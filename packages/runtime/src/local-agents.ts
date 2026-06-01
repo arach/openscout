@@ -2342,7 +2342,7 @@ function invocationSessionFreshness(invocation: InvocationRequest): string {
     case "existing":
       return "continuing session";
     case "any":
-      return "reuse-or-new session";
+      return invocation.execution?.targetSessionId ? "continuing session" : "fresh session";
     default:
       return "session unspecified";
   }

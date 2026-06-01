@@ -263,12 +263,12 @@ const targetLabelInputSchema = z
 
 const targetAgentIdInputSchema = z
   .string()
-  .describe("Exact Scout agent id when already known, such as talkie.master.mini")
+  .describe("Exact Scout agent/card id when already known, such as talkie.master.mini. This is not a session target; use targetSessionId for exact prior context.")
   .optional();
 
 const targetSessionIdInputSchema = z
   .string()
-  .describe("Exact Scout session id to continue, such as a CODEX_THREAD_ID or attached runtime session id")
+  .describe("Exact Scout session id to continue. Agent-card targets create fresh sessions; pass targetSessionId only when you intentionally want prior context from a specific CODEX_THREAD_ID or attached runtime session.")
   .optional();
 
 const projectPathInputSchema = z
@@ -3464,7 +3464,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask",
       description:
-        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the single broker front door for requested work: pass who to ask in `to`, pass `projectPath` when you know the project root and want Scout to choose/create the concrete instance, or pass `targetSessionId` to keep a sticky session. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait to observe flight records. Use discovery tools only when you need broker help rather than agent work.",
+        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the single broker front door for requested work: pass an agent card/label in `to` for a fresh harness session, pass `projectPath` when you know the project root and want Scout to choose/create the concrete instance, or pass `targetSessionId` to continue one exact existing session. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait to observe flight records. Use discovery tools only when you need broker help rather than agent work.",
       inputSchema: z.object({
         to: z
           .string()
@@ -3500,7 +3500,10 @@ export function createScoutMcpServer(options: {
           .describe("Caller wait budget in seconds for inline waits only; it never cancels or fails the broker ask."),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
         workspace: z.enum(["same", "new_worktree"]).optional(),
-        session: z.enum(["reuse", "new"]).optional(),
+        session: z
+          .enum(["reuse", "new"])
+          .optional()
+          .describe("Compatibility hint. Agent-card targets are always fresh-session requests; use targetSessionId to continue exact prior context."),
         wait: z
           .boolean()
           .optional()
@@ -3696,7 +3699,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout message/update/reply. Use this for heads-up, threaded conversation, and status when no new owned-work lifecycle is needed. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Targeted DMs are dispatched by the broker when the target can be reached; callers should not preflight wake/session mechanics. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For new agent-to-agent work, use ask instead.",
+        "Post a broker-backed Scout message/update/reply. Use this for heads-up, threaded conversation, and status when no new owned-work lifecycle is needed. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Targeted DMs are dispatched by the broker when the target can be reached; callers should not preflight wake/session mechanics. Use targetAgentId when agents_start returned exactTargetAgentId; this bypasses label resolution but remains an agent/card target, not a sticky session. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. If a requested new or precise target is unresolved or mismatched, call agents_start and retry with the returned exactTargetAgentId instead of substituting a different agent. For new agent-to-agent work, use ask instead. To continue prior context, pass targetSessionId through ask.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -4026,7 +4029,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Deprecated Scout Invocation Ask",
       description:
-        "DEPRECATED compatibility surface. Do not use this as an agent front door; use ask to talk to the broker. Ask creates broker invocation and flight records as side effects, then use invocations_get or invocations_wait to observe those records. This tool is hidden unless OPENSCOUT_EXPOSE_DEPRECATED_INVOCATIONS_ASK=1 is set for an older client.",
+        "DEPRECATED compatibility surface. Do not use this as an agent front door; use ask to talk to the broker. Agent/card targets create fresh sessions; only targetSessionId continues exact prior context. Ask creates broker invocation and flight records as side effects, then use invocations_get or invocations_wait to observe those records. This tool is hidden unless OPENSCOUT_EXPOSE_DEPRECATED_INVOCATIONS_ASK=1 is set for an older client.",
       inputSchema: z
         .object({
           body: z.string().min(1),

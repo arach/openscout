@@ -113,9 +113,9 @@ function renderHelp(): string {
     "- `/recent @agent` — latest messages from an agent",
     "- `/doing @agent` — active work for an agent",
     "- `/flight <id>` — flight status by id",
-    "- `/steer sid:<session>` — target this ScoutBot thread at a session",
+    "- `/steer session:<session>` — target this ScoutBot thread at a session",
     "",
-    "Directives can appear anywhere: `eff:low`, `eff:high`, `sid:<session>`.",
+    "Directives can appear anywhere: `eff:low`, `eff:high`, `session:<session>`.",
   ].join("\n");
 }
 
@@ -162,7 +162,7 @@ function renderStatus(snapshot: ScoutbotBrokerSnapshot, rawArg = ""): string {
 function renderSteer(parsed: ScoutbotDirectiveParseResult, rawArg: string): string {
   const targetSessionId = parsed.directives.targetSessionId ?? firstSessionishToken(rawArg);
   if (!targetSessionId) {
-    return "Usage: `/steer sid:<session>`.";
+    return "Usage: `/steer session:<session>`.";
   }
   return `Steering this ScoutBot thread to session ${targetSessionId}.`;
 }
@@ -271,7 +271,7 @@ function firstAgentishToken(value: string): string | null {
 
 function firstSessionishToken(value: string): string | null {
   const token = value.trim().split(/\s+/).find(Boolean);
-  const normalized = token?.replace(/^sid:/i, "").replace(/[.,!?;]+$/g, "").trim();
+  const normalized = token?.replace(/^(?:sid|session):/i, "").replace(/[.,!?;]+$/g, "").trim();
   return normalized || null;
 }
 

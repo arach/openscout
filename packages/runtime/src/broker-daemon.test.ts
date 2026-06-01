@@ -1862,7 +1862,7 @@ describe("broker daemon comms layer", () => {
     expect(recorded.invocation).toEqual(expect.objectContaining({
       action: "wake",
       ensureAwake: true,
-      execution: { session: "any" },
+      execution: { session: "new" },
       metadata: expect.objectContaining({
         sourceIntent: "direct_message",
       }),
@@ -3164,7 +3164,7 @@ describe("broker daemon comms layer", () => {
     expect(body.question?.target?.reason).toBe("manual_wake_required");
   }, 15_000);
 
-  test("accepts stale direct targets as wakeable deliveries", async () => {
+  test("returns a broker question for stale direct targets before dispatch", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -3204,13 +3204,96 @@ describe("broker daemon comms layer", () => {
       }),
     });
 
+    expect(response.status).toBe(409);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      question?: {
+        kind: string;
+        target?: {
+          agentId?: string;
+          reason?: string;
+          detail?: string;
+        };
+      };
+    };
+    expect(body.kind).toBe("question");
+    expect(body.accepted).toBe(false);
+    expect(body.question?.kind).toBe("unavailable");
+    expect(body.question?.target?.agentId).toBe("ranger.main.mini");
+    expect(body.question?.target?.reason).toBe("stale_registration");
+    expect(body.question?.target?.detail).toContain("stale local registration");
+
+    const snapshot = await getJson<{ flights: Record<string, unknown> }>(
+      harness.baseUrl,
+      "/v1/snapshot",
+    );
+    expect(Object.keys(snapshot.flights)).toHaveLength(0);
+  }, 15_000);
+
+  test("does not treat stale endpoints as card-only routing targets", async () => {
+    const harness = await startBroker();
+    const staleAt = Date.now() - 5_000;
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ranger.main.mini",
+      kind: "agent",
+      definitionId: "ranger",
+      nodeQualifier: "mini",
+      workspaceQualifier: "main",
+      selector: "@ranger.main.node:mini",
+      defaultSelector: "@ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        projectRoot: "/tmp/openscout",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-ranger-main",
+      agentId: "ranger.main.mini",
+      nodeId: harness.nodeId,
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "offline",
+      sessionId: "relay-ranger-codex",
+      cwd: "/tmp/openscout",
+      projectRoot: "/tmp/openscout",
+      metadata: {
+        staleLocalRegistration: true,
+        staleAt,
+        replacedByAgentId: "ranger.current.mini",
+      },
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "deliver-test-stale-endpoint",
+        requesterId: "operator",
+        requesterNodeId: harness.nodeId,
+        targetAgentId: "ranger.main.mini",
+        targetLabel: "ranger.main.mini",
+        body: "@ranger.main.mini hello",
+        intent: "consult",
+        createdAt: Date.now(),
+      }),
+    });
+
     expect(response.status).toBe(202);
     const body = response.body as {
       kind: string;
       accepted: boolean;
       targetAgentId?: string;
       conversation?: TestConversationIdentity;
-      flight?: { targetAgentId?: string };
+      flight?: { targetAgentId?: string; state?: string; error?: string };
     };
     expect(body.kind).toBe("delivery");
     expect(body.accepted).toBe(true);
@@ -3219,9 +3302,103 @@ describe("broker daemon comms layer", () => {
       participantIds: ["operator", "ranger.main.mini"],
     });
     expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
+    expect(body.flight?.state).toBe("waking");
+    expect(body.flight?.error).toBeUndefined();
+
+    const snapshot = await getJson<{ flights: Record<string, unknown> }>(
+      harness.baseUrl,
+      "/v1/snapshot",
+    );
+    expect(Object.keys(snapshot.flights)).toHaveLength(1);
   }, 15_000);
 
-  test("keeps stale direct targets on the requested agent when replacement metadata exists", async () => {
+  test("returns a broker question when the requested session endpoint is stale", async () => {
+    const harness = await startBroker();
+    const staleAt = Date.now() - 5_000;
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ranger.main.mini",
+      kind: "agent",
+      definitionId: "ranger",
+      nodeQualifier: "mini",
+      workspaceQualifier: "main",
+      selector: "@ranger.main.node:mini",
+      defaultSelector: "@ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        projectRoot: "/tmp/openscout",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-ranger-main",
+      agentId: "ranger.main.mini",
+      nodeId: harness.nodeId,
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "offline",
+      sessionId: "relay-ranger-codex",
+      cwd: "/tmp/openscout",
+      projectRoot: "/tmp/openscout",
+      metadata: {
+        staleLocalRegistration: true,
+        staleAt,
+        replacedByAgentId: "ranger.current.mini",
+      },
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "deliver-test-stale-session-endpoint",
+        requesterId: "operator",
+        requesterNodeId: harness.nodeId,
+        target: {
+          kind: "session_id",
+          sessionId: "relay-ranger-codex",
+        },
+        body: "continue the exact session",
+        intent: "consult",
+        createdAt: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      question?: {
+        target?: {
+          reason?: string;
+          detail?: string;
+        };
+      };
+      remediation?: {
+        kind?: string;
+      };
+    };
+    expect(body.kind).toBe("question");
+    expect(body.accepted).toBe(false);
+    expect(body.question?.target?.reason).toBe("stale_registration");
+    expect(body.question?.target?.detail).toContain("endpoint endpoint-ranger-main");
+    expect(body.question?.target?.detail).toContain("replacement agent is ranger.current.mini");
+    expect(body.remediation?.kind).toBe("stale_reference");
+
+    const snapshot = await getJson<{ flights: Record<string, unknown> }>(
+      harness.baseUrl,
+      "/v1/snapshot",
+    );
+    expect(Object.keys(snapshot.flights)).toHaveLength(0);
+  }, 15_000);
+
+  test("reports replacement metadata for stale direct targets", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -3283,24 +3460,33 @@ describe("broker daemon comms layer", () => {
       }),
     });
 
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(409);
     const body = response.body as {
       kind: string;
       accepted: boolean;
-      targetAgentId?: string;
-      conversation?: TestConversationIdentity;
-      flight?: { targetAgentId?: string };
+      remediation?: {
+        kind?: string;
+        detail?: string;
+      };
+      question?: {
+        kind: string;
+        target?: {
+          agentId?: string;
+          reason?: string;
+          detail?: string;
+        };
+      };
     };
-    expect(body.kind).toBe("delivery");
-    expect(body.accepted).toBe(true);
-    expect(body.targetAgentId).toBe("ranger.main.mini");
-    expectOpaqueDirectConversation(body.conversation, {
-      participantIds: ["operator", "ranger.main.mini"],
-    });
-    expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
+    expect(body.kind).toBe("question");
+    expect(body.accepted).toBe(false);
+    expect(body.question?.kind).toBe("unavailable");
+    expect(body.question?.target?.agentId).toBe("ranger.main.mini");
+    expect(body.question?.target?.reason).toBe("stale_registration");
+    expect(body.question?.target?.detail).toContain("replacement agent is ranger.codex-vox-getting-started.mini");
+    expect(body.remediation?.kind).toBe("stale_reference");
   }, 15_000);
 
-  test("accepts stale label-only targets as wakeable deliveries", async () => {
+  test("does not resolve stale label-only targets", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -3339,21 +3525,28 @@ describe("broker daemon comms layer", () => {
       }),
     });
 
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(422);
     const body = response.body as {
       kind: string;
       accepted: boolean;
-      targetAgentId?: string;
-      conversation?: TestConversationIdentity;
-      flight?: { targetAgentId?: string };
+      reason?: string;
+      rejection?: {
+        kind?: string;
+        askedLabel?: string;
+        detail?: string;
+      };
     };
-    expect(body.kind).toBe("delivery");
-    expect(body.accepted).toBe(true);
-    expect(body.targetAgentId).toBe("ranger.main.mini");
-    expectOpaqueDirectConversation(body.conversation, {
-      participantIds: ["operator", "ranger.main.mini"],
-    });
-    expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
+    expect(body.kind).toBe("rejected");
+    expect(body.accepted).toBe(false);
+    expect(body.reason).toBe("unknown_target");
+    expect(body.rejection?.kind).toBe("unknown");
+    expect(body.rejection?.askedLabel).toBe("@ranger");
+
+    const snapshot = await getJson<{ flights: Record<string, unknown> }>(
+      harness.baseUrl,
+      "/v1/snapshot",
+    );
+    expect(Object.keys(snapshot.flights)).toHaveLength(0);
   }, 15_000);
 
   test("returns a broker question for stale peer authority targets", async () => {
@@ -4073,6 +4266,10 @@ describe("broker daemon comms layer", () => {
       targetAgentId: "ranger.main.test-node",
       action: "consult",
       task: "wake up",
+      execution: {
+        session: "existing",
+        targetSessionId: "relay-ranger-claude",
+      },
       ensureAwake: true,
       stream: false,
       createdAt: Date.now(),
@@ -4166,6 +4363,10 @@ describe("broker daemon comms layer", () => {
             targetAgentId: "ranger.main.test-node",
             action: "consult",
             task: "wake up",
+            execution: {
+              session: "existing",
+              targetSessionId: "relay-ranger-claude",
+            },
             ensureAwake: true,
             stream: false,
             createdAt: startedAt,

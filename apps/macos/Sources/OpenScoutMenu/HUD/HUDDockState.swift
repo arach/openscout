@@ -327,7 +327,7 @@ private extension HUDDockState {
         HUDDockCommandCandidate(
             command: "/steer",
             detail: "Target this thread at a session",
-            replacement: "/steer sid:",
+            replacement: "/steer session:",
             action: nil
         ),
         HUDDockCommandCandidate(

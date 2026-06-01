@@ -236,33 +236,6 @@ export function resolveAgentLabel(
         return agnosticResolution;
       }
     }
-
-    const fallbackCandidates = buildAgentLabelCandidates(snapshot, options.helpers, {
-      includeStale: true,
-    });
-    const fallbackDiagnosis = diagnoseAgentIdentity(identity, fallbackCandidates);
-    if (fallbackDiagnosis.kind === "resolved") {
-      return {
-        kind: "resolved",
-        agent: fallbackDiagnosis.match.agent,
-      };
-    }
-    if (fallbackDiagnosis.kind === "ambiguous") {
-      return {
-        kind: "ambiguous",
-        label: identity.label,
-        candidates: fallbackDiagnosis.candidates.map((candidate) => candidate.agent),
-      };
-    }
-    if (harnessAgnosticIdentity) {
-      const agnosticFallbackResolution = resolutionFromDiagnosis(
-        diagnoseAgentIdentity(harnessAgnosticIdentity, fallbackCandidates),
-        identity.label,
-      );
-      if (agnosticFallbackResolution) {
-        return agnosticFallbackResolution;
-      }
-    }
     return { kind: "unknown", label: identity.label };
   }
 

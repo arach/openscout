@@ -93,6 +93,9 @@ MCP tools.
 - If the project is known but the concrete agent/session is not, use
   `ask({ projectPath })` or `scout ask --project <path>` and let the broker
   resolve or create the right instance.
+- Agent cards, labels, and exact agent ids are fresh-session targets for new
+  work. Use `targetSessionId` / `session:<id>` only to continue one exact prior
+  Codex/Claude session.
 - Treat the base agent identity as the vanilla project/workspace identity.
   Harness, model, profile, node, and session details are instance constraints,
   not separate base agents, unless a specialized profile is explicitly needed.

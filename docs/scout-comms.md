@@ -395,9 +395,11 @@ completion, look for the reply message, flight update, work item transition, or
 collaboration event that matches the workflow.
 
 For local harness-backed agents, a receipt may be followed by session wake or
-attachment. If the target is known but no compatible session exists, Scout should
-either start/attach one according to wake policy or return a dispatch/lifecycle
-failure that names the missing session and harness.
+attachment. Agent-card targets are fresh-session requests; stale or previous
+session records are not candidates for ordinary card routing. If the caller
+names `session:<id>`/`targetSessionId`, Scout should continue that exact session
+or return a dispatch/lifecycle failure that names the missing session and
+harness.
 
 ## Coordination Cost
 

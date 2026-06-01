@@ -2268,7 +2268,7 @@ unless the caller is intentionally selecting a specialized profile.
 
 Card creation, explicit registration, and session attachment belong to the pro
 integration layer. They are appropriate for hosts and Scout-native agents that
-need to manage durable return addresses or sticky sessions directly, but they
+need to manage durable return addresses or explicit session attachments, but they
 are not the default way to ask another agent for work.
 
 ## Collaboration Semantics
@@ -2472,7 +2472,7 @@ such as `@talkie`.
 
 An **agent instance** is the concrete attachment Scout routes to for that base
 identity: a Claude or Codex harness, a model choice, a machine/node, and
-possibly a sticky session/thread. Asking for a specific instance should refine
+optionally an explicit session id. Asking for a specific instance should refine
 the route, not create the impression that `talkie#codex` and `talkie#claude`
 are separate base agents.
 
@@ -3063,6 +3063,9 @@ MCP tools.
 - If the project is known but the concrete agent/session is not, use
   `ask({ projectPath })` or `scout ask --project <path>` and let the broker
   resolve or create the right instance.
+- Agent cards, labels, and exact agent ids are fresh-session targets for new
+  work. Use `targetSessionId` / `session:<id>` only to continue one exact prior
+  Codex/Claude session.
 - Treat the base agent identity as the vanilla project/workspace identity.
   Harness, model, profile, node, and session details are instance constraints,
   not separate base agents, unless a specialized profile is explicitly needed.
