@@ -15,12 +15,17 @@ final class ScoutCommsStore: ObservableObject {
     @Published var isLoading = false
     @Published var isSending = false
     @Published var lastError: String?
+    @Published private(set) var observePayload: ScoutObservePayload?
+    @Published private(set) var observeAgentId: String?
+    @Published private(set) var isObserveLoading = false
+    @Published private(set) var observeError: String?
 
     private let decoder = JSONDecoder()
     private var pollTask: Task<Void, Never>?
     private var channelsTask: Task<Void, Never>?
     private var messagesTask: Task<Void, Never>?
     private var agentsTask: Task<Void, Never>?
+    private var observeTask: Task<Void, Never>?
 
     var selectedChannel: ScoutChannel? {
         guard let selectedCId else { return nil }
@@ -80,14 +85,19 @@ final class ScoutCommsStore: ObservableObject {
         channelsTask?.cancel()
         messagesTask?.cancel()
         agentsTask?.cancel()
+        observeTask?.cancel()
         channelsTask = nil
         messagesTask = nil
         agentsTask = nil
+        observeTask = nil
     }
 
     func refresh(force: Bool = false) {
         loadChannels(force: force)
         loadAgents(force: force)
+        if let observeAgentId {
+            loadObserve(agentId: observeAgentId, force: true)
+        }
     }
 
     func selectChannel(_ cId: String) {
@@ -115,6 +125,20 @@ final class ScoutCommsStore: ObservableObject {
         messagesTask?.cancel()
         messagesTask = Task { [weak self] in
             await self?.loadMessages(cId: selectedCId)
+        }
+    }
+
+    func loadObserve(agentId: String, force: Bool = false) {
+        if observeTask != nil { return }
+        if !force, observeAgentId == agentId, observePayload != nil { return }
+        if observeAgentId != agentId {
+            observePayload = nil
+            observeError = nil
+        }
+        observeAgentId = agentId
+        isObserveLoading = observePayload == nil
+        observeTask = Task { [weak self] in
+            await self?.fetchObserve(agentId: agentId)
         }
     }
 
@@ -219,6 +243,25 @@ final class ScoutCommsStore: ObservableObject {
         } catch {
             guard selectedCId == cId else { return }
             lastError = Self.userFacingError(error)
+        }
+    }
+
+    private func fetchObserve(agentId: String) async {
+        defer {
+            isObserveLoading = false
+            observeTask = nil
+        }
+
+        do {
+            let url = ScoutWeb.baseURL().appending(path: "api/agents/\(agentId)/observe")
+            let next = try await fetch(ScoutObservePayload.self, from: url)
+            guard observeAgentId == agentId else { return }
+            observePayload = next
+            observeError = nil
+            lastError = nil
+        } catch {
+            guard observeAgentId == agentId else { return }
+            observeError = Self.userFacingError(error)
         }
     }
 
