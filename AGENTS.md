@@ -6,6 +6,13 @@ For fast project context, read [llms.txt](./llms.txt), then the dense agent note
 
 Host-specific instruction files [CODEX.md](./CODEX.md) and [CLAUDE.md](./CLAUDE.md) are intentionally thin redirects. Keep shared guidance here or in `docs/agent`, not duplicated per host.
 
+## Work Preservation
+
+- Treat uncommitted source, docs, tests, and UI work in the active checkout as intentional by default.
+- Err on the side of staging and committing real project work. Weed out only artifacts, generated leftovers, scratch files, and clear experiments that should not land.
+- Do not use `git stash` as the main preservation mechanism for user work. Prefer explicit commits or named branches so useful work cannot be forgotten in a hidden stash.
+- Before committing broad work, confirm the staged file list and call out anything excluded.
+
 ## Product Posture
 
 OpenScout is currently for high-trust local developer pilots, not enterprise-ready deployment. Do not claim compliance readiness, hardened multi-tenant security, guaranteed distributed delivery, or a finalized open-source license unless package and repo metadata have changed.
