@@ -667,7 +667,7 @@ describe("scoutAskHandler", () => {
     });
     expect(captured.delivery?.execution).toEqual({
       harness: "claude",
-      session: "any",
+      session: "new",
     });
     expect(captured.delivery?.messageMetadata).toMatchObject({
       source: "scout-ask",

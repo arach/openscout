@@ -871,6 +871,7 @@ export const DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS = [
   "mcp__scout__messages_inbox",
   "mcp__scout__messages_channel",
   "mcp__scout__broker_feed",
+  "mcp__scout__tail_events",
   "mcp__scout__agents_search",
   "mcp__scout__agents_resolve",
   "mcp__scout__messages_reply",
@@ -2342,7 +2343,7 @@ function invocationSessionFreshness(invocation: InvocationRequest): string {
     case "existing":
       return "continuing session";
     case "any":
-      return "reuse-or-new session";
+      return invocation.execution?.targetSessionId ? "continuing session" : "fresh session";
     default:
       return "session unspecified";
   }

@@ -59,6 +59,7 @@ These tools observe records created by `ask`; they do not create work:
 | `invocations_get` | Fetch the current state for a known ask flight. |
 | `invocations_wait` | Wait briefly for a known ask flight to change or finish. |
 | `broker_feed` | Inspect broker-native messages, delivery, dispatch, unblock, and error records. |
+| `tail_events` | Inspect recent observed harness activity without making transcripts Scout-owned messages. |
 
 `invocations_ask` is not an agent-facing front door. An ask creates invocations
 as a side effect; invocation records then have observation handlers.

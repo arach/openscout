@@ -178,6 +178,12 @@ import {
   getHarnessTopologySnapshot,
   nudgeHarnessTopologyScan,
 } from "./harness-topology/index.js";
+import {
+  getTailDiscovery,
+  readRecentLiveEvents,
+  readRecentTranscriptEvents,
+  type TailEvent,
+} from "./tail/index.js";
 
 const PROCESS_NAME = "scout-broker";
 const WEB_PROCESS_NAME = "scout-web";
@@ -2047,6 +2053,34 @@ function staleLocalEndpointReason(endpoint: AgentEndpoint | null): string | null
   return `endpoint ${endpoint.id} is a stale local registration superseded by current setup${replacement}`;
 }
 
+function staleLocalAgentReason(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  agent: AgentDefinition,
+): string | null {
+  const endpoints = Object.values(snapshot.endpoints).filter((endpoint) => endpoint.agentId === agent.id);
+  const staleEndpointReasons = endpoints
+    .map((endpoint) => staleLocalEndpointReason(endpoint))
+    .filter((reason): reason is string => Boolean(reason));
+  if (endpoints.length > 0 && staleEndpointReasons.length === endpoints.length) {
+    return staleLocalEndpointReason(latestEndpointForAgent(snapshot, agent.id)) ?? staleEndpointReasons[0] ?? null;
+  }
+
+  if (agent.metadata?.staleLocalRegistration !== true) {
+    return null;
+  }
+
+  const endpointReason = staleLocalEndpointReason(latestEndpointForAgent(snapshot, agent.id));
+  if (endpointReason) {
+    return endpointReason;
+  }
+
+  const replacementAgentId = metadataStringValue(agent.metadata, "replacedByAgentId");
+  const replacement = replacementAgentId
+    ? `; replacement agent is ${replacementAgentId}`
+    : "";
+  return `agent ${agent.id} is a stale local registration superseded by current setup${replacement}`;
+}
+
 function flightDispatchEndpointId(flight: FlightRecord): string | null {
   const dispatchAck = flight.metadata?.dispatchAck;
   if (!dispatchAck || typeof dispatchAck !== "object" || Array.isArray(dispatchAck)) {
@@ -2513,7 +2547,32 @@ function buildBrokerReturnAddressForActor(
 function describeUnavailableDeliveryTarget(
   snapshot: ReturnType<typeof runtime.snapshot>,
   agent: AgentDefinition,
+  targetSessionId?: string,
 ): ScoutDispatchUnavailableTarget | null {
+  const staleReason = targetSessionId
+    ? staleLocalAgentReason(snapshot, agent)
+    : agent.metadata?.staleLocalRegistration === true
+    ? staleLocalAgentReason(snapshot, agent)
+    : null;
+  if (staleReason) {
+    const endpoint = latestEndpointForAgent(snapshot, agent.id);
+    const projectRoot = brokerTargetProjectRoot(agent, endpoint);
+    return {
+      agentId: agent.id,
+      displayName: agent.displayName ?? agent.id,
+      reason: "stale_registration",
+      detail: staleReason,
+      wakePolicy: agent.wakePolicy,
+      endpointState: endpoint?.state === "active" || endpoint?.state === "idle" || endpoint?.state === "waiting"
+        ? "online"
+        : endpoint?.state === "offline"
+        ? "offline"
+        : "unknown",
+      transport: endpoint?.transport ?? null,
+      projectRoot,
+    };
+  }
+
   const endpoint = homeEndpointForAgent(snapshot, agent.id);
   const projectRoot = brokerTargetProjectRoot(agent, endpoint);
 
@@ -4332,22 +4391,29 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
   const requestedHarness = invocation.execution?.harness;
   const targetSessionId = invocationTargetSessionId(invocation);
   const sessionPreference = invocation.execution?.session ?? "new";
+  const shouldUseExistingSession = Boolean(targetSessionId);
   const existing = activeLocalEndpointForAgent(
     invocation.targetAgentId,
     requestedHarness,
     targetSessionId,
   );
-  if (existing && (sessionPreference !== "new" || existing.transport === "pairing_bridge")) {
+  if (existing && (shouldUseExistingSession || existing.transport === "pairing_bridge")) {
     return existing;
   }
 
-  const staleEndpoints = runtime.endpointsForAgent(invocation.targetAgentId, {
-    nodeId,
-    harness: requestedHarness,
-  }).filter((endpoint) =>
-    endpoint.id !== existing?.id
-    && (targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true)
-  );
+  if (!shouldUseExistingSession && sessionPreference === "existing") {
+    return undefined;
+  }
+
+  const staleEndpoints = shouldUseExistingSession
+    ? runtime.endpointsForAgent(invocation.targetAgentId, {
+        nodeId,
+        harness: requestedHarness,
+      }).filter((endpoint) =>
+        endpoint.id !== existing?.id
+        && endpointMatchesTargetSession(endpoint, targetSessionId!)
+      )
+    : [];
   const staleLocalReason = staleEndpoints
     .map((endpoint) => staleLocalEndpointReason(endpoint))
     .find((reason): reason is string => Boolean(reason));
@@ -4355,7 +4421,7 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     throw new Error(staleLocalReason);
   }
 
-  if (invocation.ensureAwake) {
+  if (invocation.ensureAwake && shouldUseExistingSession) {
     for (const endpoint of staleEndpoints) {
       try {
         const revived = await reviveManagedLocalSessionEndpoint(endpoint);
@@ -4389,10 +4455,6 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
   }
 
   if (!invocation.ensureAwake) {
-    return undefined;
-  }
-
-  if (sessionPreference === "existing") {
     return undefined;
   }
 
@@ -4449,9 +4511,10 @@ async function executeLocalInvocation(
   }
 
   if (!agent || !endpoint) {
-    const staleEndpointReason = staleLocalEndpointReason(
-      latestEndpointForAgent(runtime.snapshot(), invocation.targetAgentId),
-    );
+    const targetSessionId = invocationTargetSessionId(invocation);
+    const staleEndpointReason = targetSessionId
+      ? staleLocalEndpointReason(latestEndpointForAgent(runtime.snapshot(), invocation.targetAgentId))
+      : null;
     if (staleEndpointReason) {
       const failedFlight = {
         ...initialFlight,
@@ -4969,6 +5032,49 @@ function parseLimit(url: URL): number {
   return Math.min(limit, 500);
 }
 
+function parseTailLimit(url: URL): number {
+  const limit = Number.parseInt(url.searchParams.get("limit") ?? "500", 10);
+  if (!Number.isFinite(limit) || limit <= 0) return 500;
+  return Math.min(limit, 1_000);
+}
+
+async function readTailRecentPayload(url: URL): Promise<{
+  generatedAt: number;
+  limit: number;
+  cursor: string | null;
+  events: TailEvent[];
+}> {
+  const limit = parseTailLimit(url);
+  const bufferedEvents = await readRecentLiveEvents(limit);
+  const eventsById = new Map<string, TailEvent>();
+
+  if (url.searchParams.get("transcripts") === "true" || url.searchParams.get("transcripts") === "1") {
+    const transcriptEvents = await readRecentTranscriptEvents(limit, {
+      perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
+    });
+    for (const event of transcriptEvents) {
+      eventsById.set(event.id, event);
+    }
+  }
+  for (const event of bufferedEvents) {
+    eventsById.set(event.id, event);
+  }
+
+  const events = [...eventsById.values()]
+    .sort((left, right) => {
+      if (left.ts === right.ts) return left.id.localeCompare(right.id);
+      return left.ts - right.ts;
+    })
+    .slice(-limit);
+
+  return {
+    generatedAt: Date.now(),
+    limit,
+    cursor: events.at(-1)?.id ?? null,
+    events,
+  };
+}
+
 function parseSince(url: URL): number | null {
   const since = Number.parseInt(url.searchParams.get("since") ?? "", 10);
   if (!Number.isFinite(since) || since <= 0) {
@@ -5434,6 +5540,17 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/v1/topology/snapshot") {
     json(response, 200, await getHarnessTopologySnapshot(url.searchParams.get("force") === "1"));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/tail/discover") {
+    const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+    json(response, 200, await getTailDiscovery(force));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/tail/recent") {
+    json(response, 200, await readTailRecentPayload(url));
     return;
   }
 
@@ -6854,7 +6971,12 @@ async function resolveBrokerDeliveryTargetWithImplicitProjectAgent(
     });
   }
 
-  await syncRegisteredLocalAgentsIfChanged(options.reason);
+  // Materialized project cards must be visible to the broker before routing.
+  // Do a direct sync here instead of relying on mtime/size signature checks,
+  // which can be too weak on fast CI filesystems immediately after a write.
+  clearGitBranchCache();
+  console.log(`[openscout-runtime] local agent registry changed (${options.reason}); refreshing registered agents`);
+  await syncRegisteredLocalAgents();
   const agent = runtime.snapshot().agents[status.agentId];
   if (agent && !isInactiveLocalAgent(agent)) {
     return { kind: "resolved", agent };
@@ -6894,7 +7016,11 @@ function remediationForDispatch(
   }
   if (dispatch.kind === "unavailable") {
     return {
-      kind: dispatch.target?.reason === "manual_wake_required" ? "wake_target" : "retry_later",
+      kind: dispatch.target?.reason === "manual_wake_required"
+        ? "wake_target"
+        : dispatch.target?.reason === "stale_registration"
+        ? "stale_reference"
+        : "retry_later",
       detail: dispatch.target?.detail ?? dispatch.detail,
       targetAgentId: dispatch.target?.agentId,
       targetLabel: dispatch.askedLabel,
@@ -7394,6 +7520,7 @@ async function acceptBrokerDelivery(
     payload.target?.kind === "session_id"
       ? payload.target.sessionId.trim()
       : payload.targetSessionId?.trim()
+      || payload.execution?.targetSessionId?.trim()
       || metadataStringValue(payload.invocationMetadata, "targetSessionId")
       || metadataStringValue(payload.messageMetadata, "targetSessionId")
       || undefined;
@@ -7711,7 +7838,7 @@ async function acceptBrokerDelivery(
     };
   }
 
-  const unavailable = describeUnavailableDeliveryTarget(runtime.snapshot(), resolved.agent);
+  const unavailable = describeUnavailableDeliveryTarget(runtime.snapshot(), resolved.agent, targetSessionId);
   if (unavailable) {
     const { record } = await recordScoutDispatchDurably(
       buildUnavailableDispatchEnvelope(askedLabel || brokerTargetLabel(resolved.agent), unavailable),
@@ -7833,9 +7960,11 @@ async function acceptBrokerDelivery(
       ? { sourceIntent: "direct_message" }
       : {}),
   };
+  const baseInvocationExecution = execution ?? {};
   const invocationExecution = {
-    ...(execution ?? (payload.intent === "tell" ? { session: "any" as const } : {})),
-    ...(targetSessionId ? { session: "existing" as const, targetSessionId } : {}),
+    ...baseInvocationExecution,
+    session: targetSessionId ? "existing" as const : "new" as const,
+    ...(targetSessionId ? { targetSessionId } : {}),
   };
   const invocation: InvocationRequest = {
     id: createRuntimeId("inv"),

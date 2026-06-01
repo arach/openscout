@@ -9,6 +9,7 @@ import AppKit
 
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
+    @StateObject private var tail = ScoutTailStore()
     @ObservedObject private var vox = ScoutVoxService.shared
     @State private var section: ScoutSection = .comms
     @State private var railCompact = false
@@ -21,6 +22,7 @@ struct ScoutRootView: View {
     @State private var currentSuggestionTrigger: MessageSuggestionTrigger?
     @State private var dismissedSuggestionSignature: String?
     @State private var conversationListResizePreviewWidth: CGFloat?
+    @State private var composerInputFrame: CGRect = .zero
     @State private var observeSidecarAgent: ScoutAgent?
     @State private var observeSidecarStagingWidth = ScoutObserveSidecarMetrics.peekWidth
     @State private var observeRestoresInspectorCollapsed = false
@@ -95,14 +97,21 @@ struct ScoutRootView: View {
             motion: .base
         ))
         .hudsonSidebarMotionMode(.smoothFade)
-        .onAppear { store.start() }
-        .onDisappear { store.stop() }
+        .onAppear {
+            store.start()
+            tail.start()
+        }
+        .onDisappear {
+            store.stop()
+            tail.stop()
+        }
     }
 
     private var sidebarEntries: [HudSidebarEntry<ScoutSection>] {
         [
             .item(HudSidebarItem(id: .comms, title: "Comms", icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill")),
             .item(HudSidebarItem(id: .agents, title: "Agents", icon: "person.2", selectedIcon: "person.2.fill")),
+            .item(HudSidebarItem(id: .tail, title: "Tail", icon: "waveform.path.ecg", selectedIcon: "waveform.path.ecg")),
         ]
     }
 
@@ -144,6 +153,8 @@ struct ScoutRootView: View {
             commsContent
         case .agents:
             agentsContent
+        case .tail:
+            tailContent
         }
     }
 
@@ -275,64 +286,16 @@ struct ScoutRootView: View {
     }
 
     private var composer: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            HStack(alignment: .top, spacing: HudSpacing.lg) {
-                ScoutMicButton(box: 30, glyph: 15, action: toggleDictation)
-                    .padding(.top, 1)
+        VStack(alignment: .leading, spacing: HudSpacing.md) {
+            HStack(alignment: .top, spacing: HudSpacing.md) {
+                composerInputWell
 
-                ZStack(alignment: .topLeading) {
-                    TextField(showDictationPreview ? "" : composerPlaceholder, text: $draft, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(HudFont.mono(11))
-                        .foregroundStyle(HudPalette.ink)
-                        .lineLimit(1...5)
-                        .focused($composerFocused)
-                        .disabled(store.selectedCId == nil || store.isSending)
-                        .onKeyPress(phases: .down) { press in
-                            if press.key == .return {
-                                if applySelectedSuggestion() { return .handled }
-                                if press.modifiers.contains(.shift) { return .ignored }
-                                sendDraft()
-                                return .handled
-                            }
-                            return .ignored
-                        }
-                        .onKeyPress(.upArrow) {
-                            guard !suggestions.isEmpty else { return .ignored }
-                            stepSuggestion(-1)
-                            return .handled
-                        }
-                        .onKeyPress(.downArrow) {
-                            guard !suggestions.isEmpty else { return .ignored }
-                            stepSuggestion(1)
-                            return .handled
-                        }
-                        .onKeyPress(.escape) {
-                            guard !suggestions.isEmpty else { return .ignored }
-                            dismissSuggestions()
-                            return .handled
-                        }
-
-                    if showDictationPreview {
-                        ScoutDictationPreview(text: vox.partial.isEmpty ? voxStatusLine : vox.partial)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .padding(.horizontal, HudSpacing.xl)
-                .padding(.vertical, HudSpacing.lg)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard).fill(HudSurface.control))
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.standard)
-                        .stroke(composerFocused ? HudSurface.tintBorder(HudPalette.accent) : ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
-                )
-
-                MessageSendChip(
+                ScoutSendButton(
                     isEnabled: composerCanSend,
                     isSending: store.isSending,
-                    style: .scout,
                     action: sendDraft
                 )
-                .padding(.top, HudSpacing.md)
+                .padding(.top, HudSpacing.xs)
             }
 
             if let status = composerStatusText {
@@ -340,10 +303,31 @@ struct ScoutRootView: View {
                     .font(HudFont.mono(9))
                     .foregroundStyle(HudPalette.dim)
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, HudSpacing.xs)
             }
         }
-        .padding(HudSpacing.xxl)
-        .background(ScoutDesign.chrome)
+        .padding(.horizontal, HudSpacing.xxl)
+        .padding(.top, HudSpacing.xl)
+        .padding(.bottom, HudSpacing.lg)
+        .background {
+            ZStack(alignment: .top) {
+                ScoutDesign.chrome
+                LinearGradient(
+                    colors: [
+                        HudPalette.accent.opacity(composerFocused ? 0.055 : 0.018),
+                        Color.clear,
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 54)
+            }
+        }
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(composerFocused ? HudPalette.accent.opacity(0.42) : ScoutDesign.hairlineStrong)
+                .frame(height: HudStrokeWidth.thin)
+        }
         .overlay(alignment: .topLeading) {
             if !suggestions.isEmpty {
                 MessageSuggestionPopover(
@@ -353,21 +337,111 @@ struct ScoutRootView: View {
                     onHover: selectSuggestion,
                     onSelect: { _ = applySuggestion($0) }
                 )
-                .frame(maxWidth: 460)
-                // Line the popover up with the text field, not the mic:
-                // composer inset (xxl) + mic box (30) + row spacing (lg).
-                .padding(.leading, HudSpacing.xxl + 30 + HudSpacing.lg)
-                .padding(.trailing, HudSpacing.xxl)
-                // Float exactly above the composer with a small gap — no
-                // height guesswork, so it stays aligned at any row count.
-                .alignmentGuide(.top) { dims in dims.height + HudSpacing.sm }
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .frame(width: composerSuggestionWidth, alignment: .leading)
+                .offset(
+                    x: composerSuggestionX,
+                    y: -suggestionPopoverHeight(count: suggestions.count) - HudSpacing.sm
+                )
+                .transition(.opacity)
             }
+        }
+        .coordinateSpace(name: "scoutComposer")
+        .onPreferenceChange(ScoutComposerInputFrameKey.self) { frame in
+            composerInputFrame = frame
         }
         .animation(.easeOut(duration: 0.12), value: suggestions.count)
         .onChange(of: draft) { _, _ in refreshSuggestions() }
         .onChange(of: store.agents.count) { _, _ in refreshSuggestions() }
         .onReceive(vox.$lastFinalText) { spliceDictatedFinal($0) }
+    }
+
+    private var composerInputWell: some View {
+        HStack(alignment: .top, spacing: HudSpacing.md) {
+            ScoutMicButton(box: 28, glyph: 14, action: toggleDictation)
+                .padding(.top, 1)
+
+            ZStack(alignment: .topLeading) {
+                TextField(showDictationPreview ? "" : composerPlaceholder, text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(HudFont.mono(11))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1...5)
+                    .focused($composerFocused)
+                    .disabled(store.selectedCId == nil || store.isSending)
+                    .onKeyPress(phases: .down) { press in
+                        if press.key == .return {
+                            if applySelectedSuggestion() { return .handled }
+                            if press.modifiers.contains(.shift) { return .ignored }
+                            sendDraft()
+                            return .handled
+                        }
+                        return .ignored
+                    }
+                    .onKeyPress(.upArrow) {
+                        guard !suggestions.isEmpty else { return .ignored }
+                        stepSuggestion(-1)
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow) {
+                        guard !suggestions.isEmpty else { return .ignored }
+                        stepSuggestion(1)
+                        return .handled
+                    }
+                    .onKeyPress(.escape) {
+                        guard !suggestions.isEmpty else { return .ignored }
+                        dismissSuggestions()
+                        return .handled
+                    }
+
+                if showDictationPreview {
+                    ScoutDictationPreview(text: vox.partial.isEmpty ? voxStatusLine : vox.partial)
+                        .allowsHitTesting(false)
+                }
+            }
+            .padding(.top, 5)
+            .padding(.bottom, 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ScoutComposerInputFrameKey.self,
+                        value: proxy.frame(in: .named("scoutComposer"))
+                    )
+                }
+            )
+        }
+        .padding(.leading, HudSpacing.md)
+        .padding(.trailing, HudSpacing.lg)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: .infinity, minHeight: 42, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(composerWellFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(composerWellBorder, lineWidth: HudStrokeWidth.thin)
+        )
+        .shadow(
+            color: composerFocused ? HudPalette.accent.opacity(0.12) : Color.black.opacity(0.22),
+            radius: composerFocused ? 14 : 8,
+            x: 0,
+            y: 3
+        )
+    }
+
+    private var composerWellFill: Color {
+        if store.selectedCId == nil {
+            return HudSurface.inset.opacity(0.64)
+        }
+        return composerFocused ? HudSurface.control.opacity(0.96) : HudSurface.control.opacity(0.84)
+    }
+
+    private var composerWellBorder: Color {
+        if store.selectedCId == nil {
+            return ScoutDesign.hairline
+        }
+        return composerFocused ? HudSurface.tintBorder(HudPalette.accent) : ScoutDesign.hairlineStrong
     }
 
     private var composerPlaceholder: String {
@@ -383,13 +457,27 @@ struct ScoutRootView: View {
             && !store.isSending
     }
 
+    private var composerSuggestionX: CGFloat {
+        guard composerInputFrame.width > 0 else { return HudSpacing.xxl }
+        return max(HudSpacing.xs, composerInputFrame.minX)
+    }
+
+    private var composerSuggestionWidth: CGFloat {
+        guard composerInputFrame.width > 0 else { return 460 }
+        return min(460, max(320, composerInputFrame.width))
+    }
+
+    private func suggestionPopoverHeight(count: Int) -> CGFloat {
+        25 + CGFloat(min(max(count, 1), 7)) * 38
+    }
+
     private var composerStatusText: String? {
         if store.selectedChannel == nil { return "Select a conversation to message" }
         if isDictating { return voxStatusLine }
         if let reason = voxUnavailableReason { return reason }
         if store.isSending { return "Sending..." }
         if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Type / for commands · @ for agents · sid: for sessions"
+            return "Type / for commands · @ for agents · session: for sessions"
         }
         return "↵ send · ⇧↵ newline"
     }
@@ -579,11 +667,17 @@ struct ScoutRootView: View {
         .background(ScoutDesign.bg)
     }
 
+    private var tailContent: some View {
+        ScoutTailContent(tail: tail)
+    }
+
     private var inspectorHeader: some View {
         HStack(spacing: HudSpacing.md) {
-            HudSectionLabel(store.selectedAgent == nil ? "Context" : "Agent")
+            HudSectionLabel(section == .tail ? "Tail" : (store.selectedAgent == nil ? "Context" : "Agent"))
             Spacer()
-            if let agent = store.selectedAgent {
+            if section == .tail {
+                HudBadge(tail.isFollowing ? "Live" : "Paused", tint: tail.isFollowing ? HudPalette.statusOk : HudPalette.muted, dot: tail.isFollowing)
+            } else if let agent = store.selectedAgent {
                 HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
             }
         }
@@ -657,29 +751,33 @@ struct ScoutRootView: View {
     @ViewBuilder
     private var inspectorContent: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xl) {
-            if section == .agents {
-                ScoutChannelPicker(
-                    title: "DM / Channels",
-                    isLoading: store.isLoading,
-                    query: $store.channelQuery,
-                    channels: pickerChannels,
-                    selectedCId: store.selectedCId
-                ) { channel in
-                    store.selectChannel(channel.cId)
-                    section = .comms
-                }
-            }
-
-            if let agent = store.selectedAgent {
-                ScoutAgentInspector(agent: agent, selectedChannel: store.selectedChannel) {
-                    observeAgent(agent)
-                } openProfile: {
-                    ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile")
-                }
-            } else if let channel = store.selectedChannel {
-                ScoutChannelInspector(channel: channel)
+            if section == .tail {
+                ScoutTailInspector(tail: tail)
             } else {
-                HudEmptyState(title: "Nothing selected", subtitle: "Select a channel or agent to inspect context.", icon: "sidebar.right")
+                if section == .agents {
+                    ScoutChannelPicker(
+                        title: "DM / Channels",
+                        isLoading: store.isLoading,
+                        query: $store.channelQuery,
+                        channels: pickerChannels,
+                        selectedCId: store.selectedCId
+                    ) { channel in
+                        store.selectChannel(channel.cId)
+                        section = .comms
+                    }
+                }
+
+                if let agent = store.selectedAgent {
+                    ScoutAgentInspector(agent: agent, selectedChannel: store.selectedChannel) {
+                        observeAgent(agent)
+                    } openProfile: {
+                        ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile")
+                    }
+                } else if let channel = store.selectedChannel {
+                    ScoutChannelInspector(channel: channel)
+                } else {
+                    HudEmptyState(title: "Nothing selected", subtitle: "Select a channel or agent to inspect context.", icon: "sidebar.right")
+                }
             }
         }
     }
@@ -877,6 +975,14 @@ struct ScoutRootView: View {
                 .font(HudFont.mono(10))
                 .foregroundStyle(HudPalette.muted)
 
+            Text("·")
+                .font(HudFont.mono(10))
+                .foregroundStyle(HudPalette.dim)
+
+            Text("\(tail.events.count) tail")
+                .font(HudFont.mono(10))
+                .foregroundStyle(HudPalette.muted)
+
             if let error = store.lastError {
                 Text("·")
                     .font(HudFont.mono(10))
@@ -888,6 +994,16 @@ struct ScoutRootView: View {
             }
 
             if let error = store.observeError {
+                Text("·")
+                    .font(HudFont.mono(10))
+                    .foregroundStyle(HudPalette.dim)
+                Text(error)
+                    .font(HudFont.mono(10))
+                    .foregroundStyle(HudPalette.statusError)
+                    .lineLimit(1)
+            }
+
+            if let error = tail.lastError {
                 Text("·")
                     .font(HudFont.mono(10))
                     .foregroundStyle(HudPalette.dim)
@@ -942,6 +1058,17 @@ enum ScoutDesign {
 private enum ScoutAgentContentMode {
     case roster
     case observe
+}
+
+private struct ScoutComposerInputFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero {
+            value = next
+        }
+    }
 }
 
 private enum ScoutChannelFilter: String, CaseIterable, Identifiable {
@@ -1792,6 +1919,69 @@ private struct ScoutDictationPreview: View {
     }
 }
 
+private struct ScoutSendButton: View {
+    let isEnabled: Bool
+    let isSending: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .fill(fillColor)
+
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .stroke(borderColor, lineWidth: HudStrokeWidth.thin)
+
+                content
+            }
+            .frame(width: 34, height: 34)
+            .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled || isSending)
+        .onHover { hovering = $0 }
+        .help(isEnabled && !isSending ? "Send message" : "")
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isSending {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.62)
+                .tint(HudPalette.dim)
+        } else {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(iconColor)
+        }
+    }
+
+    private var fillColor: Color {
+        if !isEnabled || isSending {
+            return HudSurface.inset.opacity(0.82)
+        }
+        return hovering ? HudPalette.ink : HudPalette.accent
+    }
+
+    private var borderColor: Color {
+        if !isEnabled || isSending {
+            return ScoutDesign.hairlineStrong
+        }
+        return hovering ? HudPalette.ink.opacity(0.72) : HudPalette.accent.opacity(0.46)
+    }
+
+    private var iconColor: Color {
+        if !isEnabled || isSending {
+            return HudPalette.dim
+        }
+        return ScoutDesign.bg
+    }
+}
+
 // Hand-drawn dictation mic, ported from the HUD's HudMessageDock. Tap to
 // toggle Vox dictation. Visual state mirrors ScoutVoxService.state:
 //   idle/probing → faint stroke · recording → accent stroke + pulsing halo
@@ -1803,6 +1993,7 @@ private struct ScoutMicButton: View {
 
     @ObservedObject private var vox = ScoutVoxService.shared
     @State private var pulse = false
+    @State private var hovering = false
 
     private var isRecording: Bool { vox.state.isCaptureActive }
     private var isProcessing: Bool { vox.state.isProcessing }
@@ -1829,6 +2020,10 @@ private struct ScoutMicButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
+                Circle()
+                    .fill(micFillColor)
+                    .frame(width: box, height: box)
+
                 if isRecording {
                     Circle()
                         .fill(HudPalette.accent.opacity(pulse ? 0.20 : 0.08))
@@ -1852,6 +2047,7 @@ private struct ScoutMicButton: View {
         }
         .buttonStyle(.plain)
         .help(tooltip)
+        .onHover { hovering = $0 }
         .task { if vox.state == .probing { await vox.probe() } }
         .onChange(of: vox.state) { _, newValue in
             pulse = false
@@ -1861,6 +2057,19 @@ private struct ScoutMicButton: View {
                 }
             }
         }
+    }
+
+    private var micFillColor: Color {
+        if isRecording {
+            return HudPalette.accent.opacity(pulse ? 0.13 : 0.08)
+        }
+        if isProcessing {
+            return HudSurface.hover.opacity(pulse ? 0.88 : 0.62)
+        }
+        if hovering {
+            return HudSurface.hover.opacity(0.86)
+        }
+        return HudSurface.inset.opacity(0.62)
     }
 }
 

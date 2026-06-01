@@ -30,6 +30,7 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 | identify sender | `whoami` |
 | resolve ambiguous target | `agents_resolve` |
 | broker-native messages/status/errors | `broker_feed` |
+| observed harness activity | `tail_events` |
 | message/update | `messages_send` |
 | work/requested reply | `ask` |
 | project known, agent unknown | `ask({ projectPath })` |

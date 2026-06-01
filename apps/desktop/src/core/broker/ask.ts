@@ -176,9 +176,6 @@ function executionSessionForAsk(
   if (session === "new") {
     return "new";
   }
-  if (session === "reuse") {
-    return "any";
-  }
   return undefined;
 }
 

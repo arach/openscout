@@ -109,6 +109,7 @@ describe("createScoutMcpServer", () => {
       "messages_inbox",
       "messages_channel",
       "broker_feed",
+      "tail_events",
       "current_reply_context",
       "messages_reply",
       "session_attach_current",
@@ -134,6 +135,8 @@ describe("createScoutMcpServer", () => {
       .toContain("instead of curling broker HTTP endpoints");
     expect(result.tools.find((tool) => tool.name === "broker_feed")?.description)
       .toContain("native broker view");
+    expect(result.tools.find((tool) => tool.name === "tail_events")?.description)
+      .toContain("observed harness events");
     expect(result.tools.find((tool) => tool.name === "messages_reply")?.description)
       .toContain("current ScoutReplyContext");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)
@@ -463,6 +466,81 @@ describe("createScoutMcpServer", () => {
       kind: "flight",
       severity: "error",
       summary: "dispatch stalled",
+    });
+  });
+
+  test("reads tail events through the broker dependency", async () => {
+    let receivedInput:
+      | {
+        limit?: number;
+        sources?: string[];
+        kinds?: string[];
+        query?: string;
+        transcripts?: boolean;
+        baseUrl?: string;
+      }
+      | undefined;
+    const { client } = await connectTestServer({
+      readTailEvents: async (input) => {
+        receivedInput = input;
+        return {
+          generatedAt: 1_000,
+          limit: input.limit ?? 80,
+          cursor: "codex:s1:2",
+          events: [
+            {
+              id: "codex:s1:2",
+              ts: 900,
+              source: "codex",
+              sessionId: "s1",
+              pid: 101,
+              parentPid: null,
+              project: "openscout",
+              cwd: "/tmp/openscout",
+              harness: "unattributed",
+              kind: "tool-result",
+              summary: "bun test passed",
+            },
+          ],
+        };
+      },
+    });
+
+    const result = await client.callTool({
+      name: "tail_events",
+      arguments: {
+        sources: ["codex"],
+        kinds: ["tool-result"],
+        query: "test",
+        limit: 5,
+        transcripts: true,
+      },
+    });
+
+    expect(receivedInput).toMatchObject({
+      limit: 5,
+      sources: ["codex"],
+      kinds: ["tool-result"],
+      query: "test",
+      transcripts: true,
+      baseUrl: "http://broker.test",
+    });
+    const content = result.content as Array<{ text?: string }> | undefined;
+    expect(content?.[0]?.text).toContain("Tail events");
+    expect(content?.[0]?.text).toContain("bun test passed");
+    const structured = result.structuredContent as {
+      counts?: { events: number; sources: number; sessions: number };
+      events?: Array<{ source: string; kind: string; summary: string }>;
+    };
+    expect(structured.counts).toEqual({
+      events: 1,
+      sources: 1,
+      sessions: 1,
+    });
+    expect(structured.events?.[0]).toMatchObject({
+      source: "codex",
+      kind: "tool-result",
+      summary: "bun test passed",
     });
   });
 

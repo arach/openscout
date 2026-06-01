@@ -45,6 +45,7 @@ transcripts.
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
 | ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
 | project-routed ask | project known, concrete agent/session unknown | `scout ask --project`, `ask({ projectPath })` |
+| exact session ask | continue one concrete prior harness session | `scout ask --to session:<id>`, `ask({ targetSessionId })` |
 | threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
 
@@ -54,6 +55,8 @@ transcripts.
 - session = concrete Claude, Codex, or future harness conversation/process
 - endpoint = routable attachment between an agent and a session
 - card = identity and return address, not necessarily a live session
+- card/label/id targets create fresh sessions for new work; only
+  `targetSessionId` / `session:<id>` continues exact prior context
 - card/session creation = pro integration layer, not the default path for work
 - public lifecycle noun is `session`; map provider thread ids into session metadata
 - harness mismatches must fail with actionable diagnostics, not silent hangs

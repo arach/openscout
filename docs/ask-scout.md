@@ -10,7 +10,9 @@ You open Scout and say:
 
 > "Move the auth bug from one agent to another"
 
-Scout finds the right project, starts or reuses the right session, and keeps the handoff visible. If there is already work in flight, you can continue it instead of reconstructing the context in a fresh terminal.
+Scout finds the right project, starts the right fresh session, and keeps the
+handoff visible. If you explicitly pick a prior session id, Scout can continue
+that exact context instead of reconstructing it in a fresh terminal.
 
 That is the point: one place to dispatch work, review progress, and keep track of what each agent is doing.
 

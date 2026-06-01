@@ -79,7 +79,7 @@ struct HUDCheatsheetOverlay: View {
                 kbd("/", "focus dock and start a slash command")
                 kbd("/spin", "open the Scout runner draft")
                 kbd("@", "stage an agent target from the dock")
-                kbd("sid:", "complete a known session id")
+                kbd("session:", "complete a known session id")
                 kbd("↑ ↓", "move through open suggestions")
                 kbd("m", "toggle voice dictation — transcript lands in active draft")
                 kbd("↵", "send message")

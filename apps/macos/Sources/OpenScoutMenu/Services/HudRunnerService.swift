@@ -152,7 +152,7 @@ enum HudRunnerService {
             execution: .init(
                 harness: harness.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                 model: model.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                session: persistence == "sticky" ? "any" : "new"
+                session: "new"
             ),
             agent: .init(
                 persistence: persistence,

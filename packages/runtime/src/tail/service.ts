@@ -452,6 +452,16 @@ export function snapshotRecentEvents(limit = 500): TailEvent[] {
   return aggregateBuffer.slice(-limit);
 }
 
+export async function readRecentLiveEvents(limit = 500): Promise<TailEvent[]> {
+  if (watchers.size === 0) {
+    await runDiscovery("shallow", { pruneMissing: true });
+  } else if (!lastDiscovery || Date.now() - lastDiscovery.generatedAt > DISCOVERY_CACHE_MAX_AGE_MS) {
+    await runDiscovery("hot", { pruneMissing: false });
+  }
+  await pumpAllWatchers();
+  return snapshotRecentEvents(limit);
+}
+
 async function readRecentTranscriptLines(
   path: string,
   maxLines = RECENT_TRANSCRIPT_LINES_PER_FILE,

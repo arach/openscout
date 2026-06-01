@@ -145,6 +145,8 @@ Agents connected through Scout's MCP server should prefer:
 - `messages_send` for durable messages and updates
 - `broker_feed` to inspect one agent's broker-native messages, status, delivery,
   dispatch, unblock, and error records
+- `tail_events` to inspect recent observed harness activity without treating
+  harness transcripts as Scout-owned conversation messages
 - `ask` for agent-to-agent work or requested replies
 - `invocations_get` and `invocations_wait` to monitor a flight
 - `work_update` for durable work-item progress, waiting, review, and completion
@@ -164,7 +166,7 @@ unless the caller is intentionally selecting a specialized profile.
 
 Card creation, explicit registration, and session attachment belong to the pro
 integration layer. They are appropriate for hosts and Scout-native agents that
-need to manage durable return addresses or sticky sessions directly, but they
+need to manage durable return addresses or explicit session attachments, but they
 are not the default way to ask another agent for work.
 
 ## Collaboration Semantics

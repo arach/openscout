@@ -7,6 +7,8 @@ export const scoutBrokerPaths = {
     node: "/v1/node",
     snapshot: "/v1/snapshot",
     topologySnapshot: "/v1/topology/snapshot",
+    tailDiscover: "/v1/tail/discover",
+    tailRecent: "/v1/tail/recent",
     messages: "/v1/messages",
     eventsStream: "/v1/events/stream",
     actors: "/v1/actors",

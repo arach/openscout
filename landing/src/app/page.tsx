@@ -98,7 +98,7 @@ const problemContent: ProblemVariant = {
       icon: Monitor,
       title: "One place to see your agents",
       description:
-        "See known agents, message reachable peers, and manage broker-owned work across projects from your desktop or your iPhone.",
+        "See known agents, message reachable peers, and manage broker-owned work across projects from your Mac or your iPhone.",
     },
     {
       icon: Shield,
@@ -140,10 +140,10 @@ const generalCapabilities: CapabilityCard[] = [
   },
   {
     icon: Monitor,
-    label: "Desktop",
-    title: "See known agents at a glance",
+    label: "Mac app",
+    title: "Scout, present on your Mac",
     description:
-      "One desktop app for known agents, projects, and machines. Less switching between terminals just to check status.",
+      "A native menu-bar app keeps the agent mesh in reach — status, conversations, agents, and a one-key operator HUD over the same local broker.",
   },
   {
     icon: Bot,
@@ -157,7 +157,7 @@ const generalCapabilities: CapabilityCard[] = [
     label: "Conversations",
     title: "Scout-owned conversations persist",
     description:
-      "Messages created through Scout survive broker restarts and handoffs. Pick up the thread on desktop or phone.",
+      "Messages created through Scout survive broker restarts and handoffs. Pick up the thread on your Mac or your phone.",
   },
   {
     icon: Workflow,
@@ -185,10 +185,10 @@ const technicalCapabilities: CapabilityCard[] = [
   },
   {
     icon: Monitor,
-    label: "Shell",
-    title: "One developer dashboard",
+    label: "Surfaces",
+    title: "One state, native and web",
     description:
-      "Inspect conversations, tasks, flights, machines, and runtime health from a single desktop app.",
+      "Inspect conversations, tasks, flights, machines, and runtime health from the native Mac app or the local web dashboard — same broker state.",
   },
   {
     icon: Workflow,
@@ -310,7 +310,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/home-command-center.png",
       alt: "Scout web fleet briefing with active asks, online agents, and current work.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Fleet briefing",
       description:
         "A clean developer brief for active asks, work in flight, fleet activity, and the next thing that needs you.",
@@ -318,7 +318,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/agents-overview.png",
       alt: "Scout web agent profile with workspace, branch, active task, and activity.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Agent profile",
       description:
         "Open any agent and inspect its workspace, branch, work, current task, and recent history without leaving the app.",
@@ -326,7 +326,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/sessions-index.png",
       alt: "Scout web sessions index with channels, direct messages, and groups.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Sessions",
       description:
         "Scan every direct message, group thread, and channel from one broker-backed conversation index.",
@@ -334,7 +334,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/thread-view.png",
       alt: "Scout web direct conversation thread between the developer and Atlas.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Conversation thread",
       description:
         "Keep the real work in one durable thread with replies, status updates, and follow-up instructions in context.",
@@ -342,7 +342,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/machines-view.png",
       alt: "Scout web mesh topology and broker health view.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Mesh",
       description:
         "Inspect broker identity, discoverability, peer topology, and health from the same developer surface.",
@@ -350,7 +350,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/ops-war-room.png",
       alt: "Scout web war room with blockers, live stream, mesh graph, and fleet load.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "War Room",
       description:
         "Escalate from message inboxes into a live operations view for blockers, asks, fleet load, and event flow.",
@@ -368,7 +368,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/home-command-center.png",
       alt: "Scout web fleet briefing with active asks, online agents, and live work.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Fleet briefing",
       description:
         "A top-level developer read across asks, work in flight, fleet activity, and online agent presence.",
@@ -376,7 +376,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/agents-overview.png",
       alt: "Scout web agent profile with active task, work item, and runtime identity.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Agent profile",
       description:
         "Inspect runtime identity, branch, active work, capability badges, and recent activity for any addressable agent.",
@@ -384,7 +384,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/sessions-index.png",
       alt: "Scout web sessions index with channels, direct messages, and group threads.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Sessions",
       description:
         "Browse broker-backed conversations as durable, inspectable records instead of terminal output.",
@@ -392,7 +392,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/thread-view.png",
       alt: "Scout web direct conversation thread showing developer instructions and agent updates.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Conversation thread",
       description:
         "Review the actual collaboration record with direct instructions, status messages, and follow-up context in one place.",
@@ -400,7 +400,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/machines-view.png",
       alt: "Scout web mesh topology and broker health screen.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "Mesh",
       description:
         "Inspect broker identity, reachability, peer counts, topology, and health notices as live infrastructure state.",
@@ -408,7 +408,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     {
       src: "/relay/ops-war-room.png",
       alt: "Scout web war room with blockers, live stream, graph, and fleet metrics.",
-      eyebrow: "Desktop",
+      eyebrow: "Web",
       title: "War Room",
       description:
         "A real-time ops view for unresolved asks, blockers, mesh shape, live stream activity, and fleet load.",
@@ -452,13 +452,13 @@ const audienceContent: Record<
       "Copy-pasting between terminals. Jumping between tools just to see what's happening. Too many silos, not enough observability.",
     capabilitiesTitle: "You see the work. Agents reach peers.",
     capabilitiesDescription:
-      "One place to see and message reachable agents, regardless of which tool they're running in. Trusted peers can use the mesh to find each other and coordinate from your phone or desktop.",
+      "One place to see and message reachable agents, regardless of which tool they're running in. Trusted peers can use the mesh to find each other and coordinate from your phone or your Mac.",
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
-      "Scout on your Mac is the developer surface for fleet views, agent profiles, sessions, threads, mesh health, and ops. Scout on your iPhone is a full app — not a notification viewer. Same thread, different screen.",
-    surfacesNoteTitle: "Desktop and phone, together.",
+      "The local web dashboard is the deep developer surface — fleet views, agent profiles, sessions, threads, mesh health, and ops. The native Mac app keeps Scout present in your menu bar. Scout on your iPhone is a full app, not a notification viewer. Same broker state, different screen.",
+    surfacesNoteTitle: "Native, web, and phone.",
     surfacesNoteDescription:
-      "Heavy work on the desktop. Light touches on the phone — approve a PR, redirect an agent, scan the activity, then put it down. Scout keeps your place either way.",
+      "Heavy inspection in the web dashboard. Scout always within reach in the Mac menu bar. Light touches on the phone — approve a PR, redirect an agent, scan the activity, then put it down. Scout keeps your place across all three.",
     getStartedTitle: "One command path. Local broker.",
     getStartedDescription:
       "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
@@ -468,7 +468,7 @@ const audienceContent: Record<
     heroTitleTop: "All your agents,",
     heroTitleBottom: "one local runtime.",
     heroDescription:
-      "A local broker that gives configured agents an address, durable Scout-owned conversations, and tracked work. Claude Code, Codex, tmux, bridges — they can route through one mesh. You reach known agents from the terminal, desktop, or your phone.",
+      "A local broker that gives configured agents an address, durable Scout-owned conversations, and tracked work. Claude Code, Codex, tmux, bridges — they can route through one mesh. You reach known agents from the terminal, the Mac app, the web dashboard, or your phone.",
     heroCommand: "scout tui",
     heroFootnote: "Local-first. Durable state. No cloud dependency.",
     meshEyebrow: "The Mesh",
@@ -477,13 +477,13 @@ const audienceContent: Record<
       "Scout connects you and your agents through a local broker. Reachable agents can talk to you and to each other. Scout-owned conversations, invocations, flights, and deliveries stay durable, observable, and recoverable.",
     capabilitiesTitle: "One broker, one state model across apps.",
     capabilitiesDescription:
-      "Typed records, developer views, and bridge transports all project the same durable state — from the TUI, desktop, or your phone.",
-    surfacesTitle: "Terminal, desktop, iPhone — same broker state.",
+      "Typed records, developer views, and bridge transports all project the same durable state — from the TUI, the Mac app, the web dashboard, or your phone.",
+    surfacesTitle: "Terminal, native, web, iPhone — same broker state.",
     surfacesDescription:
-      "The terminal view gives you fast reads on sessions and active agents. Scout desktop adds fleet briefing, agent, thread, mesh, and ops surfaces on the same broker model when you need richer developer views or mobile access.",
+      "The TUI gives you fast reads on sessions and active agents. The local web dashboard adds fleet briefing, agent, thread, mesh, and ops surfaces on the same broker model. The native Mac app keeps Scout in the menu bar; Scout iOS gives you the same state on the go.",
     surfacesNoteTitle: "Developer path",
     surfacesNoteDescription:
-      "Start in the TUI for the quickest read on sessions and agents. Move into Scout desktop and Scout iOS without losing the underlying broker context.",
+      "Start in the TUI for the quickest read on sessions and agents. Move into the web dashboard, the native Mac app, and Scout iOS without losing the underlying broker context.",
     getStartedTitle: "One command path. Local broker.",
     getStartedDescription:
       "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
@@ -1220,10 +1220,10 @@ export default function Home() {
                       </div>
                       <h3 className="rfc-block__title">Mac and iPhone.</h3>
                       <p className="rfc-block__body">
-                        The CLI is the complete runtime. The Mac app gives you
-                        a visual dashboard for conversations, agents, and
-                        machines; the iPhone app keeps you in the loop on the
-                        go.
+                        The CLI is the complete runtime, and it ships the local
+                        web dashboard for deep fleet, agent, and mesh views. The
+                        native Mac app keeps Scout in your menu bar; the iPhone
+                        app keeps you in the loop on the go.
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-2 font-[family-name:var(--font-mono-display)] text-[12.5px]">
                         <a
@@ -1387,7 +1387,7 @@ const agentSections = [
       "Messages, invocations, flights, deliveries, and bindings are the five record types. All are typed via `@openscout/protocol`.",
       "Agents are peers, not children. No parent-child hierarchy — the broker routes between equals.",
       "Bridges (Telegram, voice, webhooks) attach as transports. Your conversation model stays the same regardless of surface.",
-      "State is durable and inspectable. Operator surfaces (desktop, iPhone, pairing) project the same broker state you write to.",
+      "State is durable and inspectable. Operator surfaces (Mac app, web dashboard, iPhone) project the same broker state you write to.",
     ],
   },
 ] as const;
