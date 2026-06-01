@@ -59,7 +59,9 @@
 }
 
 .agent-card--pinned .agent-card-link,
-.agent-card--pinned .agent-card-close {
+.agent-card--pinned .agent-card-close,
+.agent-card--pinned .agent-live-actions,
+.agent-card--pinned .agent-live-actions-button {
   pointer-events: auto;
 }
 

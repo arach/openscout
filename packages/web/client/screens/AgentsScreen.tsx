@@ -16,6 +16,7 @@ import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
+import { AgentLiveActions } from "../components/AgentLiveActions.tsx";
 import type {
   AgentTab,
   Agent,
@@ -1764,6 +1765,13 @@ function AgentDetailWithRail({
                   <span>{agent.defaultSelector}</span>
                 )}
               </div>
+              <AgentLiveActions
+                agent={agent}
+                catalog={sessionCatalog}
+                navigate={navigate}
+                returnTo={route}
+                variant="inline"
+              />
             </div>
             {renderTabs()}
           </div>

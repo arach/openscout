@@ -119,6 +119,16 @@ struct MainView: View {
                 .help(showQR ? "Hide pairing QR" : "Show pairing QR")
 
                 Button {
+                    controller.openComms()
+                } label: {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(HeaderIconButtonStyle())
+                .disabled(controller.webActionPending)
+                .help("Open Comms")
+
+                Button {
                     controller.openWebApp()
                 } label: {
                     Image(systemName: "safari")

@@ -118,5 +118,6 @@ enum CarbonModifier {
 
 // Common keyCodes we use here. Source: HIToolbox/Events.h.
 enum CarbonKeyCode {
+    static let c: UInt32 = 8
     static let h: UInt32 = 4
 }

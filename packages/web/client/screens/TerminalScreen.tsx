@@ -309,75 +309,81 @@ function TerminalRelayScreen({
 
   return (
     <div className="s-term">
-      <div className="s-term-bar">
-        <BackToPicker
-          slot="terminal"
-          fallback={agentId ? { view: "agents", agentId } : { view: "inbox" }}
-          navigate={navigate}
-          className="s-term-back"
-        />
-        {agent && (
-          <div className="s-term-agent">
-            <div
-              className="s-ops-avatar"
-              style={{ "--size": "18px", background: color } as React.CSSProperties}
-            >
-              {agent.name[0]?.toUpperCase()}
+      <div className="s-term-bar s-term-bar--takeover">
+        <div className="s-term-bar-left">
+          <BackToPicker
+            slot="terminal"
+            fallback={agentId ? { view: "agents", agentId } : { view: "inbox" }}
+            navigate={navigate}
+            className="s-term-back"
+          />
+          {agent && (
+            <div className="s-term-agent">
+              <div
+                className="s-ops-avatar"
+                style={{ "--size": "18px", background: color } as React.CSSProperties}
+              >
+                {agent.name[0]?.toUpperCase()}
+              </div>
+              <span className="s-term-agent-name">{agent.name}</span>
+              {agent.handle && (
+                <span className="s-term-agent-handle">@{agent.handle}</span>
+              )}
             </div>
-            <span className="s-term-agent-name">{agent.name}</span>
-            {agent.handle && (
-              <span className="s-term-agent-handle">@{agent.handle}</span>
-            )}
-          </div>
-        )}
-        <span className="s-term-label">
-          {tmuxSession ? (readOnly ? "TMUX OBSERVE" : "TMUX TAKEOVER") : "TAKEOVER"}
-        </span>
-        {tmuxSession && (
-          <span className="s-term-session" title={tmuxSession}>
-            {tmuxSession}
+          )}
+        </div>
+        <div className="s-term-bar-meta">
+          <span className="s-term-label">
+            {tmuxSession ? (readOnly ? "TMUX OBSERVE" : "TMUX TAKEOVER") : "TAKEOVER"}
           </span>
-        )}
-        {tmuxSession && (
+          {tmuxSession && (
+            <span className="s-term-session" title={tmuxSession}>
+              {tmuxSession}
+            </span>
+          )}
+        </div>
+        <div className="s-term-bar-actions">
+          {tmuxSession && (
+            <button
+              type="button"
+              className="s-term-vantage"
+              onClick={() =>
+                navigate({
+                  view: "terminal",
+                  agentId,
+                  mode: readOnly ? "takeover" : "observe",
+                })
+              }
+              title={readOnly ? "Switch to interactive takeover" : "Switch to read-only terminal observe"}
+            >
+              {readOnly ? "Takeover" : "Observe"}
+            </button>
+          )}
           <button
             type="button"
             className="s-term-vantage"
-            onClick={() =>
-              navigate({
-                view: "terminal",
-                agentId,
-                mode: readOnly ? "takeover" : "observe",
-              })
-            }
-            title={readOnly ? "Switch to interactive takeover" : "Switch to read-only terminal observe"}
+            onClick={openInVantage}
+            disabled={handoffState.state === "opening"}
+            title="Open this terminal context in the native Vantage canvas"
           >
-            {readOnly ? "Takeover" : "Observe"}
+            {handoffState.state === "opening" ? "Opening..." : "Open in Vantage"}
           </button>
-        )}
-        <button
-          type="button"
-          className="s-term-vantage"
-          onClick={openInVantage}
-          disabled={handoffState.state === "opening"}
-          title="Open this terminal context in the native Vantage canvas"
-        >
-          {handoffState.state === "opening" ? "Opening..." : "Open in Vantage"}
-        </button>
-        {handoffState.state === "opened" && (
-          <span className="s-term-handoff s-term-handoff--ok">{handoffState.detail}</span>
-        )}
-        {handoffState.state === "failed" && (
-          <span className="s-term-handoff s-term-handoff--error">{handoffState.error}</span>
-        )}
-        <div className="s-term-status">
-          <span
-            className={`s-term-dot${relay.status === "connected" ? " s-term-dot--live" : relay.status === "connecting" ? " s-term-dot--connecting" : ""}`}
-          />
-          {relay.status === "connected"
-            ? "LIVE"
-            : relay.status === "connecting"
-              ? "CONNECTING"
-              : "OFFLINE"}
+          {handoffState.state === "opened" && (
+            <span className="s-term-handoff s-term-handoff--ok">{handoffState.detail}</span>
+          )}
+          {handoffState.state === "failed" && (
+            <span className="s-term-handoff s-term-handoff--error">{handoffState.error}</span>
+          )}
+          <div className="s-term-status">
+            <span
+              className={`s-term-dot${relay.status === "connected" ? " s-term-dot--live" : relay.status === "connecting" ? " s-term-dot--connecting" : ""}`}
+            />
+            {relay.status === "connected"
+              ? "LIVE"
+              : relay.status === "connecting"
+                ? "CONNECTING"
+                : "OFFLINE"}
+          </div>
         </div>
       </div>
       <div className="s-term-body">

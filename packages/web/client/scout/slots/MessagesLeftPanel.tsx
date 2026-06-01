@@ -5,6 +5,7 @@ import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } f
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
 import {
   conversationDisplayTitle,
+  conversationShortLabel,
   isDirectConversation,
   isGroupConversation,
 } from "../../lib/conversations.ts";
@@ -41,8 +42,8 @@ type ConversationGroup = {
 const FILTERS: MessagesFilter[] = ["all", "dm", "channel"];
 const FILTER_LABEL: Record<MessagesFilter, string> = {
   all: "All",
-  dm: "DMs",
-  channel: "Channels",
+  dm: "Private",
+  channel: "Shared",
 };
 
 const SORTS: MessagesSort[] = ["recent", "name", "unread"];
@@ -271,14 +272,18 @@ export function ScoutMessagesLeftPanel() {
               const title = conversationDisplayTitle(s);
               const channel = isGroupConversation(s);
               const agent = s.agentId ? agentById.get(s.agentId) : undefined;
+              const identifier = threadIdentifier(s, agent);
+              const sub = identifier.toLowerCase() === title.toLowerCase()
+                ? undefined
+                : identifier;
               return (
                 <RailRow
                   key={group.key}
                   name={title}
+                  sub={sub}
                   meta={s.lastMessageAt ? timeAgo(s.lastMessageAt) : undefined}
                   tone={channel ? "channel" : agent ? normalizeAgentState(agent.state) : "dm"}
                   avatarName={title}
-                  avatarKind={channel ? "channel" : "user"}
                   active={active}
                   unread={unread}
                   tabIndex={rovingTabIndex(active, hasAnyActive, s.id === firstConversationId)}
@@ -309,6 +314,7 @@ export function ScoutMessagesLeftPanel() {
                         key={s.id}
                         depth={1}
                         name={conversationChildLabel(s, agent, ask)}
+                        sub={threadIdentifier(s, agent)}
                         meta={s.lastMessageAt ? timeAgo(s.lastMessageAt) : undefined}
                         tone={agent ? normalizeAgentState(agent.state) : "dm"}
                         avatarName={agent?.name ?? conversationChildLabel(s, agent, ask)}
@@ -437,6 +443,16 @@ function conversationChildTooltip(
   if (s.currentBranch ?? agent?.branch) parts.push(`branch: ${s.currentBranch ?? agent?.branch}`);
   if (agent?.harness) parts.push(`harness: ${agent.harness}`);
   return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
+function threadIdentifier(s: SessionEntry, agent: Agent | undefined): string {
+  if (isGroupConversation(s)) {
+    return conversationShortLabel(s);
+  }
+  const handle = agent?.handle?.trim().replace(/^@+/, "");
+  if (handle) return handle;
+  if (s.agentId) return s.agentId.split(".")[0] ?? s.agentId;
+  return conversationDisplayTitle(s);
 }
 
 function trimPreview(preview: string | null): string | null {

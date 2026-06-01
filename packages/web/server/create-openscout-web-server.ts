@@ -668,8 +668,9 @@ function inferDirectTargetAgentId(
     const operatorCandidates = new Set([
       senderId.trim(),
       "operator",
+      process.env.OPENSCOUT_OPERATOR_NAME?.trim(),
       ...configuredOperatorActorIds(),
-    ]);
+    ].filter((candidate): candidate is string => Boolean(candidate)));
     if (session.agentId) {
       const participants = session.participantIds.filter(
         (participantId) => participantId.trim().length > 0,
@@ -712,7 +713,7 @@ function inferDirectTargetAgentId(
     }
   }
 
-  const parsedDirectConversation = conversationId
+  const parsedDirectConversation = !session && conversationId
     ? parseDirectConversationId(conversationId)
     : null;
   if (parsedDirectConversation) {
@@ -778,6 +779,19 @@ function resolveConversationRouting(conversationId: string | undefined): {
     ? conversationId ?? null
     : null;
   return { directAgentId, channel, conversationId: existingConversationId, senderId };
+}
+
+function conversationKindAfterMemberMutation(
+  kind: ConversationDefinition["kind"],
+  participantIds: string[],
+): ConversationDefinition["kind"] {
+  if (kind === "direct" && participantIds.length > 2) {
+    return "group_direct";
+  }
+  if (kind === "group_direct" && participantIds.length <= 2) {
+    return "direct";
+  }
+  return kind;
 }
 
 function buildAgentSessionCatalogPayload(input: {
@@ -2904,14 +2918,17 @@ export async function createOpenScoutWebServer(
       }),
     ),
   );
-  app.get("/api/messages", (c) =>
-    c.json(
-      queryRecentMessages(
-        parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80,
-        { conversationId: c.req.query("conversationId") || undefined },
-      ),
-    ),
-  );
+  app.get("/api/messages", (c) => {
+    const cId = c.req.query("cId") || c.req.query("conversationId") || undefined;
+    const messages = queryRecentMessages(
+      parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80,
+      { conversationId: cId },
+    );
+    return c.json(messages.map((message) => ({
+      ...message,
+      cId: message.conversationId,
+    })));
+  });
   const rawHeuristicsFromRequest = async (c: Context): Promise<string> => {
     const body = await c.req.json().catch(() => null) as unknown;
     if (body && typeof body === "object" && !Array.isArray(body) && typeof (body as { raw?: unknown }).raw === "string") {
@@ -3082,14 +3099,26 @@ export async function createOpenScoutWebServer(
       }),
     ),
   );
-  app.get("/api/conversations", async (c) => {
+  const readCommsList = async (c: Context) => {
     const rawLimit = Number(c.req.query("limit"));
     const rawKinds = c.req.query("kinds")?.trim();
-    return c.json(await getScoutConversations({
+    return getScoutConversations({
       query: c.req.query("query") || undefined,
       limit: Number.isFinite(rawLimit) ? Math.min(250, Math.max(1, Math.floor(rawLimit))) : undefined,
       kinds: parseConversationKinds(rawKinds),
-    }));
+    });
+  };
+
+  app.get("/api/comms", async (c) => {
+    const items = await readCommsList(c);
+    return c.json(items.map((item) => ({
+      ...item,
+      cId: item.id,
+    })));
+  });
+
+  app.get("/api/conversations", async (c) => {
+    return c.json(await readCommsList(c));
   });
 
   app.get("/api/conversations/:id/read-cursors", async (c) => {
@@ -3137,12 +3166,18 @@ export async function createOpenScoutWebServer(
     conversationId: string,
     mutate: (current: string[]) => string[],
   ) => {
-    const existing = queryConversationDefinitionById(conversationId);
+    const currentSession = querySessionById(conversationId);
+    const canonicalConversationId = currentSession?.id ?? conversationId;
+    const existing = queryConversationDefinitionById(canonicalConversationId);
     if (!existing) return null;
     const nextParticipants = mutate(existing.participantIds);
+    const nextKind = conversationKindAfterMemberMutation(
+      existing.kind as ConversationDefinition["kind"],
+      nextParticipants,
+    );
     await upsertScoutConversation({
       id: existing.id,
-      kind: existing.kind as ConversationDefinition["kind"],
+      kind: nextKind,
       title: existing.title,
       visibility: existing.visibility as ConversationDefinition["visibility"],
       shareMode: existing.shareMode as ConversationDefinition["shareMode"],
@@ -3155,7 +3190,11 @@ export async function createOpenScoutWebServer(
       ...(existing.messageId ? { messageId: existing.messageId } : {}),
       ...(existing.metadata ? { metadata: existing.metadata } : {}),
     });
-    return nextParticipants;
+    return {
+      kind: nextKind,
+      participantIds: nextParticipants,
+      session: querySessionById(existing.id),
+    };
   };
 
   app.post("/api/conversations/:id/members", async (c) => {
@@ -3169,7 +3208,7 @@ export async function createOpenScoutWebServer(
       Array.from(new Set([...current, actorId])).sort(),
     );
     if (!next) return c.json({ error: "conversation not found" }, 404);
-    return c.json({ ok: true, participantIds: next });
+    return c.json({ ok: true, ...next });
   });
 
   app.delete("/api/conversations/:id/members/:actorId", async (c) => {
@@ -3179,7 +3218,7 @@ export async function createOpenScoutWebServer(
       current.filter((id) => id !== actorId),
     );
     if (!next) return c.json({ error: "conversation not found" }, 404);
-    return c.json({ ok: true, participantIds: next });
+    return c.json({ ok: true, ...next });
   });
 
   app.get("/api/sessions", (c) => c.json(querySessions()));
@@ -3550,8 +3589,9 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/send", async (c) => {
-    const { body, conversationId, threadId } = (await c.req.json()) as {
+    const { body, cId, conversationId, threadId } = (await c.req.json()) as {
       body: string;
+      cId?: string;
       conversationId?: string;
       threadId?: string;
     };
@@ -3559,7 +3599,9 @@ export async function createOpenScoutWebServer(
       return c.json({ error: "body is required" }, 400);
     }
 
-    if (!conversationId && scoutbotRunner) {
+    const routeCId = cId ?? conversationId;
+
+    if (!routeCId && scoutbotRunner) {
       try {
         const result = await scoutbotRunner.postOperatorMessage({
           body: body.trim(),
@@ -3576,7 +3618,7 @@ export async function createOpenScoutWebServer(
     }
 
     const { directAgentId, channel, conversationId: routedConversationId, senderId } =
-      resolveConversationRouting(conversationId);
+      resolveConversationRouting(routeCId);
 
     if (directAgentId) {
       if (directAgentId === SCOUTBOT_AGENT_ID && scoutbotRunner) {
@@ -3633,8 +3675,9 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/ask", async (c) => {
-    const { body, conversationId } = (await c.req.json()) as {
+    const { body, cId, conversationId } = (await c.req.json()) as {
       body: string;
+      cId?: string;
       conversationId?: string;
     };
     if (!body?.trim()) {
@@ -3642,7 +3685,7 @@ export async function createOpenScoutWebServer(
     }
 
     const { directAgentId, senderId } =
-      resolveConversationRouting(conversationId);
+      resolveConversationRouting(cId ?? conversationId);
     if (!directAgentId) {
       return c.json(
         {

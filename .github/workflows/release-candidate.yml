@@ -1,167 +1,31 @@
-name: Heavy CI
+name: Release Candidate
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-      - labeled
-      - unlabeled
+  push:
+    tags:
+      - candidate-v*
   workflow_dispatch:
     inputs:
-      target:
-        description: Heavy lane to run.
-        type: choice
-        required: true
-        default: full
-        options:
-          - native
-          - web-build
-          - e2e
-          - full
       live_harness:
-        description: Run the live agent harness when the e2e lane is selected.
+        description: Run the live agent harness after the normal candidate lanes.
         type: boolean
         required: false
         default: false
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
-  group: heavy-ci-${{ github.event.pull_request.number || github.ref }}
+  group: release-candidate-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  plan:
-    name: Plan heavy lanes
-    runs-on: ubuntu-latest
-    outputs:
-      native: ${{ steps.plan.outputs.native }}
-      web_build: ${{ steps.plan.outputs.web_build }}
-      e2e: ${{ steps.plan.outputs.e2e }}
-      live_harness: ${{ steps.plan.outputs.live_harness }}
-    steps:
-      - name: Resolve labels, dispatch inputs, and touched paths
-        id: plan
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DISPATCH_TARGET: ${{ github.event.inputs.target || '' }}
-          DISPATCH_LIVE_HARNESS: ${{ github.event.inputs.live_harness || 'false' }}
-        run: |
-          set -euo pipefail
-
-          native=false
-          web_build=false
-          e2e=false
-          live_harness=false
-          reasons=()
-
-          labels_file="$(mktemp)"
-          jq -r '.pull_request.labels[]?.name // empty' "$GITHUB_EVENT_PATH" > "$labels_file"
-
-          has_label() {
-            grep -Fxq "$1" "$labels_file"
-          }
-
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            target="${DISPATCH_TARGET:-full}"
-            reasons+=("workflow_dispatch:${target}")
-
-            case "$target" in
-              native)
-                native=true
-                ;;
-              web-build)
-                web_build=true
-                ;;
-              e2e)
-                e2e=true
-                ;;
-              full)
-                native=true
-                web_build=true
-                e2e=true
-                ;;
-              *)
-                echo "::error::Unsupported heavy CI target: $target"
-                exit 1
-                ;;
-            esac
-
-            if [[ "$DISPATCH_LIVE_HARNESS" == "true" ]]; then
-              live_harness=true
-              e2e=true
-              reasons+=("workflow_dispatch:live_harness")
-            fi
-          else
-            if has_label "ci:full"; then
-              native=true
-              web_build=true
-              e2e=true
-              reasons+=("label:ci:full")
-            fi
-
-            if has_label "ci:native"; then
-              native=true
-              reasons+=("label:ci:native")
-            fi
-
-            if has_label "ci:web-build"; then
-              web_build=true
-              reasons+=("label:ci:web-build")
-            fi
-
-            if has_label "ci:e2e"; then
-              e2e=true
-              reasons+=("label:ci:e2e")
-            fi
-
-            pr_number="$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")"
-            if [[ -n "$pr_number" ]]; then
-              files_file="$(mktemp)"
-              gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/files" \
-                --jq '.[].filename' > "$files_file"
-
-              if grep -Eq '^(apps/ios|apps/macos|packages/scout-native-core)/' "$files_file"; then
-                native=true
-                reasons+=("paths:native")
-              fi
-            fi
-          fi
-
-          if [[ "$e2e" != "true" ]]; then
-            live_harness=false
-          fi
-
-          if ((${#reasons[@]} == 0)); then
-            reasons+=("no heavy lanes selected")
-          fi
-
-          {
-            echo "native=$native"
-            echo "web_build=$web_build"
-            echo "e2e=$e2e"
-            echo "live_harness=$live_harness"
-          } >> "$GITHUB_OUTPUT"
-
-          {
-            echo "### Heavy CI plan"
-            echo
-            echo "- native: \`$native\`"
-            echo "- web/CLI build: \`$web_build\`"
-            echo "- e2e: \`$e2e\`"
-            echo "- live harness: \`$live_harness\`"
-            echo "- reasons: \`${reasons[*]}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+  linux-checks:
+    name: Linux typecheck and unit tests
+    uses: ./.github/workflows/ci.yml
 
   native-macos:
-    name: Native macOS build/test
-    needs: plan
-    if: needs.plan.outputs.native == 'true'
+    name: macOS app build/test
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -194,9 +58,7 @@ jobs:
         run: bun ./apps/macos/bin/openscout-menu.ts build
 
   native-ios:
-    name: Native iOS build/test
-    needs: plan
-    if: needs.plan.outputs.native == 'true'
+    name: iOS app build/test
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -266,9 +128,7 @@ jobs:
             test
 
   web-cli-package-build:
-    name: Web and CLI packaged build
-    needs: plan
-    if: needs.plan.outputs.web_build == 'true'
+    name: Web and npm package build
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -298,8 +158,6 @@ jobs:
 
   e2e-scenarios:
     name: Runtime e2e scenarios
-    needs: plan
-    if: needs.plan.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -320,8 +178,8 @@ jobs:
 
   live-harness:
     name: Live local harness pass
-    needs: plan
-    if: needs.plan.outputs.live_harness == 'true'
+    needs: e2e-scenarios
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_harness }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

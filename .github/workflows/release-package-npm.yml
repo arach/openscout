@@ -1,10 +1,13 @@
-name: Publish npm
+name: Release Package npm
 
 on:
+  push:
+    tags:
+      - npm-v*
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish, for example v0.2.68"
+        description: "Release tag to publish, for example npm-v0.2.68 or v0.2.68"
         required: true
       npm_tag:
         description: "npm dist-tag"
@@ -16,7 +19,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: npm-publish-${{ inputs.tag }}
+  group: release-package-npm-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -27,17 +30,36 @@ jobs:
       - name: Resolve release target
         id: release
         shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag || '' }}
+          INPUT_NPM_TAG: ${{ inputs.npm_tag || '' }}
         run: |
-          tag="${{ inputs.tag }}"
-          npm_tag="${{ inputs.npm_tag }}"
+          set -euo pipefail
 
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "Release tag must look like vX.Y.Z, got: $tag" >&2
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+            npm_tag="${INPUT_NPM_TAG:-latest}"
+          else
+            tag="$GITHUB_REF_NAME"
+            npm_tag="latest"
+          fi
+
+          case "$tag" in
+            npm-v*) version="${tag#npm-v}" ;;
+            v*) version="${tag#v}" ;;
+            *)
+              echo "Release tag must look like npm-vX.Y.Z or vX.Y.Z, got: $tag" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "Release version must look like X.Y.Z, got: $version" >&2
             exit 1
           fi
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "npm_tag=${npm_tag:-latest}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v6

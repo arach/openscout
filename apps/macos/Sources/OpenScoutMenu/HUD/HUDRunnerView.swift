@@ -1,3 +1,4 @@
+import ScoutSharedUI
 import SwiftUI
 
 private enum HUDRunnerFocusedField: Hashable {

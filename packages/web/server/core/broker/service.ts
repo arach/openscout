@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
@@ -8,16 +9,21 @@ import {
   type AgentEndpoint,
   type AgentState,
   type AgentHarness,
+  namedChannelNaturalKey,
+  channelNaturalKeyFromMetadata,
   type ConversationBinding,
   type ConversationDefinition,
   type ControlEvent,
   type CollaborationEvent,
   type CollaborationRecord,
+  directChannelNaturalKey,
   type ConversationReadCursor,
   diagnoseAgentIdentity,
   extractAgentMentions,
   extractAgentSelectors,
   formatMinimalAgentIdentity,
+  mintChannelId,
+  systemChannelNaturalKey,
   type FlightRecord,
   type NodeDefinition,
   type AgentSelector,
@@ -740,6 +746,18 @@ export function scoutConversationIdForChannel(channel?: string): string {
   return `channel.${sanitizeConversationSegment(normalizedChannel)}`;
 }
 
+function resolveConversationIdForChannel(
+  snapshot: ScoutBrokerSnapshot,
+  channel?: string,
+): string {
+  const normalizedChannel = channel?.trim() || "shared";
+  const legacyId = scoutConversationIdForChannel(normalizedChannel);
+  const naturalKey = normalizedChannel === "system"
+    ? systemChannelNaturalKey("system")
+    : namedChannelNaturalKey(normalizedChannel);
+  return findConversationByIdentity(snapshot, naturalKey, legacyId)?.id ?? legacyId;
+}
+
 function buildMentionCandidate(
   snapshot: ScoutBrokerSnapshot,
   agent: AgentDefinition,
@@ -1407,50 +1425,79 @@ function conversationDefinition(
   const scopedParticipants = [...new Set([OPERATOR_ID, senderId, ...targetParticipantIds])].sort();
 
   if (normalizedChannel === "voice") {
+    const naturalKey = namedChannelNaturalKey("voice");
+    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_VOICE_CHANNEL_ID);
     return {
-      id: BROKER_VOICE_CHANNEL_ID,
+      id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
       title: "voice",
       visibility: "workspace",
       shareMode: resolveConversationShareMode(snapshot, nodeId, scopedParticipants, "local"),
       authorityNodeId: nodeId,
       participantIds: scopedParticipants,
-      metadata: { surface: "scout-cli", channel: "voice" },
+      metadata: {
+        surface: "scout-cli",
+        channel: "voice",
+        naturalKey,
+        legacyId: BROKER_VOICE_CHANNEL_ID,
+      },
     };
   }
   if (normalizedChannel === "system") {
+    const naturalKey = systemChannelNaturalKey("system");
+    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SYSTEM_CHANNEL_ID);
     return {
-      id: BROKER_SYSTEM_CHANNEL_ID,
+      id: existing?.id ?? mintChannelId(randomUUID),
       kind: "system",
       title: "system",
       visibility: "system",
       shareMode: "local",
       authorityNodeId: nodeId,
       participantIds: [OPERATOR_ID, senderId].sort(),
-      metadata: { surface: "scout-cli", channel: "system" },
+      metadata: {
+        surface: "scout-cli",
+        channel: "system",
+        naturalKey,
+        legacyId: BROKER_SYSTEM_CHANNEL_ID,
+      },
     };
   }
   if (normalizedChannel === "shared") {
+    const naturalKey = namedChannelNaturalKey("shared");
+    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SHARED_CHANNEL_ID);
     return {
-      id: BROKER_SHARED_CHANNEL_ID,
+      id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
       title: "shared-channel",
       visibility: "workspace",
       shareMode: "shared",
       authorityNodeId: nodeId,
       participantIds: sharedParticipants,
-      metadata: { surface: "scout-cli", channel: "shared" },
+      metadata: {
+        surface: "scout-cli",
+        channel: "shared",
+        naturalKey,
+        legacyId: BROKER_SHARED_CHANNEL_ID,
+      },
     };
   }
+  const legacyChannelId = `channel.${sanitizeConversationSegment(normalizedChannel)}`;
+  const naturalKey = namedChannelNaturalKey(normalizedChannel);
+  const existing = findConversationByIdentity(snapshot, naturalKey, legacyChannelId);
   return {
-    id: `channel.${sanitizeConversationSegment(normalizedChannel)}`,
+    id: existing?.id ?? mintChannelId(randomUUID),
     kind: "channel",
     title: normalizedChannel,
     visibility: "workspace",
     shareMode: resolveConversationShareMode(snapshot, nodeId, scopedParticipants, "local"),
     authorityNodeId: nodeId,
     participantIds: scopedParticipants,
-    metadata: { surface: "scout-cli", channel: normalizedChannel },
+    metadata: {
+      surface: "scout-cli",
+      channel: normalizedChannel,
+      naturalKey,
+      legacyId: legacyChannelId,
+    },
   };
 }
 
@@ -1496,6 +1543,20 @@ function directConversationIdForActors(sourceId: string, targetId: string): stri
   return `dm.${[sourceId, targetId].sort().join(".")}`;
 }
 
+function findConversationByIdentity(
+  snapshot: ScoutBrokerSnapshot,
+  naturalKey: string,
+  legacyId?: string,
+): ScoutBrokerConversationRecord | undefined {
+  if (legacyId && snapshot.conversations[legacyId]) {
+    return snapshot.conversations[legacyId];
+  }
+  return Object.values(snapshot.conversations).find(
+    (conversation) =>
+      channelNaturalKeyFromMetadata(conversation.metadata) === naturalKey,
+  );
+}
+
 async function ensureBrokerDirectConversationBetween(
   baseUrl: string,
   snapshot: ScoutBrokerSnapshot,
@@ -1503,17 +1564,21 @@ async function ensureBrokerDirectConversationBetween(
   sourceId: string,
   targetId: string,
 ): Promise<ScoutDirectSessionResult> {
-  const conversationId = targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
+  const legacyConversationId = targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
     ? BROKER_SHARED_CHANNEL_ID
     : directConversationIdForActors(sourceId, targetId);
   const participantIds = [...new Set([sourceId, targetId])].sort();
+  const naturalKey = directChannelNaturalKey(participantIds);
+  const existing = targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
+    ? snapshot.conversations[legacyConversationId]
+    : findConversationByIdentity(snapshot, naturalKey, legacyConversationId);
+  const conversationId = existing?.id ?? mintChannelId(randomUUID);
   const nextShareMode = resolveConversationShareMode(
     snapshot,
     nodeId,
     participantIds,
     "local",
   );
-  const existing = snapshot.conversations[conversationId];
   const alreadyMatches = existing
     && existing.kind === "direct"
     && existing.shareMode === nextShareMode
@@ -1544,6 +1609,8 @@ async function ensureBrokerDirectConversationBetween(
     participantIds,
     metadata: {
       surface: "scout",
+      naturalKey,
+      legacyId: legacyConversationId,
       ...(targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID ? { role: "partner" } : {}),
     },
   };
@@ -2210,8 +2277,15 @@ export async function loadScoutMessages(options: {
   limit?: number;
   baseUrl?: string;
 } = {}): Promise<ScoutBrokerMessageRecord[]> {
+  const baseUrl = options.baseUrl ?? resolveScoutBrokerUrl();
+  const context = await loadScoutBrokerContext(baseUrl);
   const search = new URLSearchParams();
-  search.set("conversationId", scoutConversationIdForChannel(options.channel));
+  search.set(
+    "conversationId",
+    context
+      ? resolveConversationIdForChannel(context.snapshot, options.channel)
+      : scoutConversationIdForChannel(options.channel),
+  );
   if (typeof options.since === "number" && Number.isFinite(options.since) && options.since > 0) {
     search.set("since", String(options.since));
   }
@@ -2219,7 +2293,7 @@ export async function loadScoutMessages(options: {
     search.set("limit", String(options.limit));
   }
   return brokerReadJson<ScoutBrokerMessageRecord[]>(
-    options.baseUrl ?? resolveScoutBrokerUrl(),
+    baseUrl,
     scoutBrokerMessagesListPath(search),
   );
 }
@@ -2262,7 +2336,7 @@ export async function loadScoutActivityItems(options: {
 
 export async function watchScoutMessages(options: ScoutWatchOptions): Promise<void> {
   const broker = await requireScoutBrokerContext();
-  const conversationId = scoutConversationIdForChannel(options.channel);
+  const conversationId = resolveConversationIdForChannel(broker.snapshot, options.channel);
   const controller = new AbortController();
   const abort = () => controller.abort();
 

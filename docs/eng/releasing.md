@@ -22,7 +22,7 @@ Before your first release, make sure the following are set up locally.
 
 - Preferred: configure npm trusted publishing for `@openscout/scout`:
   - owner/repo: `arach/openscout`
-  - workflow filename: `npm-publish.yml`
+  - workflow filename: `release-package-npm.yml`
   - allowed action: `npm publish`
 - Fallback: add a GitHub repository secret named `NPM_TOKEN` with publish
   access.
@@ -105,8 +105,9 @@ npm run ship -- 0.2.68 --execute --yes --github-npm
 ```
 
 This verifies the internal builds and packed public manifest locally, pushes the
-tag, creates the GitHub release, then dispatches `.github/workflows/npm-publish.yml`
-to publish `@openscout/scout` from the release tag.
+tag, creates the GitHub release, then dispatches
+`.github/workflows/release-package-npm.yml` to publish `@openscout/scout` from
+the release tag.
 
 For manual recovery or an emergency local publish, the lower-level helper still
 builds the internal packages, verifies the packed public manifest, and publishes
@@ -169,6 +170,28 @@ bun apps/macos/bin/openscout-menu.ts dmg
 
 The shell script stays the source of truth for release builds because it
 fails fast when signing or notarization is misconfigured.
+
+### GitHub Actions app release
+
+Tag `app-macos-v<version>` to build and upload the signed, notarized DMG from
+CI. The workflow expects these repository secrets:
+
+- `MACOS_DEVELOPER_ID_APPLICATION_P12_BASE64`
+- `MACOS_DEVELOPER_ID_APPLICATION_P12_PASSWORD`
+- `MACOS_RELEASE_KEYCHAIN_PASSWORD`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+
+Optional repository variables:
+
+- `OPENSCOUT_SIGN_IDENTITY`
+
+Tag `app-ios-v<version>` to run the iOS App Store Connect upload. The tag
+version must match the root `package.json` version because
+`apps/ios/scripts/release.sh` uses that manifest as the iOS marketing version.
+The runner must have the `asc` CLI available, or `OPENSCOUT_ASC_BIN` must point
+to it. `OPENSCOUT_ASC_APP_ID` can override the default App Store app id.
 
 ## After publishing
 

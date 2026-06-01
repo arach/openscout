@@ -592,6 +592,9 @@ export type SessionEntry = {
   id: string;
   kind: string;
   title: string;
+  alias?: string | null;
+  naturalKey?: string | null;
+  legacyId?: string | null;
   participantIds: string[];
   authorityNodeId?: string | null;
   authorityNodeName?: string | null;

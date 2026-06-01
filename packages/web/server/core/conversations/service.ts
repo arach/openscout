@@ -4,6 +4,10 @@ import type {
   ConversationKind,
   MessageRecord,
 } from "@openscout/protocol";
+import {
+  channelLegacyIdFromMetadata,
+  channelNaturalKeyFromMetadata,
+} from "@openscout/protocol";
 import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
 
 import {
@@ -21,6 +25,9 @@ export type ScoutConversationSummary = {
   id: string;
   kind: string;
   title: string;
+  alias?: string | null;
+  naturalKey?: string | null;
+  legacyId?: string | null;
   participantIds: string[];
   authorityNodeId: string | null;
   authorityNodeName: string | null;
@@ -95,6 +102,49 @@ function metadataString(
 ): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function formatChannelAlias(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+}
+
+function conversationAlias(input: {
+  id: string;
+  kind: string;
+  title: string;
+  metadata?: Record<string, unknown>;
+}): string | null {
+  const explicitAlias = metadataString(input.metadata, "alias");
+  if (explicitAlias) return explicitAlias;
+
+  const channel = metadataString(input.metadata, "channel");
+  if (channel && channel !== "system") {
+    return formatChannelAlias(channel);
+  }
+
+  if (input.kind === "channel") {
+    if (input.id.startsWith("channel.")) {
+      return formatChannelAlias(input.id.slice("channel.".length));
+    }
+    return formatChannelAlias(input.title);
+  }
+
+  return null;
+}
+
+function conversationIdentityFields(input: {
+  id: string;
+  kind: string;
+  title: string;
+  metadata?: Record<string, unknown>;
+}): Pick<ScoutConversationSummary, "alias" | "naturalKey" | "legacyId"> {
+  return {
+    alias: conversationAlias(input),
+    naturalKey: channelNaturalKeyFromMetadata(input.metadata),
+    legacyId: channelLegacyIdFromMetadata(input.metadata),
+  };
 }
 
 function metadataBoolean(
@@ -229,10 +279,12 @@ export async function getScoutConversations(
           return [];
         }
         const title = agentDisplayName(snapshot, agentId);
+        const identityFields = conversationIdentityFields(conversation);
         return [{
           id: conversation.id,
           kind: conversation.kind,
           title,
+          ...identityFields,
           participantIds: [...conversation.participantIds],
           authorityNodeId: conversation.authorityNodeId ?? null,
           authorityNodeName: snapshot.nodes?.[conversation.authorityNodeId]?.name ?? null,
@@ -264,10 +316,13 @@ export async function getScoutConversations(
         return [];
       }
 
+      const identityFields = conversationIdentityFields(conversation);
+
       return [{
         id: conversation.id,
         kind: conversation.kind,
         title: conversation.title,
+        ...identityFields,
         participantIds: [...conversation.participantIds],
         authorityNodeId: conversation.authorityNodeId ?? null,
         authorityNodeName: snapshot.nodes?.[conversation.authorityNodeId]?.name ?? null,
