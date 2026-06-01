@@ -1678,6 +1678,19 @@ export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint):
   return {};
 }
 
+export function clearEndpointFailureMetadata(
+  metadata: AgentEndpoint["metadata"] | undefined,
+): NonNullable<AgentEndpoint["metadata"]> {
+  const { lastError: _lastError, lastFailedAt: _lastFailedAt, ...baseMetadata } = metadata ?? {};
+  return baseMetadata;
+}
+
+export function endpointStateAfterSuccessfulSessionWarmup(
+  state: AgentEndpoint["state"],
+): AgentEndpoint["state"] {
+  return state === "active" ? "active" : "idle";
+}
+
 export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Promise<void> {
   if (endpoint.transport === "codex_app_server") {
     await shutdownCodexAppServerAgent(buildCodexEndpointSessionOptions(endpoint));

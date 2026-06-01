@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { ScoutBrokerFlightRecord, ScoutBrokerMessageRecord } from "../core/broker/service.ts";
 import {
+  hasCurrentScoutbotAgentRegistration,
   isScoutbotAddressedMessage,
   isScoutbotDirectDeliveryFlight,
 } from "./runner.ts";
+import { SCOUTBOT_ROLE_CONFIG } from "./role.ts";
 
 describe("scoutbot runner routing", () => {
   test("recognizes direct-route metadata as addressed to scoutbot", () => {
@@ -48,5 +50,35 @@ describe("scoutbot runner routing", () => {
 
     expect(isScoutbotDirectDeliveryFlight(directFlight)).toBe(true);
     expect(isScoutbotDirectDeliveryFlight(runnerFlight)).toBe(false);
+  });
+
+  test("requires scoutbot to be owned by the local node", () => {
+    const agent = {
+      id: "scoutbot",
+      kind: "agent",
+      displayName: "Scout",
+      handle: "scoutbot",
+      labels: ["assistant", "scout", "scoutbot"],
+      metadata: {
+        source: "scoutbot",
+        roleConfig: SCOUTBOT_ROLE_CONFIG,
+      },
+      definitionId: "scoutbot",
+      selector: "@scoutbot",
+      defaultSelector: "@scoutbot",
+      agentClass: "operator",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "keep_warm",
+      homeNodeId: "peer-node",
+      authorityNodeId: "peer-node",
+      advertiseScope: "local",
+    };
+
+    expect(hasCurrentScoutbotAgentRegistration(agent, "local-node")).toBe(false);
+    expect(hasCurrentScoutbotAgentRegistration({
+      ...agent,
+      homeNodeId: "local-node",
+      authorityNodeId: "local-node",
+    }, "local-node")).toBe(true);
   });
 });

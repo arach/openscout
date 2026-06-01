@@ -4,10 +4,7 @@ import type {
   ConversationKind,
   MessageRecord,
 } from "@openscout/protocol";
-import {
-  channelLegacyIdFromMetadata,
-  channelNaturalKeyFromMetadata,
-} from "@openscout/protocol";
+import { channelNaturalKeyFromMetadata } from "@openscout/protocol";
 import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
 
 import {
@@ -27,7 +24,6 @@ export type ScoutConversationSummary = {
   title: string;
   alias?: string | null;
   naturalKey?: string | null;
-  legacyId?: string | null;
   participantIds: string[];
   authorityNodeId: string | null;
   authorityNodeName: string | null;
@@ -139,11 +135,10 @@ function conversationIdentityFields(input: {
   kind: string;
   title: string;
   metadata?: Record<string, unknown>;
-}): Pick<ScoutConversationSummary, "alias" | "naturalKey" | "legacyId"> {
+}): Pick<ScoutConversationSummary, "alias" | "naturalKey"> {
   return {
     alias: conversationAlias(input),
     naturalKey: channelNaturalKeyFromMetadata(input.metadata),
-    legacyId: channelLegacyIdFromMetadata(input.metadata),
   };
 }
 

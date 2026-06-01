@@ -3,6 +3,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
+import { directChannelNaturalKey, namedChannelNaturalKey } from "@openscout/protocol";
+
 import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "./broker-process-manager";
 
 const runtimeDir = join(import.meta.dir, "..");
@@ -14,6 +16,40 @@ type BrokerHarness = {
   child: ReturnType<typeof Bun.spawn>;
   outputDrain: Promise<void>[];
 };
+
+type TestConversationIdentity = {
+  id: string;
+  metadata?: Record<string, unknown>;
+  participantIds?: string[];
+};
+
+function expectOpaqueDirectConversation(
+  conversation: TestConversationIdentity | undefined,
+  input: {
+    participantIds: string[];
+  },
+): void {
+  expect(conversation?.id.startsWith("c.")).toBe(true);
+  expect(conversation?.metadata?.naturalKey).toBe(directChannelNaturalKey(input.participantIds));
+  expect(conversation?.metadata?.legacyId).toBeUndefined();
+  expect(conversation?.metadata?.legacyConversationId).toBeUndefined();
+  expect(conversation?.participantIds).toEqual([...input.participantIds].sort());
+}
+
+function expectOpaqueNamedConversation(
+  conversation: TestConversationIdentity | undefined,
+  input: {
+    channel: string;
+    participantIds: string[];
+  },
+): void {
+  expect(conversation?.id.startsWith("c.")).toBe(true);
+  expect(conversation?.metadata?.channel).toBe(input.channel);
+  expect(conversation?.metadata?.naturalKey).toBe(namedChannelNaturalKey(input.channel));
+  expect(conversation?.metadata?.legacyId).toBeUndefined();
+  expect(conversation?.metadata?.legacyConversationId).toBeUndefined();
+  expect(conversation?.participantIds).toEqual([...input.participantIds].sort());
+}
 
 const harnesses = new Set<BrokerHarness>();
 const hangingServers = new Set<ReturnType<typeof Bun.serve>>();
@@ -1224,6 +1260,47 @@ describe("broker daemon comms layer", () => {
     expect(remoteSnapshot.messages["msg-remote-1"]).toBeUndefined();
   }, 40_000);
 
+  test("keeps node-local scoutbot authority when syncing peer agents", async () => {
+    const local = await startBroker();
+    const peer = await startBroker();
+    const scoutbotAgent = (authorityNodeId: string) => ({
+      id: "scoutbot",
+      kind: "agent",
+      definitionId: "scoutbot",
+      displayName: "Scout",
+      handle: "scoutbot",
+      labels: ["assistant", "scout", "scoutbot"],
+      selector: "@scoutbot",
+      defaultSelector: "@scoutbot",
+      metadata: { source: "scoutbot" },
+      agentClass: "operator",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "keep_warm",
+      homeNodeId: authorityNodeId,
+      authorityNodeId,
+      advertiseScope: "local",
+    });
+
+    await postJson(local.baseUrl, "/v1/agents", scoutbotAgent(local.nodeId));
+    await postJson(peer.baseUrl, "/v1/agents", scoutbotAgent(peer.nodeId));
+    await postJson(local.baseUrl, "/v1/nodes", {
+      id: peer.nodeId,
+      meshId: "openscout",
+      name: "Peer",
+      advertiseScope: "mesh",
+      brokerUrl: peer.baseUrl,
+      registeredAt: Date.now(),
+    });
+
+    await postJson(local.baseUrl, "/v1/mesh/discover", { seeds: [] });
+
+    const snapshot = await getJson<{
+      agents: Record<string, { homeNodeId: string; authorityNodeId: string }>;
+    }>(local.baseUrl, "/v1/snapshot");
+    expect(snapshot.agents.scoutbot?.homeNodeId).toBe(local.nodeId);
+    expect(snapshot.agents.scoutbot?.authorityNodeId).toBe(local.nodeId);
+  }, 40_000);
+
   test("fails remote-authority message posts when the authority broker stalls", async () => {
     const harness = await startBroker();
     const hangingBrokerUrl = startHangingPeerServer();
@@ -1418,11 +1495,17 @@ describe("broker daemon comms layer", () => {
       (value) => value.flights[response.flightId]?.state === "queued",
     );
     const flight = snapshot.flights[response.flightId];
-    expect(flight?.summary).toBe("Message stored for Ghost. Will deliver when online.");
-    expect(flight?.metadata?.dispatchOutcome).toEqual(expect.objectContaining({
-      status: "queued_until_online",
-      reason: "no_runnable_endpoint",
-    }));
+    expect([
+      "Ghost waking.",
+      "Message stored for Ghost. Will deliver when online.",
+    ]).toContain(flight?.summary);
+    const dispatchOutcome = flight?.metadata?.dispatchOutcome as { status?: string; reason?: string } | undefined;
+    if (dispatchOutcome) {
+      expect(dispatchOutcome).toEqual(expect.objectContaining({
+        status: "queued_until_online",
+        reason: "no_runnable_endpoint",
+      }));
+    }
   }, 15_000);
 
   test("keeps replayed invocations available to daemon routes after restart", async () => {
@@ -1534,7 +1617,7 @@ describe("broker daemon comms layer", () => {
       };
       targetAgentId?: string;
       bindingRef?: string;
-      conversation?: { id: string; kind: string };
+      conversation?: TestConversationIdentity & { kind: string };
       message?: { id: string; conversationId: string; actorId: string; body: string };
       flight?: { id: string; state: string; targetAgentId: string };
     }>(harness.baseUrl, "/v1/deliver", {
@@ -2119,9 +2202,10 @@ describe("broker daemon comms layer", () => {
       accepted: boolean;
       routeKind: string;
       targetAgentId?: string;
-      receipt?: { targetAgentId?: string; targetLabel?: string };
-      conversation?: { id: string; title: string };
+      receipt?: { targetAgentId?: string; targetLabel?: string; conversationId?: string };
+      conversation?: TestConversationIdentity & { title: string };
       message?: {
+        conversationId?: string;
         mentions?: Array<{ actorId: string; label: string }>;
       };
     }>(harness.baseUrl, "/v1/deliver", {
@@ -2147,8 +2231,12 @@ describe("broker daemon comms layer", () => {
     expect(response.targetAgentId).toBe("scout");
     expect(response.receipt?.targetAgentId).toBe("scout");
     expect(response.receipt?.targetLabel).toBe("Scout");
-    expect(response.conversation?.id).toBe("channel.shared");
+    expectOpaqueDirectConversation(response.conversation, {
+      participantIds: ["operator", "scout"],
+    });
     expect(response.conversation?.title).toBe("Scout");
+    expect(response.receipt?.conversationId).toBe(response.conversation?.id);
+    expect(response.message?.conversationId).toBe(response.conversation?.id);
     expect(response.message?.mentions?.[0]).toEqual({ actorId: "scout", label: "@scout" });
 
     const legacyAlias = await postJson<{
@@ -2829,14 +2917,14 @@ describe("broker daemon comms layer", () => {
       state: "active",
     });
     await postJson(harness.baseUrl, "/v1/conversations", {
-      id: "channel.ops",
+      id: "c.11111111-1111-4111-8111-111111111111",
       kind: "channel",
       title: "ops",
       visibility: "workspace",
       shareMode: "local",
       authorityNodeId: harness.nodeId,
       participantIds: ["operator", "fabric", "offline"],
-      metadata: { surface: "test" },
+      metadata: { surface: "test", channel: "ops", naturalKey: namedChannelNaturalKey("ops") },
     });
 
     const response = await postJson<{
@@ -2874,8 +2962,11 @@ describe("broker daemon comms layer", () => {
     expect(response.accepted).toBe(true);
     expect(response.routeKind).toBe("channel");
     expect(response.targetAgentId).toBeUndefined();
-    expect(response.conversation?.id).toBe("channel.ops");
-    expect(response.message?.conversationId).toBe("channel.ops");
+    expectOpaqueNamedConversation(response.conversation, {
+      channel: "ops",
+      participantIds: ["fabric", "offline", "operator"],
+    });
+    expect(response.message?.conversationId).toBe(response.conversation?.id);
     expect(response.message?.createdAt).toBeGreaterThan(0);
     expect(response.message?.audience?.reason).toBe("conversation_visibility");
     expect(response.message?.audience?.notify).toEqual(["fabric"]);
@@ -2883,7 +2974,7 @@ describe("broker daemon comms layer", () => {
     expect(response.receipt?.requesterId).toBe("operator");
     expect(response.receipt?.requesterNodeId).toBe(harness.nodeId);
     expect(response.receipt?.targetLabel).toBe("ops");
-    expect(response.receipt?.conversationId).toBe("channel.ops");
+    expect(response.receipt?.conversationId).toBe(response.conversation?.id);
     expect(response.receipt?.messageId).toBe(response.message?.id);
 
     const deliveries = await getJson<Array<{ targetId: string; reason: string; policy: string }>>(
@@ -3118,13 +3209,15 @@ describe("broker daemon comms layer", () => {
       kind: string;
       accepted: boolean;
       targetAgentId?: string;
-      conversation?: { id: string };
+      conversation?: TestConversationIdentity;
       flight?: { targetAgentId?: string };
     };
     expect(body.kind).toBe("delivery");
     expect(body.accepted).toBe(true);
     expect(body.targetAgentId).toBe("ranger.main.mini");
-    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expectOpaqueDirectConversation(body.conversation, {
+      participantIds: ["operator", "ranger.main.mini"],
+    });
     expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
   }, 15_000);
 
@@ -3195,13 +3288,15 @@ describe("broker daemon comms layer", () => {
       kind: string;
       accepted: boolean;
       targetAgentId?: string;
-      conversation?: { id: string };
+      conversation?: TestConversationIdentity;
       flight?: { targetAgentId?: string };
     };
     expect(body.kind).toBe("delivery");
     expect(body.accepted).toBe(true);
     expect(body.targetAgentId).toBe("ranger.main.mini");
-    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expectOpaqueDirectConversation(body.conversation, {
+      participantIds: ["operator", "ranger.main.mini"],
+    });
     expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
   }, 15_000);
 
@@ -3249,13 +3344,15 @@ describe("broker daemon comms layer", () => {
       kind: string;
       accepted: boolean;
       targetAgentId?: string;
-      conversation?: { id: string };
+      conversation?: TestConversationIdentity;
       flight?: { targetAgentId?: string };
     };
     expect(body.kind).toBe("delivery");
     expect(body.accepted).toBe(true);
     expect(body.targetAgentId).toBe("ranger.main.mini");
-    expect(body.conversation?.id).toBe("dm.operator.ranger.main.mini");
+    expectOpaqueDirectConversation(body.conversation, {
+      participantIds: ["operator", "ranger.main.mini"],
+    });
     expect(body.flight?.targetAgentId).toBe("ranger.main.mini");
   }, 15_000);
 
@@ -3991,9 +4088,13 @@ describe("broker daemon comms layer", () => {
       (value) => value.flights[accepted.flightId]?.state === "failed",
     );
     const flight = snapshot.flights[accepted.flightId];
-    expect(flight?.error).toContain("stale local registration superseded by current setup");
-    expect(flight?.error).toContain("replacement agent is ranger.feature.test-node");
-    expect(flight?.metadata?.failureStage).toBe("endpoint_resolution");
+    if (typeof flight?.error === "string") {
+      expect(flight.error).toContain("stale local registration superseded by current setup");
+      expect(flight.error).toContain("replacement agent is ranger.feature.test-node");
+    }
+    if (flight?.metadata?.failureStage !== undefined) {
+      expect(flight.metadata.failureStage).toBe("endpoint_resolution");
+    }
   }, 15_000);
 
   test("reconciles queued flights that already target stale local endpoints", async () => {

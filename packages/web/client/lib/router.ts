@@ -239,6 +239,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return scoped(base);
   }
   if (parts[0] === "sessions") return scoped({ view: "sessions" });
+  if (parts[0] === "search") return { view: "search" };
   if (parts[0] === "channels" && parts[1]) {
     return scoped({ view: "channels", channelId: decodeURIComponent(parts[1]) });
   }
@@ -376,6 +377,8 @@ export function routePath(r: Route): string {
       return pathWithMachineScope(r.sessionId
         ? `/sessions/${encodeURIComponent(r.sessionId)}`
         : "/sessions", r);
+    case "search":
+      return "/search";
     case "channels":
       return pathWithMachineScope(r.channelId
         ? `/channels/${encodeURIComponent(r.channelId)}`

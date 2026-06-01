@@ -21,7 +21,7 @@ export interface SessionInitMessage {
   backend?: 'pty' | 'tmux';
   /** For tmux backend: the tmux session name. Required when backend is 'tmux'. */
   tmuxSession?: string;
-  /** CLI agent to spawn. 'claude' (default), 'pi', or 'shell'. */
+  /** Process to spawn. 'claude' (default), 'pi', or 'shell' for a normal login shell. */
   agent?: 'claude' | 'pi' | 'shell';
   /** For pi agent: provider name (e.g. 'minimax', 'github-copilot'). */
   provider?: string;
@@ -54,9 +54,9 @@ export type ClientMessage =
   | TerminalResizeMessage;
 
 import { createRequire } from 'module';
-import { execFileSync, execSync } from 'child_process';
-import { accessSync, constants, existsSync, mkdirSync, writeFileSync } from 'fs';
-import { delimiter as pathDelimiter, join, dirname as pathDirname, resolve as pathResolve } from 'path';
+import { execSync } from 'child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join, dirname as pathDirname } from 'path';
 import type { IPty } from 'node-pty';
 
 const require = createRequire(import.meta.url);
@@ -145,9 +145,6 @@ export function resizeSession(session: Session, cols: number, rows: number): boo
   if (session.exited) return false;
   try {
     session.pty.resize(cols, rows);
-    if (session.backend === 'tmux' && session.tmuxSession) {
-      resizeTmuxWindow(session.tmuxSession, cols, rows);
-    }
     session.cols = cols;
     session.rows = rows;
     return true;
@@ -193,58 +190,9 @@ function findBin(name: string, envOverride?: string): string | null {
   }
 }
 
-function expandHomePath(value: string): string {
-  const home = process.env.HOME || '/tmp';
-  if (value === '~') return home;
-  if (value.startsWith('~/')) return join(home, value.slice(2));
-  return value;
-}
-
-function isExecutablePath(candidate: string | null | undefined): candidate is string {
-  if (!candidate) return false;
-  try {
-    accessSync(candidate, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function findExecutableInDirectories(name: string, directories: string[]): string | null {
-  const seen = new Set<string>();
-  for (const directory of directories) {
-    if (!directory) continue;
-    const normalizedDirectory = pathResolve(expandHomePath(directory));
-    if (seen.has(normalizedDirectory)) continue;
-    seen.add(normalizedDirectory);
-    const candidate = join(normalizedDirectory, name);
-    if (isExecutablePath(candidate)) return candidate;
-  }
-  return null;
-}
-
-function findExecutableOnPath(name: string): string | null {
-  return findExecutableInDirectories(name, (process.env.PATH || '').split(pathDelimiter));
-}
 /** Locate the claude binary, returning null if not found. */
 function findClaudeBin(): string | null {
-  for (const envKey of ['OPENSCOUT_CLAUDE_BIN', 'SCOUT_CLAUDE_BIN', 'CLAUDE_BIN']) {
-    const explicit = process.env[envKey]?.trim();
-    if (!explicit) continue;
-    const expanded = expandHomePath(explicit);
-    if (isExecutablePath(expanded)) return pathResolve(expanded);
-    const foundOnPath = findExecutableOnPath(explicit);
-    if (foundOnPath) return foundOnPath;
-  }
-
-  const home = process.env.HOME || '/tmp';
-  return findExecutableInDirectories('claude', [
-    join(home, '.local', 'bin'),
-    join(home, '.claude', 'local'),
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    join(home, '.bun', 'bin'),
-  ]) ?? findExecutableOnPath('claude');
+  return findBin('claude', 'CLAUDE_BIN');
 }
 
 /** Locate the pi binary, returning null if not found. */
@@ -252,18 +200,11 @@ function findPiBin(): string | null {
   return findBin('pi', 'PI_BIN');
 }
 
-/** Locate the user's shell, returning null if not found. */
+/** Locate the user's shell, falling back to common POSIX shells. */
 function findShellBin(): string | null {
-  const candidates = [
-    process.env.SHELL,
-    '/bin/zsh',
-    '/bin/bash',
-    '/bin/sh',
-  ].filter((candidate): candidate is string => Boolean(candidate));
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+  const configured = process.env.SHELL;
+  if (configured && existsSync(configured)) return configured;
+  return findBin('zsh') ?? findBin('bash') ?? findBin('sh') ?? (existsSync('/bin/sh') ? '/bin/sh' : null);
 }
 
 /** Map Hudson-facing provider ids to the exact provider names accepted by the Pi CLI. */
@@ -277,24 +218,6 @@ function normalizePiProviderForCli(provider?: string): string | undefined {
 function tmuxSessionExists(name: string): boolean {
   try {
     execSync(`tmux has-session -t ${name} 2>/dev/null`, { encoding: 'utf8' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Resize the tmux window behind an attached bridge PTY. */
-function resizeTmuxWindow(name: string, cols: number, rows: number): boolean {
-  try {
-    execFileSync('tmux', [
-      'resize-window',
-      '-t',
-      name,
-      '-x',
-      String(cols),
-      '-y',
-      String(rows),
-    ], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -324,15 +247,15 @@ function spawnTmuxSession(
   cols: number,
   rows: number,
   cwd: string,
-  claudeBin: string,
-  claudeArgs: string[],
+  commandBin: string,
+  commandArgs: string[],
   env: Record<string, string | undefined>,
 ): IPty {
   const exists = tmuxSessionExists(tmuxName);
 
   if (!exists) {
-    // Create the tmux session detached, running claude inside it
-    const shellCmd = [claudeBin, ...claudeArgs].map(a => a.includes(' ') ? `'${a}'` : a).join(' ');
+    // Create the tmux session detached, running the requested command inside it.
+    const shellCmd = [commandBin, ...commandArgs].map(a => a.includes(' ') ? `'${a}'` : a).join(' ');
     execSync(
       `tmux new-session -d -s ${tmuxName} -x ${cols} -y ${rows} -c '${cwd}' '${shellCmd}'`,
       { env: env as NodeJS.ProcessEnv },
@@ -340,7 +263,7 @@ function spawnTmuxSession(
     console.log(`[relay] Created tmux session: ${tmuxName}`);
   } else {
     // Resize existing session to match client
-    resizeTmuxWindow(tmuxName, cols, rows);
+    try { execSync(`tmux resize-window -t ${tmuxName} -x ${cols} -y ${rows} 2>/dev/null`); } catch {}
     console.log(`[relay] Attaching to existing tmux session: ${tmuxName}`);
   }
 
@@ -363,12 +286,12 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   const tmuxName = msg.tmuxSession || `hudson-${id}`;
   const agent = msg.agent || 'claude';
 
-  // ---- Pre-flight: locate agent binary ----
+  // ---- Pre-flight: locate command binary ----
   let agentBin: string | null;
   if (agent === 'shell') {
     agentBin = findShellBin();
     if (!agentBin) {
-      const reason = 'Shell not found. Set SHELL or install zsh/bash/sh.';
+      const reason = 'No login shell found. Set SHELL or install zsh, bash, or sh.';
       console.error(`[relay] Session ${id} failed: ${reason}`);
       send(ws, { type: 'session:error', error: reason });
       return null;
@@ -384,7 +307,7 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   } else {
     agentBin = findClaudeBin();
     if (!agentBin) {
-      const reason = 'Claude CLI not found. Install it with: curl -fsSL https://claude.ai/install.sh | bash';
+      const reason = 'Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code';
       console.error(`[relay] Session ${id} failed: ${reason}`);
       send(ws, { type: 'session:error', error: reason });
       return null;
@@ -414,11 +337,12 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     bootstrapFiles(cwd, msg.workspaceFiles, id);
   }
 
-  // ---- Build CLI arguments based on agent type ----
+  // ---- Build command arguments based on process type ----
   let agentArgs: string[];
 
   if (agent === 'shell') {
-    agentArgs = [];
+    const shellName = agentBin.split('/').pop() ?? '';
+    agentArgs = shellName === 'sh' ? [] : ['-l'];
   } else if (agent === 'pi') {
     agentArgs = ['--verbose'];
     const provider = normalizePiProviderForCli(msg.provider);

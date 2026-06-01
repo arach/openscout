@@ -594,7 +594,6 @@ export type SessionEntry = {
   title: string;
   alias?: string | null;
   naturalKey?: string | null;
-  legacyId?: string | null;
   participantIds: string[];
   authorityNodeId?: string | null;
   authorityNodeName?: string | null;
@@ -1024,6 +1023,7 @@ export type Route =
       sort?: MessagesSort;
     } & MachineScopedRoute)
   | ({ view: "sessions"; sessionId?: string } & MachineScopedRoute)
+  | { view: "search" }
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
   | { view: "broker" }

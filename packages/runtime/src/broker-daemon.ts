@@ -64,6 +64,7 @@ import {
   type UnblockRequestRecord,
   OPENSCOUT_IROH_MESH_ALPN,
   OPENSCOUT_MESH_PROTOCOL_VERSION,
+  OPENSCOUT_COORDINATOR_AGENT_ID,
   SCOUT_DISPATCHER_AGENT_ID,
   systemChannelNaturalKey,
   normalizeAgentSelectorSegment,
@@ -111,6 +112,8 @@ import { createPeerDeliveryWorker, type PeerDeliveryWorker } from "./peer-delive
 import {
   ensureLocalSessionEndpointOnline,
   ensureLocalAgentBindingOnline,
+  clearEndpointFailureMetadata,
+  endpointStateAfterSuccessfulSessionWarmup,
   isLocalAgentEndpointAlive,
   isLocalAgentSessionAlive,
   invokeLocalAgentEndpoint,
@@ -262,6 +265,11 @@ const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(host
 const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
   ?? resolveBrokerServiceConfig().brokerSocketPath;
 const nodeId = process.env.OPENSCOUT_NODE_ID ?? `${nodeName}-${meshId}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+const nodeLocalProductAgentIds = new Set([
+  SCOUT_DISPATCHER_AGENT_ID,
+  OPENSCOUT_COORDINATOR_AGENT_ID,
+  "scoutbot",
+]);
 const seedUrls = (process.env.OPENSCOUT_MESH_SEEDS ?? "")
   .split(",")
   .map((value) => value.trim())
@@ -623,6 +631,9 @@ async function discoverPeers(seeds: string[] = []): Promise<{
       for (const agent of peerAgents) {
         if (agent.id === nodeId) continue;
         if (agent.homeNodeId === nodeId) continue;
+        if (isNodeLocalProductAgentId(agent.id)) continue;
+        const existingAgent = runtime.agent(agent.id);
+        if (existingAgent && isLocalAgentAuthority(existingAgent)) continue;
         const agentHome = agent.homeNodeId || node.id;
         if (agentHome !== node.id) continue;
         const remoteAgent: AgentDefinition = {
@@ -645,6 +656,14 @@ async function discoverPeers(seeds: string[] = []): Promise<{
     discovered: result.discovered,
     probes: result.probes,
   };
+}
+
+function isNodeLocalProductAgentId(agentId: string): boolean {
+  return nodeLocalProductAgentIds.has(agentId.trim().toLowerCase());
+}
+
+function isLocalAgentAuthority(agent: AgentDefinition): boolean {
+  return agent.homeNodeId === nodeId || agent.authorityNodeId === nodeId;
 }
 
 function currentLocalNode(): NodeDefinition {
@@ -2163,10 +2182,6 @@ function titleCaseName(value: string): string {
     .join(" ");
 }
 
-function sanitizeConversationSegment(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
-}
-
 function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -2296,25 +2311,10 @@ function resolveConversationShareMode(
   return hasRemoteParticipant ? "shared" : fallback;
 }
 
-function directConversationIdForActors(sourceId: string, targetId: string): string {
-  if (sourceId === targetId) {
-    return `dm.${sourceId}.${targetId}`;
-  }
-  if (sourceId === operatorActorId || targetId === operatorActorId) {
-    const peerId = sourceId === operatorActorId ? targetId : sourceId;
-    return `dm.${operatorActorId}.${peerId}`;
-  }
-  return `dm.${[sourceId, targetId].sort().join(".")}`;
-}
-
 function findConversationByIdentity(
   snapshot: ReturnType<typeof runtime.snapshot>,
   naturalKey: string,
-  legacyId?: string,
 ): ConversationDefinition | undefined {
-  if (legacyId && snapshot.conversations[legacyId]) {
-    return snapshot.conversations[legacyId];
-  }
   return Object.values(snapshot.conversations).find(
     (conversation) =>
       channelNaturalKeyFromMetadata(conversation.metadata) === naturalKey,
@@ -2346,15 +2346,10 @@ async function ensureBrokerDeliveryConversation(input: {
   const targetAgentId = input.targetAgentId?.trim();
 
   if (!normalizedChannel && targetAgentId) {
-    const legacyConversationId = targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId
-      ? BROKER_SHARED_CHANNEL_ID
-      : directConversationIdForActors(input.requesterId, targetAgentId);
     const participantIds = [...new Set([input.requesterId, targetAgentId])].sort();
     const shareMode = resolveConversationShareMode(snapshot, participantIds, "local");
     const naturalKey = directChannelNaturalKey(participantIds);
-    const existing = targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId
-      ? snapshot.conversations[legacyConversationId]
-      : findConversationByIdentity(snapshot, naturalKey, legacyConversationId);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     const conversationId = existing?.id ?? mintChannelId(randomUUID);
     const alreadyMatches = existing
       && existing.kind === "direct"
@@ -2380,7 +2375,6 @@ async function ensureBrokerDeliveryConversation(input: {
       metadata: {
         surface: "broker",
         naturalKey,
-        legacyId: legacyConversationId,
         ...(targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId ? { role: "partner" } : {}),
       },
     };
@@ -2399,7 +2393,7 @@ async function ensureBrokerDeliveryConversation(input: {
   let definition: ConversationDefinition;
   if (channel === "voice") {
     const naturalKey = namedChannelNaturalKey("voice");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_VOICE_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     definition = {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
@@ -2412,12 +2406,11 @@ async function ensureBrokerDeliveryConversation(input: {
         surface: "broker",
         channel: "voice",
         naturalKey,
-        legacyId: BROKER_VOICE_CHANNEL_ID,
       },
     };
   } else if (channel === "system") {
     const naturalKey = systemChannelNaturalKey("system");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SYSTEM_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     definition = {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "system",
@@ -2430,12 +2423,11 @@ async function ensureBrokerDeliveryConversation(input: {
         surface: "broker",
         channel: "system",
         naturalKey,
-        legacyId: BROKER_SYSTEM_CHANNEL_ID,
       },
     };
   } else if (channel === "shared") {
     const naturalKey = namedChannelNaturalKey("shared");
-    const existing = findConversationByIdentity(snapshot, naturalKey, BROKER_SHARED_CHANNEL_ID);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     definition = {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
@@ -2448,13 +2440,11 @@ async function ensureBrokerDeliveryConversation(input: {
         surface: "broker",
         channel: "shared",
         naturalKey,
-        legacyId: BROKER_SHARED_CHANNEL_ID,
       },
     };
   } else {
-    const legacyChannelId = `channel.${sanitizeConversationSegment(channel)}`;
     const naturalKey = namedChannelNaturalKey(channel);
-    const existing = findConversationByIdentity(snapshot, naturalKey, legacyChannelId);
+    const existing = findConversationByIdentity(snapshot, naturalKey);
     definition = {
       id: existing?.id ?? mintChannelId(randomUUID),
       kind: "channel",
@@ -2467,7 +2457,6 @@ async function ensureBrokerDeliveryConversation(input: {
         surface: "broker",
         channel,
         naturalKey,
-        legacyId: legacyChannelId,
       },
     };
   }
@@ -4321,7 +4310,7 @@ async function reviveManagedLocalSessionEndpoint(endpoint: AgentEndpoint): Promi
 
   const sessionResult = await ensureLocalSessionEndpointOnline(endpoint);
   const externalSessionId = sessionResult.externalSessionId?.trim();
-  const { lastError: _lastError, lastFailedAt: _lastFailedAt, ...baseMetadata } = endpoint.metadata ?? {};
+  const baseMetadata = clearEndpointFailureMetadata(endpoint.metadata);
   const revivedEndpoint: AgentEndpoint = {
     ...endpoint,
     state: "idle",
@@ -6257,10 +6246,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       const externalSessionId = sessionResult.externalSessionId?.trim();
       const nextEndpoint: AgentEndpoint = {
         ...endpoint,
-        state: endpoint.state === "offline" ? "waiting" : endpoint.state,
+        state: endpointStateAfterSuccessfulSessionWarmup(endpoint.state),
         ...(externalSessionId ? { sessionId: externalSessionId } : {}),
         metadata: {
-          ...(endpoint.metadata ?? {}),
+          ...clearEndpointFailureMetadata(endpoint.metadata),
           ...(externalSessionId ? {
             externalSessionId,
             threadId: endpoint.transport === "codex_app_server" ? externalSessionId : endpoint.metadata?.threadId,

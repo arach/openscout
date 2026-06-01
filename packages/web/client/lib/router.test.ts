@@ -165,6 +165,13 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "messages" })).toBe("/messages");
   });
 
+  test("search route round-trips", () => {
+    expect(routeFromUrl("http://127.0.0.1:3200/search")).toEqual({
+      view: "search",
+    });
+    expect(routePath({ view: "search" })).toBe("/search");
+  });
+
   test("messages route preserves conversationId, filter, and sort", () => {
     const route = routeFromUrl(
       "http://127.0.0.1:3200/messages/channel.font-studio?filter=channel&sort=unread",

@@ -2,7 +2,6 @@ import type { MetadataMap, ScoutId } from "./common.js";
 
 export const CHANNEL_ID_PREFIX = "c.";
 export const CHANNEL_NATURAL_KEY_METADATA = "naturalKey";
-export const CHANNEL_LEGACY_ID_METADATA = "legacyId";
 
 export function mintChannelId(randomUuid: () => string): ScoutId {
   return `${CHANNEL_ID_PREFIX}${randomUuid().toLowerCase()}`;
@@ -24,13 +23,6 @@ export function channelNaturalKeyFromMetadata(
   metadata: MetadataMap | undefined,
 ): string | null {
   const value = metadata?.[CHANNEL_NATURAL_KEY_METADATA];
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-export function channelLegacyIdFromMetadata(
-  metadata: MetadataMap | undefined,
-): string | null {
-  const value = metadata?.[CHANNEL_LEGACY_ID_METADATA];
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 

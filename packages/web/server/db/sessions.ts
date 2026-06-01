@@ -13,7 +13,6 @@
 import { db } from "./internal/db.ts";
 import {
   namedChannelNaturalKey,
-  channelLegacyIdFromMetadata,
   channelNaturalKeyFromMetadata,
   directChannelNaturalKey,
 } from "@openscout/protocol";
@@ -213,11 +212,9 @@ function conversationIdentityFields(
 ): Partial<MobileSessionSummary> {
   const alias = conversationAliasForRow(row, metadata);
   const naturalKey = channelNaturalKeyFromMetadata(metadata);
-  const legacyId = channelLegacyIdFromMetadata(metadata);
   return {
     ...(alias ? { alias } : {}),
     ...(naturalKey ? { naturalKey } : {}),
-    ...(legacyId ? { legacyId } : {}),
   };
 }
 
@@ -236,9 +233,6 @@ function resolveConversationAlias(conversationId: string): string | null {
 
   for (const row of byMetadata) {
     const metadata = parseMetadataJson(row.metadata_json);
-    if (channelLegacyIdFromMetadata(metadata) === conversationId) {
-      return row.id;
-    }
     if (naturalKey && channelNaturalKeyFromMetadata(metadata) === naturalKey) {
       return row.id;
     }

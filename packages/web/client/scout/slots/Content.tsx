@@ -11,6 +11,7 @@ import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
 import { ConversationsScreen } from "../../screens/ConversationsScreen.tsx";
 import { FollowScreen } from "../../screens/FollowScreen.tsx";
 import { HomeScreen } from "../../screens/HomeScreen.tsx";
+import { KnowledgeSearchScreen } from "../../screens/KnowledgeSearchScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
 import { MessagesScreen } from "../../screens/MessagesScreen.tsx";
 import { SessionsScreen } from "../../screens/SessionsScreen.tsx";
@@ -99,6 +100,8 @@ function renderScreen(
         );
       }
       return <SessionsScreen navigate={navigate} />;
+    case "search":
+      return <KnowledgeSearchScreen navigate={navigate} />;
     case "channels":
       return <ChannelsScreen channelId={route.channelId} navigate={navigate} />;
     case "mesh":
