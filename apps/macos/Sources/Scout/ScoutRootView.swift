@@ -24,6 +24,8 @@ struct ScoutRootView: View {
     @State private var observeSidecarAgent: ScoutAgent?
     @State private var observeSidecarStagingWidth = ScoutObserveSidecarMetrics.peekWidth
     @State private var observeRestoresInspectorCollapsed = false
+    @State private var agentPreviewPanelAgent: ScoutAgent?
+    @State private var agentPreviewRestoresInspectorCollapsed = false
     @FocusState private var composerFocused: Bool
     @AppStorage("scout.navigationSidebar.labelWidth") private var navigationSidebarLabelWidth = 142.0
     @AppStorage("scout.conversationList.width") private var conversationListWidth = 286.0
@@ -119,16 +121,16 @@ struct ScoutRootView: View {
             HudChromeTitlebarAction(
                 id: "scout.inspector",
                 placement: .trailing,
-                label: observeSidecarAgent == nil
-                    ? (inspectorCollapsed ? "Show context" : "Hide context")
-                    : "Close observe",
+                label: trailingPanelActionLabel,
                 systemImage: "sidebar.right"
             ) {
                 withAnimation(.easeOut(duration: 0.14)) {
-                    if observeSidecarAgent == nil {
-                        inspectorCollapsed.toggle()
-                    } else {
+                    if observeSidecarAgent != nil {
                         closeObserveSidecar()
+                    } else if agentPreviewPanelAgent != nil {
+                        closeAgentPreviewPanel()
+                    } else {
+                        inspectorCollapsed.toggle()
                     }
                 }
             },
@@ -217,9 +219,7 @@ struct ScoutRootView: View {
 
             if let agent = store.selectedAgent {
                 HudButton("Agent", icon: "person.crop.circle", style: .secondary) {
-                    store.selectAgent(agent.id)
-                    agentContentMode = .roster
-                    section = .agents
+                    previewAgent(agent)
                 }
             }
 
@@ -556,7 +556,7 @@ struct ScoutRootView: View {
                                 agent: agent,
                                 isSelected: store.selectedAgentId == agent.id || store.selectedChannel?.agentId == agent.id
                             ) {
-                                store.selectAgent(agent.id)
+                                previewAgent(agent)
                             } observe: {
                                 observeAgent(agent)
                             } openChannel: {
@@ -588,6 +588,17 @@ struct ScoutRootView: View {
         return store.agents.first { $0.id == observeSidecarAgent.id } ?? observeSidecarAgent
     }
 
+    private var agentPreviewResolvedAgent: ScoutAgent? {
+        guard let agentPreviewPanelAgent else { return nil }
+        return store.agents.first { $0.id == agentPreviewPanelAgent.id } ?? agentPreviewPanelAgent
+    }
+
+    private var trailingPanelActionLabel: String {
+        if observeSidecarAgent != nil { return "Close observe" }
+        if agentPreviewPanelAgent != nil { return "Close agent preview" }
+        return inspectorCollapsed ? "Show context" : "Hide context"
+    }
+
     @ViewBuilder
     private var trailingPanel: some View {
         Group {
@@ -606,6 +617,24 @@ struct ScoutRootView: View {
                 )
                 .id(agent.id)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else if let agent = agentPreviewResolvedAgent {
+                ScoutAgentPreviewPanel(
+                    agent: agent,
+                    selectedChannel: store.selectedChannel,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            closeAgentPreviewPanel()
+                        }
+                    },
+                    openObserve: {
+                        observeAgent(agent)
+                    },
+                    openProfile: {
+                        ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile")
+                    }
+                )
+                .id("preview-\(agent.id)")
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
                 HudInspector(isCollapsed: $inspectorCollapsed) {
                     inspectorHeader
@@ -616,6 +645,7 @@ struct ScoutRootView: View {
             }
         }
         .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: observeSidecarResolvedAgent?.id)
+        .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: agentPreviewResolvedAgent?.id)
     }
 
     @ViewBuilder
@@ -707,9 +737,27 @@ struct ScoutRootView: View {
         observeSidecarAgent = agent
     }
 
+    private func previewAgent(_ agent: ScoutAgent) {
+        if agentPreviewPanelAgent == nil {
+            agentPreviewRestoresInspectorCollapsed = observeSidecarAgent == nil
+                ? inspectorCollapsed
+                : observeRestoresInspectorCollapsed
+        }
+
+        store.selectAgent(agent.id)
+        agentContentMode = .roster
+        observeSidecarAgent = nil
+        agentPreviewPanelAgent = agent
+    }
+
     private func closeObserveSidecar() {
         observeSidecarAgent = nil
         inspectorCollapsed = observeRestoresInspectorCollapsed
+    }
+
+    private func closeAgentPreviewPanel() {
+        agentPreviewPanelAgent = nil
+        inspectorCollapsed = agentPreviewRestoresInspectorCollapsed
     }
 
     private var statusBar: some View {
@@ -1804,6 +1852,75 @@ private struct ScoutAgentInspector: View {
                 HudButton("Profile", icon: "person.text.rectangle", style: .secondary, action: openProfile)
             }
         }
+    }
+}
+
+private struct ScoutAgentPreviewPanel: View {
+    let agent: ScoutAgent
+    let selectedChannel: ScoutChannel?
+    let onClose: () -> Void
+    let openObserve: () -> Void
+    let openProfile: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            HudDivider(color: ScoutDesign.hairline)
+
+            ScrollView {
+                ScoutAgentInspector(
+                    agent: agent,
+                    selectedChannel: selectedChannel,
+                    openObserve: openObserve,
+                    openProfile: openProfile
+                )
+                .padding(HudSpacing.xl)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.visible)
+        }
+        .frame(width: ScoutObserveSidecarMetrics.expandedWidth)
+        .frame(maxHeight: .infinity)
+        .background(ScoutDesign.chrome)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(ScoutDesign.hairlineStrong)
+                .frame(width: HudStrokeWidth.thin)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: HudSpacing.md) {
+            Image(systemName: "person.crop.circle")
+                .font(HudFont.ui(12, weight: .semibold))
+                .foregroundStyle(HudPalette.accent)
+                .frame(width: 26, height: 26)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(HudPalette.accentSoft))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HudSectionLabel("Agent")
+                Text(agent.displayName)
+                    .font(HudFont.ui(13, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onClose) {
+                Image(systemName: "sidebar.right")
+                    .font(HudFont.ui(12, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(HudPalette.muted)
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+            .help("Close agent preview")
+        }
+        .padding(.horizontal, HudSpacing.lg)
+        .frame(height: HudLayout.navHeight)
+        .background(ScoutDesign.chrome)
     }
 }
 
