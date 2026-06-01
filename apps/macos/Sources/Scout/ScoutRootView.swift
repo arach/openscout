@@ -21,6 +21,9 @@ struct ScoutRootView: View {
     @State private var currentSuggestionTrigger: MessageSuggestionTrigger?
     @State private var dismissedSuggestionSignature: String?
     @State private var conversationListResizePreviewWidth: CGFloat?
+    @State private var observeSidecarAgent: ScoutAgent?
+    @State private var observeSidecarStagingWidth = ScoutObserveSidecarMetrics.peekWidth
+    @State private var observeRestoresInspectorCollapsed = false
     @FocusState private var composerFocused: Bool
     @AppStorage("scout.navigationSidebar.labelWidth") private var navigationSidebarLabelWidth = 142.0
     @AppStorage("scout.conversationList.width") private var conversationListWidth = 286.0
@@ -75,11 +78,7 @@ struct ScoutRootView: View {
                 }
             )
         } trailing: {
-            HudInspector(isCollapsed: $inspectorCollapsed) {
-                inspectorHeader
-            } content: {
-                inspectorContent
-            }
+            trailingPanel
         } content: {
             content
         } statusBar: {
@@ -120,11 +119,17 @@ struct ScoutRootView: View {
             HudChromeTitlebarAction(
                 id: "scout.inspector",
                 placement: .trailing,
-                label: inspectorCollapsed ? "Show context" : "Hide context",
+                label: observeSidecarAgent == nil
+                    ? (inspectorCollapsed ? "Show context" : "Hide context")
+                    : "Close observe",
                 systemImage: "sidebar.right"
             ) {
                 withAnimation(.easeOut(duration: 0.14)) {
-                    inspectorCollapsed.toggle()
+                    if observeSidecarAgent == nil {
+                        inspectorCollapsed.toggle()
+                    } else {
+                        closeObserveSidecar()
+                    }
                 }
             },
         ]
@@ -578,6 +583,41 @@ struct ScoutRootView: View {
         }
     }
 
+    private var observeSidecarResolvedAgent: ScoutAgent? {
+        guard let observeSidecarAgent else { return nil }
+        return store.agents.first { $0.id == observeSidecarAgent.id } ?? observeSidecarAgent
+    }
+
+    @ViewBuilder
+    private var trailingPanel: some View {
+        Group {
+            if let agent = observeSidecarResolvedAgent {
+                ScoutObserveSidecarPanel(
+                    agent: agent,
+                    stagingWidth: observeSidecarStagingWidth,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            closeObserveSidecar()
+                        }
+                    },
+                    onOpenWeb: {
+                        ScoutWeb.open(path: "/embed/observe/\(agent.id)")
+                    }
+                )
+                .id(agent.id)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                HudInspector(isCollapsed: $inspectorCollapsed) {
+                    inspectorHeader
+                } content: {
+                    inspectorContent
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: observeSidecarResolvedAgent?.id)
+    }
+
     @ViewBuilder
     private var inspectorContent: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xl) {
@@ -652,10 +692,24 @@ struct ScoutRootView: View {
     }
 
     private func observeAgent(_ agent: ScoutAgent) {
+        let openingFromIdle = observeSidecarAgent == nil
+        if openingFromIdle {
+            observeRestoresInspectorCollapsed = inspectorCollapsed
+            observeSidecarStagingWidth = inspectorCollapsed
+                ? ScoutObserveSidecarMetrics.peekWidth
+                : HudLayout.panelWidth
+        } else {
+            observeSidecarStagingWidth = ScoutObserveSidecarMetrics.expandedWidth
+        }
+
         store.selectAgent(agent.id)
-        agentContentMode = .observe
-        section = .agents
-        store.loadObserve(agentId: agent.id, force: true)
+        agentContentMode = .roster
+        observeSidecarAgent = agent
+    }
+
+    private func closeObserveSidecar() {
+        observeSidecarAgent = nil
+        inspectorCollapsed = observeRestoresInspectorCollapsed
     }
 
     private var statusBar: some View {
