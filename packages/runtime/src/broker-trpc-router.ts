@@ -22,6 +22,8 @@ import {
   subscribeControlEvents,
 } from "./broker-control-events.js";
 import {
+  readRecentLiveEvents,
+  readRecentTranscriptEvents,
   snapshotRecentEvents,
   subscribeTail,
   type TailEvent,
@@ -50,6 +52,19 @@ const tailEventsInput = z
   .object({
     since: z.string().optional(),
     sources: z.array(z.string()).optional(),
+  })
+  .optional();
+
+const tailRecentInput = z
+  .object({
+    limit: z.number().int().min(1).max(1_000).optional(),
+    sources: z.array(z.string()).optional(),
+    kinds: z.array(z.string()).optional(),
+    sessionId: z.string().optional(),
+    project: z.string().optional(),
+    cwd: z.string().optional(),
+    query: z.string().optional(),
+    transcripts: z.boolean().optional(),
   })
   .optional();
 
@@ -226,6 +241,54 @@ function topologyEventIterable(
   };
 }
 
+function normalizedFilterSet(values: string[] | undefined): Set<string> | null {
+  const normalized = values
+    ?.map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  return normalized && normalized.length > 0 ? new Set(normalized) : null;
+}
+
+function textMatches(value: string | null | undefined, query: string | null): boolean {
+  if (!query) return true;
+  return (value ?? "").toLowerCase().includes(query);
+}
+
+function tailEventMatches(
+  event: TailEvent,
+  input: z.infer<typeof tailRecentInput>,
+): boolean {
+  const sources = normalizedFilterSet(input?.sources);
+  if (sources && !sources.has(event.source.toLowerCase())) return false;
+
+  const kinds = normalizedFilterSet(input?.kinds);
+  if (kinds && !kinds.has(event.kind.toLowerCase())) return false;
+
+  const sessionId = input?.sessionId?.trim();
+  if (sessionId && event.sessionId !== sessionId) return false;
+
+  const project = input?.project?.trim().toLowerCase();
+  if (project && !textMatches(event.project, project)) return false;
+
+  const cwd = input?.cwd?.trim().toLowerCase();
+  if (cwd && !textMatches(event.cwd, cwd)) return false;
+
+  const query = input?.query?.trim().toLowerCase();
+  if (query) {
+    const haystack = [
+      event.source,
+      event.kind,
+      event.sessionId,
+      event.project,
+      event.cwd,
+      event.harness,
+      event.summary,
+    ].join("\n").toLowerCase();
+    if (!haystack.includes(query)) return false;
+  }
+
+  return true;
+}
+
 const controlRouter = t.router({
   events: t.procedure
     .input(controlEventsInput)
@@ -253,6 +316,40 @@ const controlRouter = t.router({
 });
 
 const tailRouter = t.router({
+  recent: t.procedure
+    .input(tailRecentInput)
+    .query(async ({ input }) => {
+      const limit = input?.limit ?? TAIL_BACKLOG_LIMIT;
+      const bufferedEvents = await readRecentLiveEvents(limit);
+      const eventsById = new Map<string, TailEvent>();
+
+      if (input?.transcripts) {
+        const transcriptEvents = await readRecentTranscriptEvents(limit, {
+          perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
+        });
+        for (const event of transcriptEvents) {
+          eventsById.set(event.id, event);
+        }
+      }
+      for (const event of bufferedEvents) {
+        eventsById.set(event.id, event);
+      }
+
+      const events = [...eventsById.values()]
+        .filter((event) => tailEventMatches(event, input))
+        .sort((left, right) => {
+          if (left.ts === right.ts) return left.id.localeCompare(right.id);
+          return left.ts - right.ts;
+        })
+        .slice(-limit);
+
+      return {
+        generatedAt: Date.now(),
+        limit,
+        cursor: events.at(-1)?.id ?? null,
+        events,
+      };
+    }),
   events: t.procedure
     .input(tailEventsInput)
     .subscription(async function* ({ input, signal }) {

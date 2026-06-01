@@ -64,6 +64,12 @@ import {
   type ScoutWhoEntry,
 } from "../broker/service.ts";
 import {
+  readScoutTailEvents,
+  type ScoutTailRecentResult,
+  type TailEvent,
+  type TailEventKind,
+} from "../tail/service.ts";
+import {
   scoutAskHandler as defaultScoutAskHandler,
   type ScoutAskHandler,
 } from "../broker/ask.ts";
@@ -93,6 +99,14 @@ const MESSAGE_ROUTING_ERROR_VALUES = [
 const REPLY_MODE_VALUES = ["none", "inline", "notify"] as const;
 const REPLY_DELIVERY_VALUES = ["none", "inline", "mcp_notification"] as const;
 const LOCAL_AGENT_HARNESS_VALUES = ["claude", "codex", "pi"] as const;
+const TAIL_EVENT_KIND_VALUES = [
+  "user",
+  "assistant",
+  "tool",
+  "tool-result",
+  "system",
+  "other",
+] as const;
 const DEFAULT_ASK_ACK_TIMEOUT_SECONDS = 30;
 export const SCOUT_MCP_UI_META_KEY = "openscout/ui";
 
@@ -350,6 +364,17 @@ type ScoutMcpDependencies = {
     includeAcknowledged?: boolean;
     baseUrl?: string;
   }) => Promise<ScoutAgentBrokerFeed | null>;
+  readTailEvents: (input: {
+    limit?: number;
+    sources?: string[];
+    kinds?: TailEventKind[];
+    sessionId?: string;
+    project?: string;
+    cwd?: string;
+    query?: string;
+    transcripts?: boolean;
+    baseUrl?: string;
+  }) => Promise<ScoutTailRecentResult>;
   searchAgents: (input: {
     query?: string;
     currentDirectory: string;
@@ -923,6 +948,44 @@ const brokerFeedSchema = z.object({
     warnings: z.number(),
   }),
   items: z.array(brokerFeedItemSchema),
+});
+
+const tailEventSchema = z.object({
+  id: z.string(),
+  ts: z.number(),
+  source: z.string(),
+  sessionId: z.string(),
+  pid: z.number(),
+  parentPid: z.number().nullable(),
+  project: z.string(),
+  cwd: z.string(),
+  harness: z.string(),
+  kind: z.enum(TAIL_EVENT_KIND_VALUES),
+  summary: z.string(),
+  raw: z.unknown().optional(),
+});
+
+const tailEventsResultSchema = z.object({
+  currentDirectory: z.string(),
+  brokerUrl: z.string(),
+  generatedAt: z.number(),
+  limit: z.number(),
+  cursor: z.string().nullable(),
+  filters: z.object({
+    sources: z.array(z.string()),
+    kinds: z.array(z.enum(TAIL_EVENT_KIND_VALUES)),
+    sessionId: z.string().nullable(),
+    project: z.string().nullable(),
+    cwd: z.string().nullable(),
+    query: z.string().nullable(),
+    transcripts: z.boolean(),
+  }),
+  counts: z.object({
+    events: z.number(),
+    sources: z.number(),
+    sessions: z.number(),
+  }),
+  events: z.array(tailEventSchema),
 });
 
 const searchResultSchema = z.object({
@@ -1658,6 +1721,22 @@ function renderMcpBrokerFeedSummary(feed: ScoutAgentBrokerFeed & { found: boolea
     ? ` Latest: ${latest.kind} ${latest.severity} - ${latest.summary}`
     : " No broker events yet.";
   return `Broker feed for ${feed.agentId}; ${feed.counts.items} items; ${feed.counts.errors} errors; ${feed.counts.warnings} warnings; cursor ${feed.cursor ?? "none"}.${latestText}`;
+}
+
+function renderMcpTailEventsSummary(result: z.infer<typeof tailEventsResultSchema>): string {
+  const latest = result.events.at(-1);
+  const filterText = [
+    result.filters.sources.length ? `sources=${result.filters.sources.join(",")}` : null,
+    result.filters.kinds.length ? `kinds=${result.filters.kinds.join(",")}` : null,
+    result.filters.sessionId ? `session=${result.filters.sessionId}` : null,
+    result.filters.project ? `project=${result.filters.project}` : null,
+    result.filters.query ? `query=${result.filters.query}` : null,
+  ].filter(Boolean).join("; ");
+  const latestText = latest
+    ? ` Latest: ${latest.source} ${latest.kind} ${latest.project} - ${latest.summary}`
+    : " No tail events yet.";
+  const scope = filterText ? ` (${filterText})` : "";
+  return `Tail events${scope}; ${result.counts.events} events; ${result.counts.sources} sources; ${result.counts.sessions} sessions; cursor ${result.cursor ?? "none"}.${latestText}`;
 }
 
 function resolveCurrentCodexThreadId(env: NodeJS.ProcessEnv): string {
@@ -2560,6 +2639,7 @@ function defaultScoutMcpDependencies(
       env.OPENSCOUT_BROKER_URL?.trim() || resolveScoutBrokerUrl(),
     loadMessages: (input) => loadScoutMessages(input),
     readBrokerFeed: (input) => readScoutBrokerFeed(input),
+    readTailEvents: (input) => readScoutTailEvents(input),
     searchAgents: ({ query, currentDirectory, limit }) =>
       searchScoutAgentsForMcp({ query, currentDirectory, limit }),
     resolveAgent: ({ label, currentDirectory }) =>
@@ -3026,6 +3106,88 @@ export function createScoutMcpServer(options: {
       };
       return {
         content: createPlainTextContent(renderMcpBrokerFeedSummary(structuredContent)),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
+    "tail_events",
+    {
+      title: "Read Tail Events",
+      description:
+        "Read recent observed harness events from the broker tail firehose. Use this for local situational awareness about Claude, Codex, and other native harness activity without importing harness transcripts as Scout messages.",
+      inputSchema: z.object({
+        currentDirectory: z.string().optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        sources: z.array(z.string()).optional(),
+        kinds: z.array(z.enum(TAIL_EVENT_KIND_VALUES)).optional(),
+        sessionId: z.string().optional(),
+        project: z.string().optional(),
+        cwd: z.string().optional(),
+        query: z.string().optional(),
+        transcripts: z.boolean().optional(),
+      }),
+      outputSchema: tailEventsResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({
+      currentDirectory,
+      limit,
+      sources,
+      kinds,
+      sessionId,
+      project,
+      cwd,
+      query,
+      transcripts,
+    }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const brokerUrl = deps.resolveBrokerUrl();
+      const resolvedLimit = limit ?? 80;
+      const result = await deps.readTailEvents({
+        limit: resolvedLimit,
+        sources,
+        kinds,
+        sessionId: sessionId?.trim() || undefined,
+        project: project?.trim() || undefined,
+        cwd: cwd?.trim() || undefined,
+        query: query?.trim() || undefined,
+        transcripts: transcripts ?? false,
+        baseUrl: brokerUrl,
+      });
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        brokerUrl,
+        generatedAt: result.generatedAt,
+        limit: result.limit,
+        cursor: result.cursor,
+        filters: {
+          sources: sources ?? [],
+          kinds: kinds ?? [],
+          sessionId: sessionId?.trim() || null,
+          project: project?.trim() || null,
+          cwd: cwd?.trim() || null,
+          query: query?.trim() || null,
+          transcripts: transcripts ?? false,
+        },
+        counts: {
+          events: result.events.length,
+          sources: new Set(result.events.map((event) => event.source)).size,
+          sessions: new Set(result.events.map((event) => event.sessionId)).size,
+        },
+        events: result.events,
+      };
+      return {
+        content: createPlainTextContent(renderMcpTailEventsSummary(structuredContent)),
         structuredContent,
       };
     },

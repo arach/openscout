@@ -3579,31 +3579,29 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/tail/discover", async (c) => {
-    const force = c.req.query("force") === "true";
-    const snapshot = await getTailDiscovery(force);
-    return c.json(snapshot);
+    const url = new URL(scoutBrokerPaths.v1.tailDiscover, resolveScoutBrokerUrl());
+    if (c.req.query("force") === "true" || c.req.query("force") === "1") {
+      url.searchParams.set("force", "1");
+    }
+    const res = await fetch(url);
+    if (!res.ok) {
+      return c.json({ error: `broker tail discovery unavailable (${res.status})` }, 502);
+    }
+    return c.json(await res.json());
   });
 
   app.get("/api/tail/recent", async (c) => {
     const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;
-    const bufferedEvents = snapshotRecentEvents(limitParam);
-    if (c.req.query("transcripts") !== "true") {
-      return c.json({ events: bufferedEvents });
+    const url = new URL(scoutBrokerPaths.v1.tailRecent, resolveScoutBrokerUrl());
+    url.searchParams.set("limit", String(limitParam));
+    if (c.req.query("transcripts") === "true" || c.req.query("transcripts") === "1") {
+      url.searchParams.set("transcripts", "true");
     }
-    const transcriptEvents = await readRecentTranscriptEvents(limitParam, {
-      perTranscriptLineLimit: Math.min(200, Math.max(50, limitParam)),
-    });
-    const eventsById = new Map<string, (typeof bufferedEvents)[number]>();
-    for (const event of transcriptEvents) {
-      eventsById.set(event.id, event);
+    const res = await fetch(url);
+    if (!res.ok) {
+      return c.json({ error: `broker tail unavailable (${res.status})` }, 502);
     }
-    for (const event of bufferedEvents) {
-      eventsById.set(event.id, event);
-    }
-    const events = [...eventsById.values()]
-      .sort((left, right) => right.ts - left.ts)
-      .slice(0, limitParam);
-    return c.json({ events });
+    return c.json(await res.json());
   });
 
   // /api/tail/stream removed — clients now subscribe to broker tail.events

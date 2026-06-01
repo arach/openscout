@@ -23,6 +23,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "label", summary: "Watch, feed, or brief related work by label" },
   { name: "card", summary: "Create a dedicated reply-ready Scout agent card" },
   { name: "watch", summary: "Stream broker messages" },
+  { name: "tail", summary: "Stream observed harness events" },
   { name: "who", summary: "List agents and last activity" },
   { name: "latest", summary: "Show the latest Scout activity" },
   { name: "mcp", summary: "Run a Scout MCP server over stdio" },

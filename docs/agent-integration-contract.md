@@ -145,6 +145,8 @@ Agents connected through Scout's MCP server should prefer:
 - `messages_send` for durable messages and updates
 - `broker_feed` to inspect one agent's broker-native messages, status, delivery,
   dispatch, unblock, and error records
+- `tail_events` to inspect recent observed harness activity without treating
+  harness transcripts as Scout-owned conversation messages
 - `ask` for agent-to-agent work or requested replies
 - `invocations_get` and `invocations_wait` to monitor a flight
 - `work_update` for durable work-item progress, waiting, review, and completion

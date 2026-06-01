@@ -19,6 +19,7 @@ export function renderMcpCommandHelp(): string {
     "  messages_inbox   read recent direct/addressed messages for this sender",
     "  messages_channel read recent messages from a named channel",
     "  broker_feed      native broker messages/status/errors for an agent",
+    "  tail_events      recent observed harness activity from the broker tail",
     "  session_attach_current",
     "                   pro integration: attach the current live Codex session",
     "  card_create      pro integration: fresh reply-ready return address",

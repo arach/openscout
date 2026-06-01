@@ -178,6 +178,12 @@ import {
   getHarnessTopologySnapshot,
   nudgeHarnessTopologyScan,
 } from "./harness-topology/index.js";
+import {
+  getTailDiscovery,
+  readRecentLiveEvents,
+  readRecentTranscriptEvents,
+  type TailEvent,
+} from "./tail/index.js";
 
 const PROCESS_NAME = "scout-broker";
 const WEB_PROCESS_NAME = "scout-web";
@@ -5026,6 +5032,49 @@ function parseLimit(url: URL): number {
   return Math.min(limit, 500);
 }
 
+function parseTailLimit(url: URL): number {
+  const limit = Number.parseInt(url.searchParams.get("limit") ?? "500", 10);
+  if (!Number.isFinite(limit) || limit <= 0) return 500;
+  return Math.min(limit, 1_000);
+}
+
+async function readTailRecentPayload(url: URL): Promise<{
+  generatedAt: number;
+  limit: number;
+  cursor: string | null;
+  events: TailEvent[];
+}> {
+  const limit = parseTailLimit(url);
+  const bufferedEvents = await readRecentLiveEvents(limit);
+  const eventsById = new Map<string, TailEvent>();
+
+  if (url.searchParams.get("transcripts") === "true" || url.searchParams.get("transcripts") === "1") {
+    const transcriptEvents = await readRecentTranscriptEvents(limit, {
+      perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
+    });
+    for (const event of transcriptEvents) {
+      eventsById.set(event.id, event);
+    }
+  }
+  for (const event of bufferedEvents) {
+    eventsById.set(event.id, event);
+  }
+
+  const events = [...eventsById.values()]
+    .sort((left, right) => {
+      if (left.ts === right.ts) return left.id.localeCompare(right.id);
+      return left.ts - right.ts;
+    })
+    .slice(-limit);
+
+  return {
+    generatedAt: Date.now(),
+    limit,
+    cursor: events.at(-1)?.id ?? null,
+    events,
+  };
+}
+
 function parseSince(url: URL): number | null {
   const since = Number.parseInt(url.searchParams.get("since") ?? "", 10);
   if (!Number.isFinite(since) || since <= 0) {
@@ -5491,6 +5540,17 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/v1/topology/snapshot") {
     json(response, 200, await getHarnessTopologySnapshot(url.searchParams.get("force") === "1"));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/tail/discover") {
+    const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+    json(response, 200, await getTailDiscovery(force));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/tail/recent") {
+    json(response, 200, await readTailRecentPayload(url));
     return;
   }
 
