@@ -25,15 +25,30 @@ const infoPlistTemplate = resolve(appDir, "ScoutInfo.plist");
 const iconSource = resolve(repoRoot, "apps", "desktop", "public", "scout-icon.png");
 const packageJsonPath = resolve(repoRoot, "package.json");
 
-type Command = "build" | "launch" | "start" | "restart" | "quit" | "stop" | "status" | "help";
+type BuildMode = "dev" | "build";
+type Command =
+  | "dev"
+  | "dev-build"
+  | "build"
+  | "build-restart"
+  | "launch"
+  | "start"
+  | "restart"
+  | "quit"
+  | "stop"
+  | "status"
+  | "help";
 
 function printHelp(): void {
   console.log(`scout-app — standalone Scout macOS app
 
 Usage:
-  bun apps/macos/bin/scout-app.ts build
-  bun apps/macos/bin/scout-app.ts launch
-  bun apps/macos/bin/scout-app.ts restart
+  bun apps/macos/bin/scout-app.ts dev            # local Hudson path + debug build + relaunch
+  bun apps/macos/bin/scout-app.ts dev-build      # local Hudson path + debug build only
+  bun apps/macos/bin/scout-app.ts build          # git Hudson + release build only
+  bun apps/macos/bin/scout-app.ts build-restart  # git Hudson + release build + relaunch
+  bun apps/macos/bin/scout-app.ts launch         # launch existing bundle
+  bun apps/macos/bin/scout-app.ts restart        # alias: dev
   bun apps/macos/bin/scout-app.ts quit
   bun apps/macos/bin/scout-app.ts status
 `);
@@ -49,13 +64,32 @@ function appVersion(): string {
   return "0.1.0";
 }
 
-function buildSwift(): string {
-  execSync("swift build -c release --product Scout", {
+function swiftConfiguration(mode: BuildMode): "debug" | "release" {
+  return mode === "dev" ? "debug" : "release";
+}
+
+function modeLabel(mode: BuildMode): string {
+  return mode === "dev" ? "dev" : "build";
+}
+
+function swiftBuildEnvironment(mode: BuildMode): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    OPENSCOUT_HUDSON_SOURCE: mode === "dev" ? "path" : "git",
+  };
+}
+
+function buildSwift(mode: BuildMode): string {
+  const configuration = swiftConfiguration(mode);
+  console.log(`Building Scout ${modeLabel(mode)} bundle...`);
+  execSync(`swift build -c ${configuration} --product Scout`, {
     cwd: appDir,
+    env: swiftBuildEnvironment(mode),
     stdio: "inherit",
   });
-  return execSync("swift build -c release --show-bin-path", {
+  return execSync(`swift build -c ${configuration} --show-bin-path`, {
     cwd: appDir,
+    env: swiftBuildEnvironment(mode),
     stdio: "pipe",
   }).toString("utf8").trim();
 }
@@ -83,8 +117,8 @@ function writeIcon(): void {
   });
 }
 
-function bundleApp(): void {
-  const binPath = buildSwift();
+function bundleApp(mode: BuildMode): void {
+  const binPath = buildSwift(mode);
   const builtBinary = join(binPath, "Scout");
   if (!existsSync(builtBinary)) {
     throw new Error(`Built Scout binary not found: ${builtBinary}`);
@@ -104,7 +138,7 @@ function bundleApp(): void {
 
   writeIcon();
   execSync(`codesign --force --deep --sign - '${bundlePath}'`, { stdio: "inherit" });
-  console.log(`Built ${bundlePath}`);
+  console.log(`Built ${bundlePath} (${modeLabel(mode)})`);
 }
 
 function isRunning(): boolean {
@@ -122,26 +156,37 @@ function quit(): void {
 }
 
 function launch(): void {
-  if (!existsSync(bundlePath)) bundleApp();
+  if (!existsSync(bundlePath)) bundleApp("dev");
   spawn("open", [bundlePath], {
     detached: true,
     stdio: "ignore",
   }).unref();
 }
 
+function restart(mode: BuildMode): void {
+  quit();
+  bundleApp(mode);
+  launch();
+}
+
 const command = (process.argv[2] ?? "help") as Command;
 
 switch (command) {
+  case "dev-build":
+    bundleApp("dev");
+    break;
+  case "dev":
+  case "restart":
+    restart("dev");
+    break;
   case "build":
-    bundleApp();
+    bundleApp("build");
+    break;
+  case "build-restart":
+    restart("build");
     break;
   case "launch":
   case "start":
-    launch();
-    break;
-  case "restart":
-    quit();
-    bundleApp();
     launch();
     break;
   case "quit":

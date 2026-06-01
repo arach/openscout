@@ -1,6 +1,11 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+let hudsonSource = Context.environment["OPENSCOUT_HUDSON_SOURCE"] ?? "path"
+let hudsonDependency: Package.Dependency = hudsonSource == "git"
+    ? .package(url: "git@github.com:arach/hudson.git", branch: "main")
+    : .package(path: "../../../hudson")
+
 let package = Package(
     name: "OpenScoutMenu",
     platforms: [.macOS(.v14)],
@@ -9,7 +14,7 @@ let package = Package(
         .executable(name: "Scout", targets: ["Scout"]),
     ],
     dependencies: [
-        .package(path: "../../../hudson"),
+        hudsonDependency,
         .package(path: "../../packages/scout-native-core"),
     ],
     targets: [
