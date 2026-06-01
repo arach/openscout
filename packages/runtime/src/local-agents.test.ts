@@ -11,6 +11,8 @@ import {
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
+  clearEndpointFailureMetadata,
+  endpointStateAfterSuccessfulSessionWarmup,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
@@ -23,6 +25,25 @@ const scoutCli = `bun ${JSON.stringify(join(repoRoot, "packages", "cli", "bin", 
 const scoutSkillPath = join(repoRoot, ".agents", "skills", "scout", "SKILL.md");
 
 describe("local agent prompts", () => {
+  test("clears stale endpoint failure metadata after successful session warmup", () => {
+    expect(clearEndpointFailureMetadata({
+      source: "scoutbot",
+      lastError: "codex_app_server session unavailable: old-thread",
+      lastFailedAt: 123,
+      threadId: "new-thread",
+    })).toEqual({
+      source: "scoutbot",
+      threadId: "new-thread",
+    });
+  });
+
+  test("marks warmed local session endpoints idle unless they are active", () => {
+    expect(endpointStateAfterSuccessfulSessionWarmup("offline")).toBe("idle");
+    expect(endpointStateAfterSuccessfulSessionWarmup("waiting")).toBe("idle");
+    expect(endpointStateAfterSuccessfulSessionWarmup("idle")).toBe("idle");
+    expect(endpointStateAfterSuccessfulSessionWarmup("active")).toBe("active");
+  });
+
   test("Scout harness attribution accepts Flue without making it a managed local launcher", () => {
     expect(SUPPORTED_SCOUT_HARNESSES).toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("flue");

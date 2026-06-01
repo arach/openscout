@@ -301,7 +301,7 @@ async function ensureScoutbotRegistered(
     await postJson(baseUrl, "/v1/actors", actor);
   }
   const existingAgent = snapshot.agents?.[SCOUTBOT_AGENT_ID];
-  if (!existingAgent || !hasScoutbotLabels(existingAgent) || !hasCurrentScoutbotAgentConfig(existingAgent)) {
+  if (!existingAgent || !hasCurrentScoutbotAgentRegistration(existingAgent, nodeId)) {
     await postJson(baseUrl, "/v1/agents", agent);
   }
   const existingEndpoint = findScoutbotEndpoint(snapshot, nodeId);
@@ -882,6 +882,16 @@ async function postJson<T = { ok: true }>(
 function hasScoutbotLabels(agent: ScoutBrokerAgentRecord): boolean {
   const labels = new Set(agent.labels ?? []);
   return labels.has("assistant") && labels.has("scout") && labels.has("scoutbot");
+}
+
+export function hasCurrentScoutbotAgentRegistration(agent: ScoutBrokerAgentRecord, nodeId: string): boolean {
+  return hasScoutbotLabels(agent)
+    && hasCurrentScoutbotAgentConfig(agent)
+    && agent.homeNodeId === nodeId
+    && agent.authorityNodeId === nodeId
+    && agent.advertiseScope === "local"
+    && agent.wakePolicy === "keep_warm"
+    && agent.metadata?.source === "scoutbot";
 }
 
 function hasCurrentScoutbotAgentConfig(agent: ScoutBrokerAgentRecord): boolean {

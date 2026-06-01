@@ -59,6 +59,7 @@ import {
   type UnblockRequestRecord,
   OPENSCOUT_IROH_MESH_ALPN,
   OPENSCOUT_MESH_PROTOCOL_VERSION,
+  OPENSCOUT_COORDINATOR_AGENT_ID,
   SCOUT_DISPATCHER_AGENT_ID,
   normalizeAgentSelectorSegment,
   parseAgentIdentity,
@@ -105,6 +106,8 @@ import { createPeerDeliveryWorker, type PeerDeliveryWorker } from "./peer-delive
 import {
   ensureLocalSessionEndpointOnline,
   ensureLocalAgentBindingOnline,
+  clearEndpointFailureMetadata,
+  endpointStateAfterSuccessfulSessionWarmup,
   isLocalAgentEndpointAlive,
   isLocalAgentSessionAlive,
   invokeLocalAgentEndpoint,
@@ -256,6 +259,11 @@ const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(host
 const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
   ?? resolveBrokerServiceConfig().brokerSocketPath;
 const nodeId = process.env.OPENSCOUT_NODE_ID ?? `${nodeName}-${meshId}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+const nodeLocalProductAgentIds = new Set([
+  SCOUT_DISPATCHER_AGENT_ID,
+  OPENSCOUT_COORDINATOR_AGENT_ID,
+  "scoutbot",
+]);
 const seedUrls = (process.env.OPENSCOUT_MESH_SEEDS ?? "")
   .split(",")
   .map((value) => value.trim())
@@ -617,6 +625,9 @@ async function discoverPeers(seeds: string[] = []): Promise<{
       for (const agent of peerAgents) {
         if (agent.id === nodeId) continue;
         if (agent.homeNodeId === nodeId) continue;
+        if (isNodeLocalProductAgentId(agent.id)) continue;
+        const existingAgent = runtime.agent(agent.id);
+        if (existingAgent && isLocalAgentAuthority(existingAgent)) continue;
         const agentHome = agent.homeNodeId || node.id;
         if (agentHome !== node.id) continue;
         const remoteAgent: AgentDefinition = {
@@ -639,6 +650,14 @@ async function discoverPeers(seeds: string[] = []): Promise<{
     discovered: result.discovered,
     probes: result.probes,
   };
+}
+
+function isNodeLocalProductAgentId(agentId: string): boolean {
+  return nodeLocalProductAgentIds.has(agentId.trim().toLowerCase());
+}
+
+function isLocalAgentAuthority(agent: AgentDefinition): boolean {
+  return agent.homeNodeId === nodeId || agent.authorityNodeId === nodeId;
 }
 
 function currentLocalNode(): NodeDefinition {
@@ -4260,7 +4279,7 @@ async function reviveManagedLocalSessionEndpoint(endpoint: AgentEndpoint): Promi
 
   const sessionResult = await ensureLocalSessionEndpointOnline(endpoint);
   const externalSessionId = sessionResult.externalSessionId?.trim();
-  const { lastError: _lastError, lastFailedAt: _lastFailedAt, ...baseMetadata } = endpoint.metadata ?? {};
+  const baseMetadata = clearEndpointFailureMetadata(endpoint.metadata);
   const revivedEndpoint: AgentEndpoint = {
     ...endpoint,
     state: "idle",
@@ -6188,10 +6207,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       const externalSessionId = sessionResult.externalSessionId?.trim();
       const nextEndpoint: AgentEndpoint = {
         ...endpoint,
-        state: endpoint.state === "offline" ? "waiting" : endpoint.state,
+        state: endpointStateAfterSuccessfulSessionWarmup(endpoint.state),
         ...(externalSessionId ? { sessionId: externalSessionId } : {}),
         metadata: {
-          ...(endpoint.metadata ?? {}),
+          ...clearEndpointFailureMetadata(endpoint.metadata),
           ...(externalSessionId ? {
             externalSessionId,
             threadId: endpoint.transport === "codex_app_server" ? externalSessionId : endpoint.metadata?.threadId,

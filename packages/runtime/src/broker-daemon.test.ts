@@ -1224,6 +1224,47 @@ describe("broker daemon comms layer", () => {
     expect(remoteSnapshot.messages["msg-remote-1"]).toBeUndefined();
   }, 40_000);
 
+  test("keeps node-local scoutbot authority when syncing peer agents", async () => {
+    const local = await startBroker();
+    const peer = await startBroker();
+    const scoutbotAgent = (authorityNodeId: string) => ({
+      id: "scoutbot",
+      kind: "agent",
+      definitionId: "scoutbot",
+      displayName: "Scout",
+      handle: "scoutbot",
+      labels: ["assistant", "scout", "scoutbot"],
+      selector: "@scoutbot",
+      defaultSelector: "@scoutbot",
+      metadata: { source: "scoutbot" },
+      agentClass: "operator",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "keep_warm",
+      homeNodeId: authorityNodeId,
+      authorityNodeId,
+      advertiseScope: "local",
+    });
+
+    await postJson(local.baseUrl, "/v1/agents", scoutbotAgent(local.nodeId));
+    await postJson(peer.baseUrl, "/v1/agents", scoutbotAgent(peer.nodeId));
+    await postJson(local.baseUrl, "/v1/nodes", {
+      id: peer.nodeId,
+      meshId: "openscout",
+      name: "Peer",
+      advertiseScope: "mesh",
+      brokerUrl: peer.baseUrl,
+      registeredAt: Date.now(),
+    });
+
+    await postJson(local.baseUrl, "/v1/mesh/discover", { seeds: [] });
+
+    const snapshot = await getJson<{
+      agents: Record<string, { homeNodeId: string; authorityNodeId: string }>;
+    }>(local.baseUrl, "/v1/snapshot");
+    expect(snapshot.agents.scoutbot?.homeNodeId).toBe(local.nodeId);
+    expect(snapshot.agents.scoutbot?.authorityNodeId).toBe(local.nodeId);
+  }, 40_000);
+
   test("fails remote-authority message posts when the authority broker stalls", async () => {
     const harness = await startBroker();
     const hangingBrokerUrl = startHangingPeerServer();
