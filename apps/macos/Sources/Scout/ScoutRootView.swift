@@ -2246,9 +2246,10 @@ private struct ScoutAgentInspector: View {
             HudCard {
                 VStack(alignment: .leading, spacing: HudSpacing.md) {
                     HudSectionLabel("Runtime")
+                    HudKVRow("Role", value: agent.roleLabel)
                     HudKVRow("Harness", value: agent.harness?.nilIfEmpty ?? "—")
                     HudKVRow("Transport", value: agent.transport?.nilIfEmpty ?? "—")
-                    HudKVRow("Model", value: agent.model?.nilIfEmpty ?? "—")
+                    ScoutAgentModelRow(agent: agent)
                     HudKVRow("Node", value: agent.nodeName?.nilIfEmpty ?? "—")
                 }
             }
@@ -2267,12 +2268,8 @@ private struct ScoutAgentInspector: View {
             if !agent.capabilities.isEmpty {
                 HudCard {
                     VStack(alignment: .leading, spacing: HudSpacing.md) {
-                        HudSectionLabel("Capabilities")
-                        FlowLayout(spacing: HudSpacing.sm) {
-                            ForEach(agent.capabilities, id: \.self) { capability in
-                                HudBadge(capability, tint: HudPalette.muted)
-                            }
-                        }
+                        HudSectionLabel("Abilities")
+                        ScoutAgentAbilityList(capabilities: agent.capabilities)
                     }
                 }
             }
@@ -2351,6 +2348,134 @@ private struct ScoutAgentPreviewPanel: View {
         .padding(.horizontal, HudSpacing.lg)
         .frame(height: HudLayout.navHeight)
         .background(ScoutDesign.chrome)
+    }
+}
+
+private struct ScoutAgentModelRow: View {
+    let agent: ScoutAgent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            HudKVRow(
+                "Model",
+                value: agent.modelDisplayValue,
+                valueColor: agent.model?.nilIfEmpty == nil ? HudPalette.muted : HudPalette.ink
+            )
+            if let note = agent.modelDisplayNote {
+                Text(note)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(HudPalette.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+    }
+}
+
+private struct ScoutAgentAbilityList: View {
+    let capabilities: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            ForEach(abilities, id: \.id) { ability in
+                ScoutAgentAbilityRow(ability: ability)
+            }
+        }
+    }
+
+    private var abilities: [ScoutAgentAbility] {
+        capabilities
+            .map(ScoutAgentAbility.init(rawValue:))
+            .sorted { left, right in
+                if left.rank != right.rank { return left.rank < right.rank }
+                return left.title < right.title
+            }
+    }
+}
+
+private struct ScoutAgentAbilityRow: View {
+    let ability: ScoutAgentAbility
+
+    var body: some View {
+        HStack(alignment: .top, spacing: HudSpacing.md) {
+            Image(systemName: ability.icon)
+                .font(HudFont.ui(11, weight: .medium))
+                .foregroundStyle(HudPalette.muted)
+                .frame(width: 22, height: 22)
+                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(HudPalette.surface))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ability.title)
+                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                    .foregroundStyle(HudPalette.ink)
+                Text(ability.detail)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(HudPalette.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(ability.title), \(ability.detail)")
+    }
+}
+
+private struct ScoutAgentAbility {
+    let rawValue: String
+
+    var id: String { rawValue }
+
+    var normalized: String {
+        rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    var rank: Int {
+        switch normalized {
+        case "chat": return 10
+        case "invoke": return 20
+        case "deliver": return 30
+        case "observe": return 40
+        default: return 100
+        }
+    }
+
+    var title: String {
+        switch normalized {
+        case "chat": return "Conversation"
+        case "invoke": return "Work requests"
+        case "deliver": return "Result delivery"
+        case "observe": return "Live observe"
+        default: return rawValue.agentMetadataTitle
+        }
+    }
+
+    var detail: String {
+        switch normalized {
+        case "chat":
+            return "Can exchange Scout messages with the operator."
+        case "invoke":
+            return "Can accept owned asks and run delegated work."
+        case "deliver":
+            return "Can report completion, status, or artifacts back."
+        case "observe":
+            return "Can expose live session context when available."
+        default:
+            return "Advertised by the agent registration."
+        }
+    }
+
+    var icon: String {
+        switch normalized {
+        case "chat": return "bubble.left.and.bubble.right"
+        case "invoke": return "play.circle"
+        case "deliver": return "arrow.down.doc"
+        case "observe": return "eye"
+        default: return "checkmark.seal"
+        }
     }
 }
 

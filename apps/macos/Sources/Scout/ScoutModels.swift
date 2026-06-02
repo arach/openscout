@@ -265,6 +265,19 @@ struct ScoutAgent: Identifiable, Decodable, Sendable {
     var workspace: String { projectRoot?.nilIfEmpty ?? cwd?.nilIfEmpty ?? project?.nilIfEmpty ?? "—" }
     var branchLabel: String { branch?.nilIfEmpty ?? "—" }
     var updatedLabel: String { ScoutRelativeTime.format(updatedAt) }
+    var roleLabel: String { role?.nilIfEmpty ?? "Session agent" }
+    var modelDisplayValue: String {
+        if let model = model?.nilIfEmpty { return model }
+        if harness?.nilIfEmpty?.lowercased() == "codex" { return "Default" }
+        return "—"
+    }
+    var modelDisplayNote: String? {
+        guard model?.nilIfEmpty == nil else { return nil }
+        if harness?.nilIfEmpty?.lowercased() == "codex" {
+            return "No explicit model was declared by this Codex session."
+        }
+        return nil
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -773,5 +786,14 @@ func uniqueMemberNames(_ names: [String]) -> [String] {
 extension String {
     var nilIfEmpty: String? {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
+    }
+
+    var agentMetadataTitle: String {
+        split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == "." })
+            .map { part in
+                guard let first = part.first else { return "" }
+                return first.uppercased() + part.dropFirst().lowercased()
+            }
+            .joined(separator: " ")
     }
 }
