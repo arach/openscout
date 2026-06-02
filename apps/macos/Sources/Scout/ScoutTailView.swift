@@ -270,6 +270,8 @@ struct ScoutTailContent: View {
                         }
                     }
                     .padding(.bottom, HudSpacing.xxl)
+                    .frame(maxWidth: .infinity)
+                    .scoutOverlayScrollers()
                 }
                 .scrollIndicators(.visible)
                 .onChange(of: visibleEvents.count) { _, _ in
@@ -302,6 +304,7 @@ struct ScoutTailInspector: View {
                 controls
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .scoutOverlayScrollers()
         }
         .scrollIndicators(.visible)
     }

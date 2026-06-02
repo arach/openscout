@@ -272,6 +272,7 @@ struct ScoutRootView: View {
                 }
                 .padding(HudSpacing.huge)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                .scoutOverlayScrollers()
             }
             .scrollIndicators(.visible)
             .onChange(of: store.messages.count) { _, _ in
@@ -1266,6 +1267,8 @@ private struct ScoutConversationListBar: View {
                     }
                 }
                 .padding(.vertical, HudSpacing.sm)
+                .frame(maxWidth: .infinity)
+                .scoutOverlayScrollers()
             }
             .scrollIndicators(.visible)
         }
@@ -1585,6 +1588,8 @@ private struct ScoutChannelPicker: View {
                                 }
                             }
                         }
+                        .frame(maxWidth: .infinity)
+                        .scoutOverlayScrollers()
                     }
                     .frame(maxHeight: 280)
                     .scrollIndicators(.visible)
@@ -2358,6 +2363,7 @@ private struct ScoutAgentPreviewPanel: View {
                 )
                 .padding(HudSpacing.xl)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .scoutOverlayScrollers()
             }
             .scrollIndicators(.visible)
         }
@@ -2555,6 +2561,7 @@ private struct ScoutResizableInspectorPanel<Header: View, Content: View>: View {
                 }
                 .padding(HudSpacing.xl)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .scoutOverlayScrollers()
             }
             .scrollIndicators(.visible)
         }

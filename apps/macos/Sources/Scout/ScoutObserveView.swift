@@ -81,6 +81,7 @@ struct ScoutAgentObserveContent: View {
                 }
                 .padding(HudSpacing.huge)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                .scoutOverlayScrollers()
             }
             .scrollIndicators(.visible)
         } else if isLoading {
