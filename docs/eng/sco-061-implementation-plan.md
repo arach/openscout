@@ -20,10 +20,13 @@ The current `feat/in-app-session-initiation` branch hands us the worked example:
 
 ```
 packages/scout-native-core   (cross-platform: iOS17 / macOS14, Foundation/SwiftUI only)
-  ScoutCapabilities          NEW — capability contracts + pure behavior + conversation projection
-  ScoutCapabilitiesTests     NEW — golden contract fixtures (anti-drift harness)
+  ScoutCapabilities          ✅ added (Phase 0) — capability contracts + pure behavior + conversation projection
+  ScoutCapabilitiesTests     ✅ added (Phase 0) — golden contract fixtures (anti-drift harness)
   ScoutNativeCore            existing helpers (compose routing, dictation, identity)
-  ScoutSharedUI              existing SwiftUI atoms (message input, markup, code block, vox)
+  ScoutSharedUI              SwiftUI atoms (message input, markup, code block, vox)
+                             ⚠️ on this branch these live macOS-app-local in
+                             apps/macos/Sources/ScoutSharedUI — promote to a cross-platform
+                             package product in Phase 0 (the new iOS target needs them).
 
 packages/scout-ios-core      NEW — iOS-only, harvested from apps/ios/Scout
   Transport: BridgeBrokerClient (WS+Noise+tRPC) conforming to ScoutCapabilities
@@ -142,8 +145,11 @@ Phase 0 is the gate: empty new shell + a clean crown-jewel extraction that doesn
 
 ## 6. First concrete steps (Phase 0 kickoff)
 
-1. Add `ScoutCapabilities` + `ScoutCapabilitiesTests` targets to `packages/scout-native-core/Package.swift` (empty, wired).
-2. Create `packages/scout-ios-core` (iOS-only) and move the transport/security/voice/terminal/cache/inbox sources out of `apps/ios/Scout` into it.
-3. Re-point existing `ScoutApp` at `scout-ios-core`; build + smoke — must behave identically.
-4. Add `ScoutNextApp` target: `HudPhoneAppShell` + `ScoutHudsonStyle` theme, launching to an empty themed shell.
-5. Land Phase 1's session-initiation slice as the new app's first real surface.
+1. ✅ **Done** — `ScoutCapabilities` + `ScoutCapabilitiesTests` targets added to `packages/scout-native-core/Package.swift` (Foundation-only module + contract-version fixture; builds + test green).
+2. Promote `ScoutSharedUI` from macOS-app-local (`apps/macos/Sources/ScoutSharedUI`) to a cross-platform product of `scout-native-core`; re-point `apps/macos` at the package product (no behavior change). Use `wip/inflight-snapshot-2026-06-02` as reference — it already did this move.
+3. Create `packages/scout-ios-core` (iOS-only) and move the transport/security/voice/terminal/cache/inbox sources out of `apps/ios/Scout` into it.
+4. Re-point existing `ScoutApp` at `scout-ios-core`; build + smoke — must behave identically.
+5. Add `ScoutNextApp` target: `HudPhoneAppShell` + `ScoutHudsonStyle` theme, launching to an empty themed shell.
+6. Land Phase 1's session-initiation slice as the new app's first real surface.
+
+> **Branch-state note:** this branch (`feat/in-app-session-initiation`) does **not** carry the native-sharing groundwork (ScoutSharedUI package move, iOS `scout-native-core` deps, iOS Hudson foothold) — that was uncommitted WIP, now parked on `wip/inflight-snapshot-2026-06-02` (based on stale main, mixed with ~75 unrelated files). We build on `feat` and rebuild the small groundwork properly, using the snapshot only as reference.
