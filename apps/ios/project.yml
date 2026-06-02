@@ -6,6 +6,10 @@ packages:
   Termini:
     url: https://github.com/arach/Termini.git
     revision: 5f337c1faf802412d83cdeabf753aead6d614780
+  Hudson:
+    path: ../../../hudson           # local SPM package; products HudsonShell, HudsonUI
+  ScoutNativeCore:
+    path: ../../packages/scout-native-core   # product ScoutCapabilities
 options:
   bundleIdPrefix: com.openscout
   deploymentTarget:
@@ -22,6 +26,10 @@ schemes:
       config: Debug
       targets:
         - ScoutTests
+  ScoutNext:
+    build:
+      targets:
+        ScoutNext: all
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -81,6 +89,32 @@ targets:
           CODE_SIGN_ENTITLEMENTS: Scout/ScoutDebug.entitlements
         Release:
           CODE_SIGN_ENTITLEMENTS: Scout/ScoutRelease.entitlements
+  ScoutNext:
+    type: application
+    platform: iOS
+    sources:
+      - ScoutNext
+    dependencies:
+      - package: Hudson
+        product: HudsonShell
+      - package: Hudson
+        product: HudsonUI
+      - package: ScoutNativeCore
+        product: ScoutCapabilities
+    settings:
+      base:
+        PRODUCT_NAME: ScoutNext
+        PRODUCT_MODULE_NAME: ScoutNext
+        PRODUCT_BUNDLE_IDENTIFIER: com.openscout.scoutnext
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ScoutNext
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
   ScoutTests:
     type: bundle.unit-test
     platform: iOS
