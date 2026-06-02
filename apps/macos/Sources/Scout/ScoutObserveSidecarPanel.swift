@@ -445,12 +445,12 @@ private struct ScoutObserveSidecarResizeHandle: NSViewRepresentable {
             super.draw(dirtyRect)
 
             if isActive || isHovering {
-                NSColor.white.withAlphaComponent(isActive ? 0.055 : 0.035).setFill()
+                NSColor.white.withAlphaComponent(isActive ? 0.035 : 0.018).setFill()
                 bounds.fill()
             }
 
             let handleWidth: CGFloat = isActive || isHovering ? 3 : 2
-            let handleHeight: CGFloat = isActive || isHovering ? 64 : 42
+            let handleHeight: CGFloat = isActive || isHovering ? 52 : 34
             let rect = NSRect(
                 x: floor((bounds.width - handleWidth) / 2),
                 y: floor((bounds.height - handleHeight) / 2),
@@ -459,8 +459,8 @@ private struct ScoutObserveSidecarResizeHandle: NSViewRepresentable {
             )
             let path = NSBezierPath(roundedRect: rect, xRadius: handleWidth / 2, yRadius: handleWidth / 2)
             (isActive || isHovering
-                ? NSColor.systemGreen.withAlphaComponent(0.42)
-                : NSColor.white.withAlphaComponent(0.18)
+                ? NSColor.systemGreen.withAlphaComponent(0.30)
+                : NSColor.white.withAlphaComponent(0.13)
             ).setFill()
             path.fill()
         }
