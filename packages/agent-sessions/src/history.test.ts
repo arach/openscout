@@ -600,6 +600,104 @@ describe("history snapshot replay", () => {
     }
   });
 
+  test("reconstructs Pi JSONL history into an observable session", () => {
+    const path = "/Users/art/Library/Application Support/OpenScout/runtime/agents/review/pi-sessions/2026-06-02T15-42-59-840Z_relay-review-pi.jsonl";
+    const content = [
+      JSON.stringify({
+        type: "session",
+        id: "relay-review-pi",
+        timestamp: "2026-06-02T15:42:59.840Z",
+        cwd: "/Users/art/dev/lattices",
+      }),
+      JSON.stringify({
+        type: "model_change",
+        timestamp: "2026-06-02T15:43:00.593Z",
+        provider: "minimax",
+        modelId: "MiniMax-M3",
+      }),
+      JSON.stringify({
+        type: "thinking_level_change",
+        timestamp: "2026-06-02T15:43:00.594Z",
+        thinkingLevel: "low",
+      }),
+      JSON.stringify({
+        type: "message",
+        timestamp: "2026-06-02T15:43:05.340Z",
+        message: {
+          role: "assistant",
+          provider: "minimax",
+          model: "MiniMax-M3",
+          content: [
+            { type: "thinking", thinking: "Need to inspect status." },
+            { type: "toolCall", id: "call-1", name: "bash", arguments: { command: "pwd && git status --short" } },
+          ],
+          usage: { input: 10, output: 4, cacheRead: 2, totalTokens: 16 },
+          stopReason: "toolUse",
+        },
+      }),
+      JSON.stringify({
+        type: "message",
+        timestamp: "2026-06-02T15:43:05.397Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "bash",
+          content: [{ type: "text", text: "/Users/art/dev/lattices\n" }],
+          isError: false,
+        },
+      }),
+      JSON.stringify({
+        type: "message",
+        timestamp: "2026-06-02T15:43:08.581Z",
+        message: {
+          role: "assistant",
+          provider: "minimax",
+          model: "MiniMax-M3",
+          content: [{ type: "text", text: "FINAL: clean." }],
+          stopReason: "stop",
+        },
+      }),
+    ].join("\n");
+
+    expect(inferHistorySessionAdapterType(path)).toBe("pi");
+    expect(supportsHistorySessionSnapshotForPath(path)).toBe(true);
+
+    const result = createHistorySessionSnapshot({ path, content });
+    expect(result.adapterType).toBe("pi");
+    expect(result.parsedLineCount).toBe(6);
+    expect(result.skippedLineCount).toBe(0);
+    expect(result.snapshot.session.adapterType).toBe("pi");
+    expect(result.snapshot.session.cwd).toBe("/Users/art/dev/lattices");
+    expect(result.snapshot.session.model).toBe("MiniMax-M3");
+    expect(result.snapshot.session.providerMeta).toEqual(expect.objectContaining({
+      externalSessionId: "relay-review-pi",
+      threadId: "relay-review-pi",
+      threadPath: path,
+      provider: "minimax",
+      observeRuntime: expect.objectContaining({ effort: "low", modelProvider: "minimax" }),
+      observeUsage: expect.objectContaining({
+        inputTokens: 10,
+        outputTokens: 4,
+        cacheReadInputTokens: 2,
+        totalTokens: 16,
+      }),
+    }));
+
+    expect(result.snapshot.turns).toHaveLength(2);
+    const actionBlock = result.snapshot.turns[0]?.blocks.find((block) => block.block.type === "action")?.block;
+    expect(actionBlock?.type).toBe("action");
+    if (actionBlock?.type === "action") {
+      expect(actionBlock.action.kind).toBe("command");
+      expect(actionBlock.action.status).toBe("completed");
+      expect(actionBlock.action.output).toContain("/Users/art/dev/lattices");
+    }
+    const finalText = result.snapshot.turns[1]?.blocks.find((block) => block.block.type === "text")?.block;
+    expect(finalText?.type).toBe("text");
+    if (finalText?.type === "text") {
+      expect(finalText.text).toBe("FINAL: clean.");
+    }
+  });
+
   test("marks unsupported harness history clearly", () => {
     const path = "/Users/arach/.unknown/history.jsonl";
 

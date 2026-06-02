@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 
 import { Hono, type Context } from "hono";
 import type {
+  AgentEndpoint,
   CollaborationEvent,
   CollaborationKind,
   ConversationDefinition,
@@ -57,6 +58,7 @@ import {
   appendScoutCollaborationEvent,
   appendScoutUnblockRequestEvent,
   askScoutQuestion,
+  loadScoutBrokerContext,
   loadScoutReadCursors,
   loadScoutRelayConfig,
   markScoutConversationRead,
@@ -606,6 +608,57 @@ function hasOwn(object: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
+function firstMetadataString(...values: Array<unknown>): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function metadataTimestampMs(value: unknown): number | undefined {
+  const numeric = typeof value === "number"
+    ? value
+    : typeof value === "string"
+      ? Number(value)
+      : Number.NaN;
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return undefined;
+  }
+  return numeric > 10_000_000_000 ? Math.floor(numeric) : Math.floor(numeric * 1000);
+}
+
+function agentEndpointMetadata(endpoint: AgentEndpoint | null | undefined): Record<string, unknown> {
+  return endpoint?.metadata && typeof endpoint.metadata === "object" && !Array.isArray(endpoint.metadata)
+    ? endpoint.metadata
+    : {};
+}
+
+function activeEndpointForAgent(
+  snapshot: { endpoints?: Record<string, AgentEndpoint> },
+  agentId: string,
+): AgentEndpoint | null {
+  const candidates = Object.values(snapshot.endpoints ?? {}).filter(
+    (endpoint) => endpoint.agentId === agentId,
+  );
+  const rank = (state: string | undefined) => {
+    switch (state) {
+      case "active":
+        return 0;
+      case "idle":
+        return 1;
+      case "waiting":
+        return 2;
+      case "offline":
+        return 5;
+      default:
+        return 4;
+    }
+  };
+  return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
+}
+
 function parseVoxSpeechTimingRequest(value: unknown): VoxSpeechTimingRequest | null | undefined {
   if (value === undefined) {
     return undefined;
@@ -800,30 +853,54 @@ function buildAgentSessionCatalogPayload(input: {
   activeSessionId?: string | null;
   model?: string | null;
   startedAt?: number | null;
+  endpoint?: AgentEndpoint | null;
 }) {
   const runtimeDir = relayAgentRuntimeDirectory(input.agentId);
   const catalog = readSessionCatalogSync(runtimeDir);
+  const endpointMetadata = agentEndpointMetadata(input.endpoint);
+  const endpointSessionId = firstMetadataString(
+    input.activeSessionId,
+    input.endpoint?.sessionId,
+    endpointMetadata.externalSessionId,
+    endpointMetadata.threadId,
+  );
   const fallbackTmuxSessionId = input.transport === "tmux"
     ? input.activeSessionId ?? null
     : null;
-  const sessionId = catalog.activeSessionId ?? fallbackTmuxSessionId;
-  const sessions = sessionId && !catalog.sessions.some((session) => session.id === sessionId)
-    ? [
-        {
-          id: sessionId,
-          startedAt: input.startedAt ?? Date.now(),
-          cwd: input.cwd,
-          ...(input.harness ? { harness: input.harness } : {}),
-          ...(input.transport ? { transport: input.transport } : {}),
-          ...(input.model ? { model: input.model } : {}),
-        },
-        ...catalog.sessions,
-      ]
-    : catalog.sessions;
+  const sessionId = catalog.activeSessionId ?? endpointSessionId ?? fallbackTmuxSessionId;
   const harnessEntry = findHarnessEntry(input.harness);
   const resumeCommand = sessionId && harnessEntry && input.transport !== "tmux"
     ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
     : null;
+  const historyPath = firstMetadataString(
+    endpointMetadata.threadPath,
+    endpointMetadata.resumeSessionPath,
+    endpointMetadata.historyPath,
+  );
+  const provider = firstMetadataString(endpointMetadata.provider);
+  const source = firstMetadataString(endpointMetadata.source) ?? "broker-endpoint";
+  const startedAt = metadataTimestampMs(endpointMetadata.lastStartedAt)
+    ?? metadataTimestampMs(endpointMetadata.startedAt)
+    ?? input.startedAt
+    ?? Date.now();
+  const sessions = sessionId && !catalog.sessions.some((session) => session.id === sessionId)
+    ? [
+        {
+          id: sessionId,
+          startedAt,
+          cwd: input.cwd,
+          ...(input.harness ? { harness: input.harness } : {}),
+          ...(input.transport ? { transport: input.transport } : {}),
+          ...(input.model ? { model: input.model } : {}),
+          ...(provider ? { provider } : {}),
+          ...(historyPath ? { historyPath } : {}),
+          source,
+          canObserve: Boolean(historyPath) || input.transport === "tmux",
+          canTakeover: Boolean(resumeCommand),
+        },
+        ...catalog.sessions,
+      ]
+    : catalog.sessions;
   return {
     ...catalog,
     activeSessionId: sessionId,
@@ -2596,21 +2673,24 @@ export async function createOpenScoutWebServer(
     const config = await getLocalAgentConfig(agentId);
     return c.json({ config: config ?? nextConfig, restarted });
   });
-  app.get("/api/agents/:id/session-catalog", (c) => {
+  app.get("/api/agents/:id/session-catalog", async (c) => {
     const agentId = c.req.param("id");
     const agents = queryAgents();
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return c.json(emptyAgentSessionCatalogPayload(agentId));
-    const cwd = agent.cwd ?? agent.projectRoot ?? ".";
+    const broker = await loadScoutBrokerContext().catch(() => null);
+    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId) : null;
+    const cwd = endpoint?.cwd ?? endpoint?.projectRoot ?? agent.cwd ?? agent.projectRoot ?? ".";
     return c.json(
       buildAgentSessionCatalogPayload({
         agentId,
         harness: agent.harness,
         cwd,
         transport: agent.transport,
-        activeSessionId: agent.harnessSessionId,
+        activeSessionId: endpoint?.sessionId ?? agent.harnessSessionId,
         model: agent.model,
         startedAt: agent.createdAt ?? agent.updatedAt,
+        endpoint,
       }),
     );
   });

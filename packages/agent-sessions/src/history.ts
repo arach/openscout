@@ -29,7 +29,7 @@ export type HistorySessionEvent = {
   event: PairingEvent;
 };
 
-export type SupportedHistoryAdapterType = "claude-code" | "codex";
+export type SupportedHistoryAdapterType = "claude-code" | "codex" | "pi";
 export type HistoryAdapterType = SupportedHistoryAdapterType | "unknown";
 
 export interface HistorySessionSnapshotInput {
@@ -288,6 +288,9 @@ function inferHistoryAdapterType(path: string, adapterType?: string | null): His
   if (normalizedAdapter === "codex") {
     return "codex";
   }
+  if (normalizedAdapter === "pi" || normalizedAdapter === "pi_rpc") {
+    return "pi";
+  }
 
   const normalizedPath = path.toLowerCase();
   if (normalizedPath.includes("/.claude/projects/")) {
@@ -296,13 +299,16 @@ function inferHistoryAdapterType(path: string, adapterType?: string | null): His
   if (normalizedPath.includes("/.codex/") || normalizedPath.includes("/.openai-codex/")) {
     return "codex";
   }
+  if (normalizedPath.includes("/pi-sessions/") || normalizedPath.includes("/.pi/agent/sessions/")) {
+    return "pi";
+  }
 
   return "unknown";
 }
 
 export function supportsHistorySessionSnapshot(adapterType: string | null | undefined): boolean {
   const inferred = inferHistoryAdapterType("", adapterType ?? undefined);
-  return inferred === "claude-code" || inferred === "codex";
+  return inferred === "claude-code" || inferred === "codex" || inferred === "pi";
 }
 
 function buildBaseHistorySession(input: HistorySessionSnapshotInput, adapterType: HistoryAdapterType): Session {
@@ -318,6 +324,7 @@ function buildBaseHistorySession(input: HistorySessionSnapshotInput, adapterType
       historyPath: input.path,
       historyAdapterType: adapterType,
       source: "external_history",
+      threadPath: input.path,
     },
   };
 }
@@ -1132,6 +1139,390 @@ class ClaudeCodeHistoryParser {
   }
 }
 
+class PiHistoryParser {
+  private readonly events: HistorySessionEvent[] = [];
+  private currentTurn: Turn | null = null;
+  private turnCounter = 0;
+  private blockIndex = 0;
+  private lineCount = 0;
+  private parsedLineCount = 0;
+  private skippedLineCount = 0;
+  private toolBlockMap = new Map<string, string>();
+
+  constructor(
+    private readonly session: Session,
+    private readonly baseTimestampMs: number,
+  ) {}
+
+  parse(content: string): {
+    events: HistorySessionEvent[];
+    lineCount: number;
+    parsedLineCount: number;
+    skippedLineCount: number;
+  } {
+    const lines = content.split(/\r?\n/u);
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      this.lineCount += 1;
+      let record: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (!isRecord(parsed)) {
+          this.skippedLineCount += 1;
+          return;
+        }
+        record = parsed;
+      } catch {
+        this.skippedLineCount += 1;
+        return;
+      }
+
+      const capturedAt = extractRecordTimestamp(record) ?? this.baseTimestampMs + index;
+      if (this.handleRecord(record, capturedAt)) {
+        this.parsedLineCount += 1;
+      } else {
+        this.skippedLineCount += 1;
+      }
+    });
+
+    if (this.currentTurn) {
+      this.endTurn(this.currentTurn, this.baseTimestampMs + lines.length);
+    }
+
+    return {
+      events: this.events,
+      lineCount: this.lineCount,
+      parsedLineCount: this.parsedLineCount,
+      skippedLineCount: this.skippedLineCount,
+    };
+  }
+
+  private handleRecord(record: Record<string, unknown>, capturedAt: number): boolean {
+    const type = maybeString(record.type);
+    if (type === "session") {
+      this.applySessionRecord(record, capturedAt);
+      return true;
+    }
+    if (type === "model_change") {
+      this.applyModelRecord(record, capturedAt);
+      return true;
+    }
+    if (type === "thinking_level_change") {
+      const runtime = this.ensureObserveMetaRecord("observeRuntime");
+      if (this.assignObserveString(runtime, "effort", record.thinkingLevel)) {
+        this.emitSessionUpdate(capturedAt);
+      }
+      return true;
+    }
+    if (type !== "message" || !isRecord(record.message)) {
+      return false;
+    }
+
+    const message = record.message;
+    const role = maybeString(message.role);
+    if (role === "assistant") {
+      this.handleAssistantMessage(record, message, capturedAt);
+      return true;
+    }
+    if (role === "toolResult") {
+      this.handleToolResultMessage(message, capturedAt);
+      return true;
+    }
+    if (role === "user") {
+      return true;
+    }
+    return false;
+  }
+
+  private applySessionRecord(record: Record<string, unknown>, capturedAt: number): void {
+    const cwd = maybeString(record.cwd);
+    if (cwd) {
+      this.session.cwd = cwd;
+    }
+    const externalSessionId = maybeString(record.id);
+    const providerMeta = this.ensureProviderMeta();
+    if (externalSessionId) {
+      providerMeta.externalSessionId = externalSessionId;
+      providerMeta.threadId = externalSessionId;
+    }
+    this.emitSessionUpdate(capturedAt);
+  }
+
+  private applyModelRecord(record: Record<string, unknown>, capturedAt: number): void {
+    const model = maybeString(record.modelId) ?? maybeString(record.model);
+    const provider = maybeString(record.provider);
+    if (model) {
+      this.session.model = model;
+    }
+    const providerMeta = this.ensureProviderMeta();
+    if (provider) {
+      providerMeta.provider = provider;
+    }
+    const runtime = this.ensureObserveMetaRecord("observeRuntime");
+    if (provider) {
+      runtime.modelProvider = provider;
+    }
+    this.emitSessionUpdate(capturedAt);
+  }
+
+  private handleAssistantMessage(
+    record: Record<string, unknown>,
+    message: Record<string, unknown>,
+    capturedAt: number,
+  ): void {
+    this.applyAssistantMetadata(record, message, capturedAt);
+    if (this.currentTurn) {
+      this.endTurn(this.currentTurn, capturedAt);
+    }
+
+    const turn = this.startTurn(capturedAt);
+    const content = Array.isArray(message.content) ? message.content : [];
+    let hasOpenToolCall = false;
+
+    for (const part of content) {
+      if (!isRecord(part)) continue;
+      const type = maybeString(part.type);
+      if (type === "thinking") {
+        const text = maybeString(part.thinking);
+        if (text) {
+          this.addTextualBlock(turn, capturedAt, "reasoning", text);
+        }
+      } else if (type === "text" || type === "output_text") {
+        const text = maybeString(part.text);
+        if (text) {
+          this.addTextualBlock(turn, capturedAt, "text", text);
+        }
+      } else if (type === "toolCall") {
+        hasOpenToolCall = true;
+        this.addToolCallBlock(turn, capturedAt, part);
+      }
+    }
+
+    const stopReason = maybeString(message.stopReason);
+    if (!hasOpenToolCall || stopReason !== "toolUse") {
+      this.endTurn(turn, capturedAt);
+    }
+  }
+
+  private handleToolResultMessage(message: Record<string, unknown>, capturedAt: number): void {
+    const turn = this.currentTurn ?? this.startTurn(capturedAt);
+    const toolCallId = maybeString(message.toolCallId);
+    const blockId = toolCallId ? this.toolBlockMap.get(toolCallId) : undefined;
+    const output = renderToolResultContent(message.content);
+    if (blockId && output) {
+      this.emitEvent(capturedAt, {
+        event: "block:action:output",
+        sessionId: this.session.id,
+        turnId: turn.id,
+        blockId,
+        output,
+      });
+    }
+    if (blockId) {
+      const failed = message.isError === true || message.is_error === true;
+      this.emitEvent(capturedAt, {
+        event: "block:action:status",
+        sessionId: this.session.id,
+        turnId: turn.id,
+        blockId,
+        status: failed ? "failed" : "completed",
+      });
+      this.emitEvent(capturedAt, {
+        event: "block:end",
+        sessionId: this.session.id,
+        turnId: turn.id,
+        blockId,
+        status: failed ? "failed" : "completed",
+      });
+      if (toolCallId) {
+        this.toolBlockMap.delete(toolCallId);
+      }
+    }
+    this.endTurn(turn, capturedAt);
+  }
+
+  private applyAssistantMetadata(
+    record: Record<string, unknown>,
+    message: Record<string, unknown>,
+    capturedAt: number,
+  ): void {
+    const model = maybeString(record.model) ?? maybeString(message.model);
+    const provider = maybeString(record.provider) ?? maybeString(message.provider);
+    let changed = false;
+    if (model && this.session.model !== model) {
+      this.session.model = model;
+      changed = true;
+    }
+    const providerMeta = this.ensureProviderMeta();
+    if (provider && providerMeta.provider !== provider) {
+      providerMeta.provider = provider;
+      changed = true;
+    }
+    if (isRecord(message.usage)) {
+      const usage = this.ensureObserveMetaRecord("observeUsage");
+      const inputTokens = maybeNumber(message.usage.input);
+      const outputTokens = maybeNumber(message.usage.output);
+      const cacheReadInputTokens = maybeNumber(message.usage.cacheRead);
+      const totalTokens = maybeNumber(message.usage.totalTokens);
+      if (inputTokens !== undefined) usage.inputTokens = inputTokens;
+      if (outputTokens !== undefined) usage.outputTokens = outputTokens;
+      if (cacheReadInputTokens !== undefined) usage.cacheReadInputTokens = cacheReadInputTokens;
+      if (totalTokens !== undefined) usage.totalTokens = totalTokens;
+      changed = true;
+    }
+    if (changed) {
+      this.emitSessionUpdate(capturedAt);
+    }
+  }
+
+  private startTurn(capturedAt: number): Turn {
+    this.blockIndex = 0;
+    const turn: Turn = {
+      id: `${this.session.id}:turn:${++this.turnCounter}`,
+      sessionId: this.session.id,
+      status: "streaming",
+      startedAt: new Date(capturedAt).toISOString(),
+      blocks: [],
+    };
+    this.currentTurn = turn;
+    this.emitEvent(capturedAt, {
+      event: "turn:start",
+      sessionId: this.session.id,
+      turn,
+    });
+    return turn;
+  }
+
+  private endTurn(turn: Turn, capturedAt: number): void {
+    if (this.currentTurn?.id !== turn.id) return;
+    this.currentTurn = null;
+    turn.status = "completed";
+    turn.endedAt = new Date(capturedAt).toISOString();
+    this.emitEvent(capturedAt, {
+      event: "turn:end",
+      sessionId: this.session.id,
+      turnId: turn.id,
+      status: "completed",
+    });
+  }
+
+  private addTextualBlock(turn: Turn, capturedAt: number, type: "text" | "reasoning", text: string): void {
+    const block = {
+      id: `${turn.id}:${type}:${this.blockIndex}`,
+      turnId: turn.id,
+      index: this.blockIndex++,
+      type,
+      text,
+      status: "completed",
+    } as Extract<Block, { type: "text" | "reasoning" }>;
+    turn.blocks.push(block);
+    this.emitEvent(capturedAt, {
+      event: "block:start",
+      sessionId: this.session.id,
+      turnId: turn.id,
+      block,
+    });
+    this.emitEvent(capturedAt, {
+      event: "block:end",
+      sessionId: this.session.id,
+      turnId: turn.id,
+      blockId: block.id,
+      status: "completed",
+    });
+  }
+
+  private addToolCallBlock(turn: Turn, capturedAt: number, part: Record<string, unknown>): void {
+    const toolCallId = maybeString(part.id) ?? `${turn.id}:tool:${this.blockIndex}`;
+    const toolName = maybeString(part.name) ?? "unknown";
+    const input = part.arguments ?? part.input;
+    const block: Extract<Block, { type: "action" }> = {
+      id: `${turn.id}:action:${toolCallId}`,
+      turnId: turn.id,
+      index: this.blockIndex++,
+      type: "action",
+      action: this.buildAction(toolName, toolCallId, input),
+      status: "streaming",
+    };
+    turn.blocks.push(block);
+    this.toolBlockMap.set(toolCallId, block.id);
+    this.emitEvent(capturedAt, {
+      event: "block:start",
+      sessionId: this.session.id,
+      turnId: turn.id,
+      block,
+    });
+  }
+
+  private buildAction(toolName: string, toolCallId: string, input: unknown): Action {
+    if (toolName === "bash" && isRecord(input)) {
+      return {
+        kind: "command",
+        command: maybeString(input.command) ?? "",
+        status: "running",
+        output: "",
+      };
+    }
+    if ((toolName === "edit" || toolName === "write") && isRecord(input)) {
+      return {
+        kind: "file_change",
+        path: maybeString(input.file_path) ?? maybeString(input.path) ?? "",
+        diff: "",
+        status: "running",
+        output: "",
+      };
+    }
+    return {
+      kind: "tool_call",
+      toolName,
+      toolCallId,
+      input,
+      status: "running",
+      output: "",
+    };
+  }
+
+  private ensureProviderMeta(): Record<string, unknown> {
+    const providerMeta = isRecord(this.session.providerMeta) ? this.session.providerMeta : {};
+    this.session.providerMeta = providerMeta;
+    return providerMeta;
+  }
+
+  private ensureObserveMetaRecord(key: "observeRuntime" | "observeUsage"): Record<string, unknown> {
+    const providerMeta = this.ensureProviderMeta();
+    const existing = providerMeta[key];
+    if (isRecord(existing)) {
+      return existing;
+    }
+    const next: Record<string, unknown> = {};
+    providerMeta[key] = next;
+    return next;
+  }
+
+  private assignObserveString(target: Record<string, unknown>, key: string, value: unknown): boolean {
+    const next = maybeString(value);
+    if (!next || target[key] === next) {
+      return false;
+    }
+    target[key] = next;
+    return true;
+  }
+
+  private emitSessionUpdate(capturedAt: number): void {
+    this.emitEvent(capturedAt, {
+      event: "session:update",
+      session: { ...this.session },
+    });
+  }
+
+  private emitEvent(capturedAt: number, event: PairingEvent): void {
+    this.events.push({
+      capturedAt,
+      event: structuredClone(event),
+    });
+  }
+}
+
 class CodexHistoryParser {
   private readonly events: HistorySessionEvent[] = [];
   private currentTurn: Turn | null = null;
@@ -1747,14 +2138,14 @@ export function supportsHistorySessionSnapshotForPath(
   adapterType?: string | null,
 ): boolean {
   const inferred = inferHistoryAdapterType(path, adapterType);
-  return inferred === "claude-code" || inferred === "codex";
+  return inferred === "claude-code" || inferred === "codex" || inferred === "pi";
 }
 
 export function createHistorySessionSnapshot(
   input: HistorySessionSnapshotInput,
 ): HistorySessionSnapshotResult {
   const adapterType = inferHistoryAdapterType(input.path, input.adapterType);
-  if (adapterType !== "claude-code" && adapterType !== "codex") {
+  if (adapterType !== "claude-code" && adapterType !== "codex" && adapterType !== "pi") {
     throw new Error(`History snapshot is not supported for adapter type "${adapterType}".`);
   }
 
@@ -1762,7 +2153,9 @@ export function createHistorySessionSnapshot(
   const baseTimestampMs = normalizeTimestamp(input.baseTimestampMs) ?? Date.now();
   const parser = adapterType === "codex"
     ? new CodexHistoryParser(session, baseTimestampMs)
-    : new ClaudeCodeHistoryParser(session, baseTimestampMs);
+    : adapterType === "pi"
+      ? new PiHistoryParser(session, baseTimestampMs)
+      : new ClaudeCodeHistoryParser(session, baseTimestampMs);
   const replay = parser.parse(input.content);
 
   const tracker = new StateTracker();

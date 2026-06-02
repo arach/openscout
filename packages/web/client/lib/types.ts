@@ -706,6 +706,11 @@ export type SessionCatalogEntry = {
   harness?: string;
   transport?: string;
   model?: string | null;
+  provider?: string | null;
+  source?: string;
+  historyPath?: string;
+  canObserve?: boolean;
+  canTakeover?: boolean;
 };
 
 export type SessionCatalog = {

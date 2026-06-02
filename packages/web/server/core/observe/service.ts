@@ -158,7 +158,7 @@ type HistorySnapshotResult = {
 };
 
 type HistorySnapshotCacheEntry = HistorySnapshotResult & {
-  adapterType: "claude-code" | "codex";
+  adapterType: "claude-code" | "codex" | "pi";
   mtimeMs: number;
   size: number;
 };
@@ -171,7 +171,7 @@ const SESSION_REF_LOOKUP_TTL_MS = 10_000;
 type SessionRefLookupEntry = {
   refId: string;
   historyPath: string;
-  adapterType: "claude-code" | "codex";
+  adapterType: "claude-code" | "codex" | "pi";
   mtimeMs: number;
   size: number;
 };
@@ -365,13 +365,16 @@ function sessionRefLookup(): Map<string, SessionRefLookupEntry> {
   return entries;
 }
 
-function adapterTypeFromTailSource(source: string): "claude-code" | "codex" | null {
+function adapterTypeFromTailSource(source: string): "claude-code" | "codex" | "pi" | null {
   const normalized = source.trim().toLowerCase();
   if (normalized === "claude" || normalized === "claude-code") {
     return "claude-code";
   }
   if (normalized === "codex") {
     return "codex";
+  }
+  if (normalized === "pi" || normalized === "pi_rpc") {
+    return "pi";
   }
   return null;
 }
@@ -410,7 +413,7 @@ async function findTailSessionRefLookupEntry(
 
 function historyAdapterAlias(
   value: string | null | undefined,
-): "claude-code" | "codex" | null {
+): "claude-code" | "codex" | "pi" | null {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) {
     return null;
@@ -420,6 +423,9 @@ function historyAdapterAlias(
   }
   if (normalized === "codex" || normalized === "codex_app_server") {
     return "codex";
+  }
+  if (normalized === "pi" || normalized === "pi_rpc") {
+    return "pi";
   }
   return null;
 }
@@ -588,17 +594,21 @@ function firstString(
 function resolveHistoryCandidate(
   agent: WebAgent,
   snapshot: SessionState | null,
-): { path: string; adapterType: "claude-code" | "codex" } | null {
+  endpoint?: AgentEndpoint | null,
+): { path: string; adapterType: "claude-code" | "codex" | "pi" } | null {
   const snapshotAdapter = historyAdapterAlias(snapshot?.session.adapterType);
-  const agentAdapter = historyAdapterAlias(agent.harness);
+  const endpointAdapter = historyAdapterAlias(endpoint?.transport ?? endpoint?.harness);
+  const agentAdapter = historyAdapterAlias(agent.transport ?? agent.harness);
   const providerMeta = snapshot ? snapshotProviderMeta(snapshot) : {};
+  const endpointMeta = endpoint?.metadata && typeof endpoint.metadata === "object" ? endpoint.metadata : {};
 
   const directPath = firstString(
     providerMeta.resumeSessionPath,
     providerMeta.threadPath,
+    endpointMeta.threadPath,
   );
   if (directPath) {
-    const adapterType = snapshotAdapter ?? agentAdapter;
+    const adapterType = snapshotAdapter ?? endpointAdapter ?? agentAdapter;
     if (adapterType) {
       return { path: directPath, adapterType };
     }
@@ -613,7 +623,7 @@ function resolveHistoryCandidate(
     agent.cwd,
     agent.projectRoot,
   );
-  if ((snapshotAdapter ?? agentAdapter) === "claude-code") {
+  if ((snapshotAdapter ?? endpointAdapter ?? agentAdapter) === "claude-code") {
     const path = resolveClaudeHistoryPath(claudeCwd, claudeSessionId);
     if (path) {
       return { path, adapterType: "claude-code" };
@@ -636,7 +646,7 @@ function normalizeTimedEvents(
 }
 
 function readHistorySnapshot(
-  candidate: { path: string; adapterType: "claude-code" | "codex" } | null,
+  candidate: { path: string; adapterType: "claude-code" | "codex" | "pi" } | null,
 ): HistorySnapshotResult | null {
   if (!candidate) {
     return null;
@@ -707,7 +717,7 @@ async function readLiveSnapshot(agent: WebAgent, endpoint: AgentEndpoint | null)
   if (endpoint.transport === "pairing_bridge") {
     return await getScoutWebPairingSessionSnapshot(endpoint.sessionId);
   }
-  if (endpoint.transport === "codex_app_server" || endpoint.transport === "claude_stream_json") {
+  if (endpoint.transport === "codex_app_server" || endpoint.transport === "claude_stream_json" || endpoint.transport === "pi_rpc") {
     return await getLocalAgentEndpointSessionSnapshot(endpoint);
   }
   return null;
@@ -1194,7 +1204,7 @@ async function resolveSnapshotSource(
   const liveSnapshot = await readLiveSnapshot(agent, endpoint);
   const live = isLiveSessionSnapshot(liveSnapshot);
 
-  const historyCandidate = resolveHistoryCandidate(agent, liveSnapshot);
+  const historyCandidate = resolveHistoryCandidate(agent, liveSnapshot, endpoint);
   const historySnapshot = readHistorySnapshot(historyCandidate);
   if (historySnapshot) {
     return {
@@ -1218,7 +1228,7 @@ async function resolveSnapshotSource(
     };
   }
 
-  const agentHistorySnapshot = readHistorySnapshot(resolveHistoryCandidate(agent, null));
+  const agentHistorySnapshot = readHistorySnapshot(resolveHistoryCandidate(agent, null, endpoint));
   if (agentHistorySnapshot) {
     return {
       source: "history",

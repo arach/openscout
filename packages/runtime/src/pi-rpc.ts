@@ -27,11 +27,21 @@ export type PiRpcInvocationOptions = PiRpcSessionRequestOptions & {
   timeoutMs?: number;
 };
 
+export type PiRpcSessionResult = {
+  sessionId: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type PiRpcInvocationResult = PiRpcSessionResult & {
+  output: string;
+};
+
 export type PiRpcLaunchOptions = {
   model?: string;
   provider?: string;
   thinking?: string;
   session?: string;
+  sessionId?: string;
   sessionDir?: string;
   extensions: string[];
   extraArgs: string[];
@@ -49,6 +59,7 @@ const PI_RPC_FLAGS_WITH_VALUES = new Set([
   "--provider",
   "--thinking",
   "--session",
+  "--session-id",
   "--session-dir",
   "--append-system-prompt",
   "--extension",
@@ -59,6 +70,7 @@ const PI_RPC_OPTION_KEYS: Record<string, keyof Omit<PiRpcLaunchOptions, "extensi
   "--provider": "provider",
   "--thinking": "thinking",
   "--session": "session",
+  "--session-id": "sessionId",
   "--session-dir": "sessionDir",
 };
 
@@ -238,6 +250,14 @@ class PiRpcAgentSession {
     return this.tracker.getSessionState(this.options.sessionId);
   }
 
+  get sessionMetadata(): Record<string, unknown> | undefined {
+    const providerMeta = this.snapshot?.session.providerMeta;
+    if (!providerMeta || typeof providerMeta !== "object" || Array.isArray(providerMeta)) {
+      return undefined;
+    }
+    return { ...providerMeta };
+  }
+
   get alive(): boolean {
     const status = this.snapshot?.session.status;
     return Boolean(this.adapter && status !== "closed" && status !== "error");
@@ -262,6 +282,7 @@ class PiRpcAgentSession {
       env: buildPiRpcCredentialEnv(launch),
       options: {
         ...launch,
+        sessionId: launch.sessionId ?? this.options.sessionId,
         appendSystemPrompt: this.options.systemPrompt,
       },
     });
@@ -352,7 +373,12 @@ class PiRpcAgentSession {
           finish(() => reject(new Error(error)));
           return;
         }
-        finish(() => resolve(extractTurnText(snapshot, event.turnId)));
+        const output = extractTurnText(snapshot, event.turnId);
+        if (!output.trim()) {
+          turnId = null;
+          return;
+        }
+        finish(() => resolve(output));
       };
       const timer = setTimeout(() => {
         adapter.interrupt();
@@ -392,16 +418,22 @@ function getOrCreateSession(options: PiRpcSessionRequestOptions): PiRpcAgentSess
   return session;
 }
 
-export async function ensurePiRpcAgentOnline(options: PiRpcSessionRequestOptions): Promise<{ sessionId: string }> {
-  return getOrCreateSession(options).ensureOnline();
+export async function ensurePiRpcAgentOnline(options: PiRpcSessionRequestOptions): Promise<PiRpcSessionResult> {
+  const session = getOrCreateSession(options);
+  const result = await session.ensureOnline();
+  return {
+    ...result,
+    ...(session.sessionMetadata ? { metadata: session.sessionMetadata } : {}),
+  };
 }
 
-export async function invokePiRpcAgent(options: PiRpcInvocationOptions): Promise<{ output: string; sessionId: string }> {
+export async function invokePiRpcAgent(options: PiRpcInvocationOptions): Promise<PiRpcInvocationResult> {
   const session = getOrCreateSession(options);
   const output = await session.invoke(options.prompt, options.timeoutMs);
   return {
     output,
     sessionId: options.sessionId,
+    ...(session.sessionMetadata ? { metadata: session.sessionMetadata } : {}),
   };
 }
 

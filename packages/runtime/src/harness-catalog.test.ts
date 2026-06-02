@@ -93,9 +93,11 @@ describe("harness catalog", () => {
     const entries = createBuiltInHarnessCatalog();
     const claude = entries.find((entry) => entry.name === "claude");
     const codex = entries.find((entry) => entry.name === "codex");
+    const pi = entries.find((entry) => entry.name === "pi");
 
     expect(claude).toBeTruthy();
     expect(codex).toBeTruthy();
+    expect(pi).toBeTruthy();
     expect(buildHarnessResumeCommand(claude!, "claude-session", "/Users/me/dev/app")).toBe(
       "claude --resume claude-session",
     );
@@ -110,6 +112,9 @@ describe("harness catalog", () => {
     );
     expect(buildHarnessResumeCommand(codex!, "codex-session", "~/dev/amplink")).not.toContain(
       "'~/dev/amplink'",
+    );
+    expect(buildHarnessResumeCommand(pi!, "pi-session", "/Users/me/dev/app")).toBe(
+      "pi --session-id pi-session",
     );
   });
 

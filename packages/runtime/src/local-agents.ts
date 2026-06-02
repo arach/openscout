@@ -1738,7 +1738,10 @@ export async function getLocalAgentEndpointSessionSnapshot(endpoint: AgentEndpoi
   return null;
 }
 
-export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint): Promise<{ externalSessionId?: string | null }> {
+export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint): Promise<{
+  externalSessionId?: string | null;
+  metadata?: Record<string, unknown>;
+}> {
   if (endpoint.transport === "codex_app_server") {
     const result = await ensureCodexAppServerAgentOnline(buildCodexEndpointSessionOptions(endpoint));
     return { externalSessionId: result.threadId };
@@ -1751,7 +1754,7 @@ export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint):
 
   if (endpoint.transport === "pi_rpc") {
     const result = await ensurePiRpcAgentOnline(buildPiEndpointSessionOptions(endpoint));
-    return { externalSessionId: result.sessionId };
+    return { externalSessionId: result.sessionId, metadata: result.metadata };
   }
 
   return {};
@@ -4363,6 +4366,7 @@ export async function ensureLocalAgentBindingOnline(
 type LocalAgentInvocationResult = {
   output: string;
   externalSessionId?: string | null;
+  metadata?: Record<string, unknown>;
 };
 
 export async function invokeLocalAgentEndpoint(
@@ -4419,6 +4423,7 @@ export async function invokeLocalAgentEndpoint(
     return {
       output: result.output,
       externalSessionId: result.sessionId,
+      metadata: result.metadata,
     };
   }
 
@@ -4529,6 +4534,7 @@ export async function invokeLocalAgentEndpoint(
     return {
       output: result.output,
       externalSessionId: result.sessionId,
+      metadata: result.metadata,
     };
   }
 

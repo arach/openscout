@@ -151,6 +151,11 @@ function selectedProvider(options: AdapterConfig["options"] | undefined): string
   return normalizeProvider(provider) ?? inferProviderFromModel(model);
 }
 
+function isLikelySessionFilePath(value: string | undefined): value is string {
+  if (!value) return false;
+  return value.includes("/") || value.endsWith(".jsonl");
+}
+
 export function buildPiProcessEnv(
   config: Pick<AdapterConfig, "env" | "options">,
   sourceEnv: EnvSource = process.env,
@@ -190,6 +195,8 @@ export class PiAdapter extends BaseAdapter {
   private currentTextBlock: Block | null = null;
   private currentReasoningBlock: Block | null = null;
   private toolBlockByIndex = new Map<number, Block>();
+  private toolBlockByToolCallId = new Map<string, Block>();
+  private toolOutputByToolCallId = new Map<string, string>();
   private sawStreamingTextInTurn = false;
 
   constructor(config: AdapterConfig) {
@@ -218,6 +225,10 @@ export class PiAdapter extends BaseAdapter {
     // Session path.
     const sessionPath = this.config.options?.["session"] as string | undefined;
     if (sessionPath) args.push("--session", sessionPath);
+
+    // Stable Pi project session id.
+    const piSessionId = this.config.options?.["sessionId"] as string | undefined;
+    if (piSessionId) args.push("--session-id", piSessionId);
 
     // Session directory.
     const sessionDir = this.config.options?.["sessionDir"] as string | undefined;
@@ -251,8 +262,17 @@ export class PiAdapter extends BaseAdapter {
       ...(this.session.providerMeta ?? {}),
       transport: "pi_rpc",
       ...(selected ? { provider: selected } : {}),
+      ...(piSessionId ? { externalSessionId: piSessionId, threadId: piSessionId } : {}),
+      ...(isLikelySessionFilePath(sessionPath) ? { threadPath: sessionPath } : {}),
+      ...(sessionDir ? { sessionDir } : {}),
       ...(thinking ? { thinking } : {}),
       ...(extensions?.length ? { extensions: [...extensions] } : {}),
+      observeRuntime: {
+        source: "pi_rpc",
+        entrypoint: "pi --mode rpc",
+        ...(selected ? { modelProvider: selected } : {}),
+        ...(thinking ? { effort: thinking } : {}),
+      },
     };
 
     this.process = Bun.spawn(["pi", ...args], {
@@ -273,9 +293,18 @@ export class PiAdapter extends BaseAdapter {
     });
 
     this.setStatus("active");
+    this.updateSessionProviderMeta({
+      launchCommand: "pi --mode rpc",
+      ...(typeof this.process.pid === "number" ? { processId: this.process.pid } : {}),
+    });
+    this.requestState();
   }
 
   send(prompt: Prompt): void {
+    this.updateSessionProviderMeta({
+      turnPhase: "queued",
+      lastPromptAt: new Date().toISOString(),
+    });
     this.sendRPC({
       type: "prompt",
       message: prompt.text,
@@ -310,6 +339,10 @@ export class PiAdapter extends BaseAdapter {
     if (!stdin || typeof stdin === "number") return;
     stdin.write(JSON.stringify(command) + "\n");
     stdin.flush();
+  }
+
+  private requestState(): void {
+    this.sendRPC({ id: `state-${crypto.randomUUID()}`, type: "get_state" });
   }
 
   // ---------------------------------------------------------------------------
@@ -359,6 +392,8 @@ export class PiAdapter extends BaseAdapter {
         this.currentTextBlock = null;
         this.currentReasoningBlock = null;
         this.toolBlockByIndex.clear();
+        this.toolBlockByToolCallId.clear();
+        this.toolOutputByToolCallId.clear();
         this.sawStreamingTextInTurn = false;
 
         const turn: Turn = {
@@ -369,15 +404,21 @@ export class PiAdapter extends BaseAdapter {
           blocks: [],
         };
         this.currentTurn = turn;
+        this.updateSessionProviderMeta({ turnPhase: "running" });
         this.emit("event", { event: "turn:start", sessionId: this.session.id, turn });
         break;
       }
 
       case "turn_end": {
+        this.handleTurnEndPayload(event);
         this.closeOpenBlocks();
         if (this.currentTurn) {
           this.endTurn(this.currentTurn, "completed");
         }
+        this.updateSessionProviderMeta({
+          turnPhase: "ended",
+          ...(typeof event.message?.stopReason === "string" ? { lastStopReason: event.message.stopReason } : {}),
+        });
         break;
       }
 
@@ -394,6 +435,7 @@ export class PiAdapter extends BaseAdapter {
       case "message_end": {
         // Close any open blocks when a message ends.
         if (event.message?.role === "assistant") {
+          this.handleMessageRecord(event);
           this.closeOpenBlocks();
         }
         break;
@@ -403,11 +445,16 @@ export class PiAdapter extends BaseAdapter {
         // Extract model info from assistant message start.
         if (event.message?.role === "assistant" && event.message?.model) {
           (this.session as any).model = event.message.model;
+          this.updateSessionMetadataFromMessageRecord(event, event.message);
         }
         break;
       }
 
       case "response": {
+        if (event.command === "get_state" && event.success && event.data) {
+          this.updateSessionMetadataFromState(event.data);
+          break;
+        }
         // RPC response — check for errors.
         if (!event.success && event.error) {
           if (this.currentTurn) {
@@ -417,7 +464,43 @@ export class PiAdapter extends BaseAdapter {
         break;
       }
 
-      // agent_start, agent_end — session-level, no action needed.
+      case "agent_start": {
+        this.updateSessionProviderMeta({ turnPhase: "agent_start" });
+        this.setStatus("active");
+        break;
+      }
+
+      case "agent_end": {
+        this.updateSessionProviderMeta({ turnPhase: "idle", lastCompletedAt: new Date().toISOString() });
+        this.requestState();
+        this.setStatus("idle");
+        break;
+      }
+
+      case "queue_update": {
+        const pendingMessageCount = typeof event.pendingMessageCount === "number"
+          ? event.pendingMessageCount
+          : undefined;
+        this.updateSessionProviderMeta({
+          ...(pendingMessageCount !== undefined ? { pendingMessageCount } : {}),
+        });
+        break;
+      }
+
+      case "tool_execution_start":
+        this.handleToolExecutionStart(event);
+        break;
+
+      case "tool_execution_update":
+        this.handleToolExecutionUpdate(event);
+        break;
+
+      case "tool_execution_end":
+        this.handleToolExecutionEnd(event);
+        break;
+
+      // Extension UI requests and compaction/retry events are session-level
+      // details for now; they stay visible in Pi's own transcript.
     }
   }
 
@@ -430,6 +513,9 @@ export class PiAdapter extends BaseAdapter {
 
     const ame = event.assistantMessageEvent;
     if (!ame) return;
+    if (event.message?.role === "assistant") {
+      this.updateSessionMetadataFromMessageRecord(event, event.message);
+    }
 
     switch (ame.type) {
       // -- Text streaming ---------------------------------------------------
@@ -497,47 +583,19 @@ export class PiAdapter extends BaseAdapter {
       }
 
       // -- Tool use ---------------------------------------------------------
-      case "tool_start": {
+      case "tool_start":
+      case "toolcall_start": {
         const contentIndex: number = ame.contentIndex ?? 0;
-        const toolName: string = ame.content?.name ?? ame.name ?? "unknown";
-        const toolId: string = ame.content?.id ?? crypto.randomUUID();
-        const input = ame.content?.input;
-
-        let action: Action;
-
-        if (toolName === "edit") {
-          action = {
-            kind: "file_change",
-            path: input?.file_path ?? input?.path ?? "",
-            diff: "",
-            status: "running",
-            output: "",
-          };
-        } else if (toolName === "bash") {
-          action = {
-            kind: "command",
-            command: input?.command ?? "",
-            status: "running",
-            output: "",
-          };
-        } else {
-          action = {
-            kind: "tool_call",
-            toolName,
-            toolCallId: toolId,
-            input,
-            status: "running",
-            output: "",
-          };
+        const toolCall = this.toolCallFromAssistantEvent(ame, event.message);
+        if (!toolCall.id && !toolCall.name) {
+          break;
         }
-
-        const block = this.startBlock(this.currentTurn, {
-          type: "action",
-          action,
-          status: "streaming",
+        this.ensureToolActionBlock({
+          contentIndex,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          input: toolCall.input,
         });
-
-        this.toolBlockByIndex.set(contentIndex, block);
         break;
       }
 
@@ -556,6 +614,12 @@ export class PiAdapter extends BaseAdapter {
         break;
       }
 
+      case "toolcall_delta": {
+        // Pi streams tool-call arguments separately from tool execution output.
+        // The top-level tool_execution_* events carry the user-visible result.
+        break;
+      }
+
       case "tool_end": {
         const contentIndex: number = ame.contentIndex ?? 0;
         const block = this.toolBlockByIndex.get(contentIndex);
@@ -568,8 +632,20 @@ export class PiAdapter extends BaseAdapter {
             status: "completed",
           });
           this.emitBlockEnd(this.currentTurn, block, "completed");
-          this.toolBlockByIndex.delete(contentIndex);
+          this.deleteToolBlock(block);
         }
+        break;
+      }
+
+      case "toolcall_end": {
+        const contentIndex: number = ame.contentIndex ?? 0;
+        const toolCall = this.toolCallFromAssistantEvent(ame, event.message);
+        this.ensureToolActionBlock({
+          contentIndex,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          input: toolCall.input,
+        });
         break;
       }
 
@@ -603,9 +679,251 @@ export class PiAdapter extends BaseAdapter {
             status: isError ? "failed" : "completed",
           });
           this.emitBlockEnd(this.currentTurn, block, isError ? "failed" : "completed");
-          this.toolBlockByIndex.delete(contentIndex);
+          this.deleteToolBlock(block);
         }
         break;
+      }
+    }
+  }
+
+  private handleTurnEndPayload(event: any): void {
+    if (event.message?.role === "assistant") {
+      this.handleMessageRecord(event);
+      this.updateSessionMetadataFromMessageRecord(event, event.message);
+    }
+    if (Array.isArray(event.toolResults)) {
+      for (const result of event.toolResults) {
+        this.handleToolResultMessage(result);
+      }
+    }
+  }
+
+  private handleToolExecutionStart(event: any): void {
+    if (!this.currentTurn) return;
+    this.ensureToolActionBlock({
+      toolCallId: typeof event.toolCallId === "string" ? event.toolCallId : undefined,
+      toolName: typeof event.toolName === "string" ? event.toolName : undefined,
+      input: event.args,
+    });
+  }
+
+  private handleToolExecutionUpdate(event: any): void {
+    if (!this.currentTurn) return;
+    const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+    const block = toolCallId ? this.toolBlockByToolCallId.get(toolCallId) : undefined;
+    if (!block) return;
+    const output = this.textFromToolResultLike(event.partialResult ?? event.result);
+    this.emitToolOutputDelta(block, toolCallId, output);
+  }
+
+  private handleToolExecutionEnd(event: any): void {
+    if (!this.currentTurn) return;
+    const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+    const block = toolCallId ? this.toolBlockByToolCallId.get(toolCallId) : undefined;
+    if (!block) return;
+    const output = this.textFromToolResultLike(event.result ?? event.finalResult ?? event.partialResult);
+    this.emitToolOutputDelta(block, toolCallId, output);
+    const failed = Boolean(event.isError)
+      || Boolean(event.result?.isError)
+      || Boolean(event.result?.is_error)
+      || (typeof event.exitCode === "number" && event.exitCode !== 0);
+    this.emit("event", {
+      event: "block:action:status",
+      sessionId: this.session.id,
+      turnId: this.currentTurn.id,
+      blockId: block.id,
+      status: failed ? "failed" : "completed",
+      meta: {
+        ...(typeof event.exitCode === "number" ? { exitCode: event.exitCode } : {}),
+      },
+    });
+    this.emitBlockEnd(this.currentTurn, block, failed ? "failed" : "completed");
+    this.deleteToolBlock(block, toolCallId);
+  }
+
+  private handleToolResultMessage(message: any): void {
+    if (!this.currentTurn || message?.role !== "toolResult") return;
+    const toolCallId = typeof message.toolCallId === "string" ? message.toolCallId : undefined;
+    const block = toolCallId ? this.toolBlockByToolCallId.get(toolCallId) : undefined;
+    if (!block) return;
+    const output = this.textFromToolResultLike(message);
+    this.emitToolOutputDelta(block, toolCallId, output);
+    const failed = Boolean(message.isError) || Boolean(message.is_error);
+    this.emit("event", {
+      event: "block:action:status",
+      sessionId: this.session.id,
+      turnId: this.currentTurn.id,
+      blockId: block.id,
+      status: failed ? "failed" : "completed",
+    });
+    this.emitBlockEnd(this.currentTurn, block, failed ? "failed" : "completed");
+    this.deleteToolBlock(block, toolCallId);
+  }
+
+  private ensureToolActionBlock(params: {
+    contentIndex?: number;
+    toolCallId?: string;
+    toolName?: string;
+    input?: unknown;
+  }): Block | null {
+    if (!this.currentTurn) return null;
+
+    const existing = params.toolCallId
+      ? this.toolBlockByToolCallId.get(params.toolCallId)
+      : params.contentIndex !== undefined
+        ? this.toolBlockByIndex.get(params.contentIndex)
+        : undefined;
+    if (existing) {
+      if (params.contentIndex !== undefined) {
+        this.toolBlockByIndex.set(params.contentIndex, existing);
+      }
+      if (params.toolCallId) {
+        this.toolBlockByToolCallId.set(params.toolCallId, existing);
+      }
+      return existing;
+    }
+
+    const toolName = params.toolName?.trim() || "unknown";
+    const toolCallId = params.toolCallId?.trim() || crypto.randomUUID();
+    const block = this.startBlock(this.currentTurn, {
+      type: "action",
+      action: this.buildAction(toolName, toolCallId, params.input),
+      status: "streaming",
+    });
+
+    if (params.contentIndex !== undefined) {
+      this.toolBlockByIndex.set(params.contentIndex, block);
+    }
+    this.toolBlockByToolCallId.set(toolCallId, block);
+    return block;
+  }
+
+  private buildAction(toolName: string, toolCallId: string, input: unknown): Action {
+    const normalizedInput = this.normalizeToolInput(input);
+    if (toolName === "edit" || toolName === "write") {
+      return {
+        kind: "file_change",
+        path: this.stringProperty(normalizedInput, "file_path")
+          ?? this.stringProperty(normalizedInput, "path")
+          ?? "",
+        diff: "",
+        status: "running",
+        output: "",
+      };
+    }
+    if (toolName === "bash") {
+      return {
+        kind: "command",
+        command: this.stringProperty(normalizedInput, "command") ?? "",
+        status: "running",
+        output: "",
+      };
+    }
+    return {
+      kind: "tool_call",
+      toolName,
+      toolCallId,
+      input: normalizedInput,
+      status: "running",
+      output: "",
+    };
+  }
+
+  private normalizeToolInput(input: unknown): unknown {
+    if (typeof input !== "string") return input;
+    const trimmed = input.trim();
+    if (!trimmed) return input;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return input;
+    }
+  }
+
+  private stringProperty(input: unknown, key: string): string | undefined {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+    const value = (input as Record<string, unknown>)[key];
+    return typeof value === "string" ? value : undefined;
+  }
+
+  private toolCallFromAssistantEvent(ame: any, message: any): { id?: string; name?: string; input?: unknown } {
+    const byIndex = Array.isArray(message?.content) && typeof ame.contentIndex === "number"
+      ? message.content[ame.contentIndex]
+      : undefined;
+    const byType = Array.isArray(message?.content)
+      ? message.content.find((part: any) => part?.type === "toolCall")
+      : undefined;
+    const candidate = [ame.content, ame.toolCall, byIndex, byType, ame.partial]
+      .find((part) => (
+        part
+        && typeof part === "object"
+        && (
+          typeof part.id === "string"
+          || typeof part.name === "string"
+          || part.input !== undefined
+          || part.arguments !== undefined
+        )
+      ));
+    const id = typeof candidate?.id === "string"
+      ? candidate.id
+      : typeof ame.id === "string"
+        ? ame.id
+        : undefined;
+    const name = typeof candidate?.name === "string"
+      ? candidate.name
+      : typeof ame.name === "string"
+        ? ame.name
+        : undefined;
+    const input = candidate?.input ?? candidate?.arguments ?? ame.input ?? ame.arguments;
+    return { id, name, input };
+  }
+
+  private textFromToolResultLike(value: any): string {
+    if (!value) return "";
+    if (typeof value === "string") return value;
+    if (typeof value.output === "string") return value.output;
+    if (typeof value.stdout === "string") return value.stdout;
+    if (typeof value.text === "string") return value.text;
+    const content = value.content;
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((part) => {
+          if (typeof part === "string") return part;
+          if (!part || typeof part !== "object") return "";
+          if (typeof part.text === "string") return part.text;
+          if (typeof part.content === "string") return part.content;
+          return "";
+        })
+        .filter(Boolean)
+        .join("");
+    }
+    return "";
+  }
+
+  private emitToolOutputDelta(block: Block, toolCallId: string, output: string): void {
+    if (!this.currentTurn || !output) return;
+    const previous = this.toolOutputByToolCallId.get(toolCallId) ?? "";
+    const delta = output.startsWith(previous) ? output.slice(previous.length) : output;
+    this.toolOutputByToolCallId.set(toolCallId, output);
+    if (!delta) return;
+    this.emit("event", {
+      event: "block:action:output",
+      sessionId: this.session.id,
+      turnId: this.currentTurn.id,
+      blockId: block.id,
+      output: delta,
+    });
+  }
+
+  private deleteToolBlock(block: Block, toolCallId?: string): void {
+    if (toolCallId) {
+      this.toolBlockByToolCallId.delete(toolCallId);
+      this.toolOutputByToolCallId.delete(toolCallId);
+    }
+    for (const [index, candidate] of this.toolBlockByIndex) {
+      if (candidate.id === block.id) {
+        this.toolBlockByIndex.delete(index);
       }
     }
   }
@@ -679,9 +997,51 @@ export class PiAdapter extends BaseAdapter {
     if (model) {
       this.session.model = model;
     }
-    this.session.providerMeta = {
-      ...(this.session.providerMeta ?? {}),
+    this.updateSessionProviderMeta({
       ...(provider ? { provider } : {}),
+    });
+  }
+
+  private updateSessionMetadataFromState(data: any): void {
+    const model = typeof data.model === "string"
+      ? data.model
+      : typeof data.model?.id === "string"
+        ? data.model.id
+        : undefined;
+    if (model) {
+      this.session.model = model;
+    }
+
+    const sessionId = typeof data.sessionId === "string" ? data.sessionId : undefined;
+    const sessionFile = typeof data.sessionFile === "string" ? data.sessionFile : undefined;
+    const pendingMessageCount = typeof data.pendingMessageCount === "number"
+      ? data.pendingMessageCount
+      : undefined;
+    const isStreaming = typeof data.isStreaming === "boolean" ? data.isStreaming : undefined;
+    const followUpMode = typeof data.followUpMode === "string" ? data.followUpMode : undefined;
+    const sessionName = typeof data.sessionName === "string" ? data.sessionName : undefined;
+    this.updateSessionProviderMeta({
+      ...(sessionId ? { externalSessionId: sessionId, threadId: sessionId } : {}),
+      ...(sessionFile ? { threadPath: sessionFile } : {}),
+      ...(pendingMessageCount !== undefined ? { pendingMessageCount } : {}),
+      ...(isStreaming !== undefined ? { isStreaming } : {}),
+      ...(followUpMode ? { followUpMode } : {}),
+      ...(sessionName ? { sessionName } : {}),
+    });
+  }
+
+  private updateSessionProviderMeta(meta: Record<string, unknown>): void {
+    const current = this.session.providerMeta ?? {};
+    const currentRuntime = current.observeRuntime && typeof current.observeRuntime === "object" && !Array.isArray(current.observeRuntime)
+      ? current.observeRuntime as Record<string, unknown>
+      : {};
+    const nextRuntime = meta.observeRuntime && typeof meta.observeRuntime === "object" && !Array.isArray(meta.observeRuntime)
+      ? meta.observeRuntime as Record<string, unknown>
+      : undefined;
+    this.session.providerMeta = {
+      ...current,
+      ...meta,
+      ...(nextRuntime ? { observeRuntime: { ...currentRuntime, ...nextRuntime } } : {}),
     };
     this.emit("event", { event: "session:update", session: { ...this.session } });
   }
@@ -703,10 +1063,16 @@ export class PiAdapter extends BaseAdapter {
       this.currentReasoningBlock = null;
     }
 
-    for (const [idx, block] of this.toolBlockByIndex) {
+    const openToolBlocks = new Set<Block>([
+      ...this.toolBlockByIndex.values(),
+      ...this.toolBlockByToolCallId.values(),
+    ]);
+    for (const block of openToolBlocks) {
       this.emitBlockEnd(this.currentTurn, block, "completed");
     }
     this.toolBlockByIndex.clear();
+    this.toolBlockByToolCallId.clear();
+    this.toolOutputByToolCallId.clear();
   }
 
   private startBlock(turn: Turn, partial: Record<string, unknown> & { type: string; status: BlockStatus }): Block {
@@ -730,6 +1096,7 @@ export class PiAdapter extends BaseAdapter {
   }
 
   private emitBlockEnd(turn: Turn, block: Block, status: BlockStatus): void {
+    block.status = status;
     this.emit("event", {
       event: "block:end",
       sessionId: this.session.id,

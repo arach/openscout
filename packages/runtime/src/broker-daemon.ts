@@ -4380,6 +4380,7 @@ async function reviveManagedLocalSessionEndpoint(endpoint: AgentEndpoint): Promi
     ...(externalSessionId ? { sessionId: externalSessionId } : {}),
     metadata: {
       ...baseMetadata,
+      ...(sessionResult.metadata ?? {}),
       lastResumedAt: Date.now(),
       ...(externalSessionId ? {
         externalSessionId,
@@ -4615,11 +4616,15 @@ async function executeLocalInvocation(
     const resultExternalSessionId = typeof rawResultExternalSessionId === "string" && rawResultExternalSessionId.trim()
       ? rawResultExternalSessionId.trim()
       : undefined;
+    const resultMetadata = "metadata" in result && result.metadata && typeof result.metadata === "object" && !Array.isArray(result.metadata)
+      ? result.metadata as Record<string, unknown>
+      : {};
     const completedEndpoint: AgentEndpoint = {
       ...runningEndpoint,
       ...(resultExternalSessionId ? { sessionId: resultExternalSessionId } : {}),
       metadata: {
         ...(runningEndpoint.metadata ?? {}),
+        ...resultMetadata,
         lastCompletedAt: Date.now(),
         ...(resultExternalSessionId ? {
           externalSessionId: resultExternalSessionId,
