@@ -8,8 +8,21 @@ import {
   parseImplicitAskCommandOptions,
   parseLatestCommandOptions,
   parseSendCommandOptions,
+  parseWhoCommandOptions,
   parseWatchCommandOptions,
 } from "./options.ts";
+
+describe("parseWhoCommandOptions", () => {
+  test("accepts a project path filter relative to the context root", () => {
+    const options = parseWhoCommandOptions(
+      ["--context-root", "/tmp/workspace", "--project", "../talkie"],
+      "/tmp/default",
+    );
+
+    expect(options.currentDirectory).toBe("/tmp/workspace");
+    expect(options.projectPath).toBe("/tmp/talkie");
+  });
+});
 
 describe("parseSendCommandOptions", () => {
   test("accepts a message file as the primary body source", () => {

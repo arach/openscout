@@ -19,6 +19,9 @@ Expected migration order:
 Project notes:
 - XcodeGen project definition: [project.yml](./project.yml)
 - source root: [Scout](./Scout)
+- Hudson shell/UI is pulled from `arach/hudson` `main`; shared Scout Swift
+  logic and cross-platform message UI live in
+  [packages/scout-native-core](../../packages/scout-native-core).
 
 ## Local commands
 

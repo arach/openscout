@@ -357,6 +357,51 @@ export type FleetState = {
   activity: FleetActivity[];
 };
 
+export type ProjectDiffSummary = {
+  root: string | null;
+  branch: string | null;
+  status: "clean" | "dirty" | "unknown";
+  changedFiles: number;
+  stagedFiles: number;
+  unstagedFiles: number;
+  untrackedFiles: number;
+  conflictedFiles: number;
+  ahead: number;
+  behind: number;
+  checkedAt: number | null;
+  error: string | null;
+};
+
+export type ProjectLandscapeItem = {
+  key: string;
+  title: string;
+  root: string | null;
+  isCurrent: boolean;
+  agentIds: string[];
+  agentCount: number;
+  workingAgents: number;
+  availableAgents: number;
+  openJobs: number;
+  activityCount: number;
+  lastActivityAt: number | null;
+  branches: string[];
+  harnesses: string[];
+  diff: ProjectDiffSummary | null;
+};
+
+export type ProjectLandscapeState = {
+  generatedAt: number;
+  totals: {
+    projects: number;
+    agents: number;
+    workingAgents: number;
+    openJobs: number;
+    dirtyProjects: number;
+    changedFiles: number;
+  };
+  projects: ProjectLandscapeItem[];
+};
+
 export type PairingSnapshot = {
   qrValue?: string | null;
   expiresAt?: number;
@@ -610,6 +655,109 @@ export type SessionEntry = {
 };
 
 export type ConversationEntry = SessionEntry;
+
+export type ListEntityProjectRef = {
+  key: string;
+  title: string;
+  root: string | null;
+  source: "agent" | "conversation" | "activity" | "inferred";
+};
+
+export type ListEntityAgentRef = {
+  id: string;
+  name: string;
+  state: "working" | "available" | "offline" | "unknown";
+  active: boolean;
+  retired: boolean;
+  harness: string | null;
+  projectKey: string | null;
+};
+
+export type ListEntityConversationRef = {
+  id: string;
+  kind: string;
+  title: string;
+};
+
+export type ListEntityFlightRef = {
+  id: string;
+  invocationId: string | null;
+  state: string;
+};
+
+export type ListEntityRefs = {
+  project: ListEntityProjectRef | null;
+  agent: ListEntityAgentRef | null;
+  conversation: ListEntityConversationRef | null;
+  flight: ListEntityFlightRef | null;
+};
+
+export type ListGroupKind =
+  | "none"
+  | "project"
+  | "agent"
+  | "channel"
+  | "state"
+  | "status"
+  | "kind"
+  | "day"
+  | "machine";
+
+export type ListGroup<Row, Meta extends Record<string, unknown> = Record<string, unknown>> = {
+  key: string;
+  kind: ListGroupKind;
+  label: string;
+  refs?: ListEntityRefs;
+  counts: Record<string, number>;
+  sortKeys: Record<string, string | number | boolean | null>;
+  meta: Meta;
+  rows: Row[];
+};
+
+export type ListResponse<Row, Meta extends Record<string, unknown> = Record<string, unknown>> = {
+  schema: "openscout.list.v1";
+  kind: string;
+  generatedAt: number;
+  query: {
+    scope?: string | null;
+    group?: string | null;
+    sort?: string | null;
+    rowSort?: string | null;
+    q?: string | null;
+    limit?: number | null;
+    cursor?: string | null;
+    filters?: Record<string, string | null | undefined>;
+  };
+  summary: {
+    totalRows: number;
+    totalGroups: number;
+    truncated: boolean;
+    counts: Record<string, number>;
+  };
+  groups: Array<ListGroup<Row, Meta>>;
+};
+
+export type MessagesLeftRailRow = {
+  id: string;
+  conversationId: string;
+  title: string;
+  name: string;
+  sub: string | null;
+  unread: boolean;
+  tone: "working" | "available" | "offline" | "unknown" | "channel" | "dm" | "neutral";
+  avatarName: string;
+  lastMessageAt: number | null;
+  refs: ListEntityRefs;
+};
+
+export type MessagesLeftRailGroupMeta = {
+  latestAt: number | null;
+  unreadCount: number;
+  totalCount: number;
+  tone: "working" | "available" | "offline" | "unknown" | "channel" | "dm" | "neutral";
+};
+
+export type MessagesLeftRailList = ListResponse<MessagesLeftRailRow, MessagesLeftRailGroupMeta>;
 
 export type ObserveEvent = {
   id: string;
@@ -998,6 +1146,16 @@ export type MachineScopedRoute = {
   machineId?: string;
 };
 
+export type HomeContextSelection =
+  | { kind: "overview" }
+  | { kind: "projects" }
+  | { kind: "project"; projectKey: string }
+  | { kind: "agent"; agentId: string }
+  | { kind: "ask"; invocationId: string }
+  | { kind: "attention"; recordId: string }
+  | { kind: "activity-log" }
+  | { kind: "activity"; activityId: string };
+
 export type Route =
   | ({ view: "inbox" } & MachineScopedRoute)
   | ({
@@ -1011,6 +1169,7 @@ export type Route =
       view: "agents";
       agentId?: string;
       conversationId?: string;
+      sessionId?: string;
       tab?: AgentTab;
       projectKey?: string;
     } & MachineScopedRoute)
@@ -1098,6 +1257,7 @@ export type TailDiscoveredProcess = {
   command: string;
   etime: string;
   cwd: string | null;
+  branch?: string | null;
   /** Launch attribution; retained as `harness` for wire compatibility. */
   harness: TailHarness;
   parentChain: { pid: number; command: string }[];
@@ -1110,6 +1270,8 @@ export type TailDiscoveredTranscript = {
   transcriptPath: string;
   sessionId: string | null;
   cwd: string | null;
+  branch?: string | null;
+  summary?: string | null;
   project: string;
   /** Launch attribution; retained as `harness` for wire compatibility. */
   harness: TailHarness;

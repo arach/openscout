@@ -50,6 +50,7 @@ struct HUDSessionsView: View {
     @ObservedObject private var fleet = HudFleetService.shared
     @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
+    @State private var navBusToken = UUID()
 
     private var sessions: [SynthesizedSession] {
         Self.synthesize(from: fleet.agents ?? [])
@@ -68,7 +69,7 @@ struct HUDSessionsView: View {
             }
         }
         .onAppear { wireNavBus() }
-        .onDisappear { HUDNavBus.shared.clear() }
+        .onDisappear { HUDNavBus.shared.release(owner: navBusToken) }
     }
 
     // Register cycle/engage closures with the global key bus. Mirrors the
@@ -76,6 +77,7 @@ struct HUDSessionsView: View {
     // engaged tracks Enter (inline detail opens). A second Enter on an
     // already-engaged row stages the agent on the dock and focuses it.
     private func wireNavBus() {
+        HUDNavBus.shared.claim(owner: navBusToken)
         HUDNavBus.shared.cycleNext = {
             let ids = sessions.map { $0.id }
             guard !ids.isEmpty else { return }

@@ -57,6 +57,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
   private process: Subprocess | null = null;
   private currentTurn: Turn | null = null;
+  private pendingPrompts: Prompt[] = [];
   private blockIndex = 0;
   private claudeSessionId: string | null = null;
 
@@ -140,6 +141,16 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   send(prompt: Prompt): void {
+    if (this.currentTurn) {
+      this.pendingPrompts.push(prompt);
+      this.updateQueuedPromptCount();
+      return;
+    }
+
+    this.startPromptTurn(prompt);
+  }
+
+  private startPromptTurn(prompt: Prompt): void {
     if (!this.process?.stdin || typeof this.process.stdin === "number") {
       this.emit("error", new Error("Claude Code process not running"));
       return;
@@ -196,6 +207,9 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   interrupt(): void {
+    this.pendingPrompts = [];
+    this.updateQueuedPromptCount();
+
     // Send interrupt signal to the process — Claude Code handles SIGINT.
     if (this.process && !this.process.killed) {
       this.process.kill("SIGINT");
@@ -206,6 +220,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   async shutdown(): Promise<void> {
+    this.pendingPrompts = [];
     if (this.process && !this.process.killed) {
       this.process.kill();
     }
@@ -650,6 +665,16 @@ export class ClaudeCodeAdapter extends BaseAdapter {
       turnId: turn.id,
       status,
     });
+    queueMicrotask(() => this.startNextQueuedPrompt());
+  }
+
+  private startNextQueuedPrompt(): void {
+    if (this.currentTurn || this.pendingPrompts.length === 0) return;
+    const nextPrompt = this.pendingPrompts.shift();
+    this.updateQueuedPromptCount();
+    if (nextPrompt) {
+      this.startPromptTurn(nextPrompt);
+    }
   }
 
   private appendTextDelta(block: TextualBlock, text: string): void {
@@ -667,6 +692,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
   private refreshObservedTopology(): void {
     const topology = readClaudeAgentTeamTopology({
+      homeDir: this.config.env?.HOME ?? process.env.HOME,
       cwd: this.session.cwd ?? this.config.cwd,
       claudeSessionId: this.claudeSessionId,
     });
@@ -683,6 +709,17 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
   private emitSessionUpdate(): void {
     this.emit("event", { event: "session:update", session: { ...this.session } });
+  }
+
+  private updateQueuedPromptCount(): void {
+    const providerMeta = { ...(this.session.providerMeta ?? {}) };
+    if (this.pendingPrompts.length > 0) {
+      providerMeta.queuedPromptCount = this.pendingPrompts.length;
+    } else {
+      delete providerMeta.queuedPromptCount;
+    }
+    this.session.providerMeta = Object.keys(providerMeta).length > 0 ? providerMeta : undefined;
+    this.emitSessionUpdate();
   }
 
   private refreshObservedTopologyAndEmit(): void {

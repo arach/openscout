@@ -19,6 +19,7 @@ import { normalizeTimestampMs } from "./internal/parse.ts";
 import { compact } from "./internal/paths.ts";
 import {
   isExecutingFlightState,
+  isRequesterWaitTimeoutSummary,
   isStaleActiveFlight,
   sqlJoinClauses,
   sqlPlaceholders,
@@ -74,6 +75,8 @@ type FleetAskRow = {
   flight_dismissed_at: number | string | null;
   failure_stage: string | null;
   failure_severity: string | null;
+  requester_timed_out: number | string | null;
+  timeout_scope: string | null;
   recovered_after_failure_at: number | string | null;
   status_kind: string | null;
   status_title: string | null;
@@ -234,6 +237,25 @@ function fleetStatusLabel(status: WebFleetAskStatus): string {
   }
 }
 
+function isRequesterWaitTimeoutRow(row: FleetAskRow): boolean {
+  return row.requester_timed_out === 1
+    || row.requester_timed_out === "true"
+    || row.timeout_scope === "requester_wait"
+    || isRequesterWaitTimeoutSummary(row.flight_summary)
+    || isRequesterWaitTimeoutSummary(row.status_summary)
+    || isRequesterWaitTimeoutSummary(row.status_title);
+}
+
+function firstOperatorFacingSummary(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed && !isRequesterWaitTimeoutSummary(trimmed)) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
 export function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[] {
   const requesterClause = sqlPlaceholders(requesterIds.length);
   return db().prepare(
@@ -255,6 +277,8 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
        json_extract(f.metadata_json, '$.operatorAttentionDismissedAt') AS flight_dismissed_at,
        json_extract(f.metadata_json, '$.failureStage') AS failure_stage,
        json_extract(f.metadata_json, '$.failureSeverity') AS failure_severity,
+       json_extract(f.metadata_json, '$.requesterTimedOut') AS requester_timed_out,
+       json_extract(f.metadata_json, '$.timeoutScope') AS timeout_scope,
        (
          SELECT MAX(COALESCE(recovery_f.completed_at, recovery_f.started_at, 0))
          FROM flights recovery_f
@@ -362,6 +386,14 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     && recoveredAfterFailureAt > updatedAt
     && isRecoverableDeliveryFailure(row),
   );
+  const requesterWaitTimedOut = isRequesterWaitTimeoutRow(row);
+  const summary = firstOperatorFacingSummary(
+    row.status_summary,
+    row.status_title,
+    row.flight_summary,
+    row.work_summary,
+    row.work_title,
+  );
 
   let status: WebFleetAskStatus;
   if (!hasFlight) {
@@ -405,7 +437,7 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
     harness: row.harness,
     transport: row.transport,
-    summary: row.status_summary ?? row.status_title ?? row.flight_summary ?? row.work_summary ?? row.work_title ?? null,
+    summary: requesterWaitTimedOut ? summary ?? row.work_summary ?? row.work_title ?? null : summary,
     startedAt: normalizeTimestampMs(row.started_at ?? row.created_at),
     completedAt: normalizeTimestampMs(row.completed_at),
     updatedAt,

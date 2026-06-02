@@ -1,6 +1,31 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderScoutActivityList, renderScoutMessagePostResult } from "./broker.ts";
+import type { ScoutWhoEntry } from "../../core/broker/service.ts";
+import {
+  renderScoutActivityList,
+  renderScoutAgentList,
+  renderScoutMessagePostResult,
+} from "./broker.ts";
+
+function makeWhoEntry(overrides: Partial<ScoutWhoEntry>): ScoutWhoEntry {
+  return {
+    agentId: "openscout.main.mini",
+    displayName: null,
+    handle: null,
+    selector: null,
+    defaultSelector: null,
+    projectName: null,
+    projectRoot: null,
+    harness: null,
+    transport: null,
+    sessionId: null,
+    state: "offline",
+    messages: 0,
+    lastSeen: null,
+    registrationKind: "broker",
+    ...overrides,
+  };
+}
 
 describe("renderScoutMessagePostResult", () => {
   test("renders durable handles for normal sends", () => {
@@ -57,5 +82,50 @@ describe("renderScoutActivityList", () => {
     expect(rendered).toContain("asked");
     expect(rendered).toContain("operator -> vox");
     expect(rendered).toContain("Review the latest web server change");
+  });
+});
+
+describe("renderScoutAgentList", () => {
+  test("groups agents by project and preserves concrete agent details", () => {
+    const output = renderScoutAgentList([
+      makeWhoEntry({
+        agentId: "talkie.codex.mini",
+        displayName: "Talkie Codex",
+        defaultSelector: "@talkie#codex",
+        projectName: "Talkie",
+        projectRoot: "/Users/arach/dev/talkie",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "active",
+        messages: 2,
+      }),
+      makeWhoEntry({
+        agentId: "openscout.claude.mini",
+        displayName: "OpenScout Claude",
+        projectName: "OpenScout",
+        projectRoot: "/Users/arach/dev/openscout",
+        harness: "claude",
+        transport: "tmux",
+        state: "discovered",
+        registrationKind: "discovered",
+      }),
+      makeWhoEntry({
+        agentId: "talkie.claude.mini",
+        displayName: "Talkie Claude",
+        projectName: "Talkie",
+        projectRoot: "/Users/arach/dev/talkie",
+        harness: "claude",
+        transport: "tmux",
+        state: "idle",
+        messages: 1,
+      }),
+    ]);
+
+    expect(output).toContain("OpenScout (/Users/arach/dev/openscout)");
+    expect(output).toContain("Talkie (/Users/arach/dev/talkie)");
+    expect(output).toContain("Talkie Codex (talkie.codex.mini) · @talkie#codex");
+    expect(output).toContain("codex/codex_app_server · active · 2 messages · not seen yet");
+    expect(output).toContain("claude/tmux · idle · 1 message · not seen yet");
+    expect(output).toContain("discovered · 0 messages · not seen yet · auto-discovered");
   });
 });

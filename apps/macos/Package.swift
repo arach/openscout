@@ -21,22 +21,15 @@ let package = Package(
         .executableTarget(
             name: "OpenScoutMenu",
             dependencies: [
-                "ScoutSharedUI",
+                .product(name: "ScoutSharedUI", package: "scout-native-core"),
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
             ],
             path: "Sources/OpenScoutMenu"
         ),
-        .target(
-            name: "ScoutSharedUI",
-            dependencies: [
-                .product(name: "ScoutNativeCore", package: "scout-native-core"),
-            ],
-            path: "Sources/ScoutSharedUI"
-        ),
         .executableTarget(
             name: "Scout",
             dependencies: [
-                "ScoutSharedUI",
+                .product(name: "ScoutSharedUI", package: "scout-native-core"),
                 .product(name: "HudsonShell", package: "hudson"),
                 .product(name: "HudsonUI", package: "hudson"),
             ],

@@ -35,7 +35,13 @@ describe("tmux prompt delivery", () => {
     const piStrategy = buildTmuxDispatchStrategy("pi", brokerAskPrompt);
     expect(claudeStrategy.pre).toBeUndefined();
     expect(claudeStrategy.submit).toEqual(["Enter"]);
+    expect(claudeStrategy.retrySubmit).toEqual(["Enter"]);
+    expect(claudeStrategy.verifyDelaysMs).toEqual([250, 1500]);
+    expect(claudeStrategy.acceptEarlyVerification).toBe(false);
+    expect(claudeStrategy.retryVerifyDelayMs).toBe(1500);
     expect(piStrategy.submit).toEqual(["Enter"]);
+    expect(piStrategy.verifyDelaysMs).toBeUndefined();
+    expect(piStrategy.acceptEarlyVerification).toBeUndefined();
   });
 
   test("verifier treats a composer-held prompt as not submitted", () => {
@@ -45,6 +51,19 @@ describe("tmux prompt delivery", () => {
       "│ > New broker ask from operator. Task: please refactor the        │",
       "│   dispatch path so it submits the prompt.                        │",
       "╰──────────────────────────────────────────────────────────────────╯",
+    ]);
+
+    expect(strategy.verify(stuckTail)).toBe(false);
+  });
+
+  test("verifier treats a compact Claude paste placeholder as not submitted", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const stuckTail = paneTail([
+      "──────────────────────────────────────── hudson-relay-agent ──",
+      "❯ [Pasted text #1 +14 lines]",
+      "───────────────────────────────────────────────────────────────",
+      "  Opus 4.7 (1M context) │ session-id │ ~ │ hooked: 3f22ff      0 tokens",
+      "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
     ]);
 
     expect(strategy.verify(stuckTail)).toBe(false);
@@ -188,6 +207,17 @@ describe("tmux prompt-fragment detection", () => {
         "",
         "⏺ Grep(pattern: \"sendTmuxPrompt\")",
         "  ⎿  Found 2 files",
+      ]),
+    },
+    {
+      name: "Claude compact paste placeholder still in active composer",
+      containsPrompt: true,
+      tail: paneTail([
+        "──────────────────────────────────────── hudson-relay-agent ──",
+        "❯ [Pasted text #1 +14 lines]",
+        "───────────────────────────────────────────────────────────────",
+        "  Opus 4.7 (1M context) │ session-id │ ~ │ hooked: 3f22ff      0 tokens",
+        "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
       ]),
     },
     {

@@ -34,10 +34,10 @@ struct ScoutRootView: View {
 
     private var manifest: HudAppManifest {
         HudAppManifest(
-            name: "Scout",
-            version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.1",
+            name: ScoutNativeAppIdentity.productName,
+            version: ScoutNativeAppIdentity.version(fallback: "0.1.1"),
             tint: .green,
-            targetLabel: "Agent"
+            targetLabel: ScoutNativeAppIdentity.targetLabel
         )
     }
 

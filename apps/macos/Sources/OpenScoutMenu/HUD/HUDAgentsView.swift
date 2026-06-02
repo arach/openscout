@@ -13,6 +13,7 @@ struct HUDAgentsView: View {
 
     @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
+    @State private var navBusToken = UUID()
 
     var body: some View {
         Group {
@@ -36,7 +37,7 @@ struct HUDAgentsView: View {
         .onChange(of: activeAgentId) { _, _ in
             reconcileCursorWithAgents()
         }
-        .onDisappear { HUDNavBus.shared.clear() }
+        .onDisappear { HUDNavBus.shared.release(owner: navBusToken) }
     }
 
     // MARK: - Compact (shipped)
@@ -116,6 +117,7 @@ struct HUDAgentsView: View {
     }
 
     private func wireNavBus() {
+        HUDNavBus.shared.claim(owner: navBusToken)
         HUDNavBus.shared.cycleNext = {
             let ids = rowIds()
             guard !ids.isEmpty else { return }

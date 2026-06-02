@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
@@ -71,6 +71,8 @@ import {
 } from "./core/broker/service.ts";
 import { scoutBrokerPaths } from "./core/broker/paths.ts";
 import { getScoutConversations } from "./core/conversations/service.ts";
+import { listAgents } from "./core/lists/list-agents.ts";
+import { buildMessagesLeftRailList } from "./views/lists/messages-left-rail-list.ts";
 import {
   loadAgentObservePayload,
   loadAgentObserveSummaries,
@@ -80,7 +82,10 @@ import {
   getTailDiscovery,
   readRecentTranscriptEvents,
   snapshotRecentEvents,
+  type DiscoveredProcess,
   type DiscoveredTranscript,
+  type DiscoverySnapshot,
+  type TailEvent,
 } from "@openscout/runtime/tail";
 import type { ScoutVantageNativeSession } from "@openscout/runtime/vantage-plan";
 import {
@@ -118,6 +123,7 @@ import {
   saveBriefing,
   type BriefingKind,
 } from "./db/briefings.ts";
+import { isRequesterWaitTimeoutSummary } from "./db/internal/sql-helpers.ts";
 import {
   createScoutbotReminderStore,
   ScoutbotReminderError,
@@ -308,7 +314,410 @@ type FleetHomeBriefObservation = {
   references: FleetHomeBriefReference[];
 };
 
+type ProjectDiffSummary = {
+  root: string | null;
+  branch: string | null;
+  status: "clean" | "dirty" | "unknown";
+  changedFiles: number;
+  stagedFiles: number;
+  unstagedFiles: number;
+  untrackedFiles: number;
+  conflictedFiles: number;
+  ahead: number;
+  behind: number;
+  checkedAt: number | null;
+  error: string | null;
+};
+
+type ProjectLandscapeItem = {
+  key: string;
+  title: string;
+  root: string | null;
+  isCurrent: boolean;
+  agentIds: string[];
+  agentCount: number;
+  workingAgents: number;
+  availableAgents: number;
+  openJobs: number;
+  activityCount: number;
+  lastActivityAt: number | null;
+  branches: string[];
+  harnesses: string[];
+  diff: ProjectDiffSummary | null;
+};
+
+type ProjectLandscapeAccumulator = {
+  key: string;
+  title: string;
+  root: string | null;
+  isCurrent: boolean;
+  agentIds: Set<string>;
+  agentCount: number;
+  workingAgents: number;
+  availableAgents: number;
+  openJobs: number;
+  activityCount: number;
+  lastActivityAt: number | null;
+  branches: Set<string>;
+  harnesses: Set<string>;
+  diff: ProjectDiffSummary | null;
+};
+
 const FLEET_HOME_BRIEF_TTL_MS = 30 * 60_000;
+const FLEET_HOME_REQUESTER_WAIT_LANGUAGE_RE =
+  /\b(timeout|timed out|synchronous result|synchronous acknowledg(?:e)?ment|requester[-\s]?(?:side\s+)?wait|stopped waiting|stall(?:ed|ing)?|delays?|delayed)\b/i;
+const FLEET_HOME_REQUESTER_WAIT_FALLBACK =
+  "Open task has no delivered reply yet.";
+
+function existingDirectory(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    const expanded = expandHomePath(trimmed);
+    if (!existsSync(expanded)) return null;
+    const stat = statSync(expanded);
+    const directory = stat.isDirectory() ? expanded : dirname(expanded);
+    return realpathSync(directory);
+  } catch {
+    return null;
+  }
+}
+
+function runGitQuiet(cwd: string, args: string[], timeout = 1000): string | null {
+  try {
+    return execFileSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout,
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+type EnrichedDiscoveredProcess = DiscoveredProcess & {
+  branch?: string | null;
+};
+
+type EnrichedDiscoveredTranscript = DiscoveredTranscript & {
+  branch?: string | null;
+  summary?: string | null;
+};
+
+type EnrichedTailDiscoverySnapshot = Omit<DiscoverySnapshot, "processes" | "transcripts"> & {
+  processes: EnrichedDiscoveredProcess[];
+  transcripts: EnrichedDiscoveredTranscript[];
+};
+
+const TAIL_BRANCH_CACHE_TTL_MS = 15_000;
+const tailBranchCache = new Map<string, { branch: string | null; expiresAt: number }>();
+
+function tailBranchForDirectory(directory: string | null | undefined): string | null {
+  const normalized = existingDirectory(directory);
+  if (!normalized) return null;
+  const now = Date.now();
+  const cached = tailBranchCache.get(normalized);
+  if (cached && cached.expiresAt > now) return cached.branch;
+
+  const gitRoot = runGitQuiet(normalized, ["rev-parse", "--show-toplevel"], 900);
+  const branch = gitRoot
+    ? runGitQuiet(gitRoot, ["rev-parse", "--abbrev-ref", "HEAD"], 800)
+    : null;
+  const resolved = branch && branch !== "HEAD" ? branch : null;
+  tailBranchCache.set(normalized, { branch: resolved, expiresAt: now + TAIL_BRANCH_CACHE_TTL_MS });
+  return resolved;
+}
+
+function tailSynopsisCandidate(event: TailEvent): string | null {
+  if (event.kind !== "user" && event.kind !== "assistant") return null;
+  const summary = event.summary.replace(/\s+/g, " ").trim();
+  if (!summary) return null;
+  if (/^(session [\w:-]+|turn context|task started|task complete|tokens)\b/i.test(summary)) {
+    return null;
+  }
+  if (/^\[[^\]]+\]$/.test(summary)) return null;
+  return summary.length > 160 ? `${summary.slice(0, 157)}...` : summary;
+}
+
+function tailTranscriptEventKey(source: string, sessionId: string): string {
+  return `${source}\0${sessionId}`;
+}
+
+function buildTailSynopsisBySession(events: TailEvent[]): Map<string, string> {
+  const preferred = new Map<string, string>();
+  const fallback = new Map<string, string>();
+  for (const event of events) {
+    const sessionId = event.sessionId?.trim();
+    if (!sessionId) continue;
+    const synopsis = tailSynopsisCandidate(event);
+    if (!synopsis) continue;
+    const key = tailTranscriptEventKey(event.source, sessionId);
+    if (event.kind === "user") {
+      if (!preferred.has(key) || synopsis.length > (preferred.get(key)?.length ?? 0)) {
+        preferred.set(key, synopsis);
+      }
+    } else if (!fallback.has(key)) {
+      fallback.set(key, synopsis);
+    }
+  }
+  return new Map([...fallback, ...preferred]);
+}
+
+function enrichTailDiscoverySnapshot(
+  discovery: DiscoverySnapshot,
+  events: TailEvent[],
+): EnrichedTailDiscoverySnapshot {
+  const summaryBySession = buildTailSynopsisBySession(events);
+  return {
+    ...discovery,
+    processes: discovery.processes.map((process) => ({
+      ...process,
+      branch: tailBranchForDirectory(process.cwd),
+    })),
+    transcripts: discovery.transcripts.map((transcript) => {
+      const sessionId = transcript.sessionId?.trim();
+      const summary = sessionId
+        ? summaryBySession.get(tailTranscriptEventKey(transcript.source, sessionId)) ?? null
+        : null;
+      return {
+        ...transcript,
+        branch: tailBranchForDirectory(transcript.cwd),
+        summary,
+      };
+    }),
+  };
+}
+
+function gitRootForDirectory(directory: string | null): string | null {
+  if (!directory) return null;
+  const root = runGitQuiet(directory, ["rev-parse", "--show-toplevel"], 900);
+  return root ? existingDirectory(root) ?? root : directory;
+}
+
+function projectKeyFor(root: string | null, title: string): string {
+  const normalizedTitle = title.trim().toLowerCase();
+  if (normalizedTitle && normalizedTitle !== "unscoped" && normalizedTitle !== "unknown project") {
+    return `project:${normalizedTitle}`;
+  }
+  return root ? `root:${root}` : `project:${slugifyTmuxName(title) || "unscoped"}`;
+}
+
+function projectTitleFor(root: string | null, fallback: string | null | undefined): string {
+  const title = fallback?.trim();
+  if (title) return title;
+  return root ? basename(root) : "Unknown project";
+}
+
+function emptyDiff(root: string | null, error: string | null): ProjectDiffSummary {
+  return {
+    root,
+    branch: null,
+    status: "unknown",
+    changedFiles: 0,
+    stagedFiles: 0,
+    unstagedFiles: 0,
+    untrackedFiles: 0,
+    conflictedFiles: 0,
+    ahead: 0,
+    behind: 0,
+    checkedAt: null,
+    error,
+  };
+}
+
+function parseAheadBehind(branchLine: string | undefined): { ahead: number; behind: number } {
+  const ahead = branchLine?.match(/ahead (\d+)/)?.[1];
+  const behind = branchLine?.match(/behind (\d+)/)?.[1];
+  return {
+    ahead: ahead ? Number(ahead) : 0,
+    behind: behind ? Number(behind) : 0,
+  };
+}
+
+function loadProjectDiff(root: string | null): ProjectDiffSummary | null {
+  if (!root) return null;
+  const directory = existingDirectory(root);
+  if (!directory) return emptyDiff(root, "project root is not available");
+  const gitRoot = runGitQuiet(directory, ["rev-parse", "--show-toplevel"], 900);
+  if (!gitRoot) return emptyDiff(directory, "not a git worktree");
+  const status = runGitQuiet(gitRoot, ["status", "--porcelain=v1", "-b"], 1200);
+  if (status === null) return emptyDiff(gitRoot, "git status failed");
+  const branch = runGitQuiet(gitRoot, ["rev-parse", "--abbrev-ref", "HEAD"], 800);
+  const lines = status.split(/\r?\n/).filter(Boolean);
+  const branchLine = lines.find((line) => line.startsWith("## "));
+  const { ahead, behind } = parseAheadBehind(branchLine);
+  let changedFiles = 0;
+  let stagedFiles = 0;
+  let unstagedFiles = 0;
+  let untrackedFiles = 0;
+  let conflictedFiles = 0;
+  for (const line of lines) {
+    if (line.startsWith("## ")) continue;
+    changedFiles += 1;
+    const x = line[0] ?? " ";
+    const y = line[1] ?? " ";
+    if (x === "?" && y === "?") {
+      untrackedFiles += 1;
+      continue;
+    }
+    if (x !== " " && x !== "?") stagedFiles += 1;
+    if (y !== " " && y !== "?") unstagedFiles += 1;
+    if (x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D")) {
+      conflictedFiles += 1;
+    }
+  }
+  return {
+    root: gitRoot,
+    branch: branch && branch !== "HEAD" ? branch : null,
+    status: changedFiles > 0 ? "dirty" : "clean",
+    changedFiles,
+    stagedFiles,
+    unstagedFiles,
+    untrackedFiles,
+    conflictedFiles,
+    ahead,
+    behind,
+    checkedAt: Date.now(),
+    error: null,
+  };
+}
+
+function sameOrInside(candidate: string | null | undefined, root: string | null | undefined): boolean {
+  if (!candidate || !root) return false;
+  const resolvedCandidate = resolve(expandHomePath(candidate));
+  const resolvedRoot = resolve(expandHomePath(root));
+  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}/`);
+}
+
+function buildProjectLandscape(currentDirectory: string, limit = 12) {
+  const agents = queryAgents();
+  const fleet = queryFleet({ limit: 80, activityLimit: 300, activityLookbackMs: 24 * 60 * 60_000 });
+  const currentRoot = gitRootForDirectory(existingDirectory(currentDirectory));
+  const byKey = new Map<string, ProjectLandscapeAccumulator>();
+  const keyByAgent = new Map<string, string>();
+
+  const ensureProject = (input: {
+    root: string | null;
+    title?: string | null;
+    isCurrent?: boolean;
+  }): ProjectLandscapeAccumulator => {
+    const title = projectTitleFor(input.root, input.title);
+    const key = projectKeyFor(input.root, title);
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.isCurrent ||= input.isCurrent === true;
+      if (!existing.root && input.root) existing.root = input.root;
+      return existing;
+    }
+    const project: ProjectLandscapeAccumulator = {
+      key,
+      title,
+      root: input.root,
+      isCurrent: input.isCurrent === true,
+      agentIds: new Set(),
+      agentCount: 0,
+      workingAgents: 0,
+      availableAgents: 0,
+      openJobs: 0,
+      activityCount: 0,
+      lastActivityAt: null,
+      branches: new Set(),
+      harnesses: new Set(),
+      diff: null,
+    };
+    byKey.set(key, project);
+    return project;
+  };
+
+  ensureProject({
+    root: currentRoot,
+    title: currentRoot ? basename(currentRoot) : basename(currentDirectory),
+    isCurrent: true,
+  });
+
+  for (const agent of agents) {
+    const candidate = existingDirectory(agent.projectRoot) ?? existingDirectory(agent.cwd);
+    const root = gitRootForDirectory(candidate);
+    const project = ensureProject({
+      root,
+      title: agent.project ?? (root ? basename(root) : agent.workspaceQualifier ?? null),
+      isCurrent: Boolean(root && currentRoot && root === currentRoot),
+    });
+    project.agentIds.add(agent.id);
+    keyByAgent.set(agent.id, project.key);
+    project.agentCount += 1;
+    if (agent.state === "working") project.workingAgents += 1;
+    if (agent.state === "available") project.availableAgents += 1;
+    if (agent.branch) project.branches.add(agent.branch);
+    if (agent.harness) project.harnesses.add(agent.harness);
+    if (agent.updatedAt) {
+      project.lastActivityAt = Math.max(project.lastActivityAt ?? 0, agent.updatedAt);
+    }
+  }
+
+  for (const ask of fleet.activeAsks) {
+    const key = keyByAgent.get(ask.agentId);
+    const project = key ? byKey.get(key) : null;
+    if (!project) continue;
+    project.openJobs += 1;
+    project.lastActivityAt = Math.max(project.lastActivityAt ?? 0, ask.updatedAt);
+    if (ask.harness) project.harnesses.add(ask.harness);
+  }
+
+  for (const item of fleet.activity) {
+    let project: ProjectLandscapeAccumulator | undefined;
+    const key = item.agentId ? keyByAgent.get(item.agentId) : null;
+    if (key) {
+      project = byKey.get(key);
+    } else if (item.workspaceRoot) {
+      project = [...byKey.values()].find((candidate) => sameOrInside(item.workspaceRoot, candidate.root));
+    }
+    if (!project) continue;
+    project.activityCount += 1;
+    project.lastActivityAt = Math.max(project.lastActivityAt ?? 0, item.ts);
+  }
+
+  const projects = [...byKey.values()]
+    .sort((a, b) => {
+      if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+      if (a.openJobs !== b.openJobs) return b.openJobs - a.openJobs;
+      if (a.workingAgents !== b.workingAgents) return b.workingAgents - a.workingAgents;
+      return (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0) || a.title.localeCompare(b.title);
+    })
+    .slice(0, Math.max(1, limit))
+    .map((project): ProjectLandscapeItem => {
+      const diff = loadProjectDiff(project.root);
+      return {
+        key: project.key,
+        title: project.title,
+        root: project.root,
+        isCurrent: project.isCurrent,
+        agentIds: [...project.agentIds],
+        agentCount: project.agentCount,
+        workingAgents: project.workingAgents,
+        availableAgents: project.availableAgents,
+        openJobs: project.openJobs,
+        activityCount: project.activityCount,
+        lastActivityAt: project.lastActivityAt,
+        branches: [...project.branches].sort(),
+        harnesses: [...project.harnesses].sort(),
+        diff,
+      };
+    });
+
+  return {
+    generatedAt: Date.now(),
+    totals: {
+      projects: projects.length,
+      agents: projects.reduce((sum, project) => sum + project.agentCount, 0),
+      workingAgents: projects.reduce((sum, project) => sum + project.workingAgents, 0),
+      openJobs: projects.reduce((sum, project) => sum + project.openJobs, 0),
+      dirtyProjects: projects.filter((project) => project.diff?.status === "dirty").length,
+      changedFiles: projects.reduce((sum, project) => sum + (project.diff?.changedFiles ?? 0), 0),
+    },
+    projects,
+  };
+}
 
 function persistBriefing(
   kind: BriefingKind,
@@ -316,20 +725,23 @@ function persistBriefing(
   capture: ScoutbotBriefCapture,
 ): void {
   try {
-    const observations = brief.steps.flatMap((step) => step.observations ?? []);
+    const savedBrief = kind === "fleet-home"
+      ? sanitizeFleetHomeBriefForPersistence(brief)
+      : brief;
+    const observations = savedBrief.steps.flatMap((step) => step.observations ?? []);
     saveBriefing({
-      id: brief.id,
+      id: savedBrief.id,
       kind,
-      title: brief.title,
-      summary: brief.summary,
-      recommendation: brief.recommendation || null,
-      preparedAt: brief.preparedAt,
-      ttlMs: brief.ttlMs,
-      brief,
+      title: savedBrief.title,
+      summary: savedBrief.summary,
+      recommendation: savedBrief.recommendation || null,
+      preparedAt: savedBrief.preparedAt,
+      ttlMs: savedBrief.ttlMs,
+      brief: savedBrief,
       observations,
       snapshot: capture.snapshot,
       call: capture.call,
-      markdown: brief.markdown ?? null,
+      markdown: savedBrief.markdown ?? null,
     });
   } catch (err) {
     console.warn(
@@ -339,20 +751,58 @@ function persistBriefing(
   }
 }
 
+function sanitizeFleetHomeBriefForPersistence(brief: ScoutbotBrief): ScoutbotBrief {
+  return {
+    ...brief,
+    title: scrubFleetHomeRequesterWaitLanguage(brief.title),
+    summary: scrubFleetHomeRequesterWaitLanguage(brief.summary),
+    recommendation: scrubFleetHomeRequesterWaitLanguage(brief.recommendation),
+    markdown: brief.markdown
+      ? brief.markdown
+        .split(/\r?\n/)
+        .map((line) => scrubFleetHomeRequesterWaitLanguage(line))
+        .join("\n")
+      : brief.markdown,
+    steps: brief.steps.map((step) => ({
+      ...step,
+      narration: scrubFleetHomeRequesterWaitLanguage(step.narration),
+      observations: (step.observations ?? []).map((observation) => ({
+        ...observation,
+        text: scrubFleetHomeRequesterWaitLanguage(observation.text),
+      })),
+    })),
+  };
+}
+
 function buildFleetHomeBrief(brief: ScoutbotBrief): FleetHomeBrief {
   const fleetStep = brief.steps.find((step) => step.route?.view === "fleet");
-  const statement = (fleetStep?.narration ?? brief.steps[0]?.narration ?? brief.summary).trim();
-  const observations = buildFleetHomeBriefObservations(statement || brief.summary, fleetStep?.observations ?? []);
+  const rawStatement = (fleetStep?.narration ?? brief.steps[0]?.narration ?? brief.summary).trim();
+  const statement = scrubFleetHomeRequesterWaitLanguage(rawStatement);
+  const summary = scrubFleetHomeRequesterWaitLanguage(brief.summary);
+  const observations = buildFleetHomeBriefObservations(statement || summary, fleetStep?.observations ?? []);
   return {
     id: `fleet-home:${brief.id}`,
-    statement: statement || brief.summary,
-    summary: brief.summary,
+    statement: statement || summary,
+    summary,
     observations,
     preparedAt: brief.preparedAt,
     expiresAt: brief.expiresAt,
     ttlMs: brief.ttlMs,
     sourceBriefId: brief.id,
   };
+}
+
+function scrubFleetHomeRequesterWaitLanguage(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  const softened = compact
+    .replace(/\bstuck in (?:a )?(?:long-running )?waiting phase\b/gi, "open with no delivered reply")
+    .replace(/\bstuck in waiting\b/gi, "open with no delivered reply");
+  if (!softened || !FLEET_HOME_REQUESTER_WAIT_LANGUAGE_RE.test(softened)) return softened;
+  const kept = splitFleetBriefSentences(softened)
+    .filter((sentence) => !FLEET_HOME_REQUESTER_WAIT_LANGUAGE_RE.test(sentence))
+    .join(" ")
+    .trim();
+  return kept || FLEET_HOME_REQUESTER_WAIT_FALLBACK;
 }
 
 function buildFleetHomeBriefObservations(
@@ -362,7 +812,7 @@ function buildFleetHomeBriefObservations(
   const modelItems = modelObservations
     .map((item, index) => ({
       id: `obs-${index + 1}`,
-      text: item.text.trim(),
+      text: scrubFleetHomeRequesterWaitLanguage(item.text),
       ...(item.tone ? { tone: item.tone } : {}),
       references: dedupeFleetBriefReferences(item.references.map(normalizeFleetBriefReference).filter(Boolean)),
     }))
@@ -565,6 +1015,25 @@ function parseOptionalPositiveInt(
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseLastViewedMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const parsed: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!key) continue;
+    const numeric = typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+        ? Number(raw)
+        : Number.NaN;
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      parsed[key] = Math.floor(numeric);
+    }
+  }
+  return parsed;
 }
 
 function parseOptionalBoolean(value: string | undefined): boolean | undefined {
@@ -1489,8 +1958,11 @@ async function buildScoutbotAssistantControlState(currentDirectory: string, rout
   const agentLogMessages = agentLogEvents
     .filter((event) => event.kind !== "system")
     .filter((event) => !event.summary.toLowerCase().startsWith("permission-mode"))
+    .filter((event) => !isRequesterWaitTimeoutSummary(event.summary))
     .map(compactScoutbotTailEvent);
-  const scoutChatter = queryRecentMessages(50).map(compactScoutbotMessage);
+  const scoutChatter = queryRecentMessages(50)
+    .filter((message) => !isRequesterWaitTimeoutSummary(message.body))
+    .map(compactScoutbotMessage);
   const activeRuns = queryRuns({ active: true, limit: 24 })
     .filter((run) => run.agentId !== omittedActiveAgentId);
   const activeFlights = queryFlights({ activeOnly: true })
@@ -2255,6 +2727,7 @@ export async function createOpenScoutWebServer(
       conversationId: result.conversationId ?? null,
       messageId: result.messageId ?? null,
       flightId: result.flight?.id ?? null,
+      invocationId: result.flight?.invocationId ?? null,
       targetAgentId: result.flight?.targetAgentId ?? null,
     });
   });
@@ -2310,7 +2783,17 @@ export async function createOpenScoutWebServer(
     if (!requestedPath) {
       return c.json({ error: "missing path" }, 400);
     }
-    const result = readFilePreview({ requestedPath, currentDirectory });
+    const rawStart = c.req.query("start");
+    const rawEnd = c.req.query("end");
+    let range: { start: number; end: number } | undefined;
+    if (rawStart !== undefined) {
+      const start = Number.parseInt(rawStart, 10);
+      const end = rawEnd !== undefined ? Number.parseInt(rawEnd, 10) : start;
+      if (Number.isFinite(start) && start >= 1 && Number.isFinite(end) && end >= start) {
+        range = { start, end };
+      }
+    }
+    const result = readFilePreview({ requestedPath, currentDirectory, range });
     if (!result.ok) {
       return c.json({ error: result.error }, result.status as 400 | 403 | 404 | 415 | 500);
     }
@@ -2533,6 +3016,17 @@ export async function createOpenScoutWebServer(
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
   app.get("/api/agents", (c) => c.json(queryAgents()));
+  app.get("/api/lists/agents", (c) =>
+    c.json(listAgents({
+      group: c.req.query("group"),
+      sort: c.req.query("sort"),
+      rowSort: c.req.query("rowSort"),
+      q: c.req.query("q"),
+      harness: c.req.query("harness"),
+      machineId: c.req.query("machineId"),
+      limit: parseOptionalPositiveInt(c.req.query("limit")),
+    }))
+  );
   app.get("/api/agents/:id", (c) => {
     const agent = queryAgentById(c.req.param("id"));
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
@@ -2663,6 +3157,14 @@ export async function createOpenScoutWebServer(
         activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
         activityLookbackMs: parseOptionalPositiveInt(c.req.query("activityLookbackMs")),
       }),
+    ),
+  );
+  app.get("/api/project-landscape", (c) =>
+    c.json(
+      buildProjectLandscape(
+        currentDirectory,
+        parseOptionalPositiveInt(c.req.query("limit"), 12),
+      ),
     ),
   );
   app.get("/api/messages", (c) => {
@@ -2866,6 +3368,23 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/conversations", async (c) => {
     return c.json(await readCommsList(c));
+  });
+
+  app.post("/api/view-lists/messages-left-rail", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      filter?: unknown;
+      sort?: unknown;
+      query?: unknown;
+      machineId?: unknown;
+      lastViewed?: unknown;
+    };
+    return c.json(await buildMessagesLeftRailList({
+      filter: typeof body.filter === "string" ? body.filter : null,
+      sort: typeof body.sort === "string" ? body.sort : null,
+      query: typeof body.query === "string" ? body.query : null,
+      machineId: typeof body.machineId === "string" ? body.machineId : null,
+      lastViewed: parseLastViewedMap(body.lastViewed),
+    }));
   });
 
   app.get("/api/conversations/:id/read-cursors", async (c) => {
@@ -3587,7 +4106,12 @@ export async function createOpenScoutWebServer(
     if (!res.ok) {
       return c.json({ error: `broker tail discovery unavailable (${res.status})` }, 502);
     }
-    return c.json(await res.json());
+    const discovery = await res.json() as DiscoverySnapshot;
+    const transcriptEvents = await readRecentTranscriptEvents(80, {
+      discovery,
+      perTranscriptLineLimit: 160,
+    }).catch(() => [] as TailEvent[]);
+    return c.json(enrichTailDiscoverySnapshot(discovery, transcriptEvents));
   });
 
   app.get("/api/tail/recent", async (c) => {

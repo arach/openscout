@@ -19,6 +19,11 @@ export type DirectoryFilePreviewContent = {
   generatedAt: number;
 };
 
+export type TextFilePreviewRange = {
+  start: number;
+  end: number;
+};
+
 export type TextFilePreviewContent = {
   kind: "file";
   previewable: true;
@@ -32,6 +37,10 @@ export type TextFilePreviewContent = {
   sizeBytes: number;
   truncated: boolean;
   generatedAt: number;
+  /** Present when the payload represents a sliced range of the underlying file. */
+  range?: TextFilePreviewRange;
+  /** Total line count of the source file (only present alongside `range`). */
+  totalLines?: number;
 };
 
 export type BinaryFilePreviewContent = {

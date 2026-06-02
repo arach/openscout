@@ -22,7 +22,7 @@ import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { FilePreviewOverlay } from "./FilePreviewOverlay.tsx";
 import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
-import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
+import type { Agent, BrokerRouteAttempt, HomeContextSelection, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
 
 declare global {
@@ -71,9 +71,17 @@ export interface ScoutContextValue {
   inspectBrokerAttempt: (attempt: BrokerRouteAttempt) => void;
   clearBrokerAttempt: () => void;
 
-  openFilePreview: (path: string) => void;
+  homeContextSelection: HomeContextSelection;
+  setHomeContextSelection: (selection: HomeContextSelection) => void;
+
+  openFilePreview: (path: string, range?: FilePreviewRange) => void;
   closeFilePreview: () => void;
 }
+
+export type FilePreviewRange = {
+  start: number;
+  end?: number;
+};
 
 const ScoutContext = createContext<ScoutContextValue | null>(null);
 
@@ -123,7 +131,7 @@ const DARK_THEME_VARS: ThemeVars = {
   "--scout-chrome-avatar-ink": "#111111",
   "--hud-font-sans": "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
-  "--hud-font-serif": "'Play', 'Inter Tight', ui-sans-serif, system-ui, sans-serif",
+  "--hud-font-serif": "var(--hud-font-sans)",
   "--hud-font-accent-title": "var(--hud-font-sans)",
 };
 
@@ -151,7 +159,7 @@ const LIGHT_THEME_VARS: ThemeVars = {
   "--scout-chrome-avatar-ink": "#ffffff",
   "--hud-font-sans": "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
-  "--hud-font-serif": "'Play', 'Inter Tight', ui-sans-serif, system-ui, sans-serif",
+  "--hud-font-serif": "var(--hud-font-sans)",
   "--hud-font-accent-title": "var(--hud-font-sans)",
 };
 
@@ -175,6 +183,7 @@ export function ScoutProvider({
   const skipOnboarding = useCallback(() => setOnboardingSkipped(true), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedBrokerAttempt, setSelectedBrokerAttempt] = useState<BrokerRouteAttempt | null>(null);
+  const [homeContextSelection, setHomeContextSelection] = useState<HomeContextSelection>({ kind: "overview" });
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const inspectBrokerAttempt = useCallback((attempt: BrokerRouteAttempt) => {
@@ -251,11 +260,36 @@ export function ScoutProvider({
   );
 
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
-  const openFilePreview = useCallback((path: string) => {
-    if (!path?.trim()) return;
-    setFilePreviewPath(path.trim());
+  const [filePreviewRange, setFilePreviewRange] = useState<FilePreviewRange | null>(null);
+  const openFilePreview = useCallback((path: string, range?: FilePreviewRange) => {
+    const trimmed = path?.trim();
+    if (!trimmed) return;
+    // Path strings may carry a trailing `:N` or `:N-M` suffix (e.g. when an
+    // external caller passes through a raw token). Parse it out so callers
+    // don't have to split the suffix themselves.
+    let nextPath = trimmed;
+    let nextRange = range ?? null;
+    if (!range) {
+      const suffixMatch = /^(.+?)(:\d+(?:-\d+)?)$/u.exec(trimmed);
+      if (suffixMatch) {
+        const rangeMatch = /^:(\d+)(?:-(\d+))?$/u.exec(suffixMatch[2]!);
+        if (rangeMatch) {
+          const start = Number(rangeMatch[1]);
+          const end = rangeMatch[2] !== undefined ? Number(rangeMatch[2]) : undefined;
+          if (Number.isFinite(start) && start >= 1 && (end === undefined || (Number.isFinite(end) && end >= start))) {
+            nextPath = suffixMatch[1]!;
+            nextRange = end !== undefined ? { start, end } : { start };
+          }
+        }
+      }
+    }
+    setFilePreviewPath(nextPath);
+    setFilePreviewRange(nextRange);
   }, []);
-  const closeFilePreview = useCallback(() => setFilePreviewPath(null), []);
+  const closeFilePreview = useCallback(() => {
+    setFilePreviewPath(null);
+    setFilePreviewRange(null);
+  }, []);
 
   const applyScoutbotUiAction = useCallback((action: ScoutbotUiAction) => {
     switch (action.type) {
@@ -315,6 +349,7 @@ export function ScoutProvider({
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotConversationId: scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
+      homeContextSelection, setHomeContextSelection,
       openFilePreview, closeFilePreview,
     }),
     [
@@ -323,6 +358,7 @@ export function ScoutProvider({
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
+      homeContextSelection,
       openFilePreview, closeFilePreview,
     ],
   );
@@ -342,6 +378,7 @@ export function ScoutProvider({
             <SettingsDrawer open={settingsOpen} onClose={closeSettings} />
             <FilePreviewOverlay
               path={filePreviewPath}
+              range={filePreviewRange}
               onOpenPath={openFilePreview}
               onClose={closeFilePreview}
             />

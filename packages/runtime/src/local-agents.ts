@@ -2565,6 +2565,8 @@ const TMUX_PASTE_DRAIN_MS = 150;
 const TMUX_VERIFY_FIRST_SAMPLE_MS = 250;
 const TMUX_VERIFY_SECOND_SAMPLE_MS = 750;
 const TMUX_VERIFY_RETRY_SAMPLE_MS = 400;
+const TMUX_CLAUDE_SETTLED_VERIFY_MS = 1_500;
+const TMUX_CLAUDE_RETRY_VERIFY_MS = 1_500;
 const TMUX_CAPTURE_TAIL_LINES = 20;
 const TMUX_READY_TIMEOUT_MS = 20_000;
 const TMUX_READY_POLL_MS = 250;
@@ -2584,6 +2586,10 @@ export interface TmuxPromptDispatchResult {
 export interface TmuxDispatchStrategy {
   pre?: string[];
   submit: string[];
+  retrySubmit?: string[];
+  verifyDelaysMs?: readonly number[];
+  acceptEarlyVerification?: boolean;
+  retryVerifyDelayMs?: number;
   verify: (paneTail: string) => boolean;
 }
 
@@ -2601,7 +2607,17 @@ export function buildTmuxDispatchStrategy(harness: AgentHarness, prompt: string)
   // historically prepended to "leave insert mode", but newer Claude Code builds
   // bind Escape to composer state actions (close suggestion, cancel pending tool)
   // and can silently swallow the Enter that follows.
-  return { submit: ["Enter"], verify: promptAbsentFromTail };
+  return {
+    submit: ["Enter"],
+    retrySubmit: ["Enter"],
+    verify: promptAbsentFromTail,
+    // Claude can briefly render a tail where the prompt text is absent before
+    // the compact "[Pasted text]" composer settles. Do not accept the early
+    // sample as proof of a started turn.
+    verifyDelaysMs: [TMUX_VERIFY_FIRST_SAMPLE_MS, TMUX_CLAUDE_SETTLED_VERIFY_MS],
+    acceptEarlyVerification: false,
+    retryVerifyDelayMs: TMUX_CLAUDE_RETRY_VERIFY_MS,
+  };
 }
 
 export async function sendTmuxPrompt(
@@ -2631,21 +2647,29 @@ export async function sendTmuxPrompt(
     await tmuxDispatchSleep(TMUX_PASTE_DRAIN_MS);
     execFileSync("tmux", ["send-keys", "-t", sessionName, ...effectiveStrategy.submit], { stdio: "pipe" });
 
-    // Sample twice: a fast probe at ~250ms catches the common-case clear; a
-    // slower probe at ~1s catches harnesses that take a beat to flush the
-    // composer after submit (e.g. while showing a "thinking…" placeholder).
-    if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_FIRST_SAMPLE_MS)) {
-      return { submitted: true, retries: 0 };
-    }
-    if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_SECOND_SAMPLE_MS)) {
-      return { submitted: true, retries: 0 };
+    const verifyDelaysMs = effectiveStrategy.verifyDelaysMs ?? [
+      TMUX_VERIFY_FIRST_SAMPLE_MS,
+      TMUX_VERIFY_SECOND_SAMPLE_MS,
+    ];
+    for (const delayMs of verifyDelaysMs) {
+      if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, delayMs)) {
+        const isFinalSample = delayMs === verifyDelaysMs[verifyDelaysMs.length - 1];
+        if ((effectiveStrategy.acceptEarlyVerification ?? true) || isFinalSample) {
+          return { submitted: true, retries: 0 };
+        }
+        continue;
+      }
     }
 
     // Still stuck — retry with a bare Enter. Covers the case where the submit chord
     // landed while the harness was in a transient state (popup, suggestion menu)
     // that absorbed it.
-    execFileSync("tmux", ["send-keys", "-t", sessionName, "Enter"], { stdio: "pipe" });
-    if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_RETRY_SAMPLE_MS)) {
+    execFileSync("tmux", ["send-keys", "-t", sessionName, ...(effectiveStrategy.retrySubmit ?? ["Enter"])], { stdio: "pipe" });
+    if (await dispatchVerifiedAfter(
+      sessionName,
+      effectiveStrategy,
+      effectiveStrategy.retryVerifyDelayMs ?? TMUX_VERIFY_RETRY_SAMPLE_MS,
+    )) {
       return { submitted: true, retries: 1 };
     }
 
@@ -2751,6 +2775,9 @@ export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: str
   const cleanedTail = stripTerminalControlSequences(paneTail);
   const composerText = extractActiveTmuxComposerText(cleanedTail);
   if (composerText !== null) {
+    if (tmuxComposerTextShowsOpaquePastePlaceholder(composerText)) {
+      return true;
+    }
     return textContainsPromptFragment(composerText, prompt);
   }
   if (tmuxPaneTailShowsHarnessActivity(cleanedTail)) {
@@ -2773,6 +2800,10 @@ function textContainsPromptFragment(haystack: string, prompt: string): boolean {
     normalizedPrompt.slice(Math.max(0, normalizedPrompt.length - 40)),
   ];
   return windows.some((w) => w.length >= 24 && normalizedTail.includes(w));
+}
+
+function tmuxComposerTextShowsOpaquePastePlaceholder(value: string): boolean {
+  return /\[\s*Pasted text #\d+(?:\s+\+\d+\s+lines?)?\s*\]/i.test(value);
 }
 
 function stripTerminalControlSequences(value: string): string {

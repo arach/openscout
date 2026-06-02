@@ -1,8 +1,15 @@
 name: Scout
 packages:
+  Hudson:
+    url: git@github.com:arach/hudson.git
+    branch: main
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
     exactVersion: 0.13.6
+  MobileKeyboardKit:
+    path: ../../packages/mobile-keyboard-kit
+  ScoutNativeCore:
+    path: ../../packages/scout-native-core
   Termini:
     url: https://github.com/arach/Termini.git
     revision: 5f337c1faf802412d83cdeabf753aead6d614780
@@ -34,6 +41,16 @@ targets:
       - Scout
     dependencies:
       - package: FluidAudio
+      - package: Hudson
+        product: HudsonShell
+      - package: Hudson
+        product: HudsonUI
+      - package: MobileKeyboardKit
+        product: MobileKeyboardKit
+      - package: ScoutNativeCore
+        product: ScoutNativeCore
+      - package: ScoutNativeCore
+        product: ScoutSharedUI
       - package: Termini
         product: Termini
       - package: Termini

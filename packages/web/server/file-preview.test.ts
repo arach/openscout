@@ -124,3 +124,116 @@ describe("readFilePreview", () => {
     }
   });
 });
+
+describe("readFilePreview line range slicing", () => {
+  function writeNumberedDoc(root: string, name = "spec.md", lines = 80): string {
+    const body = Array.from({ length: lines }, (_, idx) => `line ${idx + 1}`).join("\n");
+    const filePath = join(root, name);
+    writeFileSync(filePath, body, "utf8");
+    return filePath;
+  }
+
+  test("returns the full file when no range is provided", () => {
+    const root = makeRoot();
+    const filePath = writeNumberedDoc(root);
+    const result = readFilePreview({ requestedPath: filePath, currentDirectory: root });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.content.kind === "file" && result.content.previewable) {
+      expect(result.content.range).toBeUndefined();
+      expect(result.content.totalLines).toBeUndefined();
+      expect(result.content.content.split("\n").length).toBe(80);
+    }
+  });
+
+  test("slices a multi-line range inclusively and surfaces the clamped range", () => {
+    const root = makeRoot();
+    const filePath = writeNumberedDoc(root);
+    const result = readFilePreview({
+      requestedPath: filePath,
+      currentDirectory: root,
+      range: { start: 43, end: 59 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.content.kind === "file" && result.content.previewable) {
+      expect(result.content.range).toEqual({ start: 43, end: 59 });
+      expect(result.content.totalLines).toBe(80);
+      const lines = result.content.content.split("\n");
+      expect(lines.length).toBe(59 - 43 + 1);
+      expect(lines[0]).toBe("line 43");
+      expect(lines[lines.length - 1]).toBe("line 59");
+    }
+  });
+
+  test("supports a single-line range (start = end)", () => {
+    const root = makeRoot();
+    const filePath = writeNumberedDoc(root);
+    const result = readFilePreview({
+      requestedPath: filePath,
+      currentDirectory: root,
+      range: { start: 17, end: 17 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.content.kind === "file" && result.content.previewable) {
+      expect(result.content.range).toEqual({ start: 17, end: 17 });
+      expect(result.content.content).toBe("line 17");
+    }
+  });
+
+  test("clamps a range whose end overruns the file", () => {
+    const root = makeRoot();
+    const filePath = writeNumberedDoc(root, "spec.md", 20);
+    const result = readFilePreview({
+      requestedPath: filePath,
+      currentDirectory: root,
+      range: { start: 15, end: 200 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.content.kind === "file" && result.content.previewable) {
+      expect(result.content.range).toEqual({ start: 15, end: 20 });
+      expect(result.content.totalLines).toBe(20);
+      const lines = result.content.content.split("\n");
+      expect(lines[0]).toBe("line 15");
+      expect(lines[lines.length - 1]).toBe("line 20");
+    }
+  });
+
+  test("returns the full file when the range starts past the end", () => {
+    const root = makeRoot();
+    const filePath = writeNumberedDoc(root, "spec.md", 10);
+    const result = readFilePreview({
+      requestedPath: filePath,
+      currentDirectory: root,
+      range: { start: 500, end: 600 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.content.kind === "file" && result.content.previewable) {
+      expect(result.content.range).toBeUndefined();
+      expect(result.content.content.split("\n").length).toBe(10);
+    }
+  });
+
+  test("ignores range for binary media payloads", () => {
+    const root = makeRoot();
+    const imagePath = join(root, "pic.png");
+    writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]));
+
+    const result = readFilePreview({
+      requestedPath: imagePath,
+      currentDirectory: root,
+      range: { start: 1, end: 5 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.content.kind).toBe("file");
+      expect(result.content.previewable).toBe(false);
+      // Range fields only appear on previewable text content.
+      expect("range" in result.content).toBe(false);
+    }
+  });
+});

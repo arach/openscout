@@ -61,7 +61,7 @@ function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
       if (pm.start > local) {
         parts.push(<span key={`${keyBase}-${sub++}`}>{raw.slice(local, pm.start)}</span>);
       }
-      parts.push(<PathToken key={`${keyBase}-${sub++}`} path={pm.path} />);
+      parts.push(<PathToken key={`${keyBase}-${sub++}`} path={pm.path} range={pm.range} />);
       local = pm.end;
     }
     if (local < raw.length) {
@@ -77,8 +77,8 @@ function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
       // Inline code: also treat as a path token when it looks like one.
       const inner = match[1];
       const pm = findPathMatches(` ${inner}`);
-      if (pm.length === 1 && pm[0]!.path === inner) {
-        parts.push(<PathToken key={`${keyBase}-${sub++}`} path={inner} />);
+      if (pm.length === 1 && pm[0]!.raw === inner) {
+        parts.push(<PathToken key={`${keyBase}-${sub++}`} path={pm[0]!.path} range={pm[0]!.range} />);
       } else {
         parts.push(<code key={`${keyBase}-${sub++}`} className="s-inline-code">{inner}</code>);
       }

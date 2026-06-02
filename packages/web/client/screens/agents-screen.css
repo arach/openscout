@@ -1623,12 +1623,25 @@
   background: color-mix(in srgb, var(--surface) 28%, transparent);
 }
 
-.s-agent-project-tree-row--native {
+.s-agent-project-tree-row--observed {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--green) 50%, transparent);
 }
 
-.s-agent-project-tree-row--scout {
+.s-agent-project-tree-row--conversation {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+.s-agent-project-tree-row--scout-linked {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 16rem),
+    color-mix(in srgb, var(--surface) 28%, transparent);
+}
+
+.s-agent-project-tree-row--selected {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 18rem),
+    color-mix(in srgb, var(--surface) 42%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .s-agent-project-tree-row--group {
@@ -1735,6 +1748,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 650;
+}
+
+.s-agent-project-tree-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .s-agent-project-tree-secondary {
@@ -1969,7 +1989,7 @@
 .s-agent-project-session {
   appearance: none;
   display: grid;
-  grid-template-columns: 58px auto minmax(0, 1fr) auto;
+  grid-template-columns: 58px minmax(0, auto) minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
   min-height: 32px;
@@ -2007,7 +2027,43 @@
   color: var(--green);
 }
 
-.s-agent-project-session--scout .s-agent-project-session-status {
+.s-agent-project-session--conversation .s-agent-project-session-status {
+  color: var(--accent);
+}
+
+.s-agent-project-session-chips {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.s-agent-project-session-chips .s-atop-chip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-agent-project-session-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.s-agent-project-session-badge--scout {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--accent);
 }
 

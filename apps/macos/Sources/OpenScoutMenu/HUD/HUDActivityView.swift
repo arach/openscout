@@ -105,6 +105,7 @@ struct HUDActivityView: View {
 
     @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
+    @State private var navBusToken = UUID()
 
     private var agentById: [String: HudAgent] {
         Dictionary(uniqueKeysWithValues: agents.map { ($0.id, $0) })
@@ -125,10 +126,11 @@ struct HUDActivityView: View {
             }
         }
         .onAppear { wireNavBus() }
-        .onDisappear { HUDNavBus.shared.clear() }
+        .onDisappear { HUDNavBus.shared.release(owner: navBusToken) }
     }
 
     private func wireNavBus() {
+        HUDNavBus.shared.claim(owner: navBusToken)
         HUDNavBus.shared.cycleNext = {
             let ids = rowIds()
             guard !ids.isEmpty else { return }

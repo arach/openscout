@@ -12,14 +12,12 @@ import { routeMachineId } from "../../lib/router.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
-import { openAgent } from "./openAgent.ts";
 import { RailRow } from "./RailRow.tsx";
 import type {
   Agent,
   FleetActivity,
   FleetAttentionItem,
   FleetState,
-  Route,
 } from "../../lib/types.ts";
 
 const FLEET_REFRESH_EVENTS = new Set([
@@ -38,7 +36,7 @@ type BaseLeftRailProps = {
 };
 
 export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
-  const { agents, navigate, route } = useScout();
+  const { agents, route, homeContextSelection, setHomeContextSelection } = useScout();
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const machineId = routeMachineId(route);
   const scopedAgentIds = useMemo(
@@ -87,25 +85,22 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
         agents={recentAgents}
         totalCount={scopedAgents.length}
         onlineCount={scopedAgents.filter((a) => isAgentOnline(a.state)).length}
-        onSelect={(agent) => openAgent(navigate, agent, { from: "base-rail", returnTo: route })}
-        onSeeAll={() => navigate({ view: "agents" })}
+        activeAgentId={homeContextSelection.kind === "agent" ? homeContextSelection.agentId : null}
+        onSelect={(agent) => setHomeContextSelection({ kind: "agent", agentId: agent.id })}
+        onSeeAll={() => setHomeContextSelection({ kind: "overview" })}
       />
 
       <RecentActivitySection
         items={recentActivity}
-        onSelect={(item) => navigate(routeForActivity(item))}
-        onSeeAll={() => navigate({ view: "activity" })}
+        activeActivityId={homeContextSelection.kind === "activity" ? homeContextSelection.activityId : null}
+        onSelect={(item) => setHomeContextSelection({ kind: "activity", activityId: item.id })}
+        onSeeAll={() => setHomeContextSelection({ kind: "activity-log" })}
       />
 
       <NeedsAttentionSection
         items={needsAttention}
-        onSelect={(item) =>
-          navigate(
-            item.conversationId
-              ? { view: "conversation", conversationId: item.conversationId }
-              : { view: "ops", mode: "mission" },
-          )
-        }
+        activeAttentionId={homeContextSelection.kind === "attention" ? homeContextSelection.recordId : null}
+        onSelect={(item) => setHomeContextSelection({ kind: "attention", recordId: item.recordId })}
       />
     </div>
   );
@@ -115,12 +110,14 @@ function RecentAgentsSection({
   agents,
   totalCount,
   onlineCount,
+  activeAgentId,
   onSelect,
   onSeeAll,
 }: {
   agents: Agent[];
   totalCount: number;
   onlineCount: number;
+  activeAgentId: string | null;
   onSelect: (agent: Agent) => void;
   onSeeAll: () => void;
 }) {
@@ -141,6 +138,7 @@ function RecentAgentsSection({
             meta={agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
             tone={normalizeAgentState(agent.state)}
             title={agentRowTooltip(agent)}
+            active={activeAgentId === agent.id}
             onClick={() => onSelect(agent)}
           />
         ))
@@ -159,10 +157,12 @@ function agentRowTooltip(agent: Agent): string {
 
 function RecentActivitySection({
   items,
+  activeActivityId,
   onSelect,
   onSeeAll,
 }: {
   items: FleetActivity[];
+  activeActivityId: string | null;
   onSelect: (item: FleetActivity) => void;
   onSeeAll: () => void;
 }) {
@@ -186,6 +186,7 @@ function RecentActivitySection({
               meta={item.ts ? timeAgo(item.ts) : undefined}
               tone="neutral"
               title={`${label} · ${activityKindLabel(item.kind)}`}
+              active={activeActivityId === item.id}
               onClick={() => onSelect(item)}
             />
           );
@@ -197,9 +198,11 @@ function RecentActivitySection({
 
 function NeedsAttentionSection({
   items,
+  activeAttentionId,
   onSelect,
 }: {
   items: FleetAttentionItem[];
+  activeAttentionId: string | null;
   onSelect: (item: FleetAttentionItem) => void;
 }) {
   return (
@@ -221,6 +224,7 @@ function NeedsAttentionSection({
               tone="working"
               unread
               title={`${label} · ${item.kind}`}
+              active={activeAttentionId === item.recordId}
               onClick={() => onSelect(item)}
             />
           );
@@ -271,14 +275,4 @@ function activityKindLabel(kind: string): string {
     default:
       return kind.replace(/_/g, " ");
   }
-}
-
-function routeForActivity(item: FleetActivity): Route {
-  if (item.conversationId) {
-    return { view: "conversation", conversationId: item.conversationId };
-  }
-  if (item.agentId) {
-    return { view: "agents", agentId: item.agentId };
-  }
-  return { view: "activity" };
 }

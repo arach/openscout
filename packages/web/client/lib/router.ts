@@ -178,6 +178,8 @@ export function routeFromUrl(urlLike: string | URL): Route {
     url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   const agentTab = parseAgentTab(url.searchParams.get("tab"));
   const agentProjectKey = url.searchParams.get("project")?.trim() || undefined;
+  const agentProjectSessionId = url.searchParams.get("session")?.trim() || undefined;
+  const agentProjectConversationId = url.searchParams.get("conversation")?.trim() || undefined;
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
@@ -212,6 +214,8 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return scoped({
       view: "agents",
       ...(agentProjectKey ? { projectKey: agentProjectKey } : {}),
+      ...(agentProjectSessionId ? { sessionId: agentProjectSessionId } : {}),
+      ...(agentProjectConversationId ? { conversationId: agentProjectConversationId } : {}),
     });
   }
   if (parts[0] === "fleet") return scoped({ view: "fleet" });
@@ -346,8 +350,10 @@ export function routePath(r: Route): string {
       } else if (r.tab && r.tab !== defaultTab) {
         params.set("tab", r.tab);
       }
-      if (!r.agentId && r.projectKey) {
-        params.set("project", r.projectKey);
+      if (!r.agentId) {
+        if (r.projectKey) params.set("project", r.projectKey);
+        if (r.sessionId) params.set("session", r.sessionId);
+        if (r.conversationId) params.set("conversation", r.conversationId);
       }
       appendMachineScope(params, r);
       const path = r.agentId
@@ -440,10 +446,15 @@ function routeKey(r: Route): string {
         ? `settings:agents:${r.agentId ?? ""}`
         : "settings";
     case "agents":
+      if (r.agentId) {
+        return r.conversationId
+          ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}${scope}`
+          : `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`;
+      }
       return r.conversationId
-        ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}${scope}`
-        : r.agentId
-          ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
+        ? `agents-project-conv:${r.projectKey ?? ""}:${r.conversationId}${scope}`
+        : r.sessionId
+          ? `agents-project-session:${r.projectKey ?? ""}:${r.sessionId}${scope}`
           : r.projectKey
             ? `agents-project:${r.projectKey}${scope}`
             : `agents${scope}`;

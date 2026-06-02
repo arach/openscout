@@ -120,6 +120,7 @@ struct HUDTailView: View {
     // The moment the operator moves the cursor, follow drops to false so
     // their reading position doesn't get yanked. `f` toggles it back.
     @State private var following = true
+    @State private var navBusToken = UUID()
 
     private var agentById: [String: HudAgent] {
         Dictionary(uniqueKeysWithValues: agents.map { ($0.id, $0) })
@@ -140,13 +141,14 @@ struct HUDTailView: View {
             }
         }
         .onAppear { wireNavBus() }
-        .onDisappear { HUDNavBus.shared.clear() }
+        .onDisappear { HUDNavBus.shared.release(owner: navBusToken) }
     }
 
     // Register cycle/engage closures with the global key bus. HUDController
     // dispatches j/k/Return/f into these — each view tab does its own wiring
     // so the bus stays a thin dispatcher.
     private func wireNavBus() {
+        HUDNavBus.shared.claim(owner: navBusToken)
         // j/k / g / G never flip `following` — the firehose keeps firing
         // even while the operator explores. Only `f` pauses live mode
         // (deliberately, so it can't be triggered as a side effect).

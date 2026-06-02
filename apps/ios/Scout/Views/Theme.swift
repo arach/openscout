@@ -4,6 +4,8 @@
 // All views reference these tokens instead of hard-coding values.
 
 import Foundation
+import HudsonUI
+import ScoutNativeCore
 import SwiftUI
 
 // MARK: - Color Palette
@@ -69,6 +71,43 @@ enum ScoutColors {
     // Borders / Dividers
     static let border = Color(light: .init(white: 0.84), dark: .init(white: 0.12))
     static let divider = Color(light: .init(white: 0.87), dark: .init(white: 0.10))
+}
+
+// MARK: - Hudson Shell Bridge
+
+enum ScoutHudsonStyle {
+    static var manifest: HudAppManifest {
+        HudAppManifest(
+            name: ScoutNativeAppIdentity.productName,
+            version: ScoutNativeAppIdentity.version(),
+            tint: .green,
+            targetLabel: ScoutNativeAppIdentity.targetLabel
+        )
+    }
+
+    static let theme = HudTheme(
+        palette: HudThemePalette(
+            bg: ScoutColors.pageBg,
+            surface: ScoutColors.surfaceAdaptive,
+            chrome: ScoutColors.backgroundAdaptive,
+            ink: ScoutColors.textPrimary,
+            muted: ScoutColors.textSecondary,
+            dim: ScoutColors.textMuted,
+            border: ScoutColors.border,
+            accent: HudPalette.accent,
+            accentSoft: HudPalette.accentSoft,
+            statusOk: ScoutColors.ledGreen,
+            statusWarn: ScoutColors.ledAmber,
+            statusError: ScoutColors.ledRed,
+            statusInfo: HudPalette.statusInfo
+        ),
+        hairline: HudThemeHairline(
+            subtle: ScoutColors.divider,
+            standard: ScoutColors.border
+        ),
+        radius: .default,
+        focus: .default
+    )
 }
 
 // MARK: - Typography

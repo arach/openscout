@@ -12,7 +12,24 @@ import {
   type FilePreviewContent,
   type FilePreviewEntry,
 } from "./file-renderers/index.ts";
+import type { FilePreviewRange } from "./Provider.tsx";
 import "./file-preview-overlay.css";
+
+function buildPreviewUrl(path: string, range: FilePreviewRange | null): string {
+  const params = new URLSearchParams({ path });
+  if (range) {
+    params.set("start", String(range.start));
+    params.set("end", String(range.end ?? range.start));
+  }
+  return `/api/file/preview?${params.toString()}`;
+}
+
+function formatRangeLabel(range: FilePreviewRange | null | undefined): string | null {
+  if (!range) return null;
+  return range.end !== undefined && range.end !== range.start
+    ? `lines ${range.start}-${range.end}`
+    : `line ${range.start}`;
+}
 
 type DirectoryNavContext = {
   dirPath: string;
@@ -22,11 +39,13 @@ type DirectoryNavContext = {
 
 export function FilePreviewOverlay({
   path,
+  range,
   onOpenPath,
   onClose,
 }: {
   path: string | null;
-  onOpenPath: (path: string) => void;
+  range?: FilePreviewRange | null;
+  onOpenPath: (path: string, range?: FilePreviewRange) => void;
   onClose: () => void;
 }) {
   const [content, setContent] = useState<FilePreviewContent | null>(null);
@@ -39,6 +58,8 @@ export function FilePreviewOverlay({
     dirContextRef.current = dirContext;
   }, [dirContext]);
 
+  // Stable key for the range so the effect re-runs when the range alone changes.
+  const rangeKey = range ? `${range.start}-${range.end ?? range.start}` : "";
   useEffect(() => {
     if (!path) {
       setContent(null);
@@ -50,7 +71,7 @@ export function FilePreviewOverlay({
     setLoading(true);
     setError(null);
     setContent(null);
-    api<FilePreviewContent>(`/api/file/preview?path=${encodeURIComponent(path)}`)
+    api<FilePreviewContent>(buildPreviewUrl(path, range ?? null))
       .then((next) => {
         if (cancelled) return;
         setContent(next);
@@ -63,7 +84,8 @@ export function FilePreviewOverlay({
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [path]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, rangeKey]);
 
   const { currentIndex, prevPath, nextPath } = useMemo(() => {
     if (!content || content.kind !== "file" || !dirContext) {
@@ -137,6 +159,13 @@ export function FilePreviewOverlay({
   });
 
   const meta = content ? metaFor(content) : [];
+  const sliceRange = content && content.kind === "file" && content.previewable ? content.range : undefined;
+  const sliceTotal = content && content.kind === "file" && content.previewable ? content.totalLines : undefined;
+  const rangeLabel = formatRangeLabel(sliceRange ?? range);
+  if (rangeLabel) {
+    const detail = sliceTotal ? `${rangeLabel} of ${sliceTotal}` : rangeLabel;
+    meta.unshift(detail);
+  }
   if (showNav) {
     meta.unshift(`${currentIndex + 1} / ${dirContext!.files.length}`);
   }
@@ -149,8 +178,11 @@ export function FilePreviewOverlay({
       open
       kind={focusKindFor(content)}
       document={null}
-      title={content?.title ?? path.split("/").pop() ?? "File"}
-      eyebrow="File preview"
+      title={(() => {
+        const base = content?.title ?? path.split("/").pop() ?? "File";
+        return rangeLabel ? `${base} · ${rangeLabel}` : base;
+      })()}
+      eyebrow={rangeLabel ? "File snippet" : "File preview"}
       subtitle={content?.realPath ?? path}
       meta={meta}
       state={loading ? "Loading…" : null}

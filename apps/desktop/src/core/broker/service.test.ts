@@ -161,11 +161,20 @@ describe("listScoutAgents", () => {
     const entries = await listScoutAgents({ currentDirectory: workspaceRoot });
 
     expect(entries.some((entry) => entry.agentId === "talkie.old.mini")).toBe(false);
-    expect(entries.some((entry) => (
+    const talkieEntry = entries.find((entry) => (
       entry.agentId.startsWith("talkie.")
       && entry.registrationKind === "discovered"
       && entry.state === "discovered"
-    ))).toBe(true);
+    ));
+    expect(talkieEntry).toBeDefined();
+    expect(talkieEntry?.projectRoot).toBe(talkieRoot);
+    expect(talkieEntry?.projectName).toBe("Talkie");
+
+    const filtered = await listScoutAgents({
+      currentDirectory: workspaceRoot,
+      projectPath: talkieRoot,
+    });
+    expect(filtered.map((entry) => entry.projectRoot)).toEqual([talkieRoot]);
   });
 });
 

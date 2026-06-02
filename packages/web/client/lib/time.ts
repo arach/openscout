@@ -59,3 +59,38 @@ export function formatAbsoluteTimestamp(ts: TimestampInput): string {
     timeStyle: "short",
   }).format(tsMs);
 }
+
+export function parseElapsedDurationSeconds(value: string | null | undefined): number | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+  if (!match) {
+    const secondsOnly = trimmed.match(/^(\d+)$/);
+    return secondsOnly ? Number.parseInt(secondsOnly[1]!, 10) : null;
+  }
+  const [, days, hours, minutes, seconds] = match;
+  let total = Number.parseInt(seconds!, 10) + Number.parseInt(minutes!, 10) * 60;
+  if (hours) total += Number.parseInt(hours, 10) * 3600;
+  if (days) total += Number.parseInt(days, 10) * 86400;
+  return total;
+}
+
+export function formatDurationSeconds(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const remMinutes = minutes % 60;
+    return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
+}
+
+export function formatElapsedDuration(value: string | null | undefined): string | null {
+  const seconds = parseElapsedDurationSeconds(value);
+  return seconds === null ? null : formatDurationSeconds(seconds);
+}

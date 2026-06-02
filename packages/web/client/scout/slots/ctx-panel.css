@@ -7,6 +7,122 @@
   min-height: 0;
 }
 
+.ctx-panel--home-inspector {
+  --ctx-home-tone: var(--dim);
+}
+
+.ctx-panel--home-inspector[data-home-context-tone="project"] {
+  --ctx-home-tone: var(--amber);
+}
+
+.ctx-panel--home-inspector[data-home-context-tone="agent"] {
+  --ctx-home-tone: #38bdf8;
+}
+
+.ctx-panel--home-inspector[data-home-context-tone="activity"] {
+  --ctx-home-tone: var(--accent);
+}
+
+.ctx-panel--home-inspector[data-home-context-tone="ask"] {
+  --ctx-home-tone: var(--green);
+}
+
+.ctx-panel--home-inspector[data-home-context-tone="attention"] {
+  --ctx-home-tone: var(--amber);
+}
+
+.ctx-home-context-bar {
+  min-width: 0;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) minmax(0, auto);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ctx-home-tone) 24%, var(--border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--ctx-home-tone) 7%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface) 18%, transparent);
+}
+
+.ctx-home-context-marker {
+  width: 7px;
+  height: 28px;
+  display: block;
+  border-radius: 999px;
+  background: var(--ctx-home-tone);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ctx-home-tone) 16%, transparent);
+  animation: ctx-home-marker-enter 180ms ease-out;
+}
+
+.ctx-home-context-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.ctx-home-context-label,
+.ctx-home-context-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ctx-home-context-label {
+  color: color-mix(in srgb, var(--ctx-home-tone) 78%, var(--muted));
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+
+.ctx-home-context-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-home-context-meta {
+  max-width: 150px;
+  justify-self: end;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-align: right;
+}
+
+.ctx-home-context-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes ctx-home-marker-enter {
+  from {
+    opacity: 0.58;
+    transform: scaleY(0.68);
+  }
+
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-home-context-marker {
+    animation: none;
+  }
+}
+
 .ctx-panel-tabs {
   display: flex;
   gap: 2px;
@@ -512,6 +628,75 @@
   color: var(--bg);
 }
 
+.ctx-home-selected-card {
+  grid-template-rows: auto auto auto auto;
+  border-color: color-mix(in srgb, var(--ctx-home-tone) 32%, var(--border));
+}
+
+.ctx-home-selected-card .ctx-panel-selected-body {
+  max-height: 176px;
+  border-color: color-mix(in srgb, var(--ctx-home-tone) 15%, var(--border));
+}
+
+.ctx-home-action-row {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ctx-panel--home-inspector .ctx-panel-selected-action {
+  border-color: color-mix(in srgb, var(--ctx-home-tone) 42%, var(--border));
+  background: color-mix(in srgb, var(--ctx-home-tone) 8%, transparent);
+  color: color-mix(in srgb, var(--ctx-home-tone) 90%, var(--ink));
+}
+
+.ctx-panel--home-inspector .ctx-panel-selected-action:hover {
+  background: var(--ctx-home-tone);
+  color: var(--bg);
+}
+
+.ctx-home-facts {
+  display: grid;
+  padding: 0 12px 4px;
+}
+
+.ctx-home-fact-row {
+  min-width: 0;
+  min-height: 25px;
+  display: grid;
+  grid-template-columns: minmax(88px, 0.42fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid color-mix(in srgb, var(--border) 36%, transparent);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.ctx-home-fact-row:first-child {
+  border-top: 0;
+}
+
+.ctx-home-fact-row span,
+.ctx-home-fact-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-home-fact-row span {
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ctx-home-fact-row strong {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+}
+
 .ctx-panel-ops-mode-card {
   min-width: 0;
   display: grid;
@@ -668,6 +853,22 @@
 
 .ctx-panel-pulse-dot--offline {
   background: color-mix(in srgb, var(--dim) 62%, transparent);
+}
+
+.ctx-home-project-marker {
+  width: 6px;
+  height: 6px;
+  display: block;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dim) 50%, transparent);
+}
+
+.ctx-home-project-marker--clean {
+  background: color-mix(in srgb, var(--green) 70%, transparent);
+}
+
+.ctx-home-project-marker--dirty {
+  background: color-mix(in srgb, var(--amber) 86%, transparent);
 }
 
 /* ── Conversation context ── */

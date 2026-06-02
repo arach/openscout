@@ -26,6 +26,32 @@ describe("agents route parsing", () => {
     expect(routePath(route)).toBe("/agents/openscout-6.main.mini?tab=message");
   });
 
+  test("project agent routes preserve intrapage session selection", () => {
+    const sessionRoute = routeFromUrl(
+      "http://127.0.0.1:3200/agents?project=project%3Acontextual&session=019ddb1b-session",
+    );
+    expect(sessionRoute).toEqual({
+      view: "agents",
+      projectKey: "project:contextual",
+      sessionId: "019ddb1b-session",
+    });
+    expect(routePath(sessionRoute)).toBe(
+      "/agents?project=project%3Acontextual&session=019ddb1b-session",
+    );
+
+    const conversationRoute = routeFromUrl(
+      "http://127.0.0.1:3200/agents?project=project%3Acontextual&conversation=dm.operator.contextual",
+    );
+    expect(conversationRoute).toEqual({
+      view: "agents",
+      projectKey: "project:contextual",
+      conversationId: "dm.operator.contextual",
+    });
+    expect(routePath(conversationRoute)).toBe(
+      "/agents?project=project%3Acontextual&conversation=dm.operator.contextual",
+    );
+  });
+
   test("machine-scoped routes round-trip through URLs", () => {
     expect(routeFromUrl("http://127.0.0.1:3200/fleet?machineId=node-b")).toEqual({
       view: "fleet",

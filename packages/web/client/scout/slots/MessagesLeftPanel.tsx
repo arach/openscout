@@ -2,42 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
 import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
-import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
-import {
-  conversationDisplayTitle,
-  conversationShortLabel,
-  isDirectConversation,
-  isGroupConversation,
-} from "../../lib/conversations.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import {
-  isUnread,
   loadLastViewedMap,
   saveLastViewed,
   type LastViewedMap,
 } from "../../lib/sessionRead.ts";
-import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import { useScout } from "../Provider.tsx";
-import {
-  filterSessionsByMachineScope,
-  machineScopedAgentIds,
-} from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import { RailRow } from "./RailRow.tsx";
-import type { Agent, FleetAsk, MessagesFilter, MessagesSort, SessionEntry } from "../../lib/types.ts";
-
-const STATE_RANK: Record<string, number> = { working: 0, available: 1, offline: 2 };
-
-type ConversationGroup = {
-  key: string;
-  label: string;
-  isChannel: boolean;
-  conversations: SessionEntry[];
-  bestState: AgentDisplayState;
-  latestUpdate: number;
-  unreadCount: number;
-};
+import type {
+  ListGroup,
+  MessagesFilter,
+  MessagesLeftRailGroupMeta,
+  MessagesLeftRailList,
+  MessagesLeftRailRow,
+  MessagesSort,
+} from "../../lib/types.ts";
 
 const FILTERS: MessagesFilter[] = ["all", "dm", "channel"];
 const FILTER_LABEL: Record<MessagesFilter, string> = {
@@ -54,28 +36,12 @@ const SORT_LABEL: Record<MessagesSort, string> = {
 };
 
 export function ScoutMessagesLeftPanel() {
-  const { route, navigate, agents } = useScout();
-  const [sessions, setSessions] = useState<SessionEntry[]>([]);
+  const { route, navigate } = useScout();
+  const [list, setList] = useState<MessagesLeftRailList | null>(null);
   const [lastViewed, setLastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
   const [query, setQuery] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
-  const asksByAgent = useFleetActiveAsks();
   const machineId = routeMachineId(route);
-  const scopedAgentIds = useMemo(
-    () => machineScopedAgentIds(agents, machineId),
-    [agents, machineId],
-  );
-
-  const agentById = useMemo(() => {
-    const map = new Map<string, Agent>();
-    const scopedAgents = scopedAgentIds
-      ? agents.filter((agent) => scopedAgentIds.has(agent.id))
-      : agents;
-    for (const agent of scopedAgents) {
-      map.set(agent.id, agent);
-    }
-    return map;
-  }, [agents, scopedAgentIds]);
 
   const activeRouteFilter: MessagesFilter =
     route.view === "messages" && route.filter ? route.filter : "all";
@@ -91,11 +57,18 @@ export function ScoutMessagesLeftPanel() {
     undefined;
 
   const load = useCallback(async () => {
-    const data = await api<SessionEntry[]>("/api/conversations").catch(
-      () => [] as SessionEntry[],
-    );
-    setSessions(data);
-  }, []);
+    const data = await api<MessagesLeftRailList>("/api/view-lists/messages-left-rail", {
+      method: "POST",
+      body: JSON.stringify({
+        filter: activeRouteFilter,
+        sort: activeRouteSort,
+        query,
+        machineId,
+        lastViewed,
+      }),
+    }).catch(() => null);
+    setList(data);
+  }, [activeRouteFilter, activeRouteSort, query, machineId, lastViewed]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -104,48 +77,6 @@ export function ScoutMessagesLeftPanel() {
       void load();
     }
   });
-
-  const filtered = useMemo(() => {
-    let list = filterSessionsByMachineScope(sessions, scopedAgentIds, machineId);
-    if (activeRouteFilter === "dm") list = list.filter(isDirectConversation);
-    else if (activeRouteFilter === "channel") list = list.filter(isGroupConversation);
-
-    if (query) {
-      const q = query.toLowerCase();
-      list = list.filter((s) =>
-        conversationDisplayTitle(s).toLowerCase().includes(q)
-        || s.id.toLowerCase().includes(q)
-        || (s.preview ?? "").toLowerCase().includes(q),
-      );
-    }
-
-    const sorted = [...list];
-    switch (activeRouteSort) {
-      case "name":
-        sorted.sort((a, b) =>
-          conversationDisplayTitle(a)
-            .toLowerCase()
-            .localeCompare(conversationDisplayTitle(b).toLowerCase()),
-        );
-        break;
-      case "unread": {
-        const unreadScore = (s: SessionEntry) =>
-          isUnread(s.lastMessageAt, s.id, lastViewed) ? 0 : 1;
-        sorted.sort((a, b) => {
-          const ua = unreadScore(a);
-          const ub = unreadScore(b);
-          if (ua !== ub) return ua - ub;
-          return (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0);
-        });
-        break;
-      }
-      case "recent":
-      default:
-        sorted.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
-        break;
-    }
-    return sorted;
-  }, [sessions, scopedAgentIds, activeRouteFilter, activeRouteSort, query, lastViewed]);
 
   const setFilter = (filter: MessagesFilter) => {
     navigate({
@@ -165,15 +96,15 @@ export function ScoutMessagesLeftPanel() {
     });
   };
 
-  const onSelect = (s: SessionEntry) => {
-    setLastViewed(saveLastViewed(s.id));
-    if (isGroupConversation(s) && route.view === "channels") {
-      navigate({ view: "channels", channelId: s.id });
+  const onSelect = (row: MessagesLeftRailRow) => {
+    setLastViewed(saveLastViewed(row.conversationId));
+    if (isGroupConversationRow(row) && route.view === "channels") {
+      navigate({ view: "channels", channelId: row.conversationId });
       return;
     }
     navigate({
       view: "messages",
-      conversationId: s.id,
+      conversationId: row.conversationId,
       ...(activeRouteFilter !== "all" ? { filter: activeRouteFilter } : {}),
       ...(activeRouteSort !== "recent" ? { sort: activeRouteSort } : {}),
     });
@@ -188,10 +119,10 @@ export function ScoutMessagesLeftPanel() {
     });
   };
 
-  const groups = useMemo(
-    () => buildConversationGroups(filtered, agentById, lastViewed, activeRouteSort),
-    [filtered, agentById, lastViewed, activeRouteSort],
-  );
+  const groups = list?.groups ?? [];
+  const flatRows = useMemo(() => groups.flatMap((group) => group.rows), [groups]);
+  const firstConversationId = flatRows[0]?.conversationId;
+  const hasAnyActive = activeId != null && flatRows.some((row) => row.conversationId === activeId);
 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -224,7 +155,7 @@ export function ScoutMessagesLeftPanel() {
           ref={inputRef}
           type="text"
           className="ctx-panel-search-input"
-          placeholder="Filter…  (/)"
+          placeholder="Filter...  (/)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onSearchKeyDown}
@@ -256,216 +187,134 @@ export function ScoutMessagesLeftPanel() {
       >
         {groups.length === 0 ? (
           <div className="ctx-panel-empty">{query ? "No match" : "Nothing yet"}</div>
-        ) : (() => {
-          const flatConversations = groups.flatMap((g) => g.conversations);
-          const firstConversationId = flatConversations[0]?.id;
-          const hasAnyActive = activeId != null && flatConversations.some((c) => c.id === activeId);
-          return groups.map((group) => {
-            const isSingle = group.conversations.length === 1;
-            const isOpen = Boolean(query) || expandedGroups.has(group.key);
-            const anyActive = group.conversations.some((c) => c.id === activeId);
-
-            if (isSingle) {
-              const s = group.conversations[0]!;
-              const active = s.id === activeId;
-              const unread = isUnread(s.lastMessageAt, s.id, lastViewed);
-              const title = conversationDisplayTitle(s);
-              const channel = isGroupConversation(s);
-              const agent = s.agentId ? agentById.get(s.agentId) : undefined;
-              const identifier = threadIdentifier(s, agent);
-              const sub = identifier.toLowerCase() === title.toLowerCase()
-                ? undefined
-                : identifier;
-              return (
-                <RailRow
-                  key={group.key}
-                  name={title}
-                  sub={sub}
-                  meta={s.lastMessageAt ? timeAgo(s.lastMessageAt) : undefined}
-                  tone={channel ? "channel" : agent ? normalizeAgentState(agent.state) : "dm"}
-                  avatarName={title}
-                  active={active}
-                  unread={unread}
-                  tabIndex={rovingTabIndex(active, hasAnyActive, s.id === firstConversationId)}
-                  onClick={() => onSelect(s)}
-                />
-              );
-            }
-
-            return (
-              <div key={group.key}>
-                <RailRow
-                  name={group.label}
-                  meta={messagesGroupMeta(group)}
-                  tone={group.bestState}
-                  caret={isOpen ? "open" : "closed"}
-                  active={anyActive && !isOpen}
-                  unread={group.unreadCount > 0 && !isOpen}
-                  onClick={() => toggleGroup(group.key)}
-                />
-                {isOpen &&
-                  group.conversations.map((s) => {
-                    const active = s.id === activeId;
-                    const unread = isUnread(s.lastMessageAt, s.id, lastViewed);
-                    const agent = s.agentId ? agentById.get(s.agentId) : undefined;
-                    const ask = s.agentId ? asksByAgent.get(s.agentId) : undefined;
-                    return (
-                      <RailRow
-                        key={s.id}
-                        depth={1}
-                        name={conversationChildLabel(s, agent, ask)}
-                        sub={threadIdentifier(s, agent)}
-                        meta={s.lastMessageAt ? timeAgo(s.lastMessageAt) : undefined}
-                        tone={agent ? normalizeAgentState(agent.state) : "dm"}
-                        avatarName={agent?.name ?? conversationChildLabel(s, agent, ask)}
-                        active={active}
-                        unread={unread}
-                        title={conversationChildTooltip(s, agent, ask)}
-                        tabIndex={rovingTabIndex(active, hasAnyActive, s.id === firstConversationId)}
-                        onClick={() => onSelect(s)}
-                      />
-                    );
-                  })}
-              </div>
-            );
-          });
-        })()}
+        ) : (
+          groups.map((group) => (
+            <MessagesGroup
+              key={group.key}
+              group={group}
+              query={query}
+              activeId={activeId}
+              expanded={expandedGroups.has(group.key)}
+              hasAnyActive={hasAnyActive}
+              firstConversationId={firstConversationId}
+              onToggle={() => toggleGroup(group.key)}
+              onSelect={onSelect}
+            />
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-function buildConversationGroups(
-  sessions: SessionEntry[],
-  agentById: Map<string, Agent>,
-  lastViewed: LastViewedMap,
-  sort: MessagesSort,
-): ConversationGroup[] {
-  const buckets = new Map<string, ConversationGroup>();
+function MessagesGroup({
+  group,
+  query,
+  activeId,
+  expanded,
+  hasAnyActive,
+  firstConversationId,
+  onToggle,
+  onSelect,
+}: {
+  group: ListGroup<MessagesLeftRailRow, MessagesLeftRailGroupMeta>;
+  query: string;
+  activeId: string | undefined;
+  expanded: boolean;
+  hasAnyActive: boolean;
+  firstConversationId: string | undefined;
+  onToggle: () => void;
+  onSelect: (row: MessagesLeftRailRow) => void;
+}) {
+  const isSingle = group.rows.length === 1;
+  const isOpen = Boolean(query) || expanded;
+  const anyActive = group.rows.some((row) => row.conversationId === activeId);
 
-  for (const s of sessions) {
-    const channel = isGroupConversation(s);
-    let key: string;
-    let label: string;
-    if (channel) {
-      key = `channel:${s.id}`;
-      label = conversationDisplayTitle(s);
-    } else {
-      const agent = s.agentId ? agentById.get(s.agentId) : undefined;
-      const project = agent?.project ?? null;
-      if (project) {
-        key = `project:${project.toLowerCase()}`;
-        label = project;
-      } else {
-        // Fall back to grouping by agent name / display title so DMs that share
-        // an agent collapse even when project metadata is missing.
-        const groupName = (s.agentName ?? conversationDisplayTitle(s)).trim();
-        if (groupName) {
-          key = `name:${groupName.toLowerCase()}`;
-          label = groupName;
-        } else {
-          key = `dm:${s.id}`;
-          label = conversationDisplayTitle(s);
-        }
-      }
-    }
-
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = {
-        key,
-        label,
-        isChannel: channel,
-        conversations: [],
-        bestState: "offline",
-        latestUpdate: 0,
-        unreadCount: 0,
-      };
-      buckets.set(key, bucket);
-    }
-    bucket.conversations.push(s);
-    bucket.latestUpdate = Math.max(bucket.latestUpdate, s.lastMessageAt ?? 0);
-    if (isUnread(s.lastMessageAt, s.id, lastViewed)) {
-      bucket.unreadCount += 1;
-    }
-    if (!channel) {
-      const agent = s.agentId ? agentById.get(s.agentId) : undefined;
-      if (agent) {
-        const state = normalizeAgentState(agent.state);
-        if ((STATE_RANK[state] ?? 9) < (STATE_RANK[bucket.bestState] ?? 9)) {
-          bucket.bestState = state;
-        }
-      }
-    }
+  if (isSingle) {
+    const row = group.rows[0]!;
+    const active = row.conversationId === activeId;
+    return (
+      <RailRow
+        key={row.conversationId}
+        name={row.title}
+        sub={row.sub ?? undefined}
+        meta={row.lastMessageAt ? timeAgo(row.lastMessageAt) : undefined}
+        tone={railTone(row.tone)}
+        avatarName={row.avatarName}
+        avatarKind={isGroupConversationRow(row) ? "channel" : "user"}
+        active={active}
+        unread={row.unread}
+        tabIndex={rovingTabIndex(active, hasAnyActive, row.conversationId === firstConversationId)}
+        onClick={() => onSelect(row)}
+      />
+    );
   }
 
-  for (const b of buckets.values()) {
-    b.conversations.sort((a, c) => (c.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
-  }
-
-  const list = Array.from(buckets.values());
-  switch (sort) {
-    case "name":
-      list.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
-      break;
-    case "unread":
-      list.sort((a, b) => {
-        if ((a.unreadCount > 0) !== (b.unreadCount > 0)) return a.unreadCount > 0 ? -1 : 1;
-        return b.latestUpdate - a.latestUpdate;
-      });
-      break;
-    case "recent":
-    default:
-      list.sort((a, b) => b.latestUpdate - a.latestUpdate);
-      break;
-  }
-  return list;
+  return (
+    <div>
+      <RailRow
+        name={group.label}
+        meta={messagesGroupMeta(group)}
+        tone={railTone(group.meta.tone)}
+        caret={isOpen ? "open" : "closed"}
+        active={anyActive && !isOpen}
+        unread={group.meta.unreadCount > 0 && !isOpen}
+        onClick={onToggle}
+      />
+      {isOpen &&
+        group.rows.map((row) => {
+          const active = row.conversationId === activeId;
+          return (
+            <RailRow
+              key={row.conversationId}
+              depth={1}
+              name={row.name}
+              sub={row.sub ?? undefined}
+              meta={row.lastMessageAt ? timeAgo(row.lastMessageAt) : undefined}
+              tone={railTone(row.tone)}
+              avatarName={row.avatarName}
+              avatarKind={isGroupConversationRow(row) ? "channel" : "user"}
+              active={active}
+              unread={row.unread}
+              title={rowTooltip(row)}
+              tabIndex={rovingTabIndex(active, hasAnyActive, row.conversationId === firstConversationId)}
+              onClick={() => onSelect(row)}
+            />
+          );
+        })}
+    </div>
+  );
 }
 
-function conversationChildLabel(
-  s: SessionEntry,
-  agent: Agent | undefined,
-  ask: FleetAsk | undefined,
-): string {
-  const subject = ask?.task ?? trimPreview(s.preview) ?? s.currentBranch ?? agent?.branch ?? "";
-  const name = agent?.name ?? s.agentName ?? conversationDisplayTitle(s);
-  return subject ? `${name} · ${subject}` : name;
+function isGroupConversationRow(row: MessagesLeftRailRow): boolean {
+  const conversation = row.refs.conversation;
+  return Boolean(
+    conversation
+      && (
+        conversation.kind === "channel"
+        || conversation.kind === "group_direct"
+        || conversation.id.startsWith("channel.")
+      ),
+  );
 }
 
-function conversationChildTooltip(
-  s: SessionEntry,
-  agent: Agent | undefined,
-  ask: FleetAsk | undefined,
-): string | undefined {
+function railTone(
+  tone: MessagesLeftRailRow["tone"] | MessagesLeftRailGroupMeta["tone"],
+): "working" | "available" | "offline" | "channel" | "dm" | "neutral" {
+  return tone === "unknown" ? "neutral" : tone;
+}
+
+function rowTooltip(row: MessagesLeftRailRow): string | undefined {
   const parts: string[] = [];
-  if (ask) parts.push(`task: ${ask.task}`);
-  if (s.preview) parts.push(`preview: ${s.preview}`);
-  if (s.currentBranch ?? agent?.branch) parts.push(`branch: ${s.currentBranch ?? agent?.branch}`);
-  if (agent?.harness) parts.push(`harness: ${agent.harness}`);
+  if (row.refs.agent?.harness) parts.push(`harness: ${row.refs.agent.harness}`);
+  if (row.refs.project?.root) parts.push(`project: ${row.refs.project.root}`);
   return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
-function threadIdentifier(s: SessionEntry, agent: Agent | undefined): string {
-  if (isGroupConversation(s)) {
-    return conversationShortLabel(s);
-  }
-  const handle = agent?.handle?.trim().replace(/^@+/, "");
-  if (handle) return handle;
-  if (s.agentId) return s.agentId.split(".")[0] ?? s.agentId;
-  return conversationDisplayTitle(s);
-}
-
-function trimPreview(preview: string | null): string | null {
-  if (!preview) return null;
-  const collapsed = preview.replace(/\s+/g, " ").trim();
-  if (!collapsed) return null;
-  return collapsed.length > 60 ? `${collapsed.slice(0, 57)}…` : collapsed;
-}
-
-function messagesGroupMeta(group: ConversationGroup): string {
-  const time = group.latestUpdate ? timeAgo(group.latestUpdate) : "";
-  const count = group.unreadCount > 0
-    ? `${group.unreadCount}/${group.conversations.length}`
-    : `${group.conversations.length}`;
+function messagesGroupMeta(group: ListGroup<MessagesLeftRailRow, MessagesLeftRailGroupMeta>): string {
+  const time = group.meta.latestAt ? timeAgo(group.meta.latestAt) : "";
+  const count = group.meta.unreadCount > 0
+    ? `${group.meta.unreadCount}/${group.meta.totalCount}`
+    : `${group.meta.totalCount}`;
   return time ? `${count} · ${time}` : count;
 }

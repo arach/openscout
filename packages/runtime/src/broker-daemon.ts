@@ -4766,7 +4766,6 @@ async function executeLocalInvocation(
       const waitingFlight = {
         ...runningFlight,
         state: "waiting" as const,
-        summary: `${agent.displayName} is still working; Scout stopped waiting for a synchronous result after ${error.timeoutMs}ms.`,
         error: undefined,
         completedAt: undefined,
         metadata: {
@@ -4777,7 +4776,9 @@ async function executeLocalInvocation(
         },
       };
       await persistFlight(waitingFlight);
-      console.warn(`[openscout-runtime] ${waitingFlight.summary}`);
+      console.warn(
+        `[openscout-runtime] requester wait timed out for ${agent.displayName} after ${error.timeoutMs}ms; flight remains active`,
+      );
       return;
     }
 

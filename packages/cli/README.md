@@ -58,6 +58,7 @@ When sender, target, or recent activity is unclear, the shortest orientation loo
 scout whoami
 scout inbox --latest 10 --json
 scout who
+scout who --project .
 scout channel triage --latest 10 --json
 scout latest
 scout latest --channel triage --messages --limit 3

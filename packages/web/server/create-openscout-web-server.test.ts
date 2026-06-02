@@ -1638,6 +1638,7 @@ describe("createOpenScoutWebServer", () => {
       conversationId: "dm.operator.agent-1",
       messageId: "msg-ask-1",
       flightId: "flt-ask-1",
+      invocationId: "inv-ask-1",
       targetAgentId: "agent-1",
     });
     expect(askScoutQuestionCalls).toEqual([
@@ -1748,7 +1749,7 @@ describe("createOpenScoutWebServer", () => {
               narration: "Ops tail has no fresh failures in the current window.",
             },
           ],
-          recommendation: "Start by checking the stale active Scout item.",
+          recommendation: "Start by checking the open Scout item with no recent agent event.",
           actions: [
             { label: "Open Ops Tail", route: { view: "ops", mode: "tail" } },
           ],
@@ -1796,7 +1797,7 @@ describe("createOpenScoutWebServer", () => {
         route: { view: "ops", mode: "tail" },
       }),
     ]);
-    expect(json.recommendation).toContain("stale active Scout item");
+    expect(json.recommendation).toContain("open Scout item");
     expect(json.actions).toEqual([
       expect.objectContaining({
         label: "Open Ops Tail",
@@ -1829,7 +1830,7 @@ describe("createOpenScoutWebServer", () => {
               id: "fleet",
               label: "Fleet",
               route: { view: "fleet" },
-              narration: "Fleet is steady: no blocked asks, and organic sessions are visible in the recent tail.",
+              narration: "Fleet is steady: no blocked asks, and organic sessions are visible in the recent tail. Hudson is encountering a timeout delay that is impacting usability.",
             },
           ],
           recommendation: "Open the tail if you want the freshest organic session detail.",
@@ -1868,7 +1869,8 @@ describe("createOpenScoutWebServer", () => {
     expect(JSON.stringify(fetchCalls[0])).toContain("Do NOT use the Fleet narration to repeat those counters");
     expect(JSON.stringify(fetchCalls[0])).toContain("what deserves the operator's next 30 seconds");
     expect(JSON.stringify(fetchCalls[0])).toContain("subtle signal could fall through the cracks");
-    expect(JSON.stringify(fetchCalls[0])).toContain("stale or hidden obligations");
+    expect(JSON.stringify(fetchCalls[0])).toContain("open or hidden obligations");
+    expect(JSON.stringify(fetchCalls[0])).toContain("Do not use the words timeout");
     expect(JSON.stringify(fetchCalls[0])).toContain("Each finding paragraph is one distinct observation");
     expect(JSON.stringify(fetchCalls[0])).toContain("clickable references must be grounded in concrete IDs");
     expect(JSON.stringify(fetchCalls[0])).toContain("briefingEvidence.agentLogMessages");

@@ -12,9 +12,17 @@ let package = Package(
             name: "ScoutNativeCore",
             targets: ["ScoutNativeCore"]
         ),
+        .library(
+            name: "ScoutSharedUI",
+            targets: ["ScoutSharedUI"]
+        ),
     ],
     targets: [
         .target(name: "ScoutNativeCore"),
+        .target(
+            name: "ScoutSharedUI",
+            dependencies: ["ScoutNativeCore"]
+        ),
         .testTarget(
             name: "ScoutNativeCoreTests",
             dependencies: ["ScoutNativeCore"]

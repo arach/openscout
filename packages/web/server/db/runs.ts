@@ -36,6 +36,7 @@ import {
   ACTIVE_FLIGHT_MAX_AGE_MS,
   ACTIVE_FLIGHT_STATES_SQL,
   isFreshActiveTimestamp,
+  isRequesterWaitTimeoutSummary,
   sqlJoinClauses,
   sqlPlaceholders,
   sqlStringList,
@@ -105,6 +106,17 @@ function optionalNumber(value: number | string | null): number | undefined {
 
 function sqlBoolean(value: number | string): boolean {
   return value === 1 || value === "1";
+}
+
+function isRequesterWaitTimeoutFlightRow(row: {
+  summary: string | null;
+  requester_timed_out: number | string | null;
+  timeout_scope: string | null;
+}): boolean {
+  return row.requester_timed_out === 1
+    || row.requester_timed_out === "true"
+    || row.timeout_scope === "requester_wait"
+    || isRequesterWaitTimeoutSummary(row.summary);
 }
 
 function projectInvocationFromRunRow(row: RunQueryRow): InvocationRequest {
@@ -407,6 +419,8 @@ export function queryFlights(opts?: {
     inv.collaboration_record_id,
     f.state,
     f.summary,
+    json_extract(f.metadata_json, '$.requesterTimedOut') AS requester_timed_out,
+    json_extract(f.metadata_json, '$.timeoutScope') AS timeout_scope,
     ${flightStartedAtExpression} AS started_at,
     ${flightCompletedAtExpression} AS completed_at
   FROM flights f
@@ -431,6 +445,8 @@ export function queryFlights(opts?: {
     collaboration_record_id: string | null;
     state: string;
     summary: string | null;
+    requester_timed_out: number | string | null;
+    timeout_scope: string | null;
     started_at: number | null;
     completed_at: number | null;
   }>;
@@ -443,7 +459,7 @@ export function queryFlights(opts?: {
     conversationId: r.conversation_id,
     collaborationRecordId: r.collaboration_record_id,
     state: r.state,
-    summary: r.summary,
+    summary: isRequesterWaitTimeoutFlightRow(r) ? null : r.summary,
     startedAt: r.started_at,
     completedAt: r.completed_at,
   }));

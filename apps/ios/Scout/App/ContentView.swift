@@ -3,6 +3,8 @@
 // Routes to PairingView, reconnecting UI, or ScoutNavigationShell
 // based on connection state and trusted bridge availability.
 
+import HudsonShell
+import HudsonUI
 import SwiftUI
 
 struct ContentView: View {
@@ -15,14 +17,19 @@ struct ContentView: View {
     @State private var router = ScoutRouter()
 
     var body: some View {
-        Group {
-            if connectionManager.hasTrustedBridge {
-                ScoutNavigationShell()
-                    .environment(router)
-            } else {
-                PairingView()
+        HudPhoneAppShell(background: ScoutColors.pageBg) {
+            Group {
+                if connectionManager.hasTrustedBridge {
+                    ScoutNavigationShell()
+                        .environment(router)
+                } else {
+                    PairingView()
+                }
             }
+            .navigationBarTitleDisplayMode(.inline)
         }
+        .hudsonAppManifest(ScoutHudsonStyle.manifest)
+        .environment(\.hudTheme, ScoutHudsonStyle.theme)
         .animation(.default, value: connectionManager.hasTrustedBridge)
         .task {
             // Auto-reconnect on launch if we have a trusted bridge.

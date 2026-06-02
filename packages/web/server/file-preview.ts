@@ -6,6 +6,13 @@ import { queryAgents } from "./db-queries.ts";
 
 const MAX_PREVIEW_BYTES = 256 * 1024;
 
+export type FilePreviewRange = {
+  /** First line (1-indexed). */
+  start: number;
+  /** Last line (1-indexed, inclusive). */
+  end: number;
+};
+
 export type FilePreviewResult =
   | {
       ok: true;
@@ -38,6 +45,10 @@ export type FilePreviewContent =
       sizeBytes: number;
       truncated: boolean;
       generatedAt: number;
+      /** Present when the payload represents a sliced range of the underlying file. */
+      range?: FilePreviewRange;
+      /** Total line count of the source file (only present alongside `range`). */
+      totalLines?: number;
     }
   | {
       kind: "file";
@@ -226,9 +237,32 @@ export function resolveTrustedPath(input: {
   return { ok: false, status: 404, error: "file not found in any trusted workspace root" };
 }
 
+/**
+ * Slice text content to a 1-indexed inclusive line range, returning the sliced
+ * payload plus the clamped range that was actually applied and the total line
+ * count of the source. If the requested range falls entirely past the end of
+ * the file the original content is returned unchanged.
+ */
+function sliceContentByLines(
+  content: string,
+  range: FilePreviewRange,
+): { content: string; range: FilePreviewRange; totalLines: number } | null {
+  const lines = content.split("\n");
+  const totalLines = lines.length;
+  if (range.start > totalLines) return null;
+  const start = Math.max(1, range.start);
+  const end = Math.min(totalLines, Math.max(start, range.end));
+  return {
+    content: lines.slice(start - 1, end).join("\n"),
+    range: { start, end },
+    totalLines,
+  };
+}
+
 export function readFilePreview(input: {
   requestedPath: string;
   currentDirectory: string;
+  range?: FilePreviewRange;
 }): FilePreviewResult {
   const roots = collectTrustedRoots({ currentDirectory: input.currentDirectory });
   const resolved = resolveTrustedPath({ requestedPath: input.requestedPath, roots });
@@ -298,6 +332,8 @@ export function readFilePreview(input: {
         },
       };
     }
+    const fullText = readable.toString("utf8");
+    const sliced = input.range ? sliceContentByLines(fullText, input.range) : null;
     return {
       ok: true,
       content: {
@@ -309,10 +345,11 @@ export function readFilePreview(input: {
         title,
         mediaType,
         rawUrl,
-        content: readable.toString("utf8"),
+        content: sliced ? sliced.content : fullText,
         sizeBytes: stat.size,
         truncated,
         generatedAt: Date.now(),
+        ...(sliced ? { range: sliced.range, totalLines: sliced.totalLines } : {}),
       },
     };
   } catch (err) {

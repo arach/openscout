@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   compareTimestampsAsc,
   formatAbsoluteTimestamp,
+  formatElapsedDuration,
   normalizeTimestampMs,
+  parseElapsedDurationSeconds,
   timeAgo,
 } from "./time.ts";
 import { isSameCalendarDay } from "./thread-days.ts";
@@ -48,5 +50,14 @@ describe("client timestamp helpers", () => {
 
   test("absolute timestamp formatting is empty for unusable values", () => {
     expect(formatAbsoluteTimestamp(undefined)).toBe("");
+  });
+
+  test("formats ps elapsed durations without clock-like labels", () => {
+    expect(parseElapsedDurationSeconds("53:32")).toBe(3212);
+    expect(formatElapsedDuration("53:32")).toBe("53m");
+    expect(formatElapsedDuration("01:02:03")).toBe("1h 2m");
+    expect(formatElapsedDuration("03-12:10:18")).toBe("3d 12h");
+    expect(formatElapsedDuration("12")).toBe("12s");
+    expect(formatElapsedDuration("not-time")).toBeNull();
   });
 });

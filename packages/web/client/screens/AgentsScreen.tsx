@@ -6,7 +6,8 @@ import { api } from "../lib/api.ts";
 import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
-import { timeAgo } from "../lib/time.ts";
+import { formatElapsedDuration, timeAgo } from "../lib/time.ts";
+import { observedSessionDisplay, shortSessionId } from "../lib/session-display.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent, routeMachineId } from "../lib/router.ts";
 import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
@@ -140,6 +141,8 @@ type NativeSessionRow = {
   source: string;
   project: string;
   cwd: string | null;
+  branch: string | null;
+  summary: string | null;
   transcriptPath: string | null;
   sessionId: string | null;
   mtimeMs: number | null;
@@ -163,28 +166,34 @@ type ProjectSlice = ProjectIdentity & {
   lastActivityAt: number | null;
 };
 
-type ProjectTreeSessionKind = "native" | "scout";
+type ProjectSessionOrigin = "observed" | "conversation";
 
-type ProjectTreeSessionNode = {
+type ProjectSessionNode = {
   key: string;
-  kind: ProjectTreeSessionKind;
+  origin: ProjectSessionOrigin;
   status: string;
   harness: string;
   label: string;
   detail: string | null;
+  branchOrCwd: string;
+  secondaryLabel: string | null;
   lastActivityAt: number | null;
   route: Route | null;
+  actionLabel: string;
+  nativeSession: NativeSessionRow | null;
+  scoutInteractions: SessionEntry[];
+  scoutLastMessageAt: number | null;
 };
 
 type ProjectTreeAgentNode = {
   key: string;
   row: AgentInventoryRow;
-  sessions: ProjectTreeSessionNode[];
+  sessions: ProjectSessionNode[];
 };
 
 type ProjectTree = {
   agents: ProjectTreeAgentNode[];
-  unassignedSessions: ProjectTreeSessionNode[];
+  unassignedSessions: ProjectSessionNode[];
 };
 
 type ProjectTreeSortKey = "target" | "state" | "harness" | "branch" | "sessions" | "last";
@@ -295,6 +304,14 @@ function agentSessionRefs(row: AgentInventoryRow): Set<string> {
   return refs;
 }
 
+function nativeSessionRefs(row: NativeSessionRow): Set<string> {
+  const refs = new Set<string>();
+  addSessionRef(refs, row.refId);
+  addSessionRef(refs, row.sessionId);
+  addSessionRef(refs, row.transcriptPath);
+  return refs;
+}
+
 function refMatches(candidates: Set<string>, value: string | null | undefined): boolean {
   const raw = value?.trim();
   if (raw && candidates.has(raw.toLowerCase())) return true;
@@ -315,6 +332,13 @@ function nativeSessionMatchesAgent(session: NativeSessionRow, row: AgentInventor
   return refMatches(refs, session.refId)
     || refMatches(refs, session.sessionId)
     || refMatches(refs, session.transcriptPath);
+}
+
+function scoutSessionMatchesNativeSession(session: SessionEntry, row: NativeSessionRow): boolean {
+  const refs = nativeSessionRefs(row);
+  return refMatches(refs, session.id)
+    || refMatches(refs, session.harnessSessionId)
+    || refMatches(refs, session.harnessLogPath);
 }
 
 function nativeSessionProcessKey(source: string, cwd: string | null): string {
@@ -358,6 +382,8 @@ function buildNativeSessionRows(
         || basename(transcript.transcriptPath)
         || "unknown",
       cwd: normalizeProjectRoot(transcript.cwd),
+      branch: transcript.branch ?? null,
+      summary: transcript.summary ?? null,
       transcriptPath: transcript.transcriptPath,
       sessionId: transcript.sessionId,
       mtimeMs: transcript.mtimeMs,
@@ -382,6 +408,8 @@ function buildNativeSessionRows(
       source,
       project: basename(cwd) ?? "unknown",
       cwd,
+      branch: process.branch ?? null,
+      summary: null,
       transcriptPath: null,
       sessionId: null,
       mtimeMs: null,
@@ -406,12 +434,6 @@ function classPart(value: string): string {
 
 function harnessChipClass(harness: string): string {
   return `s-atop-chip s-atop-chip--harness s-atop-chip--harness-${classPart(harness)}`;
-}
-
-function shortSessionId(value: string | null | undefined): string {
-  if (!value) return "—";
-  const compact = value.replace(/^session[_:-]?/i, "");
-  return compact.length > 10 ? compact.slice(0, 8) : compact;
 }
 
 function activeTaskFromAsks(asks: FleetAsk[]): string | null {
@@ -567,32 +589,84 @@ function buildProjectSlices(
   });
 }
 
-function scoutSessionNode(session: SessionEntry): ProjectTreeSessionNode {
-  const harness = formatLabel(session.harness) ?? "scout";
+function scoutSessionHarness(session: SessionEntry): string {
+  return formatLabel(session.harness) ?? "session";
+}
+
+function latestScoutInteractionAt(sessions: SessionEntry[]): number | null {
+  const latest = Math.max(0, ...sessions.map((session) => session.lastMessageAt ?? 0));
+  return latest || null;
+}
+
+function sessionActivityAt(baseActivityAt: number | null, scoutInteractions: SessionEntry[]): number | null {
+  const latest = Math.max(0, baseActivityAt ?? 0, latestScoutInteractionAt(scoutInteractions) ?? 0);
+  return latest || null;
+}
+
+function scoutInteractionSynopsis(sessions: SessionEntry[]): string | null {
+  for (const session of sessions) {
+    const preview = session.preview?.trim();
+    if (preview) return preview;
+  }
+  for (const session of sessions) {
+    const title = session.title?.trim();
+    if (title) return title;
+  }
+  return null;
+}
+
+function scoutConversationSessionNode(session: SessionEntry): ProjectSessionNode {
+  const harness = scoutSessionHarness(session);
+  const scoutLastMessageAt = latestScoutInteractionAt([session]);
   return {
-    key: `scout:${session.id}`,
-    kind: "scout",
+    key: `conversation:${session.id}`,
+    origin: "conversation",
     status: session.kind,
     harness,
     label: session.title || session.agentName || session.id,
     detail: session.preview ?? session.id,
-    lastActivityAt: session.lastMessageAt,
+    branchOrCwd: session.currentBranch ?? basename(session.workspaceRoot) ?? "conversation",
+    secondaryLabel: session.harnessSessionId ? shortSessionId(session.harnessSessionId) : null,
+    lastActivityAt: scoutLastMessageAt,
     route: { view: "conversation", conversationId: session.id },
+    actionLabel: "open",
+    nativeSession: null,
+    scoutInteractions: [session],
+    scoutLastMessageAt,
   };
 }
 
-function nativeSessionNode(session: NativeSessionRow): ProjectTreeSessionNode {
+function nativeSessionNode(session: NativeSessionRow, scoutInteractions: SessionEntry[] = []): ProjectSessionNode {
+  const scoutLastMessageAt = latestScoutInteractionAt(scoutInteractions);
+  const display = observedSessionDisplay({
+    source: session.source,
+    project: session.project,
+    cwd: session.cwd,
+    branch: session.branch,
+    sessionId: session.sessionId,
+    refId: session.refId,
+    transcriptPath: session.transcriptPath,
+    processCommand: session.process?.command,
+    summary: session.summary,
+    scoutPreview: scoutInteractionSynopsis(scoutInteractions),
+  });
   return {
-    key: `native:${session.key}`,
-    kind: "native",
+    key: `observed:${session.key}`,
+    origin: "observed",
     status: session.status,
     harness: session.source,
-    label: shortSessionId(session.sessionId ?? session.refId),
-    detail: session.transcriptPath ?? session.process?.command ?? session.cwd,
-    lastActivityAt: session.lastActivityAt,
+    label: display.label,
+    detail: display.detail,
+    branchOrCwd: display.branchOrCwd,
+    secondaryLabel: formatElapsedDuration(session.process?.etime) ?? display.context,
+    lastActivityAt: sessionActivityAt(session.lastActivityAt, scoutInteractions),
     route: session.sessionId || session.transcriptPath
       ? { view: "sessions", sessionId: session.refId }
       : null,
+    actionLabel: "observe",
+    nativeSession: session,
+    scoutInteractions,
+    scoutLastMessageAt,
   };
 }
 
@@ -615,7 +689,7 @@ function projectTreeAgentBranchValue(row: AgentInventoryRow): string {
     : basename(row.agent.cwd ?? row.agent.projectRoot) ?? "";
 }
 
-function projectTreeSessionStateRank(session: ProjectTreeSessionNode): number {
+function projectTreeSessionStateRank(session: ProjectSessionNode): number {
   if (session.status === "active") return 0;
   if (session.status === "direct") return 1;
   if (session.status === "idle") return 2;
@@ -626,22 +700,19 @@ function projectTreeDefaultDirection(key: ProjectTreeSortKey): 1 | -1 {
   return key === "last" || key === "sessions" ? -1 : 1;
 }
 
-function sortProjectTreeSessions(sessions: ProjectTreeSessionNode[]): ProjectTreeSessionNode[] {
-  const kindRank: Record<ProjectTreeSessionKind, number> = {
-    native: 0,
-    scout: 1,
-  };
+function sortProjectTreeSessions(sessions: ProjectSessionNode[]): ProjectSessionNode[] {
   return [...sessions].sort((left, right) => {
-    const kindDelta = kindRank[left.kind] - kindRank[right.kind];
-    if (kindDelta !== 0) return kindDelta;
-    return left.harness.localeCompare(right.harness)
+    const stateDelta = projectTreeSessionStateRank(left) - projectTreeSessionStateRank(right);
+    if (stateDelta !== 0) return stateDelta;
+    return (right.lastActivityAt ?? 0) - (left.lastActivityAt ?? 0)
+      || left.harness.localeCompare(right.harness)
       || left.key.localeCompare(right.key);
   });
 }
 
 function compareProjectTreeSessions(
-  left: ProjectTreeSessionNode,
-  right: ProjectTreeSessionNode,
+  left: ProjectSessionNode,
+  right: ProjectSessionNode,
   sort: ProjectTreeSort,
 ): number {
   let result = 0;
@@ -656,7 +727,7 @@ function compareProjectTreeSessions(
       result = compareNullableText(left.harness, right.harness);
       break;
     case "branch":
-      result = compareNullableText(left.kind, right.kind);
+      result = compareNullableText(left.branchOrCwd, right.branchOrCwd);
       break;
     case "sessions":
       result = 0;
@@ -713,26 +784,63 @@ function sortedProjectTree(tree: ProjectTree, sort: ProjectTreeSort): ProjectTre
   };
 }
 
+function nativeSessionForScoutInteraction(
+  project: ProjectSlice,
+  scoutSession: SessionEntry,
+): NativeSessionRow | null {
+  const exact = project.nativeSessions.find((session) =>
+    scoutSessionMatchesNativeSession(scoutSession, session),
+  );
+  if (exact) return exact;
+
+  const matchingAgents = project.agents.filter((row) => scoutSessionMatchesAgent(scoutSession, row));
+  if (matchingAgents.length === 0) return null;
+
+  return project.nativeSessions.find((session) =>
+    matchingAgents.some((row) => nativeSessionMatchesAgent(session, row)),
+  ) ?? null;
+}
+
+function buildProjectSessionRows(project: ProjectSlice): ProjectSessionNode[] {
+  const scoutSessionsByNativeKey = new Map<string, SessionEntry[]>();
+  const attachedScoutSessionIds = new Set<string>();
+
+  for (const scoutSession of project.scoutSessions) {
+    const nativeSession = nativeSessionForScoutInteraction(project, scoutSession);
+    if (!nativeSession) continue;
+    const sessions = scoutSessionsByNativeKey.get(nativeSession.key) ?? [];
+    sessions.push(scoutSession);
+    scoutSessionsByNativeKey.set(nativeSession.key, sessions);
+    attachedScoutSessionIds.add(scoutSession.id);
+  }
+
+  const rows = project.nativeSessions.map((session) =>
+    nativeSessionNode(session, scoutSessionsByNativeKey.get(session.key) ?? []),
+  );
+
+  for (const scoutSession of project.scoutSessions) {
+    if (attachedScoutSessionIds.has(scoutSession.id)) continue;
+    rows.push(scoutConversationSessionNode(scoutSession));
+  }
+
+  return sortProjectTreeSessions(rows);
+}
+
+function projectSessionNodeMatchesAgent(session: ProjectSessionNode, row: AgentInventoryRow): boolean {
+  if (session.nativeSession && nativeSessionMatchesAgent(session.nativeSession, row)) return true;
+  return session.scoutInteractions.some((scoutSession) => scoutSessionMatchesAgent(scoutSession, row));
+}
+
 function buildProjectTree(project: ProjectSlice): ProjectTree {
-  const assignedScout = new Set<string>();
-  const assignedNative = new Set<string>();
+  const sessionRows = buildProjectSessionRows(project);
+  const assignedSessionKeys = new Set<string>();
 
   const agents = [...project.agents].sort(compareProjectTreeAgents).map((row) => {
-    const sessions: ProjectTreeSessionNode[] = [];
-
-    for (const session of project.scoutSessions) {
-      if (assignedScout.has(session.id)) continue;
-      if (!scoutSessionMatchesAgent(session, row)) continue;
-      assignedScout.add(session.id);
-      sessions.push(scoutSessionNode(session));
-    }
-
-    for (const session of project.nativeSessions) {
-      if (assignedNative.has(session.key)) continue;
-      if (!nativeSessionMatchesAgent(session, row)) continue;
-      assignedNative.add(session.key);
-      sessions.push(nativeSessionNode(session));
-    }
+    const sessions = sessionRows.filter((session) => {
+      if (assignedSessionKeys.has(session.key)) return false;
+      return projectSessionNodeMatchesAgent(session, row);
+    });
+    for (const session of sessions) assignedSessionKeys.add(session.key);
 
     return {
       key: row.agent.id,
@@ -741,14 +849,9 @@ function buildProjectTree(project: ProjectSlice): ProjectTree {
     };
   });
 
-  const unassignedSessions = sortProjectTreeSessions([
-    ...project.nativeSessions
-      .filter((session) => !assignedNative.has(session.key))
-      .map(nativeSessionNode),
-    ...project.scoutSessions
-      .filter((session) => !assignedScout.has(session.id))
-      .map(scoutSessionNode),
-  ]);
+  const unassignedSessions = sortProjectTreeSessions(
+    sessionRows.filter((session) => !assignedSessionKeys.has(session.key)),
+  );
 
   return { agents, unassignedSessions };
 }
@@ -948,7 +1051,7 @@ const AGENT_INVENTORY_COLUMNS: DataTableColumn<AgentInventoryRow, AgentInventory
     sortValue: (row) => row.session?.lastMessageAt ?? null,
     render: (row) => (
       <span title={row.session?.id ?? row.agent.harnessSessionId ?? undefined}>
-        {shortSessionId(row.session?.id ?? row.agent.harnessSessionId)}
+        {shortSessionId(row.session?.id ?? row.agent.harnessSessionId, "—")}
       </span>
     ),
   },
@@ -997,6 +1100,8 @@ function nativeSessionMatchesFilters(
     row.source,
     row.project,
     row.cwd,
+    row.branch,
+    row.summary,
     row.transcriptPath,
     row.process?.command,
   ].filter(Boolean).join(" ").toLowerCase();
@@ -1008,10 +1113,11 @@ function scoutSessionMatchesFilters(
   query: string,
   harnessFilter: Set<string>,
 ): boolean {
-  const harness = formatLabel(session.harness) ?? "scout";
-  if (harnessFilter.size > 0 && !harnessFilter.has(harness)) return false;
+  const harness = formatLabel(session.harness);
+  if (harnessFilter.size > 0 && (!harness || !harnessFilter.has(harness))) return false;
   if (!query) return true;
   const hay = [
+    "scout",
     session.id,
     session.kind,
     session.title,
@@ -2205,8 +2311,7 @@ function AgentsLibrary({
       available: rows.filter((row) => row.status === "available").length,
       offline: rows.filter((row) => row.status === "offline").length,
       projects: allProjects.length,
-      scoutSessions: allProjects.reduce((sum, project) => sum + project.scoutSessions.length, 0),
-      nativeSessions: nativeSessions.length,
+      sessions: allProjects.reduce((sum, project) => sum + buildProjectSessionRows(project).length, 0),
       activeNativeSessions: nativeSessions.filter((row) => row.status === "active").length,
     }),
     [allProjects, nativeSessions, rows],
@@ -2217,7 +2322,8 @@ function AgentsLibrary({
     for (const row of rows) counts.set(row.harness, (counts.get(row.harness) ?? 0) + 1);
     for (const row of nativeSessions) counts.set(row.source, (counts.get(row.source) ?? 0) + 1);
     for (const session of sessions) {
-      const harness = formatLabel(session.harness) ?? "scout";
+      const harness = formatLabel(session.harness);
+      if (!harness) continue;
       counts.set(harness, (counts.get(harness) ?? 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
@@ -2254,6 +2360,8 @@ function AgentsLibrary({
   );
 
   const selectedProjectKey = route.view === "agents" && !route.agentId ? route.projectKey : undefined;
+  const selectedProjectSessionId = route.view === "agents" && !route.agentId ? route.sessionId : undefined;
+  const selectedProjectConversationId = route.view === "agents" && !route.agentId ? route.conversationId : undefined;
   const selectedProject = useMemo(
     () => selectedProjectKey
       ? allProjects.find((project) => project.key === selectedProjectKey) ?? null
@@ -2336,16 +2444,9 @@ function AgentsLibrary({
           </div>
           <div className="s-atop-summary-cell">
             <div className="s-atop-summary-num">
-              <strong>{summary.activeNativeSessions}</strong>
-              <span className="s-atop-summary-of">/ {summary.nativeSessions}</span>
+              <strong>{summary.sessions}</strong>
             </div>
-            <span className="s-atop-summary-lbl">native sessions</span>
-          </div>
-          <div className="s-atop-summary-cell">
-            <div className="s-atop-summary-num">
-              <strong>{summary.scoutSessions}</strong>
-            </div>
-            <span className="s-atop-summary-lbl">scout sessions</span>
+            <span className="s-atop-summary-lbl">sessions</span>
           </div>
           <div className="s-atop-summary-cell s-atop-summary-cell--breakdown">
             <span className="s-atop-summary-lbl">harness</span>
@@ -2476,6 +2577,8 @@ function AgentsLibrary({
             query={query}
             selectedProject={selectedProject}
             selectedProjectKey={selectedProjectKey}
+            selectedSessionId={selectedProjectSessionId}
+            selectedConversationId={selectedProjectConversationId}
             navigate={navigate}
             route={route}
             openAgent={openAgent}
@@ -2519,7 +2622,9 @@ function AgentsLibrary({
           </span>
           <span className="s-atop-keys-spacer" />
           <span>{summary.offline} offline</span>
-          <span>{summary.nativeSessions} native session{summary.nativeSessions === 1 ? "" : "s"}</span>
+          <span>
+            {summary.activeNativeSessions} active / {summary.sessions} session{summary.sessions === 1 ? "" : "s"}
+          </span>
         </div>
       </div>
     </div>
@@ -2532,6 +2637,8 @@ function ProjectBoard({
   query,
   selectedProject,
   selectedProjectKey,
+  selectedSessionId,
+  selectedConversationId,
   navigate,
   route,
   openAgent,
@@ -2542,6 +2649,8 @@ function ProjectBoard({
   query: string;
   selectedProject: ProjectSlice | null;
   selectedProjectKey: string | undefined;
+  selectedSessionId: string | undefined;
+  selectedConversationId: string | undefined;
   navigate: (r: Route) => void;
   route: Route;
   openAgent: (row: AgentInventoryRow) => void;
@@ -2567,7 +2676,7 @@ function ProjectBoard({
                 ? "Return to all projects or select another project from the current inventory."
                 : query.trim()
               ? "Adjust the current project, agent, or session filter."
-              : "Projects appear when agents, Scout sessions, or native harness sessions are discovered."}
+              : "Projects appear when agents or sessions are discovered."}
           </div>
         </div>
       </div>
@@ -2584,6 +2693,8 @@ function ProjectBoard({
           route={route}
           openAgent={openAgent}
           selected={project.key === selectedProjectKey}
+          selectedSessionId={project.key === selectedProjectKey ? selectedSessionId : undefined}
+          selectedConversationId={project.key === selectedProjectKey ? selectedConversationId : undefined}
           onSelectProject={onSelectProject}
         />
       ))}
@@ -2597,6 +2708,8 @@ function ProjectSection({
   route,
   openAgent,
   selected,
+  selectedSessionId,
+  selectedConversationId,
   onSelectProject,
 }: {
   project: ProjectSlice;
@@ -2604,10 +2717,13 @@ function ProjectSection({
   route: Route;
   openAgent: (row: AgentInventoryRow) => void;
   selected: boolean;
+  selectedSessionId: string | undefined;
+  selectedConversationId: string | undefined;
   onSelectProject: (project: ProjectSlice) => void;
 }) {
   const onlineAgents = project.agents.filter((row) => row.status !== "offline").length;
-  const activeNative = project.nativeSessions.filter((row) => row.status === "active").length;
+  const sessionRows = buildProjectSessionRows(project);
+  const activeSessions = project.nativeSessions.filter((row) => row.status === "active").length;
   const activeWork = project.agents.reduce((count, row) => count + row.activeAskCount, 0);
 
   return (
@@ -2634,8 +2750,7 @@ function ProjectSection({
         </button>
         <div className="s-agent-project-metrics" aria-label={`${project.title} project metrics`}>
           <ProjectMetric label="agents" value={`${onlineAgents}/${project.agents.length}`} tone={onlineAgents > 0 ? "green" : "dim"} />
-          <ProjectMetric label="native" value={`${activeNative}/${project.nativeSessions.length}`} tone={activeNative > 0 ? "green" : "dim"} />
-          <ProjectMetric label="scout" value={`${project.scoutSessions.length}`} />
+          <ProjectMetric label="sessions" value={`${sessionRows.length}`} tone={activeSessions > 0 ? "green" : sessionRows.length > 0 ? "default" : "dim"} />
           <ProjectMetric label="work" value={`${activeWork || "—"}`} tone={activeWork > 0 ? "green" : "dim"} />
           <ProjectMetric label="last" value={project.lastActivityAt ? timeAgo(project.lastActivityAt) : "—"} />
         </div>
@@ -2647,6 +2762,8 @@ function ProjectSection({
           navigate={navigate}
           route={route}
           openAgent={openAgent}
+          selectedSessionId={selectedSessionId}
+          selectedConversationId={selectedConversationId}
         />
       ) : (
         <div className="s-agent-project-body">
@@ -2656,7 +2773,7 @@ function ProjectSection({
               <strong>{project.agents.length}</strong>
             </div>
             {project.agents.length === 0 ? (
-              <div className="s-agent-project-empty-inline">No Scout agent cards.</div>
+              <div className="s-agent-project-empty-inline">No agent cards.</div>
             ) : (
               <div className="s-agent-project-card-grid">
                 {project.agents.map((row) => (
@@ -2668,16 +2785,10 @@ function ProjectSection({
 
           <div className="s-agent-project-column s-agent-project-column--sessions">
             <div className="s-agent-project-section-head">
-              <span>Native sessions</span>
-              <strong>{project.nativeSessions.length}</strong>
+              <span>Sessions</span>
+              <strong>{sessionRows.length}</strong>
             </div>
-            <ProjectNativeSessionList sessions={project.nativeSessions} navigate={navigate} route={route} />
-
-            <div className="s-agent-project-section-head s-agent-project-section-head--secondary">
-              <span>Scout layer</span>
-              <strong>{project.scoutSessions.length}</strong>
-            </div>
-            <ProjectScoutSessionList sessions={project.scoutSessions} navigate={navigate} route={route} />
+            <ProjectSessionList sessions={sessionRows} navigate={navigate} route={route} />
           </div>
         </div>
       )}
@@ -2685,16 +2796,34 @@ function ProjectSection({
   );
 }
 
+function projectSessionNodeSelected(
+  session: ProjectSessionNode,
+  selectedSessionId: string | undefined,
+  selectedConversationId: string | undefined,
+): boolean {
+  if (session.route?.view === "sessions") {
+    return Boolean(selectedSessionId && session.route.sessionId === selectedSessionId);
+  }
+  if (session.route?.view === "conversation") {
+    return Boolean(selectedConversationId && session.route.conversationId === selectedConversationId);
+  }
+  return false;
+}
+
 function ProjectTreeTable({
   project,
   navigate,
   route,
   openAgent,
+  selectedSessionId,
+  selectedConversationId,
 }: {
   project: ProjectSlice;
   navigate: (r: Route) => void;
   route: Route;
   openAgent: (row: AgentInventoryRow) => void;
+  selectedSessionId: string | undefined;
+  selectedConversationId: string | undefined;
 }) {
   const baseTree = useMemo(() => buildProjectTree(project), [project]);
   const collapsedStorageKey = collapsedProjectTreeStorageKey(project.key);
@@ -2704,7 +2833,16 @@ function ProjectTreeTable({
   );
   const [sort, setSort] = useState<ProjectTreeSort>(() => readProjectTreeSort(sortStorageKey));
   const tree = useMemo(() => sortedProjectTree(baseTree, sort), [baseTree, sort]);
-  const totalSessions = project.nativeSessions.length + project.scoutSessions.length;
+  const totalSessions = baseTree.unassignedSessions.length
+    + baseTree.agents.reduce((sum, node) => sum + node.sessions.length, 0);
+  const sessionIsSelected = useCallback(
+    (session: ProjectSessionNode) => projectSessionNodeSelected(
+      session,
+      selectedSessionId,
+      selectedConversationId,
+    ),
+    [selectedConversationId, selectedSessionId],
+  );
 
   useEffect(() => {
     writeCollapsedProjectTreeRows(collapsedStorageKey, collapsed);
@@ -2722,7 +2860,7 @@ function ProjectTreeTable({
     });
   };
 
-  const openSession = (session: ProjectTreeSessionNode) => {
+  const openSession = (session: ProjectSessionNode) => {
     if (!session.route) return;
     openContent(navigate, session.route, { returnTo: route });
   };
@@ -2734,7 +2872,7 @@ function ProjectTreeTable({
   };
 
   const unassignedKey = `${project.key}:project-sessions`;
-  const unassignedOpen = !collapsed.has(unassignedKey);
+  const unassignedOpen = tree.unassignedSessions.some(sessionIsSelected) || !collapsed.has(unassignedKey);
 
   return (
     <div className="s-agent-project-tree" role="treegrid" aria-label={`${project.title} agent and session tree`}>
@@ -2811,6 +2949,7 @@ function ProjectTreeTable({
               <ProjectTreeSessionRow
                 key={session.key}
                 session={session}
+                selected={sessionIsSelected(session)}
                 onOpen={() => openSession(session)}
               />
             ))}
@@ -2818,7 +2957,7 @@ function ProjectTreeTable({
         )}
 
         {tree.agents.map((node) => {
-          const expanded = !collapsed.has(node.key);
+          const expanded = node.sessions.some(sessionIsSelected) || !collapsed.has(node.key);
           const row = node.row;
           return (
             <Fragment key={node.key}>
@@ -2890,6 +3029,7 @@ function ProjectTreeTable({
                 <ProjectTreeSessionRow
                   key={session.key}
                   session={session}
+                  selected={sessionIsSelected(session)}
                   onOpen={() => openSession(session)}
                 />
               ))}
@@ -2904,13 +3044,24 @@ function ProjectTreeTable({
 
 function ProjectTreeSessionRow({
   session,
+  selected,
   onOpen,
 }: {
-  session: ProjectTreeSessionNode;
+  session: ProjectSessionNode;
+  selected: boolean;
   onOpen: () => void;
 }) {
+  const hasScoutInteractions = Boolean(session.scoutLastMessageAt);
+  const rowClassName = [
+    "s-agent-project-tree-row",
+    "s-agent-project-tree-row--session",
+    `s-agent-project-tree-row--${session.origin}`,
+    hasScoutInteractions && "s-agent-project-tree-row--scout-linked",
+    selected && "s-agent-project-tree-row--selected",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={`s-agent-project-tree-row s-agent-project-tree-row--session s-agent-project-tree-row--${session.kind}`} role="row">
+    <div className={rowClassName} role="row">
       <div className="s-agent-project-tree-target">
         <span className="s-agent-project-tree-branch" aria-hidden />
         <button
@@ -2918,17 +3069,31 @@ function ProjectTreeSessionRow({
           className="s-agent-project-tree-link"
           disabled={!session.route}
           onClick={onOpen}
-          title={session.detail ?? session.label}
+          title={[
+            session.label,
+            session.detail,
+            session.nativeSession?.transcriptPath,
+          ].filter(Boolean).join("\n")}
         >
-          <span className="s-agent-project-tree-primary">{session.label}</span>
-          <span className="s-agent-project-tree-secondary">{session.detail ?? session.kind}</span>
+          <span className="s-agent-project-tree-primary">
+            <span className="s-agent-project-tree-label">{session.label}</span>
+            {hasScoutInteractions && (
+              <span
+                className="s-agent-project-session-badge s-agent-project-session-badge--scout"
+                title={`Scout interaction ${timeAgo(session.scoutLastMessageAt!)}`}
+              >
+                scout
+              </span>
+            )}
+          </span>
+          <span className="s-agent-project-tree-secondary">{session.detail ?? "session"}</span>
         </button>
       </div>
       <span className={`s-agent-project-tree-state s-agent-project-tree-state--${classPart(session.status)}`}>
         {session.status}
       </span>
       <span className={harnessChipClass(session.harness)}>{session.harness}</span>
-      <span className="s-agent-project-tree-muted">{session.kind}</span>
+      <span className="s-agent-project-tree-muted">{session.branchOrCwd}</span>
       <span className="s-agent-project-tree-muted">—</span>
       <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}</span>
       <span className="s-agent-project-tree-actions">
@@ -2938,7 +3103,7 @@ function ProjectTreeSessionRow({
           disabled={!session.route}
           onClick={onOpen}
         >
-          {session.kind === "native" ? "observe" : "open"}
+          {session.actionLabel}
         </button>
       </span>
     </div>
@@ -3003,85 +3168,55 @@ function ProjectAgentCard({ row, onOpen }: { row: AgentInventoryRow; onOpen: () 
   );
 }
 
-function ProjectNativeSessionList({
+function ProjectSessionList({
   sessions,
   navigate,
   route,
 }: {
-  sessions: NativeSessionRow[];
+  sessions: ProjectSessionNode[];
   navigate: (r: Route) => void;
   route: Route;
 }) {
   if (sessions.length === 0) {
-    return <div className="s-agent-project-empty-inline">No native sessions discovered.</div>;
+    return <div className="s-agent-project-empty-inline">No sessions discovered.</div>;
   }
 
   return (
     <div className="s-agent-project-session-list">
       {sessions.map((session) => {
-        const canOpen = Boolean(session.sessionId || session.transcriptPath);
-        const label = shortSessionId(session.sessionId ?? session.refId);
+        const canOpen = Boolean(session.route);
+        const hasScoutInteractions = Boolean(session.scoutLastMessageAt);
         return (
           <button
             key={session.key}
             type="button"
-            className={`s-agent-project-session s-agent-project-session--${session.status}`}
+            className={`s-agent-project-session s-agent-project-session--${classPart(session.status)} s-agent-project-session--${session.origin}`}
             disabled={!canOpen}
             onClick={() => {
               if (!canOpen) return;
-              openContent(navigate, { view: "sessions", sessionId: session.refId }, { returnTo: route });
+              openContent(navigate, session.route!, { returnTo: route });
             }}
-            title={session.transcriptPath ?? session.process?.command ?? session.refId}
+            title={[
+              session.label,
+              session.detail,
+              session.nativeSession?.transcriptPath,
+            ].filter(Boolean).join("\n")}
           >
             <span className="s-agent-project-session-status">{session.status}</span>
-            <span className={harnessChipClass(session.source)}>{session.source}</span>
-            <span className="s-agent-project-session-main">{label}</span>
-            <span className="s-agent-project-session-sub">
-              {session.process ? session.process.etime : session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}
+            <span className="s-agent-project-session-chips">
+              <span className={harnessChipClass(session.harness)}>{session.harness}</span>
+              {hasScoutInteractions && (
+                <span
+                  className="s-agent-project-session-badge s-agent-project-session-badge--scout"
+                  title={`Scout interaction ${timeAgo(session.scoutLastMessageAt!)}`}
+                >
+                  scout
+                </span>
+              )}
             </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function ProjectScoutSessionList({
-  sessions,
-  navigate,
-  route,
-}: {
-  sessions: SessionEntry[];
-  navigate: (r: Route) => void;
-  route: Route;
-}) {
-  if (sessions.length === 0) {
-    return <div className="s-agent-project-empty-inline">No Scout conversations yet.</div>;
-  }
-
-  return (
-    <div className="s-agent-project-session-list">
-      {sessions.map((session) => {
-        const harness = formatLabel(session.harness) ?? "scout";
-        return (
-          <button
-            key={session.id}
-            type="button"
-            className="s-agent-project-session s-agent-project-session--scout"
-            onClick={() =>
-              openContent(
-                navigate,
-                { view: "conversation", conversationId: session.id },
-                { returnTo: route },
-              )
-            }
-            title={session.preview ?? session.id}
-          >
-            <span className="s-agent-project-session-status">{session.kind}</span>
-            <span className={harnessChipClass(harness)}>{harness}</span>
-            <span className="s-agent-project-session-main">{session.title || session.id}</span>
+            <span className="s-agent-project-session-main">{session.label}</span>
             <span className="s-agent-project-session-sub">
-              {session.lastMessageAt ? timeAgo(session.lastMessageAt) : shortSessionId(session.harnessSessionId)}
+              {session.secondaryLabel ?? (session.lastActivityAt ? timeAgo(session.lastActivityAt) : session.actionLabel)}
             </span>
           </button>
         );

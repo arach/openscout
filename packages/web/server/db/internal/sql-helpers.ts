@@ -146,6 +146,21 @@ export function isDuplicateActivityFeedItem(
     && Math.abs(previous.ts - next.ts) <= 5_000;
 }
 
+export function isRequesterWaitTimeoutSummary(value: string | null | undefined): boolean {
+  const normalized = value?.toLowerCase() ?? "";
+  return Boolean(
+    normalized.includes("scout stopped waiting for a synchronous result")
+      || normalized.includes("the requester stopped waiting after")
+      || normalized.includes("timed out from synchronous acknowledgment")
+      || normalized.includes("timed out from synchronous acknowledgement")
+      || (
+        normalized.includes("synchronous")
+        && normalized.includes("acknowledg")
+        && normalized.includes("timed out")
+      ),
+  );
+}
+
 export function transientBrokerWorkingStatusPredicate(alias: string): string {
   return `NOT (
     ${alias}.class = 'status'
@@ -161,6 +176,12 @@ export function transientBrokerWorkingStatusPredicate(alias: string): string {
 export function staleFlightActivityPredicate(alias: string): string {
   return `NOT (
     ${alias}.kind = 'flight_updated'
-    AND COALESCE(${alias}.summary, '') LIKE 'Stale running flight reconciled:%'
+    AND (
+      COALESCE(${alias}.summary, '') LIKE 'Stale running flight reconciled:%'
+      OR COALESCE(${alias}.summary, '') LIKE '%Scout stopped waiting for a synchronous result%'
+      OR COALESCE(${alias}.summary, '') LIKE '%the requester stopped waiting after%'
+      OR COALESCE(${alias}.title, '') LIKE '%Scout stopped waiting for a synchronous result%'
+      OR COALESCE(${alias}.title, '') LIKE '%the requester stopped waiting after%'
+    )
   )`;
 }

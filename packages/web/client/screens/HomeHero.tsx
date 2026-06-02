@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Bot, Crosshair } from "lucide-react";
 import type { Route } from "../lib/types.ts";
 import {
@@ -57,7 +58,6 @@ export type HomeHeroBriefObservation = {
 
 export type HomeHeroProps = {
   now: Date;
-  greeting: string;
   operatorName: string;
   syncLabel: string;
   error: string | null;
@@ -70,7 +70,6 @@ export type HomeHeroProps = {
   briefSpeaking?: boolean;
   briefIsNew?: boolean;
   totalOperatorQueue: number;
-  narrativeParts: string[];
   briefStatement: string | null;
   briefObservations: HomeHeroBriefObservation[];
   navigate: (route: Route) => void;
@@ -294,38 +293,40 @@ function SystemSignalStack({
   navigate: (route: Route) => void;
 }) {
   if (signals.length === 0) return null;
+  const renderSignal = (signal: HomeHeroSignal) => {
+    const content = (
+      <>
+        <span className={`hd-signal-led hd-signal-led--${signal.tone ?? "dim"}`} aria-hidden="true" />
+        <span className="hd-signal-copy">
+          <span className="hd-signal-label">{signal.label}</span>
+          <span className="hd-signal-value">{signal.value}</span>
+        </span>
+      </>
+    );
+    const signalRoute = signal.route;
+    const handleClick = signal.onClick ?? (signalRoute ? () => navigate(signalRoute) : undefined);
+    if (handleClick) {
+      return (
+        <button
+          key={signal.id}
+          type="button"
+          className="hd-signal-row hd-signal-row--button"
+          onClick={handleClick}
+        >
+          {content}
+        </button>
+      );
+    }
+    return (
+      <div key={signal.id} className="hd-signal-row">
+        {content}
+      </div>
+    );
+  };
+
   return (
     <div className="hd-signal-stack" aria-label="system signals">
-      {signals.map((signal) => {
-        const content = (
-          <>
-            <span className={`hd-signal-led hd-signal-led--${signal.tone ?? "dim"}`} aria-hidden="true" />
-            <span className="hd-signal-copy">
-              <span className="hd-signal-label">{signal.label}</span>
-              <span className="hd-signal-value">{signal.value}</span>
-            </span>
-          </>
-        );
-        const signalRoute = signal.route;
-        const handleClick = signal.onClick ?? (signalRoute ? () => navigate(signalRoute) : undefined);
-        if (handleClick) {
-          return (
-            <button
-              key={signal.id}
-              type="button"
-              className="hd-signal-row hd-signal-row--button"
-              onClick={handleClick}
-            >
-              {content}
-            </button>
-          );
-        }
-        return (
-          <div key={signal.id} className="hd-signal-row">
-            {content}
-          </div>
-        );
-      })}
+      {signals.map(renderSignal)}
     </div>
   );
 }
@@ -385,7 +386,6 @@ export default function HomeHero(props: HomeHeroProps) {
     briefSpeaking = false,
     briefIsNew = false,
     totalOperatorQueue,
-    narrativeParts,
     briefStatement,
     briefObservations,
     navigate,
@@ -398,21 +398,31 @@ export default function HomeHero(props: HomeHeroProps) {
     systemSignals,
   } = props;
 
+  const [briefOpen, setBriefOpen] = useState(false);
   const spokenBrief = briefStatement?.trim() || "";
-  const ledePart =
-    narrativeParts.find((p) => p.includes("need")) ?? narrativeParts[0] ?? "";
-  const displayLede = spokenBrief || (ledePart ? `${ledePart}.` : "");
+  const hasBriefContent = spokenBrief.length > 0 || briefObservations.length > 0;
   const observations = briefObservations.length > 0
     ? briefObservations
-    : fallbackBriefObservations(displayLede);
-  const otherParts = spokenBrief
-    ? narrativeParts
-    : narrativeParts.filter((p) => p !== ledePart);
-  const leadsNeedsYou = !spokenBrief && ledePart.includes("need");
-  const subline = otherParts.join(" · ");
+    : spokenBrief
+      ? fallbackBriefObservations(spokenBrief)
+      : [];
+  const leadsNeedsYou = spokenBrief.includes("need");
   const syncTone = error ? "err" : "ok";
   const gauges = serviceGauges;
-  const briefSheetVisible = briefRefreshing || observations.length > 0;
+  const showBriefPanel = briefOpen || briefRefreshing;
+  const briefSheetVisible = briefRefreshing || hasBriefContent;
+  const toggleBrief = () => {
+    if (showBriefPanel && !briefRefreshing) {
+      setBriefOpen(false);
+      return;
+    }
+    setBriefOpen(true);
+    if (!hasBriefContent && !briefRefreshing) onRegenerateBrief();
+  };
+  const requestBrief = () => {
+    setBriefOpen(true);
+    onRegenerateBrief();
+  };
   const { runtime: sequenceRuntime } = useBriefSequenceRuntime(briefGenerationSequence, {
     active: briefRefreshing,
     speed: 3,
@@ -428,12 +438,12 @@ export default function HomeHero(props: HomeHeroProps) {
         </div>
         {gauges.length > 0 && (
           <div className="hd-topbar-c" aria-label="service usage">
-            <span className="hd-gauge-window">USAGE</span>
+            <span className="hd-gauge-window">TOKENS</span>
             <span className="hd-gauge-divider" aria-hidden="true" />
             {gauges.map((g, i) => (
               <span key={g.id} className="hd-gauge-wrap">
                 {i > 0 && <span className="hd-gauge-divider" aria-hidden="true" />}
-                <Gauge gauge={g} now={now} onClick={() => navigate({ view: "ops" })} />
+                <Gauge gauge={g} now={now} />
               </span>
             ))}
           </div>
@@ -448,62 +458,21 @@ export default function HomeHero(props: HomeHeroProps) {
       </div>
 
       <div className="hd-grid">
-        <div
-          className="hd-panel hd-panel--lede"
-          data-brief-refreshing={briefRefreshing || undefined}
-        >
+        <div className="hd-panel hd-panel--activity">
           <div className="hd-panel-title">
-            <Bot className="hd-brief-scoutbot-glyph" size={12} aria-hidden="true" />
-            <span>BRIEFING</span>
+            <span>RECENT ACTIVITY</span>
             <span className="hd-sep">·</span>
-            <span>{formatDateChip(now)}</span>
-            <button
-              type="button"
-              className="hd-brief-archive-link"
-              onClick={() => navigate({ view: "briefings" })}
-            >
-              view archive
-            </button>
+            <span>{heartrateWindow}</span>
+            {heartrateBucketLabel ? (
+              <>
+                <span className="hd-sep">·</span>
+                <span>{heartrateBucketLabel}</span>
+              </>
+            ) : null}
           </div>
-
-          {briefSheetVisible && (
-            <div
-              className="hd-brief-sheet"
-              data-brief-refreshing={briefRefreshing || undefined}
-              aria-busy={briefRefreshing || undefined}
-            >
-              {briefRefreshing ? (
-                <div className="hd-brief-seq" aria-busy="true">
-                  <BriefSequenceView runtime={sequenceRuntime} />
-                </div>
-              ) : (
-                <div className="hd-brief-copy">
-                {observations.map((observation, index) => (
-                  <p
-                    key={observation.id || `${observation.text}-${index}`}
-                    className={`hd-brief-line${leadsNeedsYou && index === 0 ? " hd-brief-line--warn" : ""}`}
-                  >
-                    <Crosshair className="hd-brief-icon" size={14} strokeWidth={1.7} aria-hidden="true" />
-                    <span className="hd-brief-line-body">
-                      <span>{observation.text}</span>
-                      <BriefReferenceChips references={observation.references} navigate={navigate} />
-                    </span>
-                  </p>
-                ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {subline.length > 0 && (
-            <p className="hd-sub">{subline}.</p>
-          )}
-
-          {error && (
-            <p className="hd-sub hd-sub--err">sync: {error}</p>
-          )}
-
-          <div className="hd-actions">
+          <HeartrateGraph buckets={heartrate} />
+          <SystemSignalStack signals={systemSignals} navigate={navigate} />
+          <div className="hd-actions hd-actions--activity">
             {totalOperatorQueue > 0 && (
               <button
                 type="button"
@@ -522,23 +491,13 @@ export default function HomeHero(props: HomeHeroProps) {
                 [open ops]
               </button>
             )}
-            {onSpeakBrief && (
-              <button
-                type="button"
-                className={`hd-btn${briefIsNew && !briefSpeaking ? " hd-btn--primary" : ""}`}
-                onClick={onSpeakBrief}
-                title={briefSpeaking ? "Stop reading the brief" : briefIsNew ? "Read the new brief aloud" : "Replay the brief"}
-              >
-                [{briefSpeaking ? "■ stop" : briefIsNew ? "▸ speak brief" : "▸ replay"}]
-              </button>
-            )}
             <button
               type="button"
-              className="hd-btn"
-              disabled={briefRefreshing}
-              onClick={onRegenerateBrief}
+              className={`hd-btn${briefIsNew && !briefOpen && !briefRefreshing ? " hd-btn--primary" : ""}`}
+              onClick={toggleBrief}
+              disabled={briefRefreshing && !briefOpen}
             >
-              [{briefRefreshing ? "briefing" : "new brief"}]
+              [{showBriefPanel ? "hide brief" : briefRefreshing ? "briefing" : "brief"}]
             </button>
             <button
               type="button"
@@ -551,21 +510,80 @@ export default function HomeHero(props: HomeHeroProps) {
           </div>
         </div>
 
-        <div className="hd-panel hd-panel--hr">
-          <div className="hd-panel-title">
-            <span>HEART-RATE</span>
-            <span className="hd-sep">·</span>
-            <span>{heartrateWindow}</span>
-            {heartrateBucketLabel ? (
-              <>
-                <span className="hd-sep">·</span>
-                <span>{heartrateBucketLabel}</span>
-              </>
+        {showBriefPanel && (
+          <div
+            className="hd-panel hd-panel--brief"
+            data-brief-refreshing={briefRefreshing || undefined}
+          >
+            <div className="hd-panel-title">
+              <Bot className="hd-brief-scoutbot-glyph" size={12} aria-hidden="true" />
+              <span>BRIEFING</span>
+              <span className="hd-sep">·</span>
+              <span>{formatDateChip(now)}</span>
+              <button
+                type="button"
+                className="hd-brief-archive-link"
+                onClick={() => navigate({ view: "briefings" })}
+              >
+                view archive
+              </button>
+            </div>
+
+            {briefSheetVisible ? (
+              <div
+                className="hd-brief-sheet"
+                data-brief-refreshing={briefRefreshing || undefined}
+                aria-busy={briefRefreshing || undefined}
+              >
+                {briefRefreshing ? (
+                  <div className="hd-brief-seq" aria-busy="true">
+                    <BriefSequenceView runtime={sequenceRuntime} />
+                  </div>
+                ) : (
+                  <div className="hd-brief-copy">
+                    {observations.map((observation, index) => (
+                      <p
+                        key={observation.id || `${observation.text}-${index}`}
+                        className={`hd-brief-line${leadsNeedsYou && index === 0 ? " hd-brief-line--warn" : ""}`}
+                      >
+                        <Crosshair className="hd-brief-icon" size={14} strokeWidth={1.7} aria-hidden="true" />
+                        <span className="hd-brief-line-body">
+                          <span>{observation.text}</span>
+                          <BriefReferenceChips references={observation.references} navigate={navigate} />
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : null}
+
+            {error && (
+              <p className="hd-sub hd-sub--err">sync: {error}</p>
+            )}
+
+            <div className="hd-actions">
+              {onSpeakBrief && (
+                <button
+                  type="button"
+                  className={`hd-btn${briefIsNew && !briefSpeaking ? " hd-btn--primary" : ""}`}
+                  onClick={onSpeakBrief}
+                  title={briefSpeaking ? "Stop reading the brief" : briefIsNew ? "Read the new brief aloud" : "Replay the brief"}
+                >
+                  [{briefSpeaking ? "■ stop" : briefIsNew ? "▸ speak brief" : "▸ replay"}]
+                </button>
+              )}
+              <button
+                type="button"
+                className="hd-btn"
+                disabled={briefRefreshing}
+                onClick={requestBrief}
+              >
+                [{briefRefreshing ? "briefing" : "new brief"}]
+              </button>
+            </div>
           </div>
-          <HeartrateGraph buckets={heartrate} />
-          <SystemSignalStack signals={systemSignals} navigate={navigate} />
-        </div>
+        )}
       </div>
     </section>
   );

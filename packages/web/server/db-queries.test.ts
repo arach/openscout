@@ -2022,6 +2022,52 @@ describe("web db query fleet", () => {
     }
   });
 
+  test("does not surface requester wait timeout summaries in active fleet asks", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.recordInvocation({
+        id: "inv-requester-timeout",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Review the sliced file preview behavior",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 7_000,
+      });
+      store.recordFlight({
+        id: "flight-requester-timeout",
+        invocationId: "inv-requester-timeout",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "waiting",
+        summary: "Agent One is still working; Scout stopped waiting for a synchronous result after 300000ms.",
+        startedAt: now - 6_000,
+        metadata: {
+          requesterTimedOut: true,
+          timeoutScope: "requester_wait",
+        },
+      });
+
+      const ask = queryFleet({ limit: 10, activityLimit: 20 })
+        .activeAsks
+        .find((item) => item.invocationId === "inv-requester-timeout");
+
+      expect(ask).toMatchObject({
+        invocationId: "inv-requester-timeout",
+        status: "working",
+        task: "Review the sliced file preview behavior",
+      });
+      expect(ask?.summary).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
   test("does not let later replies refresh older unrelated ask failures", () => {
     const store = createSeededStore();
     const now = Date.now();

@@ -34,6 +34,8 @@ type RailRowProps = {
   detail?: ReactNode;
   /** Whether detail is visible. */
   expanded?: boolean;
+  /** Optional row action rendered outside the main button. */
+  action?: ReactNode;
   onClick?: (event: React.MouseEvent) => void;
   onKeyDown?: (event: React.KeyboardEvent) => void;
   onPointerEnter?: (event: React.PointerEvent) => void;
@@ -57,6 +59,7 @@ export function RailRow({
   depth = 0,
   detail,
   expanded,
+  action,
   onClick,
   onKeyDown,
   onPointerEnter,
@@ -71,6 +74,7 @@ export function RailRow({
     selected && "rr-row--selected",
     unread && "rr-row--unread",
     expanded && "rr-row--expanded",
+    action && "rr-row--has-action",
   ]
     .filter(Boolean)
     .join(" ");
@@ -101,6 +105,7 @@ export function RailRow({
         </span>
         {meta && <span className="rr-row-meta">{meta}</span>}
       </button>
+      {action && <div className="rr-row-action">{action}</div>}
       {expanded && detail && <div className="rr-row-detail">{detail}</div>}
     </div>
   );

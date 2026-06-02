@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+
 import type {
   ScoutActivityItem,
   ScoutBrokerMessageRecord,
@@ -32,26 +34,113 @@ export function renderScoutAgentList(entries: ScoutWhoEntry[]): string {
     return "No agents are known to the broker yet.";
   }
 
-  return entries
-    .map((entry) => {
-      const messageLabel =
-        entry.messages === 1 ? "1 message" : `${entry.messages} messages`;
-      const lastSeenLabel = entry.lastSeen
-        ? `last seen ${formatScoutTimestamp(entry.lastSeen)}`
-        : "not seen yet";
-      const registrationLabel =
-        entry.registrationKind === "discovered" ? "auto-discovered" : null;
-      return [
-        entry.agentId,
-        entry.state,
-        messageLabel,
-        lastSeenLabel,
-        registrationLabel,
-      ]
-        .filter(Boolean)
-        .join(" · ");
+  return groupScoutAgentsByProject(entries)
+    .map((group) => {
+      const header = group.projectRoot
+        ? `${group.projectName} (${group.projectRoot})`
+        : group.projectName;
+      const agents = group.entries
+        .map((entry) => {
+          const identityLabel = formatScoutAgentIdentity(entry);
+          const runtimeLabel = [entry.harness, entry.transport]
+            .filter(Boolean)
+            .join("/");
+          const contactLabel = entry.defaultSelector ?? entry.selector;
+          const contactSuffix = contactLabel ? ` · ${contactLabel}` : "";
+          const runtimeSuffix = runtimeLabel ? `${runtimeLabel} · ` : "";
+          const registrationLabel =
+            entry.registrationKind === "discovered" ? "auto-discovered" : null;
+          const messageLabel =
+            entry.messages === 1 ? "1 message" : `${entry.messages} messages`;
+          const lastSeenLabel = entry.lastSeen
+            ? `last seen ${formatScoutTimestamp(entry.lastSeen)}`
+            : "not seen yet";
+          return [
+            `  ${identityLabel}${contactSuffix}`,
+            `    ${runtimeSuffix}${[
+              entry.state,
+              messageLabel,
+              lastSeenLabel,
+              registrationLabel,
+            ].filter(Boolean).join(" · ")}`,
+          ].join("\n");
+        })
+        .join("\n");
+
+      return `${header}\n${agents}`;
     })
-    .join("\n");
+    .join("\n\n");
+}
+
+function formatScoutAgentIdentity(entry: ScoutWhoEntry): string {
+  const displayName = entry.displayName?.trim();
+  if (displayName && displayName !== entry.agentId) {
+    return `${displayName} (${entry.agentId})`;
+  }
+  return entry.agentId;
+}
+
+function groupScoutAgentsByProject(entries: ScoutWhoEntry[]): Array<{
+  projectName: string;
+  projectRoot: string | null;
+  entries: ScoutWhoEntry[];
+}> {
+  const groups = new Map<string, {
+    projectName: string;
+    projectRoot: string | null;
+    entries: ScoutWhoEntry[];
+  }>();
+
+  for (const entry of entries) {
+    const key = entry.projectRoot ?? "__unassigned__";
+    const fallbackName = entry.projectRoot ? basename(entry.projectRoot) : null;
+    const projectName =
+      entry.projectName?.trim()
+      || fallbackName
+      || "Unassigned project";
+    const group = groups.get(key) ?? {
+      projectName,
+      projectRoot: entry.projectRoot,
+      entries: [],
+    };
+    group.entries.push(entry);
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      entries: group.entries.slice().sort(compareScoutWhoEntries),
+    }))
+    .sort((lhs, rhs) => {
+      const rootDelta = (lhs.projectRoot ?? "").localeCompare(rhs.projectRoot ?? "");
+      if (rootDelta !== 0) return rootDelta;
+      return lhs.projectName.localeCompare(rhs.projectName);
+    });
+}
+
+function whoStateRank(state: ScoutWhoEntry["state"]): number {
+  switch (state) {
+    case "active":
+      return 5;
+    case "waiting":
+      return 4;
+    case "idle":
+      return 2;
+    case "offline":
+      return 1;
+    case "discovered":
+    default:
+      return 0;
+  }
+}
+
+function compareScoutWhoEntries(lhs: ScoutWhoEntry, rhs: ScoutWhoEntry): number {
+  const stateDelta = whoStateRank(rhs.state) - whoStateRank(lhs.state);
+  if (stateDelta !== 0) return stateDelta;
+  const lastSeenDelta = (rhs.lastSeen ?? -1) - (lhs.lastSeen ?? -1);
+  if (lastSeenDelta !== 0) return lastSeenDelta;
+  return lhs.agentId.localeCompare(rhs.agentId);
 }
 
 export function renderScoutMessagePostResult(result: {

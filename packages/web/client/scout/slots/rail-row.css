@@ -1,6 +1,7 @@
 /* ── RailRow: shared dense row for left-rail panels (Agents, Messages) ── */
 
 .rr-row {
+  position: relative;
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
@@ -47,6 +48,19 @@
 
 .rr-row--expanded .rr-row-head {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.rr-row--has-action .rr-row-head {
+  padding-right: 34px;
+}
+
+.rr-row-action {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Leading dot or icon */

@@ -38,6 +38,7 @@ export function renderScoutHelp(version = "0.2.19"): string {
     "  scout whoami",
     "  scout inbox --latest 10 --json",
     "  scout who",
+    "  scout who --project .",
     "  scout channel triage --latest 10 --json",
     "  scout latest",
     "  scout latest --channel triage --messages --limit 3",

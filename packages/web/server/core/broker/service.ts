@@ -40,6 +40,7 @@ import {
 } from "@openscout/protocol";
 import {
   ensureRelayAgentConfigured,
+  findNearestProjectRoot,
   loadResolvedRelayAgents,
   resolveRelayAgentConfig,
   SCOUT_AGENT_ID,
@@ -247,6 +248,15 @@ export type ScoutWhoRegistrationKind = "broker" | "configured" | "discovered";
 
 export type ScoutWhoEntry = {
   agentId: string;
+  displayName: string | null;
+  handle: string | null;
+  selector: string | null;
+  defaultSelector: string | null;
+  projectName: string | null;
+  projectRoot: string | null;
+  harness: string | null;
+  transport: string | null;
+  sessionId: string | null;
   state: AgentState | "discovered";
   messages: number;
   lastSeen: number | null;
@@ -2394,6 +2404,53 @@ function whoEndpointActivity(endpoint: ScoutBrokerEndpointRecord): number | null
   ]);
 }
 
+function preferredWhoEndpoint(
+  endpoints: ScoutBrokerEndpointRecord[],
+): ScoutBrokerEndpointRecord | null {
+  return endpoints
+    .slice()
+    .sort((lhs, rhs) => {
+      const stateDelta =
+        whoStateRank(rhs.state ?? "offline")
+        - whoStateRank(lhs.state ?? "offline");
+      if (stateDelta !== 0) return stateDelta;
+      const activityDelta =
+        (whoEndpointActivity(rhs) ?? -1) - (whoEndpointActivity(lhs) ?? -1);
+      if (activityDelta !== 0) return activityDelta;
+      return lhs.id.localeCompare(rhs.id);
+    })[0] ?? null;
+}
+
+function whoEntryString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function whoEntryProjectRoot(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+  endpoint: ScoutBrokerEndpointRecord | null,
+  resolvedConfig: ResolvedRelayAgentConfig | undefined,
+): string | null {
+  return whoEntryString(endpoint?.projectRoot)
+    ?? whoEntryString(endpoint?.cwd)
+    ?? whoEntryString(resolvedConfig?.projectRoot)
+    ?? whoEntryString(metadataString(snapshot.agents[agentId]?.metadata, "projectRoot"))
+    ?? whoEntryString(metadataString(snapshot.actors[agentId]?.metadata, "projectRoot"));
+}
+
+function whoEntryProjectName(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+  projectRoot: string | null,
+  resolvedConfig: ResolvedRelayAgentConfig | undefined,
+): string | null {
+  return whoEntryString(resolvedConfig?.projectName)
+    ?? whoEntryString(metadataString(snapshot.agents[agentId]?.metadata, "projectName"))
+    ?? whoEntryString(metadataString(snapshot.actors[agentId]?.metadata, "projectName"))
+    ?? (projectRoot ? basename(projectRoot) : null);
+}
+
 function whoEntryState(endpoints: ScoutBrokerEndpointRecord[], registrationKind: ScoutWhoRegistrationKind): AgentState | "discovered" {
   if (endpoints.length === 0) return registrationKind === "discovered" ? "discovered" : "offline";
   return endpoints.reduce<AgentState>((bestState, endpoint) => {
@@ -2411,9 +2468,28 @@ async function loadDiscoveredAgentMap(currentDirectory: string): Promise<Map<str
   }
 }
 
-export async function listScoutAgents(options: { currentDirectory?: string } = {}): Promise<ScoutWhoEntry[]> {
+async function resolveWhoProjectFilter(options: {
+  currentDirectory?: string;
+  projectPath?: string;
+}): Promise<string | null> {
+  const projectPath = options.projectPath?.trim();
+  if (!projectPath) {
+    return null;
+  }
+  const absolutePath = resolve(
+    options.currentDirectory ?? process.cwd(),
+    projectPath,
+  );
+  const projectRoot = await findNearestProjectRoot(absolutePath);
+  return resolve(projectRoot ?? absolutePath);
+}
+
+export async function listScoutAgents(options: { currentDirectory?: string; projectPath?: string } = {}): Promise<ScoutWhoEntry[]> {
   const broker = await requireScoutBrokerContext();
-  const discoveredAgents = await loadDiscoveredAgentMap(options.currentDirectory ?? process.cwd());
+  const [discoveredAgents, projectFilter] = await Promise.all([
+    loadDiscoveredAgentMap(options.currentDirectory ?? process.cwd()),
+    resolveWhoProjectFilter(options),
+  ]);
   const endpointsByAgent = new Map<string, ScoutBrokerEndpointRecord[]>();
   const messageStats = new Map<string, { messages: number; lastSeen: number | null }>();
 
@@ -2443,17 +2519,63 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
     .filter((agentId) => !isSupersededBrokerAgent(broker.snapshot, agentId))
     .map((agentId): ScoutWhoEntry => {
       const endpoints = endpointsByAgent.get(agentId) ?? [];
+      const preferredEndpoint = preferredWhoEndpoint(endpoints);
       const brokerMessages = messageStats.get(agentId);
-      const registrationKind = discoveredAgents.get(agentId)?.registrationKind ?? "broker";
+      const resolvedConfig = discoveredAgents.get(agentId);
+      const registrationKind = resolvedConfig?.registrationKind ?? "broker";
       const state = whoEntryState(endpoints, registrationKind);
       const lastSeen = maxDefined([
         brokerMessages?.lastSeen,
         ...endpoints.map((endpoint) => whoEndpointActivity(endpoint)),
       ]);
       const messages = brokerMessages?.messages ?? 0;
-      return { agentId, state, messages, lastSeen, registrationKind };
+      const projectRoot = whoEntryProjectRoot(
+        broker.snapshot,
+        agentId,
+        preferredEndpoint,
+        resolvedConfig,
+      );
+      return {
+        agentId,
+        displayName: whoEntryString(broker.snapshot.agents[agentId]?.displayName)
+          ?? whoEntryString(broker.snapshot.actors[agentId]?.displayName)
+          ?? whoEntryString(resolvedConfig?.displayName),
+        handle: whoEntryString(broker.snapshot.agents[agentId]?.handle)
+          ?? whoEntryString(broker.snapshot.actors[agentId]?.handle),
+        selector: whoEntryString(broker.snapshot.agents[agentId]?.selector)
+          ?? whoEntryString(metadataString(broker.snapshot.agents[agentId]?.metadata, "selector"))
+          ?? whoEntryString(resolvedConfig?.instance.selector),
+        defaultSelector: whoEntryString(broker.snapshot.agents[agentId]?.defaultSelector)
+          ?? whoEntryString(metadataString(broker.snapshot.agents[agentId]?.metadata, "defaultSelector"))
+          ?? whoEntryString(resolvedConfig?.instance.defaultSelector),
+        projectName: whoEntryProjectName(
+          broker.snapshot,
+          agentId,
+          projectRoot,
+          resolvedConfig,
+        ),
+        projectRoot,
+        harness: whoEntryString(preferredEndpoint?.harness)
+          ?? whoEntryString(resolvedConfig?.runtime.harness),
+        transport: whoEntryString(preferredEndpoint?.transport)
+          ?? whoEntryString(resolvedConfig?.runtime.transport),
+        sessionId: whoEntryString(preferredEndpoint?.sessionId)
+          ?? whoEntryString(resolvedConfig?.runtime.sessionId),
+        state,
+        messages,
+        lastSeen,
+        registrationKind,
+      };
     })
+    .filter((entry) => (
+      projectFilter
+        ? entry.projectRoot !== null && resolve(entry.projectRoot) === projectFilter
+        : true
+    ))
     .sort((lhs, rhs) => {
+      const projectDelta = (lhs.projectName ?? lhs.projectRoot ?? "")
+        .localeCompare(rhs.projectName ?? rhs.projectRoot ?? "");
+      if (projectDelta !== 0) return projectDelta;
       const stateDelta = whoStateRank(rhs.state) - whoStateRank(lhs.state);
       if (stateDelta !== 0) return stateDelta;
       const lastSeenDelta = (rhs.lastSeen ?? -1) - (lhs.lastSeen ?? -1);

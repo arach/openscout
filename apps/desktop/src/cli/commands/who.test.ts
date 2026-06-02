@@ -8,6 +8,8 @@ describe("who command help", () => {
     const help = renderWhoCommandHelp();
 
     expect(help).toContain("List agents known to the broker");
+    expect(help).toContain("grouped by project");
+    expect(help).toContain("scout who --project .");
     expect(help).toContain("exact target");
     expect(help).toContain("Short handles");
     expect(help).toContain("@talkie#codex?5.5");

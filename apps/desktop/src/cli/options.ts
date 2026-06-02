@@ -72,6 +72,10 @@ export type ScoutLatestCommandOptions = ContextRootOptions & {
   messages: boolean;
 };
 
+export type ScoutWhoCommandOptions = ContextRootOptions & {
+  projectPath?: string;
+};
+
 export type ScoutEnrollCommandOptions = ContextRootOptions & {
   agentName: string | null;
   task?: string;
@@ -359,6 +363,37 @@ export function parseContextRootCommandOptions(
     unexpectedArgs(commandName, args);
   }
   return parsed;
+}
+
+export function parseWhoCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutWhoCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let projectPath: string | undefined;
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--project" || current.startsWith("--project=")) {
+      const value = parseFlagValue(parsed.args, index, "--project");
+      projectPath = resolveInputFilePath(parsed.currentDirectory, value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--project-path" || current.startsWith("--project-path=")) {
+      const value = parseFlagValue(parsed.args, index, "--project-path");
+      projectPath = resolveInputFilePath(parsed.currentDirectory, value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    unexpectedArgs("who", args);
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: [],
+    projectPath,
+  };
 }
 
 export function parseSendCommandOptions(

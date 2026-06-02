@@ -194,7 +194,7 @@ type ComposeAction = "tell" | "ask" | "steer";
 type ConversationPresence = {
   label: string;
   detail: string;
-  tone: "idle" | "pending" | "working" | "stale" | "offline";
+  tone: "idle" | "pending" | "working" | "quiet" | "offline";
   showStrip: boolean;
   showTyping: boolean;
 };
@@ -555,16 +555,16 @@ function describePresence(input: {
   }
 
   if (currentFlight && showWorkingTurn && workingTurnIsStale) {
-    const staleAge = timeAgo(currentFlight.startedAt, nowMs);
-    const staleDetail = staleAge
-      ? `No update from ${agentName} for ${staleAge}.`
-      : `No recent update from ${agentName}.`;
+    const quietAge = timeAgo(currentFlight.startedAt, nowMs);
+    const quietDetail = quietAge
+      ? `No new agent event from ${agentName} for ${quietAge}.`
+      : `No new agent event from ${agentName}.`;
     return {
-      label: workingTurnIsGone ? "Gone" : "Stale",
+      label: "Open",
       detail: workingTurnIsGone
-        ? `${staleDetail} Agent is offline.`
-        : staleDetail,
-      tone: "stale",
+        ? `${quietDetail} Agent is offline.`
+        : quietDetail,
+      tone: "quiet",
       showStrip: true,
       showTyping: true,
     };
@@ -638,7 +638,7 @@ function presenceColor(
       return "var(--accent)";
     case "working":
       return "var(--green)";
-    case "stale":
+    case "quiet":
       return "var(--amber)";
     case "offline":
       return "var(--dim)";
@@ -1551,8 +1551,8 @@ export function ConversationScreen({
       workingTurnIsStale,
     ],
   );
-  const hasStaleWorkingTurnPresence = presence.tone === "stale";
-  const workingTurnBadgeLabel = hasStaleWorkingTurnPresence
+  const hasQuietWorkingTurnPresence = presence.tone === "quiet";
+  const workingTurnBadgeLabel = hasQuietWorkingTurnPresence
     ? presence.label
     : "Live";
   const workingTurnSnapshot = useMemo(
@@ -1570,48 +1570,48 @@ export function ConversationScreen({
     "s-thread-msg-card",
     "s-thread-msg-working-card",
     "s-thread-msg-card--avatar-row",
-    hasStaleWorkingTurnPresence ? "s-thread-msg-working-card--stale" : null,
+    hasQuietWorkingTurnPresence ? "s-thread-msg-working-card--quiet" : null,
   ]
     .filter(Boolean)
     .join(" ");
   const workingTurnKindClassName = [
     "s-thread-msg-kind",
-    hasStaleWorkingTurnPresence ? "s-thread-msg-kind--stale" : null,
-    workingTurnIsGone ? "s-thread-msg-kind--gone" : null,
+    hasQuietWorkingTurnPresence ? "s-thread-msg-kind--quiet" : null,
+    workingTurnIsGone ? "s-thread-msg-kind--offline" : null,
   ]
     .filter(Boolean)
     .join(" ");
-  const staleIndicatorClassName = [
-    "s-thread-stale-indicator",
-    workingTurnIsGone ? "s-thread-stale-indicator--gone" : null,
+  const quietIndicatorClassName = [
+    "s-thread-quiet-indicator",
+    workingTurnIsGone ? "s-thread-quiet-indicator--offline" : null,
   ]
     .filter(Boolean)
     .join(" ");
   const workingTurnSnapshotClassName = [
     "s-thread-turn-snapshot",
-    hasStaleWorkingTurnPresence ? "s-thread-turn-snapshot--stale" : null,
+    hasQuietWorkingTurnPresence ? "s-thread-turn-snapshot--quiet" : null,
   ]
     .filter(Boolean)
     .join(" ");
   const workingTurnPulseClassName = [
     "s-thread-turn-snapshot-pulse",
-    hasStaleWorkingTurnPresence ? "s-thread-turn-snapshot-pulse--stale" : null,
+    hasQuietWorkingTurnPresence ? "s-thread-turn-snapshot-pulse--quiet" : null,
   ]
     .filter(Boolean)
     .join(" ");
   const presenceLineClassName = [
     "s-thread-presence-line",
-    hasStaleWorkingTurnPresence ? "s-thread-presence-line--stale" : null,
+    hasQuietWorkingTurnPresence ? "s-thread-presence-line--quiet" : null,
   ]
     .filter(Boolean)
     .join(" ");
   const presenceStripClassName = [
     "s-thread-presence-strip",
-    hasStaleWorkingTurnPresence ? "s-thread-presence-strip--stale" : null,
+    hasQuietWorkingTurnPresence ? "s-thread-presence-strip--quiet" : null,
   ]
     .filter(Boolean)
     .join(" ");
-  const presenceLineLabel = hasStaleWorkingTurnPresence
+  const presenceLineLabel = hasQuietWorkingTurnPresence
     ? presence.detail
     : `${agentName}: ${workingTurnSnapshot.latest}`;
   const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
@@ -2708,12 +2708,12 @@ export function ConversationScreen({
                           ? timeAgo(currentFlight.startedAt)
                           : "now"}
                       </span>
-                      {hasStaleWorkingTurnPresence && (
+                      {hasQuietWorkingTurnPresence && (
                         <button
                           type="button"
                           className="s-thread-msg-dismiss"
-                          aria-label="Dismiss stale turn"
-                          title="Dismiss stale turn"
+                          aria-label="Dismiss open task"
+                          title="Dismiss open task"
                           onClick={dismissWorkingTurn}
                         >
                           <DismissIcon />
@@ -2722,9 +2722,9 @@ export function ConversationScreen({
                     </div>
                     <div className="s-thread-msg-working-body">
                       <div className={workingTurnSnapshotClassName}>
-                        {hasStaleWorkingTurnPresence ? (
+                        {hasQuietWorkingTurnPresence ? (
                           <span
-                            className={staleIndicatorClassName}
+                            className={quietIndicatorClassName}
                             aria-hidden="true"
                           />
                         ) : (

@@ -236,6 +236,7 @@ type ScoutbotAskAgentResult = {
   conversationId: string | null;
   messageId: string | null;
   flightId: string | null;
+  invocationId: string | null;
   targetAgentId: string | null;
 };
 

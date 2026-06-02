@@ -32,15 +32,26 @@ const EXT_TAIL_RE = new RegExp(`\\.(?:${EXT_PATTERN})(?:$|[?#])`, "i");
 const KNOWN_ABS_PREFIX = /^(?:\/Users\/|\/home\/|\/Volumes\/|\/var\/|\/etc\/|\/opt\/|\/tmp\/|\/private\/|\/mnt\/|\/Applications\/|\/usr\/|\/Library\/)/u;
 
 const RAW_PATH_RE =
-  /(?:^|[\s(\[`'"])((?:~\/|\.\/|\.\.\/|\/)[A-Za-z0-9._/\-]+|[A-Za-z0-9._\-]+(?:\/[A-Za-z0-9._\-]+)+)/g;
+  /(?:^|[\s(\[`'"])((?:~\/|\.\/|\.\.\/|\/)[A-Za-z0-9._/\-]+|[A-Za-z0-9._\-]+(?:\/[A-Za-z0-9._\-]+)+)(:\d+(?:-\d+)?)?/g;
+
+export type PathRange = {
+  /** First line (1-indexed). */
+  start: number;
+  /** Last line (1-indexed, inclusive). Absent when the ref points at a single line. */
+  end?: number;
+};
 
 export type PathMatch = {
-  /** Index in the source string where the matched path token starts. */
+  /** Index in the source string where the matched token (path + optional range) starts. */
   start: number;
-  /** Index just past the end of the matched path token. */
+  /** Index just past the end of the matched token. */
   end: number;
-  /** The matched path string. */
+  /** The path portion of the token, with any trailing prose punctuation stripped. */
   path: string;
+  /** Parsed `:N` or `:N-M` suffix, if present. */
+  range?: PathRange;
+  /** Raw token as it appears in the source (path + ":start-end" suffix when present). */
+  raw: string;
 };
 
 /** Does this token look like a real filesystem path (vs a slug/route)? */
@@ -58,20 +69,37 @@ function isFilesystemPath(token: string): boolean {
   return EXT_TAIL_RE.test(token);
 }
 
+/** Parse a `:N` or `:N-M` suffix (with leading colon) into a structured range. */
+function parseRangeSuffix(suffix: string | undefined): PathRange | undefined {
+  if (!suffix) return undefined;
+  const m = /^:(\d+)(?:-(\d+))?$/u.exec(suffix);
+  if (!m) return undefined;
+  const start = Number(m[1]);
+  if (!Number.isFinite(start) || start < 1) return undefined;
+  if (m[2] === undefined) return { start };
+  const end = Number(m[2]);
+  if (!Number.isFinite(end) || end < start) return undefined;
+  return { start, end };
+}
+
 /** Find all filepath-like tokens in the given text. Non-overlapping matches. */
 export function findPathMatches(text: string): PathMatch[] {
   const out: PathMatch[] = [];
   const re = new RegExp(RAW_PATH_RE.source, "g");
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    const captured = m[1];
-    if (!captured) continue;
-    const path = captured.replace(/[.,;:!?]+$/u, "");
+    const capturedPath = m[1];
+    if (!capturedPath) continue;
+    const path = capturedPath.replace(/[.,;:!?]+$/u, "");
     if (!path || !isFilesystemPath(path)) continue;
-    const captureOffset = m[0].lastIndexOf(captured);
+    const range = parseRangeSuffix(m[2]);
+    const rangeSuffix = range ? (m[2] ?? "") : "";
+    const captureOffset = m[0].indexOf(capturedPath);
     if (captureOffset < 0) continue;
     const start = m.index + captureOffset;
-    out.push({ start, end: start + path.length, path });
+    const end = start + path.length + rangeSuffix.length;
+    const raw = path + rangeSuffix;
+    out.push({ start, end, path, range, raw });
   }
   return out;
 }
@@ -141,27 +169,38 @@ function PathIcon({ kind }: { kind: "file" | "image" | "dir" }) {
   );
 }
 
+/** Format a range as `start` or `start-end` for display. */
+export function formatPathRange(range: PathRange | undefined): string {
+  if (!range) return "";
+  return range.end !== undefined ? `${range.start}-${range.end}` : String(range.start);
+}
+
 /** Clickable path token — opens the file preview overlay. */
-export function PathToken({ path }: { path: string }) {
+export function PathToken({ path, range }: { path: string; range?: PathRange }) {
   const { openFilePreview } = useScout();
   const kind: "file" | "image" | "dir" = isImagePath(path)
     ? "image"
     : isDirectoryLikePath(path)
       ? "dir"
       : "file";
+  const rangeLabel = formatPathRange(range);
+  const display = rangeLabel ? `${path}:${rangeLabel}` : path;
+  const title = rangeLabel ? `Open ${path} (lines ${rangeLabel})` : `Open ${path}`;
   return (
     <button
       type="button"
       className="s-path-token"
+      data-path={path}
+      data-range={rangeLabel || undefined}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        openFilePreview(path);
+        openFilePreview(path, range);
       }}
-      title={`Open ${path}`}
+      title={title}
     >
       <PathIcon kind={kind} />
-      {path}
+      {display}
     </button>
   );
 }

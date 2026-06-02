@@ -190,6 +190,94 @@ for await (const line of rl) {
     await adapter.shutdown();
   });
 
+  test("queues follow-up prompts while a Claude turn is active", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-queue-"));
+    tempPaths.add(tempRoot);
+
+    writeFakeClaudeExecutable(tempRoot, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+console.log(JSON.stringify({
+  type: "system",
+  subtype: "init",
+  session_id: "claude-session-queue",
+  cwd: process.cwd(),
+  model: "claude-test",
+}));
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+let count = 0;
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+
+  count += 1;
+  console.log(JSON.stringify({ type: "stream_event", event: { type: "message_start" } }));
+  console.log(JSON.stringify({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+  }));
+  console.log(JSON.stringify({
+    type: "stream_event",
+    event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: \`reply \${count}\` } },
+  }));
+  console.log(JSON.stringify({ type: "stream_event", event: { type: "content_block_stop", index: 0 } }));
+  if (count === 1) {
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false }));
+  if (count >= 2) break;
+}
+`);
+
+    process.env.PATH = `${tempRoot}:${originalPath ?? ""}`;
+
+    const adapter = createAdapter({
+      sessionId: `claude-test-${crypto.randomUUID()}`,
+      name: "Claude Queue Test",
+      cwd: tempRoot,
+      env: {
+        PATH: process.env.PATH,
+      },
+    });
+
+    const collector = createEventCollector();
+    adapter.on("event", (event) => collector.push(event));
+
+    await adapter.start();
+    adapter.send({ sessionId: adapter.session.id, text: "first" });
+    await collector.waitFor((events) => events.some((event) => event.event === "turn:start"));
+
+    adapter.send({ sessionId: adapter.session.id, text: "second" });
+    await collector.waitFor((events) =>
+      events.some((event) =>
+        event.event === "session:update"
+        && event.session.providerMeta?.queuedPromptCount === 1
+      ));
+    await collector.waitFor(
+      (events) => events.filter((event) => event.event === "turn:end").length === 2,
+    );
+
+    const starts = collector.events
+      .map((event, index) => ({ event, index }))
+      .filter((entry) => entry.event.event === "turn:start");
+    const ends = collector.events
+      .map((event, index) => ({ event, index }))
+      .filter((entry) => entry.event.event === "turn:end");
+    const deltas = collector.events
+      .filter((event) => event.event === "block:delta")
+      .map((event) => event.text)
+      .join("");
+
+    expect(starts).toHaveLength(2);
+    expect(ends).toHaveLength(2);
+    expect(starts[1]!.index).toBeGreaterThan(ends[0]!.index);
+    expect(deltas).toBe("reply 1reply 2");
+
+    await adapter.shutdown();
+  });
+
   test("attaches observed Claude agent-team topology to session metadata", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-topology-"));
     const tempHome = mkdtempSync(join(tmpdir(), "openscout-claude-home-"));
