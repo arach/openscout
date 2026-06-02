@@ -2719,6 +2719,8 @@ const TMUX_VERIFY_FIRST_SAMPLE_MS = 250;
 const TMUX_VERIFY_SECOND_SAMPLE_MS = 750;
 const TMUX_VERIFY_RETRY_SAMPLE_MS = 400;
 const TMUX_CAPTURE_TAIL_LINES = 20;
+const TMUX_DEFAULT_COLUMNS = parsePositiveInteger(process.env.OPENSCOUT_LOCAL_AGENT_TMUX_COLUMNS, 160);
+const TMUX_DEFAULT_ROWS = parsePositiveInteger(process.env.OPENSCOUT_LOCAL_AGENT_TMUX_ROWS, 48);
 const TMUX_READY_TIMEOUT_MS = 20_000;
 const TMUX_READY_POLL_MS = 250;
 const TMUX_READY_TAIL_LINES = 80;
@@ -3344,6 +3346,10 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
     [
       "new-session",
       "-dP",
+      "-x",
+      String(TMUX_DEFAULT_COLUMNS),
+      "-y",
+      String(TMUX_DEFAULT_ROWS),
       "-F",
       "#{pane_id}",
       "-s",
