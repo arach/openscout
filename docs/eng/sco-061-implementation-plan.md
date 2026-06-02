@@ -89,15 +89,15 @@ iOS provides `BridgeBrokerClient` (in `scout-ios-core`, WS+Noise+tRPC). macOS pr
 - First golden fixture: the four-modality `POST /api/sessions` body.
 - **Done when:** a session starts from the new app *and* macOS through the same spec; fixtures green.
 
-### Phase 2 — Conversation projection + the conversation surface
+### Phase 2 — Conversation projection + the conversation surface  ✅ landed (against the mock)
 *The keystone. Promote behavior, not the store.*
 
-- Extract the **pure** reducer + model from iOS `SessionStore` — `Turn`/`Block`/`Action`/`Question`, `ScoutEvent`, the event→state reduction with snapshot recovery — into `ScoutCapabilities/ConversationProjection`. Leave `@MainActor`, observation, locks, and cache behind (those stay in `scout-ios-core`).
-- Define `ConversationCapability` + `ControlCapability`.
-- `scout-ios-core` exposes a thin `@MainActor` store wrapping the projection + bridge stream + cache.
-- **New app:** build the conversation surface on Hudson message components + the shared `MessageMarkupParser`/`MessageCodeBlock`.
-- Fixtures: recorded event streams → expected projection states (incl. snapshot recovery, seq gaps).
-- **Done when:** the new app renders live conversations off the shared projection; fixtures green.
+- ✅ Extracted the **pure** reducer + model from iOS `SessionStore` — `Turn`/`Block`/`Action`/`Question`, `ScoutEvent`, the event→state reduction with snapshot recovery — into `ScoutCapabilities` (`ConversationModel.swift` + `ConversationProjection.swift`). `@MainActor`, observation, locks, and cache left behind (those land in `scout-ios-core`). `nowMillis`/`TurnHash` wall-clock concerns dropped so the reducer is deterministic for fixtures.
+- ✅ Defined `ConversationCapability` (snapshot + event stream) + `ControlCapability` (send/answer/decide/interrupt); composed both into `ScoutBrokerClient`.
+- ✅ **New app:** `ConversationSurface` renders turns/blocks via Hudson atoms (`HudCard`/`HudBadge`/`HudStatusDot`/`HudButton`) + `HudMessageBar`; Home rows deep-link in. Drives the projection off `MockBrokerClient`'s scripted live turn.
+- ✅ Fixtures: 6 projection tests (streaming text, action output/status, seq cursor, snapshot recovery, unknown-event tolerance, wire round-trip) — green.
+- ⏭ Remaining for "done against real transport": richer block rendering via `MessageMarkupParser`/`MessageCodeBlock`; `scout-ios-core` `@MainActor` store wrapping the projection + bridge stream + cache; iOS `BridgeBrokerClient` conformance replacing the mock.
+- **Done when:** the new app renders live conversations off the shared projection; fixtures green. → **met against the mock seam**; real-transport conformance tracked under Phase 3+/the harvest.
 
 ### Phase 3 — Listing & Tail capabilities + surfaces
 *Independent of Phase 2; parallelizable once Phase 1's pattern is set.*
