@@ -8,7 +8,7 @@
 //   - iOS:   BridgeBrokerClient (WS+Noise+tRPC, in scout-ios-core)
 //   - demos/tests: an in-memory mock
 //
-// Conversation + Control capabilities join here in Phase 2.
+// Conversation + Control capabilities joined here in Phase 2.
 
 import Foundation
 
@@ -16,5 +16,7 @@ public protocol ScoutBrokerClient:
     SessionInitiationCapability,
     ListingCapability,
     TailCapability,
+    ConversationCapability,
+    ControlCapability,
     Sendable
 {}

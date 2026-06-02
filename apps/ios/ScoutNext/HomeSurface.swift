@@ -11,6 +11,13 @@ struct HomeSurface: View {
     @State private var sessions: [SessionSummary] = []
     @State private var agents: [AgentSummary] = []
     @State private var isLoading = true
+    @State private var route: ConversationRoute?
+
+    /// A Hashable navigation target — the contract models stay transport-pure.
+    private struct ConversationRoute: Hashable, Identifiable {
+        let id: String
+        let title: String
+    }
 
     var body: some View {
         ScrollView {
@@ -25,6 +32,9 @@ struct HomeSurface: View {
             .padding(HudSpacing.xxl)
         }
         .task { await load() }
+        .navigationDestination(item: $route) { route in
+            ConversationSurface(client: client, conversationId: route.id, title: route.title)
+        }
     }
 
     // MARK: - Agents
@@ -40,7 +50,8 @@ struct HomeSurface: View {
                         title: agent.title,
                         subtitle: subtitle(for: agent),
                         icon: "cpu",
-                        iconTint: tint(for: agent.harness)
+                        iconTint: tint(for: agent.harness),
+                        onTap: agent.sessionId.map { sid in { route = ConversationRoute(id: sid, title: agent.title) } }
                     ) {
                         HudBadge(stateLabel(agent.state), tint: stateColor(agent.state), dot: true)
                     }
@@ -88,7 +99,8 @@ struct HomeSurface: View {
                         title: session.title,
                         subtitle: subtitle(for: session),
                         icon: "bubble.left",
-                        iconTint: tint(for: session.harness)
+                        iconTint: tint(for: session.harness),
+                        onTap: { route = ConversationRoute(id: session.id, title: session.title) }
                     ) {
                         HudBadge(session.status.rawValue, tint: statusColor(session.status), dot: true)
                     }
@@ -133,5 +145,12 @@ struct HomeSurface: View {
         sessions = loadedSessions ?? []
         agents = loadedAgents ?? []
         isLoading = false
+
+        // `-open <conversationId>` deep-links straight into a conversation so the
+        // surface can be driven deterministically (e.g. for screenshots).
+        if route == nil, let open = UserDefaults.standard.string(forKey: "open"), !open.isEmpty {
+            let title = sessions.first(where: { $0.id == open })?.title ?? "Conversation"
+            route = ConversationRoute(id: open, title: title)
+        }
     }
 }
