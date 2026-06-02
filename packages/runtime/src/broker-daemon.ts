@@ -184,6 +184,10 @@ import {
   readRecentTranscriptEvents,
   type TailEvent,
 } from "./tail/index.js";
+import {
+  isBrokerRunnableLocalAgentTransport,
+  isDirectLocalAgentTransport,
+} from "./local-agent-transports.js";
 
 const PROCESS_NAME = "scout-broker";
 const WEB_PROCESS_NAME = "scout-web";
@@ -2604,7 +2608,7 @@ function describeUnavailableDeliveryTarget(
   if (
     endpoint
     && isManagedLocalSessionMetadata(endpoint.metadata)
-    && (endpoint.transport === "codex_app_server" || endpoint.transport === "claude_stream_json")
+    && isDirectLocalAgentTransport(endpoint.transport)
   ) {
     return null;
   }
@@ -4552,15 +4556,13 @@ async function executeLocalInvocation(
 
   if (
     endpoint.transport !== "pairing_bridge"
-    && endpoint.transport !== "tmux"
-    && endpoint.transport !== "codex_app_server"
-    && endpoint.transport !== "claude_stream_json"
+    && !isBrokerRunnableLocalAgentTransport(endpoint.transport)
   ) {
     const failedFlight = {
       ...initialFlight,
       state: "failed" as const,
       summary: `${agent.displayName} has no supported local executor.`,
-      error: `Endpoint transport ${endpoint.transport} is registered for ${agent.id}, but the broker only routes through direct local session adapters.`,
+      error: `Endpoint transport ${endpoint.transport} is registered for ${agent.id}, but the broker only routes through direct local agent adapters.`,
       completedAt: Date.now(),
     };
     await persistFlight(failedFlight);

@@ -20,6 +20,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   let agentName: string | undefined;
   let harness: string | undefined;
   let model: string | undefined;
+  let provider: string | undefined;
   let reasoningEffort: string | undefined;
   let permissionProfile: string | undefined;
 
@@ -64,6 +65,19 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
       model = current.slice("--model=".length);
       continue;
     }
+    if (current === "--provider") {
+      const value = args[index + 1];
+      if (!value) {
+        throw new ScoutCliError("missing value for --provider");
+      }
+      provider = value;
+      index += 1;
+      continue;
+    }
+    if (current.startsWith("--provider=")) {
+      provider = current.slice("--provider=".length);
+      continue;
+    }
     if (current === "--reasoning-effort" || current === "--effort") {
       const value = args[index + 1];
       if (!value) {
@@ -104,7 +118,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   }
 
   if (!target) {
-    throw new ScoutCliError(`usage: scout up <name|path> [--name <alias>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <${formatScoutPermissionProfiles()}>]`);
+    throw new ScoutCliError(`usage: scout up <name|path> [--name <alias>] [--harness <claude|codex|pi>] [--provider <provider>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <${formatScoutPermissionProfiles()}>]`);
   }
 
   let projectPath: string;
@@ -133,6 +147,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
     agentName,
     harness: parseScoutLocalHarness(harness),
     model,
+    provider,
     reasoningEffort,
     permissionProfile,
     currentDirectory: defaultScoutContextDirectory(context),

@@ -420,13 +420,14 @@ describe("parseChannelCommandOptions", () => {
 describe("parseCardCreateCommandOptions", () => {
   test("accepts an explicit model override", () => {
     const options = parseCardCreateCommandOptions(
-      ["--name", "shellfix", "--harness", "codex", "--model", "gpt-5.4-mini", "--reasoning-effort", "xhigh", "/tmp/worktree"],
+      ["--name", "shellfix", "--harness", "pi", "--provider", "minimax", "--model", "MiniMax-M3", "--reasoning-effort", "xhigh", "/tmp/worktree"],
       "/tmp/workspace",
     );
 
     expect(options.agentName).toBe("shellfix");
-    expect(options.harness).toBe("codex");
-    expect(options.model).toBe("gpt-5.4-mini");
+    expect(options.harness).toBe("pi");
+    expect(options.provider).toBe("minimax");
+    expect(options.model).toBe("MiniMax-M3");
     expect(options.reasoningEffort).toBe("xhigh");
     expect(options.projectPath).toBe("/tmp/worktree");
   });

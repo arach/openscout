@@ -190,6 +190,7 @@ export class PiAdapter extends BaseAdapter {
   private currentTextBlock: Block | null = null;
   private currentReasoningBlock: Block | null = null;
   private toolBlockByIndex = new Map<number, Block>();
+  private sawStreamingTextInTurn = false;
 
   constructor(config: AdapterConfig) {
     super(config);
@@ -218,10 +219,25 @@ export class PiAdapter extends BaseAdapter {
     const sessionPath = this.config.options?.["session"] as string | undefined;
     if (sessionPath) args.push("--session", sessionPath);
 
+    // Session directory.
+    const sessionDir = this.config.options?.["sessionDir"] as string | undefined;
+    if (sessionDir) args.push("--session-dir", sessionDir);
+
+    // Additional system prompt.
+    const appendSystemPrompt = this.config.options?.["appendSystemPrompt"] as string | undefined;
+    if (appendSystemPrompt) args.push("--append-system-prompt", appendSystemPrompt);
+
     // Additional extensions.
     const extensions = this.config.options?.["extensions"] as string[] | undefined;
     if (extensions) {
       for (const ext of extensions) args.push("--extension", ext);
+    }
+
+    // Adapter-specific passthrough args for Pi flags that Scout does not model
+    // yet. Structured options above intentionally win when both are present.
+    const extraArgs = this.config.options?.["extraArgs"] as string[] | undefined;
+    if (extraArgs) {
+      args.push(...extraArgs);
     }
 
     // Note: we do NOT pass --no-extensions or --no-skills by default.
@@ -229,6 +245,15 @@ export class PiAdapter extends BaseAdapter {
     // credential inheritance.
 
     const env = buildPiProcessEnv(this.config);
+    const selected = selectedProvider(this.config.options);
+    this.session.model = model;
+    this.session.providerMeta = {
+      ...(this.session.providerMeta ?? {}),
+      transport: "pi_rpc",
+      ...(selected ? { provider: selected } : {}),
+      ...(thinking ? { thinking } : {}),
+      ...(extensions?.length ? { extensions: [...extensions] } : {}),
+    };
 
     this.process = Bun.spawn(["pi", ...args], {
       cwd: this.config.cwd,
@@ -334,6 +359,7 @@ export class PiAdapter extends BaseAdapter {
         this.currentTextBlock = null;
         this.currentReasoningBlock = null;
         this.toolBlockByIndex.clear();
+        this.sawStreamingTextInTurn = false;
 
         const turn: Turn = {
           id: crypto.randomUUID(),
@@ -357,6 +383,11 @@ export class PiAdapter extends BaseAdapter {
 
       case "message_update": {
         this.handleMessageUpdate(event);
+        break;
+      }
+
+      case "message": {
+        this.handleMessageRecord(event);
         break;
       }
 
@@ -403,6 +434,7 @@ export class PiAdapter extends BaseAdapter {
     switch (ame.type) {
       // -- Text streaming ---------------------------------------------------
       case "text_start": {
+        this.sawStreamingTextInTurn = true;
         this.currentTextBlock = this.startBlock(this.currentTurn, {
           type: "text",
           text: "",
@@ -412,6 +444,7 @@ export class PiAdapter extends BaseAdapter {
       }
 
       case "text_delta": {
+        this.sawStreamingTextInTurn = true;
         if (this.currentTextBlock) {
           this.emit("event", {
             event: "block:delta",
@@ -575,6 +608,82 @@ export class PiAdapter extends BaseAdapter {
         break;
       }
     }
+  }
+
+  private handleMessageRecord(event: any): void {
+    const message = event.message;
+    if (!this.currentTurn || message?.role !== "assistant") {
+      return;
+    }
+
+    this.updateSessionMetadataFromMessageRecord(event, message);
+    if (this.sawStreamingTextInTurn) {
+      return;
+    }
+
+    const text = this.assistantTextFromMessage(message);
+    if (!text.trim()) {
+      return;
+    }
+
+    const block = this.startBlock(this.currentTurn, {
+      type: "text",
+      text: "",
+      status: "streaming",
+    });
+    this.emit("event", {
+      event: "block:delta",
+      sessionId: this.session.id,
+      turnId: this.currentTurn.id,
+      blockId: block.id,
+      text,
+    });
+    this.emitBlockEnd(this.currentTurn, block, "completed");
+  }
+
+  private assistantTextFromMessage(message: any): string {
+    const content = message?.content;
+    if (typeof content === "string") {
+      return content;
+    }
+    if (!Array.isArray(content)) {
+      return "";
+    }
+    return content
+      .map((part) => {
+        if (!part || typeof part !== "object") return "";
+        if ((part.type === "text" || part.type === "output_text") && typeof part.text === "string") {
+          return part.text;
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  private updateSessionMetadataFromMessageRecord(event: any, message: any): void {
+    const model = typeof event.model === "string"
+      ? event.model
+      : typeof message.model === "string"
+      ? message.model
+      : undefined;
+    const provider = typeof event.provider === "string"
+      ? event.provider
+      : typeof message.provider === "string"
+      ? message.provider
+      : undefined;
+    if (!model && !provider) {
+      return;
+    }
+
+    if (model) {
+      this.session.model = model;
+    }
+    this.session.providerMeta = {
+      ...(this.session.providerMeta ?? {}),
+      ...(provider ? { provider } : {}),
+    };
+    this.emit("event", { event: "session:update", session: { ...this.session } });
   }
 
   // ---------------------------------------------------------------------------

@@ -116,6 +116,22 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("the broker captures your final assistant message");
   });
 
+  test("direct Pi RPC runtime prompt captures final responses through the broker", () => {
+    process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
+    process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
+
+    const prompt = buildLocalAgentSystemPrompt(
+      "minimax",
+      "openscout",
+      "/Users/arach/dev/openscout",
+      { transport: "pi_rpc" },
+    );
+
+    expect(prompt).toContain("OpenScout runtime:");
+    expect(prompt).toContain("Do not call Scout reply tools for the final answer in this runtime");
+    expect(prompt).toContain("the broker captures your final assistant message");
+  });
+
   test("tmux claude runtime remains the default local agent context", () => {
     process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
     process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";

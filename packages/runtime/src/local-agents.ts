@@ -45,6 +45,14 @@ import {
   buildInvocationCollaborationContextPrompt,
 } from "./collaboration-contract.js";
 import {
+  ensurePiRpcAgentOnline,
+  getPiRpcAgentSnapshot,
+  invokePiRpcAgent,
+  isPiRpcAgentAlive,
+  parsePiRpcLaunchArgs,
+  shutdownPiRpcAgent,
+} from "./pi-rpc.js";
+import {
   buildRelayAgentInstance,
   ensureProjectConfigForDirectory,
   ensureRelayAgentConfigured,
@@ -185,6 +193,7 @@ export type StartLocalAgentInput = {
   harness?: AgentHarness;
   currentDirectory?: string;
   model?: string;
+  provider?: string;
   reasoningEffort?: string;
   permissionProfile?: ScoutPermissionProfile | string;
   branch?: string;
@@ -590,7 +599,7 @@ export function renderLocalAgentSystemPromptTemplate(
   const basePrompt = buildLocalAgentBasePrompt(context);
   const projectContext = buildLocalAgentProjectContextPrompt(context);
   const collaborationPrompt = buildLocalAgentCollaborationPrompt(context);
-  const protocolPrompt = options.transport === "codex_app_server" || options.transport === "claude_stream_json"
+  const protocolPrompt = options.transport === "codex_app_server" || options.transport === "claude_stream_json" || options.transport === "pi_rpc"
     ? buildLocalAgentDirectProtocolPrompt(context)
     : buildLocalAgentTmuxProtocolPrompt(context);
   const variables: Record<string, string> = {
@@ -721,7 +730,7 @@ function generatedLocalAgentSystemPromptCandidates(
 ): string[] {
   const baseContext = buildLocalAgentTemplateContext(agentId, projectName, projectPath);
   const relayCommands = [brokerRelayCommand(), legacyNodeBrokerRelayCommand()];
-  const transportModes: Array<RelayRuntimeTransport | undefined> = [undefined, "tmux", "codex_app_server", "claude_stream_json"];
+  const transportModes: Array<RelayRuntimeTransport | undefined> = [undefined, "tmux", "codex_app_server", "claude_stream_json", "pi_rpc"];
   const candidates = new Set<string>();
 
   for (const relayCommand of relayCommands) {
@@ -825,12 +834,20 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
     return "codex_app_server";
   }
 
+  if (harness === "pi" && value === undefined) {
+    return "pi_rpc";
+  }
+
   if (value === "claude_stream_json") {
     return "claude_stream_json";
   }
 
   if (value === "codex_app_server") {
     return "codex_app_server";
+  }
+
+  if (value === "pi_rpc") {
+    return "pi_rpc";
   }
 
   if (value === "tmux") {
@@ -963,6 +980,13 @@ function readLaunchModelForHarness(harness: AgentHarness, launchArgs: string[] |
   return undefined;
 }
 
+function readLaunchProviderForHarness(harness: AgentHarness, launchArgs: string[] | undefined): string | undefined {
+  if (harness === "pi") {
+    return readFlagValue(launchArgs ?? [], "--provider");
+  }
+  return undefined;
+}
+
 function stripLaunchModelForHarness(harness: AgentHarness, launchArgs: string[]): string[] {
   if (harness === "codex") {
     const next: string[] = [];
@@ -1012,6 +1036,27 @@ function stripLaunchModelForHarness(harness: AgentHarness, launchArgs: string[])
   return normalizeLocalAgentLaunchArgs(launchArgs);
 }
 
+function stripLaunchProviderForHarness(harness: AgentHarness, launchArgs: string[]): string[] {
+  if (harness !== "pi") {
+    return normalizeLaunchArgsForHarness(harness, launchArgs);
+  }
+
+  const next: string[] = [];
+  const normalized = normalizeLocalAgentLaunchArgs(launchArgs);
+  for (let index = 0; index < normalized.length; index += 1) {
+    const current = normalized[index] ?? "";
+    if (current === "--provider") {
+      index += 1;
+      continue;
+    }
+    if (current.startsWith("--provider=")) {
+      continue;
+    }
+    next.push(current);
+  }
+  return next;
+}
+
 function buildLaunchArgsForRequestedModel(harness: AgentHarness, model: string): string[] {
   if (harness === "codex") {
     return normalizeCodexAppServerLaunchArgs(["--model", model]);
@@ -1021,6 +1066,18 @@ function buildLaunchArgsForRequestedModel(harness: AgentHarness, model: string):
   }
   if (harness === "pi") {
     return ["--model", model];
+  }
+  return [];
+}
+
+function normalizeRequestedProvider(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function buildLaunchArgsForRequestedProvider(harness: AgentHarness, provider: string): string[] {
+  if (harness === "pi") {
+    return ["--provider", provider];
   }
   return [];
 }
@@ -1111,17 +1168,25 @@ function applyRequestedRuntimeOptionsToLaunchArgs(
   launchArgs: unknown,
   options: {
     model?: string;
+    provider?: string;
     reasoningEffort?: string;
   },
 ): string[] {
   const withModel = applyRequestedModelToLaunchArgs(harness, launchArgs, options.model);
+  const requestedProvider = normalizeRequestedProvider(options.provider);
+  const withProvider = requestedProvider
+    ? [
+        ...stripLaunchProviderForHarness(harness, withModel),
+        ...buildLaunchArgsForRequestedProvider(harness, requestedProvider),
+      ]
+    : withModel;
   const requestedReasoningEffort = normalizeRequestedReasoningEffort(options.reasoningEffort);
   if (!requestedReasoningEffort) {
-    return withModel;
+    return withProvider;
   }
 
   return [
-    ...stripLaunchReasoningEffortForHarness(harness, withModel),
+    ...stripLaunchReasoningEffortForHarness(harness, withProvider),
     ...buildLaunchArgsForRequestedReasoningEffort(harness, requestedReasoningEffort),
   ];
 }
@@ -1596,6 +1661,10 @@ export async function getLocalAgentSessionSnapshot(agentId: string): Promise<Ses
     return getClaudeStreamJsonAgentSnapshot(buildClaudeAgentSessionOptions(agentId, record));
   }
 
+  if (record.transport === "pi_rpc") {
+    return getPiRpcAgentSnapshot(buildPiAgentSessionOptions(agentId, record));
+  }
+
   return null;
 }
 
@@ -1662,6 +1731,10 @@ export async function getLocalAgentEndpointSessionSnapshot(endpoint: AgentEndpoi
     return getClaudeStreamJsonAgentSnapshot(buildClaudeEndpointSessionOptions(endpoint));
   }
 
+  if (endpoint.transport === "pi_rpc") {
+    return getPiRpcAgentSnapshot(buildPiEndpointSessionOptions(endpoint));
+  }
+
   return null;
 }
 
@@ -1673,6 +1746,11 @@ export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint):
 
   if (endpoint.transport === "claude_stream_json") {
     const result = await ensureClaudeStreamJsonAgentOnline(buildClaudeEndpointSessionOptions(endpoint));
+    return { externalSessionId: result.sessionId };
+  }
+
+  if (endpoint.transport === "pi_rpc") {
+    const result = await ensurePiRpcAgentOnline(buildPiEndpointSessionOptions(endpoint));
     return { externalSessionId: result.sessionId };
   }
 
@@ -1700,6 +1778,11 @@ export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Pro
 
   if (endpoint.transport === "claude_stream_json") {
     await shutdownClaudeStreamJsonAgent(buildClaudeEndpointSessionOptions(endpoint));
+    return;
+  }
+
+  if (endpoint.transport === "pi_rpc") {
+    await shutdownPiRpcAgent(buildPiEndpointSessionOptions(endpoint));
   }
 }
 
@@ -2054,6 +2137,30 @@ function buildClaudeAgentSessionOptions(
   };
 }
 
+function buildPiAgentSessionOptions(
+  agentName: string,
+  record: LocalAgentRecord,
+  systemPrompt?: string,
+): {
+  agentName: string;
+  sessionId: string;
+  cwd: string;
+  systemPrompt: string;
+  runtimeDirectory: string;
+  logsDirectory: string;
+  launchArgs: string[];
+} {
+  return {
+    agentName,
+    sessionId: record.tmuxSession,
+    cwd: record.cwd,
+    systemPrompt: systemPrompt ?? buildLocalAgentSystemPrompt(agentName, record.project, record.cwd, { transport: "pi_rpc" }),
+    runtimeDirectory: relayAgentRuntimeDirectory(agentName),
+    logsDirectory: relayAgentLogsDirectory(agentName),
+    launchArgs: normalizeLaunchArgsForHarness("pi", record.launchArgs),
+  };
+}
+
 function endpointMetadataString(endpoint: AgentEndpoint, key: string): string | undefined {
   const value = endpoint.metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
@@ -2081,6 +2188,18 @@ function attachedCodexEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
   );
 }
 
+function attachedPiEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
+  return applyRequestedRuntimeOptionsToLaunchArgs(
+    "pi",
+    endpointMetadataStringArray(endpoint, "launchArgs"),
+    {
+      model: endpointMetadataString(endpoint, "model"),
+      provider: endpointMetadataString(endpoint, "provider"),
+      reasoningEffort: endpointMetadataString(endpoint, "reasoningEffort"),
+    },
+  );
+}
+
 function endpointInvocationPrompt(
   endpoint: AgentEndpoint,
   agentName: string,
@@ -2101,6 +2220,7 @@ function endpointInvocationPrompt(
       || externalSource === "local-session"
       || attachedTransport === "codex_app_server"
       || attachedTransport === "claude_stream_json"
+      || attachedTransport === "pi_rpc"
     )
   ) {
     return invocation.task;
@@ -2121,7 +2241,8 @@ function isSessionBackedEndpoint(endpoint: AgentEndpoint): boolean {
     || source === "local-session"
     || externalSource === "local-session"
     || attachedTransport === "codex_app_server"
-    || attachedTransport === "claude_stream_json";
+    || attachedTransport === "claude_stream_json"
+    || attachedTransport === "pi_rpc";
 }
 
 function endpointAgentName(endpoint: AgentEndpoint): string {
@@ -2204,6 +2325,27 @@ function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
   };
 }
 
+function buildPiEndpointSessionOptions(endpoint: AgentEndpoint): {
+  agentName: string;
+  sessionId: string;
+  cwd: string;
+  systemPrompt: string;
+  runtimeDirectory: string;
+  logsDirectory: string;
+  launchArgs: string[];
+} {
+  const agentName = endpointAgentName(endpoint);
+  return {
+    agentName,
+    sessionId: endpointRuntimeInstanceId(endpoint),
+    cwd: endpointCwd(endpoint),
+    systemPrompt: attachedLocalSessionSystemPrompt(endpoint),
+    runtimeDirectory: relayAgentRuntimeDirectory(agentName),
+    logsDirectory: relayAgentLogsDirectory(agentName),
+    launchArgs: attachedPiEndpointLaunchArgs(endpoint),
+  };
+}
+
 function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): boolean {
   const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
   if (normalizedRecord.transport === "codex_app_server") {
@@ -2212,6 +2354,10 @@ function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): 
 
   if (normalizedRecord.transport === "claude_stream_json") {
     return isClaudeStreamJsonAgentAlive(buildClaudeAgentSessionOptions(agentName, normalizedRecord));
+  }
+
+  if (normalizedRecord.transport === "pi_rpc") {
+    return isPiRpcAgentAlive(buildPiAgentSessionOptions(agentName, normalizedRecord));
   }
 
   return isLocalAgentSessionAlive(normalizedRecord.tmuxSession);
@@ -2245,6 +2391,10 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
 
   if (endpoint.transport === "claude_stream_json") {
     return isClaudeStreamJsonAgentAlive(buildClaudeEndpointSessionOptions(endpoint));
+  }
+
+  if (endpoint.transport === "pi_rpc") {
+    return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
   }
 
   const sessionId =
@@ -3053,7 +3203,7 @@ function areHarnessBinariesAvailable(record: LocalAgentRecord): boolean {
     binaries.add("claude");
   }
 
-  if (record.transport === "tmux" && harness === "pi") {
+  if (record.transport === "pi_rpc" || (record.transport === "tmux" && harness === "pi")) {
     binaries.add("pi");
   }
 
@@ -3118,6 +3268,21 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
   if (normalizedRecord.transport === "claude_stream_json") {
     await writeFile(join(agentRuntimeDir, "prompt.txt"), systemPrompt);
     await ensureClaudeStreamJsonAgentOnline(buildClaudeAgentSessionOptions(agentName, normalizedRecord, systemPrompt));
+
+    const registry = await readLocalAgentRegistry();
+    registry[agentName] = {
+      ...normalizedRecord,
+      startedAt: nowSeconds(),
+      systemPrompt: normalizedRecord.systemPrompt,
+    };
+    await writeLocalAgentRegistry(registry);
+
+    return registry[agentName];
+  }
+
+  if (normalizedRecord.transport === "pi_rpc") {
+    await writeFile(join(agentRuntimeDir, "prompt.txt"), systemPrompt);
+    await ensurePiRpcAgentOnline(buildPiAgentSessionOptions(agentName, normalizedRecord, systemPrompt));
 
     const registry = await readLocalAgentRegistry();
     registry[agentName] = {
@@ -3284,6 +3449,13 @@ export async function restartLocalAgent(
         sessionId: sessionName,
       }, {
         resetSession: true,
+      });
+    }
+  } else if (normalizedRecord.transport === "pi_rpc") {
+    for (const sessionName of sessionsToStop) {
+      await shutdownPiRpcAgent({
+        ...buildPiAgentSessionOptions(agentId, normalizedRecord),
+        sessionId: sessionName,
       });
     }
   } else {
@@ -3577,6 +3749,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const sessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${effectiveHarness}`);
     const launchArgs = applyRequestedRuntimeOptionsToLaunchArgs(effectiveHarness, [], {
       model: input.model,
+      provider: input.provider,
       reasoningEffort: input.reasoningEffort,
     });
 
@@ -3647,6 +3820,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       launchArgsForOverrideHarness(matchingOverride, nextHarness),
       {
         model: input.model,
+        provider: input.provider,
         reasoningEffort: input.reasoningEffort,
       },
     );
@@ -3698,16 +3872,22 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const shouldApplyOperatorAugmentPrompt = Boolean(
       operatorAugmentDefaults && !matchingOverride.systemPrompt?.trim(),
     );
-    if (input.model || input.reasoningEffort || requestedPermissionProfile || cardLifecycle || shouldApplyOperatorAugmentPrompt) {
+    if (preferredHarness || input.model || input.provider || input.reasoningEffort || requestedPermissionProfile || cardLifecycle || shouldApplyOperatorAugmentPrompt) {
       const existingHarness = normalizeManagedHarness(
         preferredHarness ?? matchingOverride.defaultHarness ?? matchingOverride.runtime?.harness,
         "claude",
+      );
+      const existingProfile = overrideHarnessProfile(matchingOverride, existingHarness);
+      const nextTransport = normalizeLocalAgentTransport(
+        preferredHarness ? undefined : existingProfile.transport,
+        existingHarness,
       );
       const nextLaunchArgs = applyRequestedRuntimeOptionsToLaunchArgs(
         existingHarness,
         launchArgsForOverrideHarness(matchingOverride, existingHarness),
         {
           model: input.model,
+          provider: input.provider,
           reasoningEffort: input.reasoningEffort,
         },
       );
@@ -3716,24 +3896,50 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
         ...matchingOverride,
         ...(cardLifecycle ? { card: cardLifecycle } : {}),
         ...(shouldApplyOperatorAugmentPrompt ? { systemPrompt: operatorAugmentDefaults!.systemPrompt } : {}),
-        launchArgs: existingHarness === defaultHarnessForOverride(matchingOverride, existingHarness)
+        ...(preferredHarness ? { defaultHarness: existingHarness } : {}),
+        launchArgs: preferredHarness || existingHarness === defaultHarnessForOverride(matchingOverride, existingHarness)
           ? nextLaunchArgs
           : matchingOverride.launchArgs,
         harnessProfiles: {
           ...(matchingOverride.harnessProfiles ?? {}),
           [existingHarness]: {
-            ...overrideHarnessProfile(matchingOverride, existingHarness),
+            ...existingProfile,
+            transport: nextTransport,
             launchArgs: nextLaunchArgs,
             ...(requestedPermissionProfile ? { permissionProfile: requestedPermissionProfile } : {}),
           },
         },
+        runtime: preferredHarness
+          ? {
+              cwd: effectiveCwd ?? existingProfile.cwd,
+              harness: existingHarness,
+              transport: nextTransport,
+              sessionId: existingProfile.sessionId,
+              wakePolicy: "on_demand",
+            }
+          : matchingOverride.runtime,
       };
       await writeRelayAgentOverrides(overrides);
     }
     targetAgentId = matchingAgentId!;
   }
 
+  let deferWarmupToInvocation = false;
   if (shouldEnsureOnline) {
+    const currentOverride = (await readRelayAgentOverrides())[targetAgentId];
+    if (currentOverride) {
+      const currentRecord = recordForHarness(
+        localAgentRecordFromRelayAgentOverride(targetAgentId, currentOverride),
+        preferredHarness,
+      );
+      // Pi RPC sessions are process-local adapter instances. `scout up` should
+      // not keep a foreground CLI process alive as the session host; let the
+      // broker-owned invocation path start the adapter on first work instead.
+      deferWarmupToInvocation = currentRecord.transport === "pi_rpc";
+    }
+  }
+
+  if (shouldEnsureOnline && !deferWarmupToInvocation) {
     await ensureLocalAgentBindingOnline(targetAgentId, process.env.OPENSCOUT_NODE_ID ?? "local", {
       includeDiscovered: false,
       currentDirectory,
@@ -3781,6 +3987,13 @@ export async function stopLocalAgent(agentId: string): Promise<ScoutLocalAgentSt
         sessionId: sessionName,
       }, {
         resetSession: true,
+      });
+    }
+  } else if (normalizedRecord.transport === "pi_rpc") {
+    for (const sessionName of sessionsToStop) {
+      await shutdownPiRpcAgent({
+        ...buildPiAgentSessionOptions(agentId, normalizedRecord),
+        sessionId: sessionName,
       });
     }
   } else {
@@ -3876,6 +4089,10 @@ function buildLocalAgentBinding(
     normalizeLocalAgentHarness(normalizedRecord.harness),
     normalizedRecord.launchArgs,
   );
+  const configuredProvider = readLaunchProviderForHarness(
+    normalizeLocalAgentHarness(normalizedRecord.harness),
+    normalizedRecord.launchArgs,
+  );
   const codexPermissionPosture = normalizeLocalAgentHarness(normalizedRecord.harness) === "codex"
     ? compileCodexPermissionProfile(normalizedRecord.permissionProfile)
     : null;
@@ -3910,6 +4127,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(configuredProvider ? { provider: configuredProvider } : {}),
         ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,
@@ -3946,6 +4164,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(configuredProvider ? { provider: configuredProvider } : {}),
         ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,
@@ -3987,6 +4206,7 @@ function buildLocalAgentBinding(
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
         ...(configuredModel ? { model: configuredModel } : {}),
+        ...(configuredProvider ? { provider: configuredProvider } : {}),
         ...(cardLifecycle ? { cardLifecycle } : {}),
         ...(codexPermissionPosture ? {
           permissionProfile: codexPermissionPosture.profile,
@@ -4188,6 +4408,20 @@ export async function invokeLocalAgentEndpoint(
     };
   }
 
+  if (!existing && endpoint.transport === "pi_rpc") {
+    await ensureLocalSessionEndpointOnline(endpoint);
+    const result = await invokePiRpcAgent({
+      ...buildPiEndpointSessionOptions(endpoint),
+      prompt,
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+    };
+  }
+
   const projectRoot = endpoint.projectRoot ?? endpoint.cwd;
   const requestedHarness = invocation.execution?.harness;
 
@@ -4215,7 +4449,7 @@ export async function invokeLocalAgentEndpoint(
               typeof endpoint.transport === "string" ? endpoint.transport : undefined,
               normalizeLocalAgentHarness(typeof endpoint.harness === "string" ? endpoint.harness : undefined),
             ),
-            launchArgs: [],
+            launchArgs: normalizeLocalAgentLaunchArgs(endpoint.metadata?.launchArgs),
           },
         },
         transport: normalizeLocalAgentTransport(
@@ -4223,7 +4457,7 @@ export async function invokeLocalAgentEndpoint(
           normalizeLocalAgentHarness(typeof endpoint.harness === "string" ? endpoint.harness : undefined),
         ),
         capabilities: [...DEFAULT_LOCAL_AGENT_CAPABILITIES],
-        launchArgs: [],
+        launchArgs: normalizeLocalAgentLaunchArgs(endpoint.metadata?.launchArgs),
       }
       : null
   );
@@ -4265,6 +4499,27 @@ export async function invokeLocalAgentEndpoint(
           onlineRecord.systemPrompt || buildLocalAgentSystemPromptTemplate(),
           buildLocalAgentTemplateContext(definitionId, onlineRecord.project, onlineRecord.cwd),
           { transport: "claude_stream_json" },
+        ),
+      ),
+      prompt,
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+    };
+  }
+
+  if (onlineRecord.transport === "pi_rpc") {
+    const result = await invokePiRpcAgent({
+      ...buildPiAgentSessionOptions(
+        agentRuntimeId,
+        onlineRecord,
+        renderLocalAgentSystemPromptTemplate(
+          onlineRecord.systemPrompt || buildLocalAgentSystemPromptTemplate(),
+          buildLocalAgentTemplateContext(definitionId, onlineRecord.project, onlineRecord.cwd),
+          { transport: "pi_rpc" },
         ),
       ),
       prompt,

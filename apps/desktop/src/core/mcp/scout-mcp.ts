@@ -390,6 +390,7 @@ type ScoutMcpDependencies = {
     displayName?: string;
     harness?: (typeof LOCAL_AGENT_HARNESS_VALUES)[number];
     model?: string;
+    provider?: string;
     reasoningEffort?: string;
     permissionProfile?: string;
     currentDirectory: string;
@@ -402,6 +403,7 @@ type ScoutMcpDependencies = {
     agentName?: string;
     harness?: (typeof LOCAL_AGENT_HARNESS_VALUES)[number];
     model?: string;
+    provider?: string;
     reasoningEffort?: string;
     permissionProfile?: string;
     currentDirectory: string;
@@ -1104,6 +1106,7 @@ const agentStartResultSchema = z.object({
   projectPath: z.string(),
   harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).nullable(),
   model: z.string().nullable(),
+  provider: z.string().nullable(),
   agent: localAgentStatusSchema,
   exactTargetAgentId: z.string(),
   nextTargetLabel: z.string(),
@@ -2650,6 +2653,7 @@ function defaultScoutMcpDependencies(
       displayName,
       harness,
       model,
+      provider,
       reasoningEffort,
       permissionProfile,
       currentDirectory,
@@ -2663,6 +2667,7 @@ function defaultScoutMcpDependencies(
         displayName,
         harness,
         model,
+        provider,
         reasoningEffort,
         permissionProfile,
         currentDirectory,
@@ -2675,6 +2680,7 @@ function defaultScoutMcpDependencies(
       agentName,
       harness,
       model,
+      provider,
       reasoningEffort,
       permissionProfile,
       currentDirectory,
@@ -2684,6 +2690,7 @@ function defaultScoutMcpDependencies(
         agentName,
         harness,
         model,
+        provider,
         reasoningEffort,
         permissionProfile,
         currentDirectory,
@@ -3387,6 +3394,7 @@ export function createScoutMcpServer(options: {
         displayName: z.string().optional(),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
         model: z.string().optional(),
+        provider: z.string().optional(),
         reasoningEffort: z.string().optional(),
         permissionProfile: z.string().optional(),
         oneTimeUse: z.boolean().optional(),
@@ -3408,6 +3416,7 @@ export function createScoutMcpServer(options: {
       displayName,
       harness,
       model,
+      provider,
       reasoningEffort,
       permissionProfile,
       oneTimeUse,
@@ -3429,6 +3438,7 @@ export function createScoutMcpServer(options: {
         displayName: displayName?.trim() || undefined,
         harness,
         model: model?.trim() || undefined,
+        provider: provider?.trim() || undefined,
         reasoningEffort: reasoningEffort?.trim() || undefined,
         permissionProfile: permissionProfile?.trim() || undefined,
         currentDirectory: resolvedCurrentDirectory,
@@ -3466,6 +3476,7 @@ export function createScoutMcpServer(options: {
         currentDirectory: z.string().optional(),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
         model: z.string().optional(),
+        provider: z.string().optional(),
         reasoningEffort: z.string().optional(),
         permissionProfile: z.string().optional(),
       }),
@@ -3484,6 +3495,7 @@ export function createScoutMcpServer(options: {
       currentDirectory,
       harness,
       model,
+      provider,
       reasoningEffort,
       permissionProfile,
     }) => {
@@ -3504,6 +3516,7 @@ export function createScoutMcpServer(options: {
         agentName: resolvedAgentName,
         harness: resolvedHarness,
         model: resolvedModel,
+        provider: provider?.trim() || undefined,
         reasoningEffort: reasoningEffort?.trim() || undefined,
         permissionProfile: permissionProfile?.trim() || undefined,
         currentDirectory: resolvedCurrentDirectory,
@@ -3518,6 +3531,7 @@ export function createScoutMcpServer(options: {
         projectPath: resolvedProjectPath,
         harness: resolvedHarness ?? null,
         model: resolvedModel ?? null,
+        provider: provider?.trim() || null,
         agent,
         exactTargetAgentId: agent.agentId,
         nextTargetLabel,

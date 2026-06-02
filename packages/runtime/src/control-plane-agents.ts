@@ -30,6 +30,7 @@ export type CreateScoutAgentCardInput = {
   displayName?: string;
   harness?: AgentHarness;
   model?: string;
+  provider?: string;
   reasoningEffort?: string;
   permissionProfile?: ScoutPermissionProfile | string;
   currentDirectory?: string;
@@ -53,6 +54,7 @@ export type UpScoutAgentInput = {
   currentDirectory?: string;
   cwdOverride?: string;
   model?: string;
+  provider?: string;
   reasoningEffort?: string;
   permissionProfile?: ScoutPermissionProfile | string;
   branch?: string;
@@ -225,6 +227,7 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
         displayName: input.displayName,
         harness: input.harness,
         model: input.model,
+        provider: input.provider,
         reasoningEffort: input.reasoningEffort,
         permissionProfile: input.permissionProfile,
         currentDirectory: input.currentDirectory,

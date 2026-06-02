@@ -446,6 +446,99 @@ describe("local agent lifecycle", () => {
     expect(override?.harnessProfiles?.claude?.sessionId).not.toContain(".");
   });
 
+  test("starts a new Pi local agent with RPC as the default transport", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "gamma");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "gamma-pi",
+      harness: "pi",
+      provider: "minimax",
+      model: "MiniMax-M3",
+      reasoningEffort: "low",
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status).toMatchObject({
+      definitionId: "gamma-pi",
+      harness: "pi",
+      transport: "pi_rpc",
+      isOnline: false,
+    });
+    expect(override?.runtime).toMatchObject({
+      harness: "pi",
+      transport: "pi_rpc",
+    });
+    expect(override?.harnessProfiles?.pi?.transport).toBe("pi_rpc");
+    expect(override?.harnessProfiles?.pi?.launchArgs).toEqual([
+      "--model",
+      "MiniMax-M3",
+      "--provider",
+      "minimax",
+      "--thinking",
+      "low",
+    ]);
+  });
+
+  test("explicit Pi startup migrates an existing Pi tmux profile to RPC", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "gamma");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    await writeRelayAgentOverrides({
+      "gamma-pi.test-node": {
+        agentId: "gamma-pi.test-node",
+        definitionId: "gamma-pi",
+        displayName: "Gamma Pi",
+        projectName: "Gamma",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "pi",
+        harnessProfiles: {
+          pi: {
+            cwd: projectRoot,
+            transport: "tmux",
+            sessionId: "relay-gamma-pi",
+            launchArgs: ["--model", "MiniMax-M2.7"],
+          },
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "pi",
+          transport: "tmux",
+          sessionId: "relay-gamma-pi",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "gamma-pi",
+      harness: "pi",
+      provider: "minimax",
+      model: "MiniMax-M3",
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status.transport).toBe("pi_rpc");
+    expect(override?.runtime?.transport).toBe("pi_rpc");
+    expect(override?.harnessProfiles?.pi?.transport).toBe("pi_rpc");
+    expect(override?.harnessProfiles?.pi?.launchArgs).toEqual([
+      "--model",
+      "MiniMax-M3",
+      "--provider",
+      "minimax",
+    ]);
+  });
+
   test("preserves explicit Claude stream-json configuration for specialized agents", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");

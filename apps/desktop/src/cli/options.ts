@@ -83,6 +83,7 @@ export type ScoutCardCreateCommandOptions = ContextRootOptions & {
   displayName?: string;
   harness?: string;
   model?: string;
+  provider?: string;
   reasoningEffort?: string;
   permissionProfile?: string;
   requesterId: string | null;
@@ -1039,6 +1040,7 @@ export function parseCardCreateCommandOptions(
   let displayName: string | undefined;
   let harness: string | undefined;
   let model: string | undefined;
+  let provider: string | undefined;
   let reasoningEffort: string | undefined;
   let permissionProfile: string | undefined;
   let requesterId: string | null = null;
@@ -1068,6 +1070,12 @@ export function parseCardCreateCommandOptions(
     if (current === "--model" || current.startsWith("--model=")) {
       const value = parseFlagValue(parsed.args, index, "--model");
       model = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--provider" || current.startsWith("--provider=")) {
+      const value = parseFlagValue(parsed.args, index, "--provider");
+      provider = value.value;
       index = value.nextIndex;
       continue;
     }
@@ -1129,6 +1137,7 @@ export function parseCardCreateCommandOptions(
     displayName,
     harness,
     model,
+    provider,
     reasoningEffort,
     permissionProfile,
     requesterId,

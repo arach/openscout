@@ -24,7 +24,7 @@ import { ensureHarnessCatalogOverrideFile } from "./harness-catalog.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
-export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "tmux" | "cursor_exec";
+export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "tmux" | "cursor_exec";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
 export const SCOUT_PRIMARY_CONVERSATION_ID = "dm.scout.primary";
@@ -868,12 +868,20 @@ function normalizeTransport(
     return "cursor_exec";
   }
 
+  if (harness === "pi" && value === undefined) {
+    return "pi_rpc";
+  }
+
   if (value === "claude_stream_json") {
     return "claude_stream_json";
   }
 
   if (value === "codex_app_server") {
     return "codex_app_server";
+  }
+
+  if (value === "pi_rpc") {
+    return "pi_rpc";
   }
 
   if (value === "tmux") {

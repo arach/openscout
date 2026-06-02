@@ -68,6 +68,7 @@ export type DeliveryTransport =
   | "codex_app_server"
   | "codex_exec"
   | "claude_resume"
+  | "pi_rpc"
   | "tmux"
   | "cursor_exec"
   | "cursor_cli_text"

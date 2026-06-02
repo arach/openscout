@@ -1,0 +1,424 @@
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import {
+  StateTracker,
+  createPiAdapter,
+  type Adapter,
+  type PairingEvent,
+  type SessionState,
+} from "@openscout/agent-sessions";
+
+export type PiRpcSessionRequestOptions = {
+  agentName: string;
+  sessionId: string;
+  cwd: string;
+  systemPrompt: string;
+  runtimeDirectory: string;
+  logsDirectory: string;
+  launchArgs: string[];
+};
+
+export type PiRpcInvocationOptions = PiRpcSessionRequestOptions & {
+  prompt: string;
+  timeoutMs?: number;
+};
+
+export type PiRpcLaunchOptions = {
+  model?: string;
+  provider?: string;
+  thinking?: string;
+  session?: string;
+  sessionDir?: string;
+  extensions: string[];
+  extraArgs: string[];
+};
+
+const DEFAULT_PI_RPC_TIMEOUT_MS = 300_000;
+const PI_SCOUT_EXTENSION_CANDIDATES = [
+  process.env.OPENSCOUT_PI_SCOUT_EXTENSION_PATH,
+  join(homedir(), ".pi", "agent", "extensions", "pi-scout"),
+  join(homedir(), "dev", "pi-scout"),
+].filter((candidate): candidate is string => Boolean(candidate));
+
+const PI_RPC_FLAGS_WITH_VALUES = new Set([
+  "--model",
+  "--provider",
+  "--thinking",
+  "--session",
+  "--session-dir",
+  "--append-system-prompt",
+  "--extension",
+]);
+
+const PI_RPC_OPTION_KEYS: Record<string, keyof Omit<PiRpcLaunchOptions, "extensions" | "extraArgs">> = {
+  "--model": "model",
+  "--provider": "provider",
+  "--thinking": "thinking",
+  "--session": "session",
+  "--session-dir": "sessionDir",
+};
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function readFlagAssignment(value: string): { flag: string; assigned: string } | null {
+  const equals = value.indexOf("=");
+  if (equals <= 0) {
+    return null;
+  }
+  const flag = value.slice(0, equals);
+  if (!PI_RPC_FLAGS_WITH_VALUES.has(flag)) {
+    return null;
+  }
+  return { flag, assigned: value.slice(equals + 1) };
+}
+
+function resolveDefaultPiScoutExtension(): string | null {
+  if (process.env.OPENSCOUT_PI_SCOUT_EXTENSION === "0") {
+    return null;
+  }
+
+  for (const candidate of PI_SCOUT_EXTENSION_CANDIDATES) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function inferPiProvider(launch: Pick<PiRpcLaunchOptions, "provider" | "model">): string | undefined {
+  const provider = normalizeOptionalString(launch.provider)?.toLowerCase();
+  if (provider) {
+    return provider;
+  }
+  const model = normalizeOptionalString(launch.model)?.toLowerCase();
+  if (model?.startsWith("minimax")) {
+    return "minimax";
+  }
+  return undefined;
+}
+
+function readSecretValue(name: string): string | undefined {
+  try {
+    const output = execFileSync("secret", ["get", name], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return output || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildPiRpcCredentialEnv(launch: Pick<PiRpcLaunchOptions, "provider" | "model">): Record<string, string> | undefined {
+  if (inferPiProvider(launch) !== "minimax") {
+    return undefined;
+  }
+
+  const miniMaxKey = normalizeOptionalString(process.env.MINIMAX_API_KEY)
+    ?? normalizeOptionalString(process.env.MINIMAX_TOKEN)
+    ?? readSecretValue("MINIMAX_API_KEY");
+  return miniMaxKey ? { MINIMAX_API_KEY: miniMaxKey } : undefined;
+}
+
+export function parsePiRpcLaunchArgs(
+  launchArgs: readonly string[],
+  options: { runtimeDirectory: string; includeDefaultScoutExtension?: boolean },
+): PiRpcLaunchOptions {
+  const parsed: PiRpcLaunchOptions = {
+    extensions: [],
+    extraArgs: [],
+    sessionDir: join(options.runtimeDirectory, "pi-sessions"),
+  };
+
+  for (let index = 0; index < launchArgs.length; index += 1) {
+    const current = launchArgs[index] ?? "";
+    const assignment = readFlagAssignment(current);
+    if (assignment) {
+      if (assignment.flag === "--extension") {
+        const extension = normalizeOptionalString(assignment.assigned);
+        if (extension) parsed.extensions.push(extension);
+        continue;
+      }
+      if (assignment.flag === "--append-system-prompt") {
+        continue;
+      }
+      const key = PI_RPC_OPTION_KEYS[assignment.flag];
+      const value = normalizeOptionalString(assignment.assigned);
+      if (key && value) {
+        parsed[key] = value;
+        continue;
+      }
+    }
+
+    if (current === "--extension") {
+      const value = normalizeOptionalString(launchArgs[index + 1]);
+      if (value) {
+        parsed.extensions.push(value);
+        index += 1;
+      }
+      continue;
+    }
+
+    if (current === "--append-system-prompt") {
+      index += 1;
+      continue;
+    }
+
+    if (PI_RPC_OPTION_KEYS[current]) {
+      const key = PI_RPC_OPTION_KEYS[current]!;
+      const value = normalizeOptionalString(launchArgs[index + 1]);
+      if (value) {
+        parsed[key] = value;
+        index += 1;
+      }
+      continue;
+    }
+
+    parsed.extraArgs.push(current);
+  }
+
+  if (options.includeDefaultScoutExtension !== false) {
+    const defaultExtension = resolveDefaultPiScoutExtension();
+    if (defaultExtension && !parsed.extensions.includes(defaultExtension)) {
+      parsed.extensions.push(defaultExtension);
+    }
+  }
+
+  return parsed;
+}
+
+function extractTurnText(snapshot: SessionState | null, turnId: string): string {
+  const turn = snapshot?.turns.find((candidate) => candidate.id === turnId);
+  if (!turn) {
+    return "";
+  }
+
+  const textParts: string[] = [];
+  const errorParts: string[] = [];
+  for (const blockState of turn.blocks) {
+    const block = blockState.block;
+    if (block.type === "text") {
+      textParts.push(block.text);
+    } else if (block.type === "error") {
+      errorParts.push(block.message);
+    }
+  }
+
+  const text = textParts.join("").trim();
+  if (text) {
+    return text;
+  }
+  return errorParts.join("\n").trim();
+}
+
+function terminalTurnError(snapshot: SessionState | null, turnId: string): string | null {
+  const turn = snapshot?.turns.find((candidate) => candidate.id === turnId);
+  if (!turn || turn.status !== "error") {
+    return null;
+  }
+  return extractTurnText(snapshot, turnId) || "Pi RPC turn failed.";
+}
+
+class PiRpcAgentSession {
+  private adapter: Adapter | null = null;
+  private readonly tracker = new StateTracker();
+  private currentRun: Promise<unknown> = Promise.resolve();
+  private lastError: Error | null = null;
+
+  constructor(private readonly options: PiRpcSessionRequestOptions) {}
+
+  get snapshot(): SessionState | null {
+    return this.tracker.getSessionState(this.options.sessionId);
+  }
+
+  get alive(): boolean {
+    const status = this.snapshot?.session.status;
+    return Boolean(this.adapter && status !== "closed" && status !== "error");
+  }
+
+  async ensureOnline(): Promise<{ sessionId: string }> {
+    if (this.alive) {
+      return { sessionId: this.options.sessionId };
+    }
+
+    await mkdir(this.options.runtimeDirectory, { recursive: true });
+    await mkdir(this.options.logsDirectory, { recursive: true });
+    await writeFile(join(this.options.runtimeDirectory, "prompt.txt"), this.options.systemPrompt);
+
+    const launch = parsePiRpcLaunchArgs(this.options.launchArgs, {
+      runtimeDirectory: this.options.runtimeDirectory,
+    });
+    const adapter = createPiAdapter({
+      sessionId: this.options.sessionId,
+      name: `${this.options.agentName} Pi RPC`,
+      cwd: this.options.cwd,
+      env: buildPiRpcCredentialEnv(launch),
+      options: {
+        ...launch,
+        appendSystemPrompt: this.options.systemPrompt,
+      },
+    });
+
+    this.adapter = adapter;
+    this.lastError = null;
+    this.tracker.createSession(this.options.sessionId, adapter.session);
+    adapter.on("event", (event) => {
+      this.tracker.trackEvent(this.options.sessionId, event);
+    });
+    adapter.on("error", (error) => {
+      this.lastError = error;
+      this.tracker.trackEvent(this.options.sessionId, {
+        event: "session:update",
+        session: {
+          ...adapter.session,
+          status: "error",
+          providerMeta: {
+            ...(adapter.session.providerMeta ?? {}),
+            errorMessage: error.message,
+          },
+        },
+      });
+    });
+
+    await adapter.start();
+    this.tracker.trackEvent(this.options.sessionId, {
+      event: "session:update",
+      session: { ...adapter.session },
+    });
+
+    return { sessionId: this.options.sessionId };
+  }
+
+  async invoke(prompt: string, timeoutMs = DEFAULT_PI_RPC_TIMEOUT_MS): Promise<string> {
+    const run = this.currentRun.then(() => this.invokeNow(prompt, timeoutMs));
+    this.currentRun = run.catch(() => undefined);
+    return run;
+  }
+
+  async shutdown(): Promise<void> {
+    const adapter = this.adapter;
+    this.adapter = null;
+    if (adapter) {
+      await adapter.shutdown();
+      this.tracker.trackEvent(this.options.sessionId, {
+        event: "session:closed",
+        sessionId: this.options.sessionId,
+      });
+    }
+  }
+
+  private async invokeNow(prompt: string, timeoutMs: number): Promise<string> {
+    await this.ensureOnline();
+    const adapter = this.adapter;
+    if (!adapter) {
+      throw new Error("Pi RPC adapter is not online.");
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      let turnId: string | null = null;
+      let settled = false;
+      const cleanup = () => {
+        adapter.off("event", onEvent);
+        adapter.off("error", onError);
+        clearTimeout(timer);
+      };
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        fn();
+      };
+      const onError = (error: Error) => {
+        finish(() => reject(error));
+      };
+      const onEvent = (event: PairingEvent) => {
+        if (event.event === "turn:start" && !turnId) {
+          turnId = event.turn.id;
+          return;
+        }
+        if (event.event !== "turn:end" || event.turnId !== turnId) {
+          return;
+        }
+        const snapshot = this.snapshot;
+        const error = terminalTurnError(snapshot, event.turnId);
+        if (error) {
+          finish(() => reject(new Error(error)));
+          return;
+        }
+        finish(() => resolve(extractTurnText(snapshot, event.turnId)));
+      };
+      const timer = setTimeout(() => {
+        adapter.interrupt();
+        finish(() => reject(new Error(`Pi RPC invocation timed out after ${timeoutMs}ms.`)));
+      }, timeoutMs);
+
+      adapter.on("event", onEvent);
+      adapter.on("error", onError);
+
+      if (this.lastError) {
+        finish(() => reject(this.lastError!));
+        return;
+      }
+
+      adapter.send({
+        sessionId: this.options.sessionId,
+        text: prompt,
+      });
+    });
+  }
+}
+
+const sessions = new Map<string, PiRpcAgentSession>();
+
+function sessionKey(options: Pick<PiRpcSessionRequestOptions, "sessionId">): string {
+  return options.sessionId;
+}
+
+function getOrCreateSession(options: PiRpcSessionRequestOptions): PiRpcAgentSession {
+  const key = sessionKey(options);
+  const existing = sessions.get(key);
+  if (existing) {
+    return existing;
+  }
+  const session = new PiRpcAgentSession(options);
+  sessions.set(key, session);
+  return session;
+}
+
+export async function ensurePiRpcAgentOnline(options: PiRpcSessionRequestOptions): Promise<{ sessionId: string }> {
+  return getOrCreateSession(options).ensureOnline();
+}
+
+export async function invokePiRpcAgent(options: PiRpcInvocationOptions): Promise<{ output: string; sessionId: string }> {
+  const session = getOrCreateSession(options);
+  const output = await session.invoke(options.prompt, options.timeoutMs);
+  return {
+    output,
+    sessionId: options.sessionId,
+  };
+}
+
+export function getPiRpcAgentSnapshot(options: Pick<PiRpcSessionRequestOptions, "sessionId">): SessionState | null {
+  return sessions.get(sessionKey(options))?.snapshot ?? null;
+}
+
+export function isPiRpcAgentAlive(options: Pick<PiRpcSessionRequestOptions, "sessionId">): boolean {
+  return sessions.get(sessionKey(options))?.alive ?? false;
+}
+
+export async function shutdownPiRpcAgent(options: Pick<PiRpcSessionRequestOptions, "sessionId">): Promise<void> {
+  const key = sessionKey(options);
+  const session = sessions.get(key);
+  if (!session) {
+    return;
+  }
+  await session.shutdown();
+  sessions.delete(key);
+}

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildPiProcessEnv } from "./pi.ts";
+import { StateTracker } from "../state.ts";
+import { buildPiProcessEnv, PiAdapter } from "./pi.ts";
 
 describe("buildPiProcessEnv", () => {
   test("passes only MiniMax API key credentials for the MiniMax provider", () => {
@@ -72,5 +73,48 @@ describe("buildPiProcessEnv", () => {
 
     expect(env).not.toHaveProperty("MINIMAX_API_KEY");
     expect(env).not.toHaveProperty("OPENAI_API_KEY");
+  });
+});
+
+describe("PiAdapter event mapping", () => {
+  test("projects final assistant message records into text blocks", () => {
+    const adapter = new PiAdapter({
+      sessionId: "pi-session-1",
+      name: "Pi test",
+      cwd: "/Users/tester/project",
+    });
+    const tracker = new StateTracker();
+    tracker.createSession(adapter.session.id, adapter.session);
+    adapter.on("event", (event) => {
+      tracker.trackEvent(adapter.session.id, event);
+    });
+
+    const handleEvent = (adapter as unknown as { handleEvent(event: unknown): void }).handleEvent.bind(adapter);
+    handleEvent({ type: "turn_start" });
+    handleEvent({
+      type: "message",
+      provider: "minimax",
+      model: "MiniMax-M3",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "private reasoning should not render" },
+          { type: "text", text: "Smoke test reply from Pi." },
+        ],
+      },
+    });
+    handleEvent({ type: "turn_end" });
+
+    const snapshot = tracker.getSessionState(adapter.session.id);
+    const turn = snapshot?.turns[0];
+    const block = turn?.blocks[0]?.block;
+    expect(snapshot?.session.model).toBe("MiniMax-M3");
+    expect(snapshot?.session.providerMeta?.provider).toBe("minimax");
+    expect(turn?.status).toBe("completed");
+    expect(block).toEqual(expect.objectContaining({
+      type: "text",
+      text: "Smoke test reply from Pi.",
+      status: "completed",
+    }));
   });
 });

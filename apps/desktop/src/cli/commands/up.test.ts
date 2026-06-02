@@ -61,6 +61,7 @@ describe("runUpCommand", () => {
         agentName: "smoke",
         harness: undefined,
         model: undefined,
+        provider: undefined,
         reasoningEffort: undefined,
         currentDirectory: "/tmp/current",
       }],

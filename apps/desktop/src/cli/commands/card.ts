@@ -16,7 +16,7 @@ const HELP_FLAGS = new Set(["help", "--help", "-h"]);
 export function renderCardCommandHelp(): string {
   return [
     "Usage:",
-    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|pi>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--one-time] [--no-input] [--path <path>]",
+    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|pi>] [--provider <provider>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--one-time] [--no-input] [--path <path>]",
     `  scout card update <agent> [--harness <claude|codex|pi>] [--model <model>|--clear-model] [--reasoning-effort <effort>|--clear-reasoning-effort] [--permission-profile <${formatScoutPermissionProfiles()}>|--clear-permission-profile] [--restart]`,
     "  scout card cleanup [--all]",
     "  scout card retire <agent>",
@@ -286,6 +286,7 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
     displayName: displayName,
     harness: parseScoutLocalHarness(options.harness),
     model: options.model,
+    provider: options.provider,
     reasoningEffort: options.reasoningEffort,
     permissionProfile: options.permissionProfile,
     currentDirectory: options.currentDirectory,

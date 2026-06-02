@@ -78,6 +78,11 @@
       "bun": "./src/codex-app-server.ts",
       "default": "./dist/codex-app-server.js"
     },
+    "./pi-rpc": {
+      "types": "./src/pi-rpc.ts",
+      "bun": "./src/pi-rpc.ts",
+      "default": "./dist/pi-rpc.js"
+    },
     "./scout-agent-cards": {
       "types": "./src/scout-agent-cards.ts",
       "bun": "./src/scout-agent-cards.ts",
