@@ -66,7 +66,7 @@ bun run pi:minimax -- "Reply exactly: openscout-pi-minimax-ok"
 ```
 
 The helper uses a MiniMax key from the shell when one is already present, then
-falls back to the local secret store. It defaults to `MiniMax-M2.7`; override
+falls back to the local secret store. It defaults to `MiniMax-M3`; override
 with `OPENSCOUT_PI_MINIMAX_MODEL` or `--model` when a different plan/model is
 available. The child process is launched with a minimal environment; any token
 alias is converted to `MINIMAX_API_KEY` and is not forwarded.

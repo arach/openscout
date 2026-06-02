@@ -10,7 +10,7 @@ Usage:
   bash scripts/pi-minimax-headless.sh [options] [--] [prompt...]
 
 Options:
-  --model <model>          MiniMax model (default: MiniMax-M2.7)
+  --model <model>          MiniMax model (default: MiniMax-M3)
   --thinking <level>       Pi thinking level (default: low)
   --tools <tools>          Comma-separated Pi tools
                            (default: read,bash,edit,write,grep,find,ls)
@@ -31,7 +31,7 @@ Environment:
 EOF
 }
 
-MODEL="${OPENSCOUT_PI_MINIMAX_MODEL:-MiniMax-M2.7}"
+MODEL="${OPENSCOUT_PI_MINIMAX_MODEL:-MiniMax-M3}"
 THINKING="${OPENSCOUT_PI_MINIMAX_THINKING:-low}"
 TOOLS="${OPENSCOUT_PI_MINIMAX_TOOLS:-read,bash,edit,write,grep,find,ls}"
 PI_BIN="${OPENSCOUT_PI_BIN:-pi}"

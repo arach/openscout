@@ -22,10 +22,10 @@ import {
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
-const DEFAULT_MODEL = "MiniMax-M2.7";
+const DEFAULT_MODEL = "MiniMax-M3";
 const DEFAULT_THINKING = "low";
 const DEFAULT_ALIAS = "@pi-minimax";
-const DEFAULT_NAME = "Pi MiniMax";
+const DEFAULT_NAME = "Pi MiniMax M3";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const PI_SCOUT_EXTENSION_CANDIDATES = [
   process.env.OPENSCOUT_PI_SCOUT_EXTENSION_PATH,
