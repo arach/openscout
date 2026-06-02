@@ -9,12 +9,20 @@ type ObserveEmbedScreenProps = {
   agentId: string;
 };
 
+const EMBED_REFRESH_INTERVAL_MS = 2_500;
+
+function shortSessionId(value: string | null | undefined): string {
+  if (!value) return "no session";
+  return value.length > 18 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
+}
+
 export function ObserveEmbedScreen({ agentId }: ObserveEmbedScreenProps) {
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (background = false) => {
+    if (!background) setLoading(true);
     setError(null);
     try {
       const result = await api<AgentObservePayload>(
@@ -22,7 +30,7 @@ export function ObserveEmbedScreen({ agentId }: ObserveEmbedScreenProps) {
       );
       setObserve(result);
     } catch (err) {
-      setObserve(null);
+      if (!background) setObserve(null);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -30,12 +38,15 @@ export function ObserveEmbedScreen({ agentId }: ObserveEmbedScreenProps) {
   }, [agentId]);
 
   useEffect(() => {
-    setLoading(true);
     void load();
+    const interval = window.setInterval(() => {
+      void load(true);
+    }, EMBED_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(interval);
   }, [load]);
 
   useBrokerEvents(() => {
-    void load();
+    void load(true);
   });
 
   if (error && !observe) {
@@ -62,6 +73,15 @@ export function ObserveEmbedScreen({ agentId }: ObserveEmbedScreenProps) {
 
   return (
     <div className="s-observe-embed-page">
+      {observe && (
+        <div className="s-observe-embed-status">
+          <span className="s-observe-embed-status-source">{observe.source}</span>
+          <span>{observe.fidelity}</span>
+          <span title={observe.sessionId ?? undefined}>{shortSessionId(observe.sessionId)}</span>
+          <span>{observe.data.events.length} events</span>
+          {observe.data.live && <span className="s-observe-embed-status-live">Live</span>}
+        </div>
+      )}
       <SessionObserve
         data={observe?.data}
         agentId={agentId}

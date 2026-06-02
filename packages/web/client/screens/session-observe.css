@@ -21,11 +21,51 @@
 }
 
 .s-observe-embed-page {
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   min-height: 0;
   overflow: hidden;
   background: var(--bg);
   color: var(--ink);
+}
+
+.s-observe-embed-page > .s-observe {
+  flex: 1;
+  min-height: 0;
+}
+
+.s-observe-embed-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  background: color-mix(in srgb, var(--bg) 92%, black);
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.s-observe-embed-status span {
+  min-width: 0;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-observe-embed-status-source {
+  color: var(--accent);
+}
+
+.s-observe-embed-status-live {
+  margin-left: auto;
+  color: var(--green);
 }
 
 .s-observe-embed-page .s-observe-main {

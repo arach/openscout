@@ -1,6 +1,9 @@
 import HudsonUI
 import SwiftUI
 import WebKit
+#if os(macOS)
+import AppKit
+#endif
 
 private enum ScoutObserveSidecarPhase: Equatable {
     case materializing
@@ -12,6 +15,9 @@ private enum ScoutObserveSidecarPhase: Equatable {
 enum ScoutObserveSidecarMetrics {
     static let peekWidth: CGFloat = 86
     static let expandedWidth: CGFloat = 430
+    static let defaultWidth: CGFloat = expandedWidth
+    static let widthRange: ClosedRange<CGFloat> = 340...780
+    static let resizeHandleWidth: CGFloat = 28
     static let snapDuration: TimeInterval = 0.08
     static let expandDuration: TimeInterval = 0.18
     static let revealDuration: TimeInterval = 0.12
@@ -20,6 +26,8 @@ enum ScoutObserveSidecarMetrics {
 struct ScoutObserveSidecarPanel: View {
     let agent: ScoutAgent
     let stagingWidth: CGFloat
+    @Binding var width: CGFloat
+    @Binding var previewWidth: CGFloat?
     let onClose: () -> Void
     let onOpenWeb: () -> Void
 
@@ -43,8 +51,13 @@ struct ScoutObserveSidecarPanel: View {
         case .materializing, .snapping:
             return normalizedStagingWidth
         case .expanding, .revealed:
-            return ScoutObserveSidecarMetrics.expandedWidth
+            return resolvedWidth
         }
+    }
+
+    private var resolvedWidth: CGFloat {
+        let range = ScoutObserveSidecarMetrics.widthRange
+        return min(max(previewWidth ?? width, range.lowerBound), range.upperBound)
     }
 
     private var observeURL: URL {
@@ -85,7 +98,19 @@ struct ScoutObserveSidecarPanel: View {
                 .fill(ScoutDesign.hairlineStrong)
                 .frame(width: HudStrokeWidth.thin)
         }
-        .animation(.interpolatingSpring(stiffness: 320, damping: 30), value: panelWidth)
+        .overlay(alignment: .leading) {
+            if isRevealed {
+                ScoutObserveSidecarResizeHandle(
+                    width: $width,
+                    previewWidth: $previewWidth,
+                    range: ScoutObserveSidecarMetrics.widthRange
+                )
+                .frame(width: ScoutObserveSidecarMetrics.resizeHandleWidth)
+                .offset(x: -8)
+                .transition(.opacity)
+            }
+        }
+        .animation(previewWidth == nil ? .interpolatingSpring(stiffness: 320, damping: 30) : nil, value: panelWidth)
         .animation(.easeOut(duration: 0.10), value: phase)
         .onChange(of: agent.id) { _, _ in
             restart()
@@ -293,6 +318,180 @@ private struct PixelDither: View {
     }
 }
 
+#if os(macOS)
+private struct ScoutObserveSidecarResizeHandle: NSViewRepresentable {
+    @Binding var width: CGFloat
+    @Binding var previewWidth: CGFloat?
+    let range: ClosedRange<CGFloat>
+
+    func makeNSView(context: Context) -> ResizeHandleView {
+        let view = ResizeHandleView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ view: ResizeHandleView, context: Context) {
+        configure(view)
+    }
+
+    private func configure(_ view: ResizeHandleView) {
+        view.range = range
+        view.getWidth = { width }
+        view.setPreviewWidth = { previewWidth = $0 }
+        view.commitWidth = { width = $0 }
+        view.clearPreview = { previewWidth = nil }
+    }
+
+    final class ResizeHandleView: NSView {
+        var range: ClosedRange<CGFloat> = ScoutObserveSidecarMetrics.widthRange
+        var getWidth: () -> CGFloat = { ScoutObserveSidecarMetrics.defaultWidth }
+        var setPreviewWidth: (CGFloat) -> Void = { _ in }
+        var commitWidth: (CGFloat) -> Void = { _ in }
+        var clearPreview: () -> Void = {}
+
+        private var trackingAreaRef: NSTrackingArea?
+        private var startX: CGFloat = 0
+        private var startWidth: CGFloat = ScoutObserveSidecarMetrics.defaultWidth
+        private var isHovering = false
+        private var isActive = false
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
+
+        override var acceptsFirstResponder: Bool { true }
+        override var mouseDownCanMoveWindow: Bool { false }
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: ScoutObserveSidecarMetrics.resizeHandleWidth, height: NSView.noIntrinsicMetric)
+        }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            true
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let trackingAreaRef {
+                removeTrackingArea(trackingAreaRef)
+            }
+            let trackingArea = NSTrackingArea(
+                rect: bounds,
+                options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            trackingAreaRef = trackingArea
+            addTrackingArea(trackingArea)
+        }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            isHovering = true
+            NSCursor.resizeLeftRight.set()
+            needsDisplay = true
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            isHovering = false
+            if !isActive {
+                NSCursor.arrow.set()
+            }
+            needsDisplay = true
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            window?.makeFirstResponder(self)
+            startX = event.locationInWindow.x
+            startWidth = getWidth()
+            isActive = true
+            isHovering = true
+            setPreviewWidth(startWidth)
+            NSCursor.resizeLeftRight.set()
+            needsDisplay = true
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            let delta = startX - event.locationInWindow.x
+            setPreviewWidth(clamp(startWidth + delta))
+            NSCursor.resizeLeftRight.set()
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            let delta = startX - event.locationInWindow.x
+            commitWidth(clamp(startWidth + delta))
+            clearPreview()
+            isActive = false
+            isHovering = bounds.contains(convert(event.locationInWindow, from: nil))
+            if isHovering {
+                NSCursor.resizeLeftRight.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+            needsDisplay = true
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+
+            if isActive || isHovering {
+                NSColor.white.withAlphaComponent(isActive ? 0.055 : 0.035).setFill()
+                bounds.fill()
+            }
+
+            let handleWidth: CGFloat = isActive || isHovering ? 3 : 2
+            let handleHeight: CGFloat = isActive || isHovering ? 64 : 42
+            let rect = NSRect(
+                x: floor((bounds.width - handleWidth) / 2),
+                y: floor((bounds.height - handleHeight) / 2),
+                width: handleWidth,
+                height: handleHeight
+            )
+            let path = NSBezierPath(roundedRect: rect, xRadius: handleWidth / 2, yRadius: handleWidth / 2)
+            (isActive || isHovering
+                ? NSColor.systemGreen.withAlphaComponent(0.42)
+                : NSColor.white.withAlphaComponent(0.18)
+            ).setFill()
+            path.fill()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.invalidateCursorRects(for: self)
+        }
+
+        deinit {
+            NSCursor.arrow.set()
+        }
+
+        private func clamp(_ value: CGFloat) -> CGFloat {
+            min(max(value, range.lowerBound), range.upperBound)
+        }
+    }
+}
+#else
+private struct ScoutObserveSidecarResizeHandle: View {
+    @Binding var width: CGFloat
+    @Binding var previewWidth: CGFloat?
+    let range: ClosedRange<CGFloat>
+
+    var body: some View {
+        HudResizableDivider(width: $width, placement: .trailing, range: range, hitWidth: ScoutObserveSidecarMetrics.resizeHandleWidth)
+            .onChange(of: width) { _, _ in previewWidth = nil }
+    }
+}
+#endif
+
 private struct ScoutObserveEmbedWebView: NSViewRepresentable {
     let url: URL
     let reloadToken: UUID
@@ -324,7 +523,13 @@ private struct ScoutObserveEmbedWebView: NSViewRepresentable {
         context.coordinator.readyURL = nil
         context.coordinator.navigationStartedAt = Date()
         context.coordinator.navigationToken = UUID()
-        webView.load(URLRequest(url: url))
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: 30
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        webView.load(request)
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {

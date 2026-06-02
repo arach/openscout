@@ -25,6 +25,7 @@ struct ScoutRootView: View {
     @State private var composerInputFrame: CGRect = .zero
     @State private var observeSidecarAgent: ScoutAgent?
     @State private var observeSidecarStagingWidth = ScoutObserveSidecarMetrics.peekWidth
+    @State private var observeSidecarResizePreviewWidth: CGFloat?
     @State private var observeRestoresInspectorCollapsed = false
     @State private var agentPreviewPanelAgent: ScoutAgent?
     @State private var agentPreviewRestoresInspectorCollapsed = false
@@ -32,6 +33,7 @@ struct ScoutRootView: View {
     @AppStorage("scout.navigationSidebar.labelWidth") private var navigationSidebarLabelWidth = 142.0
     @AppStorage("scout.conversationList.width") private var conversationListWidth = 286.0
     @AppStorage("scout.inspector.width") private var inspectorWidth = 320.0
+    @AppStorage("scout.observeSidecar.width") private var observeSidecarWidth = Double(ScoutObserveSidecarMetrics.defaultWidth)
 
     private var manifest: HudAppManifest {
         HudAppManifest(
@@ -703,6 +705,8 @@ struct ScoutRootView: View {
                 ScoutObserveSidecarPanel(
                     agent: agent,
                     stagingWidth: observeSidecarStagingWidth,
+                    width: observeSidecarWidthBinding,
+                    previewWidth: $observeSidecarResizePreviewWidth,
                     onClose: {
                         withAnimation(.easeOut(duration: 0.14)) {
                             closeObserveSidecar()
@@ -804,6 +808,15 @@ struct ScoutRootView: View {
         } set: { nextWidth in
             let range = ScoutDesign.inspectorWidthRange
             inspectorWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
+        }
+    }
+
+    private var observeSidecarWidthBinding: Binding<CGFloat> {
+        Binding {
+            CGFloat(observeSidecarWidth)
+        } set: { nextWidth in
+            let range = ScoutObserveSidecarMetrics.widthRange
+            observeSidecarWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
         }
     }
 
@@ -930,13 +943,14 @@ struct ScoutRootView: View {
             observeRestoresInspectorCollapsed = inspectorCollapsed
             observeSidecarStagingWidth = inspectorCollapsed
                 ? ScoutObserveSidecarMetrics.peekWidth
-                : inspectorWidthBinding.wrappedValue
+                : min(max(inspectorWidthBinding.wrappedValue, ScoutObserveSidecarMetrics.widthRange.lowerBound), ScoutObserveSidecarMetrics.widthRange.upperBound)
         } else {
-            observeSidecarStagingWidth = ScoutObserveSidecarMetrics.expandedWidth
+            observeSidecarStagingWidth = observeSidecarWidthBinding.wrappedValue
         }
 
         store.selectAgent(agent.id)
         agentContentMode = .roster
+        observeSidecarResizePreviewWidth = nil
         observeSidecarAgent = agent
     }
 
@@ -955,6 +969,7 @@ struct ScoutRootView: View {
 
     private func closeObserveSidecar() {
         observeSidecarAgent = nil
+        observeSidecarResizePreviewWidth = nil
         inspectorCollapsed = observeRestoresInspectorCollapsed
     }
 
