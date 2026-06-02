@@ -5,54 +5,76 @@ import AppKit
 
 #if os(macOS)
 
-/// A thin, HUD-coherent overlay scroller. Subtly tinted, slot-less knob that
-/// hugs the trailing edge so Scout's scroll areas read as intentional chrome
-/// rather than the raw system scroller.
+enum ScoutScrollbarMetrics {
+    /// Width of the reserved scroller lane (content is inset by this).
+    static let laneWidth: CGFloat = 12
+    /// Thickness of the knob/track pill within the lane.
+    static let pillThickness: CGFloat = 6
+    /// Inset of the pill from the ends of the track.
+    static let pillInset: CGFloat = 2
+    static let knobAlpha: CGFloat = 0.34
+    static let trackAlpha: CGFloat = 0.07
+}
+
+/// A slim, HUD-coherent scroller. Draws a persistent faint track plus a brighter
+/// rounded knob so it's always clear a scroll area exists, while staying tight to
+/// the panel edge via a narrow reserved lane.
 final class ScoutHudScroller: NSScroller {
     override class var isCompatibleWithOverlayScrollers: Bool { true }
 
+    /// Keep the reserved lane narrow so content sits tight to the divider/border.
+    override class func scrollerWidth(
+        for controlSize: NSControl.ControlSize,
+        scrollerStyle: NSScroller.Style
+    ) -> CGFloat {
+        ScoutScrollbarMetrics.laneWidth
+    }
+
     override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
-        // Slot-less: keep the bar minimal so it floats over HUD chrome.
+        let pill = pillRect(in: slotRect)
+        let radius = min(pill.width, pill.height) / 2
+        NSColor.white.withAlphaComponent(ScoutScrollbarMetrics.trackAlpha).setFill()
+        NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius).fill()
     }
 
     override func drawKnob() {
         let knobRect = rect(for: .knob)
         guard knobRect.width > 0, knobRect.height > 0 else { return }
+        let pill = pillRect(in: knobRect)
+        let radius = min(pill.width, pill.height) / 2
+        NSColor.white.withAlphaComponent(ScoutScrollbarMetrics.knobAlpha).setFill()
+        NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius).fill()
+    }
 
-        // Pull the knob a hair off the very edge and slim it down.
-        let thickness: CGFloat = 4
-        let inset: CGFloat = 2
-        let drawRect: NSRect
-        if knobRect.width >= knobRect.height {
-            // Horizontal scroller.
-            drawRect = NSRect(
-                x: knobRect.minX + inset,
-                y: knobRect.maxY - thickness - inset,
-                width: max(knobRect.width - inset * 2, thickness),
-                height: thickness
+    /// Slim pill centered within the lane, inset from the track ends.
+    private func pillRect(in rect: NSRect) -> NSRect {
+        let thickness = ScoutScrollbarMetrics.pillThickness
+        let inset = ScoutScrollbarMetrics.pillInset
+        let vertical = bounds.height >= bounds.width
+        if vertical {
+            return NSRect(
+                x: rect.midX - thickness / 2,
+                y: rect.minY + inset,
+                width: thickness,
+                height: max(rect.height - inset * 2, thickness)
             )
         } else {
-            // Vertical scroller.
-            drawRect = NSRect(
-                x: knobRect.maxX - thickness - inset,
-                y: knobRect.minY + inset,
-                width: thickness,
-                height: max(knobRect.height - inset * 2, thickness)
+            return NSRect(
+                x: rect.minX + inset,
+                y: rect.midY - thickness / 2,
+                width: max(rect.width - inset * 2, thickness),
+                height: thickness
             )
         }
-
-        let radius = thickness / 2
-        let path = NSBezierPath(roundedRect: drawRect, xRadius: radius, yRadius: radius)
-        NSColor.white.withAlphaComponent(0.22).setFill()
-        path.fill()
     }
 }
 
 /// Invisible AppKit probe that restyles the enclosing `NSScrollView`'s
 /// scrollers. SwiftUI otherwise honours the user's "Show scroll bars" setting,
-/// which can render wide legacy scrollers that sit far from the panel edge in a
-/// gray gutter. Forcing the overlay style + a slim tinted knob keeps every Scout
-/// scroll area tight to its divider/border and visually consistent.
+/// which can render wide gray legacy scrollers or auto-hiding overlay scrollers
+/// that give no persistent hint the area scrolls. We pin a slim legacy-style
+/// scroller (always visible while scrollable, with a faint track) so every Scout
+/// scroll area reads as deliberate HUD chrome and stays tight to its edge.
 private struct ScoutScrollerStyler: NSViewRepresentable {
     func makeNSView(context: Context) -> ProbeView { ProbeView() }
 
@@ -69,26 +91,29 @@ private struct ScoutScrollerStyler: NSViewRepresentable {
         func applyStyle() {
             DispatchQueue.main.async { [weak self] in
                 guard let scrollView = self?.enclosingScrollView else { return }
-                scrollView.scrollerStyle = .overlay
+                // Legacy style keeps the bar persistently visible while the area
+                // is scrollable, instead of fading like overlay scrollers.
+                scrollView.scrollerStyle = .legacy
+                scrollView.autohidesScrollers = true
                 scrollView.scrollerInsets = NSEdgeInsetsZero
                 scrollView.drawsBackground = false
 
                 if !(scrollView.verticalScroller is ScoutHudScroller) {
                     let scroller = ScoutHudScroller()
-                    scroller.scrollerStyle = .overlay
+                    scroller.scrollerStyle = .legacy
                     scrollView.verticalScroller = scroller
                 }
-                scrollView.verticalScroller?.scrollerStyle = .overlay
-                scrollView.horizontalScroller?.scrollerStyle = .overlay
+                scrollView.verticalScroller?.scrollerStyle = .legacy
+                scrollView.horizontalScroller?.scrollerStyle = .legacy
             }
         }
     }
 }
 
 extension View {
-    /// Apply Scout's HUD overlay scrollbar treatment. Attach to the content
-    /// *inside* a `ScrollView` so the probe can resolve the enclosing scroll
-    /// view. Pairs with `.scrollIndicators(.visible)` on the `ScrollView`.
+    /// Apply Scout's HUD scrollbar treatment. Attach to the content *inside* a
+    /// `ScrollView` so the probe can resolve the enclosing scroll view. Pairs
+    /// with `.scrollIndicators(.visible)` on the `ScrollView`.
     func scoutOverlayScrollers() -> some View {
         background(
             ScoutScrollerStyler()

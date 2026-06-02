@@ -2105,6 +2105,7 @@ export async function askScoutQuestion(input: {
   executionHarness?: AgentHarness;
   executionModel?: string;
   executionSession?: "new" | "existing" | "any";
+  executionTargetSessionId?: string;
   projectAgent?: ScoutProjectAgentSpec;
   currentDirectory?: string;
   source?: string;
@@ -2164,6 +2165,9 @@ export async function askScoutQuestion(input: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
       ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
       session: input.executionSession ?? "new",
+      ...(input.executionTargetSessionId?.trim()
+        ? { targetSessionId: input.executionTargetSessionId.trim() }
+        : {}),
     },
     ...(input.projectAgent ? { projectAgent: input.projectAgent } : {}),
     ensureAwake: true,

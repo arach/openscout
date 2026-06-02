@@ -1182,7 +1182,7 @@ button.s-thread-msg-actor:focus-visible {
 /* ── Composer ── */
 
 .s-thread-compose {
-  padding: 10px 20px 18px;
+  padding: 10px 0 18px 20px;
   border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
   background: transparent;
   flex-shrink: 0;

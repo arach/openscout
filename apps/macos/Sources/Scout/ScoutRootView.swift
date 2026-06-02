@@ -17,6 +17,21 @@ struct ScoutRootView: View {
     @State private var agentContentMode: ScoutAgentContentMode = .roster
     @State private var channelFilter: ScoutChannelFilter = .all
     @State private var draft = ""
+    /// Per-conversation unsent drafts, so a message isn't lost when navigating
+    /// to another chat/section. Keyed by cId; the active draft mirrors into
+    /// `draft` and is swapped on selection change.
+    @State private var drafts: [String: String] = [:]
+    /// Set when the user hits send while dictating: we commit the recording and
+    /// fire the send once the final transcript has been spliced in.
+    @State private var pendingSendAfterDictation = false
+    /// Whether the transcript is pinned to the latest message. True while the
+    /// bottom is in view; flips false when the user scrolls up into history so
+    /// incoming messages don't yank them out of the zone they're reading.
+    @State private var followLatest = true
+    /// Pending one-shot jump to the newest message when a conversation opens.
+    @State private var pendingInitialJump = true
+
+    private static let messageListBottomAnchor = "scout.messageList.bottom"
     @State private var suggestions: [MessageSuggestion] = []
     @State private var selectedSuggestionIndex = 0
     @State private var currentSuggestionTrigger: MessageSuggestionTrigger?
@@ -29,6 +44,9 @@ struct ScoutRootView: View {
     @State private var observeRestoresInspectorCollapsed = false
     @State private var agentPreviewPanelAgent: ScoutAgent?
     @State private var agentPreviewRestoresInspectorCollapsed = false
+    /// Non-nil while the new-session composer is presented. Configured by each
+    /// entry point (list "+", message context menu, agent inspector).
+    @State private var sessionDraft: ScoutSessionDraft?
     @FocusState private var composerFocused: Bool
     @AppStorage("scout.navigationSidebar.labelWidth") private var navigationSidebarLabelWidth = 142.0
     @AppStorage("scout.conversationList.width") private var conversationListWidth = 286.0
@@ -108,6 +126,79 @@ struct ScoutRootView: View {
             store.stop()
             tail.stop()
         }
+        .onChange(of: store.selectedCId) { oldCId, newCId in
+            // Preserve the in-progress draft for the chat we're leaving and
+            // restore any draft saved for the one we're entering.
+            if let oldCId { drafts[oldCId] = draft }
+            draft = newCId.flatMap { drafts[$0] } ?? ""
+        }
+        .overlay {
+            if let sessionDraft {
+                ScoutSessionComposer(draft: sessionDraft) {
+                    self.sessionDraft = nil
+                } onComplete: { result in
+                    handleSessionStarted(result)
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
+    private func startNewConversation() {
+        sessionDraft = ScoutSessionDraft(
+            title: "New conversation",
+            target: .project,
+            projectPath: defaultProjectPath,
+            mode: .fresh,
+            instructions: "",
+            fromMessageId: nil,
+            fromConversationId: nil
+        )
+    }
+
+    private func startConversationFromMessage(_ message: ScoutMessage, agent: ScoutAgent?) {
+        let target: ScoutSessionDraft.Target = agent.map { .agent($0) } ?? .project
+        sessionDraft = ScoutSessionDraft(
+            title: "New conversation from message",
+            target: target,
+            projectPath: agent?.projectRoot?.nilIfEmpty ?? defaultProjectPath,
+            mode: .fresh,
+            instructions: message.body,
+            fromMessageId: message.id,
+            fromConversationId: message.cId
+        )
+    }
+
+    private func startSessionWithAgent(_ agent: ScoutAgent, mode: ScoutSessionDraft.Mode) {
+        sessionDraft = ScoutSessionDraft(
+            title: mode == .continueContext ? "Continue session" : "New session",
+            target: .agent(agent),
+            projectPath: agent.projectRoot?.nilIfEmpty ?? "",
+            mode: mode,
+            instructions: "",
+            fromMessageId: nil,
+            fromConversationId: nil
+        )
+    }
+
+    private func handleSessionStarted(_ result: SessionInitiationResult) {
+        sessionDraft = nil
+        section = .comms
+        store.refresh(force: true)
+        if let cId = result.conversationId?.nilIfEmpty {
+            store.selectChannel(cId)
+        }
+        if let agentId = result.agentId?.nilIfEmpty {
+            store.selectAgent(agentId)
+        }
+    }
+
+    /// Best-guess project root for a brand-new conversation: the selected
+    /// agent's root, else any roster agent that exposes one.
+    private var defaultProjectPath: String {
+        store.selectedAgent?.projectRoot?.nilIfEmpty
+            ?? store.agents.compactMap { $0.projectRoot?.nilIfEmpty }.first
+            ?? ""
     }
 
     private var sidebarEntries: [HudSidebarEntry<ScoutSection>] {
@@ -170,7 +261,8 @@ struct ScoutRootView: View {
                 channels: commsListChannels,
                 totalCount: store.channels.count,
                 selectedCId: store.selectedCId,
-                width: CGFloat(conversationListWidth)
+                width: CGFloat(conversationListWidth),
+                onNewConversation: { startNewConversation() }
             ) { channel in
                 store.selectChannel(channel.cId)
             }
@@ -264,21 +356,54 @@ struct ScoutRootView: View {
                             ScoutMessageRow(
                                 message: message,
                                 agent: agent(for: message),
-                                previewAgent: previewAgent
+                                previewAgent: previewAgent,
+                                onNewFromMessage: {
+                                    startConversationFromMessage(message, agent: agent(for: message))
+                                }
                             )
                                 .id(message.id)
                         }
+
+                        // Bottom sentinel: visible only when scrolled to the
+                        // latest message, so we can tell whether to keep
+                        // following or leave the reader in their zone.
+                        Color.clear
+                            .frame(height: 1)
+                            .id(Self.messageListBottomAnchor)
+                            .onAppear { followLatest = true }
+                            .onDisappear { followLatest = false }
                     }
                 }
-                .padding(HudSpacing.huge)
+                .padding(EdgeInsets(
+                    top: HudSpacing.huge,
+                    leading: HudSpacing.huge,
+                    bottom: HudSpacing.huge,
+                    trailing: HudSpacing.md
+                ))
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .scoutOverlayScrollers()
             }
             .scrollIndicators(.visible)
-            .onChange(of: store.messages.count) { _, _ in
-                if let last = store.messages.last {
+            .onAppear {
+                if !store.messages.isEmpty {
+                    proxy.scrollTo(Self.messageListBottomAnchor, anchor: .bottom)
+                    pendingInitialJump = false
+                }
+            }
+            .onChange(of: store.selectedCId) { _, _ in
+                // Opening a conversation lands on the newest message unless the
+                // user deliberately scrolls up afterwards.
+                pendingInitialJump = true
+                followLatest = true
+            }
+            .onChange(of: store.messages.last?.id) { _, _ in
+                guard !store.messages.isEmpty else { return }
+                if pendingInitialJump {
+                    pendingInitialJump = false
+                    proxy.scrollTo(Self.messageListBottomAnchor, anchor: .bottom)
+                } else if followLatest {
                     withAnimation(.easeOut(duration: 0.16)) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                        proxy.scrollTo(Self.messageListBottomAnchor, anchor: .bottom)
                     }
                 }
             }
@@ -290,20 +415,47 @@ struct ScoutRootView: View {
             HStack(alignment: .top, spacing: HudSpacing.md) {
                 composerInputWell
 
+                if isDictating {
+                    ScoutWaveform(tint: isDictationProcessing ? HudPalette.muted : HudPalette.accent)
+                        .frame(width: 26, height: 18)
+                        .padding(.top, HudSpacing.xs + 8)
+                        .transition(.opacity)
+                }
+
+                ScoutMicButton(box: 34, glyph: 15, action: toggleDictation)
+                    .padding(.top, HudSpacing.xs)
+
                 ScoutSendButton(
-                    isEnabled: composerCanSend,
+                    isEnabled: composerReady,
                     isSending: store.isSending,
-                    action: sendDraft
+                    action: requestSend
                 )
                 .padding(.top, HudSpacing.xs)
+            }
+            .animation(.easeOut(duration: 0.16), value: isDictating)
+            .onChange(of: vox.state) { _, newState in
+                guard pendingSendAfterDictation else { return }
+                switch newState {
+                case .idle:
+                    // Final transcript has already been spliced (it lands on
+                    // $lastFinalText before state flips to idle), so send now.
+                    pendingSendAfterDictation = false
+                    sendDraft()
+                case .unavailable:
+                    pendingSendAfterDictation = false
+                default:
+                    break
+                }
             }
 
             if let status = composerStatusText {
                 Text(status)
                     .font(HudFont.mono(9))
                     .foregroundStyle(HudPalette.dim)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.horizontal, HudSpacing.xs)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, HudSpacing.xs)
             }
         }
         .padding(.horizontal, HudSpacing.xxl)
@@ -357,22 +509,25 @@ struct ScoutRootView: View {
 
     private var composerInputWell: some View {
         HStack(alignment: .top, spacing: HudSpacing.md) {
-            ScoutMicButton(box: 28, glyph: 14, action: toggleDictation)
-                .padding(.top, 1)
-
             ZStack(alignment: .topLeading) {
                 TextField(showDictationPreview ? "" : composerPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(HudFont.mono(11))
                     .foregroundStyle(HudPalette.ink)
+                    // Accent caret to match the HUD (not the system blue), and
+                    // hidden while dictating so the waveform is the only cue.
+                    .tint(showDictationPreview ? Color.clear : HudPalette.accent)
                     .lineLimit(1...5)
                     .focused($composerFocused)
                     .disabled(store.selectedCId == nil || store.isSending)
                     .onKeyPress(phases: .down) { press in
                         if press.key == .return {
                             if applySelectedSuggestion() { return .handled }
-                            if press.modifiers.contains(.shift) { return .ignored }
-                            sendDraft()
+                            if press.modifiers.contains(.shift) {
+                                draft.append("\n")
+                                return .handled
+                            }
+                            requestSend()
                             return .handled
                         }
                         return .ignored
@@ -394,7 +549,7 @@ struct ScoutRootView: View {
                     }
 
                 if showDictationPreview {
-                    ScoutDictationPreview(text: vox.partial.isEmpty ? voxStatusLine : vox.partial)
+                    ScoutDictationPreview(text: vox.partial)
                         .allowsHitTesting(false)
                 }
             }
@@ -457,6 +612,13 @@ struct ScoutRootView: View {
             && !store.isSending
     }
 
+    /// Whether the send button should read as *enabled* — i.e. we have a target
+    /// to talk to. Lit whenever a conversation is selected (not gated on having
+    /// typed text yet); the actual send still no-ops on an empty draft.
+    private var composerReady: Bool {
+        store.selectedCId != nil && !store.isSending
+    }
+
     private var composerSuggestionX: CGFloat {
         guard composerInputFrame.width > 0 else { return HudSpacing.xxl }
         return max(HudSpacing.xs, composerInputFrame.minX)
@@ -493,6 +655,11 @@ struct ScoutRootView: View {
         }
     }
 
+    private var isDictationProcessing: Bool {
+        if case .processing = vox.state { return true }
+        return false
+    }
+
     private var voxStatusLine: String {
         if !vox.partial.isEmpty { return vox.partial }
         switch vox.state {
@@ -507,10 +674,25 @@ struct ScoutRootView: View {
         return nil
     }
 
+    /// Send entry point. While dictating, commit the recording first and let
+    /// the dictation→idle transition fire the actual send once the transcript
+    /// has landed — so one tap finishes transcription and sends in one shot.
+    private func requestSend() {
+        if isDictating {
+            guard composerReady else { return }
+            pendingSendAfterDictation = true
+            vox.stop()
+            return
+        }
+        sendDraft()
+    }
+
     private func sendDraft() {
         let body = draft
         guard composerCanSend else { return }
         draft = ""
+        if let cId = store.selectedCId { drafts[cId] = nil }
+        followLatest = true
         composerFocused = true
         clearSuggestions(resetDismissedSignature: true)
         Task { await store.send(body) }
@@ -539,6 +721,21 @@ struct ScoutRootView: View {
         draft = ScoutDictationBuffer.appending(trimmed, to: draft)
         ScoutVoxService.shared.consumeFinalText()
         composerFocused = true
+        moveComposerCaretToEnd()
+    }
+
+    /// After splicing dictated text, drop the field's selection and park the
+    /// caret at the very end so you can keep typing/editing cleanly instead of
+    /// landing on an all-selected or mid-string insertion point.
+    private func moveComposerCaretToEnd() {
+        #if os(macOS)
+        DispatchQueue.main.async {
+            guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+            let end = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+            textView.scrollRangeToVisible(NSRange(location: end, length: 0))
+        }
+        #endif
     }
 
     private func refreshSuggestions() {
@@ -733,6 +930,9 @@ struct ScoutRootView: View {
                     },
                     openProfile: {
                         ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile")
+                    },
+                    startSession: { mode in
+                        startSessionWithAgent(agent, mode: mode)
                     }
                 )
                 .id("preview-\(agent.id)")
@@ -776,11 +976,13 @@ struct ScoutRootView: View {
                 }
 
                 if let agent = store.selectedAgent {
-                    ScoutAgentInspector(agent: agent, selectedChannel: store.selectedChannel) {
-                        observeAgent(agent)
-                    } openProfile: {
-                        ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile")
-                    }
+                    ScoutAgentInspector(
+                        agent: agent,
+                        selectedChannel: store.selectedChannel,
+                        openObserve: { observeAgent(agent) },
+                        openProfile: { ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile") },
+                        startSession: { mode in startSessionWithAgent(agent, mode: mode) }
+                    )
                 } else if let channel = store.selectedChannel {
                     ScoutChannelInspector(channel: channel)
                 } else {
@@ -1191,6 +1393,7 @@ private struct ScoutConversationListBar: View {
     let totalCount: Int
     let selectedCId: String?
     let width: CGFloat
+    let onNewConversation: () -> Void
     let select: (ScoutChannel) -> Void
 
     var body: some View {
@@ -1218,11 +1421,22 @@ private struct ScoutConversationListBar: View {
                 .foregroundStyle(HudPalette.dim)
                 .lineLimit(1)
         } trailing: {
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                HudBadge("\(channels.count)", tint: HudPalette.muted)
+            HStack(spacing: HudSpacing.md) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    HudBadge("\(channels.count)", tint: HudPalette.muted)
+                }
+                Button(action: onNewConversation) {
+                    Image(systemName: "plus")
+                        .font(HudFont.ui(12, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(HudPalette.accent)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+                .help("New conversation")
             }
         }
     }
@@ -1711,6 +1925,7 @@ private struct ScoutMessageRow: View {
     let message: ScoutMessage
     let agent: ScoutAgent?
     let previewAgent: (ScoutAgent) -> Void
+    let onNewFromMessage: () -> Void
 
     @State private var isHoveringAgent = false
 
@@ -1736,9 +1951,34 @@ private struct ScoutMessageRow: View {
                 RoundedRectangle(cornerRadius: HudRadius.card)
                     .stroke(message.isOperator ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: 1)
             )
+            .contextMenu {
+                Button {
+                    onNewFromMessage()
+                } label: {
+                    Label("New conversation from this message…", systemImage: "bubble.left.and.text.bubble.right")
+                }
+                Divider()
+                Button {
+                    copyToPasteboard(message.body)
+                } label: {
+                    Label("Copy message", systemImage: "doc.on.doc")
+                }
+                Button {
+                    copyToPasteboard(message.id)
+                } label: {
+                    Label("Copy message ID", systemImage: "number")
+                }
+            }
             if !message.isOperator { Spacer(minLength: 80) }
         }
         .frame(maxWidth: .infinity, alignment: message.isOperator ? .trailing : .leading)
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        #endif
     }
 
     @ViewBuilder
@@ -1832,6 +2072,15 @@ private struct ScoutMarkdownView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
+        .environment(\.openURL, OpenURLAction { url in
+            guard let link = ScoutFileLink.parse(url) else { return .systemAction }
+            if NSEvent.modifierFlags.contains(.command) {
+                ScoutFileOpener.openInEditor(path: link.path, line: link.line)
+            } else {
+                ScoutFilePreview.show(path: link.path)
+            }
+            return .handled
+        })
     }
 
     @ViewBuilder
@@ -1893,10 +2142,11 @@ private struct ScoutMarkdownView: View {
     }
 
     private func inline(_ body: String) -> AttributedString {
-        (try? AttributedString(
+        let parsed = (try? AttributedString(
             markdown: body,
             options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(body)
+        return ScoutFileLinkifier.apply(to: parsed, accent: HudPalette.accent)
     }
 }
 
@@ -1968,31 +2218,21 @@ private extension MessageSuggestionAgent {
 
 private struct ScoutDictationPreview: View {
     let text: String
-    @State private var caretLit = false
 
     private var displayText: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
-        HStack(spacing: HudSpacing.xs) {
-            if !displayText.isEmpty {
-                Text(displayText)
-                    .font(HudFont.mono(11))
-                    .foregroundStyle(HudPalette.muted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            RoundedRectangle(cornerRadius: 0.5, style: .continuous)
-                .fill(HudPalette.accent.opacity(caretLit ? 0.95 : 0.25))
-                .frame(width: 1, height: 13)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.48).repeatForever(autoreverses: true)) {
-                caretLit = true
-            }
-        }
+        // Live partial transcript only — no blinking caret. The recording cue
+        // is the waveform near the mic; the textual state lives in the status row.
+        Text(displayText)
+            .font(HudFont.mono(11))
+            .foregroundStyle(HudPalette.muted)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .opacity(displayText.isEmpty ? 0 : 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -2031,9 +2271,10 @@ private struct ScoutSendButton: View {
                 .scaleEffect(0.62)
                 .tint(HudPalette.dim)
         } else {
-            Image(systemName: "arrow.up")
-                .font(.system(size: 13, weight: .bold))
+            Image(systemName: "paperplane.fill")
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(iconColor)
+                .offset(x: -1, y: 1)
         }
     }
 
@@ -2063,13 +2304,41 @@ private struct ScoutSendButton: View {
 // toggle Vox dictation. Visual state mirrors ScoutVoxService.state:
 //   idle/probing → faint stroke · recording → accent stroke + pulsing halo
 //   processing   → muted stroke that breathes · unavailable → dim + dashed.
+// Lightweight equalizer-style waveform shown while dictating. Decorative
+// (synthetic, not amplitude-driven) — replaces the recording pulse with a
+// calmer, single activity cue. Bars stay out of phase via fixed per-bar
+// durations rather than any RNG.
+private struct ScoutWaveform: View {
+    var tint: Color
+    @State private var animate = false
+
+    private let lows: [CGFloat] = [4, 6, 5, 7, 4]
+    private let highs: [CGFloat] = [12, 17, 14, 18, 11]
+    private let durations: [Double] = [0.50, 0.62, 0.44, 0.70, 0.54]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(lows.indices, id: \.self) { i in
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.85))
+                    .frame(width: 2.5, height: animate ? highs[i] : lows[i])
+                    .animation(
+                        .easeInOut(duration: durations[i]).repeatForever(autoreverses: true),
+                        value: animate
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .onAppear { animate = true }
+    }
+}
+
 private struct ScoutMicButton: View {
     let box: CGFloat
     let glyph: CGFloat
     let action: () -> Void
 
     @ObservedObject private var vox = ScoutVoxService.shared
-    @State private var pulse = false
     @State private var hovering = false
 
     private var isRecording: Bool { vox.state.isCaptureActive }
@@ -2101,11 +2370,13 @@ private struct ScoutMicButton: View {
                     .fill(micFillColor)
                     .frame(width: box, height: box)
 
-                if isRecording {
-                    Circle()
-                        .fill(HudPalette.accent.opacity(pulse ? 0.20 : 0.08))
-                        .frame(width: box, height: box)
-                }
+                Circle()
+                    .stroke(
+                        isRecording ? HudPalette.accent.opacity(0.5) : Color.clear,
+                        lineWidth: HudStrokeWidth.thin
+                    )
+                    .frame(width: box, height: box)
+
                 ScoutMicGlyphShape()
                     .stroke(
                         strokeColor,
@@ -2117,7 +2388,6 @@ private struct ScoutMicButton: View {
                         )
                     )
                     .frame(width: glyph, height: glyph)
-                    .opacity(isProcessing && pulse ? 0.55 : 1.0)
             }
             .frame(width: box, height: box)
             .contentShape(Rectangle())
@@ -2126,22 +2396,14 @@ private struct ScoutMicButton: View {
         .help(tooltip)
         .onHover { hovering = $0 }
         .task { if vox.state == .probing { await vox.probe() } }
-        .onChange(of: vox.state) { _, newValue in
-            pulse = false
-            if newValue == .recording || newValue == .starting || newValue == .processing {
-                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                    pulse = true
-                }
-            }
-        }
     }
 
     private var micFillColor: Color {
         if isRecording {
-            return HudPalette.accent.opacity(pulse ? 0.13 : 0.08)
+            return HudPalette.accent.opacity(0.13)
         }
         if isProcessing {
-            return HudSurface.hover.opacity(pulse ? 0.88 : 0.62)
+            return HudSurface.hover.opacity(0.7)
         }
         if hovering {
             return HudSurface.hover.opacity(0.86)
@@ -2222,10 +2484,11 @@ private struct ScoutMarkdownTable: View {
     }
 
     private func inline(_ body: String) -> AttributedString {
-        (try? AttributedString(
+        let parsed = (try? AttributedString(
             markdown: body,
             options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(body)
+        return ScoutFileLinkifier.apply(to: parsed, accent: HudPalette.accent)
     }
 }
 
@@ -2285,6 +2548,7 @@ private struct ScoutAgentInspector: View {
     let selectedChannel: ScoutChannel?
     let openObserve: () -> Void
     let openProfile: () -> Void
+    let startSession: (ScoutSessionDraft.Mode) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xl) {
@@ -2334,6 +2598,22 @@ private struct ScoutAgentInspector: View {
                 }
             }
 
+            HudCard {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    HudSectionLabel("New session")
+                    HStack {
+                        HudButton("New session", icon: "plus.bubble", style: .secondary) {
+                            startSession(.fresh)
+                        }
+                        if agent.harnessSessionId?.nilIfEmpty != nil {
+                            HudButton("Continue", icon: "arrow.uturn.forward", style: .secondary) {
+                                startSession(.continueContext)
+                            }
+                        }
+                    }
+                }
+            }
+
             HStack {
                 HudButton("Observe", icon: "eye", style: .primary(.green), action: openObserve)
                 HudButton("Profile", icon: "person.text.rectangle", style: .secondary, action: openProfile)
@@ -2348,6 +2628,7 @@ private struct ScoutAgentPreviewPanel: View {
     let onClose: () -> Void
     let openObserve: () -> Void
     let openProfile: () -> Void
+    let startSession: (ScoutSessionDraft.Mode) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2359,7 +2640,8 @@ private struct ScoutAgentPreviewPanel: View {
                     agent: agent,
                     selectedChannel: selectedChannel,
                     openObserve: openObserve,
-                    openProfile: openProfile
+                    openProfile: openProfile,
+                    startSession: startSession
                 )
                 .padding(HudSpacing.xl)
                 .frame(maxWidth: .infinity, alignment: .leading)
