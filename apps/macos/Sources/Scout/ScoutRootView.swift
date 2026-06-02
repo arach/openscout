@@ -31,6 +31,7 @@ struct ScoutRootView: View {
     @FocusState private var composerFocused: Bool
     @AppStorage("scout.navigationSidebar.labelWidth") private var navigationSidebarLabelWidth = 142.0
     @AppStorage("scout.conversationList.width") private var conversationListWidth = 286.0
+    @AppStorage("scout.inspector.width") private var inspectorWidth = 320.0
 
     private var manifest: HudAppManifest {
         HudAppManifest(
@@ -735,11 +736,17 @@ struct ScoutRootView: View {
                 )
                 .id("preview-\(agent.id)")
                 .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else {
-                HudInspector(isCollapsed: $inspectorCollapsed) {
-                    inspectorHeader
-                } content: {
-                    inspectorContent
+            } else if !inspectorCollapsed {
+                HudSidebarPanel(
+                    width: inspectorWidthBinding,
+                    edge: .trailing,
+                    widthRange: ScoutDesign.inspectorWidthRange
+                ) {
+                    ScoutResizableInspectorPanel {
+                        inspectorHeader
+                    } content: {
+                        inspectorContent
+                    }
                 }
                 .transition(.opacity)
             }
@@ -792,6 +799,15 @@ struct ScoutRootView: View {
         } set: { nextWidth in
             let range = ScoutDesign.conversationListWidthRange
             conversationListWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
+        }
+    }
+
+    private var inspectorWidthBinding: Binding<CGFloat> {
+        Binding {
+            CGFloat(inspectorWidth)
+        } set: { nextWidth in
+            let range = ScoutDesign.inspectorWidthRange
+            inspectorWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
         }
     }
 
@@ -918,7 +934,7 @@ struct ScoutRootView: View {
             observeRestoresInspectorCollapsed = inspectorCollapsed
             observeSidecarStagingWidth = inspectorCollapsed
                 ? ScoutObserveSidecarMetrics.peekWidth
-                : HudLayout.panelWidth
+                : inspectorWidthBinding.wrappedValue
         } else {
             observeSidecarStagingWidth = ScoutObserveSidecarMetrics.expandedWidth
         }
@@ -1028,6 +1044,7 @@ enum ScoutDesign {
     static let hairline = Color.white.opacity(0.045)
     static let hairlineStrong = Color.white.opacity(0.075)
     static let conversationListWidthRange: ClosedRange<CGFloat> = 230...430
+    static let inspectorWidthRange: ClosedRange<CGFloat> = 260...520
     static let conversationResizeHandleWidth: CGFloat = 12
 
     static let theme = HudTheme(
@@ -2334,6 +2351,48 @@ private struct ScoutAgentPreviewPanel: View {
         .padding(.horizontal, HudSpacing.lg)
         .frame(height: HudLayout.navHeight)
         .background(ScoutDesign.chrome)
+    }
+}
+
+private struct ScoutResizableInspectorPanel<Header: View, Content: View>: View {
+    let header: Header
+    let content: Content
+
+    @Environment(\.hudTheme) private var theme
+
+    init(
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.header = header()
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            headerBar
+            HudDivider(color: theme.hairline.standard)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: HudSpacing.xl) {
+                    content
+                }
+                .padding(HudSpacing.xl)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.visible)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var headerBar: some View {
+        HStack(spacing: HudSpacing.lg) {
+            header
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, HudSpacing.lg)
+        .frame(height: HudLayout.navHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
