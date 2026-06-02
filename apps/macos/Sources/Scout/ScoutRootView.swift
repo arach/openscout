@@ -209,44 +209,40 @@ struct ScoutRootView: View {
     }
 
     private var chatHeader: some View {
-        HStack(spacing: HudSpacing.xl) {
-            VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                Text(store.selectedChannel?.displayTitle ?? "Scout")
-                    .font(HudFont.ui(22, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
-                    .lineLimit(1)
+        ScoutColumnHeader(horizontalPadding: HudSpacing.huge) {
+            Text(store.selectedChannel?.displayTitle ?? "Scout")
+                .font(HudFont.ui(22, weight: .semibold))
+                .foregroundStyle(HudPalette.ink)
+                .lineLimit(1)
+        } secondary: {
+            HStack(spacing: HudSpacing.md) {
+                if let channel = store.selectedChannel {
+                    HudBadge(channel.scope.label, tint: channel.scope == .direct ? HudPalette.statusInfo : HudPalette.statusOk)
+                    HudBadge(channel.cIdShort, tint: HudPalette.muted)
+                    ScoutMemberStrip(members: selectedChannelMembers) { agent in
+                        previewAgent(agent)
+                    }
+                } else {
+                    HudBadge("No channel", tint: HudPalette.muted)
+                }
+            }
+        } trailing: {
+            HStack(spacing: HudSpacing.xl) {
+                if let agent = store.selectedAgent {
+                    HudButton("Agent", icon: "person.crop.circle", style: .secondary) {
+                        previewAgent(agent)
+                    }
+                }
 
-                HStack(spacing: HudSpacing.md) {
-                    if let channel = store.selectedChannel {
-                        HudBadge(channel.scope.label, tint: channel.scope == .direct ? HudPalette.statusInfo : HudPalette.statusOk)
-                        HudBadge(channel.cIdShort, tint: HudPalette.muted)
-                        ScoutMemberStrip(members: selectedChannelMembers) { agent in
-                            previewAgent(agent)
-                        }
+                HudButton("Open Web", icon: "safari", style: .ghost) {
+                    if let cId = store.selectedCId {
+                        ScoutWeb.open(path: "/c/\(cId)")
                     } else {
-                        HudBadge("No channel", tint: HudPalette.muted)
+                        ScoutWeb.open(path: "/messages")
                     }
                 }
             }
-
-            Spacer()
-
-            if let agent = store.selectedAgent {
-                HudButton("Agent", icon: "person.crop.circle", style: .secondary) {
-                    previewAgent(agent)
-                }
-            }
-
-            HudButton("Open Web", icon: "safari", style: .ghost) {
-                if let cId = store.selectedCId {
-                    ScoutWeb.open(path: "/c/\(cId)")
-                } else {
-                    ScoutWeb.open(path: "/messages")
-                }
-            }
         }
-        .padding(.horizontal, HudSpacing.huge)
-        .frame(height: 76)
         .background(ScoutDesign.bg)
     }
 
@@ -1043,6 +1039,13 @@ enum ScoutDesign {
     static let surface = Color(red: 18.0/255, green: 17.0/255, blue: 15.0/255)
     static let hairline = Color.white.opacity(0.045)
     static let hairlineStrong = Color.white.opacity(0.075)
+    static let columnHeaderHeight = HudSidebarLayout.headerTopPadding
+        + HudSidebarLayout.headerHeight
+        + HudSidebarLayout.headerBottomPadding
+    static let columnHeaderTopInset = HudSidebarLayout.headerTopPadding
+    static let columnHeaderPrimaryRowHeight: CGFloat = 28
+    static let columnHeaderLineGap: CGFloat = 2
+    static let columnHeaderTrailingTopOffset: CGFloat = 2
     static let conversationListWidthRange: ClosedRange<CGFloat> = 230...430
     static let inspectorWidthRange: ClosedRange<CGFloat> = 260...520
     static let conversationResizeHandleWidth: CGFloat = 12
@@ -1123,6 +1126,47 @@ private enum ScoutChannelFilter: String, CaseIterable, Identifiable {
     }
 }
 
+struct ScoutColumnHeader<Primary: View, Secondary: View, Trailing: View>: View {
+    let horizontalPadding: CGFloat
+    let primary: Primary
+    let secondary: Secondary
+    let trailing: Trailing
+
+    init(
+        horizontalPadding: CGFloat,
+        @ViewBuilder primary: () -> Primary,
+        @ViewBuilder secondary: () -> Secondary,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.horizontalPadding = horizontalPadding
+        self.primary = primary()
+        self.secondary = secondary()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: HudSpacing.xl) {
+            VStack(alignment: .leading, spacing: ScoutDesign.columnHeaderLineGap) {
+                primary
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: ScoutDesign.columnHeaderPrimaryRowHeight,
+                        alignment: .bottomLeading
+                    )
+                secondary
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            trailing
+                .padding(.top, ScoutDesign.columnHeaderTrailingTopOffset)
+        }
+        .padding(.top, ScoutDesign.columnHeaderTopInset)
+        .padding(.horizontal, horizontalPadding)
+        .frame(height: ScoutDesign.columnHeaderHeight, alignment: .top)
+    }
+}
+
 private struct ScoutConversationListBar: View {
     let isLoading: Bool
     @Binding var query: String
@@ -1136,6 +1180,7 @@ private struct ScoutConversationListBar: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            HudDivider(color: ScoutDesign.hairline)
             controls
             HudDivider(color: ScoutDesign.hairline)
             listContent
@@ -1146,20 +1191,17 @@ private struct ScoutConversationListBar: View {
     }
 
     private var header: some View {
-        HStack(spacing: HudSpacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Conversations")
-                    .font(HudFont.ui(14, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
-                    .lineLimit(1)
-                Text("\(totalCount) cIds")
-                    .font(HudFont.mono(9))
-                    .foregroundStyle(HudPalette.dim)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
+        ScoutColumnHeader(horizontalPadding: HudSpacing.xxl) {
+            Text("Conversations")
+                .font(HudFont.ui(14, weight: .semibold))
+                .foregroundStyle(HudPalette.ink)
+                .lineLimit(1)
+        } secondary: {
+            Text("\(totalCount) cIds")
+                .font(HudFont.mono(9))
+                .foregroundStyle(HudPalette.dim)
+                .lineLimit(1)
+        } trailing: {
             if isLoading {
                 ProgressView()
                     .controlSize(.small)
@@ -1167,8 +1209,6 @@ private struct ScoutConversationListBar: View {
                 HudBadge("\(channels.count)", tint: HudPalette.muted)
             }
         }
-        .padding(.horizontal, HudSpacing.xxl)
-        .frame(height: 58)
     }
 
     private var controls: some View {
@@ -2317,24 +2357,22 @@ private struct ScoutAgentPreviewPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: HudSpacing.md) {
-            Image(systemName: "person.crop.circle")
-                .font(HudFont.ui(12, weight: .semibold))
-                .foregroundStyle(HudPalette.accent)
-                .frame(width: 26, height: 26)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(HudPalette.accentSoft))
-
-            VStack(alignment: .leading, spacing: 2) {
+        ScoutColumnHeader(horizontalPadding: HudSpacing.lg) {
+            HStack(spacing: HudSpacing.md) {
+                Image(systemName: "person.crop.circle")
+                    .font(HudFont.ui(12, weight: .semibold))
+                    .foregroundStyle(HudPalette.accent)
+                    .frame(width: 22, height: 22)
+                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(HudPalette.accentSoft))
                 HudSectionLabel("Agent")
-                Text(agent.displayName)
-                    .font(HudFont.ui(13, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
             }
-
-            Spacer(minLength: 0)
-
+        } secondary: {
+            Text(agent.displayName)
+                .font(HudFont.ui(13, weight: .semibold))
+                .foregroundStyle(HudPalette.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } trailing: {
             Button(action: onClose) {
                 Image(systemName: "sidebar.right")
                     .font(HudFont.ui(12, weight: .semibold))
@@ -2345,8 +2383,6 @@ private struct ScoutAgentPreviewPanel: View {
             .contentShape(Rectangle())
             .help("Close agent preview")
         }
-        .padding(.horizontal, HudSpacing.lg)
-        .frame(height: HudLayout.navHeight)
         .background(ScoutDesign.chrome)
     }
 }
@@ -2511,13 +2547,14 @@ private struct ScoutResizableInspectorPanel<Header: View, Content: View>: View {
     }
 
     private var headerBar: some View {
-        HStack(spacing: HudSpacing.lg) {
+        ScoutColumnHeader(horizontalPadding: HudSpacing.lg) {
             header
                 .frame(maxWidth: .infinity, alignment: .leading)
+        } secondary: {
+            EmptyView()
+        } trailing: {
+            EmptyView()
         }
-        .padding(.horizontal, HudSpacing.lg)
-        .frame(height: HudLayout.navHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

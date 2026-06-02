@@ -93,7 +93,7 @@ struct ScoutObserveSidecarPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: HudSpacing.md) {
+        ScoutColumnHeader(horizontalPadding: panelWidth > 120 ? HudSpacing.lg : HudSpacing.sm) {
             if panelWidth <= 120 {
                 Image(systemName: phase == .snapping ? "eye.circle.fill" : "eye.fill")
                     .font(HudFont.ui(13, weight: .semibold))
@@ -101,23 +101,26 @@ struct ScoutObserveSidecarPanel: View {
                     .frame(maxWidth: .infinity)
                     .help("Observe")
             } else {
-                Image(systemName: "eye")
-                    .font(HudFont.ui(12, weight: .semibold))
-                    .foregroundStyle(HudPalette.accent)
-                    .frame(width: 26, height: 26)
-                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(HudPalette.accentSoft))
-
-                VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: HudSpacing.md) {
+                    Image(systemName: "eye")
+                        .font(HudFont.ui(12, weight: .semibold))
+                        .foregroundStyle(HudPalette.accent)
+                        .frame(width: 22, height: 22)
+                        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(HudPalette.accentSoft))
                     HudSectionLabel("Observe")
-                    Text(agent.displayName)
-                        .font(HudFont.ui(13, weight: .semibold))
-                        .foregroundStyle(HudPalette.ink)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
                 }
-
-                Spacer(minLength: 0)
-
+            }
+        } secondary: {
+            if panelWidth > 120 {
+                Text(agent.displayName)
+                    .font(HudFont.ui(13, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        } trailing: {
+            if panelWidth > 120 {
+                HStack(spacing: HudSpacing.md) {
                 HudButton("Open Web", icon: "safari", style: .ghost, action: onOpenWeb)
                 Button(action: reload) {
                     Image(systemName: "arrow.clockwise")
@@ -136,10 +139,9 @@ struct ScoutObserveSidecarPanel: View {
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
                 .help("Close observe")
+                }
             }
         }
-        .padding(.horizontal, panelWidth > 120 ? HudSpacing.lg : HudSpacing.sm)
-        .frame(height: HudLayout.navHeight)
         .background(ScoutDesign.chrome)
     }
 

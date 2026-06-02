@@ -21,45 +21,41 @@ struct ScoutAgentObserveContent: View {
     }
 
     private var header: some View {
-        HStack(spacing: HudSpacing.xl) {
-            VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                HStack(spacing: HudSpacing.md) {
-                    Text(agent.displayName)
-                        .font(HudFont.ui(22, weight: .semibold))
-                        .foregroundStyle(HudPalette.ink)
-                        .lineLimit(1)
-                    HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
+        ScoutColumnHeader(horizontalPadding: HudSpacing.huge) {
+            HStack(spacing: HudSpacing.md) {
+                Text(agent.displayName)
+                    .font(HudFont.ui(22, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
+            }
+        } secondary: {
+            HStack(spacing: HudSpacing.md) {
+                HudBadge("Observe", tint: HudPalette.accent)
+                if let payload {
+                    HudBadge(payload.source.uppercased(), tint: payload.data.live ? HudPalette.statusOk : HudPalette.muted, dot: payload.data.live)
+                    HudBadge(payload.fidelity.uppercased(), tint: HudPalette.statusInfo)
+                } else {
+                    HudBadge("Native", tint: HudPalette.muted)
+                }
+                Text(agent.id)
+                    .font(HudFont.mono(10))
+                    .foregroundStyle(HudPalette.dim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        } trailing: {
+            HStack(spacing: HudSpacing.xl) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
                 }
 
-                HStack(spacing: HudSpacing.md) {
-                    HudBadge("Observe", tint: HudPalette.accent)
-                    if let payload {
-                        HudBadge(payload.source.uppercased(), tint: payload.data.live ? HudPalette.statusOk : HudPalette.muted, dot: payload.data.live)
-                        HudBadge(payload.fidelity.uppercased(), tint: HudPalette.statusInfo)
-                    } else {
-                        HudBadge("Native", tint: HudPalette.muted)
-                    }
-                    Text(agent.id)
-                        .font(HudFont.mono(10))
-                        .foregroundStyle(HudPalette.dim)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                HudButton("Refresh", icon: "arrow.clockwise", style: .secondary, action: refresh)
+                HudButton("Roster", icon: "square.grid.2x2", style: .secondary, action: showRoster)
+                HudButton("Open DM", icon: "bubble.left", style: .ghost, action: openChannel)
             }
-
-            Spacer()
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            HudButton("Refresh", icon: "arrow.clockwise", style: .secondary, action: refresh)
-            HudButton("Roster", icon: "square.grid.2x2", style: .secondary, action: showRoster)
-            HudButton("Open DM", icon: "bubble.left", style: .ghost, action: openChannel)
         }
-        .padding(.horizontal, HudSpacing.huge)
-        .frame(height: 76)
         .background(ScoutDesign.bg)
     }
 

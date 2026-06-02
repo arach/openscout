@@ -28,26 +28,12 @@ struct ScoutTailContent: View {
     }
 
     private var header: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: HudSpacing.lg) {
-                titleCluster
-                Spacer(minLength: HudSpacing.xxl)
-                filterStrip
-                commandStrip
-            }
-            .padding(.horizontal, ScoutTailMetrics.pageGutter)
-            .frame(height: 50)
-
-            VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                HStack(spacing: HudSpacing.lg) {
-                    titleCluster
-                    Spacer(minLength: HudSpacing.xxl)
-                    commandStrip
-                }
-                filterStrip
-            }
-            .padding(.horizontal, ScoutTailMetrics.pageGutter)
-            .padding(.vertical, HudSpacing.sm)
+        ScoutColumnHeader(horizontalPadding: ScoutTailMetrics.pageGutter) {
+            titleCluster
+        } secondary: {
+            filterStrip
+        } trailing: {
+            commandStrip
         }
         .background(ScoutDesign.bg)
         .overlay(alignment: .bottom) {
