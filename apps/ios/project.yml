@@ -6,6 +6,12 @@ packages:
   Termini:
     url: https://github.com/arach/Termini.git
     revision: 5f337c1faf802412d83cdeabf753aead6d614780
+  Hudson:
+    path: ../../../hudson           # local SPM package; products HudsonShell, HudsonUI
+  ScoutNativeCore:
+    path: ../../packages/scout-native-core   # product ScoutCapabilities
+  ScoutIOSCore:
+    path: ../../packages/scout-ios-core      # product ScoutIOSCore (BridgeBrokerClient + transport)
 options:
   bundleIdPrefix: com.openscout
   deploymentTarget:
@@ -22,6 +28,10 @@ schemes:
       config: Debug
       targets:
         - ScoutTests
+  ScoutNext:
+    build:
+      targets:
+        ScoutNext: all
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -81,6 +91,57 @@ targets:
           CODE_SIGN_ENTITLEMENTS: Scout/ScoutDebug.entitlements
         Release:
           CODE_SIGN_ENTITLEMENTS: Scout/ScoutRelease.entitlements
+  ScoutNext:
+    type: application
+    platform: iOS
+    sources:
+      - ScoutNext
+    dependencies:
+      - package: Hudson
+        product: HudsonShell
+      - package: Hudson
+        product: HudsonUI
+      - package: ScoutNativeCore
+        product: ScoutCapabilities
+      - package: ScoutIOSCore
+        product: ScoutIOSCore
+    info:
+      path: ScoutNext/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        # Camera-free pairing deep link: scoutnext://pair?payload=… (distinct
+        # from the donor app's openscout:// scheme to avoid clobbering).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.openscout.scoutnext
+            CFBundleURLSchemes:
+              - scoutnext
+        # Reach the paired Mac over the LAN (Bonjour) and Tailscale (ws over ts.net).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            tail1e8e67.ts.net:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: true
+        NSBonjourServices:
+          - _scout-pair._tcp
+        NSLocalNetworkUsageDescription: ScoutNext connects to your Mac over your local network when both devices are nearby.
+        NSCameraUsageDescription: ScoutNext uses the camera to scan the pairing QR code shown on your Mac.
+    settings:
+      base:
+        PRODUCT_NAME: ScoutNext
+        PRODUCT_MODULE_NAME: ScoutNext
+        PRODUCT_BUNDLE_IDENTIFIER: com.openscout.scoutnext
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ScoutNext
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
   ScoutTests:
     type: bundle.unit-test
     platform: iOS

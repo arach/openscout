@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Mic, Send } from "lucide-react";
 
 type Tab = "thread" | "resolve" | "send";
 type Audience = "human" | "agent";
@@ -57,6 +58,58 @@ const THREAD: ThreadMessage[] = [
   { side: "sys", who: "system", kind: "inv", body: "invocation · you → echo", delay: 700 },
   { side: "in",  who: "echo",   body: "queued. v0.2.62 going out in 5.", delay: 1600 },
 ];
+
+/* ── Live composer: three input grammars — / commands, @ agents, session: refs.
+   As you type a leading sigil, the palette above the input reacts. ── */
+type Grammar = "slash" | "agent" | "session";
+type Suggestion = { label: string; hint: string; complete: string };
+
+const SLASH_CMDS = [
+  { label: "/s",       hint: "search threads & agents" },
+  { label: "/who",     hint: "list reachable peers" },
+  { label: "/resolve", hint: "resolve an agent handle" },
+  { label: "/clear",   hint: "clear the thread" },
+];
+
+const SESSION_REFS = [
+  { label: "session:new",     hint: "start a fresh session" },
+  { label: "session:0931Z",   hint: "the current session" },
+  { label: "session:pr-1287", hint: "atlas · schema migration" },
+];
+
+function grammarOf(value: string): Grammar | null {
+  const t = value.trimStart().toLowerCase();
+  if (!t) return null;
+  if (t.startsWith("/")) return "slash";
+  if (t.startsWith("@")) return "agent";
+  if (t.startsWith("session")) return "session";
+  return null;
+}
+
+function buildSuggestions(grammar: Grammar | null, value: string): Suggestion[] {
+  if (!grammar) return [];
+  const token = value.trimStart().split(/\s+/)[0].toLowerCase();
+  if (grammar === "slash") {
+    return SLASH_CMDS.filter((c) => c.label.toLowerCase().startsWith(token)).map((c) => ({
+      ...c,
+      complete: c.label + " ",
+    }));
+  }
+  if (grammar === "session") {
+    return SESSION_REFS.filter((c) => c.label.toLowerCase().startsWith(token)).map((c) => ({
+      ...c,
+      complete: c.label + " ",
+    }));
+  }
+  const q = token.replace(/^@/, "");
+  return AGENTS.filter((a) => a.online && a.definitionId.startsWith(q))
+    .slice(0, 5)
+    .map((a) => ({
+      label: "@" + a.definitionId,
+      hint: a.node + (a.workspace !== "main" ? " · " + a.workspace : "") + " · " + a.harness,
+      complete: "@" + a.definitionId + " ",
+    }));
+}
 
 function canonical(a: Agent | ParsedHandle): string {
   const parts = ["@" + (a.definitionId ?? "")];
@@ -153,7 +206,10 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
   const [threadIdx, setThreadIdx] = useState(0);
   const [draft, setDraft] = useState("@atlas review the brief");
   const [sentLog, setSentLog] = useState<ThreadMessage[]>([]);
+  const [composer, setComposer] = useState("");
+  const [composerFocused, setComposerFocused] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLInputElement>(null);
   const reducedMotion = useRef(false);
 
   // Switch default tab if audience flips
@@ -187,6 +243,70 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
 
   const parsed = useMemo(() => parseHandle(query), [query]);
   const result = useMemo(() => resolve(parsed, AGENTS), [parsed]);
+
+  // The composer is live whenever the thread is up — you can take over at any
+  // time. Focusing it fast-forwards the scripted intro so your line lands at the
+  // end of a settled thread instead of racing the auto-play.
+  const composerLive = tab === "thread";
+  const grammar = composerFocused && composer ? grammarOf(composer) : null;
+  const suggestions = useMemo(() => buildSuggestions(grammar, composer), [grammar, composer]);
+
+  function pushThread(...items: ThreadMessage[]) {
+    setThread((s) => [...s, ...items]);
+  }
+
+  function onComposerFocus() {
+    setComposerFocused(true);
+    if (threadIdx < THREAD.length) {
+      setThread(THREAD.slice());
+      setThreadIdx(THREAD.length);
+    }
+  }
+
+  function onComposerSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const text = composer.trim();
+    if (!text) return;
+    setComposer("");
+    const g = grammarOf(text);
+    const replyDelay = reducedMotion.current ? 60 : 1000;
+
+    if (g === "slash") {
+      const cmd = text.toLowerCase().split(/\s+/)[0];
+      if (cmd === "/clear") {
+        setThread([]);
+        return;
+      }
+      const body =
+        cmd === "/who"
+          ? "who · 7 peers online · 1 offline"
+          : cmd === "/resolve"
+            ? "resolve · " + (text.split(/\s+/)[1] ?? "@hudson") + " → mini · claude"
+            : "search · 3 threads · 2 agents";
+      pushThread({ side: "sys", who: "system", kind: "ok", body });
+      return;
+    }
+
+    if (g === "session") {
+      const ref = text.split(/\s+/)[0];
+      pushThread(
+        /new/i.test(ref)
+          ? { side: "sys", who: "system", kind: "inv", body: "session.created · sess 0c4f" }
+          : { side: "sys", who: "system", kind: "flight", body: "session.open · " + ref.replace(/^session:/i, "") },
+      );
+      return;
+    }
+
+    // @agent or plain message — lands in the room, draws a reply
+    pushThread({ side: "out", who: "you", body: text });
+    const at = text.match(/^@([a-z0-9._:#?-]+)/i);
+    const who = at ? at[1].split(/[.#?:]/)[0] : "atlas";
+    const known = AGENTS.some((a) => a.definitionId === who);
+    const reply: ThreadMessage = known
+      ? { side: "in", who, body: "on it — picking this up now." }
+      : { side: "sys", who: "system", kind: "err", body: "resolve.unknown · @" + who };
+    window.setTimeout(() => pushThread(reply), replyDelay);
+  }
 
   function onSend(e: React.FormEvent) {
     e.preventDefault();
@@ -409,20 +529,62 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
         </div>
       </div>
 
-      <div className="scout-console__cmdbar" aria-hidden>
+      <form
+        className={`scout-console__cmdbar ${composerLive ? "is-live" : ""}`}
+        onSubmit={onComposerSubmit}
+      >
+        {composerLive && grammar && suggestions.length > 0 && (
+          <div className="scout-console__palette">
+            <div className="scout-console__palette-h">
+              {grammar === "slash" ? "commands" : grammar === "agent" ? "agents" : "sessions"}
+            </div>
+            {suggestions.map((s, i) => (
+              <button
+                key={`${grammar}-${i}-${s.label}`}
+                type="button"
+                className="scout-console__palette-row"
+                onMouseDown={(ev) => {
+                  ev.preventDefault();
+                  setComposer(s.complete);
+                  composerRef.current?.focus();
+                }}
+              >
+                <span className="scout-console__palette-label">{s.label}</span>
+                <span className="scout-console__palette-hint">{s.hint}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <span className="scout-console__cmdbar-field">
-          <span className="scout-console__cmdbar-glyph" />
-          <span className="scout-console__cmdbar-hint">
-            talk — <span className="scout-console__cmdbar-cue">/</span> commands ·{" "}
-            <span className="scout-console__cmdbar-cue">/s</span> search
+          <span className="scout-console__cmdbar-inputwrap">
+            <input
+              ref={composerRef}
+              className="scout-console__cmdbar-input"
+              value={composer}
+              onChange={(e) => setComposer(e.target.value)}
+              onFocus={onComposerFocus}
+              onBlur={() => setComposerFocused(false)}
+              disabled={!composerLive}
+              aria-label="Message the room"
+              spellCheck={false}
+            />
+            {!composer && !composerFocused && (
+              <span className="scout-console__cmdbar-ghost" aria-hidden>
+                <span className="scout-console__cmdbar-caret" />
+                <span className="scout-console__cmdbar-hint">
+                  <span className="scout-console__cmdbar-cue">/</span> commands ·{" "}
+                  <span className="scout-console__cmdbar-cue">@</span> agents ·{" "}
+                  <span className="scout-console__cmdbar-cue">session:</span>
+                </span>
+              </span>
+            )}
           </span>
-          <span className="scout-console__cmdbar-caret" />
+          <Mic className="scout-console__cmdbar-mic" strokeWidth={1.6} aria-hidden />
         </span>
-        <span className="scout-console__cmdbar-send">
-          send
-          <kbd>⏎</kbd>
-        </span>
-      </div>
+        <button type="submit" className="scout-console__cmdbar-send" aria-label="Send">
+          <Send strokeWidth={1.8} aria-hidden />
+        </button>
+      </form>
     </div>
   );
 }

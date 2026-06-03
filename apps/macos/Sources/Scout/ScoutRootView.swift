@@ -13,8 +13,8 @@ struct ScoutRootView: View {
     @StateObject private var tail = ScoutTailStore()
     @ObservedObject private var vox = ScoutVoxService.shared
     @State private var section: ScoutSection = .comms
-    @State private var railCompact = false
-    @State private var inspectorCollapsed = false
+    @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
+    @AppStorage("scout.inspector.collapsed") private var inspectorCollapsed = false
     @State private var agentContentMode: ScoutAgentContentMode = .roster
     @State private var channelFilter: ScoutChannelFilter = .all
     @State private var draft = ""
@@ -57,6 +57,10 @@ struct ScoutRootView: View {
     /// in the markdown tree) can open it without threading a closure down.
     @ObservedObject private var fileViewer = ScoutFileViewer.shared
     @FocusState private var composerFocused: Bool
+    @FocusState private var searchFocused: Bool
+    /// Keyboard cheatsheet overlay (⌘/). Lists the live chords so nothing has
+    /// to be guessed.
+    @State private var showCheatsheet = false
     @AppStorage("scout.navigationSidebar.labelWidth.v2") private var navigationSidebarLabelWidth = 88.0
     @AppStorage("scout.conversationList.width.v2") private var conversationListWidth = 224.0
     @AppStorage("scout.inspector.width") private var inspectorWidth = 320.0
@@ -167,6 +171,132 @@ struct ScoutRootView: View {
             ScoutDesignPreviewPanel()
                 .padding(HudSpacing.xl)
         }
+        .overlay {
+            if showCheatsheet {
+                ScoutKeyboardCheatsheet(section: section) { showCheatsheet = false }
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: showCheatsheet)
+        .background(keyboardCommands)
+    }
+
+    // Invisible buttons that register window-level shortcuts. Kept active
+    // (opacity 0, not .hidden/.disabled) so the chords stay live regardless of
+    // which control holds focus. Mirrors OpenScoutMenu's CommsWindow. ⌘-modified
+    // so they never collide with typing in the composer or search field.
+    private var keyboardCommands: some View {
+        Group {
+            // Silenced while a modal overlay (new-session composer, image
+            // lightbox) owns the screen — otherwise these would reach through
+            // and steer the page behind the modal.
+            if !modalPresented {
+                Group {
+                    Button("") { moveSelection(1) }.keyboardShortcut(.downArrow, modifiers: .command)
+                    Button("") { moveSelection(-1) }.keyboardShortcut(.upArrow, modifiers: .command)
+                    Button("") { focusSearch() }.keyboardShortcut("k", modifiers: .command)
+                    Button("") { focusComposer() }.keyboardShortcut("l", modifiers: .command)
+                    Button("") { store.refresh(force: true) }.keyboardShortcut("r", modifiers: .command)
+                }
+                Group {
+                    Button("") { channelFilter = .all }.keyboardShortcut("1", modifiers: .command)
+                    Button("") { channelFilter = .direct }.keyboardShortcut("2", modifiers: .command)
+                    Button("") { channelFilter = .shared }.keyboardShortcut("3", modifiers: .command)
+                    Button("") { observeSelectedAgent() }.keyboardShortcut("o", modifiers: .command)
+                    Button("") { openSelectedAgentChannel() }.keyboardShortcut(.return, modifiers: .command)
+                }
+                Button("") { showCheatsheet.toggle() }.keyboardShortcut("/", modifiers: .command)
+                // Bare vim keys + `?` — only live when no text field is capturing
+                // input, so typing j/k/?/etc. into a message or search field still
+                // inserts the character instead of stealing the key.
+                if bareKeysAvailable {
+                    Group {
+                        Button("") { showCheatsheet.toggle() }.keyboardShortcut("?", modifiers: [])
+                        Button("") { moveSelection(1) }.keyboardShortcut("j", modifiers: [])
+                        Button("") { moveSelection(-1) }.keyboardShortcut("k", modifiers: [])
+                        Button("") { moveSelection(1) }.keyboardShortcut("l", modifiers: [])
+                        Button("") { moveSelection(-1) }.keyboardShortcut("h", modifiers: [])
+                        Button("") { moveSelectionToEdge(last: false) }.keyboardShortcut("g", modifiers: [])
+                        Button("") { moveSelectionToEdge(last: true) }.keyboardShortcut("g", modifiers: .shift)
+                    }
+                }
+            }
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    /// A modal overlay is up and should own the keyboard.
+    private var modalPresented: Bool {
+        sessionDraft != nil || previewImage != nil
+    }
+
+    /// Bare (unmodified) keys may drive navigation/help only when nothing is
+    /// capturing text input — otherwise they'd be stolen from typing. (Modal
+    /// overlays are already excluded by `modalPresented`.)
+    private var bareKeysAvailable: Bool {
+        !composerFocused && !searchFocused
+    }
+
+    /// Step the active page's selection: conversations in Comms, agent cards in
+    /// Agents. A no-op (or seeds the first item) when nothing is selected yet.
+    private func moveSelection(_ delta: Int) {
+        switch section {
+        case .comms:
+            let channels = commsListChannels
+            guard !channels.isEmpty else { return }
+            let current = channels.firstIndex { $0.cId == store.selectedCId }
+            let next = current.map { min(max($0 + delta, 0), channels.count - 1) } ?? 0
+            store.selectChannel(channels[next].cId)
+        case .agents:
+            let agents = store.agents
+            guard !agents.isEmpty else { return }
+            let current = agents.firstIndex { $0.id == store.selectedAgentId }
+            let next = current.map { min(max($0 + delta, 0), agents.count - 1) } ?? 0
+            store.selectAgent(agents[next].id)
+        case .tail:
+            break
+        }
+    }
+
+    /// Jump the active page's selection to the first (`g`) or last (`⇧G`) item.
+    private func moveSelectionToEdge(last: Bool) {
+        switch section {
+        case .comms:
+            let channels = commsListChannels
+            guard let target = last ? channels.last : channels.first else { return }
+            store.selectChannel(target.cId)
+        case .agents:
+            let agents = store.agents
+            guard let target = last ? agents.last : agents.first else { return }
+            store.selectAgent(target.id)
+        case .tail:
+            break
+        }
+    }
+
+    private func focusSearch() {
+        guard section == .comms else { return }
+        searchFocused = true
+    }
+
+    private func focusComposer() {
+        guard section == .comms, store.selectedCId != nil else { return }
+        composerFocused = true
+    }
+
+    /// Open the observe sidecar for the selected agent (⌘O, Agents page).
+    private func observeSelectedAgent() {
+        guard section == .agents, let agent = store.selectedAgent else { return }
+        observeAgent(agent)
+    }
+
+    /// Jump into the selected agent's conversation (⌘↩, Agents page).
+    private func openSelectedAgentChannel() {
+        guard section == .agents, let agent = store.selectedAgent else { return }
+        store.openAgentChannel(agent)
+        section = .comms
     }
 
     private func startNewConversation() {
@@ -301,6 +431,7 @@ struct ScoutRootView: View {
                 channels: commsListChannels,
                 selectedCId: store.selectedCId,
                 width: conversationListResizePreviewWidth ?? CGFloat(conversationListWidth),
+                searchFocused: $searchFocused,
                 onNewConversation: { startNewConversation() }
             ) { channel in
                 store.selectChannel(channel.cId)
@@ -570,8 +701,13 @@ struct ScoutRootView: View {
                         return .handled
                     }
                     .onKeyPress(.escape) {
-                        guard !suggestions.isEmpty else { return .ignored }
-                        dismissSuggestions()
+                        if !suggestions.isEmpty {
+                            dismissSuggestions()
+                            return .handled
+                        }
+                        // Blur so the bare vim keys (h/j/k/l, g/G, ?) become
+                        // live for list navigation.
+                        composerFocused = false
                         return .handled
                     }
 
@@ -963,28 +1099,38 @@ struct ScoutRootView: View {
                     store.loadObserve(agentId: agent.id, force: true)
                 }
             } else {
-                ScrollView {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 280), spacing: HudSpacing.xl)],
-                        alignment: .leading,
-                        spacing: HudSpacing.xl
-                    ) {
-                        ForEach(store.agents) { agent in
-                            ScoutAgentCard(
-                                agent: agent,
-                                isSelected: store.selectedAgentId == agent.id || store.selectedChannel?.agentId == agent.id
-                            ) {
-                                previewAgent(agent)
-                            } observe: {
-                                observeAgent(agent)
-                            } openChannel: {
-                                store.openAgentChannel(agent)
-                                section = .comms
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 280), spacing: HudSpacing.xl)],
+                            alignment: .leading,
+                            spacing: HudSpacing.xl
+                        ) {
+                            ForEach(store.agents) { agent in
+                                ScoutAgentCard(
+                                    agent: agent,
+                                    isSelected: store.selectedAgentId == agent.id || store.selectedChannel?.agentId == agent.id
+                                ) {
+                                    previewAgent(agent)
+                                } observe: {
+                                    observeAgent(agent)
+                                } openChannel: {
+                                    store.openAgentChannel(agent)
+                                    section = .comms
+                                }
+                                .id(agent.id)
                             }
                         }
+                        .padding(HudSpacing.huge)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    .padding(HudSpacing.huge)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    // Keep the keyboard-selected card in view (it may be off-screen).
+                    .onChange(of: store.selectedAgentId) { _, id in
+                        guard let id else { return }
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
                 }
             }
         }
@@ -1566,6 +1712,7 @@ private struct ScoutConversationListBar: View {
     let channels: [ScoutChannel]
     let selectedCId: String?
     let width: CGFloat
+    let searchFocused: FocusState<Bool>.Binding
     let onNewConversation: () -> Void
     let select: (ScoutChannel) -> Void
 
@@ -1627,6 +1774,7 @@ private struct ScoutConversationListBar: View {
     private var controls: some View {
         HStack(spacing: HudSpacing.md) {
             HudField("Search", text: $query, icon: "magnifyingglass")
+                .focused(searchFocused)
             ScoutConversationFilterControl(selection: $filter)
         }
         .padding(.horizontal, HudSpacing.xxl)

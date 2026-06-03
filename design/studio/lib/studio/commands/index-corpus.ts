@@ -39,9 +39,9 @@ const DB_PATH = path.join(ROOT, "index.db");
  *   chunks     (id, document_id, ordinal, source_ref, text)
  *   chunks_fts (virtual FTS5 over chunks.text)
  *
- * Chunks are one per H2 section in each markdown file; the "preamble" before
- * the first H2 is its own chunk. tool-calls.md and files.md typically have one
- * or two chunks; events-NNN.md has one chunk per `## window N` heading.
+ * Event transcripts are split into bounded record ranges so large sessions
+ * produce useful search units. Other markdown files are split by H2 section;
+ * the "preamble" before the first H2 is its own chunk.
  */
 export const indexCorpusCommand: Command<IndexCorpusInput, IndexCorpusResult> = {
   id: "index-corpus",
@@ -146,10 +146,7 @@ export const indexCorpusCommand: Command<IndexCorpusInput, IndexCorpusResult> = 
         docs++;
 
         const content = await fs.readFile(filePath, "utf8");
-        const sectionChunks =
-          fileName === "manifest.json"
-            ? [{ text: content.trim(), sourceRef: "root" }]
-            : chunkByH2(content);
+        const sectionChunks = chunkDocument(fileName, content);
 
         sectionChunks.forEach((c, i) => {
           insertChunk.run(docId, i, c.sourceRef ?? null, c.text);
@@ -223,6 +220,84 @@ function inferKind(fileName: string): string {
 interface SectionChunk {
   text: string;
   sourceRef?: string;
+}
+
+const EVENT_RECORDS_PER_CHUNK = 50;
+
+function chunkDocument(fileName: string, content: string): SectionChunk[] {
+  if (fileName === "manifest.json") {
+    return [{ text: content.trim(), sourceRef: "root" }].filter((c) => c.text.length > 0);
+  }
+  if (fileName.startsWith("events-") && fileName.endsWith(".md")) {
+    return chunkEventWindow(content);
+  }
+  return chunkByH2(content);
+}
+
+function chunkEventWindow(content: string): SectionChunk[] {
+  const lines = content.split("\n");
+  const chunks: SectionChunk[] = [];
+  let headerLines: string[] = [];
+  let current:
+    | { firstRecord: string; lastRecord: string; recordCount: number; lines: string[] }
+    | undefined;
+
+  const flush = () => {
+    if (!current) return;
+    const text = current.lines.join("\n").trim();
+    if (text.length > 0) {
+      chunks.push({
+        text,
+        sourceRef: `records ${current.firstRecord}..${current.lastRecord}`,
+      });
+    }
+    current = undefined;
+  };
+
+  for (const line of lines) {
+    const record = /^- \[(\d+)\]/.exec(line);
+    if (!record) {
+      if (current) {
+        current.lines.push(line);
+      } else if (line.trim().length > 0) {
+        headerLines.push(line);
+      }
+      continue;
+    }
+
+    const recordId = record[1]!;
+    if (!current) {
+      current = {
+        firstRecord: recordId,
+        lastRecord: recordId,
+        recordCount: 1,
+        lines: headerLines.length > 0 ? [...headerLines, "", line] : [line],
+      };
+      headerLines = [];
+      continue;
+    }
+
+    if (current.recordCount >= EVENT_RECORDS_PER_CHUNK) {
+      flush();
+      current = {
+        firstRecord: recordId,
+        lastRecord: recordId,
+        recordCount: 1,
+        lines: [line],
+      };
+    } else {
+      current.lastRecord = recordId;
+      current.recordCount++;
+      current.lines.push(line);
+    }
+  }
+
+  flush();
+
+  if (chunks.length > 0) return chunks;
+
+  const fallback = content.trim();
+  return fallback.length > 0 ? [{ text: fallback, sourceRef: "events" }] : [];
 }
 
 function chunkByH2(content: string): SectionChunk[] {
