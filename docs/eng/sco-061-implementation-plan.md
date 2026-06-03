@@ -2,6 +2,21 @@
 
 > Companion to [`sco-061-native-app-shared-architecture-ios-macos-hudson.md`](./sco-061-native-app-shared-architecture-ios-macos-hudson.md). That doc is the *why* and the shape; this is the *how* and the *order*.
 
+## Core functionality target (the burn-down)
+
+The core loop: **connect → see your fleet → open a conversation → steer it.**
+
+1. **Connect & trust** — reuse the already-paired bridge identity (no re-pairing); attempt routes in order and show which wins: **LAN → Tailscale → OSN** (gated by `scout.tsn.enabled` default on / `scout.osn.enabled` default off); connection status + log always visible; auto-reconnect (IK). *(transport harvested → `scout-ios-core`; `BridgeBrokerClient` + status surface next)*
+2. **See the fleet** (`ListingCapability`) — sessions list (title/project/harness/status/last-activity) and agents list (live/idle/offline); search; tap-through. *(surfaces built on mock)*
+3. **Read a conversation** (`ConversationCapability` + `ConversationProjection`) — snapshot then fold live events; render every block: text, reasoning, action (command/file/tool/subagent + output + status), file, error, question; streaming deltas live, bottom-anchored. *(surface + reducer built on mock)*
+4. **Steer it** (`ControlCapability`) — send a prompt; answer a question block; approve/deny an action; interrupt/steer the current turn. *(contracts + composer built on mock)*
+5. **Start work** (`SessionInitiationCapability`) — new session in a project (harness+model), continue an agent, "same agent fresh", seed-from-message; after Start, land *in* the new conversation. *(contract + New surface built; nav-into-thread + RPC pending)*
+6. **Activity firehose** (`TailCapability`) — cross-agent stream with attribution (scout/hudson/unattributed). *(surface built on mock)*
+
+**MVP "it's real" = 1–4 on the live `BridgeBrokerClient`:** connect to the Mac, see real sessions, open one, read it live, send a prompt back. 5–6 flip over trivially on the same contracts.
+
+Just past MVP (donor already has these; name them so we don't forget): **Inbox/approvals queue** (`mobile.inbox` — the natural 4th tab) and **push notifications** (APNS; needs entitlements + bridge registration). Cross-cutting: capability-first means real↔mock is a one-line swap; restrained design (green is the one accent); shared with macOS above/below the transport.
+
 ## 0. Premise
 
 We are **not** re-skinning `apps/ios/Scout` in place. We stand up a **next-gen, HudsonKit-first iOS app target** built from the ground up around shared **Capabilities**, and we **harvest** the existing app's proven iOS-only code into it. The old target stays alive as reference + fallback until the new one reaches parity, then we cut over.
