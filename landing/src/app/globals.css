@@ -2621,6 +2621,7 @@ html[data-site-theme="dark"] .scout-console {
 /* Composer bar pinned to the bottom of the console — reads like a modern
    message input (rounded field + send affordance) rather than a flat strip. */
 .scout-console__cmdbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2640,9 +2641,109 @@ html[data-site-theme="dark"] .scout-console {
   background: rgba(0, 0, 0, 0.32);
   border: 1px solid var(--term-rule);
   border-radius: 9px;
+  transition: border-color 0.18s ease;
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.35),
     inset 0 0 0 0.5px rgba(255, 240, 210, 0.02);
+}
+
+/* Once live, the field warms toward the green accent to invite a line. */
+.scout-console__cmdbar.is-live .scout-console__cmdbar-field {
+  border-color: rgba(134, 188, 99, 0.32);
+}
+
+/* Real input layered with a decorative "ghost" (caret + hint) shown only when
+   empty and unfocused. On focus the native green caret takes over, left-aligned. */
+.scout-console__cmdbar-inputwrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.scout-console__cmdbar-input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  color: var(--term-ink);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  caret-color: var(--term-green);
+}
+
+.scout-console__cmdbar-input:disabled {
+  cursor: default;
+}
+
+.scout-console__cmdbar-ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+/* Grammar palette — pops up above the input as you type /, @, or session: */
+.scout-console__palette {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  background: #181C16;
+  border: 1px solid var(--term-rule);
+  border-radius: 11px;
+  animation: scout-fadein 0.14s ease;
+}
+
+.scout-console__palette-h {
+  padding: 3px 8px 5px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--term-dim);
+}
+
+.scout-console__palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-family: inherit;
+  transition: background 0.12s ease;
+}
+
+.scout-console__palette-row:hover {
+  background: var(--term-rust-soft);
+}
+
+.scout-console__palette-label {
+  flex-shrink: 0;
+  color: var(--term-rust);
+  font-size: 12px;
+}
+
+.scout-console__palette-hint {
+  color: var(--term-dim);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Blinking insertion caret — sits at the start of the field, like a real
@@ -2650,7 +2751,7 @@ html[data-site-theme="dark"] .scout-console {
 .scout-console__cmdbar-caret {
   width: 1.5px;
   height: 13px;
-  margin-right: 6px;
+  margin-right: 3px;
   background: var(--term-green);
   border-radius: 1px;
   flex-shrink: 0;
