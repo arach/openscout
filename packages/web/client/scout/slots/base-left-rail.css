@@ -10,35 +10,35 @@
 }
 
 .base-rail-section {
-  padding-top: 10px;
+  padding-top: var(--space-md);
 }
 
 .base-rail-section:first-of-type {
-  padding-top: 6px;
+  padding-top: var(--space-xs);
 }
 
 .base-rail-section-label {
-  padding: 4px 12px 4px;
+  padding: var(--space-2xs) var(--space-lg) var(--space-2xs);
 }
 
 .base-rail-section-trailing {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-xs);
 }
 
 .base-rail-see-all {
   border: 0;
-  padding: 1px 4px;
+  padding: var(--space-3xs) var(--space-2xs);
   background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: var(--tracking-lg);
   text-transform: uppercase;
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   transition: background 0.1s, color 0.1s;
 }
 
@@ -51,27 +51,27 @@
 
 .base-rail-section--jumps {
   border-bottom: none;
-  padding-bottom: 12px;
+  padding-bottom: var(--space-lg);
 }
 
 .base-rail-jumps {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-  padding: 4px 10px 0;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-md) 0;
 }
 
 .base-rail-jump {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 10px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   background: color-mix(in srgb, var(--bg) 70%, transparent);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--ink);
   cursor: pointer;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 500;
   letter-spacing: -0.003em;
   text-align: left;

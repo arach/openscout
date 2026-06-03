@@ -14,25 +14,25 @@
 .mesh-nav-head {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 10px 8px;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-md) var(--space-sm);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 35%, transparent);
 }
 
 .mesh-nav-focus-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-xs);
   align-self: flex-start;
-  padding: 3px 8px;
-  border-radius: 4px;
+  padding: var(--space-2xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: var(--tracking-xl);
   text-transform: uppercase;
   cursor: pointer;
 }
@@ -42,8 +42,8 @@
 }
 
 .mesh-nav-focus-chip-clear {
-  font-size: 12px;
-  line-height: 1;
+  font-size: var(--text-md);
+  line-height: var(--leading-none);
   opacity: 0.7;
 }
 
@@ -52,7 +52,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 0 8px;
+  padding: var(--space-2xs) 0 var(--space-sm);
 }
 
 .mesh-nav-group {
@@ -61,15 +61,15 @@
 }
 
 .mesh-nav-group + .mesh-nav-group {
-  margin-top: 6px;
+  margin-top: var(--space-xs);
 }
 
 .mesh-nav-group-label {
-  padding: 8px 12px 4px;
+  padding: var(--space-sm) var(--space-lg) var(--space-2xs);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--text-2xs);
   font-weight: 700;
-  letter-spacing: 0.22em;
+  letter-spacing: var(--tracking-xl);
   text-transform: uppercase;
   color: color-mix(in srgb, var(--ink) 38%, transparent);
 }
@@ -80,14 +80,14 @@
 }
 
 .mesh-nav-machine + .mesh-nav-machine {
-  margin-top: 2px;
+  margin-top: var(--space-3xs);
 }
 
 /* Minimap section at the foot */
 .mesh-nav-minimap {
   flex: 0 0 auto;
   border-top: 1px solid color-mix(in srgb, var(--border) 35%, transparent);
-  padding: 8px 8px 8px;
+  padding: var(--space-sm);
   max-height: 50%;
   display: flex;
   flex-direction: column;

@@ -1,0 +1,75 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * Scout Web — Design Tokens
+ *
+ * The "middle layer" between HudsonKit's --hud-* theme primitives and the
+ * component CSS. These scales are theme-INDEPENDENT (a pixel is a pixel in
+ * dark or light), so they live in :root rather than the [data-scout-theme]
+ * wrapper. Semantic COLOR tokens (which DO change per theme) are defined in
+ * scout/Provider.tsx and consumed under [data-scout-theme].
+ *
+ * Naming: t-shirt sizes, anchored xs=6 / sm=8 / lg=12.
+ * See docs/design/tokens.md for the snapping table and usage guidance.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Spacing ───────────────────────────────────────────────────────────────
+   * Fine-grained at the bottom (dense ops chrome lives at 2–12px), coarser up
+   * top. Use for padding / margin / gap ONLY. Never for width/height, grid
+   * tracks, insets, transforms, border-width, shadows, or blur. */
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 6px;
+  --space-sm: 8px;
+  --space-md: 10px;
+  --space-lg: 12px;
+  --space-xl: 14px;
+  --space-2xl: 16px;
+  --space-3xl: 20px;
+  --space-4xl: 24px;
+  --space-5xl: 32px;
+  --space-6xl: 40px;
+  --space-7xl: 48px;
+  --space-8xl: 64px;
+
+  /* ── Radius ────────────────────────────────────────────────────────────────
+   * --radius (= --hud-radius) stays the default for HudsonKit chrome. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-pill: 999px;
+
+  /* ── Font size ─────────────────────────────────────────────────────────────
+   * Whole pixels only — the fractional 9.5/10.5/11.5/12.5 sizes are retired. */
+  --text-2xs: 9px;
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-md: 12px;
+  --text-lg: 13px; /* matches --hud-text-base */
+  --text-xl: 14px;
+  --text-2xl: 16px;
+  --text-3xl: 18px;
+  --text-4xl: 20px;
+  --text-5xl: 24px;
+
+  /* ── Tracking (letter-spacing) ─────────────────────────────────────────────
+   * Collapses 10+ ad-hoc values. xl (0.18em) is the signature wide eyebrow. */
+  --tracking-xs: 0.02em;
+  --tracking-sm: 0.04em;
+  --tracking-md: 0.08em;
+  --tracking-lg: 0.12em;
+  --tracking-xl: 0.18em;
+
+  /* ── Leading (line-height) ─────────────────────────────────────────────────*/
+  --leading-none: 1;
+  --leading-tight: 1.35;
+  --leading-snug: 1.45;
+  --leading-normal: 1.5;
+
+  /* ── Layout constants (NOT spacing — never snap these to the scale) ─────────
+   * --statusbar-h matches Hudson's SHELL_THEME.layout.statusBarHeight and the
+   * content `bottom: 28` offsets (see app.css). --sidebar-w lives in app.css. */
+  --statusbar-h: 28px;
+}

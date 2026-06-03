@@ -112,6 +112,16 @@ const DARK_THEME_VARS: ThemeVars = {
   "--hud-status-ok": "oklch(0.80 0.15 155)",
   "--hud-status-warn": "oklch(0.82 0.15 85)",
   "--hud-status-error": "oklch(0.72 0.18 25)",
+  // Scout semantic colors (web-only; no HudsonKit equivalent).
+  "--scrim": "rgba(0, 0, 0, 0.5)",
+  "--scrim-soft": "rgba(0, 0, 0, 0.3)",
+  "--info": "#62b6ff",
+  "--shadow-card": "0 8px 22px rgba(0, 0, 0, 0.22)",
+  "--shadow-card-hover": "0 14px 36px rgba(0, 0, 0, 0.30)",
+  // Categorical / brand accents — distinct from status colors, do not flatten.
+  "--cat-gold": "#d7a978",
+  "--cat-purple": "#c58cff",
+  "--cat-sky": "#38bdf8",
   "--scout-chrome-ink-strong": "color-mix(in srgb, var(--hud-ink) 92%, transparent)",
   "--scout-chrome-ink": "color-mix(in srgb, var(--hud-ink) 78%, transparent)",
   "--scout-chrome-ink-soft": "color-mix(in srgb, var(--hud-ink) 58%, transparent)",
@@ -140,6 +150,16 @@ const LIGHT_THEME_VARS: ThemeVars = {
   "--hud-status-ok": "oklch(0.64 0.16 155)",
   "--hud-status-warn": "oklch(0.72 0.15 85)",
   "--hud-status-error": "oklch(0.62 0.19 25)",
+  // Scout semantic colors (web-only; no HudsonKit equivalent).
+  "--scrim": "rgba(20, 22, 26, 0.32)",
+  "--scrim-soft": "rgba(20, 22, 26, 0.18)",
+  "--info": "#2f7fd6",
+  "--shadow-card": "0 8px 22px oklch(0.42 0.01 80 / 0.10)",
+  "--shadow-card-hover": "0 14px 36px oklch(0.42 0.01 80 / 0.14)",
+  // Categorical / brand accents — distinct from status colors, do not flatten.
+  "--cat-gold": "#a9824f",
+  "--cat-purple": "#8b5cf6",
+  "--cat-sky": "#0ea5e9",
   "--scout-chrome-ink-strong": "color-mix(in srgb, var(--hud-ink) 94%, transparent)",
   "--scout-chrome-ink": "color-mix(in srgb, var(--hud-ink) 78%, transparent)",
   "--scout-chrome-ink-soft": "color-mix(in srgb, var(--hud-ink) 60%, transparent)",
