@@ -61,6 +61,10 @@ struct ScoutRootView: View {
     /// Keyboard cheatsheet overlay (⌘/). Lists the live chords so nothing has
     /// to be guessed.
     @State private var showCheatsheet = false
+    /// Native appearance settings (sidebar gear) — window transparency, and
+    /// theme/tokens as they come online. Replaces the old web `/settings` jump.
+    @State private var showSettings = false
+    @ObservedObject private var appearance = ScoutAppearance.shared
     @AppStorage("scout.navigationSidebar.labelWidth.v2") private var navigationSidebarLabelWidth = 88.0
     @AppStorage("scout.conversationList.width.v2") private var conversationListWidth = 224.0
     @AppStorage("scout.inspector.width") private var inspectorWidth = 320.0
@@ -112,7 +116,7 @@ struct ScoutRootView: View {
                         isCompact: railCompact,
                         labelWidth: CGFloat(navigationSidebarLabelWidth)
                     ) {
-                        ScoutWeb.open(path: "/settings")
+                        showSettings = true
                     }
                 }
             )
@@ -132,6 +136,10 @@ struct ScoutRootView: View {
             motion: .base
         ))
         .hudsonSidebarMotionMode(.smoothFade)
+        .sheet(isPresented: $showSettings) {
+            ScoutSettingsView(appearance: appearance, onClose: { showSettings = false })
+        }
+        .background(ScoutWindowConfigurator(opacity: appearance.windowOpacity))
         .onAppear {
             store.start()
             tail.start()
