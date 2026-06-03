@@ -1,25 +1,22 @@
 import SwiftUI
 import HudsonUI
-import ScoutCapabilities
 
-/// ScoutNext (SCO-061) — the next-gen, Hudson-first iOS app. A clean shell that
-/// consumes the shared `ScoutCapabilities` layer through a `ScoutBrokerClient`.
-/// In this build the client is a fully offline `MockBrokerClient` so the app
-/// runs without a paired Mac or broker.
+/// ScoutNext (SCO-061) — the next-gen, Hudson-first iOS app. Surfaces consume
+/// the shared `ScoutCapabilities` layer through a `ScoutBrokerClient`. The
+/// default source is the live encrypted `BridgeBrokerClient` (reusing the Mac
+/// pairing already in the keychain); a Mock source remains for offline UI work.
 @main
 struct ScoutNextApp: App {
-    /// One client instance lives for the app's lifetime and is threaded down to
-    /// every surface. Swapping in a live `BridgeBrokerClient` later is a
-    /// single-line change here.
-    private let client: any ScoutBrokerClient = MockBrokerClient()
+    @State private var model = AppModel()
 
     var body: some Scene {
         WindowGroup {
-            RootView(client: client)
+            RootView(model: model)
                 .hudsonAppManifest(
                     HudAppManifest(name: "Scout", version: "0.1.0", tint: .green, targetLabel: "Agent")
                 )
                 .preferredColorScheme(.dark)
+                .task { await model.connectIfNeeded() }
         }
     }
 }

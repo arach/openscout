@@ -57,6 +57,7 @@
 		6602980B04837BF73A56BC8A /* HomeSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = E647FA4040FBC2B90EC13BC6 /* HomeSurface.swift */; };
 		676D68D8E8A12B4607055123 /* ScoutBottomBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C59A482FB6106AD2EBEF23A /* ScoutBottomBar.swift */; };
 		6E27EE08D0DECC675FB8AA5E /* ScoutRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6C0A30A72EE6C72F54DC86 /* ScoutRouter.swift */; };
+		6F0833463DABF651FC506C9F /* ScoutIOSCore in Frameworks */ = {isa = PBXBuildFile; productRef = BD0A984CAFB715C814A92C4D /* ScoutIOSCore */; };
 		6FDD9187EA9A43A57B60B698 /* OSNAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE03107744EC59D018E47AC /* OSNAuthClient.swift */; };
 		717B115B4EF3038DDA164F8A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09A0710F2737060ABA3FC0A0 /* ContentView.swift */; };
 		71F946099994958BF4142988 /* TurnHashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A156270D797264F0441EF34B /* TurnHashTests.swift */; };
@@ -72,6 +73,7 @@
 		928B8FEA4EA1A6731D9F468F /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */; };
 		92A2C0FDA06CB352C569E77D /* TerminiSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 8A9A0D1770D43A8B0FF728C2 /* TerminiSSH */; };
 		94E40717522CC80B764A1EA8 /* ScoutTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F85B4A803447D47B4A7372 /* ScoutTextField.swift */; };
+		95F5EDDBCDCC0F4EE3FE640A /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F93A8AEFB146A26492F58F /* ConnectionView.swift */; };
 		97F9CF6388F7B35B757675B2 /* BlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD01439D63376EE86259929 /* BlockView.swift */; };
 		991AF8193D1AD31F82BF3EE8 /* TailEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C81BBACB546A9DD851FE685 /* TailEvent.swift */; };
 		9BA664E06E0513E266034C92 /* ChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E100A641807F9B353A15CCF /* ChannelView.swift */; };
@@ -81,6 +83,7 @@
 		A6C0D4FC3028FA5637640C66 /* SessionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51A81D21A37B458E927F61B /* SessionCache.swift */; };
 		A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */; };
 		A8FBB96BCACD70C0303EC45D /* RPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D678FD46C36DEE704DF0493 /* RPC.swift */; };
+		B0C615C4528270400B94B658 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53844A3D96FDE7E2F95804D3 /* AppModel.swift */; };
 		B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */; };
 		C1716E75A8163F48BD11C5BA /* SessionsLedgerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B340BD98EC253E4C6718113F /* SessionsLedgerView.swift */; };
 		C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */; };
@@ -138,6 +141,7 @@
 		151F9571252B05942B683C8B /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		16E69A9F79BC8EBB2C853CAC /* SessionRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRowView.swift; sourceTree = "<group>"; };
 		17807A002C04E20022167DC2 /* ScoutTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScoutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A96B0268009791DFD65B396 /* scout-ios-core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "scout-ios-core"; path = "../../packages/scout-ios-core"; sourceTree = SOURCE_ROOT; };
 		1CB1259D202C983314D17199 /* FileBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBlockView.swift; sourceTree = "<group>"; };
 		1E6C0A30A72EE6C72F54DC86 /* ScoutRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutRouter.swift; sourceTree = "<group>"; };
 		1FE872C7C7BB4439492C5DE6 /* ScoutNextApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutNextApp.swift; sourceTree = "<group>"; };
@@ -169,6 +173,7 @@
 		49D6BFBD08AE670C1FC7B8A6 /* Identity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Identity.swift; sourceTree = "<group>"; };
 		4CD01439D63376EE86259929 /* BlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockView.swift; sourceTree = "<group>"; };
 		5177CFB5CBF4D45227012022 /* ConversationSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSurface.swift; sourceTree = "<group>"; };
+		53844A3D96FDE7E2F95804D3 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		5717C27B2F716F2B5AC2BFBE /* ErrorBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBlockView.swift; sourceTree = "<group>"; };
 		57A264D8EE7E5047205E5849 /* ScoutVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutVoice.swift; sourceTree = "<group>"; };
 		5C59A482FB6106AD2EBEF23A /* ScoutBottomBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutBottomBar.swift; sourceTree = "<group>"; };
@@ -202,9 +207,11 @@
 		A16F0DA040107782446B4DEA /* TailFeedRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailFeedRow.swift; sourceTree = "<group>"; };
 		A52E204004D36D0677087384 /* TailSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailSurface.swift; sourceTree = "<group>"; };
 		AD67339E6B738153FE130A62 /* NewSessionSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionSurface.swift; sourceTree = "<group>"; };
+		B180934514DFB72B0428071E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B2CEAFE14E67790905D93B95 /* TailRowDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailRowDetailView.swift; sourceTree = "<group>"; };
 		B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		B340BD98EC253E4C6718113F /* SessionsLedgerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsLedgerView.swift; sourceTree = "<group>"; };
+		B8F93A8AEFB146A26492F58F /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
 		B99060478E7E956242D977B5 /* InboxStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxStore.swift; sourceTree = "<group>"; };
 		BA00505E183B992F6E69FA32 /* TerminalAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdapter.swift; sourceTree = "<group>"; };
 		C06649F0636F0648AB140561 /* Primitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Primitives.swift; sourceTree = "<group>"; };
@@ -244,6 +251,7 @@
 				4D450C4AC84DF2C3E920BC0B /* HudsonShell in Frameworks */,
 				277D12ED8EADB3AD1E365AEB /* HudsonUI in Frameworks */,
 				22BA827C16B3F084B8D68E3C /* ScoutCapabilities in Frameworks */,
+				6F0833463DABF651FC506C9F /* ScoutIOSCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -304,8 +312,11 @@
 		1B5A93BC9D9FC60F484D2583 /* ScoutNext */ = {
 			isa = PBXGroup;
 			children = (
+				53844A3D96FDE7E2F95804D3 /* AppModel.swift */,
+				B8F93A8AEFB146A26492F58F /* ConnectionView.swift */,
 				5177CFB5CBF4D45227012022 /* ConversationSurface.swift */,
 				E647FA4040FBC2B90EC13BC6 /* HomeSurface.swift */,
+				B180934514DFB72B0428071E /* Info.plist */,
 				3BFA03D2A4D9C0516CAD4BAE /* MockBrokerClient.swift */,
 				AD67339E6B738153FE130A62 /* NewSessionSurface.swift */,
 				985DF8CBA4BEA25843ED2E9D /* RootView.swift */,
@@ -516,6 +527,7 @@
 			isa = PBXGroup;
 			children = (
 				0705A7ABA9D4BA80026CA533 /* hudson */,
+				1A96B0268009791DFD65B396 /* scout-ios-core */,
 				F8C87CCC2468150B82CCC066 /* scout-native-core */,
 			);
 			name = Packages;
@@ -660,6 +672,7 @@
 				64E95320AD700DF090F5F84A /* HudsonShell */,
 				038735DB280A764E8BBBB34C /* HudsonUI */,
 				76B4D7DF5617890CE69382DF /* ScoutCapabilities */,
+				BD0A984CAFB715C814A92C4D /* ScoutIOSCore */,
 			);
 			productName = ScoutNext;
 			productReference = 6D6F477233D733A7925F662A /* ScoutNext.app */;
@@ -721,6 +734,7 @@
 				4444AAE709EC21FF36F3DC04 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				075E6D5D040E9A39DA29CFD1 /* XCRemoteSwiftPackageReference "Termini" */,
 				A8AFEA7F5A4413A204521D47 /* XCLocalSwiftPackageReference "../../../hudson" */,
+				AC27FF2EF096F12FEA2A8524 /* XCLocalSwiftPackageReference "../../packages/scout-ios-core" */,
 				674F43D4A343F32FB1F03EE9 /* XCLocalSwiftPackageReference "../../packages/scout-native-core" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -851,6 +865,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0C615C4528270400B94B658 /* AppModel.swift in Sources */,
+				95F5EDDBCDCC0F4EE3FE640A /* ConnectionView.swift in Sources */,
 				11F7AA988AFC048425041F14 /* ConversationSurface.swift in Sources */,
 				6602980B04837BF73A56BC8A /* HomeSurface.swift in Sources */,
 				16DCDB9C725C5D108DD56A45 /* MockBrokerClient.swift in Sources */,
@@ -879,6 +895,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ScoutNext/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ScoutNext;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -905,6 +922,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ScoutNext/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ScoutNext;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -1193,6 +1211,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../../hudson;
 		};
+		AC27FF2EF096F12FEA2A8524 /* XCLocalSwiftPackageReference "../../packages/scout-ios-core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../packages/scout-ios-core";
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -1241,6 +1263,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 075E6D5D040E9A39DA29CFD1 /* XCRemoteSwiftPackageReference "Termini" */;
 			productName = Termini;
+		};
+		BD0A984CAFB715C814A92C4D /* ScoutIOSCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ScoutIOSCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

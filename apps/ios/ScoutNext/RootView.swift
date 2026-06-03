@@ -8,7 +8,10 @@ import ScoutCapabilities
 /// background) and switches between Home, New Session, and Tail via the
 /// floating liquid-glass tab bar.
 struct RootView: View {
-    let client: any ScoutBrokerClient
+    @Bindable var model: AppModel
+    @State private var showConnection = false
+
+    private var client: any ScoutBrokerClient { model.client }
 
     enum Surface: String, CaseIterable, Identifiable {
         case home = "Home"
@@ -41,12 +44,17 @@ struct RootView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Re-key surfaces when the data source flips so they reload.
+                .id(model.source)
             }
             // Floating liquid-glass tab bar — the iOS-native Hudson nav pattern.
             // Content runs full-bleed behind the glass; tabs sit over the bottom.
             .safeAreaInset(edge: .bottom) {
                 HudLiquidBar(tabs: tabs, selection: tabSelection)
             }
+        }
+        .sheet(isPresented: $showConnection) {
+            ConnectionView(model: model)
         }
     }
 
@@ -71,7 +79,10 @@ struct RootView: View {
                 .tracking(2)
                 .foregroundStyle(HudPalette.accent)
             Spacer()
-            HudBadge("offline mock", tint: HudPalette.statusWarn, dot: true)
+            Button { showConnection = true } label: {
+                HudBadge(model.statusLabel, tint: model.statusTint, dot: true)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, HudSpacing.xxl)
         .padding(.top, HudSpacing.lg)
