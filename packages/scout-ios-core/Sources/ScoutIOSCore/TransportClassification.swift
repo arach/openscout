@@ -133,6 +133,16 @@ public func relayURLsAllowedByRouteSettings(_ rawValues: [String], userDefaults:
     rawValues.filter { relayURLAllowedByRouteSettings($0, userDefaults: userDefaults) }
 }
 
+/// Move the relay URL that just succeeded to the front of the candidate list so
+/// the next connect attempt reuses it first. Ported verbatim from the donor.
+func relayURLsPromotingSuccessfulRelay(_ successfulRelayURL: String, within relayURLs: [String]) -> [String] {
+    let promoted = successfulRelayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !promoted.isEmpty else {
+        return relayURLsAllowedByRouteSettings(relayURLs)
+    }
+    return deduplicatedRelayURLs(primary: promoted, fallbacks: relayURLs)
+}
+
 func deduplicatedRelayURLs(primary: String, fallbacks: [String]) -> [String] {
     var seen = Set<String>()
     var urls: [String] = []

@@ -144,6 +144,33 @@ struct BridgeConnectionInfo: Codable, Sendable {
         guard let data = userDefaults.data(forKey: "scout.connectionInfo") else { return nil }
         return try? JSONDecoder().decode(BridgeConnectionInfo.self, from: data)
     }
+
+    // MARK: UserDefaults save (donor keys, distilled)
+
+    /// Persist this connection info the same way the donor's `saveConnectionInfo`
+    /// does so a later IK `connect()` reads it back via `loadActive`:
+    ///   - append/replace in `scout.connectionInfos` (JSON `[BridgeConnectionInfo]`,
+    ///     deduped by lowercased `publicKeyHex`);
+    ///   - set `scout.activeConnectionPublicKeyHex` to this info's lowercased key;
+    ///   - mirror into the legacy single-record `scout.connectionInfo`.
+    func save(userDefaults: UserDefaults = .standard) {
+        let key = publicKeyHex.lowercased()
+        var infos = Self.loadConnectionInfos(userDefaults: userDefaults)
+        if let index = infos.firstIndex(where: { $0.publicKeyHex.lowercased() == key }) {
+            infos[index] = self
+        } else {
+            infos.append(self)
+        }
+        var seen = Set<String>()
+        let deduped = infos.filter { seen.insert($0.publicKeyHex.lowercased()).inserted }
+        if let data = try? JSONEncoder().encode(deduped) {
+            userDefaults.set(data, forKey: "scout.connectionInfos")
+        }
+        userDefaults.set(key, forKey: "scout.activeConnectionPublicKeyHex")
+        if let data = try? JSONEncoder().encode(self) {
+            userDefaults.set(data, forKey: "scout.connectionInfo")
+        }
+    }
 }
 
 // MARK: - Room resolution result
@@ -300,6 +327,92 @@ public final class BridgeConnection: @unchecked Sendable {
         startMessageLoop()
     }
 
+    /// First-time pair to a bridge via a scanned QR payload (Noise XX handshake).
+    ///
+    /// Unlike `connect()` (IK reconnect to an already-trusted bridge), pairing has
+    /// no prior knowledge of the bridge's static key — it learns it from the XX
+    /// handshake and then persists trust. Relay candidates come from the QR
+    /// (`orderedRelayURLs`), prepended with any Bonjour-discovered LAN relays so
+    /// local pairing works. The QR's room is used directly (the `/resolve`
+    /// endpoint isn't valid before pairing).
+    public func pair(qrPayload: QRPayload, primaryName: String?) async throws {
+        let keyPair: NoiseKeyPair
+        do {
+            keyPair = try ScoutIdentity.loadOrCreateIdentity()
+        } catch {
+            throw BridgeConnectionError.identityError(error.localizedDescription)
+        }
+
+        if let err = qrPayload.validate() {
+            await connectionLogHandle.log("Invalid QR payload: \(err)", level: .error)
+            throw BridgeConnectionError.handshakeFailed(err)
+        }
+
+        let expectedRemoteKey = qrPayload.bridgePublicKeyData
+        guard expectedRemoteKey.count == 32 else {
+            throw BridgeConnectionError.handshakeFailed("Invalid bridge public key length")
+        }
+
+        // Candidate relays: Bonjour LAN first (local pairing is supported), then
+        // the QR's ordered relay URLs, route-filtered and deduplicated.
+        let discovered = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: qrPayload.publicKey)
+        let combined = discovered + qrPayload.orderedRelayURLs
+        let allowed = relayURLsAllowedByRouteSettings(combined, userDefaults: userDefaults)
+        let relayURLs: [String]
+        if let primary = allowed.first {
+            relayURLs = deduplicatedRelayURLs(primary: primary, fallbacks: Array(allowed.dropFirst()))
+        } else {
+            relayURLs = []
+        }
+        guard !relayURLs.isEmpty else {
+            await connectionLogHandle.log("No relay routes available for pairing", level: .error)
+            throw BridgeConnectionError.noRelayCandidates
+        }
+
+        await connectionLogHandle.log(
+            "Pairing via QR (XX): room=\(qrPayload.room)",
+            route: transportKind(forRelayURL: relayURLs[0])
+        )
+
+        let attempt = try await connectUsingAvailableRelayURLs(
+            relayURLs: relayURLs,
+            initialRoomId: qrPayload.room,
+            publicKeyHex: qrPayload.publicKey,
+            expectedRemoteKey: expectedRemoteKey,
+            remoteStaticKey: nil,                 // XX pattern — no prior key
+            staticKey: keyPair,
+            resolveRoomBeforeConnect: false       // use the QR's room directly
+        )
+
+        // XX handshake succeeded and the learned key matched the QR — trust it.
+        try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: primaryName)
+
+        let publicKeyHex = hexString(attempt.remoteKey)
+        let persistedRelayURLs = relayURLsPromotingSuccessfulRelay(attempt.relayURL, within: relayURLs)
+        let info = BridgeConnectionInfo(
+            relayURL: persistedRelayURLs.first ?? attempt.relayURL,
+            roomId: attempt.roomId,
+            publicKeyHex: publicKeyHex,
+            fallbackRelayURLs: Array(persistedRelayURLs.dropFirst())
+        )
+        info.save(userDefaults: userDefaults)
+
+        let route = transportKind(forRelayURL: attempt.relayURL)
+        lock.withLockVoid {
+            connectionInfo = info
+            _isConnected = true
+            _currentRoute = route
+        }
+
+        await connectionLogHandle.log(
+            "Paired via \(route.label) \(attempt.relayURL)",
+            level: .success,
+            route: route
+        )
+
+        startMessageLoop()
+    }
+
     /// Tear down the connection and all streams.
     public func disconnect() {
         lock.lock()
@@ -343,7 +456,8 @@ public final class BridgeConnection: @unchecked Sendable {
         publicKeyHex: String,
         expectedRemoteKey: Data,
         remoteStaticKey: Data?,
-        staticKey: NoiseKeyPair
+        staticKey: NoiseKeyPair,
+        resolveRoomBeforeConnect: Bool = true
     ) async throws -> RelayConnectionAttempt {
         var lastError: Error?
         var sawBridgeOffline = false
@@ -357,23 +471,27 @@ public final class BridgeConnection: @unchecked Sendable {
             )
 
             // Resolve the bridge's current room before connecting (handles a
-            // bridge restart that rotated the room id).
-            let resolved = await resolveRoom(relayURL: relayURL, publicKeyHex: publicKeyHex)
-            switch resolved {
-            case .resolved(let resolvedRoomId):
-                roomId = resolvedRoomId
-            case .bridgeOffline:
-                await connectionLogHandle.log(
-                    "\(route.label) relay reachable but bridge absent",
-                    level: .warning,
-                    route: route
-                )
-                sawBridgeOffline = true
-                lastError = BridgeConnectionError.relayUnavailable
-                continue
-            case .relayUnavailable:
-                // Fall back to the saved room id.
-                break
+            // bridge restart that rotated the room id). During first-time QR
+            // pairing the /resolve endpoint isn't valid yet, so we skip it and
+            // use the QR's room directly.
+            if resolveRoomBeforeConnect {
+                let resolved = await resolveRoom(relayURL: relayURL, publicKeyHex: publicKeyHex)
+                switch resolved {
+                case .resolved(let resolvedRoomId):
+                    roomId = resolvedRoomId
+                case .bridgeOffline:
+                    await connectionLogHandle.log(
+                        "\(route.label) relay reachable but bridge absent",
+                        level: .warning,
+                        route: route
+                    )
+                    sawBridgeOffline = true
+                    lastError = BridgeConnectionError.relayUnavailable
+                    continue
+                case .relayUnavailable:
+                    // Fall back to the saved room id.
+                    break
+                }
             }
 
             do {
@@ -817,6 +935,11 @@ private struct WireTailEvent: Codable, Sendable {
 }
 
 // MARK: - Sendable boxes / helpers (ported from donor)
+
+/// Lowercased hex encoding of raw bytes (ported from the donor's `hexString`).
+func hexString(_ data: Data) -> String {
+    data.map { String(format: "%02x", $0) }.joined()
+}
 
 /// Thread-safe box for capturing the remote static key from the
 /// SecureTransport.onReady callback.

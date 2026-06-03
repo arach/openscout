@@ -43,6 +43,12 @@ public final class BridgeBrokerClient: ScoutBrokerClient, @unchecked Sendable {
         try await connection.connect()
     }
 
+    /// First-time pair to a bridge from a scanned QR payload (Noise XX handshake):
+    /// learn + persist the bridge's static key, save connection info, start streams.
+    public func pair(qrPayload: QRPayload, primaryName: String? = nil) async throws {
+        try await connection.pair(qrPayload: qrPayload, primaryName: primaryName)
+    }
+
     public func disconnect() {
         connection.disconnect()
     }
