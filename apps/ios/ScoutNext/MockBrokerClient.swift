@@ -195,7 +195,16 @@ final class MockBrokerClient: ScoutBrokerClient {
                 command: "xcodebuild -scheme ScoutNext -destination 'iPhone 17'")), status: .completed)
         ], startedAt: 2_002, endedAt: 2_020, isUserTurn: false)
 
-        return SessionState(session: session, turns: [t1, t2, t3, t4], currentTurnId: nil)
+        let t5 = userText("t5", "Wire approve/deny on action blocks.", at: 3_000)
+        let t6 = TurnState(id: "t6", status: .streaming, blocks: [
+            BlockState(block: Block(id: "t6.0", turnId: "t6", type: .text, status: .completed, index: 0, text: "Threading the `decideAction` capability through the action card."), status: .completed),
+            BlockState(block: Block(id: "t6.1", turnId: "t6", type: .action, status: .streaming, index: 1, action: Action(
+                kind: .command, status: .awaitingApproval,
+                approval: ActionApproval(version: 1, description: "Run the package tests before committing.", risk: .medium),
+                command: "swift test --package-path packages/scout-native-core")), status: .streaming)
+        ], startedAt: 3_002, endedAt: nil, isUserTurn: false)
+
+        return SessionState(session: session, turns: [t1, t2, t3, t4, t5, t6], currentTurnId: "t6")
     }
 
     /// No synthetic playback. A real adapter streams live deltas here; the mock

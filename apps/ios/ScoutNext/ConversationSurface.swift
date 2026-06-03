@@ -129,7 +129,7 @@ struct ConversationSurface: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: HudSpacing.xl) {
                         ForEach(turns) { turn in
-                            TurnView(turn: turn, onAnswer: answer)
+                            TurnView(turn: turn, onAnswer: answer, onDecide: decide)
                                 .id(turn.id)
                         }
                         Color.clear.frame(height: 1).id("bottom")
@@ -195,6 +195,14 @@ struct ConversationSurface: View {
             )
         }
     }
+
+    private func decide(turnId: String, blockId: String, version: Int, decision: ActionDecisionSpec.Decision) {
+        Task {
+            _ = try? await client.decideAction(
+                ActionDecisionSpec(conversationId: conversationId, turnId: turnId, blockId: blockId, decision: decision, version: version)
+            )
+        }
+    }
 }
 
 // MARK: - Turn
@@ -202,6 +210,7 @@ struct ConversationSurface: View {
 private struct TurnView: View {
     let turn: TurnState
     let onAnswer: (_ turnId: String, _ blockId: String, _ choice: [String]) -> Void
+    let onDecide: (_ turnId: String, _ blockId: String, _ version: Int, _ decision: ActionDecisionSpec.Decision) -> Void
 
     private var isUser: Bool { turn.isUserTurn == true }
 
@@ -220,7 +229,7 @@ private struct TurnView: View {
                 }
             }
             ForEach(turn.blocks, id: \.block.id) { blockState in
-                BlockView(blockState: blockState, isUser: isUser, turnId: turn.id, onAnswer: onAnswer)
+                BlockView(blockState: blockState, isUser: isUser, turnId: turn.id, onAnswer: onAnswer, onDecide: onDecide)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -237,6 +246,7 @@ private struct BlockView: View {
     let isUser: Bool
     let turnId: String
     let onAnswer: (_ turnId: String, _ blockId: String, _ choice: [String]) -> Void
+    let onDecide: (_ turnId: String, _ blockId: String, _ version: Int, _ decision: ActionDecisionSpec.Decision) -> Void
 
     private var block: Block { blockState.block }
 
@@ -302,7 +312,45 @@ private struct BlockView: View {
                         .foregroundStyle(HudPalette.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                if action?.status == .awaitingApproval, let approval = action?.approval {
+                    approvalControls(approval)
+                }
             }
+        }
+    }
+
+    /// Approve / deny buttons shown only while an action awaits the operator.
+    /// The decision carries `approval.version` so the bridge can reject a stale
+    /// tap against an approval that already moved on.
+    private func approvalControls(_ approval: ActionApproval) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            if let description = approval.description, !description.isEmpty {
+                Text(description)
+                    .font(HudFont.ui(HudTextSize.xs))
+                    .foregroundStyle(HudPalette.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: HudSpacing.sm) {
+                if let risk = approval.risk {
+                    HudBadge(risk.rawValue, tint: riskColor(risk), dot: false)
+                }
+                Spacer()
+                HudButton("Deny", style: .secondary) {
+                    onDecide(turnId, block.id, approval.version, .deny)
+                }
+                HudButton("Approve", style: .primary(.green)) {
+                    onDecide(turnId, block.id, approval.version, .approve)
+                }
+            }
+        }
+        .padding(.top, HudSpacing.xs)
+    }
+
+    private func riskColor(_ risk: ApprovalRisk) -> Color {
+        switch risk {
+        case .low: return HudPalette.muted
+        case .medium: return HudPalette.statusWarn
+        case .high: return HudPalette.statusError
         }
     }
 

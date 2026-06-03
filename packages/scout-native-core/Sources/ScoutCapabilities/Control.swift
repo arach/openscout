@@ -76,11 +76,15 @@ public struct ActionDecisionSpec: Codable, Sendable, Equatable {
     public var turnId: String
     public var blockId: String
     public var decision: Decision
-    public init(conversationId: String, turnId: String, blockId: String, decision: Decision) {
+    /// The approval version the agent is waiting on (`Action.approval.version`).
+    /// The bridge rejects a decision that doesn't match the live version.
+    public var version: Int
+    public init(conversationId: String, turnId: String, blockId: String, decision: Decision, version: Int = 0) {
         self.conversationId = conversationId
         self.turnId = turnId
         self.blockId = blockId
         self.decision = decision
+        self.version = version
     }
 }
 

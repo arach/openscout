@@ -148,7 +148,7 @@ public final class BridgeBrokerClient: ScoutBrokerClient, @unchecked Sendable {
             sessionId: decision.conversationId,
             turnId: decision.turnId,
             blockId: decision.blockId,
-            version: 0,
+            version: decision.version,
             decision: decision.decision.rawValue,
             reason: nil
         )
