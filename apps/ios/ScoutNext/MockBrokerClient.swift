@@ -118,23 +118,12 @@ final class MockBrokerClient: ScoutBrokerClient {
 
     // MARK: - TailCapability
 
+    /// A fixed, static batch of recent activity — no continuous emission. A
+    /// real adapter keeps the stream open and pushes live events.
     func tailEvents(since: Int64?) -> AsyncStream<TailEvent> {
         AsyncStream { continuation in
-            let task = Task {
-                let seeds = Self.seedEvents()
-                for event in seeds {
-                    continuation.yield(event)
-                }
-                var counter = seeds.count
-                while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    if Task.isCancelled { break }
-                    continuation.yield(Self.syntheticEvent(index: counter))
-                    counter += 1
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+            for event in Self.seedEvents() { continuation.yield(event) }
+            continuation.finish()
         }
     }
 
@@ -171,87 +160,48 @@ final class MockBrokerClient: ScoutBrokerClient {
 
     // MARK: - ConversationCapability
 
-    /// An authoritative snapshot: one completed user+assistant exchange so the
-    /// surface has history to render before the live stream starts.
+    /// A complete, already-settled conversation. Everything is rendered from
+    /// this single snapshot — no scripted playback — so the surface is static
+    /// and calm. (When a real `BridgeBrokerClient` lands, the snapshot recovers
+    /// history and `conversationEvents` carries genuinely-live deltas.)
     func snapshot(conversationId: String) async throws -> SessionState {
         let session = Session(
             id: conversationId,
             name: "Wire ScoutNext shell",
             adapterType: "claude",
-            status: .active,
+            status: .idle,
             cwd: "/Users/arach/dev/openscout",
             model: "claude-opus-4-8"
         )
-        let userTurn = TurnState(
-            id: "t.seed.user",
-            status: .completed,
-            blocks: [BlockState(block: Block(id: "b.seed.u0", turnId: "t.seed.user", type: .text, status: .completed, index: 0, text: "Stand up the next-gen shell with three surfaces."), status: .completed)],
-            startedAt: 1_000, endedAt: 1_001, isUserTurn: true
-        )
-        let asstTurn = TurnState(
-            id: "t.seed.asst",
-            status: .completed,
-            blocks: [
-                BlockState(block: Block(id: "b.seed.a0", turnId: "t.seed.asst", type: .text, status: .completed, index: 0, text: "Done — `HudPhoneAppShell` with Home, New, and Tail, all driven by the shared `ScoutCapabilities` contracts through a mock adapter."), status: .completed)
-            ],
-            startedAt: 1_002, endedAt: 1_010, isUserTurn: false
-        )
-        return SessionState(session: session, turns: [userTurn, asstTurn], currentTurnId: nil)
+
+        func userText(_ id: String, _ text: String, at: Int) -> TurnState {
+            TurnState(id: id, status: .completed,
+                      blocks: [BlockState(block: Block(id: "\(id).0", turnId: id, type: .text, status: .completed, index: 0, text: text), status: .completed)],
+                      startedAt: at, endedAt: at + 1, isUserTurn: true)
+        }
+
+        let t1 = userText("t1", "Stand up the next-gen shell with three surfaces.", at: 1_000)
+        let t2 = TurnState(id: "t2", status: .completed, blocks: [
+            BlockState(block: Block(id: "t2.0", turnId: "t2", type: .text, status: .completed, index: 0, text: "Done — `HudPhoneAppShell` with Home, New, and Tail, all driven by the shared `ScoutCapabilities` contracts through a mock adapter."), status: .completed)
+        ], startedAt: 1_002, endedAt: 1_010, isUserTurn: false)
+
+        let t3 = userText("t3", "Now render the conversation surface off the shared projection.", at: 2_000)
+        let t4 = TurnState(id: "t4", status: .completed, blocks: [
+            BlockState(block: Block(id: "t4.0", turnId: "t4", type: .reasoning, status: .completed, index: 0, text: "Reducing events into TurnState/BlockState, then mapping blocks to Hudson atoms."), status: .completed),
+            BlockState(block: Block(id: "t4.1", turnId: "t4", type: .text, status: .completed, index: 1, text: "The surface drives a `ConversationProjection` from the same event stream both platforms reduce."), status: .completed),
+            BlockState(block: Block(id: "t4.2", turnId: "t4", type: .action, status: .completed, index: 2, action: Action(
+                kind: .command, status: .completed,
+                output: "▸ Compiling ScoutCapabilities\n▸ Compiling ScoutNext\n▸ Linking ScoutNext.app\n** BUILD SUCCEEDED **",
+                command: "xcodebuild -scheme ScoutNext -destination 'iPhone 17'")), status: .completed)
+        ], startedAt: 2_002, endedAt: 2_020, isUserTurn: false)
+
+        return SessionState(session: session, turns: [t1, t2, t3, t4], currentTurnId: nil)
     }
 
-    /// A scripted live turn: user prompt → assistant reasoning → text deltas →
-    /// a running command action → an action status flip → completion.
+    /// No synthetic playback. A real adapter streams live deltas here; the mock
+    /// has nothing live to add, so it finishes immediately.
     func conversationEvents(conversationId: String, sinceSeq: Int?) -> AsyncStream<SequencedEvent> {
-        AsyncStream { continuation in
-            let task = Task {
-                let sid = conversationId
-                var seq = (sinceSeq ?? 0)
-                func emit(_ event: ScoutEvent, gapMs: UInt64 = 350) async {
-                    if Task.isCancelled { return }
-                    seq += 1
-                    continuation.yield(SequencedEvent(seq: seq, event: event))
-                    try? await Task.sleep(nanoseconds: gapMs * 1_000_000)
-                }
-
-                // User turn
-                let uTurn = Turn(id: "t.live.user", sessionId: sid, status: .completed, startedAt: "2000", isUserTurn: true)
-                await emit(.turnStart(sessionId: sid, turn: uTurn), gapMs: 120)
-                await emit(.blockStart(sessionId: sid, turnId: uTurn.id, block: Block(id: "b.u", turnId: uTurn.id, type: .text, status: .completed, index: 0, text: "Now render the conversation surface off the shared projection.")), gapMs: 120)
-                await emit(.blockEnd(sessionId: sid, turnId: uTurn.id, blockId: "b.u", status: .completed), gapMs: 120)
-                await emit(.turnEnd(sessionId: sid, turnId: uTurn.id, status: .completed), gapMs: 400)
-
-                // Assistant turn
-                let aTurn = Turn(id: "t.live.asst", sessionId: sid, status: .streaming, startedAt: "2100", isUserTurn: false)
-                await emit(.turnStart(sessionId: sid, turn: aTurn))
-
-                // Reasoning block
-                await emit(.blockStart(sessionId: sid, turnId: aTurn.id, block: Block(id: "b.r", turnId: aTurn.id, type: .reasoning, status: .streaming, index: 0, text: "")))
-                for chunk in ["Reducing events into ", "TurnState/BlockState, ", "then mapping blocks to Hudson atoms…"] {
-                    await emit(.blockDelta(sessionId: sid, turnId: aTurn.id, blockId: "b.r", text: chunk))
-                }
-                await emit(.blockEnd(sessionId: sid, turnId: aTurn.id, blockId: "b.r", status: .completed))
-
-                // Text block, streamed
-                await emit(.blockStart(sessionId: sid, turnId: aTurn.id, block: Block(id: "b.t", turnId: aTurn.id, type: .text, status: .streaming, index: 1, text: "")))
-                for chunk in ["The surface drives a ", "`ConversationProjection` ", "from the same event stream both ", "platforms reduce. ", "Watch the action below run live."] {
-                    await emit(.blockDelta(sessionId: sid, turnId: aTurn.id, blockId: "b.t", text: chunk))
-                }
-                await emit(.blockEnd(sessionId: sid, turnId: aTurn.id, blockId: "b.t", status: .completed))
-
-                // Action block (command), running → output → completed
-                let cmd = Action(kind: .command, status: .running, output: "", command: "xcodebuild -scheme ScoutNext -destination 'iPhone 17'")
-                await emit(.blockStart(sessionId: sid, turnId: aTurn.id, block: Block(id: "b.a", turnId: aTurn.id, type: .action, status: .streaming, index: 2, action: cmd)))
-                for line in ["▸ Compiling ScoutCapabilities\n", "▸ Compiling ScoutNext\n", "▸ Linking ScoutNext.app\n", "** BUILD SUCCEEDED **\n"] {
-                    await emit(.blockActionOutput(sessionId: sid, turnId: aTurn.id, blockId: "b.a", output: line), gapMs: 500)
-                }
-                await emit(.blockActionStatus(sessionId: sid, turnId: aTurn.id, blockId: "b.a", status: .completed, meta: nil))
-                await emit(.blockEnd(sessionId: sid, turnId: aTurn.id, blockId: "b.a", status: .completed))
-
-                await emit(.turnEnd(sessionId: sid, turnId: aTurn.id, status: .completed), gapMs: 200)
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        AsyncStream { continuation in continuation.finish() }
     }
 
     // MARK: - ControlCapability

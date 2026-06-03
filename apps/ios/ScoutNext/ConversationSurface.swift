@@ -17,6 +17,7 @@ struct ConversationSurface: View {
     @State private var composerText = ""
     @State private var isSending = false
     @FocusState private var composerFocused: Bool
+    @Environment(\.dismiss) private var dismiss
 
     private var turns: [TurnState] { projection.state?.turns ?? [] }
 
@@ -27,7 +28,7 @@ struct ConversationSurface: View {
         }
         .background(HudPalette.bg)
         .safeAreaInset(edge: .bottom) { composer }
-        .navigationBarBackButtonHidden(false)
+        .toolbar(.hidden, for: .navigationBar)
         .task(id: conversationId) { await run() }
     }
 
@@ -85,6 +86,16 @@ struct ConversationSurface: View {
 
     private var header: some View {
         HStack(spacing: HudSpacing.md) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(HudFont.ui(HudTextSize.md, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(HudSurface.inset))
+                    .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
+            }
+            .buttonStyle(.plain)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
@@ -103,7 +114,7 @@ struct ConversationSurface: View {
                 HudBadge("idle", tint: HudPalette.muted, dot: true)
             }
         }
-        .padding(.horizontal, HudSpacing.xxl)
+        .padding(.horizontal, HudSpacing.xl)
         .padding(.vertical, HudSpacing.lg)
     }
 
@@ -152,8 +163,10 @@ struct ConversationSurface: View {
             p.applySnapshot(snapshot)
             projection = p
         }
-        isStreaming = true
+        // Live events flip the badge on only when they actually arrive — a
+        // static (already-settled) conversation stays "idle".
         for await event in client.conversationEvents(conversationId: conversationId, sinceSeq: projection.lastAppliedSeq) {
+            isStreaming = true
             var p = projection
             p.apply(event)
             projection = p

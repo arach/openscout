@@ -3,10 +3,11 @@ import HudsonUI
 import HudsonLive
 import ScoutCapabilities
 
-/// Tail — the live activity firehose. Subscribes to `tailEvents(since:)`,
+/// Tail — recent cross-agent activity. Subscribes to `tailEvents(since:)`,
 /// prepends newest events (capped at ~200), and labels each row's attribution
 /// (scoutManaged / hudsonManaged / unattributed) via `HudBadge`. A
-/// `HudLiveIndicator` pinned at the top reflects the stream state.
+/// `HudLiveIndicator` pinned at the top reflects the stream state (a real
+/// adapter keeps it open and live; the mock settles to idle after the batch).
 struct TailSurface: View {
     let client: any ScoutBrokerClient
 
@@ -37,7 +38,7 @@ struct TailSurface: View {
             .padding(.bottom, HudSpacing.lg)
 
             if events.isEmpty {
-                HudEmptyState(title: "Waiting for events", subtitle: "Replaying the recent firehose, then streaming live.", icon: "waveform")
+                HudEmptyState(title: "No recent activity", subtitle: "Cross-agent events will appear here.", icon: "waveform")
                     .padding(HudSpacing.xxl)
                 Spacer()
             } else {
@@ -111,11 +112,13 @@ struct TailSurface: View {
 
     private func subscribe() async {
         for await event in client.tailEvents(since: nil) {
-            status = .live
             events.insert(event, at: 0)
             if events.count > Self.maxRows {
                 events.removeLast(events.count - Self.maxRows)
             }
         }
+        // Stream finished: a real adapter would stay `.live`; the static mock
+        // settles to a calm, non-pulsing state once the batch is in.
+        status = .stale
     }
 }
