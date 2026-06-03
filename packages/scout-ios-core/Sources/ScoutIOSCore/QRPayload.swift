@@ -124,6 +124,41 @@ extension QRPayload {
         }
         return try JSONDecoder().decode(QRPayload.self, from: data)
     }
+
+    /// Parse from a camera-free channel: either the raw JSON (pasted directly)
+    /// or a `scoutnext://pair?…` deep link. The link may carry the whole payload
+    /// in a single percent-encoded `payload` query item, or the individual
+    /// `relay` / `room` / `publicKey` (+ optional `v`, `expiresAt`,
+    /// `fallbackRelay`) fields. Same bytes as the QR — no shared secret.
+    public static func parse(fromLink link: String) throws -> QRPayload {
+        let trimmed = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Raw JSON pasted straight from the Mac's "Copy pairing link".
+        if trimmed.hasPrefix("{") {
+            return try parse(from: trimmed)
+        }
+        guard let comps = URLComponents(string: trimmed) else {
+            throw QRPayloadError.invalidPayload("Not a pairing link or JSON")
+        }
+        let items = comps.queryItems ?? []
+        func value(_ key: String) -> String? { items.first { $0.name == key }?.value }
+        // Whole payload carried in one param (URLComponents percent-decodes it).
+        if let payload = value("payload") {
+            return try parse(from: payload)
+        }
+        // Otherwise reconstruct from individual fields.
+        guard let relay = value("relay"), let room = value("room"), let publicKey = value("publicKey") else {
+            throw QRPayloadError.invalidPayload("Missing relay/room/publicKey in pairing link")
+        }
+        let fallbacks = items.filter { $0.name == "fallbackRelay" }.compactMap(\.value)
+        return QRPayload(
+            v: value("v").flatMap(Int.init) ?? 1,
+            relay: relay,
+            fallbackRelays: fallbacks.isEmpty ? nil : fallbacks,
+            room: room,
+            publicKey: publicKey,
+            expiresAt: value("expiresAt").flatMap(Int64.init) ?? 0
+        )
+    }
 }
 
 public enum QRPayloadError: Error, LocalizedError {

@@ -11,12 +11,26 @@ struct ScoutNextApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(model: model)
-                .hudsonAppManifest(
-                    HudAppManifest(name: "Scout", version: "0.1.0", tint: .green, targetLabel: "Agent")
-                )
-                .preferredColorScheme(.dark)
-                .task { await model.connectIfNeeded() }
+            Group {
+                switch model.phase {
+                case .connect: ConnectScreen(model: model)
+                case .shell:   RootView(model: model)
+                }
+            }
+            .hudsonAppManifest(
+                HudAppManifest(name: "Scout", version: "0.1.0", tint: .green, targetLabel: "Agent")
+            )
+            .preferredColorScheme(.dark)
+            // Pairing presents from both phases (Connect screen CTA and the
+            // in-shell Connection sheet), so it lives at the app root.
+            .sheet(isPresented: $model.showPairing) {
+                PairingView(model: model)
+            }
+            // Camera-free deep-link pairing: scoutnext://pair?payload=…
+            .onOpenURL { url in
+                Task { await model.pairFromLink(url.absoluteString) }
+            }
+            .task { await model.start() }
         }
     }
 }

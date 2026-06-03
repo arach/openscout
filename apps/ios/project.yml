@@ -111,6 +111,12 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        # Camera-free pairing deep link: scoutnext://pair?payload=… (distinct
+        # from the donor app's openscout:// scheme to avoid clobbering).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.openscout.scoutnext
+            CFBundleURLSchemes:
+              - scoutnext
         # Reach the paired Mac over the LAN (Bonjour) and Tailscale (ws over ts.net).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

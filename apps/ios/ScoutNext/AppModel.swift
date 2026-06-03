@@ -26,7 +26,16 @@ final class AppModel {
         case failed(String)
     }
 
+    /// Top-level navigation gate. `connect` is the first-run screen (a single
+    /// pair CTA + an offline escape hatch); `shell` is the tab app. We never
+    /// drop straight into the camera — pairing is always a deliberate tap.
+    enum Phase: Equatable {
+        case connect
+        case shell
+    }
+
     var source: Source = .bridge
+    var phase: Phase = .connect
     var connectionState: ConnectionState = .idle
     var showPairing = false
 
@@ -48,15 +57,34 @@ final class AppModel {
         ((try? ScoutIdentity.getTrustedBridges()) ?? []).isEmpty == false
     }
 
-    /// Attempt to connect the live bridge. No-op on the mock source. If nothing
-    /// is paired yet, surface the pairing flow instead of failing silently.
+    /// Resolve the launch phase. A trusted bridge takes us straight into the
+    /// shell (connecting in the background); otherwise we land on the Connect
+    /// screen. This is the only place that decides the opening surface.
+    func start() async {
+        if hasTrustedBridge {
+            phase = .shell
+            await connectIfNeeded()
+        } else {
+            phase = .connect
+        }
+    }
+
+    /// Skip pairing for now and explore the app on offline mock data. The status
+    /// chip still routes back to pairing whenever the operator is ready.
+    func exploreOffline() {
+        source = .mock
+        phase = .shell
+    }
+
+    /// Attempt to connect the live bridge. No-op on the mock source. Unpaired is
+    /// reported (the Connect screen / status chip own the pairing entry point);
+    /// this never force-presents the camera.
     func connectIfNeeded() async {
         guard source == .bridge else { return }
         if connectionState == .connecting { return }
         guard hasTrustedBridge else {
             connectionState = .failed("No bridge paired")
             connectionLog.log("No paired bridge — scan the QR on your Mac to pair", level: .warning)
-            showPairing = true
             return
         }
         connectionState = .connecting
@@ -81,14 +109,31 @@ final class AppModel {
     /// Pair from a scanned QR string, then stay connected. Returns true on success.
     @discardableResult
     func pair(scanned: String) async -> Bool {
+        await completePair(source: "scanned QR") { try QRPayload.parse(from: scanned) }
+    }
+
+    /// Pair from a camera-free pairing link — a pasted payload or a
+    /// `scoutnext://pair?…` deep link. Same payload as the QR.
+    @discardableResult
+    func pairFromLink(_ link: String) async -> Bool {
+        await completePair(source: "pairing link") { try QRPayload.parse(fromLink: link) }
+    }
+
+    /// Shared pairing tail: build the payload, run the XX handshake, and land in
+    /// the shell on success. The `makePayload` closure is the only difference
+    /// between the QR and link entry points.
+    @discardableResult
+    private func completePair(source channel: String, _ makePayload: () throws -> QRPayload) async -> Bool {
         connectionState = .connecting
-        connectionLog.log("Pairing from scanned QR…", level: .info)
+        connectionLog.log("Pairing from \(channel)…", level: .info)
         do {
-            let payload = try QRPayload.parse(from: scanned)
+            let payload = try makePayload()
             try await bridge.pair(qrPayload: payload, primaryName: deviceName)
             let route = bridge.currentRoute
             connectionState = .connected(route)
             connectionLog.log("Paired & connected via \(route.label)", level: .success, route: route)
+            source = .bridge
+            phase = .shell
             showPairing = false
             return true
         } catch {
