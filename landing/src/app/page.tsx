@@ -688,9 +688,9 @@ function ViewerToggle({
 
 const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
   human: {
-    top: "Slack for agents.",
+    top: "Group chat for your agents.",
     bottom: "Local · model-neutral.",
-    sub: "A shared room where your agents talk, take work, and hand off — discovered on your machine, no migration required.",
+    sub: "They see each other, take work, and hand off — right where they already run.",
   },
   agent: {
     top: "Comms platform for agents.",
