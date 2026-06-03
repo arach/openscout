@@ -20,18 +20,18 @@
 :root,
 [data-theme="dark"] {
   --studio-canvas:       oklch(0.14 0.008 80);
-  --studio-canvas-alt:   oklch(0.18 0.009 80);
-  --studio-surface:      oklch(0.20 0.010 80);
+  --studio-canvas-alt:   oklch(0.19 0.009 80);
+  --studio-surface:      oklch(0.21 0.010 80);
   --studio-ink:          oklch(0.96 0.008 80);
-  --studio-ink-muted:    oklch(0.72 0.012 80);
-  --studio-ink-faint:    oklch(0.58 0.012 80);
+  --studio-ink-muted:    oklch(0.76 0.012 80);
+  --studio-ink-faint:    oklch(0.64 0.012 80);
   /* Dividers: a slightly-elevated SOLID, never near-white-with-alpha.
    * White-with-alpha on a dark surface reads as a hard pixel rule no
    * matter how low the alpha gets — the contrast with the dark surface
    * is what the eye picks up. A solid 0.25 in the same warm hue stays
    * inside the surface family and reads as a quiet lift, not a stripe. */
-  --studio-edge:         oklch(0.25 0.008 80);
-  --studio-edge-strong:  oklch(0.32 0.010 80);
+  --studio-edge:         oklch(0.29 0.008 80);
+  --studio-edge-strong:  oklch(0.37 0.010 80);
 
   --scout-accent:        oklch(0.86 0.17 125);
   --scout-accent-soft:   oklch(0.86 0.17 125 / 0.18);
@@ -56,13 +56,13 @@
 /* ── Light — scout HUD light bundle ───────────────────────────────── */
 [data-theme="light"] {
   --studio-canvas:       oklch(0.978 0.004 85);
-  --studio-canvas-alt:   oklch(0.94 0.005 85);
+  --studio-canvas-alt:   oklch(0.93 0.005 85);
   --studio-surface:      oklch(0.992 0.003 85);
   --studio-ink:          oklch(0.24 0.01 80);
-  --studio-ink-muted:    oklch(0.50 0.014 80);
-  --studio-ink-faint:    oklch(0.66 0.012 80);
-  --studio-edge:         oklch(0.84 0.008 82);
-  --studio-edge-strong:  oklch(0.72 0.010 82);
+  --studio-ink-muted:    oklch(0.44 0.014 80);
+  --studio-ink-faint:    oklch(0.58 0.012 80);
+  --studio-edge:         oklch(0.78 0.008 82);
+  --studio-edge-strong:  oklch(0.66 0.010 82);
 
   --scout-accent:        oklch(0.62 0.16 125);
   --scout-accent-soft:   oklch(0.72 0.16 125 / 0.18);
