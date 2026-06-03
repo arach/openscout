@@ -1,37 +1,17 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { Instrument_Serif, IBM_Plex_Mono, Spectral } from "next/font/google";
+import { Archivo } from "next/font/google";
 import { GoogleAnalyticsTag } from "@/components/google-analytics-tag";
-import { SITE_THEME_INIT_SCRIPT } from "@/lib/site-theme";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Basel — one grotesque across the whole system. Every legacy font variable
+// (--font-spectral / --font-mono-display / --font-geist-* / --font-display) is
+// aliased to this single family in globals.css, so hierarchy comes from weight
+// and scale alone, never from a second face.
+const archivo = Archivo({
+  variable: "--font-archivo",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-display",
-  subsets: ["latin"],
-  weight: "400",
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
   style: ["normal", "italic"],
-});
-
-const plexMono = IBM_Plex_Mono({
-  variable: "--font-mono-display",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const spectral = Spectral({
-  variable: "--font-spectral",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -78,19 +58,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      data-site-theme="light"
-      data-site-theme-preference="auto"
-      suppressHydrationWarning
-    >
-      <head>
-        <script
-          dangerouslySetInnerHTML={{ __html: SITE_THEME_INIT_SCRIPT }}
-        />
-      </head>
+    <html lang="en" data-site-theme="light">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} ${plexMono.variable} ${spectral.variable} antialiased bg-background text-foreground`}
+        className={`${archivo.variable} antialiased bg-background text-foreground`}
       >
         {children}
         <GoogleAnalyticsTag />
