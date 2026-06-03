@@ -6,20 +6,28 @@ import AppKit
 #if os(macOS)
 
 enum ScoutScrollbarMetrics {
-    /// Width of the reserved scroller lane (content is inset by this).
-    static let laneWidth: CGFloat = 12
-    /// Thickness of the knob/track pill within the lane.
-    static let pillThickness: CGFloat = 6
+    /// Width of the reserved scroller lane (this is the clickable hit area —
+    /// kept comfortably wider than the visible knob so it's easy to grab).
+    static let laneWidth: CGFloat = 13
+    /// Thickness of the faint always-present track pill.
+    static let trackThickness: CGFloat = 6
+    /// Knob thickness at rest and while hovered (it fattens to invite a drag).
+    static let knobThickness: CGFloat = 7
+    static let knobThicknessHover: CGFloat = 10
     /// Inset of the pill from the ends of the track.
     static let pillInset: CGFloat = 2
-    static let knobAlpha: CGFloat = 0.34
-    static let trackAlpha: CGFloat = 0.07
+    static let knobAlpha: CGFloat = 0.40
+    static let knobAlphaHover: CGFloat = 0.66
+    static let trackAlpha: CGFloat = 0.06
+    static let trackAlphaHover: CGFloat = 0.12
 }
 
-/// A slim, HUD-coherent scroller. Draws a persistent faint track plus a brighter
-/// rounded knob so it's always clear a scroll area exists, while staying tight to
-/// the panel edge via a narrow reserved lane.
+/// A slim, HUD-coherent scroller. Draws a persistent faint track plus a rounded
+/// knob that brightens and fattens on hover, so it reads as a grabbable control
+/// rather than decoration — while staying tight to the edge via a narrow lane.
 final class ScoutHudScroller: NSScroller {
+    private var hovering = false
+
     override class var isCompatibleWithOverlayScrollers: Bool { true }
 
     /// Keep the reserved lane narrow so content sits tight to the divider/border.
@@ -30,25 +38,49 @@ final class ScoutHudScroller: NSScroller {
         ScoutScrollbarMetrics.laneWidth
     }
 
+    // A tracking area gives the knob hover feedback (and confirms the scroller is
+    // receiving mouse events — i.e. that it is in fact clickable).
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovering = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovering = false
+        needsDisplay = true
+    }
+
     override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
-        let pill = pillRect(in: slotRect)
+        let pill = pillRect(in: slotRect, thickness: ScoutScrollbarMetrics.trackThickness)
         let radius = min(pill.width, pill.height) / 2
-        NSColor.white.withAlphaComponent(ScoutScrollbarMetrics.trackAlpha).setFill()
+        let alpha = hovering ? ScoutScrollbarMetrics.trackAlphaHover : ScoutScrollbarMetrics.trackAlpha
+        NSColor.white.withAlphaComponent(alpha).setFill()
         NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius).fill()
     }
 
     override func drawKnob() {
         let knobRect = rect(for: .knob)
         guard knobRect.width > 0, knobRect.height > 0 else { return }
-        let pill = pillRect(in: knobRect)
+        let thickness = hovering ? ScoutScrollbarMetrics.knobThicknessHover : ScoutScrollbarMetrics.knobThickness
+        let pill = pillRect(in: knobRect, thickness: thickness)
         let radius = min(pill.width, pill.height) / 2
-        NSColor.white.withAlphaComponent(ScoutScrollbarMetrics.knobAlpha).setFill()
+        let alpha = hovering ? ScoutScrollbarMetrics.knobAlphaHover : ScoutScrollbarMetrics.knobAlpha
+        NSColor.white.withAlphaComponent(alpha).setFill()
         NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius).fill()
     }
 
-    /// Slim pill centered within the lane, inset from the track ends.
-    private func pillRect(in rect: NSRect) -> NSRect {
-        let thickness = ScoutScrollbarMetrics.pillThickness
+    /// Pill of the given thickness centered within the lane, inset from the ends.
+    private func pillRect(in rect: NSRect, thickness: CGFloat) -> NSRect {
         let inset = ScoutScrollbarMetrics.pillInset
         let vertical = bounds.height >= bounds.width
         if vertical {

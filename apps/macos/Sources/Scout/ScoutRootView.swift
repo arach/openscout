@@ -2253,7 +2253,7 @@ private struct ScoutAgentHoverCard: View {
     }
 }
 
-private struct ScoutMarkdownView: View {
+struct ScoutMarkdownView: View {
     let text: String
     /// Workspace root of the agent that wrote this message — used to resolve
     /// relative file paths the agent quoted from its own context.

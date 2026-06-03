@@ -48,6 +48,8 @@ struct ScoutFileDocument: Sendable {
     let url: URL
     let lineCount: Int
     let highlighted: [AttributedString]
+    let rawText: String
+    let isMarkdown: Bool
     let truncated: Bool
     let error: String?
 
@@ -56,7 +58,7 @@ struct ScoutFileDocument: Sendable {
     static let maxLineLength = 2000
 
     private static func failure(_ url: URL, _ message: String) -> ScoutFileDocument {
-        ScoutFileDocument(url: url, lineCount: 0, highlighted: [], truncated: false, error: message)
+        ScoutFileDocument(url: url, lineCount: 0, highlighted: [], rawText: "", isMarkdown: false, truncated: false, error: message)
     }
 
     static func load(path: String) -> ScoutFileDocument {
@@ -88,7 +90,16 @@ struct ScoutFileDocument: Sendable {
         let lines = limited.map { $0.count > maxLineLength ? String($0.prefix(maxLineLength)) + " …" : $0 }
         let language = ScoutCodeLanguage.from(ext: url.pathExtension)
         let highlighted = ScoutSyntaxHighlighter.highlight(lines: lines, language: language)
-        return ScoutFileDocument(url: url, lineCount: lines.count, highlighted: highlighted, truncated: truncated, error: nil)
+        let isMarkdown = ["md", "markdown", "mdown", "mkd", "mdx"].contains(url.pathExtension.lowercased())
+        return ScoutFileDocument(
+            url: url,
+            lineCount: lines.count,
+            highlighted: highlighted,
+            rawText: text,
+            isMarkdown: isMarkdown,
+            truncated: truncated,
+            error: nil
+        )
     }
 }
 
@@ -104,6 +115,8 @@ struct ScoutFileViewerPanel: View {
     let onOpenInEditor: () -> Void
 
     @State private var document: ScoutFileDocument?
+    /// For markdown: rendered preview vs. raw source. Defaults to preview.
+    @State private var showPreview = true
 
     private var fileName: String { (target.path as NSString).lastPathComponent }
     private var dirPath: String {
@@ -134,6 +147,7 @@ struct ScoutFileViewerPanel: View {
             }.value
             guard !Task.isCancelled else { return }
             document = loaded
+            showPreview = loaded.isMarkdown
         }
     }
 
@@ -160,7 +174,11 @@ struct ScoutFileViewerPanel: View {
 
             Spacer(minLength: HudSpacing.sm)
 
-            if let line = target.line {
+            if document?.isMarkdown == true {
+                ScoutMarkdownModeToggle(showPreview: $showPreview)
+            }
+
+            if let line = target.line, !(document?.isMarkdown == true && showPreview) {
                 Text("L\(line)")
                     .font(HudFont.mono(9, weight: .semibold))
                     .monospacedDigit()
@@ -200,6 +218,8 @@ struct ScoutFileViewerPanel: View {
         if let document {
             if let error = document.error {
                 errorState(error)
+            } else if document.isMarkdown, showPreview {
+                markdownPreview(document)
             } else {
                 code(document)
             }
@@ -208,6 +228,20 @@ struct ScoutFileViewerPanel: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func markdownPreview(_ document: ScoutFileDocument) -> some View {
+        ScrollView(.vertical) {
+            ScoutMarkdownView(
+                text: document.rawText,
+                baseDirectory: (target.path as NSString).deletingLastPathComponent
+            )
+            .padding(.horizontal, HudSpacing.xxl)
+            .padding(.vertical, HudSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .scoutOverlayScrollers()
+        }
+        .scrollIndicators(.visible)
     }
 
     private func code(_ document: ScoutFileDocument) -> some View {
@@ -302,6 +336,37 @@ struct ScoutFileViewerPanel: View {
         default:
             return "doc"
         }
+    }
+}
+
+/// Compact Preview ⇄ Source segmented toggle for markdown files.
+private struct ScoutMarkdownModeToggle: View {
+    @Binding var showPreview: Bool
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment("Preview", active: showPreview) { showPreview = true }
+            segment("Source", active: !showPreview) { showPreview = false }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+    }
+
+    private func segment(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(HudFont.mono(9, weight: .semibold))
+                .foregroundStyle(active ? HudPalette.ink : HudPalette.muted)
+                .padding(.horizontal, HudSpacing.sm)
+                .frame(height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.standard - 2, style: .continuous)
+                        .fill(active ? HudSurface.selected(HudPalette.accent) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
     }
 }
 
