@@ -128,6 +128,11 @@
       "bun": "./src/tail/index.ts",
       "default": "./dist/tail/index.js"
     },
+    "./repo-watch": {
+      "types": "./src/repo-watch/index.ts",
+      "bun": "./src/repo-watch/index.ts",
+      "default": "./dist/repo-watch/index.js"
+    },
     "./harness-topology": {
       "types": "./src/harness-topology/index.ts",
       "bun": "./src/harness-topology/index.ts",
