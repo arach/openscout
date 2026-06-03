@@ -1,132 +1,204 @@
 import SwiftUI
 import HudsonUI
+import HudsonVoice
+#if canImport(UIKit)
+import UIKit
+#endif
 
-/// App Settings — global configuration built from the HudSettings* family with a
-/// HudSettingsQuickNav jump-scroller. Connection folds in here; most rows are
-/// scaffolded for now (the nav and shape are the point — values fill in later).
+/// App Settings — HudsonKit's `HudInspectorSettings` vertical-rail inspector.
+/// The rail switches panels (CONNECTION / ROUTES / IDENTITY / ALERTS /
+/// APPEARANCE / ADVANCED / ABOUT). Connection actions are live; other values
+/// are scaffolded. Presented as a full page (fullScreenCover), so it carries
+/// its own close via `onClose`.
 struct AppSettingsView: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
-    // Placeholder local state until these bind to real settings.
+    @State private var tab = "CONNECTION"
     @State private var tailscaleEnabled = true
     @State private var osnEnabled = false
     @State private var approvalsAlert = true
-    @State private var theme = "Dark"
 
-    private let anchors: [HudSettingsQuickNav.Item] = [
-        .init(icon: "antenna.radiowaves.left.and.right", label: "Connection", anchor: "CONNECTION"),
-        .init(icon: "point.3.connected.trianglepath.dotted", label: "Routes", anchor: "ROUTES"),
-        .init(icon: "person.badge.key", label: "Identity", anchor: "IDENTITY"),
-        .init(icon: "bell", label: "Alerts", anchor: "NOTIFICATIONS"),
-        .init(icon: "paintbrush", label: "Appearance", anchor: "APPEARANCE"),
-        .init(icon: "wrench.and.screwdriver", label: "Advanced", anchor: "ADVANCED"),
-        .init(icon: "info.circle", label: "About", anchor: "ABOUT"),
-    ]
+    private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "VOICE", "ALERTS", "APPEARANCE", "ADVANCED", "ABOUT"]
 
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: HudSpacing.xxl) {
-                        HudSettingsQuickNav(items: anchors, proxy: proxy)
-                        connectionSection
-                        routesSection
-                        identitySection
-                        notificationsSection
-                        appearanceSection
-                        advancedSection
-                        aboutSection
+        HudInspectorSettings(
+            title: "Scout · Settings",
+            subtitle: "iOS app",
+            tabs: tabIDs.map { HudInspectorTab(id: $0, label: $0.capitalized) },
+            selection: $tab,
+            onClose: { dismiss() }
+        ) { tabID in
+            switch tabID {
+            case "CONNECTION": connectionPanel
+            case "ROUTES":     routesPanel
+            case "IDENTITY":   identityPanel
+            case "VOICE":      voicePanel
+            case "ALERTS":     alertsPanel
+            case "APPEARANCE": appearancePanel
+            case "ADVANCED":   advancedPanel
+            default:           aboutPanel
+            }
+        }
+    }
+
+    private var connectionPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Link") {
+                HudInspectorFieldRow("Paired Mac", value: model.statusLabel, hint: "encrypted bridge")
+                HudInspectorFieldRow("Transport", value: routeLabel, hint: "live route")
+                HudInspectorFieldRow("Identity", value: model.hasTrustedBridge ? "Paired" : "None", hint: "trusted")
+            }
+            HudInspectorMetricStrip([
+                .init("Route", value: routeLabel),
+                .init("Status", value: statusShort),
+                .init("Log", value: "\(model.connectionLog.entries.count)")
+            ])
+            HudInspectorSection("Actions") {
+                HudInspectorActionRow("Reconnect", value: "Run", tone: .accent) { Task { await model.reconnect() } }
+                HudInspectorActionRow("Pair with a Mac", value: "Scan", tone: .accent) { dismiss(); model.showPairing = true }
+                HudInspectorActionRow("Forget this Mac", value: "Reset", tone: .warn) {}
+            }
+        }
+    }
+
+    private var routesPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Priority") {
+                HudInspectorFieldRow("Order", value: "LAN → TSN → OSN", hint: "first reachable wins")
+            }
+            HudInspectorSection("Transports") {
+                HudInspectorToggleRow("Tailscale", isOn: $tailscaleEnabled, valueOn: "On", valueOff: "Off", hint: "reach over your tailnet")
+                HudInspectorToggleRow("OpenScout Net", isOn: $osnEnabled, valueOn: "On", valueOff: "Off", hint: "relay fallback off-LAN")
+            }
+        }
+    }
+
+    private var identityPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Device") {
+                HudInspectorFieldRow("This device", value: deviceName, hint: "primary name")
+                HudInspectorFieldRow("Public key", value: "eff2…117b", hint: "authenticates the bridge")
+            }
+        }
+    }
+
+    private var alertsPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Notifications") {
+                HudInspectorToggleRow("Approval alerts", isOn: $approvalsAlert, valueOn: "On", valueOff: "Off", hint: "ping on a decision")
+                HudInspectorFieldRow("Push", value: "Soon", hint: "needs entitlement")
+            }
+        }
+    }
+
+    private var appearancePanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Theme") {
+                HudInspectorFieldRow("Appearance", value: "Dark", hint: "cockpit")
+                HudInspectorFieldRow("Type scale", value: "Standard", hint: "row rhythm")
+            }
+        }
+    }
+
+    private var advancedPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Diagnostics") {
+                HudInspectorFieldRow("Connection log", value: "\(model.connectionLog.entries.count)", hint: "route attempts")
+                HudInspectorNavRow("Diagnostics") {}
+            }
+            HudInspectorSection("Danger") {
+                HudInspectorActionRow("Reset all data", value: "Reset", tone: .warn) {}
+            }
+        }
+    }
+
+    private var aboutPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Build") {
+                HudInspectorFieldRow("Version", value: "0.1.0", hint: "ScoutNext")
+                HudInspectorNavRow("Acknowledgements") {}
+            }
+        }
+    }
+
+    // MARK: - Voice
+
+    private var voicePanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Transcription") {
+                HudInspectorCycleRow(
+                    "Engine",
+                    selection: Binding(
+                        get: { model.dictation.preference.rawValue },
+                        set: { raw in
+                            if let pref = HudDictation.Preference(rawValue: raw) {
+                                model.setVoicePreference(pref)
+                            }
+                        }
+                    ),
+                    choices: HudDictation.Preference.allCases.map {
+                        HudInspectorChoice(id: $0.rawValue, title: $0.title)
+                    },
+                    hint: "Parakeet on-device, Apple fallback"
+                )
+            }
+            HudInspectorMetricStrip([
+                .init("Engine", value: voiceEngineLabel),
+                .init("Model", value: voiceModelShort),
+                .init("Warm", value: voiceWarmLabel)
+            ], distribution: .spread)
+            HudInspectorSection("On-device model") {
+                HudInspectorFieldRow("Parakeet", value: voiceModelStatus, hint: "parakeet-tdt-0.6b-v3")
+                if model.dictation.preference != .apple && !model.dictation.modelReady {
+                    HudInspectorActionRow("Download & warm", value: "Run", tone: .accent) {
+                        model.dictation.prepare()
                     }
-                    .padding(HudSpacing.xxl)
                 }
-                .background(HudPalette.bg)
-            }
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }.foregroundStyle(HudPalette.accent)
-                }
+                HudInspectorFieldRow("Fallback", value: "Apple Speech", hint: "instant, while Parakeet warms")
             }
         }
-        .preferredColorScheme(.dark)
+        .task { await model.dictation.refreshStatus() }
     }
 
-    private var connectionSection: some View {
-        HudSettingsSection("CONNECTION") {
-            HudSettingsRow(icon: "desktopcomputer", iconColor: HudTint.green.color, title: "Paired Mac", subtitle: model.statusLabel) {
-                HudBadge(model.statusLabel, tint: model.statusTint, dot: true)
-            }
-            HudSettingsRow(icon: "arrow.clockwise", iconColor: HudTint.cyan.color, title: "Reconnect", subtitle: "Re-establish the encrypted link", onTap: {
-                Task { await model.reconnect() }
-            })
-            HudSettingsRow(icon: "qrcode.viewfinder", iconColor: HudTint.amber.color, title: "Pair with a Mac", subtitle: "Scan or paste a fresh pairing link", onTap: {
-                dismiss(); model.showPairing = true
-            })
+    /// The engine that will actually run given the preference + readiness.
+    private var voiceEngineLabel: String {
+        switch model.dictation.preference {
+        case .apple: return "Apple"
+        case .auto, .parakeet: return model.dictation.modelReady ? "Parakeet" : "Apple"
         }
     }
 
-    private var routesSection: some View {
-        HudSettingsSection("ROUTES") {
-            HudSettingsRow(icon: "network", iconColor: HudTint.teal.color, title: "Priority", subtitle: "LAN → Tailscale → OSN") {
-                Text("LAN")
-                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                    .foregroundStyle(HudPalette.accent)
-            }
-            HudSettingsControlRow(title: "Tailscale", subtitle: "Reach the Mac over your tailnet", icon: "shield.lefthalf.filled", iconColor: HudTint.blue.color) {
-                Toggle("", isOn: $tailscaleEnabled).labelsHidden().tint(HudPalette.accent)
-            }
-            HudSettingsControlRow(title: "OpenScout Net", subtitle: "Relay fallback when off-LAN", icon: "globe", iconColor: HudTint.cyan.color) {
-                Toggle("", isOn: $osnEnabled).labelsHidden().tint(HudPalette.accent)
-            }
-        }
+    /// Apple Speech has no model to warm, so "warm" is n/a when it's the engine.
+    private var voiceWarmLabel: String {
+        if model.dictation.preference == .apple { return "n/a" }
+        return model.dictation.modelReady ? "Yes" : "No"
     }
 
-    private var identitySection: some View {
-        HudSettingsSection("IDENTITY") {
-            HudSettingsRow(icon: "iphone", iconColor: HudTint.violet.color, title: "This device", subtitle: deviceName)
-            HudSettingsRow(icon: "key", iconColor: HudTint.amber.color, title: "Public key", subtitle: "Used to authenticate with the bridge") {
-                Text("eff2…117b")
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(HudPalette.muted)
-            }
-        }
+    private var voiceModelShort: String {
+        if case .preparing(let progress) = model.dictation.state { return "\(Int(progress * 100))%" }
+        if model.dictation.modelReady { return "Ready" }
+        return model.dictation.modelInstalled ? "On disk" : "—"
     }
 
-    private var notificationsSection: some View {
-        HudSettingsSection("NOTIFICATIONS") {
-            HudSettingsControlRow(title: "Approval alerts", subtitle: "Ping when an agent needs a decision", icon: "bell.badge", iconColor: HudTint.amber.color) {
-                Toggle("", isOn: $approvalsAlert).labelsHidden().tint(HudPalette.accent)
-            }
-            HudSettingsRow(icon: "app.badge", iconColor: HudTint.pink.color, title: "Push notifications", subtitle: "Requires pairing entitlement") {
-                HudBadge("soon", tint: HudPalette.muted)
-            }
-        }
+    private var voiceModelStatus: String {
+        if case .preparing(let progress) = model.dictation.state { return "Downloading \(Int(progress * 100))%" }
+        if model.dictation.modelReady { return "Ready" }
+        if model.dictation.modelInstalled { return "Downloaded" }
+        return model.dictation.preference == .apple ? "Off" : "Not downloaded"
     }
 
-    private var appearanceSection: some View {
-        HudSettingsSection("APPEARANCE") {
-            HudSettingsRow(icon: "moon.stars", iconColor: HudTint.cyan.color, title: "Theme", subtitle: "Matches the cockpit") {
-                Text(theme).font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted)
-            }
-            HudSettingsRow(icon: "textformat.size", iconColor: HudTint.teal.color, title: "Type scale", subtitle: "Standard")
-        }
+    private var routeLabel: String {
+        if case .connected(let route) = model.connectionState { return route.label }
+        return "—"
     }
 
-    private var advancedSection: some View {
-        HudSettingsSection("ADVANCED") {
-            HudSettingsRow(icon: "list.bullet.rectangle", iconColor: HudTint.blue.color, title: "Connection log", subtitle: "\(model.connectionLog.entries.count) entries", onTap: {})
-            HudSettingsRow(icon: "stethoscope", iconColor: HudTint.teal.color, title: "Diagnostics", onTap: {})
-            HudSettingsRow(icon: "trash", iconColor: HudPalette.statusError, title: "Forget this Mac", subtitle: "Clear pairing and start over", onTap: {})
-        }
-    }
-
-    private var aboutSection: some View {
-        HudSettingsSection("ABOUT") {
-            HudSettingsRow(icon: "number", iconColor: HudPalette.muted, title: "Version") {
-                Text("0.1.0").font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted)
-            }
-            HudSettingsRow(icon: "doc.text", iconColor: HudPalette.muted, title: "Acknowledgements", onTap: {})
+    private var statusShort: String {
+        switch model.connectionState {
+        case .connected: return "Live"
+        case .connecting: return "…"
+        case .failed: return "Off"
+        case .idle: return "Idle"
         }
     }
 
@@ -138,7 +210,3 @@ struct AppSettingsView: View {
         #endif
     }
 }
-
-#if canImport(UIKit)
-import UIKit
-#endif

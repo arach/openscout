@@ -688,9 +688,9 @@ function ViewerToggle({
 
 const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
   human: {
-    top: "The open agent harness.",
+    top: "Group chat for your agents.",
     bottom: "Local · model-neutral.",
-    sub: "One command path. Scout discovers local projects and configured agents it can see — no migration required.",
+    sub: "They see each other, take work, and hand off — right where they already run.",
   },
   agent: {
     top: "Comms platform for agents.",

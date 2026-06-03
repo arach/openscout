@@ -1,5 +1,6 @@
 import SwiftUI
 import HudsonUI
+import HudsonVoice
 import ScoutCapabilities
 import ScoutIOSCore
 #if canImport(UIKit)
@@ -43,10 +44,26 @@ final class AppModel {
     let mock = MockBrokerClient()
     let connectionLog: ConnectionLog
 
+    /// Shared on-device dictation controller (Parakeet via Vox + Apple fallback),
+    /// used by every conversation composer and reflected/controlled in Settings.
+    let dictation = HudDictation()
+
+    private static let voicePrefKey = "scoutnext.voicePreference"
+
     init() {
         let log = ConnectionLog()
         connectionLog = log
         bridge = BridgeBrokerClient(connection: BridgeConnection(connectionLog: ConnectionLogHandle(log)))
+        if let raw = UserDefaults.standard.string(forKey: Self.voicePrefKey),
+           let pref = HudDictation.Preference(rawValue: raw) {
+            dictation.preference = pref
+        }
+    }
+
+    /// Persist + apply the user's transcription-engine choice.
+    func setVoicePreference(_ pref: HudDictation.Preference) {
+        dictation.preference = pref
+        UserDefaults.standard.set(pref.rawValue, forKey: Self.voicePrefKey)
     }
 
     /// The client every surface consumes. Swapping source re-keys the surfaces.

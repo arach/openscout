@@ -54,5 +54,9 @@
 	<string>ScoutNext uses the camera to scan the pairing QR code shown on your Mac.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ScoutNext connects to your Mac over your local network when both devices are nearby.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Scout uses the microphone to dictate messages to your agents.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Scout transcribes your dictation on-device.</string>
 </dict>
 </plist>

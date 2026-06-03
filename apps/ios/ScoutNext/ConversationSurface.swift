@@ -1,5 +1,6 @@
 import SwiftUI
 import HudsonUI
+import HudsonVoice
 import ScoutCapabilities
 
 /// Conversation — the keystone surface. It owns no reduction logic of its own:
@@ -21,6 +22,8 @@ struct ConversationSurface: View {
     @State private var composerText = ""
     @State private var isSending = false
     @State private var showSettings = false
+    @Environment(HudDictation.self) private var voice
+    @State private var micPulse = false
     @FocusState private var composerFocused: Bool
 
     private var turns: [TurnState] { projection.state?.turns ?? [] }
@@ -34,6 +37,10 @@ struct ConversationSurface: View {
         .safeAreaInset(edge: .bottom) { composer }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: conversationId) { await run() }
+        // Start warming the on-device model the moment you reach the conversation,
+        // so Parakeet is hot well before the mic is ever tapped.
+        .onAppear { voice.prepare() }
+        .onDisappear { voice.cancel() }
         .sheet(isPresented: $showSettings) {
             SessionSettingsView(client: client, conversationId: conversationId, title: title)
         }
@@ -46,7 +53,9 @@ struct ConversationSurface: View {
     /// to at most three before scrolling internally.
     private var composer: some View {
         HStack(alignment: .bottom, spacing: HudSpacing.md) {
-            TextField("steer the agent…", text: $composerText, axis: .vertical)
+            micButton
+
+            TextField(composerPlaceholder, text: $composerText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...3)
                 .font(HudFont.ui(HudTextSize.sm))
@@ -87,6 +96,92 @@ struct ConversationSurface: View {
 
     private var canSend: Bool {
         !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+    }
+
+    /// On-device dictation toggle (HudsonKit `HudDictation`: Parakeet via Vox,
+    /// Apple Speech fallback). Listening pulses the accent ring; the live partial
+    /// previews in the placeholder, and each final utterance appends to the field.
+    private var micButton: some View {
+        Button {
+            voice.toggle()
+        } label: {
+            ZStack {
+                if voice.isListening {
+                    Circle()
+                        .fill(HudPalette.accent.opacity(micPulse ? 0.22 : 0.08))
+                        .frame(width: 28, height: 28)
+                }
+                MicGlyph()
+                    .stroke(
+                        micColor,
+                        style: StrokeStyle(
+                            lineWidth: voice.isListening ? 1.6 : 1.2,
+                            lineCap: .round,
+                            lineJoin: .round
+                        )
+                    )
+                    .frame(width: 15, height: 15)
+                    .opacity(isMicBusy && micPulse ? 0.5 : 1)
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isSending)
+        .onChange(of: voice.state) { _, newState in updatePulse(for: newState) }
+        .onChange(of: voice.finalCount) { _, _ in
+            let text = voice.finalText
+            if !text.isEmpty { appendDictation(text) }
+        }
+    }
+
+    private var isMicBusy: Bool {
+        switch voice.state {
+        case .transcribing, .preparing: return true
+        case .idle, .listening, .unavailable: return false
+        }
+    }
+
+    private var micColor: Color {
+        switch voice.state {
+        case .listening:                return HudPalette.accent
+        case .transcribing, .preparing: return HudPalette.muted
+        case .unavailable:              return HudPalette.dim.opacity(0.5)
+        case .idle:                     return HudPalette.muted
+        }
+    }
+
+    private var composerPlaceholder: String {
+        switch voice.state {
+        case .listening:
+            return voice.partialText.isEmpty ? "Listening…" : voice.partialText
+        case .transcribing:
+            return "Transcribing…"
+        case .preparing(let progress):
+            return "Preparing voice… \(Int(progress * 100))%"
+        case .idle, .unavailable:
+            return "steer the agent…"
+        }
+    }
+
+    private func appendDictation(_ text: String) {
+        if composerText.isEmpty {
+            composerText = text
+        } else {
+            composerText += " " + text
+        }
+    }
+
+    private func updatePulse(for state: HudDictation.State) {
+        micPulse = false
+        switch state {
+        case .listening, .transcribing, .preparing:
+            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                micPulse = true
+            }
+        case .idle, .unavailable:
+            break
+        }
     }
 
     // MARK: - Header
@@ -420,5 +515,28 @@ private struct BlockView: View {
         case .failed: return HudPalette.statusError       // red == genuine failure
         case .awaitingApproval: return HudPalette.statusWarn  // amber == needs you
         }
+    }
+}
+
+/// Compact cockpit mic glyph — a hand-drawn capsule body, pickup arc, and stand,
+/// stroked so it can pick up the composer's recording/idle tint.
+struct MicGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 14.0
+        let sy = rect.height / 14.0
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * sx, y: rect.minY + y * sy)
+        }
+        var path = Path()
+        let body = CGRect(x: rect.minX + 5 * sx, y: rect.minY + 2 * sy, width: 4 * sx, height: 6.5 * sy)
+        let radius = 2 * min(sx, sy)
+        path.addRoundedRect(in: body, cornerSize: CGSize(width: radius, height: radius))
+        path.move(to: p(4, 8.5))
+        path.addQuadCurve(to: p(10, 8.5), control: p(7, 13.5))
+        path.move(to: p(7, 11))
+        path.addLine(to: p(7, 12.7))
+        path.move(to: p(5, 12.7))
+        path.addLine(to: p(9, 12.7))
+        return path
     }
 }

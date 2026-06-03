@@ -101,6 +101,10 @@ targets:
         product: HudsonShell
       - package: Hudson
         product: HudsonUI
+      - package: Hudson
+        product: HudsonUICapture   # QR scanner (split out by the optional-iOS-features refactor)
+      - package: Hudson
+        product: HudsonVoice       # Parakeet dictation via the local Vox daemon (HudVoxLiveSession)
       - package: ScoutNativeCore
         product: ScoutCapabilities
       - package: ScoutIOSCore
@@ -111,6 +115,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        # On-device dictation (HudDictation): mic capture + Apple Speech fallback.
+        NSMicrophoneUsageDescription: Scout uses the microphone to dictate messages to your agents.
+        NSSpeechRecognitionUsageDescription: Scout transcribes your dictation on-device.
         # Camera-free pairing deep link: scoutnext://pair?payload=… (distinct
         # from the donor app's openscout:// scheme to avoid clobbering).
         CFBundleURLTypes:
