@@ -16,6 +16,7 @@ struct ConversationSurface: View {
     @State private var isStreaming = false
     @State private var composerText = ""
     @State private var isSending = false
+    @FocusState private var composerFocused: Bool
 
     private var turns: [TurnState] { projection.state?.turns ?? [] }
 
@@ -25,27 +26,59 @@ struct ConversationSurface: View {
             transcript
         }
         .background(HudPalette.bg)
-        .safeAreaInset(edge: .bottom) {
-            // Composer pinned to its intrinsic height — `HudMessageBar` is
-            // greedy vertically, so hosting it in the layout flow would split
-            // the height with the transcript. As a safe-area inset it takes
-            // only what it needs and the transcript fills the rest.
-            HudMessageBar(
-                text: $composerText,
-                isSending: isSending,
-                compactPlaceholder: "steer the agent…",
-                expandedPlaceholder: "send a prompt or steer the current turn…",
-                sendLabel: "SEND",
-                escapeHint: nil,
-                hotkeyHint: nil,
-                onSubmit: send
-            )
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, HudSpacing.xl)
-            .padding(.bottom, HudSpacing.lg)
-        }
+        .safeAreaInset(edge: .bottom) { composer }
         .navigationBarBackButtonHidden(false)
         .task(id: conversationId) { await run() }
+    }
+
+    // MARK: - Composer
+
+    /// A self-contained, clearly-bounded input box (not a docked bar): rounded
+    /// surface + hairline border so it reads as a field, growing from one line
+    /// to at most three before scrolling internally.
+    private var composer: some View {
+        HStack(alignment: .bottom, spacing: HudSpacing.md) {
+            TextField("steer the agent…", text: $composerText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...3)
+                .font(HudFont.ui(HudTextSize.sm))
+                .foregroundStyle(HudPalette.ink)
+                .tint(HudPalette.accent)
+                .focused($composerFocused)
+                .onSubmit(send)
+                .padding(.vertical, HudSpacing.xs)
+
+            Button(action: send) {
+                Image(systemName: "arrow.up")
+                    .font(HudFont.ui(HudTextSize.sm, weight: .bold))
+                    .foregroundStyle(canSend ? HudPalette.bg : HudPalette.muted)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        Circle().fill(canSend ? HudPalette.accent : HudSurface.inset)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+        }
+        .padding(.leading, HudSpacing.lg)
+        .padding(.trailing, HudSpacing.sm)
+        .padding(.vertical, HudSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .fill(HudSurface.inset)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .stroke(composerFocused ? HudPalette.accent.opacity(0.6) : HudHairline.standard,
+                        lineWidth: HudStrokeWidth.standard)
+        )
+        .padding(.horizontal, HudSpacing.lg)
+        .padding(.bottom, HudSpacing.sm)
+        .background(HudPalette.bg)
+    }
+
+    private var canSend: Bool {
+        !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
     }
 
     // MARK: - Header
