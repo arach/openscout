@@ -1,132 +1,127 @@
 import SwiftUI
 import HudsonUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
-/// App Settings — global configuration built from the HudSettings* family with a
-/// HudSettingsQuickNav jump-scroller. Connection folds in here; most rows are
-/// scaffolded for now (the nav and shape are the point — values fill in later).
+/// App Settings — the vertical-rail settings shell. The rotated tab rail switches
+/// panels (CONNECTION / ROUTES / IDENTITY / ALERTS / APPEARANCE / ADVANCED /
+/// ABOUT); each panel shows green key→value rows, stat tiles, and tinted action
+/// affordances. Connection actions are live; other values are scaffolded.
 struct AppSettingsView: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
-    // Placeholder local state until these bind to real settings.
+    @State private var tab = "CONNECTION"
     @State private var tailscaleEnabled = true
     @State private var osnEnabled = false
     @State private var approvalsAlert = true
-    @State private var theme = "Dark"
 
-    private let anchors: [HudSettingsQuickNav.Item] = [
-        .init(icon: "antenna.radiowaves.left.and.right", label: "Connection", anchor: "CONNECTION"),
-        .init(icon: "point.3.connected.trianglepath.dotted", label: "Routes", anchor: "ROUTES"),
-        .init(icon: "person.badge.key", label: "Identity", anchor: "IDENTITY"),
-        .init(icon: "bell", label: "Alerts", anchor: "NOTIFICATIONS"),
-        .init(icon: "paintbrush", label: "Appearance", anchor: "APPEARANCE"),
-        .init(icon: "wrench.and.screwdriver", label: "Advanced", anchor: "ADVANCED"),
-        .init(icon: "info.circle", label: "About", anchor: "ABOUT"),
-    ]
+    private let tabs = ["CONNECTION", "ROUTES", "IDENTITY", "ALERTS", "APPEARANCE", "ADVANCED", "ABOUT"]
 
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: HudSpacing.xxl) {
-                        HudSettingsQuickNav(items: anchors, proxy: proxy)
-                        connectionSection
-                        routesSection
-                        identitySection
-                        notificationsSection
-                        appearanceSection
-                        advancedSection
-                        aboutSection
-                    }
-                    .padding(HudSpacing.xxl)
-                }
-                .background(HudPalette.bg)
-            }
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }.foregroundStyle(HudPalette.accent)
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
+        SettingsShell(app: "SCOUT", context: "iOS APP", tabs: tabs, selection: $tab, panel: { panel }, onDone: { dismiss() })
     }
 
-    private var connectionSection: some View {
-        HudSettingsSection("CONNECTION") {
-            HudSettingsRow(icon: "desktopcomputer", iconColor: HudTint.green.color, title: "Paired Mac", subtitle: model.statusLabel) {
-                HudBadge(model.statusLabel, tint: model.statusTint, dot: true)
-            }
-            HudSettingsRow(icon: "arrow.clockwise", iconColor: HudTint.cyan.color, title: "Reconnect", subtitle: "Re-establish the encrypted link", onTap: {
-                Task { await model.reconnect() }
-            })
-            HudSettingsRow(icon: "qrcode.viewfinder", iconColor: HudTint.amber.color, title: "Pair with a Mac", subtitle: "Scan or paste a fresh pairing link", onTap: {
-                dismiss(); model.showPairing = true
-            })
+    @ViewBuilder private var panel: some View {
+        switch tab {
+        case "CONNECTION": connectionPanel
+        case "ROUTES":     routesPanel
+        case "IDENTITY":   identityPanel
+        case "ALERTS":     alertsPanel
+        case "APPEARANCE": appearancePanel
+        case "ADVANCED":   advancedPanel
+        default:           aboutPanel
         }
     }
 
-    private var routesSection: some View {
-        HudSettingsSection("ROUTES") {
-            HudSettingsRow(icon: "network", iconColor: HudTint.teal.color, title: "Priority", subtitle: "LAN → Tailscale → OSN") {
-                Text("LAN")
-                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                    .foregroundStyle(HudPalette.accent)
+    private var connectionPanel: some View {
+        SettingsPanel(breadcrumb: "INSPECTOR · CONNECTION") {
+            SettingsGroup("LINK") {
+                SettingsValueRow(title: "Paired Mac", subtitle: "encrypted bridge", value: model.statusLabel, valueTint: model.statusTint)
+                SettingsValueRow(title: "Transport", subtitle: "live route", value: routeLabel)
+                SettingsValueRow(title: "Identity", subtitle: "trusted", value: model.hasTrustedBridge ? "Paired" : "None")
             }
-            HudSettingsControlRow(title: "Tailscale", subtitle: "Reach the Mac over your tailnet", icon: "shield.lefthalf.filled", iconColor: HudTint.blue.color) {
-                Toggle("", isOn: $tailscaleEnabled).labelsHidden().tint(HudPalette.accent)
-            }
-            HudSettingsControlRow(title: "OpenScout Net", subtitle: "Relay fallback when off-LAN", icon: "globe", iconColor: HudTint.cyan.color) {
-                Toggle("", isOn: $osnEnabled).labelsHidden().tint(HudPalette.accent)
+            SettingsStatTiles(tiles: [("ROUTE", routeLabel), ("STATUS", statusShort), ("LOG", "\(model.connectionLog.entries.count)")])
+            SettingsGroup("ACTIONS") {
+                SettingsValueRow(title: "Reconnect", subtitle: "re-establish the link", value: "RUN", onTap: { Task { await model.reconnect() } })
+                SettingsValueRow(title: "Pair with a Mac", subtitle: "scan or paste a link", value: "SCAN", onTap: { dismiss(); model.showPairing = true })
+                SettingsValueRow(title: "Forget this Mac", subtitle: "clear pairing", value: "RESET", valueTint: HudTint.amber.color, onTap: {})
             }
         }
     }
 
-    private var identitySection: some View {
-        HudSettingsSection("IDENTITY") {
-            HudSettingsRow(icon: "iphone", iconColor: HudTint.violet.color, title: "This device", subtitle: deviceName)
-            HudSettingsRow(icon: "key", iconColor: HudTint.amber.color, title: "Public key", subtitle: "Used to authenticate with the bridge") {
-                Text("eff2…117b")
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(HudPalette.muted)
+    private var routesPanel: some View {
+        SettingsPanel(breadcrumb: "INSPECTOR · ROUTES") {
+            SettingsGroup("PRIORITY") {
+                SettingsValueRow(title: "Order", subtitle: "first reachable wins", value: "LAN → TSN → OSN")
+            }
+            SettingsGroup("TRANSPORTS") {
+                SettingsValueRow(title: "Tailscale", subtitle: "reach over your tailnet", value: tailscaleEnabled ? "ON" : "OFF", valueTint: tailscaleEnabled ? HudTint.green.color : HudPalette.muted, onTap: { tailscaleEnabled.toggle() })
+                SettingsValueRow(title: "OpenScout Net", subtitle: "relay fallback off-LAN", value: osnEnabled ? "ON" : "OFF", valueTint: osnEnabled ? HudTint.green.color : HudPalette.muted, onTap: { osnEnabled.toggle() })
             }
         }
     }
 
-    private var notificationsSection: some View {
-        HudSettingsSection("NOTIFICATIONS") {
-            HudSettingsControlRow(title: "Approval alerts", subtitle: "Ping when an agent needs a decision", icon: "bell.badge", iconColor: HudTint.amber.color) {
-                Toggle("", isOn: $approvalsAlert).labelsHidden().tint(HudPalette.accent)
-            }
-            HudSettingsRow(icon: "app.badge", iconColor: HudTint.pink.color, title: "Push notifications", subtitle: "Requires pairing entitlement") {
-                HudBadge("soon", tint: HudPalette.muted)
+    private var identityPanel: some View {
+        SettingsPanel(breadcrumb: "INSPECTOR · IDENTITY") {
+            SettingsGroup("DEVICE") {
+                SettingsValueRow(title: "This device", subtitle: "primary name", value: deviceName, valueTint: HudPalette.ink)
+                SettingsValueRow(title: "Public key", subtitle: "authenticates the bridge", value: "eff2…117b", valueTint: HudPalette.muted)
             }
         }
     }
 
-    private var appearanceSection: some View {
-        HudSettingsSection("APPEARANCE") {
-            HudSettingsRow(icon: "moon.stars", iconColor: HudTint.cyan.color, title: "Theme", subtitle: "Matches the cockpit") {
-                Text(theme).font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted)
+    private var alertsPanel: some View {
+        SettingsPanel(breadcrumb: "INSPECTOR · ALERTS") {
+            SettingsGroup("NOTIFICATIONS") {
+                SettingsValueRow(title: "Approval alerts", subtitle: "ping on a decision", value: approvalsAlert ? "ON" : "OFF", valueTint: approvalsAlert ? HudTint.green.color : HudPalette.muted, onTap: { approvalsAlert.toggle() })
+                SettingsValueRow(title: "Push", subtitle: "needs entitlement", value: "SOON", valueTint: HudPalette.muted)
             }
-            HudSettingsRow(icon: "textformat.size", iconColor: HudTint.teal.color, title: "Type scale", subtitle: "Standard")
         }
     }
 
-    private var advancedSection: some View {
-        HudSettingsSection("ADVANCED") {
-            HudSettingsRow(icon: "list.bullet.rectangle", iconColor: HudTint.blue.color, title: "Connection log", subtitle: "\(model.connectionLog.entries.count) entries", onTap: {})
-            HudSettingsRow(icon: "stethoscope", iconColor: HudTint.teal.color, title: "Diagnostics", onTap: {})
-            HudSettingsRow(icon: "trash", iconColor: HudPalette.statusError, title: "Forget this Mac", subtitle: "Clear pairing and start over", onTap: {})
+    private var appearancePanel: some View {
+        SettingsPanel(breadcrumb: "INSPECTOR · APPEARANCE") {
+            SettingsGroup("THEME") {
+                SettingsValueRow(title: "Appearance", subtitle: "cockpit", value: "Dark")
+                SettingsValueRow(title: "Type scale", subtitle: "row rhythm", value: "Standard")
+            }
         }
     }
 
-    private var aboutSection: some View {
-        HudSettingsSection("ABOUT") {
-            HudSettingsRow(icon: "number", iconColor: HudPalette.muted, title: "Version") {
-                Text("0.1.0").font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted)
+    private var advancedPanel: some View {
+        SettingsPanel(breadcrumb: "INSPECTOR · ADVANCED") {
+            SettingsGroup("DIAGNOSTICS") {
+                SettingsValueRow(title: "Connection log", subtitle: "route attempts", value: "\(model.connectionLog.entries.count)", valueTint: HudPalette.ink, onTap: {})
+                SettingsValueRow(title: "Diagnostics", subtitle: "anonymized", value: "OPEN", onTap: {})
             }
-            HudSettingsRow(icon: "doc.text", iconColor: HudPalette.muted, title: "Acknowledgements", onTap: {})
+            SettingsGroup("DANGER") {
+                SettingsValueRow(title: "Reset all data", subtitle: "cannot be undone", value: "RESET", valueTint: HudPalette.statusError, onTap: {})
+            }
+        }
+    }
+
+    private var aboutPanel: some View {
+        SettingsPanel(breadcrumb: "INSPECTOR · ABOUT") {
+            SettingsGroup("BUILD") {
+                SettingsValueRow(title: "Version", subtitle: "ScoutNext", value: "0.1.0", valueTint: HudPalette.ink)
+                SettingsValueRow(title: "Acknowledgements", value: "VIEW", onTap: {})
+            }
+        }
+    }
+
+    private var routeLabel: String {
+        if case .connected(let route) = model.connectionState { return route.label }
+        return "—"
+    }
+
+    private var statusShort: String {
+        switch model.connectionState {
+        case .connected: return "Live"
+        case .connecting: return "…"
+        case .failed: return "Off"
+        case .idle: return "Idle"
         }
     }
 
@@ -138,7 +133,3 @@ struct AppSettingsView: View {
         #endif
     }
 }
-
-#if canImport(UIKit)
-import UIKit
-#endif
