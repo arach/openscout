@@ -52,6 +52,19 @@ final class AppModel {
     /// The client every surface consumes. Swapping source re-keys the surfaces.
     var client: any ScoutBrokerClient { source == .bridge ? bridge : mock }
 
+    /// A value that changes when a surface should (re)load its data: mock is
+    /// always ready; the bridge becomes ready only once connected. Surfaces key
+    /// their load `.task(id:)` on this so a list that loaded empty mid-handshake
+    /// reloads the moment the connection lands.
+    var dataReadyToken: Int {
+        switch source {
+        case .mock: return 1
+        case .bridge:
+            if case .connected = connectionState { return 1 }
+            return 0
+        }
+    }
+
     /// True once at least one bridge has been paired (keychain-backed).
     var hasTrustedBridge: Bool {
         ((try? ScoutIdentity.getTrustedBridges()) ?? []).isEmpty == false

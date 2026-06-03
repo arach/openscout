@@ -344,9 +344,14 @@ html[data-site-theme="dark"] .dot-grid {
   display: flex;
   align-items: stretch;
   height: 24px;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
+  /* The one place Basel breaks its single-family rule: a real monospace gives
+     the IDE/terminal status bar its proper machine read. System mono only —
+     no font bundle. */
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco,
+    "Cascadia Code", "Roboto Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--site-muted);
   overflow-x: auto;
@@ -2630,7 +2635,7 @@ html[data-site-theme="dark"] .scout-console {
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   padding: 7px 11px;
   background: rgba(0, 0, 0, 0.32);
   border: 1px solid var(--term-rule);
@@ -2640,13 +2645,21 @@ html[data-site-theme="dark"] .scout-console {
     inset 0 0 0 0.5px rgba(255, 240, 210, 0.02);
 }
 
-.scout-console__cmdbar-glyph {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+/* Blinking insertion caret — sits at the start of the field, like a real
+   text input waiting for a line. */
+.scout-console__cmdbar-caret {
+  width: 1.5px;
+  height: 13px;
+  margin-right: 6px;
   background: var(--term-green);
-  box-shadow: 0 0 6px rgba(134, 188, 99, 0.7);
+  border-radius: 1px;
   flex-shrink: 0;
+  animation: scout-caret 1.1s steps(1) infinite;
+}
+
+@keyframes scout-caret {
+  0%, 50% { opacity: 0.9; }
+  51%, 100% { opacity: 0; }
 }
 
 .scout-console__cmdbar-hint {
@@ -2662,45 +2675,33 @@ html[data-site-theme="dark"] .scout-console {
   color: var(--term-ink);
 }
 
-/* Blinking insertion caret — sells the "live input" read. */
-.scout-console__cmdbar-caret {
-  width: 1.5px;
-  height: 13px;
+/* Voice-input affordance — trailing mic inside the field. */
+.scout-console__cmdbar-mic {
+  width: 14px;
+  height: 14px;
   margin-left: auto;
-  background: var(--term-green);
-  border-radius: 1px;
+  padding-left: 8px;
+  color: var(--term-dim);
   flex-shrink: 0;
-  animation: scout-caret 1.1s steps(1) infinite;
 }
 
-@keyframes scout-caret {
-  0%, 50% { opacity: 0.9; }
-  51%, 100% { opacity: 0; }
-}
-
+/* Send is a paper plane, nothing more. */
 .scout-console__cmdbar-send {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
   flex-shrink: 0;
-  padding: 6px 9px 6px 11px;
+  width: 30px;
+  height: 30px;
   border-radius: 9px;
   background: var(--term-rust-soft);
   border: 1px solid rgba(134, 188, 99, 0.30);
   color: var(--term-rust);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
 }
 
-.scout-console__cmdbar-send kbd {
-  font-family: inherit;
-  font-size: 10px;
-  color: var(--term-rust);
-  background: rgba(134, 188, 99, 0.16);
-  border-radius: 5px;
-  padding: 0 5px;
-  line-height: 1.5;
+.scout-console__cmdbar-send svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* stage = rail + body */
@@ -3238,9 +3239,11 @@ html[data-site-theme="dark"] .scout-console {
   text-shadow: none !important;
 }
 
-/* The broker console is the one surface allowed depth — it reads as a live
-   window floating on the page, not a flat panel pinned to the grid. */
-.site-marketing .scout-console {
+/* The dark "windows" — broker console and the setup terminal — are the
+   surfaces allowed depth; they float on the page instead of sitting flat on
+   the grid like every other Basel panel. */
+.site-marketing .scout-console,
+.site-marketing .scout-terminal {
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.5),
     0 18px 40px -24px rgba(28, 22, 16, 0.32),

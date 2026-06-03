@@ -8,6 +8,10 @@ import ScoutCapabilities
 /// of `HudListRow`s with harness/status expressed via `HudBadge` / `HudStatusDot`.
 struct HomeSurface: View {
     let client: any ScoutBrokerClient
+    /// Changes when the data source becomes ready (e.g. the bridge finishes its
+    /// handshake), so the load re-runs instead of staying parked on an empty
+    /// result it fetched mid-connect.
+    var reloadToken: Int = 0
 
     @State private var sessions: [SessionSummary] = []
     @State private var agents: [AgentSummary] = []
@@ -37,7 +41,7 @@ struct HomeSurface: View {
             .padding(HudSpacing.xxl)
         }
         .refreshable { await load() }
-        .task { await load() }
+        .task(id: reloadToken) { await load() }
         .navigationDestination(item: $route) { route in
             ConversationSurface(
                 client: client,

@@ -38,7 +38,7 @@ struct RootView: View {
 
                 Group {
                     switch surface {
-                    case .home: HomeSurface(client: client)
+                    case .home: HomeSurface(client: client, reloadToken: model.dataReadyToken)
                     case .new:  NewSessionSurface(client: client)
                     case .tail: TailSurface(client: client)
                     }

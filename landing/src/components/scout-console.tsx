@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Mic, Send } from "lucide-react";
 
 type Tab = "thread" | "resolve" | "send";
 type Audience = "human" | "agent";
@@ -411,16 +412,15 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
 
       <div className="scout-console__cmdbar" aria-hidden>
         <span className="scout-console__cmdbar-field">
-          <span className="scout-console__cmdbar-glyph" />
+          <span className="scout-console__cmdbar-caret" />
           <span className="scout-console__cmdbar-hint">
-            talk — <span className="scout-console__cmdbar-cue">/</span> commands ·{" "}
+            <span className="scout-console__cmdbar-cue">/</span> commands ·{" "}
             <span className="scout-console__cmdbar-cue">/s</span> search
           </span>
-          <span className="scout-console__cmdbar-caret" />
+          <Mic className="scout-console__cmdbar-mic" strokeWidth={1.6} aria-hidden />
         </span>
         <span className="scout-console__cmdbar-send">
-          send
-          <kbd>⏎</kbd>
+          <Send strokeWidth={1.8} aria-hidden />
         </span>
       </div>
     </div>
