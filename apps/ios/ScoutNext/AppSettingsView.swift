@@ -4,10 +4,11 @@ import HudsonUI
 import UIKit
 #endif
 
-/// App Settings — the vertical-rail settings shell. The rotated tab rail switches
-/// panels (CONNECTION / ROUTES / IDENTITY / ALERTS / APPEARANCE / ADVANCED /
-/// ABOUT); each panel shows green key→value rows, stat tiles, and tinted action
-/// affordances. Connection actions are live; other values are scaffolded.
+/// App Settings — HudsonKit's `HudInspectorSettings` vertical-rail inspector.
+/// The rail switches panels (CONNECTION / ROUTES / IDENTITY / ALERTS /
+/// APPEARANCE / ADVANCED / ABOUT). Connection actions are live; other values
+/// are scaffolded. Presented as a full page (fullScreenCover), so it carries
+/// its own close via `onClose`.
 struct AppSettingsView: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -17,96 +18,104 @@ struct AppSettingsView: View {
     @State private var osnEnabled = false
     @State private var approvalsAlert = true
 
-    private let tabs = ["CONNECTION", "ROUTES", "IDENTITY", "ALERTS", "APPEARANCE", "ADVANCED", "ABOUT"]
+    private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "ALERTS", "APPEARANCE", "ADVANCED", "ABOUT"]
 
     var body: some View {
-        SettingsShell(app: "SCOUT", context: "iOS APP", tabs: tabs, selection: $tab, panel: { panel }, onDone: { dismiss() })
-    }
-
-    @ViewBuilder private var panel: some View {
-        switch tab {
-        case "CONNECTION": connectionPanel
-        case "ROUTES":     routesPanel
-        case "IDENTITY":   identityPanel
-        case "ALERTS":     alertsPanel
-        case "APPEARANCE": appearancePanel
-        case "ADVANCED":   advancedPanel
-        default:           aboutPanel
+        HudInspectorSettings(
+            title: "Scout · Settings",
+            subtitle: "iOS app",
+            tabs: tabIDs.map { HudInspectorTab(id: $0, label: $0.capitalized) },
+            selection: $tab,
+            onClose: { dismiss() }
+        ) { tabID in
+            switch tabID {
+            case "CONNECTION": connectionPanel
+            case "ROUTES":     routesPanel
+            case "IDENTITY":   identityPanel
+            case "ALERTS":     alertsPanel
+            case "APPEARANCE": appearancePanel
+            case "ADVANCED":   advancedPanel
+            default:           aboutPanel
+            }
         }
     }
 
     private var connectionPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · CONNECTION") {
-            SettingsGroup("LINK") {
-                SettingsValueRow(title: "Paired Mac", subtitle: "encrypted bridge", value: model.statusLabel, valueTint: model.statusTint)
-                SettingsValueRow(title: "Transport", subtitle: "live route", value: routeLabel)
-                SettingsValueRow(title: "Identity", subtitle: "trusted", value: model.hasTrustedBridge ? "Paired" : "None")
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Link") {
+                HudInspectorFieldRow("Paired Mac", value: model.statusLabel, hint: "encrypted bridge")
+                HudInspectorFieldRow("Transport", value: routeLabel, hint: "live route")
+                HudInspectorFieldRow("Identity", value: model.hasTrustedBridge ? "Paired" : "None", hint: "trusted")
             }
-            SettingsStatTiles(tiles: [("ROUTE", routeLabel), ("STATUS", statusShort), ("LOG", "\(model.connectionLog.entries.count)")])
-            SettingsGroup("ACTIONS") {
-                SettingsValueRow(title: "Reconnect", subtitle: "re-establish the link", value: "RUN", onTap: { Task { await model.reconnect() } })
-                SettingsValueRow(title: "Pair with a Mac", subtitle: "scan or paste a link", value: "SCAN", onTap: { dismiss(); model.showPairing = true })
-                SettingsValueRow(title: "Forget this Mac", subtitle: "clear pairing", value: "RESET", valueTint: HudTint.amber.color, onTap: {})
+            HudInspectorMetricStrip([
+                .init("Route", value: routeLabel),
+                .init("Status", value: statusShort),
+                .init("Log", value: "\(model.connectionLog.entries.count)")
+            ])
+            HudInspectorSection("Actions") {
+                HudInspectorActionRow("Reconnect", value: "Run", tone: .accent) { Task { await model.reconnect() } }
+                HudInspectorActionRow("Pair with a Mac", value: "Scan", tone: .accent) { dismiss(); model.showPairing = true }
+                HudInspectorActionRow("Forget this Mac", value: "Reset", tone: .warn) {}
             }
         }
     }
 
     private var routesPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · ROUTES") {
-            SettingsGroup("PRIORITY") {
-                SettingsValueRow(title: "Order", subtitle: "first reachable wins", value: "LAN → TSN → OSN")
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Priority") {
+                HudInspectorFieldRow("Order", value: "LAN → TSN → OSN", hint: "first reachable wins")
             }
-            SettingsGroup("TRANSPORTS") {
-                SettingsValueRow(title: "Tailscale", subtitle: "reach over your tailnet", value: tailscaleEnabled ? "ON" : "OFF", valueTint: tailscaleEnabled ? HudTint.green.color : HudPalette.muted, onTap: { tailscaleEnabled.toggle() })
-                SettingsValueRow(title: "OpenScout Net", subtitle: "relay fallback off-LAN", value: osnEnabled ? "ON" : "OFF", valueTint: osnEnabled ? HudTint.green.color : HudPalette.muted, onTap: { osnEnabled.toggle() })
+            HudInspectorSection("Transports") {
+                HudInspectorToggleRow("Tailscale", isOn: $tailscaleEnabled, valueOn: "On", valueOff: "Off", hint: "reach over your tailnet")
+                HudInspectorToggleRow("OpenScout Net", isOn: $osnEnabled, valueOn: "On", valueOff: "Off", hint: "relay fallback off-LAN")
             }
         }
     }
 
     private var identityPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · IDENTITY") {
-            SettingsGroup("DEVICE") {
-                SettingsValueRow(title: "This device", subtitle: "primary name", value: deviceName, valueTint: HudPalette.ink)
-                SettingsValueRow(title: "Public key", subtitle: "authenticates the bridge", value: "eff2…117b", valueTint: HudPalette.muted)
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Device") {
+                HudInspectorFieldRow("This device", value: deviceName, hint: "primary name")
+                HudInspectorFieldRow("Public key", value: "eff2…117b", hint: "authenticates the bridge")
             }
         }
     }
 
     private var alertsPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · ALERTS") {
-            SettingsGroup("NOTIFICATIONS") {
-                SettingsValueRow(title: "Approval alerts", subtitle: "ping on a decision", value: approvalsAlert ? "ON" : "OFF", valueTint: approvalsAlert ? HudTint.green.color : HudPalette.muted, onTap: { approvalsAlert.toggle() })
-                SettingsValueRow(title: "Push", subtitle: "needs entitlement", value: "SOON", valueTint: HudPalette.muted)
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Notifications") {
+                HudInspectorToggleRow("Approval alerts", isOn: $approvalsAlert, valueOn: "On", valueOff: "Off", hint: "ping on a decision")
+                HudInspectorFieldRow("Push", value: "Soon", hint: "needs entitlement")
             }
         }
     }
 
     private var appearancePanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · APPEARANCE") {
-            SettingsGroup("THEME") {
-                SettingsValueRow(title: "Appearance", subtitle: "cockpit", value: "Dark")
-                SettingsValueRow(title: "Type scale", subtitle: "row rhythm", value: "Standard")
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Theme") {
+                HudInspectorFieldRow("Appearance", value: "Dark", hint: "cockpit")
+                HudInspectorFieldRow("Type scale", value: "Standard", hint: "row rhythm")
             }
         }
     }
 
     private var advancedPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · ADVANCED") {
-            SettingsGroup("DIAGNOSTICS") {
-                SettingsValueRow(title: "Connection log", subtitle: "route attempts", value: "\(model.connectionLog.entries.count)", valueTint: HudPalette.ink, onTap: {})
-                SettingsValueRow(title: "Diagnostics", subtitle: "anonymized", value: "OPEN", onTap: {})
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Diagnostics") {
+                HudInspectorFieldRow("Connection log", value: "\(model.connectionLog.entries.count)", hint: "route attempts")
+                HudInspectorNavRow("Diagnostics") {}
             }
-            SettingsGroup("DANGER") {
-                SettingsValueRow(title: "Reset all data", subtitle: "cannot be undone", value: "RESET", valueTint: HudPalette.statusError, onTap: {})
+            HudInspectorSection("Danger") {
+                HudInspectorActionRow("Reset all data", value: "Reset", tone: .warn) {}
             }
         }
     }
 
     private var aboutPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · ABOUT") {
-            SettingsGroup("BUILD") {
-                SettingsValueRow(title: "Version", subtitle: "ScoutNext", value: "0.1.0", valueTint: HudPalette.ink)
-                SettingsValueRow(title: "Acknowledgements", value: "VIEW", onTap: {})
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Build") {
+                HudInspectorFieldRow("Version", value: "0.1.0", hint: "ScoutNext")
+                HudInspectorNavRow("Acknowledgements") {}
             }
         }
     }

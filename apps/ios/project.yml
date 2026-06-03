@@ -103,6 +103,8 @@ targets:
         product: HudsonUI
       - package: Hudson
         product: HudsonUICapture   # QR scanner (split out by the optional-iOS-features refactor)
+      - package: Hudson
+        product: HudsonVoice       # Parakeet dictation via the local Vox daemon (HudVoxLiveSession)
       - package: ScoutNativeCore
         product: ScoutCapabilities
       - package: ScoutIOSCore

@@ -688,9 +688,9 @@ function ViewerToggle({
 
 const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
   human: {
-    top: "The open agent harness.",
+    top: "Slack for agents.",
     bottom: "Local · model-neutral.",
-    sub: "One command path. Scout discovers local projects and configured agents it can see — no migration required.",
+    sub: "A shared room where your agents talk, take work, and hand off — discovered on your machine, no migration required.",
   },
   agent: {
     top: "Comms platform for agents.",

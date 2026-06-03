@@ -21,6 +21,8 @@ struct ConversationSurface: View {
     @State private var composerText = ""
     @State private var isSending = false
     @State private var showSettings = false
+    @State private var voice = VoiceDictation()
+    @State private var micPulse = false
     @FocusState private var composerFocused: Bool
 
     private var turns: [TurnState] { projection.state?.turns ?? [] }
@@ -34,6 +36,7 @@ struct ConversationSurface: View {
         .safeAreaInset(edge: .bottom) { composer }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: conversationId) { await run() }
+        .onDisappear { voice.cancel() }
         .sheet(isPresented: $showSettings) {
             SessionSettingsView(client: client, conversationId: conversationId, title: title)
         }
@@ -46,7 +49,9 @@ struct ConversationSurface: View {
     /// to at most three before scrolling internally.
     private var composer: some View {
         HStack(alignment: .bottom, spacing: HudSpacing.md) {
-            TextField("steer the agent…", text: $composerText, axis: .vertical)
+            micButton
+
+            TextField(composerPlaceholder, text: $composerText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...3)
                 .font(HudFont.ui(HudTextSize.sm))
@@ -87,6 +92,79 @@ struct ConversationSurface: View {
 
     private var canSend: Bool {
         !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+    }
+
+    /// Parakeet dictation toggle. Recording pulses the accent ring; the live
+    /// partial transcript previews in the field placeholder, and each final
+    /// utterance is appended to whatever's already typed.
+    private var micButton: some View {
+        Button {
+            voice.toggle { appendDictation($0) }
+        } label: {
+            ZStack {
+                if voice.state == .recording {
+                    Circle()
+                        .fill(HudPalette.accent.opacity(micPulse ? 0.22 : 0.08))
+                        .frame(width: 28, height: 28)
+                }
+                MicGlyph()
+                    .stroke(
+                        micColor,
+                        style: StrokeStyle(
+                            lineWidth: voice.state == .recording ? 1.6 : 1.2,
+                            lineCap: .round,
+                            lineJoin: .round
+                        )
+                    )
+                    .frame(width: 15, height: 15)
+                    .opacity(voice.state == .processing && micPulse ? 0.5 : 1)
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isSending)
+        .onChange(of: voice.state) { _, newState in updatePulse(for: newState) }
+    }
+
+    private var micColor: Color {
+        switch voice.state {
+        case .recording:    return HudPalette.accent
+        case .processing:   return HudPalette.muted
+        case .unavailable:  return HudPalette.dim.opacity(0.5)
+        case .idle, .starting: return HudPalette.muted
+        }
+    }
+
+    private var composerPlaceholder: String {
+        switch voice.state {
+        case .recording, .starting:
+            return voice.partialText.isEmpty ? "Listening…" : voice.partialText
+        case .processing:
+            return "Transcribing…"
+        case .idle, .unavailable:
+            return "steer the agent…"
+        }
+    }
+
+    private func appendDictation(_ text: String) {
+        if composerText.isEmpty {
+            composerText = text
+        } else {
+            composerText += " " + text
+        }
+    }
+
+    private func updatePulse(for state: VoiceDictation.State) {
+        micPulse = false
+        switch state {
+        case .recording, .starting, .processing:
+            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                micPulse = true
+            }
+        case .idle, .unavailable:
+            break
+        }
     }
 
     // MARK: - Header

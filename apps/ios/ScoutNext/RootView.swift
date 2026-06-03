@@ -63,7 +63,9 @@ struct RootView: View {
         .sheet(isPresented: $showConnection) {
             ConnectionView(model: model)
         }
-        .sheet(isPresented: $showSettings) {
+        // Settings is a full page, not a card sheet — the shell carries its own
+        // close control, so present it edge-to-edge.
+        .fullScreenCover(isPresented: $showSettings) {
             AppSettingsView(model: model)
         }
     }

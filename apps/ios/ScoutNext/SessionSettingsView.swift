@@ -2,9 +2,10 @@ import SwiftUI
 import HudsonUI
 import ScoutCapabilities
 
-/// Session Settings — per-agent configuration in the same vertical-rail shell.
-/// The rail switches AGENT / EXECUTION / SESSION / ACTIONS panels. Interrupt is
-/// wired live; the rest is scaffolded until the per-session RPCs land.
+/// Session Settings — per-agent configuration in HudsonKit's `HudInspectorSettings`
+/// vertical-rail inspector. The rail switches AGENT / EXECUTION / SESSION /
+/// ACTIONS panels. Interrupt is wired live; the rest is scaffolded until the
+/// per-session RPCs land.
 struct SessionSettingsView: View {
     let client: any ScoutBrokerClient
     let conversationId: String
@@ -14,60 +15,68 @@ struct SessionSettingsView: View {
     @State private var tab = "AGENT"
     @State private var autoApprove = false
 
-    private let tabs = ["AGENT", "EXECUTION", "SESSION", "ACTIONS"]
+    private let tabIDs = ["AGENT", "EXECUTION", "SESSION", "ACTIONS"]
 
     var body: some View {
-        SettingsShell(app: title.uppercased(), context: "SESSION", tabs: tabs, selection: $tab, panel: { panel }, onDone: { dismiss() })
-    }
-
-    @ViewBuilder private var panel: some View {
-        switch tab {
-        case "AGENT":     agentPanel
-        case "EXECUTION": executionPanel
-        case "SESSION":   sessionPanel
-        default:          actionsPanel
+        HudInspectorSettings(
+            title: title,
+            subtitle: "session",
+            tabs: tabIDs.map { HudInspectorTab(id: $0, label: $0.capitalized) },
+            selection: $tab,
+            onClose: { dismiss() }
+        ) { tabID in
+            switch tabID {
+            case "AGENT":     agentPanel
+            case "EXECUTION": executionPanel
+            case "SESSION":   sessionPanel
+            default:          actionsPanel
+            }
         }
     }
 
     private var agentPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · AGENT") {
-            SettingsGroup("RUNTIME") {
-                SettingsValueRow(title: "Harness", subtitle: "backing runtime", value: "claude")
-                SettingsValueRow(title: "Model", subtitle: "weights", value: "opus-4.8")
-                SettingsValueRow(title: "Persistence", subtitle: "lifecycle", value: "Sticky")
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Runtime") {
+                HudInspectorFieldRow("Harness", value: "claude", hint: "backing runtime")
+                HudInspectorFieldRow("Model", value: "opus-4.8", hint: "weights")
+                HudInspectorFieldRow("Persistence", value: "Sticky", hint: "lifecycle")
             }
         }
     }
 
     private var executionPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · EXECUTION") {
-            SettingsGroup("WORKSPACE") {
-                SettingsValueRow(title: "Project", value: "openscout", valueTint: HudPalette.ink)
-                SettingsValueRow(title: "Branch", subtitle: "in-place", value: "main", valueTint: HudPalette.ink)
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Workspace") {
+                HudInspectorFieldRow("Project", value: "openscout")
+                HudInspectorFieldRow("Branch", value: "main", hint: "in-place")
             }
-            SettingsGroup("POLICY") {
-                SettingsValueRow(title: "Auto-approve", subtitle: "skip low-risk gates", value: autoApprove ? "ON" : "OFF", valueTint: autoApprove ? HudTint.green.color : HudPalette.muted, onTap: { autoApprove.toggle() })
+            HudInspectorSection("Policy") {
+                HudInspectorToggleRow("Auto-approve", isOn: $autoApprove, valueOn: "On", valueOff: "Off", hint: "skip low-risk gates")
             }
         }
     }
 
     private var sessionPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · SESSION") {
-            SettingsStatTiles(tiles: [("STATUS", "Active"), ("TURNS", "—"), ("MSGS", "—")])
-            SettingsGroup("HANDLE") {
-                SettingsValueRow(title: "ID", value: String(conversationId.prefix(12)), valueTint: HudPalette.muted)
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorMetricStrip([
+                .init("Status", value: "Active"),
+                .init("Turns", value: "—"),
+                .init("Msgs", value: "—")
+            ])
+            HudInspectorSection("Handle") {
+                HudInspectorFieldRow("ID", value: String(conversationId.prefix(12)))
             }
         }
     }
 
     private var actionsPanel: some View {
-        SettingsPanel(breadcrumb: "INSPECTOR · ACTIONS") {
-            SettingsGroup("CONTROL") {
-                SettingsValueRow(title: "Interrupt turn", subtitle: "stop mid-flight", value: "STOP", valueTint: HudTint.amber.color, onTap: {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Control") {
+                HudInspectorActionRow("Interrupt turn", value: "Stop", tone: .warn) {
                     Task { _ = try? await client.interrupt(InterruptSpec(conversationId: conversationId)) }
-                })
-                SettingsValueRow(title: "Start fresh session", subtitle: "same agent, clean context", value: "NEW", onTap: {})
-                SettingsValueRow(title: "Close session", subtitle: "end this conversation", value: "CLOSE", valueTint: HudPalette.statusError, onTap: {})
+                }
+                HudInspectorActionRow("Start fresh session", value: "New", tone: .accent) {}
+                HudInspectorActionRow("Close session", value: "Close", tone: .warn) {}
             }
         }
     }
