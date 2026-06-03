@@ -226,7 +226,8 @@ private struct TurnView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var roleColor: Color { isUser ? HudPalette.accent : HudPalette.statusOk }
+    // User turns read as neutral; the agent is the one accented voice.
+    private var roleColor: Color { isUser ? HudPalette.muted : HudPalette.accent }
 }
 
 // MARK: - Block
@@ -242,7 +243,8 @@ private struct BlockView: View {
     var body: some View {
         switch block.type {
         case .text:
-            textCard(block.text ?? "", tint: isUser ? HudPalette.accent : nil)
+            // User vs agent differ by fill lightness, not hue.
+            textCard(block.text ?? "", fill: isUser ? HudSurface.inset : nil)
         case .reasoning:
             reasoning(block.text ?? "")
         case .action:
@@ -250,17 +252,17 @@ private struct BlockView: View {
         case .question:
             questionCard
         case .error:
-            textCard(block.message ?? "Error", tint: HudPalette.statusError)
+            textCard(block.message ?? "Error", fill: HudPalette.statusError.opacity(0.10), accent: HudPalette.statusError)
         case .file:
-            textCard(block.name ?? "file", tint: HudPalette.statusInfo)
+            textCard(block.name ?? "file", fill: nil)
         }
     }
 
-    private func textCard(_ text: String, tint: Color?) -> some View {
-        HudCard(padding: HudSpacing.lg, fill: tint.map { $0.opacity(0.10) }) {
+    private func textCard(_ text: String, fill: Color?, accent: Color? = nil) -> some View {
+        HudCard(padding: HudSpacing.lg, fill: fill) {
             Text(text.isEmpty ? "…" : text)
                 .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(accent ?? HudPalette.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
@@ -279,12 +281,12 @@ private struct BlockView: View {
 
     private var actionCard: some View {
         let action = block.action
-        return HudCard(padding: HudSpacing.lg, fill: HudPalette.statusInfo.opacity(0.06)) {
+        return HudCard(padding: HudSpacing.lg, fill: HudSurface.inset) {
             VStack(alignment: .leading, spacing: HudSpacing.sm) {
                 HStack(spacing: HudSpacing.sm) {
                     Image(systemName: actionIcon(action?.kind))
                         .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(HudPalette.statusInfo)
+                        .foregroundStyle(HudPalette.muted)
                     Text(actionTitle(action))
                         .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
                         .foregroundStyle(HudPalette.ink)
@@ -355,10 +357,10 @@ private struct BlockView: View {
 
     private func actionStatusColor(_ status: ActionStatus) -> Color {
         switch status {
-        case .completed: return HudPalette.statusOk
-        case .running, .pending: return HudPalette.statusInfo
-        case .failed: return HudPalette.statusError
-        case .awaitingApproval: return HudPalette.statusWarn
+        case .completed: return HudPalette.accent        // green == success
+        case .running, .pending: return HudPalette.muted
+        case .failed: return HudPalette.statusError       // red == genuine failure
+        case .awaitingApproval: return HudPalette.statusWarn  // amber == needs you
         }
     }
 }

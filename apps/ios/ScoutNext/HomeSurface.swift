@@ -54,8 +54,6 @@ struct HomeSurface: View {
                     HudListRow(
                         title: agent.title,
                         subtitle: subtitle(for: agent),
-                        icon: "cpu",
-                        iconTint: tint(for: agent.harness),
                         onTap: agent.sessionId.map { sid in { route = ConversationRoute(id: sid, title: agent.title) } }
                     ) {
                         HudBadge(stateLabel(agent.state), tint: stateColor(agent.state), dot: true)
@@ -84,10 +82,9 @@ struct HomeSurface: View {
 
     private func stateColor(_ state: AgentSummary.State) -> Color {
         switch state {
-        case .live: return HudPalette.statusOk
-        case .idle: return HudPalette.statusWarn
-        case .offline: return HudPalette.dim
-        case .unknown: return HudPalette.muted
+        case .live: return HudPalette.accent   // the one accent: green == active
+        case .idle: return HudPalette.muted
+        case .offline, .unknown: return HudPalette.dim
         }
     }
 
@@ -103,8 +100,6 @@ struct HomeSurface: View {
                     HudListRow(
                         title: session.title,
                         subtitle: subtitle(for: session),
-                        icon: "bubble.left",
-                        iconTint: tint(for: session.harness),
                         onTap: { route = ConversationRoute(id: session.id, title: session.title) }
                     ) {
                         HudBadge(session.status.rawValue, tint: statusColor(session.status), dot: true)
@@ -124,21 +119,9 @@ struct HomeSurface: View {
 
     private func statusColor(_ status: SessionSummary.Status) -> Color {
         switch status {
-        case .active: return HudPalette.statusOk
-        case .idle: return HudPalette.statusWarn
-        case .connecting: return HudPalette.statusInfo
-        case .closed: return HudPalette.dim
-        case .unknown: return HudPalette.muted
-        }
-    }
-
-    // MARK: - Shared
-
-    private func tint(for harness: String?) -> HudTint {
-        switch harness?.lowercased() {
-        case "claude": return .violet
-        case "codex": return .cyan
-        default: return .blue
+        case .active: return HudPalette.accent   // green == active
+        case .idle, .connecting: return HudPalette.muted
+        case .closed, .unknown: return HudPalette.dim
         }
     }
 

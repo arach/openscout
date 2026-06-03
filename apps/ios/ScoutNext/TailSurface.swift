@@ -97,9 +97,9 @@ struct TailSurface: View {
 
     private func attributionColor(_ harness: TailEvent.Harness) -> Color {
         switch harness {
-        case .scoutManaged: return HudPalette.accent
-        case .hudsonManaged: return HudPalette.statusInfo
-        case .unattributed: return HudPalette.muted
+        case .scoutManaged: return HudPalette.accent   // the one accent
+        case .hudsonManaged: return HudPalette.muted
+        case .unattributed: return HudPalette.dim
         }
     }
 
