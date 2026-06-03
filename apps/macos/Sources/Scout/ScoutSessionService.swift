@@ -323,7 +323,7 @@ struct ScoutSessionComposer: View {
                     .fill(draft.mode == mode ? HudSurface.selected(HudPalette.accent) : Color.clear)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
     }
 
     private var instructionsSection: some View {

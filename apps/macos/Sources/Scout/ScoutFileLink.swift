@@ -10,23 +10,44 @@ import SwiftUI
 enum ScoutFileLink {
     static let scheme = "openscout-file"
 
-    static func url(path: String, line: Int?) -> URL? {
+    static func url(path: String, line: Int?, base: String? = nil) -> URL? {
         var components = URLComponents()
         components.scheme = scheme
         components.host = "open"
         var items = [URLQueryItem(name: "path", value: path)]
         if let line { items.append(URLQueryItem(name: "line", value: String(line))) }
+        if let base = base?.nilIfEmpty { items.append(URLQueryItem(name: "base", value: base)) }
         components.queryItems = items
         return components.url
     }
 
-    static func parse(_ url: URL) -> (path: String, line: Int?)? {
+    static func parse(_ url: URL) -> (path: String, line: Int?, base: String?)? {
         guard url.scheme == scheme,
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         let items = components.queryItems ?? []
         guard let path = items.first(where: { $0.name == "path" })?.value, !path.isEmpty else { return nil }
         let line = items.first(where: { $0.name == "line" })?.value.flatMap(Int.init)
-        return (path, line)
+        let base = items.first(where: { $0.name == "base" })?.value
+        return (path, line, base)
+    }
+}
+
+// MARK: - Path resolution
+
+/// Resolves a path token to an absolute filesystem path. Agents quote paths
+/// relative to their own workspace, so the bundled `.app` (whose CWD is `/`)
+/// can't find them without that context — `base` is the talking agent's
+/// workspace root. Absolute (`/…`) and home (`~/…`) paths pass through.
+enum ScoutFilePathResolver {
+    static func resolve(path: String, base: String?) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("/") { return trimmed }
+        if trimmed.hasPrefix("~") { return (trimmed as NSString).expandingTildeInPath }
+        if let base = base?.nilIfEmpty {
+            let root = (base as NSString).expandingTildeInPath
+            return (root as NSString).appendingPathComponent(trimmed)
+        }
+        return (trimmed as NSString).expandingTildeInPath
     }
 }
 
@@ -95,7 +116,7 @@ enum ScoutFilePathDetector {
 enum ScoutFileLinkifier {
     /// Applies tappable `openscout-file://` links over any file paths found in
     /// the already-parsed attributed text.
-    static func apply(to attributed: AttributedString, accent: Color) -> AttributedString {
+    static func apply(to attributed: AttributedString, accent: Color, baseDirectory: String? = nil) -> AttributedString {
         var result = attributed
         let plain = String(result.characters)
         let matches = ScoutFilePathDetector.matches(in: plain)
@@ -103,7 +124,7 @@ enum ScoutFileLinkifier {
 
         for match in matches {
             guard let range = Range(match.nsRange, in: plain),
-                  let url = ScoutFileLink.url(path: match.path, line: match.line) else { continue }
+                  let url = ScoutFileLink.url(path: match.path, line: match.line, base: baseDirectory) else { continue }
             let startOffset = plain.distance(from: plain.startIndex, to: range.lowerBound)
             let length = plain.distance(from: range.lowerBound, to: range.upperBound)
             let start = result.index(result.startIndex, offsetByCharacters: startOffset)

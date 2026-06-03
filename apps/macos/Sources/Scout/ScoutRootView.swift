@@ -42,6 +42,8 @@ struct ScoutRootView: View {
     /// Images staged in the composer (pasted, dropped, or picked), uploaded as
     /// link-backed attachments on send.
     @State private var pendingImages: [ScoutComposerImage] = []
+    /// Staged image currently shown in the centered lightbox preview, if any.
+    @State private var previewImage: ScoutComposerImage?
     @State private var observeSidecarAgent: ScoutAgent?
     @State private var observeSidecarStagingWidth = ScoutObserveSidecarMetrics.peekWidth
     @State private var observeSidecarResizePreviewWidth: CGFloat?
@@ -51,11 +53,15 @@ struct ScoutRootView: View {
     /// Non-nil while the new-session composer is presented. Configured by each
     /// entry point (list "+", message context menu, agent inspector).
     @State private var sessionDraft: ScoutSessionDraft?
+    /// Embedded file preview state. Shared so message file-links (rendered deep
+    /// in the markdown tree) can open it without threading a closure down.
+    @ObservedObject private var fileViewer = ScoutFileViewer.shared
     @FocusState private var composerFocused: Bool
     @AppStorage("scout.navigationSidebar.labelWidth.v2") private var navigationSidebarLabelWidth = 88.0
     @AppStorage("scout.conversationList.width.v2") private var conversationListWidth = 224.0
     @AppStorage("scout.inspector.width") private var inspectorWidth = 320.0
     @AppStorage("scout.observeSidecar.width") private var observeSidecarWidth = Double(ScoutObserveSidecarMetrics.defaultWidth)
+    @AppStorage("scout.fileViewer.width") private var fileViewerWidth = Double(ScoutFileViewerMetrics.defaultWidth)
 
     private var manifest: HudAppManifest {
         HudAppManifest(
@@ -149,6 +155,14 @@ struct ScoutRootView: View {
                 .transition(.opacity)
             }
         }
+        .overlay {
+            if let previewImage {
+                ScoutImageLightbox(image: previewImage) {
+                    self.previewImage = nil
+                }
+            }
+        }
+        .animation(.easeOut(duration: 0.14), value: previewImage?.id)
         .overlay(alignment: .bottomLeading) {
             ScoutDesignPreviewPanel()
                 .padding(HudSpacing.xl)
@@ -210,6 +224,21 @@ struct ScoutRootView: View {
         store.selectedAgent?.projectRoot?.nilIfEmpty
             ?? store.agents.compactMap { $0.projectRoot?.nilIfEmpty }.first
             ?? ""
+    }
+
+    /// Root for resolving relative file paths quoted in a message: prefer the
+    /// sender agent's own workspace, then the selected conversation's agent,
+    /// then any known project — so an agent's "apps/macos/…" resolves to the
+    /// repo it's actually working in.
+    private func fileBaseDirectory(for message: ScoutMessage) -> String? {
+        if let sender = agent(for: message),
+           let root = sender.projectRoot?.nilIfEmpty ?? sender.cwd?.nilIfEmpty {
+            return root
+        }
+        if let selected = store.selectedAgent?.projectRoot?.nilIfEmpty ?? store.selectedAgent?.cwd?.nilIfEmpty {
+            return selected
+        }
+        return defaultProjectPath.nilIfEmpty
     }
 
     private var sidebarEntries: [HudSidebarEntry<ScoutSection>] {
@@ -337,6 +366,7 @@ struct ScoutRootView: View {
                             ScoutMessageRow(
                                 message: message,
                                 agent: agent(for: message),
+                                baseDirectory: fileBaseDirectory(for: message),
                                 previewAgent: previewAgent,
                                 onNewFromMessage: {
                                     startConversationFromMessage(message, agent: agent(for: message))
@@ -492,6 +522,14 @@ struct ScoutRootView: View {
         .onChange(of: draft) { _, _ in refreshSuggestions() }
         .onChange(of: store.agents.count) { _, _ in refreshSuggestions() }
         .onReceive(vox.$lastFinalText) { spliceDictatedFinal($0) }
+        .background(
+            ImagePasteCatcher(
+                isActive: { store.selectedCId != nil && sessionDraft == nil },
+                onPasteImages: stagePastedImages
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+        )
     }
 
     private var composerInputWell: some View {
@@ -508,11 +546,8 @@ struct ScoutRootView: View {
                     .focused($composerFocused)
                     .disabled(store.selectedCId == nil || store.isSending)
                     .onKeyPress(phases: .down) { press in
-                        // Intercept ⌘V only when the pasteboard holds an image
-                        // (e.g. a screenshot); otherwise let text paste through.
-                        if press.characters == "v", press.modifiers.contains(.command) {
-                            return addImagesFromPasteboard() ? .handled : .ignored
-                        }
+                        // ⌘V image paste is handled by ImagePasteCatcher at the
+                        // AppKit level — the field editor swallows it here.
                         if press.key == .return {
                             if applySelectedSuggestion() { return .handled }
                             if press.modifiers.contains(.shift) {
@@ -590,7 +625,7 @@ struct ScoutRootView: View {
                 .frame(width: 34, height: 34)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .help("Attach image")
         .disabled(store.selectedCId == nil || store.isSending)
     }
@@ -625,6 +660,9 @@ struct ScoutRootView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onTapGesture { previewImage = image }
+            .help("Click to preview")
 
             Button {
                 pendingImages.removeAll { $0.id == image.id }
@@ -633,18 +671,16 @@ struct ScoutRootView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(.white, .black.opacity(0.55))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).scoutPointerCursor()
             .help("Remove attachment")
             .offset(x: 5, y: -5)
         }
     }
 
-    /// Stage images pulled from the system pasteboard. Returns false when the
-    /// pasteboard holds no image (so a normal text paste can proceed).
-    private func addImagesFromPasteboard() -> Bool {
-        guard store.selectedCId != nil, !store.isSending else { return false }
-        let images = ScoutImageIntake.fromPasteboard()
-        guard !images.isEmpty else { return false }
+    /// Stage images handed up by the ⌘V paste catcher. Returns false (so the
+    /// paste falls through to normal text handling) when we can't accept them.
+    private func stagePastedImages(_ images: [ScoutComposerImage]) -> Bool {
+        guard store.selectedCId != nil, !store.isSending, !images.isEmpty else { return false }
         pendingImages.append(contentsOf: images)
         return true
     }
@@ -991,7 +1027,22 @@ struct ScoutRootView: View {
     @ViewBuilder
     private var trailingPanel: some View {
         Group {
-            if let agent = observeSidecarResolvedAgent {
+            if let target = fileViewer.target {
+                ScoutFileViewerPanel(
+                    target: target,
+                    width: fileViewerWidthBinding,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            fileViewer.close()
+                        }
+                    },
+                    onOpenInEditor: {
+                        ScoutFileOpener.openInEditor(path: target.path, line: target.line)
+                    }
+                )
+                .id(target.path)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else if let agent = observeSidecarResolvedAgent {
                 ScoutObserveSidecarPanel(
                     agent: agent,
                     stagingWidth: observeSidecarStagingWidth,
@@ -1046,6 +1097,7 @@ struct ScoutRootView: View {
         }
         .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: observeSidecarResolvedAgent?.id)
         .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: agentPreviewResolvedAgent?.id)
+        .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: fileViewer.target)
     }
 
     @ViewBuilder
@@ -1121,6 +1173,15 @@ struct ScoutRootView: View {
         } set: { nextWidth in
             let range = ScoutObserveSidecarMetrics.widthRange
             observeSidecarWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
+        }
+    }
+
+    private var fileViewerWidthBinding: Binding<CGFloat> {
+        Binding {
+            CGFloat(fileViewerWidth)
+        } set: { nextWidth in
+            let range = ScoutFileViewerMetrics.widthRange
+            fileViewerWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
         }
     }
 
@@ -1556,7 +1617,7 @@ private struct ScoutConversationListBar: View {
                 .overlay(Capsule().stroke(HudSurface.tintBorder(HudPalette.accent), lineWidth: 1))
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).scoutPointerCursor()
             .help("New conversation")
         }
         .padding(.horizontal, HudSpacing.xxl)
@@ -1634,7 +1695,7 @@ private struct ScoutConversationFilterControl: View {
                         )
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).scoutPointerCursor()
                 .help(option.title)
             }
         }
@@ -1721,7 +1782,7 @@ private struct ScoutConversationRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.10), value: isHovering)
         .animation(.easeOut(duration: 0.10), value: isSelected)
@@ -1770,7 +1831,7 @@ private struct ScoutSidebarSettingsButton: View {
             .contentShape(Rectangle())
             .clipped()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .help("Settings")
         .accessibilityLabel("Settings")
         .onHover { isHovering = $0 }
@@ -1979,7 +2040,7 @@ private struct ScoutCompactChannelRow: View {
             .background(RoundedRectangle(cornerRadius: HudRadius.standard).fill(isSelected ? HudSurface.selected(HudPalette.accent) : HudSurface.inset))
             .overlay(RoundedRectangle(cornerRadius: HudRadius.standard).stroke(isSelected ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.subtle, lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
     }
 }
 
@@ -2016,7 +2077,7 @@ private struct ScoutMemberStrip: View {
             } label: {
                 avatarGlyph(for: member)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).scoutPointerCursor()
             .help("Preview \(agent.displayName)")
         } else {
             avatarGlyph(for: member)
@@ -2053,6 +2114,8 @@ private struct ScoutMemberStrip: View {
 private struct ScoutMessageRow: View {
     let message: ScoutMessage
     let agent: ScoutAgent?
+    /// Workspace root for resolving relative file paths this message quotes.
+    let baseDirectory: String?
     let previewAgent: (ScoutAgent) -> Void
     let onNewFromMessage: () -> Void
 
@@ -2068,7 +2131,7 @@ private struct ScoutMessageRow: View {
                         .font(HudFont.mono(9))
                         .foregroundStyle(HudPalette.dim)
                 }
-                ScoutMarkdownView(text: message.body)
+                ScoutMarkdownView(text: message.body, baseDirectory: baseDirectory)
             }
             .padding(HudSpacing.xxl)
             .frame(maxWidth: 840, alignment: .leading)
@@ -2118,7 +2181,7 @@ private struct ScoutMessageRow: View {
             } label: {
                 actorLabel
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).scoutPointerCursor()
             .onHover { isHoveringAgent = $0 }
             .overlay(alignment: .topLeading) {
                 if isHoveringAgent {
@@ -2192,6 +2255,9 @@ private struct ScoutAgentHoverCard: View {
 
 private struct ScoutMarkdownView: View {
     let text: String
+    /// Workspace root of the agent that wrote this message — used to resolve
+    /// relative file paths the agent quoted from its own context.
+    var baseDirectory: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
@@ -2203,10 +2269,21 @@ private struct ScoutMarkdownView: View {
         .textSelection(.enabled)
         .environment(\.openURL, OpenURLAction { url in
             guard let link = ScoutFileLink.parse(url) else { return .systemAction }
+            let resolved = ScoutFilePathResolver.resolve(path: link.path, base: link.base)
+            // A folder can't render in a code pane — reveal it in Finder instead.
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir), isDir.boolValue {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: resolved)])
+                return .handled
+            }
             if NSEvent.modifierFlags.contains(.command) {
-                ScoutFileOpener.openInEditor(path: link.path, line: link.line)
+                // ⌘-click pops straight out to the editor (Cursor), with line jump.
+                ScoutFileOpener.openInEditor(path: resolved, line: link.line)
             } else {
-                ScoutFilePreview.show(path: link.path)
+                // Plain click previews in the embedded file viewer.
+                withAnimation(.easeOut(duration: 0.16)) {
+                    ScoutFileViewer.shared.open(path: resolved, line: link.line)
+                }
             }
             return .handled
         })
@@ -2275,7 +2352,7 @@ private struct ScoutMarkdownView: View {
             markdown: body,
             options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(body)
-        return ScoutFileLinkifier.apply(to: parsed, accent: HudPalette.accent)
+        return ScoutFileLinkifier.apply(to: parsed, accent: HudPalette.accent, baseDirectory: baseDirectory)
     }
 }
 
@@ -2386,7 +2463,7 @@ private struct ScoutSendButton: View {
             .frame(width: 34, height: 34)
             .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .disabled(!isEnabled || isSending)
         .onHover { hovering = $0 }
         .help(isEnabled && !isSending ? "Send message" : "")
@@ -2521,7 +2598,7 @@ struct ScoutMicButton: View {
             .frame(width: box, height: box)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .help(tooltip)
         .onHover { hovering = $0 }
         .task { if vox.state == .probing { await vox.probe() } }
@@ -2743,6 +2820,36 @@ extension View {
     }
 }
 
+/// Shows the pointing-hand cursor while hovering an enabled clickable. Push/pop
+/// are balanced via local state (and cleaned up on disappear) so the cursor
+/// never gets stuck. Respects `isEnabled` so disabled controls stay an arrow.
+private struct ScoutPointerCursorModifier: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var pushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                if inside, isEnabled {
+                    if !pushed { NSCursor.pointingHand.push(); pushed = true }
+                } else if pushed {
+                    NSCursor.pop(); pushed = false
+                }
+            }
+            .onDisappear {
+                if pushed { NSCursor.pop(); pushed = false }
+            }
+    }
+}
+
+extension View {
+    /// Pointing-hand cursor on hover for custom (`.plain`) buttons and other
+    /// tap targets that don't get it for free.
+    func scoutPointerCursor() -> some View {
+        modifier(ScoutPointerCursorModifier())
+    }
+}
+
 /// "Accents": a section eyebrow that grows a small hanging accent tick when the
 /// flag is on — an editorial marker that makes labels feel deliberate.
 private struct ScoutEyebrow: View {
@@ -2789,7 +2896,7 @@ private struct ScoutDesignPreviewPanel: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).scoutPointerCursor()
             .help("Toggle design experiments")
 
             if expanded {
@@ -2892,7 +2999,7 @@ private struct ScoutAgentInspector: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .help("Open \(agent.displayName)'s profile")
     }
 
@@ -2992,7 +3099,7 @@ private struct ScoutObserveChip: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }
         .help("Observe")
     }
@@ -3015,7 +3122,7 @@ private struct ScoutNewSessionLink: View {
             .foregroundStyle(hovering ? HudPalette.accent : HudPalette.muted)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }
     }
 }
@@ -3114,7 +3221,7 @@ private struct ScoutAgentPreviewPanel: View {
                 Image(systemName: "sidebar.right")
                     .font(HudFont.ui(12, weight: .semibold))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).scoutPointerCursor()
             .foregroundStyle(HudPalette.muted)
             .frame(width: 28, height: 28)
             .contentShape(Rectangle())
