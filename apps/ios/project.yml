@@ -115,6 +115,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        # On-device dictation (HudDictation): mic capture + Apple Speech fallback.
+        NSMicrophoneUsageDescription: Scout uses the microphone to dictate messages to your agents.
+        NSSpeechRecognitionUsageDescription: Scout transcribes your dictation on-device.
         # Camera-free pairing deep link: scoutnext://pair?payload=… (distinct
         # from the donor app's openscout:// scheme to avoid clobbering).
         CFBundleURLTypes:

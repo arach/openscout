@@ -20,6 +20,9 @@ struct ScoutNextApp: App {
             .hudsonAppManifest(
                 HudAppManifest(name: "Scout", version: "0.1.0", tint: .green, targetLabel: "Agent")
             )
+            // Shared dictation controller — the composer and Settings both read
+            // and drive the same on-device transcription state.
+            .environment(model.dictation)
             .preferredColorScheme(.dark)
             // Pairing presents from both phases (Connect screen CTA and the
             // in-shell Connection sheet), so it lives at the app root.

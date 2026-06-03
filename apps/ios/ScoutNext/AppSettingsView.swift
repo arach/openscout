@@ -1,5 +1,6 @@
 import SwiftUI
 import HudsonUI
+import HudsonVoice
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -18,7 +19,7 @@ struct AppSettingsView: View {
     @State private var osnEnabled = false
     @State private var approvalsAlert = true
 
-    private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "ALERTS", "APPEARANCE", "ADVANCED", "ABOUT"]
+    private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "VOICE", "ALERTS", "APPEARANCE", "ADVANCED", "ABOUT"]
 
     var body: some View {
         HudInspectorSettings(
@@ -32,6 +33,7 @@ struct AppSettingsView: View {
             case "CONNECTION": connectionPanel
             case "ROUTES":     routesPanel
             case "IDENTITY":   identityPanel
+            case "VOICE":      voicePanel
             case "ALERTS":     alertsPanel
             case "APPEARANCE": appearancePanel
             case "ADVANCED":   advancedPanel
@@ -118,6 +120,72 @@ struct AppSettingsView: View {
                 HudInspectorNavRow("Acknowledgements") {}
             }
         }
+    }
+
+    // MARK: - Voice
+
+    private var voicePanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Transcription") {
+                HudInspectorCycleRow(
+                    "Engine",
+                    selection: Binding(
+                        get: { model.dictation.preference.rawValue },
+                        set: { raw in
+                            if let pref = HudDictation.Preference(rawValue: raw) {
+                                model.setVoicePreference(pref)
+                            }
+                        }
+                    ),
+                    choices: HudDictation.Preference.allCases.map {
+                        HudInspectorChoice(id: $0.rawValue, title: $0.title)
+                    },
+                    hint: "Parakeet on-device, Apple fallback"
+                )
+            }
+            HudInspectorMetricStrip([
+                .init("Engine", value: voiceEngineLabel),
+                .init("Model", value: voiceModelShort),
+                .init("Warm", value: voiceWarmLabel)
+            ], distribution: .spread)
+            HudInspectorSection("On-device model") {
+                HudInspectorFieldRow("Parakeet", value: voiceModelStatus, hint: "parakeet-tdt-0.6b-v3")
+                if model.dictation.preference != .apple && !model.dictation.modelReady {
+                    HudInspectorActionRow("Download & warm", value: "Run", tone: .accent) {
+                        model.dictation.prepare()
+                    }
+                }
+                HudInspectorFieldRow("Fallback", value: "Apple Speech", hint: "instant, while Parakeet warms")
+            }
+        }
+        .task { await model.dictation.refreshStatus() }
+    }
+
+    /// The engine that will actually run given the preference + readiness.
+    private var voiceEngineLabel: String {
+        switch model.dictation.preference {
+        case .apple: return "Apple"
+        case .auto, .parakeet: return model.dictation.modelReady ? "Parakeet" : "Apple"
+        }
+    }
+
+    /// Apple Speech has no model to warm, so "warm" is n/a when it's the engine.
+    private var voiceWarmLabel: String {
+        if model.dictation.preference == .apple { return "n/a" }
+        return model.dictation.modelReady ? "Yes" : "No"
+    }
+
+    private var voiceModelShort: String {
+        if case .preparing(let progress) = model.dictation.state { return "\(Int(progress * 100))%" }
+        if model.dictation.modelReady { return "Ready" }
+        return model.dictation.modelInstalled ? "On disk" : "—"
+    }
+
+    private var voiceModelStatus: String {
+        if case .preparing(let progress) = model.dictation.state { return "Downloading \(Int(progress * 100))%" }
+        if model.dictation.modelReady { return "Ready" }
+        if model.dictation.modelInstalled { return "Downloaded" }
+        return model.dictation.preference == .apple ? "Off" : "Not downloaded"
     }
 
     private var routeLabel: String {
