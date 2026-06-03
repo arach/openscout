@@ -43,6 +43,7 @@ export {
 export type {
   CodexObservedTopologyOptions,
 } from "./adapters/codex/topology.js";
+export { createAdapter as createAcpAdapter } from "./adapters/acp.js";
 export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat.js";
 export { createAdapter as createOpencodeAdapter } from "./adapters/opencode.js";
 export { createAdapter as createPiAdapter } from "./adapters/pi.js";
