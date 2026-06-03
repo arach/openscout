@@ -148,6 +148,16 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Info-dense agent tile — identity · state · task · project · capabilities.",
   },
   {
+    href: "/studies/agent-inspector-card",
+    label: "Agent Inspector Card",
+    bucket: "studies",
+    surface: "macos",
+    family: "agent-cards",
+    status: "draft",
+    source: ["apps/macos/Sources/Scout/ScoutRootView.swift"],
+    blurb: "Per-agent sidebar card — no AVAILABLE tag, header→profile, Observe top-right, New-session CTA explored three ways.",
+  },
+  {
     href: "/studies/session-search",
     label: "Session Search",
     bucket: "studies",
