@@ -145,6 +145,39 @@ not silently bind to a Claude session. If wake fails, preserve the returned ids
 and state the failed layer instead of asking the human to manually relaunch a
 known target.
 
+## Operator-safe orchestration
+
+Agent orchestration should preserve the operator's active context. Starting,
+waking, routing, or inspecting another agent is not permission to open a UI,
+attach a terminal, focus a window, or steal input.
+
+Default to quiet coordination:
+
+- prefer broker-routed `scout ask --to ...` or `scout ask --project ...`; let
+  Scout resolve, wake, or create the concrete session in the background
+- use `scout up` only as a prewarm/register step, not as a reason to switch the
+  human into that target's interface
+- do not call `scout server open`, attach to a harness session, or focus another
+  surface unless the user asked to watch, inspect, or interact with it
+- if a runtime/surface command offers a background, non-attaching, or
+  non-focusing option, choose that by default
+- keep any returned `conversationId`, `messageId`, `flightId`, `workId`, or
+  session id and report that handle instead of pulling the operator into a new
+  view
+
+Use visible surfaces intentionally:
+
+```bash
+scout ask --project ../api "Run the narrow auth tests and report the result."
+scout up hudson              # prewarm only when routing/remediation asks for it
+scout server open            # only when the user wants the full live UI
+```
+
+If a task needs a long-running helper, prefer an Ask or background host worker
+that reports back through the same DM, channel, work item, or flight. Escalate to
+the operator only when the target is blocked, ambiguous, or asking for human
+input.
+
 ## Frequent questions
 
 Map common operator/agent questions to one command:
