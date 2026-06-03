@@ -13,11 +13,22 @@ let package = Package(
             targets: ["ScoutIOSCore"]
         ),
     ],
+    dependencies: [
+        .package(path: "../scout-native-core"),
+    ],
     targets: [
-        .target(name: "ScoutIOSCore"),
+        .target(
+            name: "ScoutIOSCore",
+            dependencies: [
+                .product(name: "ScoutCapabilities", package: "scout-native-core"),
+            ]
+        ),
         .testTarget(
             name: "ScoutIOSCoreTests",
-            dependencies: ["ScoutIOSCore"]
+            dependencies: [
+                "ScoutIOSCore",
+                .product(name: "ScoutCapabilities", package: "scout-native-core"),
+            ]
         ),
     ]
 )
