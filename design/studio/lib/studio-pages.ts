@@ -158,6 +158,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Per-agent sidebar card — no AVAILABLE tag, header→profile, Observe top-right, New-session CTA explored three ways.",
   },
   {
+    href: "/studies/repo-watch",
+    label: "Repo Watch",
+    bucket: "studies",
+    surface: "macos",
+    family: "repo-watch",
+    status: "concept",
+    source: [
+      "docs/eng/sco-061-repo-watch-worktree-state.md",
+      "design/studio/app/studies/repo-watch/page.tsx",
+      "design/studio/lib/repo-watch/types.ts",
+    ],
+    blurb: "State of repos — projects → worktrees, attention-ranked. Four treatments of one SCO-061 snapshot.",
+  },
+  {
     href: "/studies/session-search",
     label: "Session Search",
     bucket: "studies",

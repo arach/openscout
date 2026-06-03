@@ -18,6 +18,7 @@ import { SessionsScreen } from "../../screens/SessionsScreen.tsx";
 import { SessionRefScreen } from "../../screens/SessionRefScreen.tsx";
 import { SettingsScreen } from "../../screens/SettingsScreen.tsx";
 import { OpsScreen } from "../../screens/OpsScreen.tsx";
+import { ReposScreen } from "../../screens/ReposScreen.tsx";
 import { TerminalScreen } from "../../screens/TerminalScreen.tsx";
 import { WorkDetailScreen } from "../../screens/WorkDetailScreen.tsx";
 
@@ -81,6 +82,8 @@ function renderScreen(
       );
     case "fleet":
       return <HomeScreen navigate={navigate} />;
+    case "repos":
+      return <ReposScreen navigate={navigate} />;
     case "conversations":
       return <ConversationsScreen navigate={navigate} />;
     case "messages":

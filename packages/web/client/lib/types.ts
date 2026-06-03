@@ -1020,6 +1020,7 @@ export type Route =
       projectKey?: string;
     } & MachineScopedRoute)
   | ({ view: "fleet" } & MachineScopedRoute)
+  | ({ view: "repos" } & MachineScopedRoute)
   | ({ view: "conversations" } & MachineScopedRoute)
   | ({
       view: "messages";

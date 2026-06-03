@@ -3904,6 +3904,25 @@ export async function createOpenScoutWebServer(
     return c.json(await res.json());
   });
 
+  // Repo Watch (SCO-061) — proxy the broker's worktree-state snapshot so the
+  // client reaches it through the same /api/* surface as everything else.
+  app.get("/api/repo-watch", async (c) => {
+    const url = new URL("/v1/repo-watch/snapshot", resolveScoutBrokerUrl());
+    for (const key of ["force", "includeTail", "includeDiff", "includeLastCommit"]) {
+      const value = c.req.query(key);
+      if (value === "1" || value === "true") url.searchParams.set(key, "1");
+    }
+    try {
+      const res = await fetch(url, { signal: c.req.raw.signal });
+      if (!res.ok) {
+        return c.json({ error: `broker repo-watch unavailable (${res.status})` }, 502);
+      }
+      return c.json(await res.json());
+    } catch {
+      return c.json({ error: "broker unreachable" }, 502);
+    }
+  });
+
   // /api/tail/stream removed — clients now subscribe to broker tail.events
   // directly via tRPC over WebSocket. See packages/web/client/lib/tail-events.ts.
 

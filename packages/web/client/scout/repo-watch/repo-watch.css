@@ -1,0 +1,72 @@
+/* ─────────────────────────────────────────────────────────────────────
+ * Repo Watch token shim (SCO-061).
+ *
+ * The Ledger / Triage components were designed in the studio against a set of
+ * `--studio-*` / `--status-*` / `--scout-accent` tokens + a few custom Tailwind
+ * utilities. Rather than rewrite them in the web app's class system, we:
+ *   1. register those utilities with Tailwind v4 via @theme (so `bg-studio-surface`,
+ *      `text-scout-accent`, `tracking-eyebrow`, … generate), and
+ *   2. supply the actual values, scoped to `.repo-watch-scope`, MAPPED ONTO the
+ *      app's own `--hud-*` tokens — so Repo Watch follows the active theme AND the
+ *      accent the user picks in Settings, with studio-dark fallbacks if a token
+ *      is ever missing.
+ *
+ * Imported from `arc-tailwind.css` so Tailwind processes the @theme block.
+ * ───────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-studio-canvas: var(--studio-canvas);
+  --color-studio-canvas-alt: var(--studio-canvas-alt);
+  --color-studio-surface: var(--studio-surface);
+  --color-studio-ink: var(--studio-ink);
+  --color-studio-ink-muted: var(--studio-ink-muted);
+  --color-studio-ink-faint: var(--studio-ink-faint);
+  --color-studio-edge: var(--studio-edge);
+  --color-studio-edge-strong: var(--studio-edge-strong);
+
+  --color-scout-accent: var(--scout-accent);
+  --color-scout-accent-soft: var(--scout-accent-soft);
+
+  --color-status-ok-fg: var(--status-ok-fg);
+  --color-status-ok-bg: var(--status-ok-bg);
+  --color-status-warn-fg: var(--status-warn-fg);
+  --color-status-warn-bg: var(--status-warn-bg);
+  --color-status-error-fg: var(--status-error-fg);
+  --color-status-error-bg: var(--status-error-bg);
+  --color-status-info-fg: var(--status-info-fg);
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-neutral-fg: var(--status-neutral-fg);
+  --color-status-neutral-bg: var(--status-neutral-bg);
+
+  --tracking-eyebrow: 0.22em;
+  --font-display: "Play", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Scoped values — mapped onto the app's --hud-* tokens (which flip with
+ * html[data-scout-theme-mode]). Fallbacks are the studio dark palette. */
+.repo-watch-scope {
+  --studio-canvas: var(--hud-bg, oklch(0.14 0.008 80));
+  --studio-surface: var(--hud-surface, oklch(0.2 0.01 80));
+  --studio-canvas-alt: color-mix(in oklab, var(--studio-surface) 55%, var(--studio-canvas));
+  --studio-ink: var(--hud-ink, oklch(0.96 0.008 80));
+  --studio-ink-muted: color-mix(in oklab, var(--studio-ink) 72%, var(--studio-canvas));
+  --studio-ink-faint: color-mix(in oklab, var(--studio-ink) 50%, var(--studio-canvas));
+  --studio-edge: color-mix(in oklab, var(--studio-ink) 16%, var(--studio-canvas));
+  --studio-edge-strong: color-mix(in oklab, var(--studio-ink) 26%, var(--studio-canvas));
+
+  --scout-accent: var(--hud-accent, oklch(0.86 0.17 125));
+  --scout-accent-soft: color-mix(in oklab, var(--scout-accent) 18%, transparent);
+
+  --status-ok-fg: var(--hud-status-ok, oklch(0.84 0.16 155));
+  --status-ok-bg: color-mix(in oklab, var(--status-ok-fg) 17%, transparent);
+  --status-warn-fg: var(--hud-status-warn, oklch(0.85 0.15 85));
+  --status-warn-bg: color-mix(in oklab, var(--status-warn-fg) 16%, transparent);
+  --status-error-fg: var(--hud-status-error, oklch(0.78 0.17 25));
+  --status-error-bg: color-mix(in oklab, var(--status-error-fg) 16%, transparent);
+  --status-info-fg: oklch(0.8 0.1 220);
+  --status-info-bg: color-mix(in oklab, var(--status-info-fg) 18%, transparent);
+  --status-neutral-fg: color-mix(in oklab, var(--studio-ink) 78%, var(--studio-canvas));
+  --status-neutral-bg: color-mix(in oklab, var(--studio-ink) 7%, transparent);
+
+  color: var(--studio-ink);
+}

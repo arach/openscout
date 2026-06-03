@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, Compass, Database, GitBranch, MessageSquare, ScrollText } from "lucide-react";
+import { Activity, Compass, Database, FolderGit2, GitBranch, MessageSquare, ScrollText } from "lucide-react";
 import { useScout } from "../Provider.tsx";
 import { MeshCanvasMinimap } from "./MeshCanvasMinimap.tsx";
 import type { Route } from "../../lib/types.ts";
@@ -93,6 +93,7 @@ const JUMPS: { id: string; label: string; icon: ReactNode; route: Route }[] = [
   { id: "tail", label: "Tail", icon: <ScrollText size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "tail" } },
   { id: "control", label: "Control", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" } },
   { id: "fleet", label: "Fleet", icon: <Activity size={13} strokeWidth={1.6} />, route: { view: "fleet" } },
+  { id: "repos", label: "Repos", icon: <FolderGit2 size={13} strokeWidth={1.6} />, route: { view: "repos" } },
   { id: "broker", label: "Broker", icon: <GitBranch size={13} strokeWidth={1.6} />, route: { view: "broker" } },
 ];
 

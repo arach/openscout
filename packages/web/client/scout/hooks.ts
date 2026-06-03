@@ -65,6 +65,11 @@ export function useScoutCommands(): CommandOption[] {
         shortcut: "Cmd+3",
       },
       {
+        id: "nav:repos",
+        label: "Go to Repos",
+        action: () => navigate({ view: "repos" }),
+      },
+      {
         id: "nav:messages",
         label: "Go to Conversations",
         action: () => navigate({ view: "messages" }),
