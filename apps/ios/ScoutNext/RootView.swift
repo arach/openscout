@@ -10,6 +10,7 @@ import ScoutCapabilities
 struct RootView: View {
     @Bindable var model: AppModel
     @State private var showConnection = false
+    @State private var showSettings = false
 
     private var client: any ScoutBrokerClient { model.client }
 
@@ -56,6 +57,9 @@ struct RootView: View {
         .sheet(isPresented: $showConnection) {
             ConnectionView(model: model)
         }
+        .sheet(isPresented: $showSettings) {
+            AppSettingsView(model: model)
+        }
     }
 
     private var tabs: [HudLiquidBarTab] {
@@ -81,6 +85,12 @@ struct RootView: View {
             Spacer()
             Button { showConnection = true } label: {
                 HudBadge(model.statusLabel, tint: model.statusTint, dot: true)
+            }
+            .buttonStyle(.plain)
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(HudFont.ui(HudTextSize.md, weight: .regular))
+                    .foregroundStyle(HudPalette.muted)
             }
             .buttonStyle(.plain)
         }

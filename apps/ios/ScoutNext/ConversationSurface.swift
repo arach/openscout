@@ -20,6 +20,7 @@ struct ConversationSurface: View {
     @State private var isStreaming = false
     @State private var composerText = ""
     @State private var isSending = false
+    @State private var showSettings = false
     @FocusState private var composerFocused: Bool
 
     private var turns: [TurnState] { projection.state?.turns ?? [] }
@@ -33,6 +34,9 @@ struct ConversationSurface: View {
         .safeAreaInset(edge: .bottom) { composer }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: conversationId) { await run() }
+        .sheet(isPresented: $showSettings) {
+            SessionSettingsView(client: client, conversationId: conversationId, title: title)
+        }
     }
 
     // MARK: - Composer
@@ -116,6 +120,12 @@ struct ConversationSurface: View {
             } else {
                 HudBadge("idle", tint: HudPalette.muted, dot: true)
             }
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(HudFont.ui(HudTextSize.md, weight: .regular))
+                    .foregroundStyle(HudPalette.muted)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, HudSpacing.xl)
         .padding(.vertical, HudSpacing.lg)

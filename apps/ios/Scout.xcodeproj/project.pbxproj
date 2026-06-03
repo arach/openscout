@@ -75,6 +75,7 @@
 		92A2C0FDA06CB352C569E77D /* TerminiSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 8A9A0D1770D43A8B0FF728C2 /* TerminiSSH */; };
 		94E40717522CC80B764A1EA8 /* ScoutTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F85B4A803447D47B4A7372 /* ScoutTextField.swift */; };
 		95F5EDDBCDCC0F4EE3FE640A /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F93A8AEFB146A26492F58F /* ConnectionView.swift */; };
+		97D66B54AAEA3FCC33EB50F8 /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F9A8821330879A8A113A58E /* AppSettingsView.swift */; };
 		97F9CF6388F7B35B757675B2 /* BlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD01439D63376EE86259929 /* BlockView.swift */; };
 		991AF8193D1AD31F82BF3EE8 /* TailEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C81BBACB546A9DD851FE685 /* TailEvent.swift */; };
 		9BA664E06E0513E266034C92 /* ChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E100A641807F9B353A15CCF /* ChannelView.swift */; };
@@ -113,6 +114,7 @@
 		F66122FFCD3B67AB09234E2F /* TailRowDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2CEAFE14E67790905D93B95 /* TailRowDetailView.swift */; };
 		F6C3BCA878E96461544DFD01 /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA00505E183B992F6E69FA32 /* TerminalAdapter.swift */; };
 		FC900834CED212A124E3D589 /* HistoryRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D8F1FFB1CB46F1A8E15322 /* HistoryRPC.swift */; };
+		FCD7E8C2FAED6C1D7126F4F9 /* SessionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CFD556E2CBA8FB82C4AC743 /* SessionSettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -146,6 +148,7 @@
 		1A96B0268009791DFD65B396 /* scout-ios-core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "scout-ios-core"; path = "../../packages/scout-ios-core"; sourceTree = SOURCE_ROOT; };
 		1CB1259D202C983314D17199 /* FileBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBlockView.swift; sourceTree = "<group>"; };
 		1E6C0A30A72EE6C72F54DC86 /* ScoutRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutRouter.swift; sourceTree = "<group>"; };
+		1F9A8821330879A8A113A58E /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
 		1FE872C7C7BB4439492C5DE6 /* ScoutNextApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutNextApp.swift; sourceTree = "<group>"; };
 		2043B28142C57D92E9226882 /* SecureTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureTransport.swift; sourceTree = "<group>"; };
 		21CE3025DE755A2428B0FDD0 /* NodeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeDetailView.swift; sourceTree = "<group>"; };
@@ -195,6 +198,7 @@
 		8954092B5A751A7EBC5AD437 /* WorkspaceBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceBrowserView.swift; sourceTree = "<group>"; };
 		89AB6BB7DED4B0586E7C9769 /* ScoutKeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutKeyboardView.swift; sourceTree = "<group>"; };
 		8CCB3133C242EB127A5CB811 /* MeshRendezvousClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshRendezvousClientTests.swift; sourceTree = "<group>"; };
+		8CFD556E2CBA8FB82C4AC743 /* SessionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSettingsView.swift; sourceTree = "<group>"; };
 		8E41DEC22E607215EDBB5203 /* Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Events.swift; sourceTree = "<group>"; };
 		9102509C4B05FADAF82B357D /* RecordingIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingIndicator.swift; sourceTree = "<group>"; };
 		94046D6B74726E23BE9284D7 /* AllSessionsGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllSessionsGridView.swift; sourceTree = "<group>"; };
@@ -317,6 +321,7 @@
 			isa = PBXGroup;
 			children = (
 				53844A3D96FDE7E2F95804D3 /* AppModel.swift */,
+				1F9A8821330879A8A113A58E /* AppSettingsView.swift */,
 				B8F93A8AEFB146A26492F58F /* ConnectionView.swift */,
 				7413CF896CFC923C4ED62EE6 /* ConnectScreen.swift */,
 				5177CFB5CBF4D45227012022 /* ConversationSurface.swift */,
@@ -327,6 +332,7 @@
 				44F20992D7905F0802EB7378 /* PairingView.swift */,
 				985DF8CBA4BEA25843ED2E9D /* RootView.swift */,
 				1FE872C7C7BB4439492C5DE6 /* ScoutNextApp.swift */,
+				8CFD556E2CBA8FB82C4AC743 /* SessionSettingsView.swift */,
 				A52E204004D36D0677087384 /* TailSurface.swift */,
 			);
 			path = ScoutNext;
@@ -872,6 +878,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B0C615C4528270400B94B658 /* AppModel.swift in Sources */,
+				97D66B54AAEA3FCC33EB50F8 /* AppSettingsView.swift in Sources */,
 				90C81459BD6C6CA8ECCC300C /* ConnectScreen.swift in Sources */,
 				95F5EDDBCDCC0F4EE3FE640A /* ConnectionView.swift in Sources */,
 				11F7AA988AFC048425041F14 /* ConversationSurface.swift in Sources */,
@@ -881,6 +888,7 @@
 				B9072CC6486FF7C7C62A5104 /* PairingView.swift in Sources */,
 				D1D70A27F12D42CA299FE9C2 /* RootView.swift in Sources */,
 				90B0F6C1E9FA6BBE9A734342 /* ScoutNextApp.swift in Sources */,
+				FCD7E8C2FAED6C1D7126F4F9 /* SessionSettingsView.swift in Sources */,
 				7326080A1CFCF3D88E517FFF /* TailSurface.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
