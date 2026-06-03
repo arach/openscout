@@ -155,19 +155,19 @@ struct ScoutFileViewerPanel: View {
         HStack(spacing: HudSpacing.md) {
             Image(systemName: glyph(forFile: fileName))
                 .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(HudPalette.accent)
+                .foregroundStyle(ScoutPalette.accent)
                 .frame(width: 22, height: 22)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudPalette.accentSoft))
+                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutPalette.accentSoft))
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(fileName)
                     .font(HudFont.ui(HudTextSize.base, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(dirPath)
                     .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -182,7 +182,7 @@ struct ScoutFileViewerPanel: View {
                 Text("L\(line)")
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .monospacedDigit()
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
                     .padding(.horizontal, HudSpacing.sm)
                     .padding(.vertical, HudSpacing.xxs)
                     .background(RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous).fill(HudSurface.inset))
@@ -193,7 +193,7 @@ struct ScoutFileViewerPanel: View {
                     .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
             }
             .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(HudPalette.muted)
+            .foregroundStyle(ScoutPalette.muted)
             .frame(width: 26, height: 26)
             .contentShape(Rectangle())
             .help("Open in editor")
@@ -203,7 +203,7 @@ struct ScoutFileViewerPanel: View {
                     .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
             }
             .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(HudPalette.muted)
+            .foregroundStyle(ScoutPalette.muted)
             .frame(width: 26, height: 26)
             .contentShape(Rectangle())
             .help("Close file viewer")
@@ -256,7 +256,7 @@ struct ScoutFileViewerPanel: View {
                     if document.truncated {
                         Text("Preview truncated at \(ScoutFileViewerMetrics.maxLines) lines — open in editor for the rest.")
                             .font(HudFont.mono(HudTextSize.micro))
-                            .foregroundStyle(HudPalette.dim)
+                            .foregroundStyle(ScoutPalette.dim)
                             .padding(HudSpacing.lg)
                     }
                 }
@@ -276,34 +276,34 @@ struct ScoutFileViewerPanel: View {
             Text("\(number)")
                 .font(HudFont.mono(HudTextSize.xxs))
                 .monospacedDigit()
-                .foregroundStyle(isTarget ? HudPalette.accent : HudPalette.dim)
+                .foregroundStyle(isTarget ? ScoutPalette.accent : ScoutPalette.dim)
                 .frame(width: gutter, alignment: .trailing)
             Text(content)
                 .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, HudSpacing.lg)
         .padding(.vertical, 1)
-        .background(isTarget ? HudPalette.accentSoft : Color.clear)
+        .background(isTarget ? ScoutPalette.accentSoft : Color.clear)
     }
 
     private func errorState(_ message: String) -> some View {
         VStack(spacing: HudSpacing.md) {
             Image(systemName: "doc.questionmark")
                 .font(HudFont.ui(HudTextSize.xxl, weight: .regular))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutPalette.dim)
             Text(message)
                 .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutPalette.muted)
                 .multilineTextAlignment(.center)
             Button(action: onOpenInEditor) {
                 Text("Open in editor")
                     .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
             }
             .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(HudPalette.accent)
+            .foregroundStyle(ScoutPalette.accent)
         }
         .padding(HudSpacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -357,12 +357,12 @@ private struct ScoutMarkdownModeToggle: View {
         Button(action: action) {
             Text(title)
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .foregroundStyle(active ? HudPalette.ink : HudPalette.muted)
+                .foregroundStyle(active ? ScoutPalette.ink : ScoutPalette.muted)
                 .padding(.horizontal, HudSpacing.sm)
                 .frame(height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.standard - 2, style: .continuous)
-                        .fill(active ? HudSurface.selected(HudPalette.accent) : Color.clear)
+                        .fill(active ? HudSurface.selected(ScoutPalette.accent) : Color.clear)
                 )
                 .contentShape(Rectangle())
         }
@@ -449,7 +449,7 @@ enum ScoutCodeLanguage {
 /// line. Carries block-comment state across lines. Colors stay inside the
 /// approved cyan/blue/teal/emerald/amber family (no purple).
 enum ScoutSyntaxHighlighter {
-    private static let commentColor = HudPalette.dim
+    private static let commentColor = ScoutPalette.dim
     private static let stringColor = HudTint.green.color
     private static let keywordColor = HudTint.blue.color
     private static let numberColor = HudTint.amber.color
