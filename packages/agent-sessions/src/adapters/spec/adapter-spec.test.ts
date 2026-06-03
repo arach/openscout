@@ -57,4 +57,22 @@ describe("adapter spec v1", () => {
       },
     });
   });
+
+  test("acp spec captures the JSON-RPC stdio client shape", () => {
+    const spec = readSpec("acp/adapter.spec.json");
+    const errors = validateAdapterSpec(spec, "acp/adapter.spec.json");
+
+    expect(errors).toEqual([]);
+    expect(spec.adapterId).toBe("acp");
+    expect(spec.upstream).toMatchObject({
+      kind: "official_protocol",
+      transport: "jsonrpc-stdio-jsonl",
+    });
+    expect(spec.nativeProtocol).toMatchObject({
+      inboundServerRequests: expect.arrayContaining([
+        "session/request_permission",
+        "fs/read_text_file",
+      ]),
+    });
+  });
 });
