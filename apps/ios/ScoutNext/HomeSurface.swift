@@ -2,15 +2,17 @@ import SwiftUI
 import HudsonUI
 import ScoutCapabilities
 
-/// Home — a glanceable read of live agents and recent sessions, loaded from the
-/// broker client. Renders two sections of `HudListRow`s with harness/status
-/// expressed via `HudBadge` / `HudStatusDot`.
+/// Home — the fleet landing. A glanceable read of live agents and recent
+/// sessions loaded from the broker client, with a search filter and
+/// pull-to-refresh. Tapping a row pushes the conversation. Renders two sections
+/// of `HudListRow`s with harness/status expressed via `HudBadge` / `HudStatusDot`.
 struct HomeSurface: View {
     let client: any ScoutBrokerClient
 
     @State private var sessions: [SessionSummary] = []
     @State private var agents: [AgentSummary] = []
     @State private var isLoading = true
+    @State private var searchText = ""
     @State private var route: ConversationRoute?
 
     /// A Hashable navigation target — the contract models stay transport-pure.
@@ -24,13 +26,17 @@ struct HomeSurface: View {
             VStack(alignment: .leading, spacing: HudSpacing.xxl) {
                 if isLoading {
                     HudEmptyState(title: "Loading fleet", subtitle: "Reading sessions and agents from the broker.", icon: "antenna.radiowaves.left.and.right")
+                } else if isFleetEmpty {
+                    fleetEmptyState
                 } else {
+                    searchField
                     agentsSection
                     sessionsSection
                 }
             }
             .padding(HudSpacing.xxl)
         }
+        .refreshable { await load() }
         .task { await load() }
         .navigationDestination(item: $route) { route in
             ConversationSurface(
@@ -42,15 +48,46 @@ struct HomeSurface: View {
         }
     }
 
+    /// True when nothing loaded at all — the paired-but-disconnected (or
+    /// freshly-connected, nothing yet) case. Distinct from "no search matches".
+    private var isFleetEmpty: Bool { agents.isEmpty && sessions.isEmpty }
+
+    private var fleetEmptyState: some View {
+        HudEmptyState(
+            title: "No fleet yet",
+            subtitle: "Once you're connected, your agents and sessions land here. Tap the status chip above to check the connection.",
+            icon: "dot.radiowaves.left.and.right"
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.top, HudSpacing.huge)
+    }
+
+    // MARK: - Search
+
+    private var searchField: some View {
+        HudField("Search the fleet", text: $searchText, icon: "magnifyingglass")
+    }
+
+    private func matches(_ haystack: [String?], _ query: String) -> Bool {
+        let q = query.lowercased()
+        return haystack.compactMap { $0?.lowercased() }.contains { $0.contains(q) }
+    }
+
     // MARK: - Agents
+
+    private var filteredAgents: [AgentSummary] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return agents }
+        return agents.filter { matches([$0.title, $0.projectName, $0.harness, $0.statusLabel], q) }
+    }
 
     private var agentsSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Agents · \(agents.count)")
-            if agents.isEmpty {
-                HudEmptyState(title: "No agents", icon: "person.crop.circle")
+            HudSectionLabel("Agents · \(filteredAgents.count)")
+            if filteredAgents.isEmpty {
+                HudEmptyState(title: searchText.isEmpty ? "No agents" : "No matching agents", icon: "person.crop.circle")
             } else {
-                ForEach(agents) { agent in
+                ForEach(filteredAgents) { agent in
                     HudListRow(
                         title: agent.title,
                         subtitle: subtitle(for: agent),
@@ -90,13 +127,19 @@ struct HomeSurface: View {
 
     // MARK: - Sessions
 
+    private var filteredSessions: [SessionSummary] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return sessions }
+        return sessions.filter { matches([$0.title, $0.preview, $0.agentName, $0.projectName], q) }
+    }
+
     private var sessionsSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Sessions · \(sessions.count)")
-            if sessions.isEmpty {
-                HudEmptyState(title: "No sessions", icon: "bubble.left.and.bubble.right")
+            HudSectionLabel("Sessions · \(filteredSessions.count)")
+            if filteredSessions.isEmpty {
+                HudEmptyState(title: searchText.isEmpty ? "No sessions" : "No matching sessions", icon: "bubble.left.and.bubble.right")
             } else {
-                ForEach(sessions) { session in
+                ForEach(filteredSessions) { session in
                     HudListRow(
                         title: session.title,
                         subtitle: subtitle(for: session),
