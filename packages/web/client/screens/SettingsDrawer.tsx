@@ -21,9 +21,11 @@ import type {
   PairingState,
 } from "../lib/types.ts";
 import { timeAgo } from "../lib/time.ts";
+import { AppearanceSection } from "./settings/AppearanceSection.tsx";
 import "./settings-drawer.css";
+import "./settings-appearance.css";
 
-type Section = "operator" | "comms" | "credentials" | "devices";
+type Section = "operator" | "appearance" | "comms" | "credentials" | "devices";
 
 const HUE_PRESETS = [195, 125, 300, 45, 355, 210];
 
@@ -482,6 +484,7 @@ function DevicesSection({ pairing }: { pairing: PairingState | null }) {
 
 const SECTIONS: { id: Section; label: string; sub: string }[] = [
   { id: "operator", label: "Operator", sub: "identity · bio · hours" },
+  { id: "appearance", label: "Appearance", sub: "theme · accent · density" },
   { id: "comms", label: "Communication", sub: "how agents reach you" },
   { id: "credentials", label: "Credentials", sub: "model provider keys" },
   { id: "devices", label: "Paired devices", sub: "relay · connected" },
@@ -489,6 +492,7 @@ const SECTIONS: { id: Section; label: string; sub: string }[] = [
 
 const SECTION_TITLES: Record<Section, string> = {
   operator: "Operator identity",
+  appearance: "Appearance",
   comms: "Communication",
   credentials: "Credentials",
   devices: "Paired devices",
@@ -618,6 +622,7 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
           ) : (
             <>
               {section === "operator" && <OperatorSection profile={profile} update={update} />}
+              {section === "appearance" && <AppearanceSection />}
               {section === "comms" && <CommsSection profile={profile} update={update} />}
               {section === "credentials" && (
                 <CredentialsSection

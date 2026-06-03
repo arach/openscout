@@ -8,6 +8,7 @@ import {
   applyScoutThemeToDocument,
   resolveScoutStartupTheme,
 } from "./lib/theme.ts";
+import { initAppearance } from "./lib/appearance.ts";
 import { ScoutbotFxLab } from "./dev/ScoutbotFxLab.tsx";
 import "./arc-tailwind.css";
 import "./app.css";
@@ -19,6 +20,9 @@ if (!el) {
 
 const initialTheme = resolveScoutStartupTheme();
 applyScoutThemeToDocument(initialTheme);
+// Apply saved look-and-feel prefs (theme / density / accent / motion) before
+// first paint, and keep "system" theme synced to the OS.
+initAppearance();
 
 const isScoutbotFxLab = window.location.pathname === "/dev/scoutbot-fx";
 const observeEmbedMatch = window.location.pathname.match(/^\/embed\/observe\/([^/]+)$/);
