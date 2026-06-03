@@ -15,7 +15,14 @@ struct NewSessionSurface: View {
     @State private var isSubmitting = false
     @State private var result: SessionInitiationResult?
     @State private var errorText: String?
+    @State private var route: ConversationRoute?
     @FocusState private var instructionsFocused: Bool
+
+    /// A Hashable navigation target — contract models stay transport-pure.
+    private struct ConversationRoute: Hashable, Identifiable {
+        let id: String
+        let title: String
+    }
 
     var body: some View {
         ScrollView {
@@ -34,6 +41,14 @@ struct NewSessionSurface: View {
                 footer
             }
             .padding(HudSpacing.xxl)
+        }
+        .navigationDestination(item: $route) { route in
+            ConversationSurface(
+                client: client,
+                conversationId: route.id,
+                title: route.title,
+                onClose: { self.route = nil }
+            )
         }
     }
 
@@ -133,10 +148,22 @@ struct NewSessionSurface: View {
                 let outcome = try await client.startSession(spec)
                 isSubmitting = false
                 result = outcome
+                // Land in the new conversation when the broker returns one.
+                if let conversationId = outcome.conversationId {
+                    route = ConversationRoute(id: conversationId, title: sessionTitle)
+                }
             } catch {
                 isSubmitting = false
                 errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
+    }
+
+    /// Title for the pushed conversation: the project's last path component,
+    /// falling back to a generic label.
+    private var sessionTitle: String {
+        let trimmed = projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = (trimmed as NSString).lastPathComponent
+        return last.isEmpty ? "New session" : last
     }
 }
