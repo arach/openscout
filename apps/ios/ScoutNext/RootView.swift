@@ -42,9 +42,6 @@ struct RootView: View {
         HudPhoneAppShell {
             VStack(spacing: 0) {
                 titleBar
-                segmentedControl
-                    .padding(.horizontal, HudSpacing.xxl)
-                    .padding(.bottom, HudSpacing.lg)
 
                 Group {
                     switch surface {
@@ -55,7 +52,23 @@ struct RootView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            // Floating liquid-glass tab bar — the iOS-native Hudson nav pattern.
+            // Content runs full-bleed behind the glass; tabs sit over the bottom.
+            .safeAreaInset(edge: .bottom) {
+                HudLiquidBar(tabs: tabs, selection: tabSelection)
+            }
         }
+    }
+
+    private var tabs: [HudLiquidBarTab] {
+        Surface.allCases.map { HudLiquidBarTab(id: $0.id, icon: $0.icon, title: $0.rawValue) }
+    }
+
+    private var tabSelection: Binding<HudLiquidBarTab.ID> {
+        Binding(
+            get: { surface.id },
+            set: { surface = Surface(rawValue: $0) ?? .home }
+        )
     }
 
     private var titleBar: some View {
@@ -73,36 +86,5 @@ struct RootView: View {
         .padding(.horizontal, HudSpacing.xxl)
         .padding(.top, HudSpacing.lg)
         .padding(.bottom, HudSpacing.xl)
-    }
-
-    private var segmentedControl: some View {
-        HStack(spacing: HudSpacing.xs) {
-            ForEach(Surface.allCases) { item in
-                Button {
-                    surface = item
-                } label: {
-                    HStack(spacing: HudSpacing.sm) {
-                        Image(systemName: item.icon)
-                            .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        Text(item.rawValue)
-                            .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    }
-                    .foregroundStyle(surface == item ? HudPalette.ink : HudPalette.muted)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: HudLayout.rowHeightCompact)
-                    .background(
-                        RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                            .fill(surface == item ? HudSurface.selected(HudPalette.accent) : Color.clear)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
-        .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
-        )
     }
 }

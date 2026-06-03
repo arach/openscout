@@ -23,6 +23,13 @@ struct ConversationSurface: View {
         VStack(spacing: 0) {
             header
             transcript
+        }
+        .background(HudPalette.bg)
+        .safeAreaInset(edge: .bottom) {
+            // Composer pinned to its intrinsic height — `HudMessageBar` is
+            // greedy vertically, so hosting it in the layout flow would split
+            // the height with the transcript. As a safe-area inset it takes
+            // only what it needs and the transcript fills the rest.
             HudMessageBar(
                 text: $composerText,
                 isSending: isSending,
@@ -33,6 +40,7 @@ struct ConversationSurface: View {
                 hotkeyHint: nil,
                 onSubmit: send
             )
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, HudSpacing.xl)
             .padding(.bottom, HudSpacing.lg)
         }
@@ -69,26 +77,36 @@ struct ConversationSurface: View {
     // MARK: - Transcript
 
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: HudSpacing.xl) {
-                    ForEach(turns) { turn in
-                        TurnView(turn: turn, onAnswer: answer)
-                            .id(turn.id)
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: HudSpacing.xl) {
+                        ForEach(turns) { turn in
+                            TurnView(turn: turn, onAnswer: answer)
+                                .id(turn.id)
+                        }
+                        Color.clear.frame(height: 1).id("bottom")
                     }
-                    Color.clear.frame(height: 1).id("bottom")
+                    .padding(.horizontal, HudSpacing.xxl)
+                    .padding(.vertical, HudSpacing.lg)
+                    // Bottom-align short threads against the composer; long
+                    // threads exceed `minHeight` and scroll normally.
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .bottomLeading)
                 }
-                .padding(.horizontal, HudSpacing.xxl)
-                .padding(.vertical, HudSpacing.lg)
-            }
-            .onChange(of: turns.last?.blocks.last?.block.text) { _, _ in
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
-            }
-            .onChange(of: turns.count) { _, _ in
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                .onAppear { scrollToBottom(proxy, animated: false) }
+                .onChange(of: turns.last?.blocks.last?.block.text) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: turns.last?.blocks.count) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: turns.count) { _, _ in scrollToBottom(proxy) }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+        } else {
+            proxy.scrollTo("bottom", anchor: .bottom)
+        }
     }
 
     // MARK: - Lifecycle
