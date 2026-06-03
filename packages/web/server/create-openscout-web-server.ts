@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { Hono, type Context } from "hono";
 import type {
   AgentEndpoint,
+  AgentHarness,
   CollaborationEvent,
   CollaborationKind,
   ConversationDefinition,
@@ -32,6 +33,11 @@ import {
   registerScoutWebAssets,
   type ScoutWebAssetMode,
 } from "./server-core.ts";
+import {
+  getImageBlob,
+  ImageBlobError,
+  putImageBlob,
+} from "./image-blob-store.ts";
 import {
   queryAgentById,
   queryAgents,
@@ -64,6 +70,7 @@ import {
   markScoutConversationRead,
   readScoutUnblockRequests,
   resolveScoutBrokerUrl,
+  type OutgoingAttachmentInput,
   sendScoutConversationMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
@@ -589,6 +596,36 @@ function optionalString(value: unknown): string | undefined {
 
 function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+const EXECUTION_SESSION_PREFERENCES = new Set(["new", "existing", "any"]);
+
+function normalizeExecutionSession(
+  value: unknown,
+): "new" | "existing" | "any" | undefined {
+  const normalized = optionalString(value)?.trim();
+  return normalized && EXECUTION_SESSION_PREFERENCES.has(normalized)
+    ? (normalized as "new" | "existing" | "any")
+    : undefined;
+}
+
+const KNOWN_AGENT_HARNESSES = new Set<string>([
+  "codex",
+  "claude",
+  "flue",
+  "cursor",
+  "native",
+  "worker",
+  "bridge",
+  "http",
+  "pi",
+]);
+
+function coerceAgentHarness(value: unknown): AgentHarness | undefined {
+  const normalized = optionalString(value)?.trim();
+  return normalized && KNOWN_AGENT_HARNESSES.has(normalized)
+    ? (normalized as AgentHarness)
+    : undefined;
 }
 
 function recordInput(value: unknown): Record<string, unknown> | null {
@@ -2614,6 +2651,134 @@ export async function createOpenScoutWebServer(
     const agent = queryAgentById(c.req.param("id"));
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
   });
+  // Flexible session initiation. A single payload expresses every modality —
+  // start fresh in a project, start "the same agent" fresh, continue an
+  // agent's existing harness session with full context, or seed a new
+  // conversation from a message — by setting different fields. See
+  // docs/agent for the modality matrix; `seed.branchFrom` is accepted now and
+  // reserved for forthcoming context-forking work (currently inert).
+  app.post("/api/sessions", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      target?: { agentId?: string; projectPath?: string };
+      execution?: {
+        harness?: string;
+        model?: string;
+        session?: string;
+        targetSessionId?: string;
+      };
+      agent?: { persistence?: string; name?: string; displayName?: string };
+      seed?: {
+        instructions?: string;
+        fromMessageId?: string;
+        fromConversationId?: string;
+        branchFrom?: { sessionId?: string; messageId?: string };
+      };
+    };
+
+    const targetAgentId = optionalString(body.target?.agentId)?.trim();
+    const agent = targetAgentId ? queryAgentById(targetAgentId) : null;
+    if (targetAgentId && !agent) {
+      return c.json({ error: `agent ${targetAgentId} not found` }, 404);
+    }
+
+    // Resolve a project path: explicit wins, else inherit the agent's root.
+    const projectPath =
+      optionalString(body.target?.projectPath)?.trim() ||
+      agent?.projectRoot?.trim() ||
+      undefined;
+    if (!targetAgentId && !projectPath) {
+      return c.json(
+        { error: "target.agentId or target.projectPath is required" },
+        400,
+      );
+    }
+
+    // Execution preferences fall back to the resolved agent so "same agent"
+    // keeps its harness/model.
+    const session = normalizeExecutionSession(body.execution?.session);
+    const harness =
+      coerceAgentHarness(body.execution?.harness) ??
+      coerceAgentHarness(agent?.harness);
+    const model =
+      optionalString(body.execution?.model)?.trim() ||
+      agent?.model?.trim() ||
+      undefined;
+    let targetSessionId = optionalString(body.execution?.targetSessionId)?.trim();
+    if (session === "existing" && !targetSessionId) {
+      targetSessionId = agent?.harnessSessionId?.trim() || undefined;
+    }
+    if (session === "existing" && !targetSessionId) {
+      return c.json(
+        {
+          error:
+            "session 'existing' requires execution.targetSessionId or an agent with a resolvable session",
+        },
+        400,
+      );
+    }
+
+    // Sticky reuse of the same agentName is what makes M3/M4 "the same agent".
+    const persistence =
+      body.agent?.persistence === "one_time" ? "one_time" : "sticky";
+    const agentName =
+      optionalString(body.agent?.name)?.trim() || agent?.name?.trim() || undefined;
+    const displayName = optionalString(body.agent?.displayName)?.trim() || undefined;
+
+    const instructions = optionalString(body.seed?.instructions)?.trim();
+    const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();
+    const fromConversationId = optionalString(body.seed?.fromConversationId)?.trim();
+    const branchFrom = body.seed?.branchFrom;
+
+    const result = await askScoutQuestion({
+      senderId: resolveOperatorName().trim() || "operator",
+      ...(targetAgentId
+        ? { targetLabel: targetAgentId, targetAgentId }
+        : {
+            target: { kind: "project_path", projectPath: projectPath! },
+          }),
+      body: instructions && instructions.length > 0 ? instructions : "New session started.",
+      ...(harness ? { executionHarness: harness } : {}),
+      ...(model ? { executionModel: model } : {}),
+      ...(session ? { executionSession: session } : {}),
+      ...(targetSessionId ? { executionTargetSessionId: targetSessionId } : {}),
+      projectAgent: {
+        persistence,
+        ...(agentName ? { agentName } : {}),
+        ...(displayName ? { displayName } : {}),
+      },
+      currentDirectory: projectPath ?? currentDirectory,
+      source: "scout-session-initiation",
+    });
+
+    if (!result.usedBroker) {
+      return c.json({ error: "broker unreachable" }, 502);
+    }
+    if (result.unresolvedTarget) {
+      return c.json(
+        {
+          error: `could not start session: ${result.unresolvedTarget}`,
+          targetDiagnostic: result.targetDiagnostic ?? null,
+        },
+        409,
+      );
+    }
+
+    return c.json({
+      ok: true,
+      conversationId: result.conversationId ?? null,
+      messageId: result.messageId ?? null,
+      flightId: result.flight?.id ?? null,
+      agentId: result.flight?.targetAgentId ?? targetAgentId ?? null,
+      provenance:
+        fromMessageId || fromConversationId || branchFrom
+          ? {
+              fromMessageId: fromMessageId ?? null,
+              fromConversationId: fromConversationId ?? null,
+              branchFrom: branchFrom ?? null,
+            }
+          : null,
+    });
+  });
   app.get("/api/observe/agents", async (c) => {
     const ids = c.req.query("ids")
       ?.split(",")
@@ -3415,15 +3580,68 @@ export async function createOpenScoutWebServer(
     }
   });
 
+  // Ephemeral image attachments. Bytes are uploaded here, stored in a cache
+  // dir with a TTL, and handed back as an absolute URL that any consumer (the
+  // browser, the Mac app, or an agent) can fetch. Nothing lands in the DB.
+  app.post("/api/blobs", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      data?: string;
+      mediaType?: string;
+      fileName?: string;
+    } | null;
+    if (!body?.data || !body.mediaType) {
+      return c.json({ error: "data and mediaType are required" }, 400);
+    }
+    try {
+      const stored = await putImageBlob({
+        data: body.data,
+        mediaType: body.mediaType,
+        fileName: body.fileName,
+      });
+      const origin = options.publicOrigin?.trim() || new URL(c.req.url).origin;
+      return c.json({
+        id: stored.id,
+        url: `${origin.replace(/\/$/, "")}/api/blobs/${stored.id}`,
+        mediaType: stored.mediaType,
+        fileName: stored.fileName,
+        size: stored.size,
+      });
+    } catch (error) {
+      if (error instanceof ImageBlobError) {
+        return c.json({ error: error.message }, error.status as 400);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  app.get("/api/blobs/:id", (c) => {
+    const entry = getImageBlob(c.req.param("id"));
+    if (!entry) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const headers: Record<string, string> = {
+      "content-type": entry.mediaType,
+      "cache-control": "private, max-age=3600",
+      "content-length": String(entry.size),
+    };
+    if (entry.fileName) {
+      headers["content-disposition"] =
+        `inline; filename="${entry.fileName.replace(/"/g, "")}"`;
+    }
+    return new Response(Bun.file(entry.path), { headers });
+  });
+
   app.post("/api/send", async (c) => {
-    const { body, cId, conversationId, threadId } = (await c.req.json()) as {
+    const { body, cId, conversationId, threadId, attachments } = (await c.req.json()) as {
       body: string;
       cId?: string;
       conversationId?: string;
       threadId?: string;
+      attachments?: OutgoingAttachmentInput[];
     };
-    if (!body?.trim()) {
-      return c.json({ error: "body is required" }, 400);
+    if (!body?.trim() && !attachments?.length) {
+      return c.json({ error: "body or attachments are required" }, 400);
     }
 
     const routeCId = cId ?? conversationId;
@@ -3478,6 +3696,7 @@ export async function createOpenScoutWebServer(
         conversationId: routedConversationId,
         senderId,
         body: body.trim(),
+        attachments,
         currentDirectory,
         source: "scout-web",
       });
@@ -3491,6 +3710,7 @@ export async function createOpenScoutWebServer(
       senderId,
       body: body.trim(),
       ...(channel ? { channel } : {}),
+      attachments,
       currentDirectory,
     });
 

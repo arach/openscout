@@ -52,6 +52,12 @@ exists. Scout should still define its own adapter boundary so ACP, MCP stdio,
 OpenAI-compatible local processes, and Scout-native JSONL processes can be
 handled consistently.
 
+Current implementation note: `@openscout/agent-sessions` includes a concrete
+ACP stdio client adapter for launching ACP agents as subprocess-backed sessions.
+This proposal still defines the broader managed-process profile and runtime
+contract that should make ACP, MCP stdio, and Scout-native process adapters
+inspectable through one common configuration surface.
+
 ## Principles
 
 1. The broker does not spawn arbitrary processes directly; runtime adapters do.
@@ -215,8 +221,8 @@ approval.
 5. Map protocol updates into SCO-042 observed events.
 6. Add permission prompt ingress into durable unblock requests where the
    protocol supports it.
-7. Add ACP stdio as an adapter profile only after the generic contract is
-   proven.
+7. Align the existing ACP stdio adapter with the managed-process profile once
+   the generic contract is proven.
 
 ## Acceptance Criteria
 

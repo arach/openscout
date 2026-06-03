@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 
 import {
+  createAcpAdapter as createAcp,
   createClaudeCodeAdapter as createClaudeCode,
   createCodexAdapter as createCodex,
   createOpenAiCompatAdapter as createOpenAI,
@@ -30,6 +31,7 @@ export type StartedPairingRuntime = {
 export function createPairingAdapterRegistry(configAdapters?: Record<string, AdapterEntry>) {
   const adapters: Record<string, AdapterFactory> = {
     "claude-code": createClaudeCode,
+    acp: createAcp,
     codex: createCodex,
     pi: createPi,
     opencode: createOpenCode,

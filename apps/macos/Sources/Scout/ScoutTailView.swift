@@ -540,7 +540,7 @@ private struct ScoutTailRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .onHover { isHovering = $0 }
         .contextMenu {
             Button("Copy event ID") {
@@ -779,7 +779,7 @@ private struct ScoutTailFilterMenu<MenuItems: View>: View {
             )
         }
         .menuStyle(.borderlessButton)
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.10), value: isHovering)
     }
@@ -813,7 +813,7 @@ private struct ScoutTailToolbarButton: View {
                     .stroke(isActive ? HudSurface.tintBorder(HudPalette.accent) : ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .help(title)
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.10), value: isHovering)
@@ -842,7 +842,7 @@ private struct ScoutTailIconButton: View {
                         .stroke(isHovering ? ScoutDesign.hairlineStrong : ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).scoutPointerCursor()
         .help(title)
         .accessibilityLabel(title)
         .onHover { isHovering = $0 }

@@ -151,7 +151,7 @@ struct ScoutObserveSidecarPanel: View {
                     Image(systemName: "arrow.clockwise")
                         .font(HudFont.ui(11, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).scoutPointerCursor()
                 .foregroundStyle(HudPalette.muted)
                 .help("Reload observe")
 
@@ -159,7 +159,7 @@ struct ScoutObserveSidecarPanel: View {
                     Image(systemName: "sidebar.right")
                         .font(HudFont.ui(12, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).scoutPointerCursor()
                 .foregroundStyle(HudPalette.muted)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())

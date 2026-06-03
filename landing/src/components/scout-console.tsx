@@ -247,7 +247,7 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
       </div>
 
       <div className="scout-console__tabs" role="tablist">
-        {(["thread", "resolve", "send"] as Tab[]).map((t) => (
+        {(["thread", "resolve", "send"] as Tab[]).map((t, i) => (
           <button
             key={t}
             type="button"
@@ -257,7 +257,7 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
             onClick={() => setTab(t)}
           >
             <span className="scout-console__tab-mark" aria-hidden>
-              {tab === t ? "▸" : "·"}
+              {i + 1}
             </span>
             <span className="scout-console__tab-label">{t}</span>
           </button>
@@ -407,6 +407,21 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
           </div>
         )}
         </div>
+      </div>
+
+      <div className="scout-console__cmdbar" aria-hidden>
+        <span className="scout-console__cmdbar-field">
+          <span className="scout-console__cmdbar-glyph" />
+          <span className="scout-console__cmdbar-hint">
+            talk — <span className="scout-console__cmdbar-cue">/</span> commands ·{" "}
+            <span className="scout-console__cmdbar-cue">/s</span> search
+          </span>
+          <span className="scout-console__cmdbar-caret" />
+        </span>
+        <span className="scout-console__cmdbar-send">
+          send
+          <kbd>⏎</kbd>
+        </span>
       </div>
     </div>
   );

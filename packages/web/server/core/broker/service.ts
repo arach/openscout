@@ -28,6 +28,7 @@ import {
   type NodeDefinition,
   type AgentSelector,
   type AgentSelectorCandidate,
+  type MessageAttachment,
   type MessageRecord,
   type ScoutDeliverResponse,
   type ScoutDispatchRecord,
@@ -1598,12 +1599,52 @@ async function ensureBrokerDirectConversationBetween(
   };
 }
 
+/** Input shape for an attachment supplied by a caller (HTTP / MCP). */
+export type OutgoingAttachmentInput = {
+  id?: string;
+  mediaType: string;
+  fileName?: string;
+  blobKey?: string;
+  url?: string;
+};
+
+/**
+ * Validate caller-supplied attachments and mint ids where absent. Drops any
+ * attachment lacking a media type or a way to fetch it (url/blobKey). Returns
+ * undefined when nothing usable remains, to keep the broker payload clean.
+ */
+export function normalizeOutgoingAttachments(
+  attachments: OutgoingAttachmentInput[] | undefined,
+): MessageAttachment[] | undefined {
+  if (!attachments?.length) {
+    return undefined;
+  }
+  const normalized: MessageAttachment[] = [];
+  for (const attachment of attachments) {
+    const mediaType = attachment?.mediaType?.trim();
+    const url = attachment?.url?.trim();
+    const blobKey = attachment?.blobKey?.trim();
+    if (!mediaType || (!url && !blobKey)) {
+      continue;
+    }
+    normalized.push({
+      id: attachment.id?.trim() || `att-${randomUUID()}`,
+      mediaType,
+      fileName: attachment.fileName?.trim() || undefined,
+      url: url || undefined,
+      blobKey: blobKey || undefined,
+    });
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export async function sendScoutMessage(input: {
   senderId: string;
   body: string;
   channel?: string;
   explicitTargetAgentIds?: string[];
   shouldSpeak?: boolean;
+  attachments?: OutgoingAttachmentInput[];
   createdAtMs?: number;
   executionHarness?: AgentHarness;
   currentDirectory?: string;
@@ -1779,6 +1820,7 @@ export async function sendScoutMessage(input: {
       .filter((target) => validTargets.includes(target.agentId))
       .map((target) => ({ actorId: target.agentId, label: target.label })),
     speech: speechText ? { text: speechText } : undefined,
+    attachments: normalizeOutgoingAttachments(input.attachments),
     audience: validTargets.length > 0 ? { notify: validTargets, reason: "mention" } : undefined,
     visibility: conversation.visibility,
     policy: "durable",
@@ -1823,6 +1865,7 @@ export async function sendScoutConversationMessage(input: {
   conversationId: string;
   senderId: string;
   body: string;
+  attachments?: OutgoingAttachmentInput[];
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
@@ -1894,6 +1937,7 @@ export async function sendScoutConversationMessage(input: {
     mentions: mentionResolution.resolved
       .filter((target) => validTargets.includes(target.agentId))
       .map((target) => ({ actorId: target.agentId, label: target.label })),
+    attachments: normalizeOutgoingAttachments(input.attachments),
     audience: validTargets.length > 0 ? { notify: validTargets, reason: "mention" } : undefined,
     visibility: conversation.visibility,
     policy: "durable",
@@ -2105,6 +2149,7 @@ export async function askScoutQuestion(input: {
   executionHarness?: AgentHarness;
   executionModel?: string;
   executionSession?: "new" | "existing" | "any";
+  executionTargetSessionId?: string;
   projectAgent?: ScoutProjectAgentSpec;
   currentDirectory?: string;
   source?: string;
@@ -2164,6 +2209,9 @@ export async function askScoutQuestion(input: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
       ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
       session: input.executionSession ?? "new",
+      ...(input.executionTargetSessionId?.trim()
+        ? { targetSessionId: input.executionTargetSessionId.trim() }
+        : {}),
     },
     ...(input.projectAgent ? { projectAgent: input.projectAgent } : {}),
     ensureAwake: true,
