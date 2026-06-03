@@ -309,10 +309,12 @@ struct MobileAgentSummary: Codable, Sendable {
     let lastActiveAt: Int?
 
     func toSummary() -> AgentSummary {
+        // The broker's mobile agent vocab is offline | available | working
+        // (broker-daemon.ts). Older aliases kept as a safety net.
         let mappedState: AgentSummary.State
         switch state.lowercased() {
-        case "live", "active", "online": mappedState = .live
-        case "idle": mappedState = .idle
+        case "working", "live", "active", "online": mappedState = .live
+        case "available", "idle", "waiting": mappedState = .idle
         case "offline": mappedState = .offline
         default: mappedState = .unknown
         }
