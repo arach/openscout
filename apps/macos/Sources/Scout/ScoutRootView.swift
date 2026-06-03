@@ -96,10 +96,10 @@ struct ScoutRootView: View {
                 collapseLabelWidth: 44,
                 railHeader: {
                     Text("S")
-                        .font(HudFont.mono(13, weight: .bold))
+                        .font(HudFont.mono(HudTextSize.base, weight: .bold))
                         .foregroundStyle(HudPalette.bg)
                         .frame(width: 24, height: 24)
-                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(manifest.accent))
+                        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(manifest.accent))
                 },
                 labelHeader: {
                     Text("Scout")
@@ -470,7 +470,7 @@ struct ScoutRootView: View {
     private var chatHeader: some View {
         HStack(spacing: HudSpacing.md) {
             Text(store.selectedChannel?.displayHandle ?? "Scout")
-                .font(HudFont.ui(18, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
                 .foregroundStyle(HudPalette.ink)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -598,7 +598,7 @@ struct ScoutRootView: View {
 
             if let status = composerStatusText {
                 Text(status)
-                    .font(HudFont.mono(9))
+                    .font(HudFont.mono(HudTextSize.micro))
                     .foregroundStyle(HudPalette.dim)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -668,7 +668,7 @@ struct ScoutRootView: View {
             ZStack(alignment: .topLeading) {
                 TextField(showDictationPreview ? "" : composerPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(HudFont.mono(11))
+                    .font(HudFont.mono(HudTextSize.xs))
                     .foregroundStyle(HudPalette.ink)
                     // Accent caret to match the HUD (not the system blue), and
                     // hidden while dictating so the waveform is the only cue.
@@ -716,7 +716,7 @@ struct ScoutRootView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.top, 5)
+            .padding(.top, HudSpacing.sm)
             .padding(.bottom, 3)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
@@ -756,7 +756,7 @@ struct ScoutRootView: View {
     private var composerAttachButton: some View {
         Button(action: presentImagePicker) {
             Image(systemName: "paperclip")
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: HudTextSize.lgm, weight: .medium))
                 .foregroundStyle(HudPalette.muted)
                 .frame(width: 34, height: 34)
                 .contentShape(Rectangle())
@@ -774,7 +774,7 @@ struct ScoutRootView: View {
                 }
             }
             .padding(.horizontal, HudSpacing.xs)
-            .padding(.vertical, 2)
+            .padding(.vertical, HudSpacing.xxs)
         }
     }
 
@@ -791,12 +791,12 @@ struct ScoutRootView: View {
                 }
             }
             .frame(width: 52, height: 52)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                     .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
             .onTapGesture { previewImage = image }
             .help("Click to preview")
 
@@ -804,7 +804,7 @@ struct ScoutRootView: View {
                 pendingImages.removeAll { $0.id == image.id }
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: HudTextSize.md))
                     .foregroundStyle(.white, .black.opacity(0.55))
             }
             .buttonStyle(.plain).scoutPointerCursor()
@@ -1505,60 +1505,60 @@ struct ScoutRootView: View {
         HStack(spacing: HudSpacing.xl) {
             HudStatusDot(color: store.lastError == nil ? HudPalette.statusOk : HudPalette.statusError)
             Text("SCOUT")
-                .font(HudFont.mono(10, weight: .bold))
+                .font(HudFont.mono(HudTextSize.xxs, weight: .bold))
                 .tracking(1.4)
                 .foregroundStyle(HudPalette.muted)
 
             Text("·")
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(HudPalette.dim)
 
             Text("\(store.channels.count) cIds")
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(HudPalette.muted)
 
             Text("·")
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(HudPalette.dim)
 
             Text("\(store.agents.count) agents")
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(HudPalette.muted)
 
             Text("·")
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(HudPalette.dim)
 
             Text("\(tail.events.count) tail")
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(HudPalette.muted)
 
             if let error = store.lastError {
                 Text("·")
-                    .font(HudFont.mono(10))
+                    .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.dim)
                 Text(error)
-                    .font(HudFont.mono(10))
+                    .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.statusError)
                     .lineLimit(1)
             }
 
             if let error = store.observeError {
                 Text("·")
-                    .font(HudFont.mono(10))
+                    .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.dim)
                 Text(error)
-                    .font(HudFont.mono(10))
+                    .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.statusError)
                     .lineLimit(1)
             }
 
             if let error = tail.lastError {
                 Text("·")
-                    .font(HudFont.mono(10))
+                    .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.dim)
                 Text(error)
-                    .font(HudFont.mono(10))
+                    .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.statusError)
                     .lineLimit(1)
             }
@@ -1739,7 +1739,7 @@ private struct ScoutConversationListBar: View {
     private var header: some View {
         HStack(spacing: HudSpacing.md) {
             Text("Conversations")
-                .font(HudFont.ui(13, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                 .foregroundStyle(HudPalette.ink)
                 .lineLimit(1)
 
@@ -1753,15 +1753,15 @@ private struct ScoutConversationListBar: View {
             Button(action: onNewConversation) {
                 HStack(spacing: HudSpacing.xs) {
                     Image(systemName: "square.and.pencil")
-                        .font(HudFont.ui(11, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
                     Text("New")
-                        .font(HudFont.ui(11, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
                 }
                 .foregroundStyle(HudPalette.accent)
                 .padding(.horizontal, HudSpacing.md)
                 .padding(.vertical, HudSpacing.xs)
                 .background(Capsule().fill(HudSurface.tintGhost(HudPalette.accent)))
-                .overlay(Capsule().stroke(HudSurface.tintBorder(HudPalette.accent), lineWidth: 1))
+                .overlay(Capsule().stroke(HudSurface.tintBorder(HudPalette.accent), lineWidth: HudStrokeWidth.standard))
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain).scoutPointerCursor()
@@ -1788,7 +1788,7 @@ private struct ScoutConversationListBar: View {
             VStack(spacing: HudSpacing.md) {
                 ProgressView()
                 Text("Loading channels")
-                    .font(HudFont.mono(10))
+                    .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.dim)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1828,13 +1828,13 @@ private struct ScoutConversationFilterControl: View {
     @Binding var selection: ScoutChannelFilter
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: HudSpacing.xxs) {
             ForEach(ScoutChannelFilter.allCases) { option in
                 Button {
                     selection = option
                 } label: {
                     Image(systemName: option.icon)
-                        .font(HudFont.ui(11, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
                         .foregroundStyle(selection == option ? HudPalette.ink : HudPalette.muted)
                         .frame(width: 30, height: 24)
                         .background(
@@ -1847,7 +1847,7 @@ private struct ScoutConversationFilterControl: View {
                 .help(option.title)
             }
         }
-        .padding(2)
+        .padding(HudSpacing.xxs)
         .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
         .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
     }
@@ -1865,7 +1865,7 @@ private struct ScoutConversationRow: View {
         Button(action: action) {
             HStack(alignment: .top, spacing: HudSpacing.md) {
                 Image(systemName: channel.scope == .direct ? "person.crop.circle" : "number")
-                    .font(HudFont.ui(13, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                     .foregroundStyle(isSelected ? HudPalette.accent : HudPalette.muted)
                     .frame(width: 20, height: 20)
                     .padding(.top, 1)
@@ -1873,32 +1873,32 @@ private struct ScoutConversationRow: View {
                 VStack(alignment: .leading, spacing: HudSpacing.xs) {
                     HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
                         Text(channel.rowTitle)
-                            .font(HudFont.ui(13, weight: isSelected ? .semibold : .medium))
+                            .font(HudFont.ui(HudTextSize.base, weight: isSelected ? .semibold : .medium))
                             .foregroundStyle(HudPalette.ink)
                             .lineLimit(1)
 
                         Spacer(minLength: HudSpacing.sm)
 
                         Text(channel.ageLabel)
-                            .font(HudFont.mono(8))
+                            .font(HudFont.mono(HudTextSize.micro))
                             .foregroundStyle(HudPalette.dim)
                             .lineLimit(1)
                     }
 
                     Text(channel.preview?.nilIfEmpty ?? channel.participantDisplayNames.joined(separator: " + "))
-                        .font(HudFont.ui(11))
+                        .font(HudFont.ui(HudTextSize.xs))
                         .foregroundStyle(HudPalette.muted)
                         .lineLimit(2)
 
                     HStack(spacing: HudSpacing.sm) {
                         Text(channel.cIdShort)
-                            .font(HudFont.mono(8))
+                            .font(HudFont.mono(HudTextSize.micro))
                             .foregroundStyle(HudPalette.dim)
                             .lineLimit(1)
                         Spacer(minLength: 0)
                         if channel.messageCount > 0 {
                             Text("\(channel.messageCount)")
-                                .font(HudFont.mono(8, weight: .semibold))
+                                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                                 .foregroundStyle(HudPalette.dim)
                         }
                     }
@@ -1958,7 +1958,7 @@ private struct ScoutSidebarSettingsButton: View {
         Button(action: action) {
             HStack(spacing: 0) {
                 Image(systemName: isHovering ? "gearshape.fill" : "gearshape")
-                    .font(HudFont.ui(13, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                     .foregroundStyle(isHovering ? HudPalette.ink : HudPalette.muted)
                     .frame(width: HudSidebarLayout.railWidth, height: 32)
 
@@ -2121,7 +2121,7 @@ private struct ScoutChannelPicker: View {
                     VStack(spacing: HudSpacing.md) {
                         ProgressView()
                         Text("Loading")
-                            .font(HudFont.mono(9))
+                            .font(HudFont.mono(HudTextSize.micro))
                             .foregroundStyle(HudPalette.dim)
                     }
                     .frame(maxWidth: .infinity)
@@ -2160,17 +2160,17 @@ private struct ScoutCompactChannelRow: View {
         Button(action: action) {
             HStack(spacing: HudSpacing.md) {
                 Image(systemName: channel.scope == .direct ? "person.crop.circle" : "number")
-                    .font(HudFont.ui(12, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                     .foregroundStyle(isSelected ? HudPalette.accent : HudPalette.muted)
                     .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: HudSpacing.xxs) {
                     Text(channel.rowTitle)
-                        .font(HudFont.ui(12, weight: isSelected ? .semibold : .medium))
+                        .font(HudFont.ui(HudTextSize.sm, weight: isSelected ? .semibold : .medium))
                         .foregroundStyle(HudPalette.ink)
                         .lineLimit(1)
                     Text(channel.preview?.nilIfEmpty ?? channel.cIdShort)
-                        .font(HudFont.mono(9))
+                        .font(HudFont.mono(HudTextSize.micro))
                         .foregroundStyle(HudPalette.dim)
                         .lineLimit(1)
                 }
@@ -2179,14 +2179,14 @@ private struct ScoutCompactChannelRow: View {
 
                 if channel.messageCount > 0 {
                     Text("\(channel.messageCount)")
-                        .font(HudFont.mono(9, weight: .semibold))
+                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                         .foregroundStyle(HudPalette.dim)
                 }
             }
             .padding(.horizontal, HudSpacing.md)
             .padding(.vertical, HudSpacing.md)
             .background(RoundedRectangle(cornerRadius: HudRadius.standard).fill(isSelected ? HudSurface.selected(HudPalette.accent) : HudSurface.inset))
-            .overlay(RoundedRectangle(cornerRadius: HudRadius.standard).stroke(isSelected ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.subtle, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: HudRadius.standard).stroke(isSelected ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.subtle, lineWidth: HudStrokeWidth.standard))
         }
         .buttonStyle(.plain).scoutPointerCursor()
     }
@@ -2211,7 +2211,7 @@ private struct ScoutMemberStrip: View {
                 }
             }
             Text(members.map(\.name).joined(separator: " + "))
-                .font(HudFont.ui(11, weight: .medium))
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
                 .foregroundStyle(HudPalette.muted)
                 .lineLimit(1)
         }
@@ -2234,7 +2234,7 @@ private struct ScoutMemberStrip: View {
 
     private func avatarGlyph(for member: ScoutMemberIdentity) -> some View {
         Text(member.name.first.map { String($0).uppercased() } ?? "?")
-            .font(HudFont.mono(8, weight: .bold))
+            .font(HudFont.mono(HudTextSize.micro, weight: .bold))
             .foregroundStyle(HudPalette.bg)
             .frame(width: 18, height: 18)
             .background(Circle().fill(memberTint(member.name)))
@@ -2276,7 +2276,7 @@ private struct ScoutMessageRow: View {
                 HStack(spacing: HudSpacing.md) {
                     actorChip
                     Text(ScoutRelativeTime.format(message.createdAt))
-                        .font(HudFont.mono(9))
+                        .font(HudFont.mono(HudTextSize.micro))
                         .foregroundStyle(HudPalette.dim)
                 }
                 ScoutMarkdownView(text: message.body, baseDirectory: baseDirectory)
@@ -2289,7 +2289,7 @@ private struct ScoutMessageRow: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.card)
-                    .stroke(message.isOperator ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: 1)
+                    .stroke(message.isOperator ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.standard)
             )
             .contextMenu {
                 Button {
@@ -2348,10 +2348,10 @@ private struct ScoutMessageRow: View {
     private var actorLabel: some View {
         HStack(spacing: HudSpacing.xs) {
             Text(message.actorName.uppercased())
-                .font(HudFont.mono(9, weight: .bold))
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
             if agent != nil {
                 Image(systemName: "info.circle")
-                    .font(HudFont.ui(9, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
             }
         }
         .foregroundStyle(message.isOperator ? HudPalette.accent : (agent == nil ? HudPalette.muted : HudPalette.accent))
@@ -2367,7 +2367,7 @@ private struct ScoutAgentHoverCard: View {
         VStack(alignment: .leading, spacing: HudSpacing.sm) {
             HStack(spacing: HudSpacing.sm) {
                 Text(agent.displayName)
-                    .font(HudFont.ui(12, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                     .foregroundStyle(HudPalette.ink)
                     .lineLimit(1)
                 Spacer(minLength: HudSpacing.sm)
@@ -2376,7 +2376,7 @@ private struct ScoutAgentHoverCard: View {
 
             if !agent.detail.isEmpty {
                 Text(agent.detail)
-                    .font(HudFont.ui(10))
+                    .font(HudFont.ui(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.muted)
                     .lineLimit(1)
             }
@@ -2385,7 +2385,7 @@ private struct ScoutAgentHoverCard: View {
                 Label(agent.branchLabel, systemImage: "arrow.triangle.branch")
                 Label(agent.updatedLabel, systemImage: "clock")
             }
-            .font(HudFont.mono(8))
+            .font(HudFont.mono(HudTextSize.micro))
             .foregroundStyle(HudPalette.dim)
             .lineLimit(1)
         }
@@ -2442,21 +2442,21 @@ struct ScoutMarkdownView: View {
         switch block.kind {
         case .heading(let level):
             Text(inline(block.text))
-                .font(HudFont.ui(level == 1 ? 16 : 14, weight: .semibold))
+                .font(HudFont.ui(level == 1 ? HudTextSize.lg : HudTextSize.md, weight: .semibold))
                 .foregroundStyle(HudPalette.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, level == 1 ? HudSpacing.xs : 0)
 
         case .paragraph:
             Text(inline(block.text))
-                .font(HudFont.ui(13))
+                .font(HudFont.ui(HudTextSize.base))
                 .foregroundStyle(HudPalette.ink)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
 
         case .blockquote:
             Text(inline(block.text))
-                .font(HudFont.ui(12))
+                .font(HudFont.ui(HudTextSize.sm))
                 .foregroundStyle(HudPalette.muted)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2472,11 +2472,11 @@ struct ScoutMarkdownView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .top, spacing: HudSpacing.md) {
                         Text(ordered ? "\(index + 1)." : "-")
-                            .font(HudFont.mono(12, weight: .semibold))
+                            .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
                             .foregroundStyle(HudPalette.accent)
                             .frame(width: ordered ? 24 : 10, alignment: .trailing)
                         Text(inline(item))
-                            .font(HudFont.ui(13))
+                            .font(HudFont.ui(HudTextSize.base))
                             .foregroundStyle(HudPalette.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -2506,8 +2506,8 @@ struct ScoutMarkdownView: View {
 
 private extension MessageCodeBlockStyle {
     static let scout = MessageCodeBlockStyle(
-        labelFont: HudFont.mono(8, weight: .bold),
-        codeFont: HudFont.mono(11),
+        labelFont: HudFont.mono(HudTextSize.micro, weight: .bold),
+        codeFont: HudFont.mono(HudTextSize.xs),
         labelColor: HudPalette.dim,
         codeColor: HudPalette.ink,
         backgroundColor: HudSurface.inset,
@@ -2523,8 +2523,8 @@ private extension MessageCodeBlockStyle {
 
 private extension MessageSendChipStyle {
     static let scout = MessageSendChipStyle(
-        keyFont: HudFont.mono(10, weight: .semibold),
-        titleFont: HudFont.mono(10, weight: .semibold),
+        keyFont: HudFont.mono(HudTextSize.xxs, weight: .semibold),
+        titleFont: HudFont.mono(HudTextSize.xxs, weight: .semibold),
         tracking: 1.4,
         enabledColor: HudPalette.accent,
         hoverColor: HudPalette.ink,
@@ -2536,10 +2536,10 @@ private extension MessageSendChipStyle {
 
 private extension MessageSuggestionPopoverStyle {
     static let scout = MessageSuggestionPopoverStyle(
-        eyebrowFont: HudFont.mono(10, weight: .bold),
-        markFont: HudFont.mono(9, weight: .bold),
-        labelFont: HudFont.mono(11, weight: .semibold),
-        detailFont: HudFont.ui(10),
+        eyebrowFont: HudFont.mono(HudTextSize.xxs, weight: .bold),
+        markFont: HudFont.mono(HudTextSize.micro, weight: .bold),
+        labelFont: HudFont.mono(HudTextSize.xs, weight: .semibold),
+        detailFont: HudFont.ui(HudTextSize.xxs),
         eyebrowColor: HudPalette.dim,
         commandAccent: HudPalette.accent,
         agentAccent: HudPalette.ink,
@@ -2581,7 +2581,7 @@ struct ScoutDictationPreview: View {
         // Live partial transcript only — no blinking caret. The recording cue
         // is the waveform near the mic; the textual state lives in the status row.
         Text(displayText)
-            .font(HudFont.mono(11))
+            .font(HudFont.mono(HudTextSize.xs))
             .foregroundStyle(HudPalette.muted)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -2626,7 +2626,7 @@ private struct ScoutSendButton: View {
                 .tint(HudPalette.dim)
         } else {
             Image(systemName: "paperplane.fill")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: HudTextSize.base, weight: .semibold))
                 .foregroundStyle(iconColor)
                 .offset(x: -1, y: 1)
         }
@@ -2671,7 +2671,7 @@ private struct ScoutWaveform: View {
     private let durations: [Double] = [0.50, 0.62, 0.44, 0.70, 0.54]
 
     var body: some View {
-        HStack(alignment: .center, spacing: 2) {
+        HStack(alignment: .center, spacing: HudSpacing.xxs) {
             ForEach(lows.indices, id: \.self) { i in
                 Capsule(style: .continuous)
                     .fill(tint.opacity(0.85))
@@ -2826,7 +2826,7 @@ private struct ScoutMarkdownTable: View {
         HStack(spacing: 0) {
             ForEach(0..<max(headers.count, cells.count), id: \.self) { index in
                 Text(inline(cells.indices.contains(index) ? cells[index] : ""))
-                    .font(isHeader ? HudFont.mono(10, weight: .bold) : HudFont.ui(12))
+                    .font(isHeader ? HudFont.mono(HudTextSize.xxs, weight: .bold) : HudFont.ui(HudTextSize.sm))
                     .foregroundStyle(isHeader ? HudPalette.muted : HudPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: 136, alignment: .leading)
@@ -2863,7 +2863,7 @@ private struct ScoutAgentCard: View {
                             .foregroundStyle(HudPalette.ink)
                             .lineLimit(1)
                         Text(agent.id)
-                            .font(HudFont.mono(10))
+                            .font(HudFont.mono(HudTextSize.xxs))
                             .foregroundStyle(HudPalette.dim)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -2874,7 +2874,7 @@ private struct ScoutAgentCard: View {
 
                 if !agent.detail.isEmpty {
                     Text(agent.detail)
-                        .font(HudFont.ui(12))
+                        .font(HudFont.ui(HudTextSize.sm))
                         .foregroundStyle(HudPalette.muted)
                         .lineLimit(2)
                 }
@@ -2920,7 +2920,7 @@ private struct ScoutAmbientGlow: View {
             // Rim light bleeding in from behind the panel's edges. The stroke's
             // outward blur is clipped at the panel bound, leaving an inner halo.
             Rectangle()
-                .stroke(Color.white.opacity(0.12), lineWidth: 2)
+                .stroke(Color.white.opacity(0.12), lineWidth: HudStrokeWidth.bold)
                 .blur(radius: 11)
 
             // The source sits behind-and-above: a brighter bloom hugging the top.
@@ -2952,7 +2952,7 @@ private struct ScoutDepthModifier: ViewModifier {
                                 startPoint: .top,
                                 endPoint: .bottom
                             ),
-                            lineWidth: 1
+                            lineWidth: HudStrokeWidth.standard
                         )
                         .allowsHitTesting(false)
                 }
@@ -3031,15 +3031,15 @@ private struct ScoutDesignPreviewPanel: View {
             } label: {
                 HStack(spacing: HudSpacing.sm) {
                     Image(systemName: "sparkles")
-                        .font(HudFont.ui(10, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
                         .foregroundStyle(anyOn ? HudPalette.accent : HudPalette.muted)
                     Text("DESIGN")
-                        .font(HudFont.mono(9, weight: .bold))
+                        .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                         .tracking(1.5)
                         .foregroundStyle(HudPalette.muted)
                     Spacer(minLength: HudSpacing.lg)
                     Image(systemName: expanded ? "chevron.down" : "chevron.up")
-                        .font(HudFont.ui(8, weight: .bold))
+                        .font(HudFont.ui(HudTextSize.micro, weight: .bold))
                         .foregroundStyle(HudPalette.dim)
                 }
                 .contentShape(Rectangle())
@@ -3057,7 +3057,7 @@ private struct ScoutDesignPreviewPanel: View {
         .padding(.vertical, HudSpacing.md)
         .frame(width: expanded ? 168 : nil)
         .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudPalette.surface))
-        .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(HudHairline.standard, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
         .shadow(color: Color.black.opacity(0.4), radius: 16, x: 0, y: 8)
     }
 
@@ -3066,7 +3066,7 @@ private struct ScoutDesignPreviewPanel: View {
     private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
         HStack(spacing: HudSpacing.sm) {
             Text(title)
-                .font(HudFont.ui(11, weight: .medium))
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
                 .foregroundStyle(HudPalette.ink)
             Spacer(minLength: HudSpacing.md)
             Toggle("", isOn: isOn)
@@ -3132,13 +3132,13 @@ private struct ScoutAgentInspector: View {
         Button(action: openProfile) {
             HStack(alignment: .top, spacing: HudSpacing.md) {
                 avatar
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: HudSpacing.xxs) {
                     Text(agent.displayName)
-                        .font(HudFont.ui(16, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
                         .foregroundStyle(HudPalette.ink)
                         .lineLimit(1)
                     Text(agent.id)
-                        .font(HudFont.mono(9))
+                        .font(HudFont.mono(HudTextSize.micro))
                         .foregroundStyle(HudPalette.dim)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -3153,7 +3153,7 @@ private struct ScoutAgentInspector: View {
 
     private var avatar: some View {
         Text(String(agent.displayName.first.map(String.init) ?? "?").uppercased())
-            .font(HudFont.mono(11, weight: .bold))
+            .font(HudFont.mono(HudTextSize.xs, weight: .bold))
             .foregroundStyle(HudPalette.bg)
             .frame(width: 30, height: 30)
             .background(Circle().fill(HudPalette.muted))
@@ -3161,7 +3161,7 @@ private struct ScoutAgentInspector: View {
                 Circle()
                     .fill(agent.state.tint)
                     .frame(width: 9, height: 9)
-                    .overlay(Circle().stroke(HudPalette.surface, lineWidth: 2))
+                    .overlay(Circle().stroke(HudPalette.surface, lineWidth: HudStrokeWidth.bold))
             }
     }
 
@@ -3230,19 +3230,19 @@ private struct ScoutObserveChip: View {
         Button(action: action) {
             HStack(spacing: HudSpacing.xs) {
                 Image(systemName: "eye")
-                    .font(HudFont.ui(10, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
                 Text("OBSERVE")
-                    .font(HudFont.mono(9, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
             }
             .foregroundStyle(hovering ? HudPalette.statusOk : HudPalette.muted)
             .padding(.horizontal, HudSpacing.sm)
-            .padding(.vertical, 4)
+            .padding(.vertical, HudSpacing.xs)
             .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                     .fill(hovering ? HudPalette.statusOk.opacity(0.12) : HudSurface.inset)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                     .stroke(hovering ? HudPalette.statusOk.opacity(0.5) : Color.white.opacity(0.22), lineWidth: HudStrokeWidth.thin)
             )
             .contentShape(Rectangle())
@@ -3263,9 +3263,9 @@ private struct ScoutNewSessionLink: View {
         Button(action: action) {
             HStack(spacing: HudSpacing.xs) {
                 Image(systemName: "plus")
-                    .font(HudFont.ui(9, weight: .bold))
+                    .font(HudFont.ui(HudTextSize.micro, weight: .bold))
                 Text("NEW SESSION")
-                    .font(HudFont.mono(10, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
             }
             .foregroundStyle(hovering ? HudPalette.accent : HudPalette.muted)
             .contentShape(Rectangle())
@@ -3352,22 +3352,22 @@ private struct ScoutAgentPreviewPanel: View {
         ScoutColumnHeader(horizontalPadding: HudSpacing.lg) {
             HStack(spacing: HudSpacing.md) {
                 Image(systemName: "person.crop.circle")
-                    .font(HudFont.ui(12, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                     .foregroundStyle(HudPalette.accent)
                     .frame(width: 22, height: 22)
-                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(HudPalette.accentSoft))
+                    .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudPalette.accentSoft))
                 HudSectionLabel("Agent")
             }
         } secondary: {
             Text(agent.displayName)
-                .font(HudFont.ui(13, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                 .foregroundStyle(HudPalette.ink)
                 .lineLimit(1)
                 .truncationMode(.tail)
         } trailing: {
             Button(action: onClose) {
                 Image(systemName: "sidebar.right")
-                    .font(HudFont.ui(12, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
             }
             .buttonStyle(.plain).scoutPointerCursor()
             .foregroundStyle(HudPalette.muted)
@@ -3422,16 +3422,16 @@ private struct ScoutAgentAbilityRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: HudSpacing.md) {
             Image(systemName: ability.icon)
-                .font(HudFont.ui(11, weight: .medium))
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
                 .foregroundStyle(HudPalette.muted)
                 .frame(width: 22, height: 22)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(HudPalette.surface))
+                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudPalette.surface))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                         .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
                 )
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: HudSpacing.xxs) {
                 Text(ability.title)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                     .foregroundStyle(HudPalette.ink)
@@ -3555,7 +3555,7 @@ private struct ScoutChannelInspector: View {
                 VStack(alignment: .leading, spacing: HudSpacing.md) {
                     HudSectionLabel(channel.scope == .direct ? "Direct message" : "Channel")
                     Text(channel.displayHandle)
-                        .font(HudFont.ui(18, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
                         .foregroundStyle(HudPalette.ink)
                 }
             }

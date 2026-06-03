@@ -121,24 +121,24 @@ struct ScoutObserveSidecarPanel: View {
         ScoutColumnHeader(horizontalPadding: panelWidth > 120 ? HudSpacing.lg : HudSpacing.sm) {
             if panelWidth <= 120 {
                 Image(systemName: phase == .snapping ? "eye.circle.fill" : "eye.fill")
-                    .font(HudFont.ui(13, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                     .foregroundStyle(HudPalette.accent)
                     .frame(maxWidth: .infinity)
                     .help("Observe")
             } else {
                 HStack(spacing: HudSpacing.md) {
                     Image(systemName: "eye")
-                        .font(HudFont.ui(12, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                         .foregroundStyle(HudPalette.accent)
                         .frame(width: 22, height: 22)
-                        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(HudPalette.accentSoft))
+                        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudPalette.accentSoft))
                     HudSectionLabel("Observe")
                 }
             }
         } secondary: {
             if panelWidth > 120 {
                 Text(agent.displayName)
-                    .font(HudFont.ui(13, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                     .foregroundStyle(HudPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -149,7 +149,7 @@ struct ScoutObserveSidecarPanel: View {
                 HudButton("Open Web", icon: "safari", style: .ghost, action: onOpenWeb)
                 Button(action: reload) {
                     Image(systemName: "arrow.clockwise")
-                        .font(HudFont.ui(11, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
                 }
                 .buttonStyle(.plain).scoutPointerCursor()
                 .foregroundStyle(HudPalette.muted)
@@ -157,7 +157,7 @@ struct ScoutObserveSidecarPanel: View {
 
                 Button(action: onClose) {
                     Image(systemName: "sidebar.right")
-                        .font(HudFont.ui(12, weight: .semibold))
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                 }
                 .buttonStyle(.plain).scoutPointerCursor()
                 .foregroundStyle(HudPalette.muted)
@@ -240,21 +240,21 @@ private struct ScoutObserveSidecarMaterializingView: View {
                 }
                 .allowsHitTesting(false)
 
-                VStack(spacing: 12) {
+                VStack(spacing: HudSpacing.xl) {
                     ZStack {
                         ForEach(0..<3, id: \.self) { index in
                             let wave = ringWave(tick, index: index)
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(HudPalette.accent.opacity((isSnapping ? 0.34 : 0.22) * (1.0 - wave)), lineWidth: 1)
+                                .stroke(HudPalette.accent.opacity((isSnapping ? 0.34 : 0.22) * (1.0 - wave)), lineWidth: HudStrokeWidth.standard)
                                 .frame(width: 40 + 18 * wave, height: 40 + 18 * wave)
                         }
 
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                             .fill(isSnapping ? HudPalette.accentSoft : HudPalette.accent.opacity(0.08))
                             .frame(width: 38, height: 38)
                             .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(isSnapping ? HudPalette.accent : HudPalette.accent.opacity(0.25), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                                    .stroke(isSnapping ? HudPalette.accent : HudPalette.accent.opacity(0.25), lineWidth: HudStrokeWidth.standard)
                             )
                             .shadow(color: HudPalette.accent.opacity(isSnapping ? 0.24 : 0.12), radius: isSnapping ? 18 : 10)
 
@@ -269,9 +269,9 @@ private struct ScoutObserveSidecarMaterializingView: View {
                     PixelDither(phase: tick, isSnapping: isSnapping)
                         .frame(width: 34, height: 22)
 
-                    VStack(spacing: 4) {
+                    VStack(spacing: HudSpacing.xs) {
                         Text("OBSERVE")
-                            .font(HudFont.mono(8, weight: .bold))
+                            .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                             .tracking(1.2)
                             .foregroundStyle(isSnapping ? HudPalette.accent : HudPalette.dim)
                         Text(isSnapping ? "READY" : "MATERIALIZING")
@@ -297,7 +297,7 @@ private struct PixelDither: View {
     let isSnapping: Bool
 
     var body: some View {
-        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+        Grid(horizontalSpacing: HudSpacing.xs, verticalSpacing: HudSpacing.xs) {
             ForEach(0..<3, id: \.self) { row in
                 GridRow {
                     ForEach(0..<5, id: \.self) { column in

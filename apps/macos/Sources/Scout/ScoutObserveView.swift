@@ -24,7 +24,7 @@ struct ScoutAgentObserveContent: View {
         ScoutColumnHeader(horizontalPadding: HudSpacing.huge) {
             HStack(spacing: HudSpacing.md) {
                 Text(agent.displayName)
-                    .font(HudFont.ui(22, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.xxl, weight: .semibold))
                     .foregroundStyle(HudPalette.ink)
                     .lineLimit(1)
                 HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
@@ -39,7 +39,7 @@ struct ScoutAgentObserveContent: View {
                     HudBadge("Native", tint: HudPalette.muted)
                 }
                 Text(agent.id)
-                    .font(HudFont.mono(10))
+                    .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.dim)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -88,7 +88,7 @@ struct ScoutAgentObserveContent: View {
             VStack(spacing: HudSpacing.md) {
                 ProgressView()
                 Text("Loading observe stream")
-                    .font(HudFont.mono(10, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
                     .foregroundStyle(HudPalette.muted)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -122,7 +122,7 @@ private struct ScoutObserveSourceStrip: View {
             }
             Spacer(minLength: HudSpacing.xxl)
             Text(agent.workspace)
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(HudPalette.dim)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -144,17 +144,17 @@ private struct ScoutObserveMetric: View {
     var body: some View {
         HStack(spacing: HudSpacing.md) {
             Image(systemName: icon)
-                .font(HudFont.ui(11, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
                 .foregroundStyle(HudPalette.accent)
                 .frame(width: 18, height: 18)
                 .background(Circle().fill(HudPalette.accent.opacity(0.12)))
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: HudSpacing.xxs) {
                 Text(title.uppercased())
-                    .font(HudFont.mono(8, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
                     .foregroundStyle(HudPalette.dim)
                 Text(value)
-                    .font(HudFont.mono(11, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
                     .foregroundStyle(HudPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -202,17 +202,17 @@ private struct ScoutObserveEventRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: HudSpacing.lg) {
             Text(event.timelineLabel)
-                .font(HudFont.mono(9))
+                .font(HudFont.mono(HudTextSize.micro))
                 .foregroundStyle(HudPalette.dim)
                 .frame(width: 42, alignment: .trailing)
-                .padding(.top, 2)
+                .padding(.top, HudSpacing.xxs)
 
             VStack(spacing: 0) {
                 Circle()
                     .fill(event.kind.tint)
                     .frame(width: 9, height: 9)
-                    .overlay(Circle().stroke(ScoutDesign.bg, lineWidth: 3))
-                    .padding(.top, 5)
+                    .overlay(Circle().stroke(ScoutDesign.bg, lineWidth: HudStrokeWidth.bold))
+                    .padding(.top, HudSpacing.sm)
                 if !isLast {
                     Rectangle()
                         .fill(ScoutDesign.hairlineStrong)
@@ -226,7 +226,7 @@ private struct ScoutObserveEventRow: View {
             VStack(alignment: .leading, spacing: HudSpacing.md) {
                 HStack(spacing: HudSpacing.md) {
                     Label(event.kind.label, systemImage: event.kind.icon)
-                        .font(HudFont.mono(10, weight: .semibold))
+                        .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
                         .foregroundStyle(event.kind.tint)
                         .labelStyle(.titleAndIcon)
                     if event.live {
@@ -243,7 +243,7 @@ private struct ScoutObserveEventRow: View {
 
                 if !event.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(event.text)
-                        .font(event.kind == .think ? HudFont.ui(15) : HudFont.ui(13))
+                        .font(event.kind == .think ? HudFont.ui(HudTextSize.lgm) : HudFont.ui(HudTextSize.base))
                         .foregroundStyle(event.kind == .think ? HudPalette.muted : HudPalette.ink)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -251,7 +251,7 @@ private struct ScoutObserveEventRow: View {
 
                 if let detail = event.detail?.nilIfEmpty {
                     Text(detail)
-                        .font(HudFont.mono(10))
+                        .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(HudPalette.dim)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -277,7 +277,7 @@ private struct ScoutObserveEventRow: View {
                     VStack(alignment: .leading, spacing: HudSpacing.sm) {
                         HudSectionLabel("Answer")
                         Text(answer)
-                            .font(HudFont.ui(12))
+                            .font(HudFont.ui(HudTextSize.sm))
                             .foregroundStyle(HudPalette.ink)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
@@ -300,12 +300,12 @@ private struct ScoutObserveResultGrid: View {
                 if let value = result[key] {
                     HStack(spacing: HudSpacing.md) {
                         Text(key.uppercased())
-                            .font(HudFont.mono(8, weight: .semibold))
+                            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                             .tracking(0.8)
                             .foregroundStyle(HudPalette.dim)
                             .frame(width: 92, alignment: .leading)
                         Text(value.description)
-                            .font(HudFont.mono(10))
+                            .font(HudFont.mono(HudTextSize.xxs))
                             .foregroundStyle(HudPalette.muted)
                             .lineLimit(2)
                             .truncationMode(.middle)
@@ -348,7 +348,7 @@ private struct ScoutObserveMonoBlock: View {
     var body: some View {
         ScrollView(.horizontal) {
             Text(text)
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(HudPalette.muted)
                 .textSelection(.enabled)
                 .padding(HudSpacing.md)
@@ -514,7 +514,7 @@ private struct ScoutObserveFilesCard: View {
 
                 if sortedFiles.isEmpty {
                     Text("No file touches yet.")
-                        .font(HudFont.mono(10))
+                        .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(HudPalette.dim)
                 } else {
                     ForEach(sortedFiles.prefix(12)) { file in
@@ -534,14 +534,14 @@ private struct ScoutObserveFileRow: View {
             Circle()
                 .fill(fileTint)
                 .frame(width: 6, height: 6)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: HudSpacing.xxs) {
                 Text(file.path)
-                    .font(HudFont.mono(10, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
                     .foregroundStyle(HudPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text("\(file.state) · \(file.touches)x · \(file.ageLabel)")
-                    .font(HudFont.mono(9))
+                    .font(HudFont.mono(HudTextSize.micro))
                     .foregroundStyle(HudPalette.dim)
                     .lineLimit(1)
             }
