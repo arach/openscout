@@ -5,8 +5,8 @@ import ScoutCapabilities
 
 /// Top-level navigation for ScoutNext. Wraps the active surface in the
 /// `HudPhoneAppShell` (which supplies the NavigationStack + dark Hudson
-/// background) and switches between Home, New Session, and Tail with a HUD
-/// segmented control pinned under the title.
+/// background) and switches between Home, New Session, and Tail via the
+/// floating liquid-glass tab bar.
 struct RootView: View {
     let client: any ScoutBrokerClient
 
@@ -26,17 +26,7 @@ struct RootView: View {
         }
     }
 
-    @State private var surface: Surface = RootView.initialSurface()
-
-    /// Honors a `-surface home|new|tail` launch argument so each surface can be
-    /// driven deterministically (e.g. for screenshots) without on-screen taps.
-    private static func initialSurface() -> Surface {
-        if let raw = UserDefaults.standard.string(forKey: "surface"),
-           let parsed = Surface(rawValue: raw.capitalized) {
-            return parsed
-        }
-        return .home
-    }
+    @State private var surface: Surface = .home
 
     var body: some View {
         HudPhoneAppShell {

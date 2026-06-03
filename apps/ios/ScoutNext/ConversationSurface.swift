@@ -11,13 +11,16 @@ struct ConversationSurface: View {
     let client: any ScoutBrokerClient
     let conversationId: String
     let title: String
+    /// Pop handler owned by the presenter, which clears its navigation binding.
+    /// Driving the pop from the source of truth avoids the `dismiss()` +
+    /// `navigationDestination(item:)` desync that re-pushes the view.
+    var onClose: () -> Void = {}
 
     @State private var projection = ConversationProjection()
     @State private var isStreaming = false
     @State private var composerText = ""
     @State private var isSending = false
     @FocusState private var composerFocused: Bool
-    @Environment(\.dismiss) private var dismiss
 
     private var turns: [TurnState] { projection.state?.turns ?? [] }
 
@@ -86,7 +89,7 @@ struct ConversationSurface: View {
 
     private var header: some View {
         HStack(spacing: HudSpacing.md) {
-            Button { dismiss() } label: {
+            Button { onClose() } label: {
                 Image(systemName: "chevron.left")
                     .font(HudFont.ui(HudTextSize.md, weight: .semibold))
                     .foregroundStyle(HudPalette.ink)

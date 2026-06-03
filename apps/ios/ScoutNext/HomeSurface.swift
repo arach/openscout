@@ -33,7 +33,12 @@ struct HomeSurface: View {
         }
         .task { await load() }
         .navigationDestination(item: $route) { route in
-            ConversationSurface(client: client, conversationId: route.id, title: route.title)
+            ConversationSurface(
+                client: client,
+                conversationId: route.id,
+                title: route.title,
+                onClose: { self.route = nil }
+            )
         }
     }
 
@@ -145,12 +150,5 @@ struct HomeSurface: View {
         sessions = loadedSessions ?? []
         agents = loadedAgents ?? []
         isLoading = false
-
-        // `-open <conversationId>` deep-links straight into a conversation so the
-        // surface can be driven deterministically (e.g. for screenshots).
-        if route == nil, let open = UserDefaults.standard.string(forKey: "open"), !open.isEmpty {
-            let title = sessions.first(where: { $0.id == open })?.title ?? "Conversation"
-            route = ConversationRoute(id: open, title: title)
-        }
     }
 }
