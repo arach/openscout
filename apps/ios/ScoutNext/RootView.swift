@@ -16,16 +16,20 @@ struct RootView: View {
 
     enum Surface: String, CaseIterable, Identifiable {
         case home = "Home"
-        case new = "New"
+        case agents = "Agents"
         case tail = "Tail"
+        case terminal = "Terminal"
+        case new = "New"
 
         var id: String { rawValue }
 
         var icon: String {
             switch self {
             case .home: return "square.grid.2x2"
-            case .new: return "plus.bubble"
+            case .agents: return "person.2"
             case .tail: return "waveform"
+            case .terminal: return "terminal"
+            case .new: return "plus.bubble"
             }
         }
     }
@@ -39,9 +43,11 @@ struct RootView: View {
 
                 Group {
                     switch surface {
-                    case .home: HomeSurface(client: client, reloadToken: model.dataReadyToken)
-                    case .new:  NewSessionSurface(client: client)
-                    case .tail: TailSurface(client: client)
+                    case .home:     HomeSurface(client: client, reloadToken: model.dataReadyToken)
+                    case .agents:   AgentsSurface(client: client, reloadToken: model.dataReadyToken)
+                    case .tail:     TailSurface(client: client)
+                    case .terminal: TerminalSurface(client: client)
+                    case .new:      NewSessionSurface(client: client)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

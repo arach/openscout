@@ -49,13 +49,13 @@ struct SessionSettingsView: View {
 
     private var agentSection: some View {
         HudSettingsSection("AGENT") {
-            HudSettingsRow(icon: "cpu", iconColor: HudPalette.accent, title: "Harness", subtitle: "Runtime backing this agent") {
+            HudSettingsRow(icon: "cpu", iconColor: HudTint.green.color, title: "Harness", subtitle: "Runtime backing this agent") {
                 Text("claude").font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted)
             }
-            HudSettingsRow(icon: "brain", title: "Model") {
+            HudSettingsRow(icon: "brain", iconColor: HudTint.violet.color, title: "Model") {
                 Text("opus-4.8").font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted)
             }
-            HudSettingsPickerRow(title: "Persistence", subtitle: "How long the agent sticks around", icon: "pin", selection: $persistence) {
+            HudSettingsPickerRow(title: "Persistence", subtitle: "How long the agent sticks around", icon: "pin", iconColor: HudTint.amber.color, selection: $persistence) {
                 Text("Sticky").tag("Sticky")
                 Text("Fresh").tag("Fresh")
             }
@@ -64,9 +64,9 @@ struct SessionSettingsView: View {
 
     private var executionSection: some View {
         HudSettingsSection("EXECUTION") {
-            HudSettingsRow(icon: "folder", title: "Project", subtitle: "/Users/arach/dev/openscout")
-            HudSettingsRow(icon: "arrow.triangle.branch", title: "Branch", subtitle: "in-place · main")
-            HudSettingsControlRow(title: "Auto-approve", subtitle: "Skip the approval gate for low-risk actions", icon: "checkmark.shield") {
+            HudSettingsRow(icon: "folder", iconColor: HudTint.blue.color, title: "Project", subtitle: "/Users/arach/dev/openscout")
+            HudSettingsRow(icon: "arrow.triangle.branch", iconColor: HudTint.teal.color, title: "Branch", subtitle: "in-place · main")
+            HudSettingsControlRow(title: "Auto-approve", subtitle: "Skip the approval gate for low-risk actions", icon: "checkmark.shield", iconColor: HudTint.green.color) {
                 Toggle("", isOn: $autoApprove).labelsHidden().tint(HudPalette.accent)
             }
         }

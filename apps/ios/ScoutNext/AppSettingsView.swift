@@ -54,13 +54,13 @@ struct AppSettingsView: View {
 
     private var connectionSection: some View {
         HudSettingsSection("CONNECTION") {
-            HudSettingsRow(icon: "desktopcomputer", iconColor: HudPalette.accent, title: "Paired Mac", subtitle: model.statusLabel) {
+            HudSettingsRow(icon: "desktopcomputer", iconColor: HudTint.green.color, title: "Paired Mac", subtitle: model.statusLabel) {
                 HudBadge(model.statusLabel, tint: model.statusTint, dot: true)
             }
-            HudSettingsRow(icon: "arrow.clockwise", title: "Reconnect", subtitle: "Re-establish the encrypted link", onTap: {
+            HudSettingsRow(icon: "arrow.clockwise", iconColor: HudTint.cyan.color, title: "Reconnect", subtitle: "Re-establish the encrypted link", onTap: {
                 Task { await model.reconnect() }
             })
-            HudSettingsRow(icon: "qrcode.viewfinder", title: "Pair with a Mac", subtitle: "Scan or paste a fresh pairing link", onTap: {
+            HudSettingsRow(icon: "qrcode.viewfinder", iconColor: HudTint.amber.color, title: "Pair with a Mac", subtitle: "Scan or paste a fresh pairing link", onTap: {
                 dismiss(); model.showPairing = true
             })
         }
@@ -68,15 +68,15 @@ struct AppSettingsView: View {
 
     private var routesSection: some View {
         HudSettingsSection("ROUTES") {
-            HudSettingsRow(icon: "network", title: "Priority", subtitle: "LAN → Tailscale → OSN") {
+            HudSettingsRow(icon: "network", iconColor: HudTint.teal.color, title: "Priority", subtitle: "LAN → Tailscale → OSN") {
                 Text("LAN")
                     .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                     .foregroundStyle(HudPalette.accent)
             }
-            HudSettingsControlRow(title: "Tailscale", subtitle: "Reach the Mac over your tailnet", icon: "shield.lefthalf.filled") {
+            HudSettingsControlRow(title: "Tailscale", subtitle: "Reach the Mac over your tailnet", icon: "shield.lefthalf.filled", iconColor: HudTint.blue.color) {
                 Toggle("", isOn: $tailscaleEnabled).labelsHidden().tint(HudPalette.accent)
             }
-            HudSettingsControlRow(title: "OpenScout Net", subtitle: "Relay fallback when off-LAN", icon: "globe") {
+            HudSettingsControlRow(title: "OpenScout Net", subtitle: "Relay fallback when off-LAN", icon: "globe", iconColor: HudTint.cyan.color) {
                 Toggle("", isOn: $osnEnabled).labelsHidden().tint(HudPalette.accent)
             }
         }
@@ -84,8 +84,8 @@ struct AppSettingsView: View {
 
     private var identitySection: some View {
         HudSettingsSection("IDENTITY") {
-            HudSettingsRow(icon: "iphone", title: "This device", subtitle: deviceName)
-            HudSettingsRow(icon: "key", title: "Public key", subtitle: "Used to authenticate with the bridge") {
+            HudSettingsRow(icon: "iphone", iconColor: HudTint.violet.color, title: "This device", subtitle: deviceName)
+            HudSettingsRow(icon: "key", iconColor: HudTint.amber.color, title: "Public key", subtitle: "Used to authenticate with the bridge") {
                 Text("eff2…117b")
                     .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(HudPalette.muted)
@@ -95,10 +95,10 @@ struct AppSettingsView: View {
 
     private var notificationsSection: some View {
         HudSettingsSection("NOTIFICATIONS") {
-            HudSettingsControlRow(title: "Approval alerts", subtitle: "Ping when an agent needs a decision", icon: "bell.badge") {
+            HudSettingsControlRow(title: "Approval alerts", subtitle: "Ping when an agent needs a decision", icon: "bell.badge", iconColor: HudTint.amber.color) {
                 Toggle("", isOn: $approvalsAlert).labelsHidden().tint(HudPalette.accent)
             }
-            HudSettingsRow(icon: "app.badge", title: "Push notifications", subtitle: "Requires pairing entitlement") {
+            HudSettingsRow(icon: "app.badge", iconColor: HudTint.pink.color, title: "Push notifications", subtitle: "Requires pairing entitlement") {
                 HudBadge("soon", tint: HudPalette.muted)
             }
         }
@@ -106,27 +106,27 @@ struct AppSettingsView: View {
 
     private var appearanceSection: some View {
         HudSettingsSection("APPEARANCE") {
-            HudSettingsRow(icon: "moon.stars", title: "Theme", subtitle: "Matches the cockpit") {
+            HudSettingsRow(icon: "moon.stars", iconColor: HudTint.cyan.color, title: "Theme", subtitle: "Matches the cockpit") {
                 Text(theme).font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted)
             }
-            HudSettingsRow(icon: "textformat.size", title: "Type scale", subtitle: "Standard")
+            HudSettingsRow(icon: "textformat.size", iconColor: HudTint.teal.color, title: "Type scale", subtitle: "Standard")
         }
     }
 
     private var advancedSection: some View {
         HudSettingsSection("ADVANCED") {
-            HudSettingsRow(icon: "list.bullet.rectangle", title: "Connection log", subtitle: "\(model.connectionLog.entries.count) entries", onTap: {})
-            HudSettingsRow(icon: "stethoscope", title: "Diagnostics", onTap: {})
+            HudSettingsRow(icon: "list.bullet.rectangle", iconColor: HudTint.blue.color, title: "Connection log", subtitle: "\(model.connectionLog.entries.count) entries", onTap: {})
+            HudSettingsRow(icon: "stethoscope", iconColor: HudTint.teal.color, title: "Diagnostics", onTap: {})
             HudSettingsRow(icon: "trash", iconColor: HudPalette.statusError, title: "Forget this Mac", subtitle: "Clear pairing and start over", onTap: {})
         }
     }
 
     private var aboutSection: some View {
         HudSettingsSection("ABOUT") {
-            HudSettingsRow(icon: "number", title: "Version") {
+            HudSettingsRow(icon: "number", iconColor: HudPalette.muted, title: "Version") {
                 Text("0.1.0").font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted)
             }
-            HudSettingsRow(icon: "doc.text", title: "Acknowledgements", onTap: {})
+            HudSettingsRow(icon: "doc.text", iconColor: HudPalette.muted, title: "Acknowledgements", onTap: {})
         }
     }
 
