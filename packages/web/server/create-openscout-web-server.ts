@@ -34,6 +34,11 @@ import {
   type ScoutWebAssetMode,
 } from "./server-core.ts";
 import {
+  getImageBlob,
+  ImageBlobError,
+  putImageBlob,
+} from "./image-blob-store.ts";
+import {
   queryAgentById,
   queryAgents,
   queryActivity,
@@ -65,6 +70,7 @@ import {
   markScoutConversationRead,
   readScoutUnblockRequests,
   resolveScoutBrokerUrl,
+  type OutgoingAttachmentInput,
   sendScoutConversationMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
@@ -3574,15 +3580,68 @@ export async function createOpenScoutWebServer(
     }
   });
 
+  // Ephemeral image attachments. Bytes are uploaded here, stored in a cache
+  // dir with a TTL, and handed back as an absolute URL that any consumer (the
+  // browser, the Mac app, or an agent) can fetch. Nothing lands in the DB.
+  app.post("/api/blobs", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      data?: string;
+      mediaType?: string;
+      fileName?: string;
+    } | null;
+    if (!body?.data || !body.mediaType) {
+      return c.json({ error: "data and mediaType are required" }, 400);
+    }
+    try {
+      const stored = await putImageBlob({
+        data: body.data,
+        mediaType: body.mediaType,
+        fileName: body.fileName,
+      });
+      const origin = options.publicOrigin?.trim() || new URL(c.req.url).origin;
+      return c.json({
+        id: stored.id,
+        url: `${origin.replace(/\/$/, "")}/api/blobs/${stored.id}`,
+        mediaType: stored.mediaType,
+        fileName: stored.fileName,
+        size: stored.size,
+      });
+    } catch (error) {
+      if (error instanceof ImageBlobError) {
+        return c.json({ error: error.message }, error.status as 400);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  app.get("/api/blobs/:id", (c) => {
+    const entry = getImageBlob(c.req.param("id"));
+    if (!entry) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const headers: Record<string, string> = {
+      "content-type": entry.mediaType,
+      "cache-control": "private, max-age=3600",
+      "content-length": String(entry.size),
+    };
+    if (entry.fileName) {
+      headers["content-disposition"] =
+        `inline; filename="${entry.fileName.replace(/"/g, "")}"`;
+    }
+    return new Response(Bun.file(entry.path), { headers });
+  });
+
   app.post("/api/send", async (c) => {
-    const { body, cId, conversationId, threadId } = (await c.req.json()) as {
+    const { body, cId, conversationId, threadId, attachments } = (await c.req.json()) as {
       body: string;
       cId?: string;
       conversationId?: string;
       threadId?: string;
+      attachments?: OutgoingAttachmentInput[];
     };
-    if (!body?.trim()) {
-      return c.json({ error: "body is required" }, 400);
+    if (!body?.trim() && !attachments?.length) {
+      return c.json({ error: "body or attachments are required" }, 400);
     }
 
     const routeCId = cId ?? conversationId;
@@ -3637,6 +3696,7 @@ export async function createOpenScoutWebServer(
         conversationId: routedConversationId,
         senderId,
         body: body.trim(),
+        attachments,
         currentDirectory,
         source: "scout-web",
       });
@@ -3650,6 +3710,7 @@ export async function createOpenScoutWebServer(
       senderId,
       body: body.trim(),
       ...(channel ? { channel } : {}),
+      attachments,
       currentDirectory,
     });
 

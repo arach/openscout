@@ -44,6 +44,7 @@ import {
   sendScoutMessage,
   sendScoutMessageToAgentIds,
   replyToScoutMessage,
+  type OutgoingAttachmentInput,
   type ScoutManagedLocalSessionAttachment,
   updateScoutWorkItem,
   waitForScoutFlight,
@@ -296,6 +297,23 @@ const mentionAgentIdsInputSchema = z
   .describe("Exact Scout agent ids to target directly when you already know them")
   .optional();
 
+const attachmentsInputSchema = z
+  .array(
+    z.object({
+      mediaType: z
+        .string()
+        .describe("MIME type, e.g. image/png or image/jpeg"),
+      url: z
+        .string()
+        .describe("HTTP(S) URL where the attachment can be fetched"),
+      fileName: z.string().optional(),
+    }),
+  )
+  .describe(
+    "Link-backed attachments (e.g. images). Each needs a mediaType and a fetchable url; agents should pass URLs they already have rather than uploading bytes.",
+  )
+  .optional();
+
 export type ScoutMcpAgentCandidate = {
   agentId: string;
   label: string;
@@ -442,6 +460,7 @@ type ScoutMcpDependencies = {
     conversationId: string;
     replyToMessageId: string;
     shouldSpeak?: boolean;
+    attachments?: OutgoingAttachmentInput[];
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutReplyPostResult>;
@@ -2757,6 +2776,7 @@ function defaultScoutMcpDependencies(
       conversationId,
       replyToMessageId,
       shouldSpeak,
+      attachments,
       currentDirectory,
       source,
     }) =>
@@ -2766,6 +2786,7 @@ function defaultScoutMcpDependencies(
         conversationId,
         replyToMessageId,
         shouldSpeak,
+        attachments,
         currentDirectory,
         source,
       }),
@@ -3243,6 +3264,7 @@ export function createScoutMcpServer(options: {
         conversationId: z.string().optional(),
         replyToMessageId: z.string().optional(),
         shouldSpeak: z.boolean().optional(),
+        attachments: attachmentsInputSchema,
       }),
       outputSchema: replyResultSchema,
       annotations: {
@@ -3259,6 +3281,7 @@ export function createScoutMcpServer(options: {
       conversationId,
       replyToMessageId,
       shouldSpeak,
+      attachments,
     }) => {
       const resolvedCurrentDirectory = resolveToolCurrentDirectory(
         currentDirectory,
@@ -3299,6 +3322,7 @@ export function createScoutMcpServer(options: {
         conversationId: resolvedConversationId,
         replyToMessageId: resolvedReplyToMessageId,
         shouldSpeak,
+        attachments,
         currentDirectory: resolvedCurrentDirectory,
         source: "scout-mcp",
       });

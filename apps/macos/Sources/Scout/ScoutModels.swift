@@ -29,13 +29,6 @@ enum ScoutSection: String, CaseIterable, Identifiable {
 enum ScoutChannelScope {
     case direct
     case shared
-
-    var label: String {
-        switch self {
-        case .direct: return "Private"
-        case .shared: return "Shared"
-        }
-    }
 }
 
 struct ScoutChannel: Identifiable, Decodable, Sendable {
@@ -66,6 +59,32 @@ struct ScoutChannel: Identifiable, Decodable, Sendable {
         return .shared
     }
 
+    /// A DM is named by its other participant(s); operator (you) is implied.
+    /// Agent-to-agent DMs (no operator) read as "agent1 <> agent2".
+    var directPeerLabel: String {
+        let peers = participantDisplayNames.filter { $0 != "Operator" }
+        if peers.count >= 2 {
+            return peers.joined(separator: " <> ")
+        }
+        let names = peers.isEmpty ? participantDisplayNames : peers
+        return names.joined(separator: ", ").nilIfEmpty ?? displayTitle
+    }
+
+    /// Channel name without any leading "#" decoration.
+    var channelName: String {
+        displayTitle.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).nilIfEmpty ?? displayTitle
+    }
+
+    /// Title shown next to the type icon (the icon already conveys #/person).
+    var rowTitle: String {
+        scope == .direct ? directPeerLabel : channelName
+    }
+
+    /// Self-describing title where there is no type icon (header, inspector).
+    var displayHandle: String {
+        scope == .direct ? directPeerLabel : "#\(channelName)"
+    }
+
     var cIdShort: String {
         if cId.hasPrefix("c.") {
             return "cId \(String(cId.dropFirst(2).prefix(8)))"
@@ -80,13 +99,6 @@ struct ScoutChannel: Identifiable, Decodable, Sendable {
     }
 
     var participantDisplayNames: [String] {
-        if scope == .direct {
-            let peer = agentName?.nilIfEmpty
-                ?? participantIds.first(where: { displayName(for: $0) != "Operator" }).map(displayName(for:))
-                ?? displayTitle
-            return uniqueMemberNames(["Operator", peer])
-        }
-
         let names = participantIds.map(displayName(for:))
         return uniqueMemberNames(names.isEmpty ? [displayTitle] : names)
     }

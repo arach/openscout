@@ -1,5 +1,6 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import {
   buildScoutReturnAddress as buildScoutReturnAddressRecord,
@@ -30,6 +31,7 @@ import {
   type CollaborationPriority,
   type CollaborationRecord,
   type CollaborationWaitingOn,
+  type MessageAttachment,
   type MessageRecord,
   type ScoutInvocationLifecycle,
   type ScoutDeliverResponse,
@@ -3144,12 +3146,52 @@ export async function sendScoutMessage(input: {
   };
 }
 
+/** Input shape for an attachment supplied by a caller (MCP). */
+export type OutgoingAttachmentInput = {
+  id?: string;
+  mediaType: string;
+  fileName?: string;
+  blobKey?: string;
+  url?: string;
+};
+
+/**
+ * Validate caller-supplied attachments and mint ids where absent. Drops any
+ * attachment lacking a media type or a way to fetch it (url/blobKey). Returns
+ * undefined when nothing usable remains, to keep the broker payload clean.
+ */
+export function normalizeOutgoingAttachments(
+  attachments: OutgoingAttachmentInput[] | undefined,
+): MessageAttachment[] | undefined {
+  if (!attachments?.length) {
+    return undefined;
+  }
+  const normalized: MessageAttachment[] = [];
+  for (const attachment of attachments) {
+    const mediaType = attachment?.mediaType?.trim();
+    const url = attachment?.url?.trim();
+    const blobKey = attachment?.blobKey?.trim();
+    if (!mediaType || (!url && !blobKey)) {
+      continue;
+    }
+    normalized.push({
+      id: attachment.id?.trim() || `att-${randomUUID()}`,
+      mediaType,
+      fileName: attachment.fileName?.trim() || undefined,
+      url: url || undefined,
+      blobKey: blobKey || undefined,
+    });
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export async function replyToScoutMessage(input: {
   senderId: string;
   body: string;
   conversationId: string;
   replyToMessageId: string;
   shouldSpeak?: boolean;
+  attachments?: OutgoingAttachmentInput[];
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
@@ -3227,6 +3269,7 @@ export async function replyToScoutMessage(input: {
     class: conversation.kind === "system" ? "system" : "agent",
     body: input.body,
     speech: speechText ? { text: speechText } : undefined,
+    attachments: normalizeOutgoingAttachments(input.attachments),
     audience: notifiedActorIds.length > 0
       ? { notify: notifiedActorIds, reason: "thread_reply" }
       : undefined,

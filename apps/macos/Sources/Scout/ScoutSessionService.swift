@@ -153,6 +153,7 @@ struct ScoutSessionComposer: View {
     @State private var isSubmitting = false
     @State private var errorText: String?
     @FocusState private var instructionsFocused: Bool
+    @ObservedObject private var vox = ScoutVoxService.shared
 
     init(
         draft: ScoutSessionDraft,
@@ -175,6 +176,49 @@ struct ScoutSessionComposer: View {
                 .padding(HudSpacing.xxl)
         }
         .onExitCommand { if !isSubmitting { onClose() } }
+        .onReceive(vox.$lastFinalText) { spliceDictatedFinal($0) }
+    }
+
+    private var isDictating: Bool { vox.state.isCaptureActive }
+
+    private var showDictationPreview: Bool {
+        draft.instructions.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
+    }
+
+    private var messagePlaceholder: String {
+        switch draft.target {
+        case .agent(let agent):
+            return draft.mode == .continueContext
+                ? "Message \(agent.displayName)…"
+                : "What should \(agent.displayName) start on?"
+        case .project:
+            return "What should the new agent start on?"
+        }
+    }
+
+    private func toggleDictation() {
+        instructionsFocused = true
+        Task {
+            switch ScoutDictationController.toggleDecision(for: vox.state) {
+            case .probeThenStartIfIdle:
+                await vox.probe()
+                if case .idle = vox.state { vox.start() }
+            case .start:
+                vox.start()
+            case .stop:
+                vox.stop()
+            case .ignore:
+                break
+            }
+        }
+    }
+
+    private func spliceDictatedFinal(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        draft.instructions = ScoutDictationBuffer.appending(trimmed, to: draft.instructions)
+        ScoutVoxService.shared.consumeFinalText()
+        instructionsFocused = true
     }
 
     private var card: some View {
@@ -284,20 +328,51 @@ struct ScoutSessionComposer: View {
 
     private var instructionsSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
-            HudSectionLabel(draft.mode == .continueContext ? "Follow-up" : "Instructions")
-            TextEditor(text: $draft.instructions)
-                .font(HudFont.ui(12))
-                .foregroundStyle(HudPalette.ink)
-                .scrollContentBackground(.hidden)
-                .focused($instructionsFocused)
-                .frame(minHeight: 96)
-                .padding(6)
-                .background(HudSurface.inset)
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                        .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
-                )
+            HudSectionLabel(draft.mode == .continueContext ? "Follow-up message" : "First message")
+            messageWell
         }
+    }
+
+    private var messageWell: some View {
+        HStack(alignment: .bottom, spacing: HudSpacing.sm) {
+            ZStack(alignment: .topLeading) {
+                if draft.instructions.isEmpty && !showDictationPreview {
+                    Text(messagePlaceholder)
+                        .font(HudFont.ui(12))
+                        .foregroundStyle(HudPalette.dim)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .allowsHitTesting(false)
+                }
+
+                TextEditor(text: $draft.instructions)
+                    .font(HudFont.ui(12))
+                    .foregroundStyle(HudPalette.ink)
+                    .tint(showDictationPreview ? Color.clear : HudPalette.accent)
+                    .scrollContentBackground(.hidden)
+                    .focused($instructionsFocused)
+                    .frame(minHeight: 64, maxHeight: 132)
+
+                if showDictationPreview {
+                    ScoutDictationPreview(text: vox.partial)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .allowsHitTesting(false)
+                }
+            }
+
+            ScoutMicButton(box: 30, glyph: 14, action: toggleDictation)
+                .padding(.bottom, 2)
+        }
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(HudSurface.inset)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(instructionsFocused ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+        )
     }
 
     private var footer: some View {
