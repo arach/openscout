@@ -68,6 +68,10 @@ struct ConnectionView: View {
                     Task { await model.reconnect() }
                 }
             }
+            HudButton("Pair with a Mac", icon: "qrcode.viewfinder", style: .primary(.green)) {
+                dismiss()
+                model.showPairing = true
+            }
             .padding(HudSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))

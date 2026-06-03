@@ -56,6 +56,9 @@ struct RootView: View {
         .sheet(isPresented: $showConnection) {
             ConnectionView(model: model)
         }
+        .sheet(isPresented: $model.showPairing) {
+            PairingView(model: model)
+        }
     }
 
     private var tabs: [HudLiquidBarTab] {

@@ -121,6 +121,7 @@ targets:
         NSBonjourServices:
           - _scout-pair._tcp
         NSLocalNetworkUsageDescription: ScoutNext connects to your Mac over your local network when both devices are nearby.
+        NSCameraUsageDescription: ScoutNext uses the camera to scan the pairing QR code shown on your Mac.
     settings:
       base:
         PRODUCT_NAME: ScoutNext
