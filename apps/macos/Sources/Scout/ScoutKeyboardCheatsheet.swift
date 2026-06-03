@@ -44,14 +44,14 @@ struct ScoutKeyboardCheatsheet: View {
                 }
             }
 
-            section("Navigate · when not typing", active: false) {
+            keyGroup("Navigate · when not typing", active: false) {
                 kbd("j  ↓  ·  k  ↑", "next / previous item")
                 kbd("l  ·  h", "next / previous item")
                 kbd("g  ·  ⇧G", "first / last item")
                 kbd("⌘↑  ⌘↓", "next / previous (works while typing too)")
             }
 
-            section("Comms", active: section == .comms) {
+            keyGroup("Comms", active: section == .comms) {
                 kbd("⌘K", "focus search")
                 kbd("⌘L", "focus composer")
                 kbd("Esc", "leave composer (then j/k to navigate)")
@@ -60,12 +60,12 @@ struct ScoutKeyboardCheatsheet: View {
                 kbd("↵  ·  ⇧↵", "send  ·  newline (in composer)")
             }
 
-            section("Agents", active: section == .agents) {
+            keyGroup("Agents", active: section == .agents) {
                 kbd("⌘↩", "open agent's channel")
                 kbd("⌘O", "observe agent")
             }
 
-            section("Global", active: false) {
+            keyGroup("Global", active: false) {
                 kbd("?  ·  ⌘/", "toggle this help")
                 kbd("Esc", "close help / dismiss suggestions")
             }
@@ -91,7 +91,7 @@ struct ScoutKeyboardCheatsheet: View {
         .shadow(color: Color.black.opacity(0.3), radius: 24, y: 12)
     }
 
-    private func section<Content: View>(
+    private func keyGroup<Content: View>(
         _ title: String,
         active: Bool,
         @ViewBuilder _ content: () -> Content

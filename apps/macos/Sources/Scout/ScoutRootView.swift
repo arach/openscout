@@ -187,33 +187,38 @@ struct ScoutRootView: View {
     // so they never collide with typing in the composer or search field.
     private var keyboardCommands: some View {
         Group {
-            Group {
-                Button("") { moveSelection(1) }.keyboardShortcut(.downArrow, modifiers: .command)
-                Button("") { moveSelection(-1) }.keyboardShortcut(.upArrow, modifiers: .command)
-                Button("") { focusSearch() }.keyboardShortcut("k", modifiers: .command)
-                Button("") { focusComposer() }.keyboardShortcut("l", modifiers: .command)
-                Button("") { store.refresh(force: true) }.keyboardShortcut("r", modifiers: .command)
-            }
-            Group {
-                Button("") { channelFilter = .all }.keyboardShortcut("1", modifiers: .command)
-                Button("") { channelFilter = .direct }.keyboardShortcut("2", modifiers: .command)
-                Button("") { channelFilter = .shared }.keyboardShortcut("3", modifiers: .command)
-                Button("") { observeSelectedAgent() }.keyboardShortcut("o", modifiers: .command)
-                Button("") { openSelectedAgentChannel() }.keyboardShortcut(.return, modifiers: .command)
-            }
-            Button("") { showCheatsheet.toggle() }.keyboardShortcut("/", modifiers: .command)
-            // Bare vim keys + `?` — only live when no text field is capturing
-            // input, so typing j/k/?/etc. into a message, search, or new-session
-            // draft still inserts the character instead of stealing the key.
-            if bareKeysAvailable {
+            // Silenced while a modal overlay (new-session composer, image
+            // lightbox) owns the screen — otherwise these would reach through
+            // and steer the page behind the modal.
+            if !modalPresented {
                 Group {
-                    Button("") { showCheatsheet.toggle() }.keyboardShortcut("?", modifiers: [])
-                    Button("") { moveSelection(1) }.keyboardShortcut("j", modifiers: [])
-                    Button("") { moveSelection(-1) }.keyboardShortcut("k", modifiers: [])
-                    Button("") { moveSelection(1) }.keyboardShortcut("l", modifiers: [])
-                    Button("") { moveSelection(-1) }.keyboardShortcut("h", modifiers: [])
-                    Button("") { moveSelectionToEdge(last: false) }.keyboardShortcut("g", modifiers: [])
-                    Button("") { moveSelectionToEdge(last: true) }.keyboardShortcut("g", modifiers: .shift)
+                    Button("") { moveSelection(1) }.keyboardShortcut(.downArrow, modifiers: .command)
+                    Button("") { moveSelection(-1) }.keyboardShortcut(.upArrow, modifiers: .command)
+                    Button("") { focusSearch() }.keyboardShortcut("k", modifiers: .command)
+                    Button("") { focusComposer() }.keyboardShortcut("l", modifiers: .command)
+                    Button("") { store.refresh(force: true) }.keyboardShortcut("r", modifiers: .command)
+                }
+                Group {
+                    Button("") { channelFilter = .all }.keyboardShortcut("1", modifiers: .command)
+                    Button("") { channelFilter = .direct }.keyboardShortcut("2", modifiers: .command)
+                    Button("") { channelFilter = .shared }.keyboardShortcut("3", modifiers: .command)
+                    Button("") { observeSelectedAgent() }.keyboardShortcut("o", modifiers: .command)
+                    Button("") { openSelectedAgentChannel() }.keyboardShortcut(.return, modifiers: .command)
+                }
+                Button("") { showCheatsheet.toggle() }.keyboardShortcut("/", modifiers: .command)
+                // Bare vim keys + `?` — only live when no text field is capturing
+                // input, so typing j/k/?/etc. into a message or search field still
+                // inserts the character instead of stealing the key.
+                if bareKeysAvailable {
+                    Group {
+                        Button("") { showCheatsheet.toggle() }.keyboardShortcut("?", modifiers: [])
+                        Button("") { moveSelection(1) }.keyboardShortcut("j", modifiers: [])
+                        Button("") { moveSelection(-1) }.keyboardShortcut("k", modifiers: [])
+                        Button("") { moveSelection(1) }.keyboardShortcut("l", modifiers: [])
+                        Button("") { moveSelection(-1) }.keyboardShortcut("h", modifiers: [])
+                        Button("") { moveSelectionToEdge(last: false) }.keyboardShortcut("g", modifiers: [])
+                        Button("") { moveSelectionToEdge(last: true) }.keyboardShortcut("g", modifiers: .shift)
+                    }
                 }
             }
         }
@@ -222,10 +227,16 @@ struct ScoutRootView: View {
         .accessibilityHidden(true)
     }
 
+    /// A modal overlay is up and should own the keyboard.
+    private var modalPresented: Bool {
+        sessionDraft != nil || previewImage != nil
+    }
+
     /// Bare (unmodified) keys may drive navigation/help only when nothing is
-    /// capturing text input — otherwise they'd be stolen from typing.
+    /// capturing text input — otherwise they'd be stolen from typing. (Modal
+    /// overlays are already excluded by `modalPresented`.)
     private var bareKeysAvailable: Bool {
-        sessionDraft == nil && !composerFocused && !searchFocused
+        !composerFocused && !searchFocused
     }
 
     /// Step the active page's selection: conversations in Comms, agent cards in
@@ -1088,28 +1099,38 @@ struct ScoutRootView: View {
                     store.loadObserve(agentId: agent.id, force: true)
                 }
             } else {
-                ScrollView {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 280), spacing: HudSpacing.xl)],
-                        alignment: .leading,
-                        spacing: HudSpacing.xl
-                    ) {
-                        ForEach(store.agents) { agent in
-                            ScoutAgentCard(
-                                agent: agent,
-                                isSelected: store.selectedAgentId == agent.id || store.selectedChannel?.agentId == agent.id
-                            ) {
-                                previewAgent(agent)
-                            } observe: {
-                                observeAgent(agent)
-                            } openChannel: {
-                                store.openAgentChannel(agent)
-                                section = .comms
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 280), spacing: HudSpacing.xl)],
+                            alignment: .leading,
+                            spacing: HudSpacing.xl
+                        ) {
+                            ForEach(store.agents) { agent in
+                                ScoutAgentCard(
+                                    agent: agent,
+                                    isSelected: store.selectedAgentId == agent.id || store.selectedChannel?.agentId == agent.id
+                                ) {
+                                    previewAgent(agent)
+                                } observe: {
+                                    observeAgent(agent)
+                                } openChannel: {
+                                    store.openAgentChannel(agent)
+                                    section = .comms
+                                }
+                                .id(agent.id)
                             }
                         }
+                        .padding(HudSpacing.huge)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    .padding(HudSpacing.huge)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    // Keep the keyboard-selected card in view (it may be off-screen).
+                    .onChange(of: store.selectedAgentId) { _, id in
+                        guard let id else { return }
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
                 }
             }
         }
