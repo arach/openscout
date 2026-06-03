@@ -6,6 +6,7 @@ import SwiftUI
 @main
 struct ScoutApp: App {
     @NSApplicationDelegateAdaptor(ScoutAppDelegate.self) private var delegate
+    @StateObject private var appearance = ScoutAppearance.shared
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -16,7 +17,7 @@ struct ScoutApp: App {
         WindowGroup("Scout") {
             ScoutRootView()
                 .frame(minWidth: 1040, minHeight: 680)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(appearance.themeMode.colorScheme)
         }
         .hudChromeWindow()
         .commands {

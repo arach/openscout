@@ -40,7 +40,7 @@ struct ScoutKeyboardCheatsheet: View {
                     keyCap("⌘/")
                     Text("toggle")
                         .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.dim)
+                        .foregroundStyle(ScoutPalette.dim)
                 }
             }
 
@@ -75,7 +75,7 @@ struct ScoutKeyboardCheatsheet: View {
                 keyCap("Esc")
                 Text("to close")
                     .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
             }
         }
         .padding(.horizontal, HudSpacing.xxl)
@@ -102,12 +102,12 @@ struct ScoutKeyboardCheatsheet: View {
                 if active {
                     Text("active")
                         .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                        .foregroundStyle(HudPalette.accent)
+                        .foregroundStyle(ScoutPalette.accent)
                         .padding(.horizontal, HudSpacing.xs)
                         .padding(.vertical, 1)
                         .overlay(
                             RoundedRectangle(cornerRadius: HudRadius.tight)
-                                .stroke(HudPalette.accent.opacity(0.55), lineWidth: HudStrokeWidth.thin)
+                                .stroke(ScoutPalette.accent.opacity(0.55), lineWidth: HudStrokeWidth.thin)
                         )
                 }
             }
@@ -122,7 +122,7 @@ struct ScoutKeyboardCheatsheet: View {
                 .frame(minWidth: 96, alignment: .leading)
             Text(desc)
                 .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutPalette.muted)
             Spacer(minLength: 0)
         }
     }
@@ -130,7 +130,7 @@ struct ScoutKeyboardCheatsheet: View {
     private func keyCap(_ key: String) -> some View {
         Text(key)
             .font(HudFont.mono(HudTextSize.xs, weight: .bold))
-            .foregroundStyle(HudPalette.ink)
+            .foregroundStyle(ScoutPalette.ink)
             .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, 1.5)
             .overlay(

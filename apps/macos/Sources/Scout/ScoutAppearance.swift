@@ -70,6 +70,7 @@ final class ScoutAppearance: ObservableObject {
 /// top of that, so the transparency slider works without fighting it.
 struct ScoutWindowConfigurator: NSViewRepresentable {
     var opacity: Double
+    var themeMode: ScoutThemeMode
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
@@ -83,10 +84,18 @@ struct ScoutWindowConfigurator: NSViewRepresentable {
 
     private func apply(from view: NSView) {
         let value = opacity
-        DispatchQueue.main.async {
+        let mode = themeMode
+        // Defer past HudChromeShell's own HudWindowChrome (which hard-sets
+        // .darkAqua once on launch) so the picker's choice wins.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             guard let window = view.window else { return }
             window.alphaValue = value
             window.isOpaque = value >= 1.0
+            switch mode {
+            case .system: window.appearance = nil
+            case .light: window.appearance = NSAppearance(named: .aqua)
+            case .dark: window.appearance = NSAppearance(named: .darkAqua)
+            }
         }
     }
 }

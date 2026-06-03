@@ -45,33 +45,33 @@ struct ScoutTailContent: View {
         HStack(spacing: HudSpacing.sm) {
             Text("Tail")
                 .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
 
             ScoutTailLivePill(isLive: tail.isFollowing)
 
             HStack(spacing: HudSpacing.xxs) {
                 Text("\(tail.discovery?.totals.transcripts ?? tail.sessionCount)")
                     .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .monospacedDigit()
                 Text("logs")
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
             }
 
             HStack(spacing: HudSpacing.xxs) {
                 Text("\(tail.discovery?.totals.total ?? 0)")
                     .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
                     .monospacedDigit()
                 Text("procs")
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
             }
 
             Text(tail.liveRateLabel)
                 .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutPalette.muted)
 
             if tail.isLoading {
                 ProgressView()
@@ -97,7 +97,7 @@ struct ScoutTailContent: View {
         ScoutTailFilterMenu(
             value: tail.selectedSource ?? "All sources",
             icon: tail.selectedSource == nil ? "tray.full" : "dot.radiowaves.left.and.right",
-            tint: tail.selectedSource == nil ? HudPalette.muted : HudPalette.accent,
+            tint: tail.selectedSource == nil ? ScoutPalette.muted : ScoutPalette.accent,
             width: 148
         ) {
             Button {
@@ -123,7 +123,7 @@ struct ScoutTailContent: View {
         ScoutTailFilterMenu(
             value: tail.selectedKind?.title ?? "All kinds",
             icon: "tag",
-            tint: tail.selectedKind?.tint ?? HudPalette.muted,
+            tint: tail.selectedKind?.tint ?? ScoutPalette.muted,
             width: 126
         ) {
             Button {
@@ -174,7 +174,7 @@ struct ScoutTailContent: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(HudPalette.statusError)
+        .foregroundStyle(ScoutPalette.statusError)
         .padding(.horizontal, ScoutTailMetrics.pageGutter)
         .frame(height: 26)
         .background(ScoutDesign.chrome)
@@ -186,41 +186,41 @@ struct ScoutTailContent: View {
     private var tailSignalFooter: some View {
         HStack(spacing: HudSpacing.sm) {
             Circle()
-                .fill(tail.isFollowing ? HudPalette.statusOk : HudPalette.muted)
+                .fill(tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted)
                 .frame(width: HudDotSize.small, height: HudDotSize.small)
 
             Text(tail.isFollowing ? "Following tail" : "Tail paused")
                 .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(tail.isFollowing ? HudPalette.ink : HudPalette.muted)
+                .foregroundStyle(tail.isFollowing ? ScoutPalette.ink : ScoutPalette.muted)
 
             Text("\(tail.lastBatchCount) new")
                 .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(tail.lastBatchCount > 0 ? HudPalette.accent : HudPalette.dim)
+                .foregroundStyle(tail.lastBatchCount > 0 ? ScoutPalette.accent : ScoutPalette.dim)
                 .monospacedDigit()
 
             if let latestEvent {
                 Text("latest")
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
                 Text(latestEvent.clockLabel)
                     .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
                     .monospacedDigit()
                 Text(latestEvent.sourceLabel)
                     .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
                     .lineLimit(1)
             } else {
                 Text("waiting")
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
             }
 
             Spacer(minLength: 0)
 
             Text("\(visibleEvents.count) / \(tail.events.count) lines buffered")
                 .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutPalette.dim)
                 .monospacedDigit()
         }
         .padding(.horizontal, ScoutTailMetrics.pageGutter)
@@ -238,7 +238,7 @@ struct ScoutTailContent: View {
                 ProgressView()
                 Text("Loading tail")
                     .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if visibleEvents.isEmpty {
@@ -327,10 +327,10 @@ struct ScoutTailInspector: View {
             }
 
             HStack(spacing: HudSpacing.sm) {
-                HudStatusDot(color: tail.isFollowing ? HudPalette.statusOk : HudPalette.muted)
+                HudStatusDot(color: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted)
                 Text(tail.isFollowing ? "following live transcript tails" : "tail follow is paused")
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
                     .lineLimit(2)
             }
         }
@@ -354,10 +354,10 @@ struct ScoutTailInspector: View {
             Toggle("Show transcript metadata", isOn: $tail.showMetadata)
                 .toggleStyle(.checkbox)
                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutPalette.muted)
             Text("Metadata includes records like model, title, permission-mode, and last-prompt.")
                 .font(HudFont.ui(HudTextSize.xs))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutPalette.dim)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -366,10 +366,10 @@ struct ScoutTailInspector: View {
         VStack(alignment: .leading, spacing: HudSpacing.xxs) {
             Text(label)
                 .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutPalette.muted)
             Text(detail)
                 .font(HudFont.ui(HudTextSize.xs))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutPalette.dim)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, HudSpacing.xs)
@@ -384,10 +384,10 @@ struct ScoutTailInspector: View {
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
             Text(label.uppercased())
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutPalette.dim)
             Text("\(value)")
                 .font(HudFont.mono(HudTextSize.lg, weight: .semibold))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .monospacedDigit()
         }
         .padding(.horizontal, HudSpacing.md)
@@ -403,19 +403,19 @@ struct ScoutTailInspector: View {
             if items.isEmpty {
                 Text(empty)
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
             } else {
                 ForEach(items) { item in
                     HStack(spacing: HudSpacing.md) {
                         Text(item.label)
                             .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                            .foregroundStyle(HudPalette.muted)
+                            .foregroundStyle(ScoutPalette.muted)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer(minLength: HudSpacing.sm)
                         Text("\(item.count)")
                             .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                            .foregroundStyle(HudPalette.dim)
+                            .foregroundStyle(ScoutPalette.dim)
                             .monospacedDigit()
                     }
                     .frame(height: 22)
@@ -438,7 +438,7 @@ private struct ScoutTailInspectorTitle: View {
     var body: some View {
         Text(title.uppercased())
             .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-            .foregroundStyle(HudPalette.dim)
+            .foregroundStyle(ScoutPalette.dim)
     }
 }
 
@@ -461,7 +461,7 @@ private struct ScoutTailHeaderRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-        .foregroundStyle(HudPalette.muted)
+        .foregroundStyle(ScoutPalette.muted)
         .padding(.horizontal, ScoutTailMetrics.pageGutter)
         .frame(height: 28)
         .background(ScoutDesign.chrome)
@@ -484,7 +484,7 @@ private struct ScoutTailRow: View {
                 Text(event.clockLabel)
                     .font(HudFont.mono(HudTextSize.sm))
                     .monospacedDigit()
-                    .foregroundStyle(isSelected ? HudPalette.ink : HudPalette.dim)
+                    .foregroundStyle(isSelected ? ScoutPalette.ink : ScoutPalette.dim)
                     .frame(width: ScoutTailColumns.time, alignment: .leading)
 
                 ScoutTailChip(event.sourceLabel, tint: sourceColor(event.sourceLabel))
@@ -496,22 +496,22 @@ private struct ScoutTailRow: View {
                 HStack(spacing: HudSpacing.xs) {
                     Text(event.projectLabel)
                         .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutPalette.muted)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text("·")
                         .font(HudFont.mono(HudTextSize.sm))
-                        .foregroundStyle(HudPalette.dim)
+                        .foregroundStyle(ScoutPalette.dim)
                     Text(event.sessionShortLabel)
                         .font(HudFont.mono(HudTextSize.sm))
-                        .foregroundStyle(HudPalette.dim)
+                        .foregroundStyle(ScoutPalette.dim)
                         .lineLimit(1)
                 }
                 .frame(width: ScoutTailColumns.context, alignment: .leading)
 
                 Text(event.pidLabel)
                     .font(HudFont.mono(HudTextSize.sm))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
                     .lineLimit(1)
                     .frame(width: ScoutTailColumns.pid, alignment: .leading)
 
@@ -522,7 +522,7 @@ private struct ScoutTailRow: View {
 
                 Text(event.summary)
                     .font(HudFont.mono(HudTextSize.sm))
-                    .foregroundStyle(isSelected ? HudPalette.ink : HudPalette.ink.opacity(0.78))
+                    .foregroundStyle(isSelected ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.78))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -532,7 +532,7 @@ private struct ScoutTailRow: View {
             .background(rowBackground)
             .overlay(alignment: .leading) {
                 Rectangle()
-                    .fill(isSelected ? HudPalette.accent : Color.clear)
+                    .fill(isSelected ? ScoutPalette.accent : Color.clear)
                     .frame(width: 2)
             }
             .overlay(alignment: .bottom) {
@@ -557,7 +557,7 @@ private struct ScoutTailRow: View {
 
     private var rowBackground: Color {
         if isSelected {
-            return HudSurface.selected(HudPalette.accent)
+            return HudSurface.selected(ScoutPalette.accent)
         }
         if isHovering {
             return HudSurface.hover
@@ -580,9 +580,9 @@ private struct ScoutTailRow: View {
 
     private func originColor(_ value: String) -> Color {
         switch value {
-        case "scout-managed": return HudPalette.accent
-        case "hudson-managed": return HudPalette.statusInfo
-        default: return HudPalette.muted
+        case "scout-managed": return ScoutPalette.accent
+        case "hudson-managed": return ScoutPalette.statusInfo
+        default: return ScoutPalette.muted
         }
     }
 }
@@ -594,7 +594,7 @@ private struct ScoutTailDetail: View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
             Text(event.summary)
                 .font(HudFont.ui(HudTextSize.base))
-                .foregroundStyle(HudPalette.ink)
+                .foregroundStyle(ScoutPalette.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
 
@@ -628,10 +628,10 @@ private struct ScoutTailDetail: View {
     private func detail(_ label: String, _ value: String) -> some View {
         Text(label.uppercased())
             .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-            .foregroundStyle(HudPalette.dim)
+            .foregroundStyle(ScoutPalette.dim)
         Text(value)
             .font(HudFont.mono(HudTextSize.xs))
-            .foregroundStyle(HudPalette.muted)
+            .foregroundStyle(ScoutPalette.muted)
             .lineLimit(2)
             .truncationMode(.middle)
             .textSelection(.enabled)
@@ -680,7 +680,7 @@ private struct ScoutTailLivePill: View {
     let isLive: Bool
 
     private var tint: Color {
-        isLive ? HudPalette.statusOk : HudPalette.muted
+        isLive ? ScoutPalette.statusOk : ScoutPalette.muted
     }
 
     var body: some View {
@@ -709,13 +709,13 @@ private struct ScoutTailSearchField: View {
         HStack(spacing: HudSpacing.sm) {
             Image(systemName: "magnifyingglass")
                 .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(isFocused ? HudPalette.statusInfo : HudPalette.dim)
+                .foregroundStyle(isFocused ? ScoutPalette.statusInfo : ScoutPalette.dim)
 
             TextField("Search", text: $text)
                 .textFieldStyle(.plain)
                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                .foregroundStyle(HudPalette.ink)
-                .tint(HudPalette.accent)
+                .foregroundStyle(ScoutPalette.ink)
+                .tint(ScoutPalette.accent)
                 .focused($isFocused)
         }
         .padding(.horizontal, HudSpacing.md)
@@ -757,7 +757,7 @@ private struct ScoutTailFilterMenu<MenuItems: View>: View {
 
                 Text(value)
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
@@ -765,7 +765,7 @@ private struct ScoutTailFilterMenu<MenuItems: View>: View {
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(HudFont.ui(HudTextSize.micro, weight: .bold))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
             }
             .padding(.horizontal, HudSpacing.sm)
             .frame(width: width, height: ScoutTailMetrics.controlHeight)
@@ -801,7 +801,7 @@ private struct ScoutTailToolbarButton: View {
                 Text(title)
                     .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
             }
-            .foregroundStyle(isActive ? HudPalette.ink : HudPalette.muted)
+            .foregroundStyle(isActive ? ScoutPalette.ink : ScoutPalette.muted)
             .padding(.horizontal, HudSpacing.md)
             .frame(height: ScoutTailMetrics.controlHeight)
             .background(
@@ -810,7 +810,7 @@ private struct ScoutTailToolbarButton: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .stroke(isActive ? HudSurface.tintBorder(HudPalette.accent) : ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
+                    .stroke(isActive ? HudSurface.tintBorder(ScoutPalette.accent) : ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
             )
         }
         .buttonStyle(.plain).scoutPointerCursor()
@@ -831,7 +831,7 @@ private struct ScoutTailIconButton: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(isHovering ? HudPalette.ink : HudPalette.muted)
+                .foregroundStyle(isHovering ? ScoutPalette.ink : ScoutPalette.muted)
                 .frame(width: ScoutTailMetrics.controlHeight, height: ScoutTailMetrics.controlHeight)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)

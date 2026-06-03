@@ -12,12 +12,13 @@ struct ScoutSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xxl) {
             header
+            themeSection
             opacitySection
             Spacer(minLength: 0)
             footerNote
         }
         .padding(HudSpacing.xxxl)
-        .frame(width: 440, height: 320)
+        .frame(width: 440, height: 420)
         .background(ScoutDesign.surface)
     }
 
@@ -27,16 +28,16 @@ struct ScoutSettingsView: View {
                 Text("APPEARANCE")
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(1.0)
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutPalette.dim)
                 Text("Settings")
                     .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
             }
             Spacer()
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(HudFont.ui(HudTextSize.sm, weight: .bold))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
                     .frame(width: 24, height: 24)
                     .background(
                         RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
@@ -54,21 +55,45 @@ struct ScoutSettingsView: View {
             HStack {
                 Text("Window opacity")
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
+                    .foregroundStyle(ScoutPalette.ink)
                 Spacer()
                 Text("\(Int((appearance.windowOpacity * 100).rounded()))%")
                     .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
                     .monospacedDigit()
             }
             Slider(
                 value: $appearance.windowOpacity,
                 in: ScoutAppearance.minOpacity...ScoutAppearance.maxOpacity
             )
-            .tint(HudPalette.accent)
+            .tint(ScoutPalette.accent)
             Text("Lower lets more of your desktop show through the window.")
                 .font(HudFont.ui(HudTextSize.xs))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutPalette.dim)
+        }
+        .padding(HudSpacing.xl)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .fill(ScoutDesign.bg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                        .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+                )
+        )
+    }
+
+    private var themeSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.md) {
+            Text("Theme")
+                .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                .foregroundStyle(ScoutPalette.ink)
+            Picker("Theme", selection: $appearance.themeMode) {
+                ForEach(ScoutThemeMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
         .padding(HudSpacing.xl)
         .background(
@@ -82,8 +107,8 @@ struct ScoutSettingsView: View {
     }
 
     private var footerNote: some View {
-        Text("Theme (light / dark) and editable design tokens are coming next.")
+        Text("Editable design tokens (accent, and more) are coming next.")
             .font(HudFont.ui(HudTextSize.xs))
-            .foregroundStyle(HudPalette.dim)
+            .foregroundStyle(ScoutPalette.dim)
     }
 }
