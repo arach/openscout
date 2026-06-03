@@ -25,7 +25,8 @@
 		1BF5B43FCC85EB3FAD07F724 /* AllSessionsGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94046D6B74726E23BE9284D7 /* AllSessionsGridView.swift */; };
 		1CF13F1DB8DEEBB963158C84 /* NoiseProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B317D842F3C5606AC9AE81 /* NoiseProtocolTests.swift */; };
 		22198F2E0712C7093485DF3E /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07DE486878B8E8E6F3CB1BDF /* OnboardingView.swift */; };
-		22BA827C16B3F084B8D68E3C /* ScoutCapabilities in Frameworks */ = {isa = PBXBuildFile; productRef = 76B4D7DF5617890CE69382DF /* ScoutCapabilities */; };
+		22BA827C16B3F084B8D68E3C /* HudsonUICapture in Frameworks */ = {isa = PBXBuildFile; productRef = 8D703E8C1EFB88EB1A300F6B /* HudsonUICapture */; };
+		239D2EB4BF289B94E3075978 /* ScoutIOSCore in Frameworks */ = {isa = PBXBuildFile; productRef = BD0A984CAFB715C814A92C4D /* ScoutIOSCore */; };
 		277D12ED8EADB3AD1E365AEB /* HudsonUI in Frameworks */ = {isa = PBXBuildFile; productRef = 038735DB280A764E8BBBB34C /* HudsonUI */; };
 		2BE63822046698F6281DED9E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029C6049264D3C5EE524673E /* Theme.swift */; };
 		2E233FBDD7ABD16D18172BAC /* RecordingIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9102509C4B05FADAF82B357D /* RecordingIndicator.swift */; };
@@ -57,7 +58,7 @@
 		6602980B04837BF73A56BC8A /* HomeSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = E647FA4040FBC2B90EC13BC6 /* HomeSurface.swift */; };
 		676D68D8E8A12B4607055123 /* ScoutBottomBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C59A482FB6106AD2EBEF23A /* ScoutBottomBar.swift */; };
 		6E27EE08D0DECC675FB8AA5E /* ScoutRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6C0A30A72EE6C72F54DC86 /* ScoutRouter.swift */; };
-		6F0833463DABF651FC506C9F /* ScoutIOSCore in Frameworks */ = {isa = PBXBuildFile; productRef = BD0A984CAFB715C814A92C4D /* ScoutIOSCore */; };
+		6F0833463DABF651FC506C9F /* ScoutCapabilities in Frameworks */ = {isa = PBXBuildFile; productRef = 76B4D7DF5617890CE69382DF /* ScoutCapabilities */; };
 		6FDD9187EA9A43A57B60B698 /* OSNAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE03107744EC59D018E47AC /* OSNAuthClient.swift */; };
 		717B115B4EF3038DDA164F8A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09A0710F2737060ABA3FC0A0 /* ContentView.swift */; };
 		71F946099994958BF4142988 /* TurnHashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A156270D797264F0441EF34B /* TurnHashTests.swift */; };
@@ -102,6 +103,7 @@
 		DA89CEF284347FCCA2AB04E8 /* AddressBarPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10BA2E5EE2B7C4C28BF65201 /* AddressBarPill.swift */; };
 		DDFC98FBA0851D0B5601178E /* MeshRendezvousClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6BE3D3048D6DA6252B7CAA8 /* MeshRendezvousClient.swift */; };
 		DF22D6C8EE12251B47279018 /* SecureTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2043B28142C57D92E9226882 /* SecureTransport.swift */; };
+		E2B51B2F6BA6409B027B49C0 /* SettingsScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 644968E0D94171F388692D15 /* SettingsScaffold.swift */; };
 		E31E076DFBFF80BF5B54A866 /* AgentsSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E3705528D84F241238D9715 /* AgentsSurface.swift */; };
 		E87A5CDE5849A4D43F98E0D7 /* ErrorBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5717C27B2F716F2B5AC2BFBE /* ErrorBlockView.swift */; };
 		EC11BB9A776C6903A477A870 /* InboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAD9F0954B70D484018D2E72 /* InboxView.swift */; };
@@ -188,6 +190,7 @@
 		5CE03107744EC59D018E47AC /* OSNAuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSNAuthClient.swift; sourceTree = "<group>"; };
 		5F211DF77141C40121A79EC8 /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		622F7388E33A9A08EA9913F4 /* QuestionBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionBlockView.swift; sourceTree = "<group>"; };
+		644968E0D94171F388692D15 /* SettingsScaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScaffold.swift; sourceTree = "<group>"; };
 		6785474255FC371E4500E054 /* BonjourRelayDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourRelayDiscovery.swift; sourceTree = "<group>"; };
 		688DB927C80A7AE21C85EE44 /* ActivityFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFeedView.swift; sourceTree = "<group>"; };
 		69431A4D8D860C6CC3D2BEE2 /* ScoutAssistantView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutAssistantView.swift; sourceTree = "<group>"; };
@@ -262,8 +265,9 @@
 			files = (
 				4D450C4AC84DF2C3E920BC0B /* HudsonShell in Frameworks */,
 				277D12ED8EADB3AD1E365AEB /* HudsonUI in Frameworks */,
-				22BA827C16B3F084B8D68E3C /* ScoutCapabilities in Frameworks */,
-				6F0833463DABF651FC506C9F /* ScoutIOSCore in Frameworks */,
+				22BA827C16B3F084B8D68E3C /* HudsonUICapture in Frameworks */,
+				6F0833463DABF651FC506C9F /* ScoutCapabilities in Frameworks */,
+				239D2EB4BF289B94E3075978 /* ScoutIOSCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -338,6 +342,7 @@
 				985DF8CBA4BEA25843ED2E9D /* RootView.swift */,
 				1FE872C7C7BB4439492C5DE6 /* ScoutNextApp.swift */,
 				8CFD556E2CBA8FB82C4AC743 /* SessionSettingsView.swift */,
+				644968E0D94171F388692D15 /* SettingsScaffold.swift */,
 				A52E204004D36D0677087384 /* TailSurface.swift */,
 				5F211DF77141C40121A79EC8 /* TerminalSurface.swift */,
 			);
@@ -689,6 +694,7 @@
 			packageProductDependencies = (
 				64E95320AD700DF090F5F84A /* HudsonShell */,
 				038735DB280A764E8BBBB34C /* HudsonUI */,
+				8D703E8C1EFB88EB1A300F6B /* HudsonUICapture */,
 				76B4D7DF5617890CE69382DF /* ScoutCapabilities */,
 				BD0A984CAFB715C814A92C4D /* ScoutIOSCore */,
 			);
@@ -896,6 +902,7 @@
 				D1D70A27F12D42CA299FE9C2 /* RootView.swift in Sources */,
 				90B0F6C1E9FA6BBE9A734342 /* ScoutNextApp.swift in Sources */,
 				FCD7E8C2FAED6C1D7126F4F9 /* SessionSettingsView.swift in Sources */,
+				E2B51B2F6BA6409B027B49C0 /* SettingsScaffold.swift in Sources */,
 				7326080A1CFCF3D88E517FFF /* TailSurface.swift in Sources */,
 				809AF4C5372C8CD06051AE99 /* TerminalSurface.swift in Sources */,
 			);
@@ -1282,6 +1289,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 075E6D5D040E9A39DA29CFD1 /* XCRemoteSwiftPackageReference "Termini" */;
 			productName = TerminiSSH;
+		};
+		8D703E8C1EFB88EB1A300F6B /* HudsonUICapture */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HudsonUICapture;
 		};
 		91FF88A038B9886B24F11C38 /* Termini */ = {
 			isa = XCSwiftPackageProductDependency;

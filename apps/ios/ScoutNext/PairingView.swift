@@ -1,5 +1,6 @@
 import SwiftUI
 import HudsonUI
+import HudsonUICapture   // HudQRScanner moved here in the optional-iOS-features split
 
 /// Pair with a Mac by scanning the QR it shows in the desktop app. On a valid
 /// scan we run the Noise XX handshake, persist the trusted bridge to the
