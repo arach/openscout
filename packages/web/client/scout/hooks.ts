@@ -369,7 +369,9 @@ export function useScoutTakeover(): TakeoverState | null {
   // block the app on reloads and true would flash a takeover for returning
   // users. Waiting one RTT is cheap and correct.
   if (!onboarding) return null;
-  if (onboardingSkipped) return { active: false, dismissible: true };
+  if (onboardingSkipped || onboarding.needed === false || onboarding.skippedAt || onboarding.completedAt) {
+    return { active: false, dismissible: true };
+  }
   const needsLocal = !onboarding.hasLocalConfig;
   const needsProject = !onboarding.hasProjectConfig;
   const needsName = !onboarding.hasOperatorName;

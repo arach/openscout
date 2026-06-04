@@ -18,6 +18,11 @@
       "bun": "./src/setup.ts",
       "default": "./dist/setup.js"
     },
+    "./onboarding": {
+      "types": "./src/onboarding.ts",
+      "bun": "./src/onboarding.ts",
+      "default": "./dist/onboarding.js"
+    },
     "./local-agents": {
       "types": "./src/local-agents.ts",
       "bun": "./src/local-agents.ts",

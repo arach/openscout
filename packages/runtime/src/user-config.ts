@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
 export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never";
 export type CommsChannel = "here" | "mobile" | "here+mobile";
@@ -43,10 +44,30 @@ export function saveUserConfig(config: OpenScoutUserConfig): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
+function readSettingsOperatorName(): string {
+  const settingsPath = resolveOpenScoutSupportPaths().settingsPath;
+  if (!existsSync(settingsPath)) return "";
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+      profile?: { operatorName?: unknown };
+      operatorName?: unknown;
+    };
+    const candidate = typeof settings.profile?.operatorName === "string"
+      ? settings.profile.operatorName
+      : typeof settings.operatorName === "string"
+        ? settings.operatorName
+        : "";
+    return candidate.trim();
+  } catch {
+    return "";
+  }
+}
+
 export function resolveOperatorName(): string {
   const config = loadUserConfig();
   return config.name?.trim()
     || process.env.OPENSCOUT_OPERATOR_NAME?.trim()
+    || readSettingsOperatorName()
     || process.env.USER?.trim()
     || "operator";
 }

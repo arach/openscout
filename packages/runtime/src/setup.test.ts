@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { initializeOpenScoutSetup, resolveOpenScoutSetupContextRoot, writeOpenScoutSettings } from "./setup.js";
+import { readManagedInstalls } from "./managed-installs.js";
+import { initializeOpenScoutSetup, installScoutSkillToHarnesses, resolveOpenScoutSetupContextRoot, writeOpenScoutSettings } from "./setup.js";
 import { encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 const originalHome = process.env.HOME;
@@ -49,6 +50,23 @@ afterEach(() => {
 });
 
 describe("setup inventory", () => {
+  test("records installed harness skills in the managed install ledger", async () => {
+    const home = join(tmpdir(), `openscout-managed-installs-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    testDirectories.add(home);
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+
+    const report = await installScoutSkillToHarnesses();
+    expect(report.source).toBeTruthy();
+
+    const installs = await readManagedInstalls();
+    const skillInstalls = installs.filter((entry) => entry.name === "scout-skill");
+    expect(skillInstalls.map((entry) => entry.harness).sort()).toEqual(["claude", "codex", "pi"]);
+    expect(skillInstalls.every((entry) => entry.kind === "skill" && entry.owner === "openscout")).toBe(true);
+    expect(skillInstalls.every((entry) => entry.status === "active" && entry.targetPath)).toBe(true);
+  });
+
   test("resolves the configured setup context root from persisted settings when no env override is present", async () => {
     const home = join(tmpdir(), `openscout-setup-context-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const sourceRoot = join(home, "dev");

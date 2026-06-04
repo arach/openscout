@@ -28,6 +28,15 @@ const GH_CLI_TIMEOUT_MS = 4000;
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
 
+export type ServiceQuotaWindowGauge = {
+  label: string;
+  fill: number;
+  usedLabel: string;
+  capLabel: string;
+  unitLabel: string;
+  resetAt: number;
+};
+
 export type ServiceGauge =
   | {
       id: string;
@@ -38,12 +47,15 @@ export type ServiceGauge =
       capLabel: string;
       unitLabel: string;
       resetAt: number;
+      windows?: ServiceQuotaWindowGauge[];
     }
   | {
       id: string;
       label: string;
       kind: "status";
       statusLabel: string;
+      windowLabel?: string;
+      detailLabel?: string;
       tone: GaugeTone;
     };
 
@@ -102,25 +114,62 @@ async function loadCodexGauge(): Promise<ServiceGauge | null> {
   const limits = await readLatestCodexRateLimits(latest);
   if (!limits) return null;
 
-  // Prefer secondary (weekly, 10080 min). Fall back to primary if absent.
-  const window = limits.secondary ?? limits.primary;
-  if (!window || typeof window.used_percent !== "number") return null;
+  const windows = [
+    codexWindowGauge("primary", limits.primary),
+    codexWindowGauge("secondary", limits.secondary),
+  ].filter((entry): entry is ServiceQuotaWindowGauge => entry !== null);
+  if (windows.length === 0) return null;
 
-  const fill = Math.max(0, Math.min(1, window.used_percent / 100));
-  const resetAt = typeof window.resets_at === "number" && Number.isFinite(window.resets_at)
-    ? window.resets_at * 1000
-    : Date.now() + WEEK_MS;
-  const pct = Math.round(window.used_percent);
+  const displayWindow =
+    windows.find((window) => window.label === "7d") ??
+    windows[windows.length - 1]!;
+  const fill = Math.max(...windows.map((window) => window.fill));
   return {
     id: "codex",
     label: "codex",
     kind: "quota",
     fill,
-    usedLabel: `${pct}%`,
+    usedLabel: displayWindow.usedLabel,
+    capLabel: displayWindow.capLabel,
+    unitLabel: displayWindow.label,
+    resetAt: displayWindow.resetAt,
+    windows,
+  };
+}
+
+function codexWindowGauge(
+  kind: "primary" | "secondary",
+  window: CodexRateLimitWindow | null | undefined,
+): ServiceQuotaWindowGauge | null {
+  if (!window || typeof window.used_percent !== "number") return null;
+  const fill = Math.max(0, Math.min(1, window.used_percent / 100));
+  const resetAt = typeof window.resets_at === "number" && Number.isFinite(window.resets_at)
+    ? window.resets_at * 1000
+    : Date.now() + (kind === "primary" ? 5 * 3600 * 1000 : WEEK_MS);
+  return {
+    label: formatQuotaWindowLabel(window.window_minutes, kind),
+    fill,
+    usedLabel: `${Math.round(window.used_percent)}%`,
     capLabel: "100%",
-    unitLabel: window.window_minutes && window.window_minutes >= 10080 ? "weekly" : "window",
+    unitLabel: "quota",
     resetAt,
   };
+}
+
+function formatQuotaWindowLabel(
+  windowMinutes: number | undefined,
+  fallback: "primary" | "secondary",
+): string {
+  if (typeof windowMinutes !== "number" || !Number.isFinite(windowMinutes) || windowMinutes <= 0) {
+    return fallback === "primary" ? "5h" : "7d";
+  }
+  if (windowMinutes % (24 * 60) === 0) {
+    return `${windowMinutes / (24 * 60)}d`;
+  }
+  if (windowMinutes % 60 === 0) {
+    return `${windowMinutes / 60}h`;
+  }
+  return `${windowMinutes}m`;
 }
 
 function findLatestCodexJsonl(root: string, lookbackDays: number): string | null {
@@ -203,7 +252,9 @@ async function loadClaudeGauge(): Promise<ServiceGauge | null> {
     id: "claude",
     label: "claude",
     kind: "status",
-    statusLabel: `${formatTokenCount(totalTokens)} · 7d`,
+    statusLabel: formatTokenCount(totalTokens),
+    windowLabel: "7d",
+    detailLabel: "quota n/a",
     tone: "ok",
   };
 }
@@ -323,6 +374,14 @@ async function loadGithubGauge(): Promise<ServiceGauge | null> {
     capLabel: formatRequestCount(limit),
     unitLabel: "req/h",
     resetAt,
+    windows: [{
+      label: "1h",
+      fill,
+      usedLabel: formatRequestCount(used),
+      capLabel: formatRequestCount(limit),
+      unitLabel: "req",
+      resetAt,
+    }],
   };
 }
 

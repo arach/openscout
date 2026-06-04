@@ -40,9 +40,18 @@ export interface OnboardingState {
   hasOperatorName: boolean;
   localConfigPath: string | null;
   projectRoot: string | null;
+  projectConfigPath?: string | null;
   currentDirectory: string | null;
+  contextRoot?: string | null;
+  sourceRoots?: string[];
+  defaultHarness?: string;
   operatorName: string | null;
   operatorNameSuggestion: string | null;
+  brokerReachable?: boolean;
+  hasReadyRuntime?: boolean;
+  skippedAt?: number | null;
+  completedAt?: number | null;
+  needed?: boolean;
 }
 
 export interface ScoutContextValue {
@@ -192,7 +201,6 @@ export function ScoutProvider({
   const [agents, setAgents] = useState<Agent[]>([]);
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [onboardingSkipped, setOnboardingSkipped] = useState(false);
-  const skipOnboarding = useCallback(() => setOnboardingSkipped(true), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedBrokerAttempt, setSelectedBrokerAttempt] = useState<BrokerRouteAttempt | null>(null);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
@@ -243,6 +251,13 @@ export function ScoutProvider({
       });
     }
   }, []);
+
+  const skipOnboarding = useCallback(() => {
+    setOnboardingSkipped(true);
+    void api("/api/onboarding/skip", { method: "POST", body: "{}" })
+      .then(() => refreshOnboarding())
+      .catch(() => null);
+  }, [refreshOnboarding]);
 
   useEffect(() => {
     void reload();
