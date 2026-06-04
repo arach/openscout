@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import {
   buildScoutMcpCodexLaunchArgs,
+  readCodexRolloutUsageObservation,
   type ActionBlock,
   type BlockState,
   type ReasoningBlock,
@@ -1454,18 +1455,24 @@ export function buildCodexRolloutSessionSnapshot(
       }
 
       if (payloadType === "token_count") {
-        const usage = ensureCodexProviderMetaRecord(snapshot, "observeUsage");
-        const info = metadataRecord(payload, "info");
-        const totalTokenUsage = metadataRecord(info, "total_token_usage");
-        setObserveNumber(usage, "inputTokens", totalTokenUsage?.input_tokens);
-        setObserveNumber(usage, "cacheReadInputTokens", totalTokenUsage?.cached_input_tokens);
-        setObserveNumber(usage, "outputTokens", totalTokenUsage?.output_tokens);
-        setObserveNumber(usage, "reasoningOutputTokens", totalTokenUsage?.reasoning_output_tokens);
-        setObserveNumber(usage, "totalTokens", totalTokenUsage?.total_tokens);
-        setObserveNumber(usage, "contextWindowTokens", info?.model_context_window);
-
-        const rateLimits = metadataRecord(payload, "rate_limits");
-        setObserveString(usage, "planType", rateLimits?.plan_type);
+        const observedUsage = readCodexRolloutUsageObservation(payload, timestamp);
+        if (observedUsage) {
+          const usage = ensureCodexProviderMetaRecord(snapshot, "observeUsage");
+          setObserveNumber(usage, "inputTokens", observedUsage.inputTokens);
+          setObserveNumber(usage, "cacheReadInputTokens", observedUsage.cacheReadInputTokens);
+          setObserveNumber(usage, "outputTokens", observedUsage.outputTokens);
+          setObserveNumber(usage, "reasoningOutputTokens", observedUsage.reasoningOutputTokens);
+          setObserveNumber(usage, "totalTokens", observedUsage.totalTokens);
+          setObserveNumber(usage, "contextWindowTokens", observedUsage.contextWindowTokens);
+          setObserveString(usage, "planType", observedUsage.planType);
+        }
+        if (observedUsage?.quotaWindows.length) {
+          const quota = ensureCodexProviderMetaRecord(snapshot, "observeQuota");
+          setObserveString(quota, "provider", "openai");
+          setObserveString(quota, "planType", observedUsage.planType);
+          setObserveNumber(quota, "capturedAt", timestamp);
+          quota.windows = observedUsage.quotaWindows;
+        }
       }
 
       if (payloadType === "task_complete" || payloadType === "turn_aborted") {

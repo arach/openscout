@@ -511,11 +511,25 @@ describe("history snapshot replay", () => {
         payload: {
           type: "token_count",
           info: {
+            model_context_window: 200000,
             total_token_usage: {
               input_tokens: 100,
               cached_input_tokens: 40,
               output_tokens: 20,
               reasoning_output_tokens: 7,
+            },
+          },
+          rate_limits: {
+            plan_type: "plus",
+            primary: {
+              used_percent: 64,
+              reset_after_seconds: 1800,
+              window_minutes: 300,
+            },
+            secondary: {
+              percent_remaining: 72,
+              reset_at: "2026-06-06T00:00:00.000Z",
+              window_seconds: 604800,
             },
           },
         },
@@ -566,7 +580,29 @@ describe("history snapshot replay", () => {
           outputTokens: 20,
           reasoningOutputTokens: 7,
           cacheReadInputTokens: 40,
+          contextWindowTokens: 200000,
+          planType: "plus",
           tokenEvents: 1,
+        }),
+        observeQuota: expect.objectContaining({
+          provider: "openai",
+          planType: "plus",
+          windows: [
+            expect.objectContaining({
+              label: "5h",
+              windowKind: "primary",
+              usedPercent: 64,
+              resetAt: Date.parse("2026-05-30T01:39:14.000Z"),
+              windowMs: 300 * 60 * 1000,
+            }),
+            expect.objectContaining({
+              label: "weekly",
+              windowKind: "secondary",
+              percentRemaining: 72,
+              resetAt: Date.parse("2026-06-06T00:00:00.000Z"),
+              windowMs: 604800 * 1000,
+            }),
+          ],
         }),
       }),
     );

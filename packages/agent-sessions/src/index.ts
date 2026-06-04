@@ -2,6 +2,10 @@ export * from "./protocol/primitives.js";
 export * from "./protocol/adapter.js";
 export * from "./protocol/approval-normalization.js";
 export * from "./protocol/cost.js";
+export * from "./protocol/budget-observations.js";
+export {
+  readAdapterBudgetObservations,
+} from "./adapters/budget-observations.js";
 export { StateTracker } from "./state.js";
 export type { SessionState, SessionSummary, TurnState, BlockState } from "./state.js";
 export { OutboundBuffer } from "./buffer.js";
@@ -31,6 +35,9 @@ export type {
 } from "./history.js";
 export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code.js";
 export {
+  readClaudeCodeBudgetObservations,
+} from "./adapters/claude-code/usage.js";
+export {
   readClaudeAgentTeamTopology,
 } from "./adapters/claude-code/team-topology.js";
 export type {
@@ -43,6 +50,15 @@ export {
 export type {
   CodexObservedTopologyOptions,
 } from "./adapters/codex/topology.js";
+export {
+  readCodexBudgetObservations,
+  readCodexQuotaWindowsFromRateLimits,
+  readCodexRolloutUsageObservation,
+} from "./adapters/codex/usage.js";
+export type {
+  CodexQuotaWindowObservation,
+  CodexUsageObservation,
+} from "./adapters/codex/usage.js";
 export { createAdapter as createAcpAdapter } from "./adapters/acp.js";
 export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat.js";
 export { createAdapter as createOpencodeAdapter } from "./adapters/opencode.js";
