@@ -1,6 +1,7 @@
 import SwiftUI
 import HudsonUI
 import HudsonVoice
+import ScoutIOSCore
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -15,8 +16,6 @@ struct AppSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var tab = "CONNECTION"
-    @State private var tailscaleEnabled = true
-    @State private var osnEnabled = false
     @State private var approvalsAlert = true
 
     private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "VOICE", "ALERTS", "APPEARANCE", "ADVANCED", "ABOUT"]
@@ -65,11 +64,16 @@ struct AppSettingsView: View {
     private var routesPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HudInspectorSection("Priority") {
-                HudInspectorFieldRow("Order", value: "LAN → TSN → OSN", hint: "first reachable wins")
+                HudInspectorFieldRow("Order", value: routeOrderLabel, hint: "first reachable wins")
+            }
+            HudInspectorSection("Saved routes") {
+                HudInspectorFieldRow("LAN", value: routeStatus(.lan), hint: "nearby")
+                HudInspectorFieldRow("Tailscale", value: routeStatus(.tailnet), hint: "tailnet")
+                HudInspectorFieldRow("OpenScout Net", value: routeStatus(.oscout), hint: "managed relay")
             }
             HudInspectorSection("Transports") {
-                HudInspectorToggleRow("Tailscale", isOn: $tailscaleEnabled, valueOn: "On", valueOff: "Off", hint: "reach over your tailnet")
-                HudInspectorToggleRow("OpenScout Net", isOn: $osnEnabled, valueOn: "On", valueOff: "Off", hint: "relay fallback off-LAN")
+                HudInspectorToggleRow("Tailscale", isOn: tailnetBinding, valueOn: "On", valueOff: "Off", hint: "reach over your tailnet")
+                HudInspectorToggleRow("OpenScout Net", isOn: osnBinding, valueOn: "On", valueOff: "Off", hint: "relay fallback off-LAN")
             }
         }
     }
@@ -208,5 +212,34 @@ struct AppSettingsView: View {
         #else
         return "ScoutNext"
         #endif
+    }
+
+    private var tailnetBinding: Binding<Bool> {
+        Binding(
+            get: { model.tailnetRoutingEnabled },
+            set: { model.setTailnetRoutingEnabled($0) }
+        )
+    }
+
+    private var osnBinding: Binding<Bool> {
+        Binding(
+            get: { model.openScoutNetworkRoutingEnabled },
+            set: { model.setOpenScoutNetworkRoutingEnabled($0) }
+        )
+    }
+
+    private var routeOrderLabel: String {
+        var labels = ["LAN"]
+        if model.tailnetRoutingEnabled { labels.append("TSN") }
+        if model.openScoutNetworkRoutingEnabled { labels.append("OSN") }
+        return labels.joined(separator: " → ")
+    }
+
+    private func routeStatus(_ kind: TransportKind) -> String {
+        let summary = model.savedRouteSummary
+        let count = summary.routeCounts[kind] ?? 0
+        guard count > 0 else { return "—" }
+        if (summary.allowedRouteCounts[kind] ?? 0) == 0 { return "Off" }
+        return count == 1 ? "Saved" : "\(count)"
     }
 }

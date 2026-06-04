@@ -17,7 +17,7 @@ extension String {
 
 // MARK: - Transport classification
 
-public enum TransportKind: String, Sendable {
+public enum TransportKind: String, Hashable, Sendable {
     /// RFC1918 private LAN: 10/8, 192.168/16, 172.16-31/12; link-local 169.254/16.
     case lan
     /// Tailscale CGNAT 100.64.0.0/10 or `*.ts.net` MagicDNS host.
@@ -39,6 +39,60 @@ public enum TransportKind: String, Sendable {
         case .remote: return "WAN"
         case .loopback: return "LOCAL"
         case .none: return ""
+        }
+    }
+}
+
+// MARK: - Route preferences
+
+public enum BridgeRoutePreferences {
+    public static let tailnetUserDefaultsKey = "scout.tsn.enabled"
+    public static let openScoutNetworkUserDefaultsKey = "scout.osn.enabled"
+
+    public static func tailnetRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
+        if userDefaults.object(forKey: tailnetUserDefaultsKey) == nil {
+            return true
+        }
+        return userDefaults.bool(forKey: tailnetUserDefaultsKey)
+    }
+
+    public static func setTailnetRoutingEnabled(_ enabled: Bool, userDefaults: UserDefaults = .standard) {
+        userDefaults.set(enabled, forKey: tailnetUserDefaultsKey)
+    }
+
+    public static func openScoutNetworkRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
+        userDefaults.bool(forKey: openScoutNetworkUserDefaultsKey)
+    }
+
+    public static func setOpenScoutNetworkRoutingEnabled(_ enabled: Bool, userDefaults: UserDefaults = .standard) {
+        userDefaults.set(enabled, forKey: openScoutNetworkUserDefaultsKey)
+    }
+}
+
+public struct BridgeRouteSummary: Equatable, Sendable {
+    public let relayCount: Int
+    public let allowedRelayCount: Int
+    public let routeCounts: [TransportKind: Int]
+    public let allowedRouteCounts: [TransportKind: Int]
+
+    public var hasTailnetRelay: Bool { (routeCounts[.tailnet] ?? 0) > 0 }
+    public var hasAllowedTailnetRelay: Bool { (allowedRouteCounts[.tailnet] ?? 0) > 0 }
+    public var hasOpenScoutNetworkRelay: Bool { (routeCounts[.oscout] ?? 0) > 0 }
+    public var hasAllowedOpenScoutNetworkRelay: Bool { (allowedRouteCounts[.oscout] ?? 0) > 0 }
+
+    public init(relayURLs: [String], userDefaults: UserDefaults = .standard) {
+        let routes = relayURLs.map(transportKind(forRelayURL:))
+        let allowedRelayURLs = relayURLsAllowedByRouteSettings(relayURLs, userDefaults: userDefaults)
+        let allowedRoutes = allowedRelayURLs.map(transportKind(forRelayURL:))
+        relayCount = relayURLs.count
+        allowedRelayCount = allowedRelayURLs.count
+        routeCounts = Self.count(routes)
+        allowedRouteCounts = Self.count(allowedRoutes)
+    }
+
+    private static func count(_ routes: [TransportKind]) -> [TransportKind: Int] {
+        routes.reduce(into: [:]) { result, route in
+            result[route, default: 0] += 1
         }
     }
 }
@@ -108,15 +162,12 @@ func relayURLUsesOpenScoutNetworkRoute(_ rawValue: String) -> Bool {
     return isOpenScoutNetworkRelayHost(host)
 }
 
-func tailnetRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
-    if userDefaults.object(forKey: "scout.tsn.enabled") == nil {
-        return true
-    }
-    return userDefaults.bool(forKey: "scout.tsn.enabled")
+public func tailnetRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
+    BridgeRoutePreferences.tailnetRoutingEnabled(userDefaults: userDefaults)
 }
 
-func openScoutNetworkRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
-    userDefaults.bool(forKey: "scout.osn.enabled")
+public func openScoutNetworkRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
+    BridgeRoutePreferences.openScoutNetworkRoutingEnabled(userDefaults: userDefaults)
 }
 
 func relayURLAllowedByRouteSettings(_ rawValue: String, userDefaults: UserDefaults = .standard) -> Bool {
@@ -131,6 +182,41 @@ func relayURLAllowedByRouteSettings(_ rawValue: String, userDefaults: UserDefaul
 
 public func relayURLsAllowedByRouteSettings(_ rawValues: [String], userDefaults: UserDefaults = .standard) -> [String] {
     rawValues.filter { relayURLAllowedByRouteSettings($0, userDefaults: userDefaults) }
+}
+
+func orderedRelayCandidates(
+    discoveredRelayURLs: [String],
+    storedRelayURLs: [String],
+    userDefaults: UserDefaults = .standard
+) -> [String] {
+    let allowed = relayURLsAllowedByRouteSettings(
+        discoveredRelayURLs + storedRelayURLs,
+        userDefaults: userDefaults
+    )
+    guard let primary = allowed.first else { return [] }
+    return deduplicatedRelayURLs(primary: primary, fallbacks: Array(allowed.dropFirst()))
+}
+
+public func relayURLDependsOnTailscale(_ rawValue: String) -> Bool {
+    relayURLUsesTailnetRoute(rawValue)
+}
+
+public func isTailscaleRouteNetworkFailure(_ error: Error) -> Bool {
+    guard let urlError = error as? URLError else {
+        return false
+    }
+
+    switch urlError.code {
+    case .cannotFindHost,
+         .cannotConnectToHost,
+         .dnsLookupFailed,
+         .networkConnectionLost,
+         .notConnectedToInternet,
+         .timedOut:
+        return true
+    default:
+        return false
+    }
 }
 
 /// Move the relay URL that just succeeded to the front of the candidate list so

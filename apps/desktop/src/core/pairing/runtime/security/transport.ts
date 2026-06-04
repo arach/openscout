@@ -22,7 +22,7 @@ import {
   type HandshakePattern,
   type Role,
 } from "./noise.ts";
-import { saveTrustedPeer, bytesToHex } from "./identity.ts";
+import { saveTrustedPeer, loadTrustedPeers, bytesToHex } from "./identity.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,13 +40,23 @@ interface WireMessage {
 
 export interface SecureTransportEvents {
   /** Handshake complete — transport is ready for encrypted messages. */
-  onReady?: (remotePublicKey: Uint8Array) => void;
+  onReady?: (remotePublicKey: Uint8Array, info: SecureTransportReadyInfo) => void;
   /** Decrypted application message received. */
   onMessage?: (message: string) => void;
   /** Error during handshake or transport. */
   onError?: (error: Error) => void;
   /** Connection closed. */
   onClose?: () => void;
+}
+
+export interface SecureTransportReadyInfo {
+  remotePublicKeyHex: string;
+  /** True only when this peer was already in the trust store before this handshake. */
+  wasTrustedPeer: boolean;
+  /** True when this handshake left the peer trusted, either pre-existing or newly paired. */
+  trustedPeer: boolean;
+  /** True when this transport was allowed to persist a new trust record. */
+  trustedOnComplete: boolean;
 }
 
 // Minimal WebSocket interface — works with both Bun.serve sockets and client WebSockets.
@@ -63,6 +73,7 @@ export class SecureTransport {
   private session: NoiseSession | null = null;
   private socket: SocketLike;
   private events: SecureTransportEvents;
+  private trustOnComplete: boolean;
   private ready = false;
 
   constructor(
@@ -78,6 +89,7 @@ export class SecureTransport {
   ) {
     this.socket = socket;
     this.events = events;
+    this.trustOnComplete = options?.trustOnComplete ?? true;
 
     const pattern = options?.pattern ?? "XX";
     this.handshake = new NoiseHandshake(pattern, role, staticKey, options?.remoteStaticKey);
@@ -172,14 +184,28 @@ export class SecureTransport {
     this.session = this.handshake.finalize();
     this.ready = true;
 
-    // Save as trusted peer.
-    saveTrustedPeer({
-      publicKey: bytesToHex(this.session.remoteStaticKey),
-      pairedAt: new Date().toISOString(),
-      lastSeen: new Date().toISOString(),
-    });
+    const remotePublicKeyHex = bytesToHex(this.session.remoteStaticKey);
+    const trustedPeers = loadTrustedPeers();
+    const existingPeer = trustedPeers.get(remotePublicKeyHex);
+    const wasTrustedPeer = Boolean(existingPeer);
+    const trustedPeer = wasTrustedPeer || this.trustOnComplete;
 
-    this.events.onReady?.(this.session.remoteStaticKey);
+    if (trustedPeer) {
+      const now = new Date().toISOString();
+      saveTrustedPeer({
+        ...existingPeer,
+        publicKey: remotePublicKeyHex,
+        pairedAt: existingPeer?.pairedAt ?? now,
+        lastSeen: now,
+      });
+    }
+
+    this.events.onReady?.(this.session.remoteStaticKey, {
+      remotePublicKeyHex,
+      wasTrustedPeer,
+      trustedPeer,
+      trustedOnComplete: this.trustOnComplete,
+    });
   }
 
   // ---------------------------------------------------------------------------

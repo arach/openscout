@@ -2,9 +2,9 @@ import SwiftUI
 import HudsonUI
 import ScoutIOSCore
 
-/// Connection inspector: which data source is active, the live transport route
-/// (LAN / TSN / OSN), a reconnect control, and the `ConnectionLog` — so it's
-/// always clear which path we attempted and which one won.
+/// Connection inspector: the live transport route (LAN / TSN / OSN), a reconnect
+/// control, and the `ConnectionLog` — so it's always clear which path we
+/// attempted and which one won.
 struct ConnectionView: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -13,8 +13,7 @@ struct ConnectionView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: HudSpacing.xxl) {
-                    sourceSection
-                    if model.source == .bridge { statusSection }
+                    statusSection
                     logSection
                 }
                 .padding(HudSpacing.xxl)
@@ -29,28 +28,6 @@ struct ConnectionView: View {
             }
         }
         .preferredColorScheme(.dark)
-    }
-
-    // MARK: - Source
-
-    private var sourceSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            HudSectionLabel("Data source")
-            Picker("Source", selection: Binding(
-                get: { model.source },
-                set: { model.switchTo($0) }
-            )) {
-                ForEach(AppModel.Source.allCases) { source in
-                    Text(source.rawValue).tag(source)
-                }
-            }
-            .pickerStyle(.segmented)
-            Text(model.source == .bridge
-                 ? "Live encrypted link to your paired Mac."
-                 : "Offline fixtures — no network, no broker.")
-                .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(HudPalette.muted)
-        }
     }
 
     // MARK: - Status
@@ -141,23 +118,34 @@ struct ConnectionView: View {
 
     private func logRow(_ entry: ConnectionLogEntry) -> some View {
         HStack(alignment: .top, spacing: HudSpacing.sm) {
-            if let route = entry.route, !route.label.isEmpty {
-                Text(route.label)
-                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                    .foregroundStyle(HudPalette.accent)
-                    .frame(width: 34, alignment: .leading)
-            } else {
-                Text("·")
-                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                    .foregroundStyle(HudPalette.dim)
-                    .frame(width: 34, alignment: .leading)
-            }
+            Text(routeLabel(entry))
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .foregroundStyle(entry.route == nil ? HudPalette.dim : HudPalette.accent)
+                .frame(width: 34, alignment: .leading)
+            Text(entry.event.label)
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .foregroundStyle(eventColor(entry.event, level: entry.level))
+                .frame(width: 82, alignment: .leading)
             Text(entry.message)
                 .font(HudFont.mono(HudTextSize.xs))
                 .foregroundStyle(levelColor(entry.level))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 2)
+    }
+
+    private func routeLabel(_ entry: ConnectionLogEntry) -> String {
+        guard let route = entry.route, !route.label.isEmpty else { return "SYS" }
+        return route.label
+    }
+
+    private func eventColor(_ event: ConnectionLogEvent, level: ConnectionLogLevel) -> Color {
+        switch event {
+        case .connected: return HudPalette.accent
+        case .routeDisabled, .routeUnavailable: return HudPalette.statusWarn
+        case .handshake, .resolve, .discover, .fallback, .pairing, .trust: return levelColor(level)
+        case .lifecycle: return HudPalette.dim
+        }
     }
 
     private func levelColor(_ level: ConnectionLogLevel) -> Color {

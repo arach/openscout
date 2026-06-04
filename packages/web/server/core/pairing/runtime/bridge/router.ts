@@ -32,9 +32,13 @@ import type { AgentHarness } from "@openscout/protocol";
 import {
   createScoutSession,
   getScoutMobileActivity,
+  getScoutMobileConversations,
+  getScoutMobileConversationMessages,
   getScoutMobileSessionSnapshot,
+  sendScoutMobileComms,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
+import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
 import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-push";
 import {
   conversationIdForAgent,
@@ -63,6 +67,8 @@ export interface BridgeContext {
   bridge: Bridge;
   cwd: string;
   deviceId?: string;
+  secureTransport?: boolean;
+  trustedPeer?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -984,6 +990,58 @@ const mobileRouter = t.router({
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ input }) => {
       return interruptLocalAgent(input.agentId);
+    }),
+
+  // -- Comms (channels + DMs) -------------------------------------------------
+
+  commsConversations: procedure
+    .input(
+      z
+        .object({
+          kind: z.string().optional(),
+          limit: z.number().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ input }) => {
+      return getScoutMobileConversations(input ?? {});
+    }),
+
+  commsMessages: procedure
+    .input(
+      z.object({
+        conversationId: z.string(),
+        limit: z.number().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return getScoutMobileConversationMessages(input.conversationId, input.limit ?? 200);
+    }),
+
+  commsSend: procedure
+    .input(
+      z.object({
+        conversationId: z.string(),
+        body: z.string(),
+        replyToMessageId: z.string().nullable().optional(),
+        clientMessageId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return sendScoutMobileComms(input, resolveMobileCurrentDirectory(), ctx.deviceId);
+    }),
+
+  // -- Terminal (in-app SSH/PTY) ------------------------------------------
+  terminalProvision: procedure
+    .input(z.object({ sshPublicKey: z.string() }))
+    .mutation(({ input, ctx }) => {
+      if (!ctx.secureTransport || !ctx.trustedPeer || !ctx.deviceId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Terminal provisioning requires a trusted paired device over the encrypted bridge.",
+        });
+      }
+      return provisionMobileTerminalAccess(input.sshPublicKey, ctx.deviceId);
     }),
 });
 

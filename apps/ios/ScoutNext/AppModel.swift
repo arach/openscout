@@ -7,19 +7,14 @@ import ScoutIOSCore
 import UIKit
 #endif
 
-/// App-level state for ScoutNext: which data source is active (the live
-/// encrypted `BridgeBrokerClient` or the offline `MockBrokerClient`), the
+/// App-level state for ScoutNext: the live encrypted `BridgeBrokerClient`, the
 /// connection lifecycle, and the shared `ConnectionLog` that records which
-/// transport path (LAN / TSN / OSN) was attempted and won.
+/// transport path (LAN / TSN / OSN) was attempted and won. There is no offline
+/// data mode — you're either connected to your Mac or you're in the shell with
+/// empty surfaces (so Settings stays reachable while unpaired).
 @MainActor
 @Observable
 final class AppModel {
-    enum Source: String, CaseIterable, Identifiable {
-        case bridge = "Bridge"
-        case mock = "Mock"
-        var id: String { rawValue }
-    }
-
     enum ConnectionState: Equatable {
         case idle
         case connecting
@@ -28,25 +23,27 @@ final class AppModel {
     }
 
     /// Top-level navigation gate. `connect` is the first-run screen (a single
-    /// pair CTA + an offline escape hatch); `shell` is the tab app. We never
-    /// drop straight into the camera — pairing is always a deliberate tap.
+    /// pair CTA + a "continue without pairing" escape hatch); `shell` is the tab
+    /// app. We never drop straight into the camera — pairing is always a
+    /// deliberate tap.
     enum Phase: Equatable {
         case connect
         case shell
     }
 
-    var source: Source = .bridge
     var phase: Phase = .connect
     var connectionState: ConnectionState = .idle
     var showPairing = false
 
     let bridge: BridgeBrokerClient
-    let mock = MockBrokerClient()
     let connectionLog: ConnectionLog
 
     /// Shared on-device dictation controller (Parakeet via Vox + Apple fallback),
     /// used by every conversation composer and reflected/controlled in Settings.
     let dictation = HudDictation()
+
+    var tailnetRoutingEnabled: Bool
+    var openScoutNetworkRoutingEnabled: Bool
 
     private static let voicePrefKey = "scoutnext.voicePreference"
 
@@ -54,6 +51,8 @@ final class AppModel {
         let log = ConnectionLog()
         connectionLog = log
         bridge = BridgeBrokerClient(connection: BridgeConnection(connectionLog: ConnectionLogHandle(log)))
+        tailnetRoutingEnabled = BridgeRoutePreferences.tailnetRoutingEnabled()
+        openScoutNetworkRoutingEnabled = BridgeRoutePreferences.openScoutNetworkRoutingEnabled()
         if let raw = UserDefaults.standard.string(forKey: Self.voicePrefKey),
            let pref = HudDictation.Preference(rawValue: raw) {
             dictation.preference = pref
@@ -66,19 +65,60 @@ final class AppModel {
         UserDefaults.standard.set(pref.rawValue, forKey: Self.voicePrefKey)
     }
 
-    /// The client every surface consumes. Swapping source re-keys the surfaces.
-    var client: any ScoutBrokerClient { source == .bridge ? bridge : mock }
+    func setTailnetRoutingEnabled(_ enabled: Bool) {
+        guard tailnetRoutingEnabled != enabled else { return }
+        tailnetRoutingEnabled = enabled
+        BridgeRoutePreferences.setTailnetRoutingEnabled(enabled)
+        connectionLog.log(
+            "Tailscale routing \(enabled ? "enabled" : "disabled")",
+            event: enabled ? .lifecycle : .routeDisabled,
+            route: .tailnet
+        )
+        reconnectIfCurrentRouteWasDisabled(.tailnet, enabled: enabled)
+    }
 
-    /// A value that changes when a surface should (re)load its data: mock is
-    /// always ready; the bridge becomes ready only once connected. Surfaces key
-    /// their load `.task(id:)` on this so a list that loaded empty mid-handshake
-    /// reloads the moment the connection lands.
+    func setOpenScoutNetworkRoutingEnabled(_ enabled: Bool) {
+        guard openScoutNetworkRoutingEnabled != enabled else { return }
+        openScoutNetworkRoutingEnabled = enabled
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(enabled)
+        connectionLog.log(
+            "OpenScout Network routing \(enabled ? "enabled" : "disabled")",
+            event: enabled ? .lifecycle : .routeDisabled,
+            route: .oscout
+        )
+        reconnectIfCurrentRouteWasDisabled(.oscout, enabled: enabled)
+    }
+
+    private func reconnectIfCurrentRouteWasDisabled(_ route: TransportKind, enabled: Bool) {
+        guard !enabled, case .connected(let currentRoute) = connectionState, currentRoute == route else { return }
+        Task { await reconnect() }
+    }
+
+    /// The client every surface consumes.
+    var client: any ScoutBrokerClient { bridge }
+
+    /// Saved route inventory for the active pairing. This is route metadata, not
+    /// a network probe.
+    var savedRouteSummary: BridgeRouteSummary { bridge.savedRouteSummary }
+
+    /// A value that changes when a surface should (re)load its data: the bridge
+    /// becomes ready only once connected. Surfaces key their load `.task(id:)` on
+    /// this so a list that loaded empty mid-handshake reloads the moment the
+    /// connection lands. Disconnected → 0 → surfaces show their empty states.
     var dataReadyToken: Int {
-        switch source {
-        case .mock: return 1
-        case .bridge:
-            if case .connected = connectionState { return 1 }
-            return 0
+        if case .connected = connectionState { return 1 }
+        return 0
+    }
+
+    /// The host the live bridge reached the Mac through — the SSH target for the
+    /// in-app Terminal when the route is direct (the host IS the Mac). nil on a
+    /// relay route (`.remote`), where the bridge host isn't the Mac, so the
+    /// Terminal falls back to the broker's advertised `.local` name.
+    var terminalSSHHost: String? {
+        guard case .connected(let route) = connectionState else { return nil }
+        switch route {
+        case .lan, .tailnet, .oscout, .loopback: return bridge.currentHost
+        case .remote, .none: return nil
         }
     }
 
@@ -99,22 +139,21 @@ final class AppModel {
         }
     }
 
-    /// Skip pairing for now and explore the app on offline mock data. The status
-    /// chip still routes back to pairing whenever the operator is ready.
-    func exploreOffline() {
-        source = .mock
+    /// Skip pairing for now and enter the shell unconnected. Surfaces show their
+    /// empty states (no fabricated data); the point is to reach Settings. The
+    /// status chip still routes back to pairing whenever the operator is ready.
+    func continueWithoutPairing() {
         phase = .shell
     }
 
-    /// Attempt to connect the live bridge. No-op on the mock source. Unpaired is
-    /// reported (the Connect screen / status chip own the pairing entry point);
-    /// this never force-presents the camera.
+    /// Attempt to connect the live bridge. Unpaired is reported (the Connect
+    /// screen / status chip own the pairing entry point); this never
+    /// force-presents the camera.
     func connectIfNeeded() async {
-        guard source == .bridge else { return }
         if connectionState == .connecting { return }
         guard hasTrustedBridge else {
             connectionState = .failed("No bridge paired")
-            connectionLog.log("No paired bridge — scan the QR on your Mac to pair", level: .warning)
+            connectionLog.log("No paired bridge — scan the QR on your Mac to pair", event: .trust, level: .warning)
             return
         }
         connectionState = .connecting
@@ -123,10 +162,10 @@ final class AppModel {
             try await bridge.connect()
             let route = bridge.currentRoute
             connectionState = .connected(route)
-            connectionLog.log("Connected via \(route.label)", level: .success, route: route)
+            connectionLog.log("Connected via \(route.label)", event: .connected, level: .success, route: route)
         } catch {
             connectionState = .failed(error.localizedDescription)
-            connectionLog.log("Connection failed: \(error.localizedDescription)", level: .error)
+            connectionLog.log("Connection failed: \(error.localizedDescription)", event: .routeUnavailable, level: .error)
         }
     }
 
@@ -155,20 +194,19 @@ final class AppModel {
     @discardableResult
     private func completePair(source channel: String, _ makePayload: () throws -> QRPayload) async -> Bool {
         connectionState = .connecting
-        connectionLog.log("Pairing from \(channel)…", level: .info)
+        connectionLog.log("Pairing from \(channel)…", event: .pairing, level: .info)
         do {
             let payload = try makePayload()
             try await bridge.pair(qrPayload: payload, primaryName: deviceName)
             let route = bridge.currentRoute
             connectionState = .connected(route)
-            connectionLog.log("Paired & connected via \(route.label)", level: .success, route: route)
-            source = .bridge
+            connectionLog.log("Paired & connected via \(route.label)", event: .connected, level: .success, route: route)
             phase = .shell
             showPairing = false
             return true
         } catch {
             connectionState = .failed(error.localizedDescription)
-            connectionLog.log("Pairing failed: \(error.localizedDescription)", level: .error)
+            connectionLog.log("Pairing failed: \(error.localizedDescription)", event: .pairing, level: .error)
             return false
         }
     }
@@ -181,43 +219,85 @@ final class AppModel {
         #endif
     }
 
-    func switchTo(_ newSource: Source) {
-        guard newSource != source else { return }
-        source = newSource
-        if newSource == .bridge { Task { await connectIfNeeded() } }
-    }
-
     // MARK: - Status presentation
 
     /// Short label for the title-bar status chip.
     var statusLabel: String {
-        switch source {
-        case .mock: return "offline mock"
-        case .bridge:
-            switch connectionState {
-            case .idle: return "not connected"
-            case .connecting: return "connecting…"
-            case .connected(let route): return route.label.isEmpty ? "connected" : route.label
-            case .failed: return "disconnected"
-            }
+        switch connectionState {
+        case .idle: return "not connected"
+        case .connecting: return "connecting…"
+        case .connected(let route): return route.label.isEmpty ? "connected" : route.label
+        case .failed: return "disconnected"
         }
     }
 
     var statusTint: Color {
-        switch source {
-        case .mock: return HudPalette.statusWarn
-        case .bridge:
-            switch connectionState {
-            case .connected: return HudPalette.accent
-            case .connecting: return HudPalette.muted
-            case .failed: return HudPalette.statusError
-            case .idle: return HudPalette.muted
-            }
+        switch connectionState {
+        case .connected: return HudPalette.accent
+        case .connecting: return HudPalette.muted
+        case .failed: return HudPalette.statusError
+        case .idle: return HudPalette.muted
         }
     }
 
     var statusPulses: Bool {
-        if case .connecting = connectionState, source == .bridge { return true }
+        if case .connecting = connectionState { return true }
         return false
+    }
+
+    // MARK: - Paired machines
+
+    /// One paired base machine for the Home machine-rail. `isActive` is the one
+    /// we're currently connected to (it alone knows its live `route`); the rest
+    /// are paired-but-idle, shown with a last-seen rather than a faked live state.
+    struct PairedMachine: Identifiable, Equatable {
+        let id: String          // public-key hex
+        let name: String
+        let lastSeen: Date?
+        let isActive: Bool
+        let route: TransportKind?
+    }
+
+    /// Trusted bridges as rail chips, most-recently-seen first. Until we probe
+    /// each machine / connect to several at once, only the active one reports a
+    /// live route — the others carry last-seen, not a fabricated reachability.
+    var pairedMachines: [PairedMachine] {
+        let records = (try? ScoutIdentity.getTrustedBridges()) ?? []
+        let activeHex = activeMachineHex
+        return records
+            .sorted { ($0.lastSeen ?? $0.pairedAt) > ($1.lastSeen ?? $1.pairedAt) }
+            .map { record in
+                let isActive = record.publicKeyHex == activeHex
+                var route: TransportKind?
+                if isActive, case .connected(let r) = connectionState { route = r }
+                // Prefer the Mac's live advertised host for the active machine —
+                // the stored record name can be stale (older pairs saved the
+                // phone's name). Fall back to the record, then a generic label.
+                let rawName = (isActive ? bridge.currentHost : nil) ?? record.name
+                return PairedMachine(
+                    id: record.publicKeyHex,
+                    name: rawName.map(Self.prettyMachineName) ?? "Mac",
+                    lastSeen: record.lastSeen,
+                    isActive: isActive,
+                    route: route
+                )
+            }
+    }
+
+    /// Turn a relay host / stored hostname into a friendly machine label:
+    /// "Arachs-Mac-mini.local" → "Arachs Mac mini". A plain name passes through.
+    static func prettyMachineName(_ raw: String) -> String {
+        var name = raw
+        if name.hasSuffix(".local") { name = String(name.dropLast(6)) }
+        return name.replacingOccurrences(of: "-", with: " ")
+    }
+
+    /// Heuristic for "which trusted bridge are we connected to": the most-recently
+    /// touched one (connect bumps its `lastSeen`). Exact once we target a specific
+    /// bridge by key; fine while there's a single active connection.
+    private var activeMachineHex: String? {
+        guard case .connected = connectionState else { return nil }
+        let bridges = (try? ScoutIdentity.getTrustedBridges()) ?? []
+        return bridges.max { ($0.lastSeen ?? $0.pairedAt) < ($1.lastSeen ?? $1.pairedAt) }?.publicKeyHex
     }
 }

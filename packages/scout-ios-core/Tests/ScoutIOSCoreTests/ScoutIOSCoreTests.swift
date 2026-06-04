@@ -11,4 +11,117 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(classifyTransport(host: "localhost"), .loopback)
         XCTAssertEqual(transportKind(forRelayURL: "ws://10.0.0.5:8080").label, "LAN")
     }
+
+    func testTailnetRoutingDefaultsEnabledWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertTrue(BridgeRoutePreferences.tailnetRoutingEnabled(userDefaults: defaults))
+        XCTAssertTrue(relayURLAllowedByRouteSettings("wss://mac.tailnet.ts.net:7889", userDefaults: defaults))
+    }
+
+    func testDisabledTailnetRoutingFiltersTailnetRelayUrls() {
+        let defaults = makeDefaults()
+        BridgeRoutePreferences.setTailnetRoutingEnabled(false, userDefaults: defaults)
+
+        XCTAssertEqual(
+            relayURLsAllowedByRouteSettings(
+                [
+                    "ws://192.168.1.10:7889",
+                    "wss://mac.tailnet.ts.net:7889",
+                    "ws://100.96.12.4:7889",
+                ],
+                userDefaults: defaults
+            ),
+            ["ws://192.168.1.10:7889"]
+        )
+    }
+
+    func testRelayCandidatesPreferDiscoveredLanBeforeSavedTailnetAndOSN() {
+        let defaults = makeDefaults()
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true, userDefaults: defaults)
+
+        XCTAssertEqual(
+            orderedRelayCandidates(
+                discoveredRelayURLs: [
+                    "ws://mac.local:7889",
+                    "ws://mac.local:7889",
+                ],
+                storedRelayURLs: [
+                    "wss://mac.tailnet.ts.net:7889",
+                    "wss://mesh.oscout.net",
+                ],
+                userDefaults: defaults
+            ),
+            [
+                "ws://mac.local:7889",
+                "wss://mac.tailnet.ts.net:7889",
+                "wss://mesh.oscout.net",
+            ]
+        )
+    }
+
+    func testRelayCandidatesHonorRoutePreferencesAcrossCascade() {
+        let defaults = makeDefaults()
+        BridgeRoutePreferences.setTailnetRoutingEnabled(false, userDefaults: defaults)
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(false, userDefaults: defaults)
+
+        XCTAssertEqual(
+            orderedRelayCandidates(
+                discoveredRelayURLs: ["ws://192.168.1.10:7889"],
+                storedRelayURLs: [
+                    "wss://mac.tailnet.ts.net:7889",
+                    "wss://mesh.oscout.net",
+                ],
+                userDefaults: defaults
+            ),
+            ["ws://192.168.1.10:7889"]
+        )
+    }
+
+    func testRouteSummaryReportsSavedAndAllowedTailnetRoutes() {
+        let defaults = makeDefaults()
+        let relays = [
+            "ws://192.168.1.10:7889",
+            "wss://mac.tailnet.ts.net:7889",
+            "wss://mesh.oscout.net",
+        ]
+
+        var summary = BridgeRouteSummary(relayURLs: relays, userDefaults: defaults)
+
+        XCTAssertEqual(summary.routeCounts[.tailnet], 1)
+        XCTAssertTrue(summary.hasTailnetRelay)
+        XCTAssertTrue(summary.hasAllowedTailnetRelay)
+        XCTAssertEqual(summary.routeCounts[.oscout], 1)
+        XCTAssertFalse(summary.hasAllowedOpenScoutNetworkRelay)
+
+        BridgeRoutePreferences.setTailnetRoutingEnabled(false, userDefaults: defaults)
+        summary = BridgeRouteSummary(relayURLs: relays, userDefaults: defaults)
+
+        XCTAssertTrue(summary.hasTailnetRelay)
+        XCTAssertFalse(summary.hasAllowedTailnetRelay)
+    }
+
+    func testTailscaleRouteNetworkFailuresAreRecognized() {
+        XCTAssertTrue(isTailscaleRouteNetworkFailure(URLError(.cannotFindHost)))
+        XCTAssertTrue(isTailscaleRouteNetworkFailure(URLError(.timedOut)))
+        XCTAssertFalse(isTailscaleRouteNetworkFailure(URLError(.badServerResponse)))
+    }
+
+    @MainActor
+    func testConnectionLogStoresEventKind() {
+        let log = ConnectionLog()
+
+        log.log("Resolving route", event: .resolve, route: .tailnet)
+
+        XCTAssertEqual(log.entries.first?.event, .resolve)
+        XCTAssertEqual(log.entries.first?.event.label, "RESOLVE")
+        XCTAssertEqual(log.entries.first?.route, .tailnet)
+    }
+
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "ScoutIOSCoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
 }

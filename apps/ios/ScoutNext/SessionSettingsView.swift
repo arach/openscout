@@ -10,10 +10,17 @@ struct SessionSettingsView: View {
     let client: any ScoutBrokerClient
     let conversationId: String
     let title: String
+    /// Live runtime, passed from the conversation's loaded session so the panel
+    /// reads real values instead of placeholders. Lifecycle isn't carried on the
+    /// running session (it's a creation-time property), so it stays a labeled
+    /// default with an explainer rather than a fabricated live read.
+    var harness: String?
+    var model: String?
     @Environment(\.dismiss) private var dismiss
 
     @State private var tab = "AGENT"
     @State private var autoApprove = false
+    @State private var showLifecycleInfo = false
 
     private let tabIDs = ["AGENT", "EXECUTION", "SESSION", "ACTIONS"]
 
@@ -37,10 +44,48 @@ struct SessionSettingsView: View {
     private var agentPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HudInspectorSection("Runtime") {
-                HudInspectorFieldRow("Harness", value: "claude", hint: "backing runtime")
-                HudInspectorFieldRow("Model", value: "opus-4.8", hint: "weights")
-                HudInspectorFieldRow("Persistence", value: "Sticky", hint: "lifecycle")
+                HudInspectorFieldRow("Harness", value: harness ?? "—", hint: "backing runtime")
+                HudInspectorFieldRow("Model", value: model ?? "—", hint: "weights")
+                // "Sticky" is jargon on its own. The value reads plainly and the
+                // trailing "?" chip opens a short definition of the two modes.
+                HudInspectorFieldRow(
+                    "Lifecycle",
+                    value: "Persistent",
+                    inlineAction: .init("?") { showLifecycleInfo = true }
+                )
+                .popover(isPresented: $showLifecycleInfo, arrowEdge: .top) {
+                    lifecycleInfo
+                        .presentationCompactAdaptation(.popover)
+                        .presentationBackground(HudPalette.surface)
+                }
             }
+        }
+    }
+
+    /// Plain-language explainer for the two lifecycle modes, surfaced from the
+    /// Lifecycle row's "?" chip.
+    private var lifecycleInfo: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.lg) {
+            Text("LIFECYCLE")
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .tracking(2)
+                .foregroundStyle(HudPalette.dim)
+            lifecycleItem("Persistent", "Keeps its workspace, branch, and identity between sessions — you return to the same agent.")
+            lifecycleItem("One-time", "Runs the task once, then closes. Nothing is kept.")
+        }
+        .padding(HudSpacing.xl)
+        .frame(width: 260)
+    }
+
+    private func lifecycleItem(_ term: String, _ desc: String) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xxs) {
+            Text(term)
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(HudPalette.ink)
+            Text(desc)
+                .font(HudFont.ui(HudTextSize.xs))
+                .foregroundStyle(HudPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

@@ -138,6 +138,16 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Agent state vocabulary — three densities.",
   },
   {
+    href: "/studies/comms-mobile",
+    label: "Comms Mobile",
+    bucket: "studies",
+    surface: "ios",
+    family: "comms-mobile",
+    status: "concept",
+    source: ["apps/ios/ScoutNext/CommsSurface.swift"],
+    blurb: "Density pass on the Comms tab — continuous hairline list vs. today's card-per-row. Before / after / ultra-compact.",
+  },
+  {
     href: "/studies/agent-cards",
     label: "Agent Cards",
     bucket: "studies",

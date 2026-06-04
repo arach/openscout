@@ -43,6 +43,10 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "question/answer":         TRPCRoute(path: "questionAnswer",         method: .mutation),
     "action/decide":           TRPCRoute(path: "actionDecide",           method: .mutation),
     "turn/interrupt":          TRPCRoute(path: "turnInterrupt",          method: .mutation),
+    "mobile/comms/conversations": TRPCRoute(path: "mobile.commsConversations", method: .query),
+    "mobile/comms/messages":      TRPCRoute(path: "mobile.commsMessages",      method: .query),
+    "mobile/comms/send":          TRPCRoute(path: "mobile.commsSend",          method: .mutation),
+    "mobile/terminal/provision":  TRPCRoute(path: "mobile.terminalProvision",  method: .mutation),
 ]
 
 // MARK: - Request envelope (ported byte-for-byte)

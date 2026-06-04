@@ -20,11 +20,14 @@ import {
   loadScoutActivityItems,
   openScoutPeerSession,
   registerScoutLocalAgentBinding,
+  sendScoutConversationMessage,
   sendScoutDirectMessage,
+  sendScoutMessage,
   type ScoutActivityItem,
   type ScoutBrokerSnapshot,
   type ScoutDirectMessageResult,
 } from "../broker/service.ts";
+import { resolveOperatorName } from "@openscout/runtime/user-config";
 import { postScoutbotOperatorMessage } from "../../scoutbot/runner.ts";
 import { SCOUTBOT_AGENT_ID } from "../../scoutbot/role.ts";
 
@@ -984,4 +987,245 @@ export async function getScoutMobileActivity(
     conversationId: filters.conversationId,
     limit: filters.limit ?? 100,
   });
+}
+
+// -- Comms (channels + DMs) ----------------------------------------------
+//
+// The phone's mesh-comms surface. Reads channels/DMs straight from the broker
+// snapshot (conversations + messages + actors, all in memory) and flattens them
+// for the phone — participants and authors pre-resolved to display labels so the
+// client never joins against the actor table. Posting routes by conversation
+// kind: channels via `sendScoutMessage`, DMs via the existing direct-message path.
+
+const MOBILE_OPERATOR_ID = "operator";
+
+/// Actor ids that represent "you" (the phone operator): the canonical "operator"
+/// plus the configured operator name/handle. Older DMs and read cursors can be
+/// authored under the configured identity (e.g. "dm.arach.hudson…" by "arach"),
+/// so a single hard-coded id would mislabel the counterpart and miscount unread.
+function operatorActorIds(): Set<string> {
+  const ids = new Set<string>([MOBILE_OPERATOR_ID]);
+  const name = resolveOperatorName().trim();
+  if (name) {
+    ids.add(name);
+    ids.add(name.toLowerCase());
+  }
+  return ids;
+}
+
+export type ScoutMobileCommsConversation = {
+  id: string;
+  kind: "channel" | "direct" | "group" | "thread" | "system" | "unknown";
+  title: string;
+  participants: string[];
+  topic: string | null;
+  lastMessagePreview: string | null;
+  lastMessageAuthor: string | null;
+  lastMessageAt: number | null;
+  messageCount: number;
+  unreadCount: number;
+};
+
+export type ScoutMobileCommsMessage = {
+  id: string;
+  conversationId: string;
+  actorId: string;
+  authorLabel: string;
+  authorKind: "person" | "agent" | "system";
+  body: string;
+  createdAt: number;
+  replyToMessageId: string | null;
+  isOperator: boolean;
+};
+
+function commsActorLabel(
+  snapshot: ScoutBrokerSnapshot,
+  actorId: string,
+  selfIds: Set<string>,
+): string {
+  if (selfIds.has(actorId)) return "You";
+  return snapshot.agents[actorId]?.displayName
+    ?? snapshot.actors[actorId]?.displayName
+    ?? actorId;
+}
+
+function commsAuthorKind(
+  snapshot: ScoutBrokerSnapshot,
+  actorId: string,
+  selfIds: Set<string>,
+): "person" | "agent" | "system" {
+  if (selfIds.has(actorId)) return "person";
+  if (snapshot.agents[actorId]) return "agent";
+  const kind = snapshot.actors[actorId]?.kind;
+  if (kind === "person") return "person";
+  if (kind === "agent") return "agent";
+  return "system";
+}
+
+function commsMobileKind(kind: string): ScoutMobileCommsConversation["kind"] {
+  switch (kind) {
+    case "channel": return "channel";
+    case "direct": return "direct";
+    case "group_direct": return "group";
+    case "thread": return "thread";
+    case "system": return "system";
+    default: return "unknown";
+  }
+}
+
+export async function getScoutMobileConversations(
+  filters: { kind?: string; limit?: number } = {},
+): Promise<ScoutMobileCommsConversation[]> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) return [];
+  const { snapshot } = broker;
+  const selfIds = operatorActorIds();
+
+  const byConversation = new Map<string, MessageRecord[]>();
+  for (const message of Object.values(snapshot.messages ?? {})) {
+    const bucket = byConversation.get(message.conversationId);
+    if (bucket) bucket.push(message);
+    else byConversation.set(message.conversationId, [message]);
+  }
+
+  const operatorReadAt = new Map<string, number>();
+  for (const cursor of Object.values(snapshot.readCursors ?? {})) {
+    if (selfIds.has(cursor.actorId)) {
+      const prev = operatorReadAt.get(cursor.conversationId) ?? 0;
+      operatorReadAt.set(cursor.conversationId, Math.max(prev, cursor.lastReadAt ?? 0));
+    }
+  }
+
+  const includeKinds = new Set(["channel", "direct", "group_direct", "thread"]);
+  const rows: ScoutMobileCommsConversation[] = [];
+  for (const conv of Object.values(snapshot.conversations ?? {})) {
+    if (!includeKinds.has(conv.kind)) continue;
+    const mobileKind = commsMobileKind(conv.kind);
+    if (filters.kind && filters.kind !== mobileKind) continue;
+
+    const messages = (byConversation.get(conv.id) ?? []).sort((a, b) => a.createdAt - b.createdAt);
+    const last = messages[messages.length - 1];
+    const readAt = operatorReadAt.get(conv.id);
+    const unread = readAt != null
+      ? messages.filter((m) => m.createdAt > readAt && !selfIds.has(m.actorId)).length
+      : 0;
+
+    rows.push({
+      id: conv.id,
+      kind: mobileKind,
+      // Some channels carry their raw id as the title ("channel.font-studio");
+      // show the bare channel name.
+      title: mobileKind === "channel" && conv.title.startsWith("channel.")
+        ? conv.title.slice("channel.".length)
+        : conv.title,
+      participants: conv.participantIds
+        .filter((p) => !selfIds.has(p))
+        .map((p) => commsActorLabel(snapshot, p, selfIds)),
+      topic: conv.topic ?? null,
+      lastMessagePreview: last ? last.body.replace(/\s+/g, " ").trim().slice(0, 140) : null,
+      lastMessageAuthor: last ? commsActorLabel(snapshot, last.actorId, selfIds) : null,
+      lastMessageAt: last ? last.createdAt : null,
+      messageCount: messages.length,
+      unreadCount: unread,
+    });
+  }
+
+  rows.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+  const limit = filters.limit && filters.limit > 0 ? filters.limit : 100;
+  return rows.slice(0, limit);
+}
+
+export async function getScoutMobileConversationMessages(
+  conversationId: string,
+  limit = 200,
+): Promise<ScoutMobileCommsMessage[]> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) return [];
+  const { snapshot } = broker;
+  const selfIds = operatorActorIds();
+
+  const messages = Object.values(snapshot.messages ?? {})
+    .filter((m) => m.conversationId === conversationId)
+    .sort((a, b) => a.createdAt - b.createdAt);
+  const trimmed = limit > 0 && messages.length > limit
+    ? messages.slice(messages.length - limit)
+    : messages;
+
+  return trimmed.map((m) => ({
+    id: m.id,
+    conversationId: m.conversationId,
+    actorId: m.actorId,
+    authorLabel: commsActorLabel(snapshot, m.actorId, selfIds),
+    authorKind: commsAuthorKind(snapshot, m.actorId, selfIds),
+    body: m.body,
+    createdAt: m.createdAt,
+    replyToMessageId: m.replyToMessageId ?? null,
+    isOperator: selfIds.has(m.actorId),
+  }));
+}
+
+export async function sendScoutMobileComms(
+  input: {
+    conversationId: string;
+    body: string;
+    replyToMessageId?: string | null;
+    clientMessageId?: string | null;
+  },
+  currentDirectory?: string,
+  deviceId?: string,
+): Promise<{ conversationId: string; messageId: string }> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) throw new Error("Relay is not reachable.");
+  const conv = broker.snapshot.conversations?.[input.conversationId];
+  if (!conv) throw new Error(`Unknown conversation: ${input.conversationId}`);
+  const selfIds = operatorActorIds();
+
+  // 1:1 DMs route through the direct-message path, addressed to the single
+  // non-self participant (it resolves to this same conversation).
+  if (conv.kind === "direct") {
+    const targetAgentId = conv.participantIds.find((p) => !selfIds.has(p));
+    if (!targetAgentId) throw new Error("Conversation has no agent participant to address.");
+    const result = await sendScoutMobileMessage(
+      {
+        agentId: targetAgentId,
+        body: input.body,
+        clientMessageId: input.clientMessageId,
+        replyToMessageId: input.replyToMessageId,
+      },
+      currentDirectory,
+      deviceId,
+    );
+    return { conversationId: result.conversationId, messageId: result.messageId };
+  }
+
+  // Groups and threads must post to THIS conversation — collapsing to a 1:1 DM
+  // with the first participant would land the message in the wrong room.
+  if (conv.kind === "group_direct" || conv.kind === "thread") {
+    const result = await sendScoutConversationMessage({
+      conversationId: input.conversationId,
+      senderId: MOBILE_OPERATOR_ID,
+      body: input.body,
+      source: "scout-mobile",
+      currentDirectory,
+    });
+    return {
+      conversationId: result.conversationId ?? input.conversationId,
+      messageId: result.messageId ?? `local-${Date.now().toString(36)}`,
+    };
+  }
+
+  // Channels: post as the operator to the channel name (channel.<name> → <name>).
+  const channel = input.conversationId.startsWith("channel.")
+    ? input.conversationId.slice("channel.".length)
+    : conv.title;
+  const result = await sendScoutMessage({
+    senderId: MOBILE_OPERATOR_ID,
+    body: input.body,
+    channel,
+    currentDirectory,
+  });
+  return {
+    conversationId: result.conversationId ?? input.conversationId,
+    messageId: result.messageId ?? `local-${Date.now().toString(36)}`,
+  };
 }
