@@ -24,6 +24,7 @@ type TargetableMessageOptions = ContextRootOptions & {
 export type ScoutSetupCommandOptions = {
   currentDirectory: string;
   sourceRoots: string[];
+  defaultHarness: string | null;
 };
 
 export type ScoutAskCommandOptions = ContextRootOptions & {
@@ -332,6 +333,7 @@ export function parseSetupCommandOptions(
 ): ScoutSetupCommandOptions {
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   const sourceRoots: string[] = [];
+  let defaultHarness: string | null = null;
 
   for (let index = 0; index < parsed.args.length; index += 1) {
     const current = parsed.args[index] ?? "";
@@ -341,12 +343,22 @@ export function parseSetupCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--default-harness" || current.startsWith("--default-harness=")) {
+      const value = parseFlagValue(parsed.args, index, "--default-harness");
+      if (!["claude", "codex", "cursor", "pi"].includes(value.value)) {
+        throw new ScoutCliError(`invalid default harness: ${value.value}`);
+      }
+      defaultHarness = value.value;
+      index = value.nextIndex;
+      continue;
+    }
     unexpectedArgs("setup", args);
   }
 
   return {
     currentDirectory: parsed.currentDirectory,
     sourceRoots,
+    defaultHarness,
   };
 }
 

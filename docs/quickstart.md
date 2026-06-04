@@ -17,10 +17,19 @@ scout setup
 scout doctor
 ```
 
+For a CLI-only first run, set the same onboarding inputs the app wizard saves:
+
+```bash
+scout config set name "Ada"
+scout setup --source-root ~/dev --default-harness codex
+scout runtimes
+```
+
 What healthy looks like:
 
 - `scout setup` completes without errors, creates or updates local Scout settings, and starts the broker service.
 - `scout doctor` reports that the broker is installed and reachable.
+- `scout runtimes` shows at least one ready harness, such as Claude Code or Codex.
 - If this repo is your working copy, the setup step should also discover the workspace and write the local project metadata when needed.
 
 If you want the app surface as well:

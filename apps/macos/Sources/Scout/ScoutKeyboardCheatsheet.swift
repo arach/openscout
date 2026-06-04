@@ -39,8 +39,8 @@ struct ScoutKeyboardCheatsheet: View {
                 HStack(spacing: HudSpacing.xs) {
                     keyCap("⌘/")
                     Text("toggle")
-                        .font(HudFont.mono(9))
-                        .foregroundStyle(HudPalette.dim)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
                 }
             }
 
@@ -74,8 +74,8 @@ struct ScoutKeyboardCheatsheet: View {
                 Spacer()
                 keyCap("Esc")
                 Text("to close")
-                    .font(HudFont.mono(9))
-                    .foregroundStyle(HudPalette.dim)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
             }
         }
         .padding(.horizontal, HudSpacing.xxl)
@@ -101,13 +101,13 @@ struct ScoutKeyboardCheatsheet: View {
                 HudSectionLabel(title)
                 if active {
                     Text("active")
-                        .font(HudFont.mono(8, weight: .bold))
-                        .foregroundStyle(HudPalette.accent)
-                        .padding(.horizontal, 4)
+                        .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                        .foregroundStyle(ScoutPalette.accent)
+                        .padding(.horizontal, HudSpacing.xs)
                         .padding(.vertical, 1)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 2.5)
-                                .stroke(HudPalette.accent.opacity(0.55), lineWidth: 0.5)
+                            RoundedRectangle(cornerRadius: HudRadius.tight)
+                                .stroke(ScoutPalette.accent.opacity(0.55), lineWidth: HudStrokeWidth.thin)
                         )
                 }
             }
@@ -121,21 +121,21 @@ struct ScoutKeyboardCheatsheet: View {
             keyCap(key)
                 .frame(minWidth: 96, alignment: .leading)
             Text(desc)
-                .font(HudFont.ui(12))
-                .foregroundStyle(HudPalette.muted)
+                .font(HudFont.ui(HudTextSize.sm))
+                .foregroundStyle(ScoutPalette.muted)
             Spacer(minLength: 0)
         }
     }
 
     private func keyCap(_ key: String) -> some View {
         Text(key)
-            .font(HudFont.mono(11, weight: .bold))
-            .foregroundStyle(HudPalette.ink)
-            .padding(.horizontal, 6)
+            .font(HudFont.mono(HudTextSize.xs, weight: .bold))
+            .foregroundStyle(ScoutPalette.ink)
+            .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, 1.5)
             .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .stroke(ScoutDesign.hairlineStrong, lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
             )
     }
 }

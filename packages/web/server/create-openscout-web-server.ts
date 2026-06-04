@@ -171,19 +171,21 @@ import {
   resolveOperatorName,
 } from "@openscout/runtime/user-config";
 import {
-  DEFAULT_LOCAL_CONFIG,
-  loadLocalConfig,
-  localConfigExists,
   localConfigPath,
-  writeLocalConfig,
 } from "@openscout/runtime/local-config";
 import {
-  findNearestProjectRoot,
-  initializeOpenScoutSetup,
   loadResolvedRelayAgents,
   readOpenScoutSettings,
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
+import {
+  ensureOpenScoutOnboardingLocalConfig,
+  loadOpenScoutOnboardingState,
+  runOpenScoutOnboardingSetup,
+  saveOpenScoutOnboardingIdentity,
+  saveOpenScoutOnboardingProject,
+  skipOpenScoutOnboarding,
+} from "@openscout/runtime/onboarding";
 import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
 
@@ -2094,6 +2096,18 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   };
 }
 
+async function readLocalHarnessTopologySnapshot() {
+  try {
+    const { HarnessTopologyObserver } = await import("@openscout/runtime/harness-topology");
+    const observer = new HarnessTopologyObserver({
+      cwd: process.env.OPENSCOUT_SETUP_CWD || process.cwd(),
+    });
+    return await observer.getSnapshot(true);
+  } catch {
+    return null;
+  }
+}
+
 export async function createOpenScoutWebServer(
   options: CreateOpenScoutWebServerOptions,
 ): Promise<OpenScoutWebServer> {
@@ -2875,11 +2889,22 @@ export async function createOpenScoutWebServer(
     if (c.req.query("force") === "1") {
       url.searchParams.set("force", "1");
     }
-    const res = await fetch(url);
-    if (!res.ok) {
-      return c.json({ error: `broker topology unavailable (${res.status})` }, 502);
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const brokerSnapshot = await res.json();
+        if (brokerSnapshot?.totals?.sources > 0) {
+          return c.json(brokerSnapshot);
+        }
+        const localSnapshot = await readLocalHarnessTopologySnapshot();
+        return c.json(localSnapshot?.totals.sources ? localSnapshot : brokerSnapshot);
+      }
+    } catch {
+      /* Fall through to the local read-only observer. */
     }
-    return c.json(await res.json());
+    const localSnapshot = await readLocalHarnessTopologySnapshot();
+    if (localSnapshot) return c.json(localSnapshot);
+    return c.json({ error: "broker topology unavailable" }, 502);
   });
   app.get("/api/broker", (c) =>
     c.json(
@@ -3341,25 +3366,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/onboarding/state", async (c) => {
-    const hasLocalConfig = localConfigExists();
-    const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);
-    const configuredContextRoot = settings?.discovery.contextRoot ?? null;
-    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(() => null)
-      ?? await findNearestProjectRoot(configuredContextRoot ?? "").catch(() => null);
-    const hasProjectConfig = projectRoot !== null;
-    const userName = loadUserConfig().name?.trim() ?? "";
-    return c.json({
-      hasLocalConfig,
-      hasProjectConfig,
-      hasOperatorName: userName.length > 0,
-      localConfigPath: localConfigPath(),
-      localConfig: hasLocalConfig ? loadLocalConfig() : null,
-      projectRoot,
-      currentDirectory,
-      contextRoot: configuredContextRoot,
-      operatorName: userName || null,
-      operatorNameSuggestion: resolveOperatorName(),
-    });
+    return c.json(await loadOpenScoutOnboardingState({ currentDirectory }));
   });
 
   app.delete("/api/onboarding/state", (c) => {
@@ -3369,6 +3376,35 @@ export async function createOpenScoutWebServer(
       /* already absent */
     }
     return c.json({ ok: true, localConfigPath: localConfigPath() });
+  });
+
+  app.post("/api/onboarding/skip", async (c) => {
+    return c.json(await skipOpenScoutOnboarding({ currentDirectory }));
+  });
+
+  app.post("/api/onboarding/setup", async (c) => {
+    const state = await loadOpenScoutOnboardingState({ currentDirectory });
+    const contextRoot = state.contextRoot || state.projectRoot || state.currentDirectory;
+    try {
+      const result = await runOpenScoutOnboardingSetup({
+        currentDirectory: contextRoot,
+        contextRoot,
+        sourceRoots: state.sourceRoots,
+        defaultHarness: state.defaultHarness,
+      });
+      return c.json({
+        ok: true,
+        projectConfigPath: result.setup.currentProjectConfigPath,
+        brokerReachable: result.broker.reachable,
+        brokerWarning: result.brokerWarning,
+        hasReadyRuntime: result.state.hasReadyRuntime,
+        state: result.state,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[onboarding/setup]", message);
+      return c.json({ error: message }, 500);
+    }
   });
 
   app.post("/api/onboarding/project", async (c) => {
@@ -3387,20 +3423,26 @@ export async function createOpenScoutWebServer(
     const harness = body.defaultHarness === "codex" ? "codex" : "claude";
 
     try {
-      await writeOpenScoutSettings({
-        discovery: {
-          contextRoot,
-          workspaceRoots: sourceRoots,
-        },
-        agents: { defaultHarness: harness },
+      await saveOpenScoutOnboardingProject({
+        currentDirectory,
+        contextRoot,
+        sourceRoots,
+        defaultHarness: harness,
       });
 
-      const result = await initializeOpenScoutSetup({
+      const result = await runOpenScoutOnboardingSetup({
         currentDirectory: contextRoot,
+        contextRoot,
+        sourceRoots,
+        defaultHarness: harness,
       });
       return c.json({
         ok: true,
-        projectConfigPath: result.currentProjectConfigPath,
+        projectConfigPath: result.setup.currentProjectConfigPath,
+        brokerReachable: result.broker.reachable,
+        brokerWarning: result.brokerWarning,
+        hasReadyRuntime: result.state.hasReadyRuntime,
+        state: result.state,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -3414,19 +3456,16 @@ export async function createOpenScoutWebServer(
       host?: string;
       ports?: { broker?: number; web?: number; pairing?: number };
     };
-    writeLocalConfig({
-      version: 1,
-      host: body.host ?? DEFAULT_LOCAL_CONFIG.host,
-      ports: {
-        broker: body.ports?.broker ?? DEFAULT_LOCAL_CONFIG.ports.broker,
-        web: body.ports?.web ?? DEFAULT_LOCAL_CONFIG.ports.web,
-        pairing: body.ports?.pairing ?? DEFAULT_LOCAL_CONFIG.ports.pairing,
-      },
+    const state = await ensureOpenScoutOnboardingLocalConfig({
+      currentDirectory,
+      host: body.host,
+      ports: body.ports,
     });
     return c.json({
       ok: true,
-      localConfig: loadLocalConfig(),
-      localConfigPath: localConfigPath(),
+      localConfig: state.localConfig,
+      localConfigPath: state.localConfigPath,
+      state,
     });
   });
 
@@ -3457,6 +3496,12 @@ export async function createOpenScoutWebServer(
     }
 
     saveUserConfig(config);
+    if (typeof body.name === "string" && body.name.trim()) {
+      await saveOpenScoutOnboardingIdentity({
+        currentDirectory,
+        name: body.name.trim(),
+      });
+    }
     return c.json({
       name: resolveOperatorName(),
       handle: config.handle ?? "",
@@ -3722,18 +3767,32 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/ask", async (c) => {
-    const { body, cId, conversationId } = (await c.req.json()) as {
-      body: string;
+    const requestBody = (await c.req.json().catch(() => ({}))) as {
+      body?: unknown;
       cId?: string;
       conversationId?: string;
+      targetAgentId?: unknown;
+      targetLabel?: unknown;
+      execution?: {
+        harness?: unknown;
+        model?: unknown;
+      };
     };
-    if (!body?.trim()) {
+    const message = optionalString(requestBody.body)?.trim();
+    if (!message) {
       return c.json({ error: "body is required" }, 400);
     }
 
-    const { directAgentId, senderId } =
-      resolveConversationRouting(cId ?? conversationId);
-    if (!directAgentId) {
+    const explicitTargetAgentId = optionalString(requestBody.targetAgentId)?.trim();
+    const explicitTargetLabel = optionalString(requestBody.targetLabel)?.trim();
+    const routed = explicitTargetAgentId
+      ? {
+          directAgentId: explicitTargetAgentId,
+          senderId: resolveOperatorName().trim() || "operator",
+        }
+      : resolveConversationRouting(requestBody.cId ?? requestBody.conversationId);
+    const agent = routed.directAgentId ? queryAgentById(routed.directAgentId) : null;
+    if (!routed.directAgentId) {
       return c.json(
         {
           error:
@@ -3742,12 +3801,21 @@ export async function createOpenScoutWebServer(
         400,
       );
     }
+    const executionHarness =
+      coerceAgentHarness(requestBody.execution?.harness) ??
+      coerceAgentHarness(agent?.harness);
+    const executionModel =
+      optionalString(requestBody.execution?.model)?.trim() ||
+      agent?.model?.trim() ||
+      undefined;
 
     const result = await askScoutQuestion({
-      senderId,
-      targetLabel: directAgentId,
-      targetAgentId: directAgentId,
-      body: body.trim(),
+      senderId: routed.senderId,
+      targetLabel: explicitTargetLabel || routed.directAgentId,
+      targetAgentId: routed.directAgentId,
+      body: message,
+      ...(executionHarness ? { executionHarness } : {}),
+      ...(executionModel ? { executionModel } : {}),
       currentDirectory,
     });
 

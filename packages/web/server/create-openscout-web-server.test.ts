@@ -1549,6 +1549,7 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("routes direct DM asks through askScoutQuestion and rejects channel asks", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
     querySessionByIdImpl = (conversationId) => {
       if (conversationId === "dm.operator.agent-1") {
         return {
@@ -1604,6 +1605,39 @@ describe("createOpenScoutWebServer", () => {
     expect(await channelResponse.json()).toEqual({
       error: "ask is only available in a direct conversation with one agent",
     });
+
+    const explicitResponse = await server.app.request("http://localhost/api/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "What should we catch up on?",
+        targetAgentId: "agent-2",
+        targetLabel: "Talkie",
+        execution: {
+          harness: "codex",
+          model: "gpt-test",
+        },
+      }),
+    });
+    expect(explicitResponse.status).toBe(200);
+    expect(askScoutQuestionCalls).toEqual([
+      {
+        senderId: "operator",
+        targetLabel: "agent-1",
+        targetAgentId: "agent-1",
+        body: "Please own this and report back.",
+        currentDirectory: "/tmp/openscout",
+      },
+      {
+        senderId: expect.any(String),
+        targetLabel: "Talkie",
+        targetAgentId: "agent-2",
+        body: "What should we catch up on?",
+        executionHarness: "codex",
+        executionModel: "gpt-test",
+        currentDirectory: "/tmp/openscout",
+      },
+    ]);
   });
 
   test("routes Scoutbot ask actions through askScoutQuestion", async () => {

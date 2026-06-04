@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 
 import { readClaudeAgentTeamTopology } from "@openscout/agent-sessions/adapters/claude-code/team-topology";
+import { readClaudeWorkflowTopology } from "@openscout/agent-sessions/adapters/claude-code/workflow-topology";
 import { CodexObservedTopologyTracker } from "@openscout/agent-sessions/adapters/codex/topology";
 import type { ObservedHarnessTopology } from "@openscout/agent-sessions/protocol/primitives";
 
@@ -92,6 +93,15 @@ export function scanObservedHarnessTopologies(
       now,
     });
     if (topology) topologies.push(topology);
+
+    const workflowTopology = readClaudeWorkflowTopology({
+      homeDir,
+      cwd: options.cwd,
+      claudeSessionId: options.claudeSessionId,
+      includeUnmatchedWorkflows: options.includeUnmatchedClaudeWorkflows ?? true,
+      now,
+    });
+    if (workflowTopology) topologies.push(workflowTopology);
   }
 
   if (sources.includes("codex")) {

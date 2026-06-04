@@ -800,6 +800,7 @@ export function AtopView() {
         size="compact"
         maxAgents={6}
         maxTasks={3}
+        showEmpty
       />
 
       <FilterBar

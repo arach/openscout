@@ -92,6 +92,28 @@ const intents: AppIntent[] = [
     shortcut: "Cmd+7",
   },
   {
+    commandId: "nav:ops",
+    title: "Go to Ops",
+    description: "Navigate to the operator workspace for control, tail, atop, alerts, and fleet agents",
+    category: "navigation",
+    keywords: ["ops", "operator", "control", "tail", "atop"],
+    shortcut: "Cmd+8",
+  },
+  {
+    commandId: "nav:ops-atop",
+    title: "Open Atop",
+    description: "Open the live agent/process view with observed harness families",
+    category: "navigation",
+    keywords: ["atop", "process", "session", "agent", "topology"],
+  },
+  {
+    commandId: "nav:workflow-topology",
+    title: "Open Workflow Topology",
+    description: "Open the observed Claude workflow hierarchy and worker topology",
+    category: "navigation",
+    keywords: ["workflow", "workflows", "topology", "subagents", "claude"],
+  },
+  {
     commandId: "nav:settings",
     title: "Open Settings",
     description:

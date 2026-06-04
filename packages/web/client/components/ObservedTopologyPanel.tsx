@@ -51,6 +51,7 @@ function timeAgo(ts: number | null): string | null {
 }
 
 function sourceLabel(source: string): string {
+  if (source.includes("workflow")) return "Claude Workflows";
   if (source.includes("codex")) return "Codex";
   if (source.includes("claude")) return "Claude Code";
   return source.replace(/[-_]/g, " ");
@@ -81,6 +82,14 @@ function taskForAgent(
   tasks: ObservedHarnessTask[],
 ): ObservedHarnessTask | null {
   return tasks.find((task) => task.assigneeId === agent.id) ?? null;
+}
+
+function statusRank(status: string | undefined): number {
+  if (status === "running" || status === "in_progress" || status === "working") return 0;
+  if (status === "queued" || status === "pending" || status === "materialized") return 1;
+  if (status === "failed" || status === "error") return 2;
+  if (status === "completed" || status === "done") return 3;
+  return 4;
 }
 
 function flattenSnapshot(snapshot: HarnessTopologySnapshot | null): TopologySourceModel[] {
@@ -136,13 +145,15 @@ export function ObservedTopologyPanel({
     return sources.reduce(
       (acc, source) => {
         acc.sources += 1;
+        acc.workflows += source.topology.groups.filter((group) => group.kind === "workflow").length;
         acc.agents += source.topology.agents.length;
         acc.subagents += source.topology.agents.filter((agent) => agent.role === "subagent").length;
         acc.tasks += source.topology.tasks.length;
+        acc.activeTasks += source.topology.tasks.filter((task) => task.state !== "completed").length;
         acc.spawned += source.topology.relationships.filter((rel) => rel.kind === "spawned").length;
         return acc;
       },
-      { sources: 0, agents: 0, subagents: 0, tasks: 0, spawned: 0 },
+      { sources: 0, workflows: 0, agents: 0, subagents: 0, tasks: 0, activeTasks: 0, spawned: 0 },
     );
   }, [sources]);
 
@@ -171,9 +182,12 @@ export function ObservedTopologyPanel({
           <h3>{title}</h3>
         </div>
         <div className="s-observed-topology-counts">
-          <span>{totals.subagents} subagents</span>
+          {totals.workflows > 0 && <span>{totals.workflows} workflows</span>}
+          <span>{totals.subagents} workers</span>
           <span>{totals.tasks} tasks</span>
-          <span>{totals.spawned} spawn links</span>
+          {totals.activeTasks > 0
+            ? <span>{totals.activeTasks} active</span>
+            : <span>{totals.spawned} spawn links</span>}
         </div>
       </header>
 
@@ -202,12 +216,15 @@ function TopologySource({
 }) {
   const { topology } = source;
   const agentById = new Map(topology.agents.map((agent) => [agent.id, agent]));
-  const subagents = topology.agents.filter((agent) => agent.role === "subagent");
-  const leadAgents = topology.agents.filter((agent) => agent.role === "lead");
-  const otherAgents = topology.agents.filter((agent) => agent.role !== "subagent" && agent.role !== "lead");
+  const byStatus = (left: ObservedHarnessAgent, right: ObservedHarnessAgent) =>
+    statusRank(left.status) - statusRank(right.status) || displayAgentName(left).localeCompare(displayAgentName(right));
+  const subagents = topology.agents.filter((agent) => agent.role === "subagent").sort(byStatus);
+  const leadAgents = topology.agents.filter((agent) => agent.role === "lead").sort(byStatus);
+  const otherAgents = topology.agents.filter((agent) => agent.role !== "subagent" && agent.role !== "lead").sort(byStatus);
   const visibleAgents = [...leadAgents, ...subagents, ...otherAgents].slice(0, maxAgents);
   const activeTasks = topology.tasks
     .filter((task) => task.state !== "completed")
+    .sort((left, right) => statusRank(left.state) - statusRank(right.state) || (left.title ?? left.id).localeCompare(right.title ?? right.id))
     .slice(0, maxTasks);
 
   return (

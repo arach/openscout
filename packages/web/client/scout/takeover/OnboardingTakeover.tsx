@@ -10,6 +10,9 @@ export function OnboardingTakeover() {
   if (!onboarding.hasLocalConfig) return <Frame><PortsStep /></Frame>;
   if (!onboarding.hasOperatorName) return <Frame><NameStep /></Frame>;
   if (!onboarding.hasProjectConfig) return <Frame><ProjectStep /></Frame>;
+  if (onboarding.needed !== false && (!onboarding.brokerReachable || !onboarding.hasReadyRuntime)) {
+    return <Frame><SetupStep /></Frame>;
+  }
   return null;
 }
 
@@ -197,7 +200,7 @@ function NameStep() {
   return (
     <>
       <Header
-        eyebrow="Step 1 of 2"
+        eyebrow="Identity"
         title="What should we call you?"
         description="Your name shows up on messages you send and in any agent that speaks for you. You can change it later in Settings."
       />
@@ -265,7 +268,7 @@ function ProjectStep() {
   return (
     <>
       <Header
-        eyebrow="Step 2 of 2"
+        eyebrow="Project"
         title="Where do your repos live?"
         description={
           <>
@@ -355,6 +358,67 @@ function ProjectStep() {
         onPrimary={() => { void run(); }}
         busy={busy}
         primaryDisabled={!contextRoot.trim()}
+      />
+    </>
+  );
+}
+
+/* Step 3: run setup and verify runtime readiness. */
+function SetupStep() {
+  const { onboarding, refreshOnboarding } = useScout();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api<{ brokerWarning?: string | null; hasReadyRuntime?: boolean }>("/api/onboarding/setup", {
+        method: "POST",
+        body: "{}",
+      });
+      await refreshOnboarding();
+      if (result.brokerWarning) {
+        setError(result.brokerWarning);
+      } else if (result.hasReadyRuntime === false) {
+        setError("Setup ran, but no ready runtime was found yet. Install or sign into Claude Code or Codex, then run this again.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Header
+        eyebrow="Setup"
+        title="Finish setup"
+        description="Scout will install its harness skills, start the local broker, refresh discovery, and check for a ready agent runtime."
+      />
+      <ul style={checklistStyle}>
+        <Row
+          label=".openscout/project.json"
+          done={Boolean(onboarding?.hasProjectConfig)}
+          hint={onboarding?.projectConfigPath ?? onboarding?.projectRoot ?? undefined}
+        />
+        <Row
+          label="Broker reachable"
+          done={Boolean(onboarding?.brokerReachable)}
+          hint={onboarding?.brokerReachable ? "ready" : "needs setup"}
+        />
+        <Row
+          label="Claude or Codex runtime"
+          done={Boolean(onboarding?.hasReadyRuntime)}
+          hint={onboarding?.hasReadyRuntime ? "ready" : "missing or not signed in"}
+        />
+      </ul>
+      <ErrorBanner message={error} />
+      <Actions
+        primary="Run setup"
+        onPrimary={() => { void run(); }}
+        busy={busy}
       />
     </>
   );

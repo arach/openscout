@@ -214,6 +214,8 @@ describe("SQLiteControlPlaneStore", () => {
         "conversations",
         "flights",
         "activity_items",
+        "budget_usage_events",
+        "budget_quota_window_snapshots",
         "invocations",
         "unblock_requests",
         "unblock_request_events",
@@ -231,12 +233,258 @@ describe("SQLiteControlPlaneStore", () => {
       expect(indexNames).toContain("idx_conversations_created_at");
       expect(indexNames).toContain("idx_flights_invocation_id");
       expect(indexNames).toContain("idx_activity_items_ts");
+      expect(indexNames).toContain("idx_budget_usage_events_scope_occurred");
+      expect(indexNames).toContain("idx_budget_usage_events_session_occurred");
+      expect(indexNames).toContain("idx_budget_quota_windows_session_captured");
+      expect(indexNames).toContain("idx_budget_quota_windows_provider_label");
       expect(indexNames).toContain("idx_invocations_requester_created_at");
       expect(indexNames).toContain("idx_unblock_requests_state_owner_updated_at");
       expect(indexNames).toContain("idx_unblock_requests_source_ref");
       expect(indexNames).toContain("idx_unblock_request_events_request_created_at");
     } finally {
       db.close();
+      store.close();
+    }
+  });
+
+  test("records budget observations from endpoint provider metadata", () => {
+    const store = createStore();
+
+    try {
+      store.upsertNode({
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "Test node",
+        advertiseScope: "local",
+        registeredAt: 1,
+      });
+      store.upsertActor({
+        id: "agent-1",
+        kind: "agent",
+        displayName: "Agent One",
+      });
+      store.upsertAgent({
+        id: "agent-1",
+        kind: "agent",
+        definitionId: "agent-1",
+        displayName: "Agent One",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertActor({
+        id: "agent-2",
+        kind: "agent",
+        displayName: "Agent Two",
+      });
+      store.upsertAgent({
+        id: "agent-2",
+        kind: "agent",
+        definitionId: "agent-2",
+        displayName: "Agent Two",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+
+      store.upsertEndpoint({
+        id: "endpoint-1",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        sessionId: "codex-session",
+        cwd: "/repo",
+        projectRoot: "/repo",
+        metadata: {
+          model: "gpt-5.4",
+          lastSeenAt: 2000,
+          providerMeta: {
+            provider: "openai",
+            observeRuntime: {
+              model: "gpt-5.4",
+              modelProvider: "openai",
+            },
+            observeUsage: {
+              inputTokens: 1000,
+              cacheReadInputTokens: 250,
+              outputTokens: 80,
+              reasoningOutputTokens: 20,
+              totalTokens: 1080,
+              planType: "plus",
+            },
+            observeQuota: {
+              planType: "plus",
+              capturedAt: 2000,
+              windows: [
+                {
+                  label: "5h",
+                  windowKind: "primary",
+                  usedPercent: 60,
+                  resetAt: 3000,
+                  windowMs: 300 * 60 * 1000,
+                },
+                {
+                  label: "weekly",
+                  windowKind: "secondary",
+                  percentRemaining: 72,
+                  resetAt: 4000,
+                  windowMs: 7 * 24 * 60 * 60 * 1000,
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      const usage = store.listBudgetUsageEvents({ sessionId: "codex-session" });
+      expect(usage).toHaveLength(1);
+      expect(usage[0]).toEqual(expect.objectContaining({
+        scope: "harness_execution",
+        source: "provider_session_snapshot",
+        provider: "openai",
+        harness: "codex",
+        transport: "codex_app_server",
+        model: "gpt-5.4",
+        agentId: "agent-1",
+        endpointId: "endpoint-1",
+        sessionId: "codex-session",
+        projectRoot: "/repo",
+        inputTokens: 1000,
+        cacheReadInputTokens: 250,
+        outputTokens: 80,
+        reasoningOutputTokens: 20,
+        totalTokens: 1080,
+        billedUsd: 0,
+      }));
+      expect(usage[0]?.estimatedUsd).toBeGreaterThan(0);
+      expect(usage[0]?.metadata).toEqual(expect.objectContaining({
+        billingMode: "subscription",
+        planType: "plus",
+        source: "codex.providerMeta.observeUsage",
+      }));
+
+      const quotaWindows = store.listBudgetQuotaWindowSnapshots({ sessionId: "codex-session" })
+        .sort((a, b) => a.label.localeCompare(b.label));
+      expect(quotaWindows).toHaveLength(2);
+      expect(quotaWindows[0]).toEqual(expect.objectContaining({
+        source: "provider_reported",
+        provider: "openai",
+        label: "5h",
+        windowKind: "primary",
+        usedPercent: 60,
+        percentRemaining: 40,
+        resetAt: 3000,
+      }));
+      expect(quotaWindows[1]).toEqual(expect.objectContaining({
+        source: "provider_reported",
+        provider: "openai",
+        label: "weekly",
+        windowKind: "secondary",
+        percentRemaining: 72,
+        resetAt: 4000,
+      }));
+
+      store.upsertEndpoint({
+        id: "endpoint-1",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        sessionId: "codex-session",
+        cwd: "/repo",
+        projectRoot: "/repo",
+        metadata: {
+          model: "gpt-5.4",
+          lastSeenAt: 2500,
+          providerMeta: {
+            provider: "openai",
+            observeUsage: {
+              inputTokens: 2200,
+              outputTokens: 120,
+              totalTokens: 2320,
+              planType: "plus",
+            },
+            observeQuota: {
+              planType: "plus",
+              capturedAt: 2500,
+              windows: [
+                {
+                  label: "5h",
+                  windowKind: "primary",
+                  usedPercent: 65,
+                },
+                {
+                  label: "weekly",
+                  windowKind: "secondary",
+                  percentRemaining: 70,
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      const updatedUsage = store.listBudgetUsageEvents({ sessionId: "codex-session" });
+      const updatedWindows = store.listBudgetQuotaWindowSnapshots({ sessionId: "codex-session" });
+      expect(updatedUsage).toHaveLength(1);
+      expect(updatedUsage[0]?.inputTokens).toBe(2200);
+      expect(updatedWindows).toHaveLength(2);
+      expect(updatedWindows.find((window) => window.label === "5h")?.usedPercent).toBe(65);
+
+      store.upsertEndpoint({
+        id: "endpoint-claude",
+        agentId: "agent-2",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "claude_stream_json",
+        state: "idle",
+        sessionId: "claude-session",
+        cwd: "/repo",
+        projectRoot: "/repo",
+        metadata: {
+          model: "claude-sonnet-4.5",
+          lastSeenAt: 3000,
+          providerMeta: {
+            observeUsage: {
+              inputTokens: 12,
+              outputTokens: 24,
+              cacheReadInputTokens: 125,
+              cacheCreationInputTokens: 60,
+              webSearchRequests: 1,
+            },
+          },
+        },
+      });
+
+      const claudeUsage = store.listBudgetUsageEvents({ sessionId: "claude-session" });
+      expect(claudeUsage).toHaveLength(1);
+      expect(claudeUsage[0]).toEqual(expect.objectContaining({
+        provider: "anthropic",
+        harness: "claude",
+        transport: "claude_stream_json",
+        model: "claude-sonnet-4.5",
+        sessionId: "claude-session",
+        inputTokens: 12,
+        outputTokens: 24,
+        cacheReadInputTokens: 125,
+        cacheCreationInputTokens: 60,
+        billedUsd: 0,
+      }));
+      expect(claudeUsage[0]?.metadata).toEqual(expect.objectContaining({
+        billingMode: "subscription",
+        source: "claude-code.providerMeta.observeUsage",
+      }));
+      expect(store.listBudgetQuotaWindowSnapshots({ sessionId: "claude-session" })).toHaveLength(0);
+    } finally {
       store.close();
     }
   });

@@ -2,16 +2,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-lg);
   height: 22px;
-  padding: 0 12px;
+  padding: 0 var(--space-lg);
   border-top: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(8px);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-sm);
   color: var(--dim);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-sm);
   min-width: 0;
   user-select: none;
   opacity: 0;
@@ -34,7 +34,7 @@
 .s-page-status-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   min-width: 0;
 }
 
@@ -65,7 +65,7 @@
 
 .s-page-status-route::before {
   content: "·";
-  margin-right: 6px;
+  margin-right: var(--space-xs);
   color: color-mix(in srgb, var(--ink) 22%, transparent);
 }
 

@@ -1,6 +1,12 @@
-# OpenScout Menu
+# OpenScout macOS
 
-Native macOS menu bar shell for OpenScout. This is intentionally thin:
+Native macOS shells for OpenScout. The release installer is built through the
+local Hudson `hkit package macos` packager and currently installs one app:
+
+- `OpenScout.app` — HudsonKit-native chat/work surface with the menu bar/HUD
+  helper embedded under `Contents/Library/LoginItems`
+
+The menu app is intentionally thin:
 
 - broker lifecycle is driven through `openscout-runtime service ...`
 - pairing state is read from `~/.scout/pairing/runtime.json`
@@ -35,7 +41,7 @@ From the Scout CLI on macOS:
 scout menu
 ```
 
-## App Bundle
+## Menu Helper Bundle
 
 ```bash
 bun apps/macos/bin/openscout-menu.ts build
@@ -49,23 +55,32 @@ bun apps/macos/bin/openscout-menu.ts launch
 bun apps/macos/bin/openscout-menu.ts restart
 ```
 
-The helper builds a release Swift binary, assembles `apps/macos/dist/OpenScoutMenu.app`,
-and signs it with:
+The helper command builds the menu-bar helper app for local development. Release
+installers are built through `apps/macos/scripts/build-dmg.sh`, which assembles
+`OpenScout.app` and embeds the menu helper under `Contents/Library/LoginItems`.
+
+The helper build signs with:
 
 - `Developer ID Application` when available
 - otherwise `Apple Development`
 - otherwise ad hoc
 
-## Signed DMG
-
-```bash
-bun apps/macos/bin/openscout-menu.ts dmg
-```
-
-Or directly:
+## Signed Installer DMG
 
 ```bash
 apps/macos/scripts/build-dmg.sh
+```
+
+The DMG script expects the local Hudson checkout at `../hudson` by default and
+uses `apps/macos/hudson-package.json` as the packaging contract. Override with:
+
+- `HUDSON_DIR`
+- `HKIT_BIN`
+
+Local smoke build without notarization:
+
+```bash
+SKIP_NOTARIZE=1 apps/macos/scripts/build-dmg.sh
 ```
 
 Release DMG signing/notarization environment:
@@ -73,6 +88,27 @@ Release DMG signing/notarization environment:
 - `OPENSCOUT_SIGN_IDENTITY`
 - `OPENSCOUT_NOTARY_PROFILE`
 - `SKIP_NOTARIZE=1` for local packaging without notarization
+
+The release artifacts are:
+
+- `apps/macos/dist/OpenScout-<version>.dmg`
+- `apps/macos/dist/OpenScout.dmg`
+
+Build, notarize, and attach the DMG to an existing GitHub tag with:
+
+```bash
+npm run ship:macos -- v0.2.70
+```
+
+The release command creates the GitHub release if the tag exists but no release
+exists yet. It uploads both the versioned DMG and the stable `OpenScout.dmg`
+alias. Use `--clobber` when intentionally replacing an existing release asset.
+
+To upload an already-built DMG without rebuilding:
+
+```bash
+npm run ship:macos -- v0.2.70 --skip-build
+```
 
 ## Tool Resolution
 

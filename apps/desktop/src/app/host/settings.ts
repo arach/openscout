@@ -15,6 +15,12 @@ import {
   writeOpenScoutSettings,
   DEFAULT_OPERATOR_NAME,
 } from "@openscout/runtime/setup";
+import {
+  markOpenScoutOnboardingCommand,
+  restartOpenScoutOnboarding,
+  saveOpenScoutOnboardingIdentity,
+  skipOpenScoutOnboarding,
+} from "@openscout/runtime/onboarding";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import { getRuntimeBrokerServiceStatus } from "./runtime-service-client.ts";
@@ -803,25 +809,17 @@ export async function runScoutDesktopOnboardingCommand(
   });
 
   if (result.exitCode === 0) {
-    const now = Date.now();
     const brokerStatus = input.command === "runtimes"
       ? await getRuntimeBrokerServiceStatus()
       : null;
-    await writeOpenScoutSettings({
-      onboarding: input.command === "setup"
-        ? {
-          initRanAt: now,
-        }
-        : input.command === "doctor"
-          ? {
-            doctorRanAt: now,
-          }
-          : {
-            runtimesRanAt: now,
-            ...(brokerStatus?.reachable ? { completedAt: now } : {}),
-          },
-    }, {
-      currentDirectory: settingsDirectory,
+    const catalog = input.command === "runtimes"
+      ? await loadHarnessCatalogSnapshot()
+      : null;
+    await markOpenScoutOnboardingCommand({
+      command: input.command,
+      currentDirectory: contextRoot,
+      broker: brokerStatus,
+      catalog,
     });
   }
 
@@ -832,11 +830,7 @@ export async function skipScoutDesktopOnboarding(
   currentDirectory?: string,
   services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
-  await writeOpenScoutSettings({
-    onboarding: {
-      skippedAt: Date.now(),
-    },
-  }, {
+  await skipOpenScoutOnboarding({
     currentDirectory: resolveSettingsDirectory(currentDirectory),
   });
   return getScoutDesktopAppSettings(currentDirectory, services);
@@ -846,19 +840,7 @@ export async function restartScoutDesktopOnboarding(
   currentDirectory?: string,
   services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
-  await writeOpenScoutSettings({
-    onboarding: {
-      operatorAnsweredAt: null,
-      sourceRootsAnsweredAt: null,
-      harnessChosenAt: null,
-      inputsSavedAt: null,
-      initRanAt: null,
-      doctorRanAt: null,
-      runtimesRanAt: null,
-      completedAt: null,
-      skippedAt: null,
-    },
-  }, {
+  await restartOpenScoutOnboarding({
     currentDirectory: resolveSettingsDirectory(currentDirectory),
   });
   return getScoutDesktopAppSettings(currentDirectory, services);
@@ -917,6 +899,10 @@ export async function updateScoutDesktopAppSettings(
       },
     },
   }, {
+    currentDirectory: settingsDirectory,
+  });
+  await saveOpenScoutOnboardingIdentity({
+    name: trimmedOperatorName || DEFAULT_OPERATOR_NAME,
     currentDirectory: settingsDirectory,
   });
 

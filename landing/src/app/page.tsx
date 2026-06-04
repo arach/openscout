@@ -75,6 +75,8 @@ const navLinks = [
   { label: "Get Started", href: "#get-started" },
 ] as const;
 
+const macosDownloadUrl = "https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg";
+
 
 type ProblemVariant = {
   meshTitle: string;
@@ -1144,10 +1146,10 @@ export default function Home() {
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-2 font-[family-name:var(--font-mono-display)] text-[12.5px]">
                         <a
-                          href="https://github.com/arach/openscout/releases/latest"
+                          href={macosDownloadUrl}
                           onClick={onCtaClick(
                             "Download for macOS",
-                            "https://github.com/arach/openscout/releases/latest",
+                            macosDownloadUrl,
                             "get_started",
                             "download",
                           )}

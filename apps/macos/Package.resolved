@@ -2,15 +2,6 @@
   "originHash" : "1867f8f6c974a36df982033582ca1a62ad17776d0a86f52adf0cdc2a0a1af641",
   "pins" : [
     {
-      "identity" : "hudson",
-      "kind" : "remoteSourceControl",
-      "location" : "git@github.com:arach/hudson.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "dd596caf4e4577692ac72456a9d2773e2bab4c63"
-      }
-    },
-    {
       "identity" : "swifttreesitter",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ChimeHQ/SwiftTreeSitter",

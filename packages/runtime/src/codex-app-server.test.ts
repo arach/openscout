@@ -959,6 +959,124 @@ describe("buildCodexAppServerSessionSnapshot", () => {
     }
   });
 
+  test("captures Codex rollout token usage and quota windows", () => {
+    const observedAt = Date.parse("2026-04-17T01:54:39.000Z");
+    const weeklyResetAt = Date.parse("2026-04-24T00:00:00.000Z");
+    const raw = [
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:38.000Z",
+        type: "session_meta",
+        payload: {
+          id: "thread-budget",
+          cwd: "/repo",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:38.100Z",
+        type: "event_msg",
+        payload: {
+          type: "task_started",
+          turn_id: "turn-budget",
+          model_context_window: 200000,
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:38.200Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "turn-budget",
+          cwd: "/repo",
+          model: "gpt-5.4",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:39.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            model_context_window: 200000,
+            total_token_usage: {
+              input_tokens: 1000,
+              cached_input_tokens: 250,
+              output_tokens: 80,
+              reasoning_output_tokens: 20,
+              total_tokens: 1080,
+            },
+          },
+          rate_limits: {
+            plan_type: "plus",
+            primary: {
+              used_percent: 64,
+              reset_after_seconds: 1800,
+              window_minutes: 300,
+            },
+            secondary: {
+              percent_remaining: 72,
+              reset_at: "2026-04-24T00:00:00.000Z",
+              window_seconds: 604800,
+              used: 28,
+              limit: 100,
+            },
+          },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-17T01:54:40.000Z",
+        type: "event_msg",
+        payload: {
+          type: "task_complete",
+          turn_id: "turn-budget",
+        },
+      }),
+    ].join("\n");
+
+    const snapshot = buildCodexRolloutSessionSnapshot(
+      raw,
+      {
+        agentName: "codex-budget",
+        sessionId: "attached-codex-budget",
+        cwd: "/repo",
+      },
+      "thread-budget",
+      "/tmp/budget-thread.jsonl",
+    );
+
+    expect(snapshot).not.toBeNull();
+    expect(snapshot?.session.providerMeta?.observeUsage).toEqual(expect.objectContaining({
+      inputTokens: 1000,
+      cacheReadInputTokens: 250,
+      outputTokens: 80,
+      reasoningOutputTokens: 20,
+      totalTokens: 1080,
+      contextWindowTokens: 200000,
+      planType: "plus",
+    }));
+    expect(snapshot?.session.providerMeta?.observeQuota).toEqual(expect.objectContaining({
+      provider: "openai",
+      planType: "plus",
+      capturedAt: observedAt,
+    }));
+    expect(snapshot?.session.providerMeta?.observeQuota?.windows).toEqual([
+      expect.objectContaining({
+        label: "5h",
+        windowKind: "primary",
+        usedPercent: 64,
+        resetAt: observedAt + 1800 * 1000,
+        windowMs: 300 * 60 * 1000,
+      }),
+      expect.objectContaining({
+        label: "weekly",
+        windowKind: "secondary",
+        percentRemaining: 72,
+        resetAt: weeklyResetAt,
+        windowMs: 604800 * 1000,
+        used: 28,
+        limit: 100,
+      }),
+    ]);
+  });
+
   test("retires a quiet unfinished rollout turn when no blocks are still streaming", () => {
     const rolloutPath = "/tmp/quiet-thread.jsonl";
     const raw = [

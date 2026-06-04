@@ -20,6 +20,11 @@
       "bun": "./src/adapters/claude-code/team-topology.ts",
       "default": "./dist/adapters/claude-code/team-topology.js"
     },
+    "./adapters/claude-code/workflow-topology": {
+      "types": "./src/adapters/claude-code/workflow-topology.ts",
+      "bun": "./src/adapters/claude-code/workflow-topology.ts",
+      "default": "./dist/adapters/claude-code/workflow-topology.js"
+    },
     "./adapters/codex/topology": {
       "types": "./src/adapters/codex/topology.ts",
       "bun": "./src/adapters/codex/topology.ts",

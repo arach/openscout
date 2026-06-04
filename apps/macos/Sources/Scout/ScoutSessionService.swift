@@ -228,8 +228,8 @@ struct ScoutSessionComposer: View {
             instructionsSection
             if let errorText {
                 Text(errorText)
-                    .font(HudFont.mono(10))
-                    .foregroundStyle(HudPalette.accent)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(ScoutPalette.accent)
                     .fixedSize(horizontal: false, vertical: true)
             }
             footer
@@ -237,11 +237,11 @@ struct ScoutSessionComposer: View {
         .padding(HudSpacing.xxl)
         .background(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .fill(HudPalette.surface)
+                .fill(ScoutPalette.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(HudHairline.standard, lineWidth: 1)
+                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
         )
         .shadow(color: Color.black.opacity(0.35), radius: 30, y: 12)
     }
@@ -249,11 +249,11 @@ struct ScoutSessionComposer: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
             Text(draft.title)
-                .font(HudFont.ui(16, weight: .semibold))
-                .foregroundStyle(HudPalette.ink)
+                .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
             Text(subtitle)
-                .font(HudFont.mono(10))
-                .foregroundStyle(HudPalette.dim)
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(ScoutPalette.dim)
                 .lineLimit(1)
         }
     }
@@ -276,14 +276,14 @@ struct ScoutSessionComposer: View {
             VStack(alignment: .leading, spacing: HudSpacing.md) {
                 HStack(spacing: HudSpacing.md) {
                     Image(systemName: "person.crop.circle")
-                        .font(HudFont.ui(12, weight: .semibold))
-                        .foregroundStyle(HudPalette.accent)
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.accent)
                     Text(agent.displayName)
-                        .font(HudFont.ui(12, weight: .semibold))
-                        .foregroundStyle(HudPalette.ink)
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
                     Text(agent.detail)
-                        .font(HudFont.mono(9))
-                        .foregroundStyle(HudPalette.dim)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
                         .lineLimit(1)
                 }
                 if draft.canContinue {
@@ -300,7 +300,7 @@ struct ScoutSessionComposer: View {
             modeButton(.fresh, title: "Fresh session", icon: "plus.bubble")
             modeButton(.continueContext, title: "Continue (full context)", icon: "arrow.uturn.forward")
         }
-        .padding(3)
+        .padding(HudSpacing.xxs)
         .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
         .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
     }
@@ -311,16 +311,16 @@ struct ScoutSessionComposer: View {
         } label: {
             HStack(spacing: HudSpacing.xs) {
                 Image(systemName: icon)
-                    .font(HudFont.ui(10, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
                 Text(title)
-                    .font(HudFont.mono(9, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
             }
-            .foregroundStyle(draft.mode == mode ? HudPalette.ink : HudPalette.muted)
+            .foregroundStyle(draft.mode == mode ? ScoutPalette.ink : ScoutPalette.muted)
             .frame(maxWidth: .infinity)
             .frame(height: 26)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .fill(draft.mode == mode ? HudSurface.selected(HudPalette.accent) : Color.clear)
+                    .fill(draft.mode == mode ? HudSurface.selected(ScoutPalette.accent) : Color.clear)
             )
         }
         .buttonStyle(.plain).scoutPointerCursor()
@@ -338,40 +338,40 @@ struct ScoutSessionComposer: View {
             ZStack(alignment: .topLeading) {
                 if draft.instructions.isEmpty && !showDictationPreview {
                     Text(messagePlaceholder)
-                        .font(HudFont.ui(12))
-                        .foregroundStyle(HudPalette.dim)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
+                        .font(HudFont.ui(HudTextSize.sm))
+                        .foregroundStyle(ScoutPalette.dim)
+                        .padding(.horizontal, HudSpacing.sm)
+                        .padding(.vertical, HudSpacing.md)
                         .allowsHitTesting(false)
                 }
 
                 TextEditor(text: $draft.instructions)
-                    .font(HudFont.ui(12))
-                    .foregroundStyle(HudPalette.ink)
-                    .tint(showDictationPreview ? Color.clear : HudPalette.accent)
+                    .font(HudFont.ui(HudTextSize.sm))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .tint(showDictationPreview ? Color.clear : ScoutPalette.accent)
                     .scrollContentBackground(.hidden)
                     .focused($instructionsFocused)
                     .frame(minHeight: 64, maxHeight: 132)
 
                 if showDictationPreview {
                     ScoutDictationPreview(text: vox.partial)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, HudSpacing.sm)
+                        .padding(.vertical, HudSpacing.md)
                         .allowsHitTesting(false)
                 }
             }
 
             ScoutMicButton(box: 30, glyph: 14, action: toggleDictation)
-                .padding(.bottom, 2)
+                .padding(.bottom, HudSpacing.xxs)
         }
-        .padding(6)
+        .padding(HudSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                 .fill(HudSurface.inset)
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(instructionsFocused ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                .stroke(instructionsFocused ? HudSurface.tintBorder(ScoutPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin)
         )
     }
 
