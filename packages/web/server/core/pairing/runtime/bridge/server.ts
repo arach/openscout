@@ -29,12 +29,16 @@ import {
   createScoutSession,
   getScoutMobileActivity,
   getScoutMobileAgents,
+  getScoutMobileConversations,
+  getScoutMobileConversationMessages,
   getScoutMobileHome,
   getScoutMobileSessionSnapshot,
   getScoutMobileSessions,
   getScoutMobileWorkspaces,
+  sendScoutMobileComms,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
+import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
 import {
   SecureTransport,
   type SocketLike,
@@ -679,6 +683,68 @@ async function handleRPCInner(
         return {
           id: req.id,
           result: await getScoutMobileActivity(p),
+        };
+      }
+
+      // -- Comms (channels + DMs) ---------------------------------------------
+
+      case "mobile/comms/conversations": {
+        const p = req.params as { kind?: string; limit?: number } | undefined;
+        return {
+          id: req.id,
+          result: await getScoutMobileConversations(p ?? {}),
+        };
+      }
+
+      case "mobile/comms/messages": {
+        const p = req.params as { conversationId?: string; limit?: number };
+        if (!p?.conversationId) {
+          return { id: req.id, error: { code: -32602, message: "conversationId is required" } };
+        }
+        return {
+          id: req.id,
+          result: await getScoutMobileConversationMessages(
+            p.conversationId,
+            typeof p.limit === "number" ? p.limit : 200,
+          ),
+        };
+      }
+
+      case "mobile/comms/send": {
+        const p = req.params as {
+          conversationId?: string;
+          body?: string;
+          replyToMessageId?: string | null;
+          clientMessageId?: string | null;
+        };
+        if (!p?.conversationId || !p?.body) {
+          return { id: req.id, error: { code: -32602, message: "conversationId and body are required" } };
+        }
+        return {
+          id: req.id,
+          result: await sendScoutMobileComms(
+            {
+              conversationId: p.conversationId,
+              body: p.body,
+              replyToMessageId: p.replyToMessageId ?? null,
+              clientMessageId: p.clientMessageId ?? null,
+            },
+            resolveMobileCurrentDirectory(),
+            deviceId,
+          ),
+        };
+      }
+
+      // -- Terminal (in-app SSH/PTY) ------------------------------------------
+
+      case "mobile/terminal/provision": {
+        const p = req.params as { sshPublicKey?: string };
+        if (!p?.sshPublicKey) {
+          return { id: req.id, error: { code: -32602, message: "sshPublicKey is required" } };
+        }
+        return {
+          id: req.id,
+          result: provisionMobileTerminalAccess(p.sshPublicKey, deviceId),
         };
       }
 

@@ -804,6 +804,7 @@
 }
 
 .s-now-card {
+  min-width: 0;
   padding: var(--space-2xl) var(--space-3xl);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -812,11 +813,36 @@
   flex-direction: column;
   gap: var(--space-lg);
   cursor: pointer;
-  transition: border-color 120ms ease;
+  color: inherit;
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 
 .s-now-card:hover {
-  border-color: var(--dim);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+}
+
+.s-now-card:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* State tone — a hairline accent on the border, matched to the live pulse. */
+.s-now-card--live {
+  border-color: color-mix(in srgb, var(--green) 26%, var(--border));
+}
+
+.s-now-card--delivered {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.s-now-card--queued {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--border));
+}
+
+.s-now-card--failed {
+  border-color: color-mix(in srgb, var(--red) 36%, var(--border));
 }
 
 /* Observed (unmanaged native actor) variant — quieter than a managed agent. */
@@ -890,11 +916,18 @@
 }
 
 .s-now-card-task {
-  font-family: var(--font-serif);
-  font-size: var(--text-2xl);
-  line-height: var(--leading-tight);
+  min-height: 2.7em;
+  font-family: var(--font-sans);
+  font-size: var(--text-lg, var(--text-md));
+  font-weight: 450;
+  line-height: var(--leading-snug, 1.4);
   color: var(--ink);
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .s-now-card-ticker {
@@ -980,6 +1013,143 @@
   color: var(--dim);
   letter-spacing: var(--tracking-sm);
 }
+
+/* ── Active-agent card (managed) ───────────────────────────────────── */
+
+/* Name row: a live pulse + the agent name. No redundant "ACTIVE AGENT"
+   kicker (the section already says it) and no verbose live pill. */
+.s-now-card-top {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.s-now-card-pulse {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--green);
+  animation: s-fleet-live-pulse 1.6s ease-in-out infinite;
+}
+
+.s-now-card-pulse--delivered { background: var(--accent); }
+.s-now-card-pulse--queued    { background: var(--amber); }
+.s-now-card-pulse--failed     { background: var(--red); }
+.s-now-card-pulse--idle {
+  background: transparent;
+  border: 1px solid var(--dim);
+  animation: none;
+}
+
+.s-now-card-top .s-now-card-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Inline identity meta — path · branch · runtime · model · context.
+   Wraps to a second line when it needs the room; the branch is never
+   truncated (we have the width — let it breathe). */
+.s-now-card-idline {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2xs) var(--space-xs);
+  margin-top: calc(-1 * var(--space-xs));
+}
+
+.s-now-card-idgroup {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2xs) var(--space-xs);
+  min-width: 0;
+}
+
+.s-now-card-idsep {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.s-now-card-idpart {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  letter-spacing: var(--tracking-sm);
+  white-space: nowrap;
+}
+
+.s-now-card-idpart--mono {
+  font-family: var(--font-mono);
+}
+
+/* Checkpoint / latest meaningful line. */
+.s-now-card-checkpoint {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug, 1.4);
+  color: var(--muted);
+}
+
+.s-now-card-checkpoint > span:first-child { color: var(--accent); }
+
+.s-now-card-checkpoint > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Relevant at-a-glance tiles — turn · session · state. */
+.s-now-card-metrics {
+  margin-top: auto;
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.s-metric-tile {
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg) 36%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.s-metric-tile strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-md, 13px);
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-metric-tile span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs, 9.5px);
+  color: var(--dim);
+  letter-spacing: var(--tracking-md, 0.06em);
+  text-transform: uppercase;
+}
+
+.s-metric-tile--work strong { color: var(--accent); }
+.s-metric-tile--warn strong { color: var(--amber); }
 
 /* ── Mission rows ──────────────────────────────────────────────────── */
 

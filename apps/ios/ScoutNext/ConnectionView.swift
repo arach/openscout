@@ -2,9 +2,9 @@ import SwiftUI
 import HudsonUI
 import ScoutIOSCore
 
-/// Connection inspector: which data source is active, the live transport route
-/// (LAN / TSN / OSN), a reconnect control, and the `ConnectionLog` — so it's
-/// always clear which path we attempted and which one won.
+/// Connection inspector: the live transport route (LAN / TSN / OSN), a reconnect
+/// control, and the `ConnectionLog` — so it's always clear which path we
+/// attempted and which one won.
 struct ConnectionView: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -13,8 +13,7 @@ struct ConnectionView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: HudSpacing.xxl) {
-                    sourceSection
-                    if model.source == .bridge { statusSection }
+                    statusSection
                     logSection
                 }
                 .padding(HudSpacing.xxl)
@@ -29,28 +28,6 @@ struct ConnectionView: View {
             }
         }
         .preferredColorScheme(.dark)
-    }
-
-    // MARK: - Source
-
-    private var sourceSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            HudSectionLabel("Data source")
-            Picker("Source", selection: Binding(
-                get: { model.source },
-                set: { model.switchTo($0) }
-            )) {
-                ForEach(AppModel.Source.allCases) { source in
-                    Text(source.rawValue).tag(source)
-                }
-            }
-            .pickerStyle(.segmented)
-            Text(model.source == .bridge
-                 ? "Live encrypted link to your paired Mac."
-                 : "Offline fixtures — no network, no broker.")
-                .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(HudPalette.muted)
-        }
     }
 
     // MARK: - Status

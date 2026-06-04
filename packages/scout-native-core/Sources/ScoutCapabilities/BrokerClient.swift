@@ -18,5 +18,6 @@ public protocol ScoutBrokerClient:
     TailCapability,
     ConversationCapability,
     ControlCapability,
+    CommsCapability,
     Sendable
 {}

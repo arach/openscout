@@ -40,7 +40,10 @@ struct ConversationSurface: View {
         // Start warming the on-device model the moment you reach the conversation,
         // so Parakeet is hot well before the mic is ever tapped.
         .onAppear { voice.prepare() }
-        .onDisappear { voice.cancel() }
+        // Only stop an active recording on the way out — let a background model
+        // warm-up keep running to completion so it caches, instead of being
+        // cancelled (and restarted from ~38%) on every visit.
+        .onDisappear { if voice.isListening { voice.cancel() } }
         .sheet(isPresented: $showSettings) {
             SessionSettingsView(client: client, conversationId: conversationId, title: title)
         }
@@ -157,9 +160,9 @@ struct ConversationSurface: View {
             return voice.partialText.isEmpty ? "Listening…" : voice.partialText
         case .transcribing:
             return "Transcribing…"
-        case .preparing(let progress):
-            return "Preparing voice… \(Int(progress * 100))%"
-        case .idle, .unavailable:
+        // The model warms silently in the background — no loading copy in the
+        // composer. Preparing reads the same as idle.
+        case .preparing, .idle, .unavailable:
             return "steer the agent…"
         }
     }
@@ -175,11 +178,14 @@ struct ConversationSurface: View {
     private func updatePulse(for state: HudDictation.State) {
         micPulse = false
         switch state {
-        case .listening, .transcribing, .preparing:
+        case .listening:
+            // Pulse ONLY while actively recording. Preparing/transcribing must not
+            // mimic a hot mic — those read via the placeholder ("Preparing voice… N%")
+            // and a static muted glyph, so a backgrounded model download never looks live.
             withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
                 micPulse = true
             }
-        case .idle, .unavailable:
+        case .idle, .transcribing, .preparing, .unavailable:
             break
         }
     }
@@ -358,8 +364,9 @@ private struct BlockView: View {
     var body: some View {
         switch block.type {
         case .text:
-            // User vs agent differ by fill lightness, not hue.
-            textCard(block.text ?? "", fill: isUser ? HudSurface.inset : nil)
+            // User vs agent differ by fill lightness, not hue. Markdown is parsed
+            // into native styled blocks (emphasis, lists, headings, highlighted code).
+            markupCard(block.text ?? "", fill: isUser ? HudSurface.inset : nil)
         case .reasoning:
             reasoning(block.text ?? "")
         case .action:
@@ -373,13 +380,24 @@ private struct BlockView: View {
         }
     }
 
+    /// Plain single-string card — used for error/file blocks where the content
+    /// is a literal message, not markdown.
     private func textCard(_ text: String, fill: Color?, accent: Color? = nil) -> some View {
         HudCard(padding: HudSpacing.lg, fill: fill) {
             Text(text.isEmpty ? "…" : text)
-                .font(HudFont.ui(HudTextSize.sm))
+                .font(HudFont.ui(HudTextSize.md))
                 .foregroundStyle(accent ?? HudPalette.ink)
+                .lineSpacing(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
+        }
+    }
+
+    /// Markdown-aware card for conversation text blocks — parses + renders
+    /// emphasis, headings, lists, blockquotes, and highlighted code.
+    private func markupCard(_ text: String, fill: Color?) -> some View {
+        HudCard(padding: HudSpacing.lg, fill: fill) {
+            MessageMarkupView(text: text)
         }
     }
 

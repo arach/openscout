@@ -17,7 +17,7 @@
 import Foundation
 import ScoutCapabilities
 
-public final class BridgeBrokerClient: ScoutBrokerClient, @unchecked Sendable {
+public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProviding, @unchecked Sendable {
 
     private let connection: BridgeConnection
 
@@ -26,6 +26,9 @@ public final class BridgeBrokerClient: ScoutBrokerClient, @unchecked Sendable {
 
     /// The transport route the live connection is using.
     public var currentRoute: TransportKind { connection.currentRoute }
+
+    /// The host we're connected through — the Mac's own advertised name.
+    public var currentHost: String? { connection.currentHost }
 
     public var isConnected: Bool { connection.isConnected }
 
@@ -177,6 +180,47 @@ public final class BridgeBrokerClient: ScoutBrokerClient, @unchecked Sendable {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    // MARK: - CommsCapability
+
+    public func listConversations(kind: CommsConversation.Kind?, limit: Int) async throws -> [CommsConversation] {
+        let params = MobileCommsListParams(kind: kind?.rawValue, limit: limit)
+        let wire: [MobileCommsConversation] = try await connection.rpc("mobile/comms/conversations", params: params)
+        return wire.map { $0.toConversation() }
+    }
+
+    public func conversationMessages(conversationId: String, limit: Int) async throws -> [CommsMessage] {
+        let params = MobileCommsMessagesParams(conversationId: conversationId, limit: limit)
+        let wire: [MobileCommsMessage] = try await connection.rpc("mobile/comms/messages", params: params)
+        return wire.map { $0.toMessage() }
+    }
+
+    @discardableResult
+    public func postMessage(conversationId: String, body: String, replyTo: String?) async throws -> String {
+        let params = MobileCommsSendParams(
+            conversationId: conversationId,
+            body: body,
+            replyToMessageId: replyTo,
+            clientMessageId: UUID().uuidString
+        )
+        let result: MobileCommsSendResult = try await connection.rpc("mobile/comms/send", params: params)
+        return result.messageId
+    }
+
+    // MARK: - TerminalAccessProviding
+
+    public func provisionTerminalAccess(sshPublicKey: String) async throws -> TerminalAccess {
+        let params = MobileTerminalProvisionParams(sshPublicKey: sshPublicKey)
+        let wire: MobileTerminalProvisionResult = try await connection.rpc(
+            "mobile/terminal/provision", params: params
+        )
+        return TerminalAccess(
+            host: wire.host,
+            port: wire.port,
+            username: wire.username,
+            hostKeyFingerprint: wire.hostKeyFingerprint
+        )
+    }
 }
 
 // MARK: - Event → conversation filtering
@@ -259,6 +303,17 @@ struct SessionIdParams: Codable, Sendable {
 
 /// Decoded for void mutations whose result is `{}` or null.
 struct EmptyResult: Codable, Sendable {}
+
+struct MobileTerminalProvisionParams: Codable, Sendable {
+    let sshPublicKey: String
+}
+
+struct MobileTerminalProvisionResult: Codable, Sendable {
+    let host: String
+    let port: Int
+    let username: String
+    let hostKeyFingerprint: String?
+}
 
 // MARK: - Listing wire shapes → contract summaries (best-effort mapping)
 
@@ -348,4 +403,85 @@ struct MobileSessionHandleAgent: Codable, Sendable {
 struct MobileSessionHandle: Codable, Sendable {
     let agent: MobileSessionHandleAgent
     let session: MobileSessionHandleConversation
+}
+
+// MARK: - Comms params + wire shapes → contract types
+
+struct MobileCommsListParams: Codable, Sendable {
+    var kind: String?
+    var limit: Int?
+}
+
+struct MobileCommsMessagesParams: Codable, Sendable {
+    let conversationId: String
+    var limit: Int?
+}
+
+struct MobileCommsSendParams: Codable, Sendable {
+    let conversationId: String
+    let body: String
+    var replyToMessageId: String?
+    var clientMessageId: String?
+}
+
+struct MobileCommsSendResult: Codable, Sendable {
+    let conversationId: String
+    let messageId: String
+}
+
+/// Donor `mobile/comms/conversations` row. Flattened by the broker (participants
+/// + last-author already resolved to display labels). Mapped into the contract.
+struct MobileCommsConversation: Codable, Sendable {
+    let id: String
+    let kind: String
+    let title: String
+    let participants: [String]?
+    let topic: String?
+    let lastMessagePreview: String?
+    let lastMessageAuthor: String?
+    let lastMessageAt: Int?
+    let messageCount: Int?
+    let unreadCount: Int?
+
+    func toConversation() -> CommsConversation {
+        CommsConversation(
+            id: id,
+            kind: CommsConversation.Kind(rawValue: kind) ?? .unknown,
+            title: title,
+            participants: participants ?? [],
+            topic: topic,
+            lastMessagePreview: lastMessagePreview,
+            lastMessageAuthor: lastMessageAuthor,
+            lastMessageAt: lastMessageAt.map { Date(timeIntervalSince1970: Double(scoutEpochMilliseconds($0)) / 1000.0) },
+            messageCount: messageCount ?? 0,
+            unreadCount: unreadCount ?? 0
+        )
+    }
+}
+
+/// Donor `mobile/comms/messages` row. Mapped into the contract `CommsMessage`.
+struct MobileCommsMessage: Codable, Sendable {
+    let id: String
+    let conversationId: String
+    let actorId: String
+    let authorLabel: String
+    let authorKind: String
+    let body: String
+    let createdAt: Int
+    let replyToMessageId: String?
+    let isOperator: Bool?
+
+    func toMessage() -> CommsMessage {
+        CommsMessage(
+            id: id,
+            conversationId: conversationId,
+            actorId: actorId,
+            authorLabel: authorLabel,
+            authorKind: CommsMessage.AuthorKind(rawValue: authorKind) ?? .unknown,
+            body: body,
+            createdAt: Date(timeIntervalSince1970: Double(scoutEpochMilliseconds(createdAt)) / 1000.0),
+            replyToMessageId: replyToMessageId,
+            isOperator: isOperator ?? (actorId == "operator")
+        )
+    }
 }

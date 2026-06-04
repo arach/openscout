@@ -224,6 +224,7 @@ public final class BridgeConnection: @unchecked Sendable {
     private var pendingRequests: [Int: PendingRequest] = [:]
     private var _isConnected = false
     private var _currentRoute: TransportKind = .none
+    private var _currentHost: String?
 
     // MARK: Fan-out continuations
 
@@ -243,6 +244,14 @@ public final class BridgeConnection: @unchecked Sendable {
     public var currentRoute: TransportKind {
         lock.lock(); defer { lock.unlock() }
         return _currentRoute
+    }
+
+    /// The host we're currently connected through (e.g. "Arachs-Mac-mini.local"
+    /// on LAN) — the bridge's own advertised name, used to label the machine
+    /// instead of the phone's device name.
+    public var currentHost: String? {
+        lock.lock(); defer { lock.unlock() }
+        return _currentHost
     }
 
     // MARK: Init
@@ -314,6 +323,7 @@ public final class BridgeConnection: @unchecked Sendable {
             connectionInfo = updated
             _isConnected = true
             _currentRoute = transportKind(forRelayURL: attempt.relayURL)
+            _currentHost = URLComponents(string: attempt.relayURL)?.host
         }
 
         try? ScoutIdentity.touchTrustedBridge(publicKey: attempt.remoteKey)
@@ -385,7 +395,12 @@ public final class BridgeConnection: @unchecked Sendable {
         )
 
         // XX handshake succeeded and the learned key matched the QR — trust it.
-        try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: primaryName)
+        // Label the record with the Mac's own advertised name (its relay host),
+        // not the phone's device name.
+        let learnedName = URLComponents(string: attempt.relayURL)?.host.map {
+            $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0
+        }
+        try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: learnedName ?? primaryName)
 
         let publicKeyHex = hexString(attempt.remoteKey)
         let persistedRelayURLs = relayURLsPromotingSuccessfulRelay(attempt.relayURL, within: relayURLs)
@@ -402,6 +417,7 @@ public final class BridgeConnection: @unchecked Sendable {
             connectionInfo = info
             _isConnected = true
             _currentRoute = route
+            _currentHost = URLComponents(string: attempt.relayURL)?.host
         }
 
         await connectionLogHandle.log(
@@ -424,6 +440,7 @@ public final class BridgeConnection: @unchecked Sendable {
         receiveTask = nil
         _isConnected = false
         _currentRoute = .none
+        _currentHost = nil
         let events = Array(eventFanout.values)
         let tails = Array(tailFanout.values)
         eventFanout.removeAll()
