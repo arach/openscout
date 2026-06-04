@@ -1,6 +1,10 @@
 import { basename, dirname } from "node:path";
 
 import { StateTracker, type SessionState } from "./state.js";
+import {
+  readCodexRolloutUsageObservation,
+  type CodexQuotaWindowObservation,
+} from "./adapters/codex/usage.js";
 import type {
   Action,
   Block,
@@ -1536,6 +1540,9 @@ class CodexHistoryParser {
   private reasoningOutputTokens = 0;
   private cachedInputTokens = 0;
   private tokenEventCount = 0;
+  private contextWindowTokens: number | undefined;
+  private planType: string | undefined;
+  private quotaWindows: CodexQuotaWindowObservation[] = [];
 
   constructor(
     private readonly session: Session,
@@ -1725,7 +1732,7 @@ class CodexHistoryParser {
         );
         break;
       case "token_count":
-        this.captureTokenUsage(payload.info);
+        this.captureTokenUsage(payload, capturedAt);
         break;
       case "task_complete":
         this.endTurn("completed", normalizeTimestamp(payload.completed_at) ?? capturedAt);
@@ -1933,16 +1940,21 @@ class CodexHistoryParser {
     return Number.isFinite(exitCode) ? exitCode : null;
   }
 
-  private captureTokenUsage(info: unknown): void {
-    if (!isRecord(info)) {
+  private captureTokenUsage(payload: unknown, capturedAt: number): void {
+    const observation = readCodexRolloutUsageObservation(payload, capturedAt);
+    if (!observation) {
       return;
     }
 
-    const total = isRecord(info.total_token_usage) ? info.total_token_usage : {};
-    this.inputTokens = maybeNumber(total.input_tokens) ?? this.inputTokens;
-    this.outputTokens = maybeNumber(total.output_tokens) ?? this.outputTokens;
-    this.reasoningOutputTokens = maybeNumber(total.reasoning_output_tokens) ?? this.reasoningOutputTokens;
-    this.cachedInputTokens = maybeNumber(total.cached_input_tokens) ?? this.cachedInputTokens;
+    this.inputTokens = observation.inputTokens ?? this.inputTokens;
+    this.outputTokens = observation.outputTokens ?? this.outputTokens;
+    this.reasoningOutputTokens = observation.reasoningOutputTokens ?? this.reasoningOutputTokens;
+    this.cachedInputTokens = observation.cacheReadInputTokens ?? this.cachedInputTokens;
+    this.contextWindowTokens = observation.contextWindowTokens ?? this.contextWindowTokens;
+    this.planType = observation.planType ?? this.planType;
+    if (observation.quotaWindows.length > 0) {
+      this.quotaWindows = observation.quotaWindows;
+    }
     this.tokenEventCount += 1;
   }
 
@@ -1964,7 +1976,28 @@ class CodexHistoryParser {
     assignNumber("outputTokens", this.outputTokens);
     assignNumber("reasoningOutputTokens", this.reasoningOutputTokens);
     assignNumber("cacheReadInputTokens", this.cachedInputTokens);
+    if (this.contextWindowTokens !== undefined) assignNumber("contextWindowTokens", this.contextWindowTokens);
     assignNumber("tokenEvents", this.tokenEventCount);
+    if (this.planType && usage.planType !== this.planType) {
+      usage.planType = this.planType;
+      changed = true;
+    }
+    if (this.quotaWindows.length > 0) {
+      const quota = this.ensureObserveMetaRecord("observeQuota");
+      if (quota.provider !== "openai") {
+        quota.provider = "openai";
+        changed = true;
+      }
+      if (this.planType && quota.planType !== this.planType) {
+        quota.planType = this.planType;
+        changed = true;
+      }
+      const nextWindows = structuredClone(this.quotaWindows);
+      if (JSON.stringify(quota.windows) !== JSON.stringify(nextWindows)) {
+        quota.windows = nextWindows;
+        changed = true;
+      }
+    }
     return changed;
   }
 
@@ -2085,7 +2118,7 @@ class CodexHistoryParser {
     return providerMeta;
   }
 
-  private ensureObserveMetaRecord(key: "observeRuntime" | "observeUsage"): Record<string, unknown> {
+  private ensureObserveMetaRecord(key: "observeRuntime" | "observeUsage" | "observeQuota"): Record<string, unknown> {
     const providerMeta = this.ensureProviderMeta();
     const existing = providerMeta[key];
     if (isRecord(existing)) {
