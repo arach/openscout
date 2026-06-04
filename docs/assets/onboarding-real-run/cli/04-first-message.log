@@ -1,0 +1,10 @@
+$ scout send --to scoutbot "QA ping from actual onboarding run"
+Sent.
+Conversation: c.f0436f7c-3525-4ca1-949b-7e1b5e384e1d
+Message: msg-mpzwkixq-9oe8vc
+Ref: ref:y-vjqn3m
+Delivery flight: flt-mpzwkiyy-vjqn3m
+Next: scout wait flt-mpzwkiyy-vjqn3m --timeout 600
+
+$ scout latest --messages --limit 5
+No Scout messages yet.

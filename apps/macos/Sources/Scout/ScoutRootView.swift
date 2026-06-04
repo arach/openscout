@@ -61,6 +61,7 @@ struct ScoutRootView: View {
     /// Keyboard cheatsheet overlay (⌘/). Lists the live chords so nothing has
     /// to be guessed.
     @State private var showCheatsheet = false
+    @State private var showDesignPreview = false
     /// Native appearance settings (sidebar gear) — window transparency, and
     /// theme/tokens as they come online. Replaces the old web `/settings` jump.
     @State private var showSettings = false
@@ -176,8 +177,11 @@ struct ScoutRootView: View {
         }
         .animation(.easeOut(duration: 0.14), value: previewImage?.id)
         .overlay(alignment: .bottomLeading) {
-            ScoutDesignPreviewPanel()
-                .padding(HudSpacing.xl)
+            if showDesignPreview {
+                ScoutDesignPreviewPanel()
+                    .padding(HudSpacing.xl)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .overlay {
             if showCheatsheet {
@@ -214,6 +218,7 @@ struct ScoutRootView: View {
                     Button("") { openSelectedAgentChannel() }.keyboardShortcut(.return, modifiers: .command)
                 }
                 Button("") { showCheatsheet.toggle() }.keyboardShortcut("/", modifiers: .command)
+                Button("") { showDesignPreview.toggle() }.keyboardShortcut("d", modifiers: [.command, .shift])
                 // Bare vim keys + `?` — only live when no text field is capturing
                 // input, so typing j/k/?/etc. into a message or search field still
                 // inserts the character instead of stealing the key.
@@ -1150,7 +1155,7 @@ struct ScoutRootView: View {
     }
 
     private var inspectorHeader: some View {
-        let multiAgent = channelAgentMembers.count >= 2
+        let multiAgent = section == .comms && channelAgentMembers.count >= 2
         return HStack(spacing: HudSpacing.md) {
             HudSectionLabel(section == .tail ? "Tail" : (multiAgent ? "Agents" : (store.selectedAgent == nil ? "Context" : "Agent")))
             Spacer()
@@ -1261,22 +1266,20 @@ struct ScoutRootView: View {
                 ScoutTailInspector(tail: tail)
             } else {
                 if section == .agents {
-                    ScoutChannelPicker(
-                        title: "DM / Channels",
-                        isLoading: store.isLoading,
-                        query: $store.channelQuery,
-                        channels: pickerChannels,
-                        selectedCId: store.selectedCId
-                    ) { channel in
-                        store.selectChannel(channel.cId)
-                        section = .comms
+                    if let agent = store.selectedAgent {
+                        ScoutAgentInspector(
+                            agent: agent,
+                            selectedChannel: store.selectedChannel,
+                            openObserve: { observeAgent(agent) },
+                            openProfile: { ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile") },
+                            startSession: { mode in startSessionWithAgent(agent, mode: mode) }
+                        )
+                    } else {
+                        HudEmptyState(title: "Nothing selected", subtitle: "Select an agent to inspect context.", icon: "sidebar.right")
                     }
-                }
-
-                let members = channelAgentMembers
-                if members.count >= 2 {
+                } else if channelAgentMembers.count >= 2 {
                     ScoutAgentCardStack(
-                        agents: members,
+                        agents: channelAgentMembers,
                         selectedChannel: store.selectedChannel,
                         openObserve: { observeAgent($0) },
                         openProfile: { ScoutWeb.open(path: "/agents/\($0.id)?tab=profile") },
@@ -1347,18 +1350,6 @@ struct ScoutRootView: View {
         }
     }
 
-    private var pickerChannels: [ScoutChannel] {
-        if section == .agents, let agent = store.selectedAgent {
-            return filterChannels(store.channels.filter { channel in
-                channel.agentId == agent.id
-                    || channel.participantIds.contains(agent.id)
-                    || channel.cId.localizedCaseInsensitiveContains(agent.id)
-                    || channel.participantDisplayNames.contains(where: { $0.localizedCaseInsensitiveContains(agent.displayName) })
-            })
-        }
-        return store.visibleChannels
-    }
-
     private var selectedChannelMembers: [ScoutMemberIdentity] {
         guard let channel = store.selectedChannel else { return [] }
         let names = channel.participantDisplayNames
@@ -1392,16 +1383,6 @@ struct ScoutRootView: View {
             result.append(agent)
         }
         return result
-    }
-
-    private func filterChannels(_ channels: [ScoutChannel]) -> [ScoutChannel] {
-        let trimmed = store.channelQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return channels }
-        return channels.filter { channel in
-            channel.displayTitle.localizedCaseInsensitiveContains(trimmed)
-                || channel.cId.localizedCaseInsensitiveContains(trimmed)
-                || channel.participantDisplayNames.joined(separator: " ").localizedCaseInsensitiveContains(trimmed)
-        }
     }
 
     private func agent(for message: ScoutMessage) -> ScoutAgent? {
@@ -2105,100 +2086,6 @@ private struct ScoutConversationResizeHandle: View {
     }
 }
 #endif
-
-private struct ScoutChannelPicker: View {
-    let title: String
-    let isLoading: Bool
-    @Binding var query: String
-    let channels: [ScoutChannel]
-    let selectedCId: String?
-    let select: (ScoutChannel) -> Void
-
-    var body: some View {
-        HudCard(padding: HudSpacing.xl) {
-            VStack(alignment: .leading, spacing: HudSpacing.lg) {
-                HStack {
-                    HudSectionLabel(title)
-                    Spacer()
-                    HudBadge("\(channels.count)", tint: ScoutPalette.muted)
-                }
-
-                HudField("Find channel", text: $query, icon: "magnifyingglass")
-
-                if isLoading && channels.isEmpty {
-                    VStack(spacing: HudSpacing.md) {
-                        ProgressView()
-                        Text("Loading")
-                            .font(HudFont.mono(HudTextSize.micro))
-                            .foregroundStyle(ScoutPalette.dim)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, HudSpacing.xl)
-                } else if channels.isEmpty {
-                    HudEmptyState(title: "No channels", subtitle: "No matching DM or channel.", icon: "bubble.left")
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: HudSpacing.sm) {
-                            ForEach(channels) { channel in
-                                ScoutCompactChannelRow(
-                                    channel: channel,
-                                    isSelected: selectedCId == channel.cId
-                                ) {
-                                    select(channel)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .scoutOverlayScrollers()
-                    }
-                    .frame(maxHeight: 280)
-                    .scrollIndicators(.visible)
-                }
-            }
-        }
-    }
-}
-
-private struct ScoutCompactChannelRow: View {
-    let channel: ScoutChannel
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: HudSpacing.md) {
-                Image(systemName: channel.scope == .direct ? "person.crop.circle" : "number")
-                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                    .foregroundStyle(isSelected ? ScoutPalette.accent : ScoutPalette.muted)
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: HudSpacing.xxs) {
-                    Text(channel.rowTitle)
-                        .font(HudFont.ui(HudTextSize.sm, weight: isSelected ? .semibold : .medium))
-                        .foregroundStyle(ScoutPalette.ink)
-                        .lineLimit(1)
-                    Text(channel.preview?.nilIfEmpty ?? channel.cIdShort)
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(ScoutPalette.dim)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 0)
-
-                if channel.messageCount > 0 {
-                    Text("\(channel.messageCount)")
-                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.dim)
-                }
-            }
-            .padding(.horizontal, HudSpacing.md)
-            .padding(.vertical, HudSpacing.md)
-            .background(RoundedRectangle(cornerRadius: HudRadius.standard).fill(isSelected ? HudSurface.selected(ScoutPalette.accent) : HudSurface.inset))
-            .overlay(RoundedRectangle(cornerRadius: HudRadius.standard).stroke(isSelected ? HudSurface.tintBorder(ScoutPalette.accent) : HudHairline.subtle, lineWidth: HudStrokeWidth.standard))
-        }
-        .buttonStyle(.plain).scoutPointerCursor()
-    }
-}
 
 private struct ScoutMemberIdentity: Identifiable {
     let id: String

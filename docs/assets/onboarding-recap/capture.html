@@ -1,0 +1,1121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenScout Onboarding Recap Capture</title>
+  <style>
+    :root {
+      --bg: #070807;
+      --panel: #11100d;
+      --panel-2: #0d0f0f;
+      --line: rgba(255, 255, 255, 0.09);
+      --line-strong: rgba(255, 255, 255, 0.16);
+      --ink: rgba(255, 255, 255, 0.9);
+      --muted: rgba(255, 255, 255, 0.52);
+      --faint: rgba(255, 255, 255, 0.32);
+      --green: #9fe047;
+      --cyan: #35c7dd;
+      --blue: #58a6ff;
+      --yellow: #f6c751;
+      --red: #ff6767;
+      --mono: "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 16% 12%, rgba(53, 199, 221, 0.08), transparent 26%),
+        radial-gradient(circle at 86% 6%, rgba(159, 224, 71, 0.08), transparent 22%),
+        linear-gradient(135deg, #060707 0%, #0b0a08 54%, #050505 100%);
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    #app {
+      width: 100%;
+      height: 100%;
+      padding: 30px;
+    }
+
+    .recap-shell {
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--line-strong);
+      background: rgba(6, 7, 7, 0.88);
+      box-shadow: 0 24px 90px rgba(0, 0, 0, 0.55);
+      display: grid;
+      grid-template-rows: 74px 1fr;
+    }
+
+    .recap-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      padding: 0 28px;
+    }
+
+    .kicker {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.26em;
+      text-transform: uppercase;
+      color: var(--green);
+      margin-bottom: 8px;
+    }
+
+    .title {
+      font-family: var(--mono);
+      font-size: 18px;
+      letter-spacing: 0.08em;
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    .subtle {
+      color: var(--muted);
+    }
+
+    .step-pill {
+      border: 1px solid rgba(159, 224, 71, 0.28);
+      background: rgba(159, 224, 71, 0.08);
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 10px 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .content {
+      min-height: 0;
+      padding: 24px;
+    }
+
+    .two-col {
+      height: 100%;
+      display: grid;
+      grid-template-columns: 286px 1fr;
+      gap: 22px;
+    }
+
+    .side-card, .stage-card, .browser-frame, .desktop-frame {
+      border: 1px solid var(--line);
+      background: rgba(14, 14, 12, 0.78);
+    }
+
+    .side-card {
+      padding: 20px;
+    }
+
+    .side-title {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 18px;
+    }
+
+    .step-list {
+      display: grid;
+      gap: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .step-list-item {
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 10px;
+      align-items: start;
+      padding: 10px;
+      border: 1px solid transparent;
+    }
+
+    .step-list-item.active {
+      border-color: rgba(159, 224, 71, 0.32);
+      background: rgba(159, 224, 71, 0.06);
+      color: var(--ink);
+    }
+
+    .num {
+      width: 21px;
+      height: 21px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      color: var(--faint);
+      font-size: 10px;
+    }
+
+    .active .num {
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .stage-card {
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .terminal {
+      height: 100%;
+      display: grid;
+      grid-template-rows: 40px 1fr;
+      background: #080909;
+      font-family: var(--mono);
+    }
+
+    .terminal-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      padding: 0 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .terminal-body {
+      padding: 28px;
+      display: grid;
+      grid-template-columns: 1fr 270px;
+      gap: 26px;
+      min-height: 0;
+    }
+
+    .terminal-output {
+      overflow: hidden;
+      font-size: 14px;
+      line-height: 1.68;
+      color: rgba(255, 255, 255, 0.8);
+      white-space: pre-wrap;
+    }
+
+    .prompt {
+      color: var(--cyan);
+    }
+
+    .ok {
+      color: var(--green);
+    }
+
+    .warn {
+      color: var(--yellow);
+    }
+
+    .note-card {
+      border-left: 1px solid rgba(159, 224, 71, 0.38);
+      background: rgba(159, 224, 71, 0.055);
+      padding: 18px;
+      align-self: start;
+      font-size: 13px;
+      line-height: 1.55;
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .note-card b {
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .web-layout {
+      height: 100%;
+      display: grid;
+      grid-template-columns: 170px 1fr 190px;
+      grid-template-rows: 48px 1fr;
+      background: #080807;
+      font-family: var(--mono);
+    }
+
+    .web-top {
+      grid-column: 1 / 4;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      gap: 24px;
+    }
+
+    .brand {
+      letter-spacing: 0.36em;
+      color: white;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 22px;
+      color: var(--faint);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+
+    .tabs span:first-child {
+      color: var(--green);
+      border-bottom: 2px solid var(--green);
+      padding-bottom: 14px;
+    }
+
+    .web-side {
+      border-right: 1px solid var(--line);
+      padding: 18px 14px;
+      color: var(--faint);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+
+    .web-context {
+      border-left: 1px solid var(--line);
+      padding: 18px 14px;
+      color: var(--faint);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+
+    .web-main {
+      min-width: 0;
+      min-height: 0;
+      padding: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .web-main--ready {
+      padding: 16px 34px;
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+
+    .web-main--ready .fleet-home {
+      transform: scale(0.8);
+      transform-origin: top left;
+      width: 125%;
+      height: 125%;
+    }
+
+    .onboarding-card {
+      width: min(620px, 100%);
+      padding: 42px 48px;
+      display: grid;
+      gap: 28px;
+      background: #0d0d0b;
+      border: 1px solid var(--line-strong);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+    }
+
+    .eyebrow {
+      font-family: var(--mono);
+      color: var(--green);
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-family: var(--sans);
+      font-size: 30px;
+      font-weight: 650;
+      letter-spacing: 0;
+      margin-bottom: 14px;
+    }
+
+    .card-copy {
+      font-family: var(--sans);
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .field-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .field-label {
+      font-family: var(--mono);
+      color: var(--muted);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    .field {
+      border: 1px solid var(--line-strong);
+      background: #070806;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .primary-btn {
+      border: 1px solid rgba(159, 224, 71, 0.5);
+      background: rgba(159, 224, 71, 0.13);
+      color: var(--green);
+      padding: 13px 18px;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+
+    .ghost-btn {
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .check-list {
+      display: grid;
+      gap: 12px;
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .check-list li {
+      display: grid;
+      grid-template-columns: 20px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 13px;
+    }
+
+    .check-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(159, 224, 71, 0.12);
+      color: var(--green);
+      font-size: 11px;
+    }
+
+    .missing .check-icon {
+      background: rgba(255, 103, 103, 0.1);
+      color: var(--red);
+    }
+
+    .harness-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .harness-card {
+      border: 1px solid var(--line-strong);
+      background: rgba(255, 255, 255, 0.02);
+      padding: 16px;
+      min-height: 86px;
+      font-family: var(--sans);
+    }
+
+    .harness-card.selected {
+      border-color: rgba(159, 224, 71, 0.55);
+      background: rgba(159, 224, 71, 0.06);
+    }
+
+    .harness-name {
+      font-weight: 650;
+      margin-bottom: 8px;
+    }
+
+    .harness-copy {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .fleet-home {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 18px;
+    }
+
+    .fleet-header {
+      border: 1px solid var(--line);
+      background: #0d0d0b;
+      padding: 14px 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .breadcrumbs {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .subscription-table {
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .sub-row {
+      display: grid;
+      grid-template-columns: 130px 1fr 110px 1fr 110px;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 28px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 6px 10px;
+    }
+
+    .sub-row.header {
+      border: 0;
+      padding: 0 10px;
+      color: var(--faint);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 10px;
+    }
+
+    .bar {
+      height: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      background: #060606;
+      position: relative;
+      min-width: 82px;
+    }
+
+    .bar::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: var(--pct, 22%);
+      background: var(--green);
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .mini-panel {
+      border: 1px solid var(--line);
+      background: #0d0d0b;
+      min-height: 92px;
+      padding: 14px;
+    }
+
+    .panel-title {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 11px;
+      margin-bottom: 12px;
+    }
+
+    .ready-bottom {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .catchup {
+      border: 1px solid var(--line);
+      background: #0d0d0b;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .tail-embed {
+      border: 1px solid var(--line);
+      background: #090a08;
+      padding: 14px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .tail-row {
+      display: grid;
+      grid-template-columns: 70px 90px 90px minmax(0, 1fr);
+      gap: 10px;
+      min-height: 24px;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 11px;
+    }
+
+    .tail-row span:last-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tail-badge {
+      border: 1px solid rgba(159, 224, 71, 0.45);
+      color: var(--green);
+      text-align: center;
+      padding: 3px 5px;
+    }
+
+    .desktop-frame {
+      height: 100%;
+      background:
+        linear-gradient(180deg, #111416 0%, #0a0b0c 100%);
+      position: relative;
+      overflow: hidden;
+      font-family: var(--sans);
+    }
+
+    .mac-bar {
+      height: 32px;
+      background: rgba(0, 0, 0, 0.42);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.62);
+    }
+
+    .desktop-area {
+      position: absolute;
+      inset: 32px 0 0;
+      padding: 40px;
+    }
+
+    .mac-window {
+      width: 680px;
+      height: 430px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(8, 9, 9, 0.94);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+      display: grid;
+      grid-template-rows: 36px 1fr;
+    }
+
+    .window-top {
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 14px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .window-body {
+      padding: 28px;
+      display: grid;
+      gap: 22px;
+      align-content: start;
+    }
+
+    .installer-title {
+      font-size: 30px;
+      font-weight: 680;
+    }
+
+    .installer-copy {
+      color: rgba(255, 255, 255, 0.58);
+      line-height: 1.55;
+      max-width: 520px;
+    }
+
+    .menu-popover {
+      position: absolute;
+      top: 42px;
+      right: 38px;
+      width: 320px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(13, 14, 13, 0.98);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+      padding: 12px;
+      font-family: var(--mono);
+    }
+
+    .menu-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 12px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.75);
+      font-size: 12px;
+    }
+
+    .menu-row:last-child {
+      border-bottom: 0;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      background: var(--green);
+      margin-right: 8px;
+    }
+
+    .status-dot.red {
+      background: var(--red);
+    }
+
+    .status-dot.yellow {
+      background: var(--yellow);
+    }
+
+    .hud-card {
+      position: absolute;
+      left: 780px;
+      top: 400px;
+      width: 340px;
+      border: 1px solid rgba(159, 224, 71, 0.24);
+      background: rgba(11, 13, 10, 0.9);
+      padding: 22px;
+      font-family: var(--mono);
+    }
+
+    .big-metric {
+      font-family: var(--sans);
+      font-size: 42px;
+      font-weight: 700;
+      color: white;
+      margin: 12px 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    const shots = {
+      "cli-01": {
+        modality: "CLI only",
+        step: "1 of 4",
+        title: "Install the public command",
+        active: 0,
+        steps: ["Install command", "Run setup", "Verify health", "Send first message"],
+        command: "bun add -g @openscout/scout\nscout --help",
+        output: "Resolving packages\ninstalled @openscout/scout\n\nUsage: scout <command> [options]\n\nCore commands\n  setup       bootstrap local settings and services\n  doctor      verify broker, support files, and runtime readiness\n  whoami      show current sender identity\n  who         list known agents\n  send        send a message\n  ask         create work for an agent\n  server      open or start the local web UI\n  menu        launch the macOS menu app",
+        note: "Install is intentionally inert. The command appears first; services start only when setup or an app flow asks for them."
+      },
+      "cli-02": {
+        modality: "CLI only",
+        step: "2 of 4",
+        title: "Bootstrap the same state the apps use",
+        active: 1,
+        steps: ["Install command", "Run setup", "Verify health", "Send first message"],
+        command: "scout config set name \"Art\"\nscout setup --source-root ~/dev --default-harness codex",
+        output: "ok saved operator name\n\nok wrote ~/Library/Application Support/OpenScout/settings.json\nok wrote relay agent registry\nok wrote .openscout/project.json\nok installed launch agent dev.openscout\nok broker service reachable\nok local web edge ready at http://scout.local\nok default harness codex",
+        note: "The CLI path needs to collect identity, source roots, current project, default harness, and service readiness without relying on a browser."
+      },
+      "cli-03": {
+        modality: "CLI only",
+        step: "3 of 4",
+        title: "Run the health ladder",
+        active: 2,
+        steps: ["Install command", "Run setup", "Verify health", "Send first message"],
+        command: "scout doctor\nscout whoami\nscout who",
+        output: "broker: reachable\nsupport files: present\nruntime: codex ready\nlocal edge: ready\n\nArt <operator> in ~/dev/openscout\n\nScout        available   local\nDewey        available   local\nHudson       available   local\nTalkie       available   local",
+        note: "This is the point where the install becomes actionable. A user should know who Scout thinks they are and which agents are routable."
+      },
+      "cli-04": {
+        modality: "CLI only",
+        step: "4 of 4",
+        title: "Create the first useful route",
+        active: 3,
+        steps: ["Install command", "Run setup", "Verify health", "Send first message"],
+        command: "scout send --to dewey \"hello from a fresh Scout install\"\nscout ask --to hudson \"what should I catch up on?\"",
+        output: "ok message sent to dewey\nconversation: dm/dewey\n\nok ask created\nflight: ask_01H...\nreply mode: notify\n\nUse scout watch dm/hudson or open the web app to follow replies.",
+        note: "The CLI should end in a pleasant outcome, not just a green doctor line: a message or ask that proves routing works."
+      },
+      "web-01": {
+        modality: "Web app",
+        step: "1 of 6",
+        title: "Open the local web surface",
+        web: "open"
+      },
+      "web-02": {
+        modality: "Web app",
+        step: "2 of 6",
+        title: "Create local config",
+        web: "config"
+      },
+      "web-03": {
+        modality: "Web app",
+        step: "3 of 6",
+        title: "Set operator identity",
+        web: "identity"
+      },
+      "web-04": {
+        modality: "Web app",
+        step: "4 of 6",
+        title: "Choose projects and harness",
+        web: "project"
+      },
+      "web-05": {
+        modality: "Web app",
+        step: "5 of 6",
+        title: "Finish setup",
+        web: "setup"
+      },
+      "web-06": {
+        modality: "Web app",
+        step: "6 of 6",
+        title: "Land on a useful home screen",
+        web: "ready"
+      },
+      "desktop-01": {
+        modality: "Desktop app",
+        step: "1 of 4",
+        title: "Install or launch OpenScout",
+        desktop: "install"
+      },
+      "desktop-02": {
+        modality: "Desktop app",
+        step: "2 of 4",
+        title: "Start Scout from the menu",
+        desktop: "menu-start"
+      },
+      "desktop-03": {
+        modality: "Desktop app",
+        step: "3 of 4",
+        title: "Run the same onboarding ladder",
+        desktop: "onboard"
+      },
+      "desktop-04": {
+        modality: "Desktop app",
+        step: "4 of 4",
+        title: "Keep a healthy daily control point",
+        desktop: "healthy"
+      }
+    };
+
+    const params = new URLSearchParams(location.search);
+    const shotId = params.get("shot") || "cli-01";
+    const shot = shots[shotId] || shots["cli-01"];
+
+    function shell(inner) {
+      return `
+        <div class="recap-shell">
+          <div class="recap-header">
+            <div>
+              <div class="kicker">${shot.modality}</div>
+              <div class="title">${shot.title} <span class="subtle">/ onboarding recap</span></div>
+            </div>
+            <div class="step-pill">step ${shot.step}</div>
+          </div>
+          <div class="content">${inner}</div>
+        </div>
+      `;
+    }
+
+    function esc(text) {
+      return String(text).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      })[ch]);
+    }
+
+    function cliShot() {
+      const steps = shot.steps.map((label, i) => `
+        <div class="step-list-item ${i === shot.active ? "active" : ""}">
+          <div class="num">${i + 1}</div>
+          <div>${esc(label)}</div>
+        </div>
+      `).join("");
+      const output = esc(shot.output)
+        .replaceAll("ok", "<span class=\"ok\">ok</span>")
+        .replaceAll("$ ", "<span class=\"prompt\">$ </span>");
+      return shell(`
+        <div class="two-col">
+          <aside class="side-card">
+            <div class="side-title">Stop/go ladder</div>
+            <div class="step-list">${steps}</div>
+          </aside>
+          <section class="stage-card">
+            <div class="terminal">
+              <div class="terminal-top">
+                <span class="dot" style="background:#ff6767"></span>
+                <span class="dot" style="background:#f6c751"></span>
+                <span class="dot" style="background:#9fe047"></span>
+                <span style="margin-left:10px">local shell - openscout</span>
+              </div>
+              <div class="terminal-body">
+                <pre class="terminal-output"><span class="prompt">$ </span>${esc(shot.command).replace(/\n/g, "\n<span class=\"prompt\">$ </span>")}\n\n${output}</pre>
+                <div class="note-card"><b>Outcome</b><br>${esc(shot.note)}</div>
+              </div>
+            </div>
+          </section>
+        </div>
+      `);
+    }
+
+    function webChrome(main, ready) {
+      return `
+        <div class="browser-frame" style="height:100%">
+          <div class="web-layout">
+            <div class="web-top">
+              <div class="brand">SCOUT</div>
+              <div class="tabs"><span>Fleet</span><span>Agents</span><span>Conversations</span><span>Sessions</span><span>Search</span><span>Ops</span></div>
+            </div>
+            <div class="web-side">Navigation<br><br><span style="color:rgba(255,255,255,.45);letter-spacing:.08em;text-transform:none">Recent agents</span></div>
+            <main class="web-main ${ready ? "web-main--ready" : ""}">${main}</main>
+            <div class="web-context">Context<br><br><span style="color:#9fe047;letter-spacing:.08em;text-transform:none">Broker: checking</span></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function onboardingCard(kind) {
+      const variants = {
+        open: {
+          eyebrow: "First-run setup",
+          title: "Welcome to Scout",
+          copy: "Open Scout from scout.local, localhost, or the desktop menu. The web flow writes the same local config and project metadata as the CLI.",
+          body: `<ul class="check-list">
+            <li class="missing"><span class="check-icon">!</span><span>Local config (~/.openscout/config.json)</span><span>missing</span></li>
+            <li class="missing"><span class="check-icon">!</span><span>Broker service</span><span>not checked</span></li>
+          </ul>`,
+          button: "Initialize Scout"
+        },
+        config: {
+          eyebrow: "First-run setup",
+          title: "Welcome to Scout",
+          copy: "Scout needs a local config before the broker, web app, and paired devices can share ports and paths.",
+          body: `<ul class="check-list">
+            <li class="missing"><span class="check-icon">!</span><span>Local config (~/.openscout/config.json)</span><span>missing</span></li>
+            <li><span class="check-icon">✓</span><span>.openscout/project.json in a repo</span><span>checked later</span></li>
+          </ul>`,
+          button: "Initialize Scout"
+        },
+        identity: {
+          eyebrow: "Identity",
+          title: "What should we call you?",
+          copy: "This name shows up on messages you send and in any agent that speaks for you.",
+          body: `<div class="field-grid"><div class="field-label">Your name</div><div class="field">Art</div><div style="font-family:var(--mono);font-size:11px;color:var(--faint)">Prefilled from your machine.</div></div>`,
+          button: "Continue"
+        },
+        project: {
+          eyebrow: "Project",
+          title: "Where do your repos live?",
+          copy: "Scout scans source roots and writes project metadata into the current context.",
+          body: `<div class="field-grid">
+            <div class="field-label">Scan folders</div><div class="field">~/dev</div>
+            <div class="field-label">Context root</div><div class="field">~/dev/openscout</div>
+            <div class="field-label">Default harness</div>
+            <div class="harness-grid"><div class="harness-card"><div class="harness-name">Claude</div><div class="harness-copy">Local CLI agent.</div></div><div class="harness-card selected"><div class="harness-name">Codex</div><div class="harness-copy">Cloud agentic sandbox.</div></div></div>
+          </div>`,
+          button: "Create project"
+        },
+        setup: {
+          eyebrow: "Setup",
+          title: "Finish setup",
+          copy: "Scout installs harness skills, starts the local broker, refreshes discovery, and checks for a ready runtime.",
+          body: `<ul class="check-list">
+            <li><span class="check-icon">✓</span><span>.openscout/project.json</span><span>ready</span></li>
+            <li class="missing"><span class="check-icon">!</span><span>Broker reachable</span><span>needs setup</span></li>
+            <li class="missing"><span class="check-icon">!</span><span>Claude or Codex runtime</span><span>not checked</span></li>
+          </ul>`,
+          button: "Run setup"
+        }
+      };
+      const v = variants[kind] || variants.open;
+      return `
+        <div class="onboarding-card">
+          <div>
+            <div class="eyebrow">${v.eyebrow}</div>
+            <div class="card-title">${v.title}</div>
+            <div class="card-copy">${v.copy}</div>
+          </div>
+          ${v.body}
+          <div class="button-row"><div class="primary-btn">${v.button}</div><div class="ghost-btn">Skip for now</div></div>
+        </div>
+      `;
+    }
+
+    function fleetHome() {
+      return `
+        <div class="fleet-home">
+          <div class="fleet-header">
+            <div class="breadcrumbs"><span>Home / Fleet / Thu 04 Jun</span><span>Operator art / updated now</span></div>
+            <div class="subscription-table">
+              <div class="sub-row header"><span>Service</span><span>Short window</span><span>Resets</span><span>Long window</span><span>Resets</span></div>
+              <div class="sub-row"><span style="color:var(--ink)">codex</span><span>5h <span class="bar" style="--pct:16%;display:inline-block;width:90px;margin-left:10px"></span> 16%</span><span style="color:var(--yellow)">2h 8m</span><span>7d <span class="bar" style="--pct:4%;display:inline-block;width:90px;margin-left:10px"></span> 4%</span><span>6d 8h</span></div>
+              <div class="sub-row"><span style="color:var(--ink)">claude <span style="color:var(--green)">•</span></span><span>-</span><span>-</span><span>7d 20M usage</span><span>quota n/a</span></div>
+              <div class="sub-row"><span style="color:var(--ink)">github</span><span>1h <span class="bar" style="--pct:0%;display:inline-block;width:90px;margin-left:10px"></span> 0/5.0k</span><span>1m</span><span>-</span><span>-</span></div>
+            </div>
+          </div>
+          <div class="dashboard-grid">
+            <div class="mini-panel"><div class="panel-title">Status</div><div style="font-family:var(--sans);font-size:18px">19 agents are available.</div></div>
+            <div class="mini-panel"><div class="panel-title">Heart-rate / trailing 7d</div><svg viewBox="0 0 420 70" width="100%" height="70"><polyline points="0,58 280,58 310,56 330,48 346,22 362,50 378,42 394,56 410,12" fill="none" stroke="#9fe047" stroke-width="3"/></svg></div>
+          </div>
+          <div class="ready-bottom">
+            <div class="catchup">
+              <div class="panel-title">Catch up</div>
+              <div class="field">What do you want to ask your local agents?</div>
+              <div class="field" style="height:58px;align-items:flex-start;padding-top:12px;color:var(--faint)">Ask a catch-up, handoff, or next move...</div>
+            </div>
+            <div class="tail-embed">
+              <div class="panel-title">Local tail context</div>
+              <div class="tail-row"><span>13:34:02</span><span class="tail-badge">claude</span><span class="tail-badge">scout</span><span>last-prompt: review recent Scout activity</span></div>
+              <div class="tail-row"><span>13:34:02</span><span class="tail-badge">codex</span><span class="tail-badge">hudson</span><span>assistant: local setup finished cleanly</span></div>
+              <div class="tail-row"><span>13:34:03</span><span class="tail-badge">claude</span><span class="tail-badge">talkie</span><span>[agent-name] captured for context</span></div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function webShot() {
+      const main = shot.web === "ready" ? fleetHome() : onboardingCard(shot.web);
+      return shell(webChrome(main, shot.web === "ready"));
+    }
+
+    function desktopShot() {
+      const mode = shot.desktop;
+      let body = "";
+      if (mode === "install") {
+        body = `
+          <div class="desktop-frame">
+            <div class="mac-bar"><span>OpenScout</span><span>Thu Jun 4 12:00</span></div>
+            <div class="desktop-area">
+              <div class="mac-window">
+                <div class="window-top"><span class="dot" style="background:#ff6767"></span><span class="dot" style="background:#f6c751"></span><span class="dot" style="background:#9fe047"></span><span style="margin-left:8px">OpenScout.app</span></div>
+                <div class="window-body">
+                  <div class="eyebrow">Desktop install</div>
+                  <div class="installer-title">Launch OpenScout</div>
+                  <div class="installer-copy">The desktop app is a native shell around the same local broker and web surface. In development, scout menu or bun run menu launches the menu helper.</div>
+                  <div class="field">scout menu</div>
+                  <div class="primary-btn" style="width:max-content">Open Menu Helper</div>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      } else if (mode === "menu-start") {
+        body = `
+          <div class="desktop-frame">
+            <div class="mac-bar"><span>OpenScout</span><span>Scout menu active</span></div>
+            <div class="desktop-area">
+              <div class="mac-window">
+                <div class="window-top"><span class="dot" style="background:#ff6767"></span><span class="dot" style="background:#f6c751"></span><span class="dot" style="background:#9fe047"></span><span style="margin-left:8px">Desktop</span></div>
+                <div class="window-body">
+                  <div class="installer-title">Menu bar control point</div>
+                  <div class="installer-copy">A user can start Scout without knowing ports, launch agents, or Caddy. The menu owns the friendly entry into setup.</div>
+                </div>
+              </div>
+              <div class="menu-popover">
+                <div class="menu-row"><span><span class="status-dot red"></span>Broker</span><span>stopped</span></div>
+                <div class="menu-row"><span>Run setup</span><span>required</span></div>
+                <div class="menu-row"><span>Open Scout</span><span>web</span></div>
+                <div class="menu-row"><span>Quit</span><span>cmd+q</span></div>
+              </div>
+            </div>
+          </div>`;
+      } else if (mode === "onboard") {
+        body = `
+          <div class="desktop-frame">
+            <div class="mac-bar"><span>OpenScout</span><span>Setup</span></div>
+            <div class="desktop-area">
+              <div class="mac-window" style="width:760px;height:468px">
+                <div class="window-top"><span class="dot" style="background:#ff6767"></span><span class="dot" style="background:#f6c751"></span><span class="dot" style="background:#9fe047"></span><span style="margin-left:8px">Setup</span></div>
+                <div class="window-body">
+                  <div class="eyebrow">Same ladder</div>
+                  <div class="installer-title">Identity, project, setup</div>
+                  <div class="installer-copy">The desktop app should not invent another onboarding model. It should drive the same state: operator name, source roots, default harness, broker, and runtime readiness.</div>
+                  <ul class="check-list">
+                    <li><span class="check-icon">✓</span><span>Operator name</span><span>Art</span></li>
+                    <li><span class="check-icon">✓</span><span>Source roots</span><span>~/dev</span></li>
+                    <li class="missing"><span class="check-icon">!</span><span>Broker service</span><span>starting</span></li>
+                  </ul>
+                  <div class="primary-btn" style="width:max-content">Run setup</div>
+                </div>
+              </div>
+              <div class="menu-popover"><div class="menu-row"><span><span class="status-dot yellow"></span>Broker</span><span>starting</span></div><div class="menu-row"><span>Open setup</span><span>active</span></div></div>
+            </div>
+          </div>`;
+      } else {
+        body = `
+          <div class="desktop-frame">
+            <div class="mac-bar"><span>OpenScout</span><span>Healthy</span></div>
+            <div class="desktop-area">
+              <div class="mac-window">
+                <div class="window-top"><span class="dot" style="background:#ff6767"></span><span class="dot" style="background:#f6c751"></span><span class="dot" style="background:#9fe047"></span><span style="margin-left:8px">OpenScout</span></div>
+                <div class="window-body">
+                  <div class="installer-title">Ready to work</div>
+                  <div class="installer-copy">A healthy desktop install keeps service state visible and gives the operator fast paths back into Scout, the web app, and service repair.</div>
+                  <div class="field">Broker: up / Active agents: 19 / Web: scout.local</div>
+                </div>
+              </div>
+              <div class="menu-popover">
+                <div class="menu-row"><span><span class="status-dot"></span>Broker</span><span>up</span></div>
+                <div class="menu-row"><span>Open Scout</span><span>scout.local</span></div>
+                <div class="menu-row"><span>Restart service</span><span>repair</span></div>
+                <div class="menu-row"><span>Quit</span><span>cmd+q</span></div>
+              </div>
+              <div class="hud-card"><div class="panel-title">Local fleet</div><div class="big-metric">19</div><div style="color:var(--muted)">agents available after setup</div></div>
+            </div>
+          </div>`;
+      }
+      return shell(body);
+    }
+
+    const html = shotId.startsWith("cli-")
+      ? cliShot()
+      : shotId.startsWith("web-")
+        ? webShot()
+        : desktopShot();
+    document.getElementById("app").innerHTML = html;
+  </script>
+</body>
+</html>
