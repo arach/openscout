@@ -15,6 +15,7 @@ import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { AgentLiveActions } from "../components/AgentLiveActions.tsx";
+import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import type { Agent, Route, SessionEntry } from "../lib/types.ts";
 
 type ProfileField = {
@@ -300,6 +301,14 @@ export function AgentInfoScreen({
           items={conversationItems}
         />
       </div>
+
+      <ObservedTopologyPanel
+        title="Observed harness families"
+        size="compact"
+        maxAgents={8}
+        maxTasks={4}
+        showEmpty
+      />
     </div>
   );
 }

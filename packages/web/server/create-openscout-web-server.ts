@@ -2094,6 +2094,18 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   };
 }
 
+async function readLocalHarnessTopologySnapshot() {
+  try {
+    const { HarnessTopologyObserver } = await import("@openscout/runtime/harness-topology");
+    const observer = new HarnessTopologyObserver({
+      cwd: process.env.OPENSCOUT_SETUP_CWD || process.cwd(),
+    });
+    return await observer.getSnapshot(true);
+  } catch {
+    return null;
+  }
+}
+
 export async function createOpenScoutWebServer(
   options: CreateOpenScoutWebServerOptions,
 ): Promise<OpenScoutWebServer> {
@@ -2875,11 +2887,22 @@ export async function createOpenScoutWebServer(
     if (c.req.query("force") === "1") {
       url.searchParams.set("force", "1");
     }
-    const res = await fetch(url);
-    if (!res.ok) {
-      return c.json({ error: `broker topology unavailable (${res.status})` }, 502);
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const brokerSnapshot = await res.json();
+        if (brokerSnapshot?.totals?.sources > 0) {
+          return c.json(brokerSnapshot);
+        }
+        const localSnapshot = await readLocalHarnessTopologySnapshot();
+        return c.json(localSnapshot?.totals.sources ? localSnapshot : brokerSnapshot);
+      }
+    } catch {
+      /* Fall through to the local read-only observer. */
     }
-    return c.json(await res.json());
+    const localSnapshot = await readLocalHarnessTopologySnapshot();
+    if (localSnapshot) return c.json(localSnapshot);
+    return c.json({ error: "broker topology unavailable" }, 502);
   });
   app.get("/api/broker", (c) =>
     c.json(

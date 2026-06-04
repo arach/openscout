@@ -1,79 +1,64 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$APP_DIR/../.." && pwd)"
 DIST_DIR="$APP_DIR/dist"
-APP_NAME="OpenScoutMenu.app"
-APP_BUNDLE="$DIST_DIR/$APP_NAME"
+CONFIG_PATH="$APP_DIR/hudson-package.json"
 VERSION="${VERSION:-${1:-$(node -p "require('$REPO_ROOT/package.json').version" 2>/dev/null || echo '0.1.0')}}"
-DMG_NAME="OpenScoutMenu-${VERSION}.dmg"
-DMG_PATH="$DIST_DIR/$DMG_NAME"
-LATEST_DMG_PATH="$DIST_DIR/OpenScoutMenu.dmg"
+DMG_PATH="$DIST_DIR/OpenScout-${VERSION}.dmg"
+LATEST_DMG_PATH="$DIST_DIR/OpenScout.dmg"
 
-SIGN_IDENTITY="${OPENSCOUT_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application:[^"]*"' | head -1 | tr -d '"' || echo "")}"
-NOTARY_PROFILE="${OPENSCOUT_NOTARY_PROFILE:-notarytool}"
+HUDSON_DIR="${HUDSON_DIR:-$REPO_ROOT/../hudson}"
+HKIT_BIN="${HKIT_BIN:-$HUDSON_DIR/packages/tools/hkit/bin/hkit.mjs}"
 SKIP_NOTARIZE="${SKIP_NOTARIZE:-0}"
+SKIP_SIGN="${SKIP_SIGN:-0}"
 
-if [ -z "$SIGN_IDENTITY" ]; then
-    echo "Error: No Developer ID Application identity found."
-    echo "Set OPENSCOUT_SIGN_IDENTITY or install a Developer ID certificate."
+if [ ! -f "$HKIT_BIN" ]; then
+    echo "Error: Hudson hkit packager not found at $HKIT_BIN"
+    echo "Set HUDSON_DIR or HKIT_BIN. OpenScout packaging intentionally uses the local Hudson file path."
     exit 1
 fi
 
-if [ "$SKIP_NOTARIZE" != "1" ]; then
-    if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
-        echo "Error: notarytool profile '$NOTARY_PROFILE' is not configured."
-        echo "Set OPENSCOUT_NOTARY_PROFILE or run xcrun notarytool store-credentials."
-        exit 1
-    fi
+args=(
+    "$HKIT_BIN"
+    package
+    macos
+    --config "$CONFIG_PATH"
+    --version "$VERSION"
+)
+
+if [ -n "${OPENSCOUT_SIGN_IDENTITY:-}" ]; then
+    args+=(--sign-identity "$OPENSCOUT_SIGN_IDENTITY")
 fi
 
-echo "==> Building OpenScout Menu $VERSION"
-bun "$APP_DIR/bin/openscout-menu.ts" build --version "$VERSION" --sign-identity "$SIGN_IDENTITY" --require-sign-identity
-
-if [ ! -d "$APP_BUNDLE" ]; then
-    echo "Error: app bundle not found at $APP_BUNDLE"
-    exit 1
+if [ -n "${OPENSCOUT_NOTARY_PROFILE:-}" ]; then
+    args+=(--notary-profile "$OPENSCOUT_NOTARY_PROFILE")
 fi
 
-echo "==> Creating DMG"
-rm -f "$DMG_PATH" "$LATEST_DMG_PATH"
-DMG_STAGING="$(mktemp -d)"
-cp -R "$APP_BUNDLE" "$DMG_STAGING/"
-ln -s /Applications "$DMG_STAGING/Applications"
-
-hdiutil create \
-    -volname "OpenScout Menu" \
-    -srcfolder "$DMG_STAGING" \
-    -ov \
-    -format UDZO \
-    "$DMG_PATH"
-
-rm -rf "$DMG_STAGING"
-
-echo "==> Signing DMG"
-codesign --force --timestamp \
-    --sign "$SIGN_IDENTITY" \
-    "$DMG_PATH"
+if [ "$SKIP_SIGN" = "1" ]; then
+    args+=(--skip-sign)
+fi
 
 if [ "$SKIP_NOTARIZE" = "1" ]; then
-    echo "==> Skipping notarization"
-else
-    echo "==> Notarizing DMG"
-    xcrun notarytool submit "$DMG_PATH" \
-        --keychain-profile "$NOTARY_PROFILE" \
-        --wait
-
-    echo "==> Stapling DMG"
-    xcrun stapler staple "$DMG_PATH"
+    args+=(--local)
 fi
 
-cp "$DMG_PATH" "$LATEST_DMG_PATH"
+echo "==> Building OpenScout installer $VERSION via local Hudson"
+echo "    Hudson: $HUDSON_DIR"
+echo "    Config: $CONFIG_PATH"
+
+node "${args[@]}"
 
 echo ""
 echo "==> Done: $DMG_PATH"
-ls -lh "$DMG_PATH"
-echo "==> Latest alias: $LATEST_DMG_PATH"
-spctl --assess --type open --context context:primary-signature -v "$DMG_PATH" 2>&1 || true
+if [ -f "$DMG_PATH" ]; then
+    ls -lh "$DMG_PATH"
+fi
+if [ -f "$LATEST_DMG_PATH" ]; then
+    echo "==> Latest alias: $LATEST_DMG_PATH"
+fi
+if [ "$SKIP_SIGN" != "1" ]; then
+    spctl --assess --type open --context context:primary-signature -v "$DMG_PATH" 2>&1 || true
+fi

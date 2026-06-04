@@ -108,6 +108,14 @@ export function useScoutCommands(): CommandOption[] {
         label: "Go to Ops",
         action: () => navigate({ view: "ops" }),
         shortcut: "Cmd+8",
+      }, {
+        id: "nav:ops-atop",
+        label: "Open Atop",
+        action: () => navigate({ view: "ops", mode: "atop" }),
+      }, {
+        id: "nav:workflow-topology",
+        label: "Open Workflow Topology",
+        action: () => navigate({ view: "ops", mode: "atop" }),
       }] : []),
       {
         id: "nav:settings",

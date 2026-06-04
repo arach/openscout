@@ -229,27 +229,9 @@
 }
 
 .s-atop-chip--harness {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.s-atop-chip--harness-codex {
-  color: var(--green);
-  border-color: color-mix(in srgb, var(--green) 50%, transparent);
-  background: color-mix(in srgb, var(--green) 10%, transparent);
-}
-
-.s-atop-chip--harness-claude {
-  color: color-mix(in srgb, #c58cff 88%, var(--ink) 12%);
-  border-color: color-mix(in srgb, #c58cff 50%, transparent);
-  background: color-mix(in srgb, #c58cff 10%, transparent);
-}
-
-.s-atop-chip--harness-quad {
-  color: color-mix(in srgb, #62b6ff 90%, var(--ink) 10%);
-  border-color: color-mix(in srgb, #62b6ff 50%, transparent);
-  background: color-mix(in srgb, #62b6ff 10%, transparent);
+  color: var(--scout-chrome-ink-soft);
+  border-color: color-mix(in srgb, var(--ink) 12%, var(--border));
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 
 .s-atop-chip--mute {

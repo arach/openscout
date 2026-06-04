@@ -43,5 +43,7 @@ export type HarnessTopologyObserverOptions = {
   sources?: HarnessTopologySource[];
   pollIntervalMs?: number;
   now?: () => Date;
+  claudeSessionId?: string | null;
   includeUnmatchedClaudeTeams?: boolean;
+  includeUnmatchedClaudeWorkflows?: boolean;
 };

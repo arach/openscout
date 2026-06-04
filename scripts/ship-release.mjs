@@ -234,8 +234,16 @@ function npmDistTag() {
   return process.env.NPM_TAG || "latest";
 }
 
+function macosDmgPath(version) {
+  return `apps/macos/dist/OpenScout-${version}.dmg`;
+}
+
+function macosLatestDmgPath() {
+  return "apps/macos/dist/OpenScout.dmg";
+}
+
 function printPlan(version, options) {
-  const dmgPath = `apps/macos/dist/OpenScoutMenu-${version}.dmg`;
+  const dmgPath = macosDmgPath(version);
 
   console.log("\nRelease steps:");
   if (!options.skipBump) {
@@ -245,7 +253,7 @@ function printPlan(version, options) {
     run("bash", ["scripts/ship-npm.sh", "--dry-run"], { execute: false });
   }
   if (!options.skipDmg) {
-    run("bun", ["./apps/macos/bin/openscout-menu.ts", "dmg", "--version", version], { execute: false });
+    run("bash", ["apps/macos/scripts/build-dmg.sh", version], { execute: false });
   }
   if (options.commit) {
     run("git", ["add", ...VERSION_MANIFESTS.map((dir) => dir === "." ? "package.json" : `${dir}/package.json`)], { execute: false });
@@ -264,7 +272,7 @@ function printPlan(version, options) {
   }
   if (!options.skipGithubRelease) {
     const args = ["release", "create", `v${version}`, "--title", `OpenScout v${version}`];
-    if (!options.skipDmg) args.push(dmgPath);
+    if (!options.skipDmg) args.push(dmgPath, macosLatestDmgPath());
     if (options.releaseNotesFile) {
       args.push("--notes-file", options.releaseNotesFile);
     } else {
@@ -354,7 +362,7 @@ function main() {
     run("bash", ["scripts/ship-npm.sh", "--dry-run"], { execute: true });
   }
   if (!options.skipDmg) {
-    run("bun", ["./apps/macos/bin/openscout-menu.ts", "dmg", "--version", nextVersion], { execute: true });
+    run("bash", ["apps/macos/scripts/build-dmg.sh", nextVersion], { execute: true });
   }
 
   if (options.commit) {
@@ -379,9 +387,9 @@ function main() {
   }
   if (!options.skipGithubRelease) {
     const args = ["release", "create", `v${nextVersion}`, "--title", `OpenScout v${nextVersion}`];
-    const dmgPath = `apps/macos/dist/OpenScoutMenu-${nextVersion}.dmg`;
+    const dmgPath = macosDmgPath(nextVersion);
     if (!options.skipDmg) {
-      args.push(dmgPath);
+      args.push(dmgPath, macosLatestDmgPath());
     }
     if (options.releaseNotesFile) {
       args.push("--notes-file", options.releaseNotesFile);

@@ -64,6 +64,11 @@ export function RailRow({
   title,
   tabIndex,
 }: RailRowProps) {
+  const ariaExpanded = caret
+    ? caret === "open"
+    : detail !== undefined
+      ? Boolean(expanded)
+      : undefined;
   const classes = [
     "rr-row",
     depth === 1 && "rr-row--child",
@@ -86,7 +91,7 @@ export function RailRow({
         onPointerLeave={onPointerLeave}
         title={title}
         tabIndex={tabIndex}
-        aria-expanded={detail !== undefined ? Boolean(expanded) : undefined}
+        aria-expanded={ariaExpanded}
       >
         <RowLeading
           icon={leadingIcon}

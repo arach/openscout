@@ -61,14 +61,34 @@ type ParentGroup = {
 
 const STATE_RANK: Record<string, number> = { working: 0, available: 1, offline: 2 };
 
+function pathBasename(path: string | null | undefined): string | null {
+  const cleaned = path?.trim().replace(/\/+$/, "");
+  if (!cleaned) return null;
+  const idx = cleaned.lastIndexOf("/");
+  return idx >= 0 ? cleaned.slice(idx + 1) : cleaned;
+}
+
+function normalizedProjectLabel(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.toLowerCase() : null;
+}
+
+function worktreeFamilyFromRoot(root: string | null | undefined): string | null {
+  const leaf = normalizedProjectLabel(pathBasename(root));
+  if (!leaf || leaf === "~") return null;
+  const match = leaf.match(/^(.+?)(?:-(?:parity|codex))?-c\d+$/);
+  return match?.[1] ?? null;
+}
+
 function agentProject(agent: Agent): string {
-  if (agent.project) return agent.project.toLowerCase();
-  return "other";
+  return worktreeFamilyFromRoot(agent.projectRoot ?? agent.cwd)
+    ?? normalizedProjectLabel(agent.project)
+    ?? normalizedProjectLabel(pathBasename(agent.projectRoot ?? agent.cwd))
+    ?? "other";
 }
 
 function projectRouteKeyForGroup(group: ParentGroup): string {
-  const firstProject = group.agents[0]?.project?.trim().toLowerCase();
-  return `project:${firstProject || "unscoped"}`;
+  return `project:${group.key || "unscoped"}`;
 }
 
 function buildGroups(agents: Agent[]): ParentGroup[] {
@@ -222,13 +242,23 @@ function ScoutAgentsLeftPanel() {
   const selectedAgentId = route.view === "agents" ? route.agentId : undefined;
   const selectedProjectKey = route.view === "agents" && !route.agentId ? route.projectKey : undefined;
 
-  const openProjectGroup = (key: string) => {
+  const toggleProjectGroup = (
+    key: string,
+    projectRouteKey: string,
+    projectSelected: boolean,
+  ) => {
     setExpanded((prev) => {
-      if (prev.has(key)) return prev;
       const next = new Set(prev);
-      next.add(key);
+      if (searchActive) {
+        next.add(key);
+      } else if (next.has(key) && projectSelected) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
       return next;
     });
+    navigate({ view: "agents", projectKey: projectRouteKey });
   };
 
   return (
@@ -267,32 +297,10 @@ function ScoutAgentsLeftPanel() {
         </div>
       ) : (
         groups.map((group) => {
-          const isSingle = group.agents.length === 1;
           const isOpen = searchActive || expanded.has(group.key);
-          const only = isSingle ? group.agents[0] : null;
           const anySelected = group.agents.some((a) => a.id === selectedAgentId);
-          const onlySessionMatch = only ? matchedSessionIdentifier(only, normalizedQuery) : null;
           const projectRouteKey = projectRouteKeyForGroup(group);
           const projectSelected = selectedProjectKey === projectRouteKey;
-
-          if (isSingle && only) {
-            const ask = asksByAgent.get(only.id);
-            return (
-              <RailRow
-                key={group.key}
-                name={group.label}
-                meta={only.updatedAt ? timeAgo(only.updatedAt) : undefined}
-                sub={singleAgentSub(only, ask, onlySessionMatch)}
-                tone={normalizeAgentState(only.state)}
-                avatarName={only.name}
-                active={only.id === selectedAgentId || projectSelected}
-                title={agentRowTooltip(only, ask, onlySessionMatch)}
-                onClick={() =>
-                  navigateToAgent(navigate, only, { observe: Boolean(onlySessionMatch) })
-                }
-              />
-            );
-          }
 
           const collisions = collidingAgentIds(group.agents);
           return (
@@ -305,9 +313,9 @@ function ScoutAgentsLeftPanel() {
                 caret={isOpen ? "open" : "closed"}
                 active={projectSelected || (anySelected && !isOpen)}
                 selected={anySelected && !projectSelected}
+                title={`${isOpen && projectSelected && !searchActive ? "Collapse" : "Open"} ${group.label}`}
                 onClick={() => {
-                  openProjectGroup(group.key);
-                  navigate({ view: "agents", projectKey: projectRouteKey });
+                  toggleProjectGroup(group.key, projectRouteKey, projectSelected);
                 }}
               />
               {isOpen &&
@@ -353,18 +361,6 @@ function sessionTail(agent: Agent): string {
 function branchChip(agent: Agent): string | null {
   if (!agent.branch) return null;
   return `${BRANCH_GLYPH} ${agent.branch}`;
-}
-
-function singleAgentSub(
-  agent: Agent,
-  ask: FleetAsk | undefined,
-  sessionMatch: string | null,
-): string | undefined {
-  if (sessionMatch) return `session · ${sessionMatch}`;
-  if (ask) return ask.task;
-  const branch = branchChip(agent);
-  if (branch) return branch;
-  return undefined;
 }
 
 function instanceAgentSub(
