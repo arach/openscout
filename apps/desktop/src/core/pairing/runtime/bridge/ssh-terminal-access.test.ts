@@ -10,6 +10,7 @@ import {
 
 const IOS_KEY_A = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC0uMiA4QE9WW2JpcHF4f4aNlJuiqbC4ucLJ0tng5+Y=";
 const IOS_KEY_B = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHmAh46VnK29zdbj6vMAGSSvycjZ4eXq7gGrIoF0";
+const IOS_ECDSA_KEY = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBE3wjqxVZncxeOC4YB77/HQDvCxP7BbeEN02Qxbb9yfDqYhmWF/hTFwHo+WxpyurKBXEY9JXCJabOEepnKxURVw=";
 const NON_SCOUT_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKRihhbVbtf5WmTv+mQv0m92lFf8ZML1C7F+zU5s someone@host";
 
 describe("ssh terminal access provisioning", () => {
@@ -33,6 +34,7 @@ describe("ssh terminal access provisioning", () => {
     expect(first.changed).toBe(true);
     expect(first.authorizedKeys).toStartWith(`${NON_SCOUT_KEY}\n`);
     expect(first.authorizedKeys).toContain("scout:terminal-access:v0");
+    expect(first.grant.authorizedKeyLine).toStartWith("restrict,pty ");
     expect(first.authorizedKeys).toContain("device=aW9zLWRldmljZS0x");
     expect(first.grant.sshPublicKey.normalizedPublicKey).toBe(IOS_KEY_A);
     expect(first.grant.pairingNoiseFingerprintSha256).toStartWith("SHA256:");
@@ -122,6 +124,14 @@ describe("ssh terminal access provisioning", () => {
     expect(Object.keys(pin)).not.toContain("privateKey");
     expect(() => validateIosGeneratedSshPublicKey("not-a-key")).toThrow("SSH public key");
     expect(() => validateIosGeneratedSshPublicKey("ssh-dss AAAAB3NzaC1kc3MAAACBA")).toThrow("Unsupported");
+  });
+
+  test("accepts supported ECDSA iOS public keys", () => {
+    const validated = validateIosGeneratedSshPublicKey(`${IOS_ECDSA_KEY} scoutnext-ios`);
+
+    expect(validated.algorithm).toBe("ecdsa-sha2-nistp256");
+    expect(validated.normalizedPublicKey).toBe(IOS_ECDSA_KEY);
+    expect(validated.fingerprintSha256).toStartWith("SHA256:");
   });
 
   test("identifies only Scout-managed authorized key lines for a device", () => {

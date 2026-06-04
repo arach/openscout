@@ -14,8 +14,8 @@
 //     fanned out from a single inbound decrypt loop (handleDecryptedMessage).
 //
 // Dropped vs. the donor: inbox, push/APNS, mesh rendezvous, OSN auth, history,
-// health probing, operator notifications, workspace listing, QR pairing (XX),
-// and automatic reconnect-on-drop. See the report for the exact gap list.
+// health probing, operator notifications, workspace listing, and automatic
+// reconnect-on-drop. See the report for the exact gap list.
 //
 // The Noise/tRPC wire details are byte-identical to the donor so this interops
 // with the real bridge unchanged.
@@ -29,6 +29,7 @@ public enum BridgeConnectionError: Error, LocalizedError, Sendable {
     case noTrustedBridge
     case noRelayCandidates
     case relayUnavailable
+    case tailscaleUnavailable
     case handshakeFailed(String)
     case identityError(String)
     case notConnected
@@ -42,6 +43,8 @@ public enum BridgeConnectionError: Error, LocalizedError, Sendable {
         case .noTrustedBridge: return "No trusted bridge is paired on this device."
         case .noRelayCandidates: return "No relay routes are available for the trusted bridge."
         case .relayUnavailable: return "Could not reach the bridge through any relay route."
+        case .tailscaleUnavailable:
+            return "Scout cannot reach your Mac on the local network or through the saved Tailscale route."
         case .handshakeFailed(let reason): return "Noise handshake failed: \(reason)"
         case .identityError(let reason): return "Identity error: \(reason)"
         case .notConnected: return "Not connected to the bridge."
@@ -178,6 +181,7 @@ struct BridgeConnectionInfo: Codable, Sendable {
 private enum ResolveRoomResult: Sendable {
     case resolved(String)
     case bridgeOffline
+    case tailscaleUnavailable
     case relayUnavailable
 }
 
@@ -224,6 +228,7 @@ public final class BridgeConnection: @unchecked Sendable {
     private var pendingRequests: [Int: PendingRequest] = [:]
     private var _isConnected = false
     private var _currentRoute: TransportKind = .none
+    private var _currentHost: String?
 
     // MARK: Fan-out continuations
 
@@ -243,6 +248,23 @@ public final class BridgeConnection: @unchecked Sendable {
     public var currentRoute: TransportKind {
         lock.lock(); defer { lock.unlock() }
         return _currentRoute
+    }
+
+    /// The host we're currently connected through (e.g. "Arachs-Mac-mini.local"
+    /// on LAN) — the bridge's own advertised name, used to label the machine
+    /// instead of the phone's device name.
+    public var currentHost: String? {
+        lock.lock(); defer { lock.unlock() }
+        return _currentHost
+    }
+
+    /// Snapshot the stored relay routes for the active trusted bridge. This is a
+    /// synchronous summary for settings/status UI; it does not probe reachability.
+    public func savedRouteSummary() -> BridgeRouteSummary {
+        guard let info = BridgeConnectionInfo.loadActive(userDefaults: userDefaults) else {
+            return BridgeRouteSummary(relayURLs: [], userDefaults: userDefaults)
+        }
+        return BridgeRouteSummary(relayURLs: info.relayURLs, userDefaults: userDefaults)
     }
 
     // MARK: Init
@@ -281,19 +303,44 @@ public final class BridgeConnection: @unchecked Sendable {
             throw BridgeConnectionError.identityError(error.localizedDescription)
         }
 
-        guard let info = BridgeConnectionInfo.loadActive(userDefaults: userDefaults) else {
-            await connectionLogHandle.log("No trusted bridge paired", level: .error)
-            throw BridgeConnectionError.noTrustedBridge
+        let savedInfo = BridgeConnectionInfo.loadActive(userDefaults: userDefaults)
+        let discoveredInfo: BridgeConnectionInfo?
+        if savedInfo == nil {
+            discoveredInfo = await discoveredConnectionInfoFromTrustedBridge()
+        } else {
+            discoveredInfo = nil
+        }
+
+        guard let info = savedInfo ?? discoveredInfo else {
+            if currentTrustedBridge(preferredPublicKeyHex: nil) == nil {
+                await connectionLogHandle.log("No trusted bridge paired", event: .trust, level: .error)
+                throw BridgeConnectionError.noTrustedBridge
+            }
+            await connectionLogHandle.log("No relay routes available", event: .routeUnavailable, level: .error)
+            throw BridgeConnectionError.noRelayCandidates
+        }
+
+        if savedInfo == nil {
+            info.save(userDefaults: userDefaults)
+            await connectionLogHandle.log(
+                "Recovered relay routes from trusted Bonjour bridge",
+                event: .discover,
+                route: transportKind(forRelayURL: info.relayURL)
+            )
         }
 
         let expectedRemoteKey = info.bridgePublicKeyData
         guard expectedRemoteKey.count == 32 else {
             throw BridgeConnectionError.noTrustedBridge
         }
+        guard ScoutIdentity.isTrustedBridge(publicKey: expectedRemoteKey) else {
+            await connectionLogHandle.log("Bridge identity is no longer trusted", event: .trust, level: .error)
+            throw BridgeConnectionError.noTrustedBridge
+        }
 
         let relayURLs = await assembleRelayCandidates(for: info)
         guard !relayURLs.isEmpty else {
-            await connectionLogHandle.log("No relay routes available", level: .error)
+            await connectionLogHandle.log("No relay routes available", event: .routeUnavailable, level: .error)
             throw BridgeConnectionError.noRelayCandidates
         }
 
@@ -306,20 +353,26 @@ public final class BridgeConnection: @unchecked Sendable {
             staticKey: keyPair
         )
 
-        // Promote the winning relay into the stored connection info so the next
-        // connect reuses it, and update the resolved room.
-        var updated = info
-        updated.roomId = attempt.roomId
+        let persistedRelayURLs = relayURLsPromotingSuccessfulRelay(attempt.relayURL, within: relayURLs)
+        let updated = BridgeConnectionInfo(
+            relayURL: persistedRelayURLs.first ?? attempt.relayURL,
+            roomId: attempt.roomId,
+            publicKeyHex: info.publicKeyHex,
+            fallbackRelayURLs: Array(persistedRelayURLs.dropFirst())
+        )
+        updated.save(userDefaults: userDefaults)
         lock.withLockVoid {
             connectionInfo = updated
             _isConnected = true
             _currentRoute = transportKind(forRelayURL: attempt.relayURL)
+            _currentHost = URLComponents(string: attempt.relayURL)?.host
         }
 
         try? ScoutIdentity.touchTrustedBridge(publicKey: attempt.remoteKey)
 
         await connectionLogHandle.log(
             "Connected via \(transportKind(forRelayURL: attempt.relayURL).label) \(attempt.relayURL)",
+            event: .connected,
             level: .success,
             route: transportKind(forRelayURL: attempt.relayURL)
         )
@@ -344,7 +397,7 @@ public final class BridgeConnection: @unchecked Sendable {
         }
 
         if let err = qrPayload.validate() {
-            await connectionLogHandle.log("Invalid QR payload: \(err)", level: .error)
+            await connectionLogHandle.log("Invalid QR payload: \(err)", event: .pairing, level: .error)
             throw BridgeConnectionError.handshakeFailed(err)
         }
 
@@ -356,21 +409,19 @@ public final class BridgeConnection: @unchecked Sendable {
         // Candidate relays: Bonjour LAN first (local pairing is supported), then
         // the QR's ordered relay URLs, route-filtered and deduplicated.
         let discovered = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: qrPayload.publicKey)
-        let combined = discovered + qrPayload.orderedRelayURLs
-        let allowed = relayURLsAllowedByRouteSettings(combined, userDefaults: userDefaults)
-        let relayURLs: [String]
-        if let primary = allowed.first {
-            relayURLs = deduplicatedRelayURLs(primary: primary, fallbacks: Array(allowed.dropFirst()))
-        } else {
-            relayURLs = []
-        }
+        let relayURLs = orderedRelayCandidates(
+            discoveredRelayURLs: discovered,
+            storedRelayURLs: qrPayload.orderedRelayURLs,
+            userDefaults: userDefaults
+        )
         guard !relayURLs.isEmpty else {
-            await connectionLogHandle.log("No relay routes available for pairing", level: .error)
+            await connectionLogHandle.log("No relay routes available for pairing", event: .routeUnavailable, level: .error)
             throw BridgeConnectionError.noRelayCandidates
         }
 
         await connectionLogHandle.log(
             "Pairing via QR (XX): room=\(qrPayload.room)",
+            event: .pairing,
             route: transportKind(forRelayURL: relayURLs[0])
         )
 
@@ -385,7 +436,12 @@ public final class BridgeConnection: @unchecked Sendable {
         )
 
         // XX handshake succeeded and the learned key matched the QR — trust it.
-        try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: primaryName)
+        // Label the record with the Mac's own advertised name (its relay host),
+        // not the phone's device name.
+        let learnedName = URLComponents(string: attempt.relayURL)?.host.map {
+            $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0
+        }
+        try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: learnedName ?? primaryName)
 
         let publicKeyHex = hexString(attempt.remoteKey)
         let persistedRelayURLs = relayURLsPromotingSuccessfulRelay(attempt.relayURL, within: relayURLs)
@@ -402,10 +458,12 @@ public final class BridgeConnection: @unchecked Sendable {
             connectionInfo = info
             _isConnected = true
             _currentRoute = route
+            _currentHost = URLComponents(string: attempt.relayURL)?.host
         }
 
         await connectionLogHandle.log(
             "Paired via \(route.label) \(attempt.relayURL)",
+            event: .connected,
             level: .success,
             route: route
         )
@@ -424,6 +482,7 @@ public final class BridgeConnection: @unchecked Sendable {
         receiveTask = nil
         _isConnected = false
         _currentRoute = .none
+        _currentHost = nil
         let events = Array(eventFanout.values)
         let tails = Array(tailFanout.values)
         eventFanout.removeAll()
@@ -442,10 +501,45 @@ public final class BridgeConnection: @unchecked Sendable {
 
     private func assembleRelayCandidates(for info: BridgeConnectionInfo) async -> [String] {
         let discovered = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: info.publicKeyHex)
-        let combined = discovered + info.relayURLs
-        let allowed = relayURLsAllowedByRouteSettings(combined, userDefaults: userDefaults)
-        guard let primary = allowed.first else { return [] }
-        return deduplicatedRelayURLs(primary: primary, fallbacks: Array(allowed.dropFirst()))
+        return orderedRelayCandidates(
+            discoveredRelayURLs: discovered,
+            storedRelayURLs: info.relayURLs,
+            userDefaults: userDefaults
+        )
+    }
+
+    private func discoveredConnectionInfoFromTrustedBridge() async -> BridgeConnectionInfo? {
+        guard let bridge = currentTrustedBridge(preferredPublicKeyHex: nil) else {
+            return nil
+        }
+
+        let relayURLs = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: bridge.publicKeyHex)
+        guard let primary = relayURLs.first else {
+            return nil
+        }
+
+        return BridgeConnectionInfo(
+            relayURL: primary,
+            roomId: "",
+            publicKeyHex: bridge.publicKeyHex,
+            fallbackRelayURLs: Array(relayURLs.dropFirst())
+        )
+    }
+
+    private func currentTrustedBridge(preferredPublicKeyHex: String?) -> TrustedBridge? {
+        let bridges = (try? ScoutIdentity.getTrustedBridges()) ?? []
+        guard !bridges.isEmpty else { return nil }
+
+        if let expectedKey = preferredPublicKeyHex?.lowercased(),
+           let matched = bridges.first(where: { $0.publicKeyHex.lowercased() == expectedKey }) {
+            return matched
+        }
+
+        return bridges.sorted { lhs, rhs in
+            let left = lhs.lastSeen ?? lhs.pairedAt
+            let right = rhs.lastSeen ?? rhs.pairedAt
+            return left > right
+        }.first
     }
 
     // MARK: - Candidate iteration (distilled from connectUsingAvailableRelayURLs)
@@ -461,12 +555,14 @@ public final class BridgeConnection: @unchecked Sendable {
     ) async throws -> RelayConnectionAttempt {
         var lastError: Error?
         var sawBridgeOffline = false
+        var sawTailscaleUnavailable = false
 
         for (index, relayURL) in relayURLs.enumerated() {
             var roomId = initialRoomId
             let route = transportKind(forRelayURL: relayURL)
             await connectionLogHandle.log(
                 "Trying \(route.label) route \(index + 1)/\(relayURLs.count): \(relayURL)",
+                event: index == 0 ? .resolve : .fallback,
                 route: route
             )
 
@@ -479,22 +575,48 @@ public final class BridgeConnection: @unchecked Sendable {
                 switch resolved {
                 case .resolved(let resolvedRoomId):
                     roomId = resolvedRoomId
+                    await connectionLogHandle.log(
+                        "Resolved current room on \(route.label)",
+                        event: .resolve,
+                        route: route
+                    )
                 case .bridgeOffline:
                     await connectionLogHandle.log(
                         "\(route.label) relay reachable but bridge absent",
+                        event: .routeUnavailable,
                         level: .warning,
                         route: route
                     )
                     sawBridgeOffline = true
                     lastError = BridgeConnectionError.relayUnavailable
                     continue
+                case .tailscaleUnavailable:
+                    await connectionLogHandle.log(
+                        "Tailscale route is unavailable",
+                        event: .routeUnavailable,
+                        level: .warning,
+                        route: route
+                    )
+                    sawTailscaleUnavailable = true
+                    lastError = BridgeConnectionError.tailscaleUnavailable
+                    continue
                 case .relayUnavailable:
-                    // Fall back to the saved room id.
+                    await connectionLogHandle.log(
+                        "Resolve unavailable; trying saved room",
+                        event: .fallback,
+                        level: .warning,
+                        route: route
+                    )
                     break
                 }
             }
 
             do {
+                await connectionLogHandle.log(
+                    "Starting \(remoteStaticKey == nil ? "XX" : "IK") handshake on \(route.label)",
+                    event: .handshake,
+                    route: route
+                )
                 let remoteKey = try await performConnection(
                     relayURL: relayURL,
                     roomId: roomId,
@@ -506,6 +628,7 @@ public final class BridgeConnection: @unchecked Sendable {
                     clearFailedConnectionAttempt()
                     await connectionLogHandle.log(
                         "\(route.label) bridge key mismatch",
+                        event: .handshake,
                         level: .warning,
                         route: route
                     )
@@ -515,23 +638,39 @@ public final class BridgeConnection: @unchecked Sendable {
 
                 await connectionLogHandle.log(
                     "Handshake OK on \(route.label) \(relayURL)",
+                    event: .handshake,
                     level: .success,
                     route: route
                 )
                 return RelayConnectionAttempt(relayURL: relayURL, roomId: roomId, remoteKey: remoteKey)
             } catch {
                 clearFailedConnectionAttempt()
-                lastError = error
-                await connectionLogHandle.log(
-                    "\(route.label) route failed: \(error.localizedDescription)",
-                    level: .warning,
-                    route: route
-                )
+                if relayURLDependsOnTailscale(relayURL) && isTailscaleRouteNetworkFailure(error) {
+                    sawTailscaleUnavailable = true
+                    lastError = BridgeConnectionError.tailscaleUnavailable
+                    await connectionLogHandle.log(
+                        "Tailscale route failed: \(error.localizedDescription)",
+                        event: .routeUnavailable,
+                        level: .warning,
+                        route: route
+                    )
+                } else {
+                    lastError = error
+                    await connectionLogHandle.log(
+                        "\(route.label) route failed: \(error.localizedDescription)",
+                        event: .routeUnavailable,
+                        level: .warning,
+                        route: route
+                    )
+                }
             }
         }
 
         if sawBridgeOffline {
             throw BridgeConnectionError.relayUnavailable
+        }
+        if sawTailscaleUnavailable {
+            throw BridgeConnectionError.tailscaleUnavailable
         }
         throw lastError ?? BridgeConnectionError.relayUnavailable
     }
@@ -580,6 +719,9 @@ public final class BridgeConnection: @unchecked Sendable {
                 return .relayUnavailable
             }
         } catch {
+            if relayURLDependsOnTailscale(relayURL) && isTailscaleRouteNetworkFailure(error) {
+                return .tailscaleUnavailable
+            }
             return .relayUnavailable
         }
     }
@@ -870,9 +1012,14 @@ public struct ConnectionLogHandle: Sendable {
         self.log = log
     }
 
-    func log(_ message: String, level: ConnectionLogLevel = .info, route: TransportKind? = nil) async {
+    func log(
+        _ message: String,
+        event: ConnectionLogEvent = .lifecycle,
+        level: ConnectionLogLevel = .info,
+        route: TransportKind? = nil
+    ) async {
         await MainActor.run {
-            log.log(message, level: level, route: route)
+            log.log(message, event: event, level: level, route: route)
         }
     }
 }

@@ -5,9 +5,10 @@ import UIKit
 #endif
 
 /// First-run gate. Shown when no bridge is trusted yet. A single primary CTA
-/// opens the QR scanner (the camera never auto-presents); an "Explore offline"
-/// escape hatch drops into the shell on mock data so the app is reachable
-/// before pairing. Once paired, `AppModel.phase` flips to `.shell`.
+/// opens the QR scanner (the camera never auto-presents); a "Continue without
+/// pairing" escape hatch enters the shell unconnected so Settings is reachable
+/// before pairing (surfaces stay empty — no fabricated data). Once paired,
+/// `AppModel.phase` flips to `.shell`.
 struct ConnectScreen: View {
     @Bindable var model: AppModel
 
@@ -63,9 +64,9 @@ struct ConnectScreen: View {
                 .frame(maxWidth: .infinity)
                 #endif
 
-                Button { model.exploreOffline() } label: {
+                Button { model.continueWithoutPairing() } label: {
                     HStack(spacing: HudSpacing.xs) {
-                        Text("Explore offline")
+                        Text("Continue without pairing")
                         Image(systemName: "arrow.right")
                     }
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))

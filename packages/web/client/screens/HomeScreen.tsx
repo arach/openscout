@@ -1,7 +1,7 @@
 import "./fleet-home.css";
 import "./activity-stream.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Check, Copy, ExternalLink, Send, Settings, X } from "lucide-react";
 import HomeHero, {
   type ServiceGauge,
@@ -40,6 +40,33 @@ import type {
 } from "../lib/types.ts";
 
 type LookbackOption = { label: string; value: number; activityLimit: number };
+
+// Live context for an active agent, pulled from the observe summary endpoint
+// (the bulk /api/agents list doesn't carry session/model/token usage).
+type ActiveAgentContext = {
+  sessionId: string | null;
+  model: string | null;
+  contextPct: number | null;
+};
+
+type ObserveAgentSummary = {
+  agentId: string;
+  data?: {
+    metadata?: {
+      session?: {
+        externalSessionId?: string | null;
+        model?: string | null;
+        turnCount?: number | null;
+      };
+      // Real token usage. `data.contextUsage` is deliberately ignored — it's a
+      // synthetic ramp (syntheticContextUsage), not actual window utilization.
+      usage?: {
+        totalTokens?: number | null;
+        contextWindowTokens?: number | null;
+      };
+    };
+  };
+};
 
 const LOOKBACK_WINDOWS: LookbackOption[] = [
   { label: "30m", value: 30 * 60_000, activityLimit: 80 },
@@ -247,6 +274,161 @@ function routeForFleetAsk(ask: FleetAsk): Route {
   if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
   if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
   return { view: "agents", agentId: ask.agentId };
+}
+
+// ── Active-agent card helpers ───────────────────────────────────────────────
+function middleTruncate(value: string, max = 118): string {
+  if (value.length <= max) return value;
+  const head = Math.ceil((max - 1) * 0.58);
+  const tail = Math.floor((max - 1) * 0.42);
+  return `${value.slice(0, head).trimEnd()}…${value.slice(value.length - tail).trimStart()}`;
+}
+
+function compactPath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith("/Users/")) return `~/${path.split("/").slice(3).join("/")}`;
+  return path;
+}
+
+function compactSessionId(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  const withoutExtension = raw.endsWith(".jsonl") ? raw.slice(0, -".jsonl".length) : raw;
+  const segment = withoutExtension.split(/[/:]/u).filter(Boolean).pop() ?? withoutExtension;
+  // UUID-like ids read best as head…tail (e.g. 019e93aa…ee4f07), matching the
+  // observe panel; everything else falls back to a middle truncation.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-/iu.test(segment)) {
+    return `${segment.slice(0, 8)}…${segment.slice(-6)}`;
+  }
+  return middleTruncate(segment, 22);
+}
+
+function shortModelLabel(value: string | null | undefined): string | null {
+  const model = value?.trim();
+  if (!model) return null;
+  return model
+    .replace(/^claude-/iu, "")
+    .replace(/^gpt-/iu, "gpt ")
+    .replace(/\s*\([^)]*\)\s*/u, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function contextLabelFromModel(value: string | null | undefined): string | null {
+  const match = value?.match(/(\d+(?:\.\d+)?\s*[km])\s*context/iu);
+  return match?.[1]?.replace(/\s+/g, "").toUpperCase() ?? null;
+}
+
+function compactNode(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  return raw.replace(/\.local$/iu, "").replace(/-local$/iu, "");
+}
+
+function handleContextCardKey(event: KeyboardEvent<HTMLElement>, action: () => void) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  action();
+}
+
+type WorkingCardTaskStatus = FleetAsk["status"] | "working";
+type WorkingCardExecutionState = "working" | "idle" | "queued" | "delivered" | "failed";
+
+type AgentWorkingCardData = {
+  agentId: string;
+  agentName: string;
+  agentHandle: string | null;
+  harness: string | null;
+  model: string | null;
+  branch: string | null;
+  cwd: string | null;
+  task: {
+    invocationId: string | null;
+    title: string;
+    summary: string | null;
+    openedAt: number | null;
+    status: WorkingCardTaskStatus;
+  };
+  execution: {
+    state: WorkingCardExecutionState;
+    lastEventAt: number | null;
+    startedAt: number | null;
+  };
+  checkpoint: { line: string; at: number } | null;
+  reply: { state: "none" | "delivered"; deliveredAt: number | null };
+};
+
+function meaningfulCheckpoint(
+  ask: FleetAsk | null | undefined,
+  taskTitle: string,
+): AgentWorkingCardData["checkpoint"] {
+  const raw = ask?.summary?.trim();
+  if (!raw) return null;
+  const compact = raw.replace(/\s+/g, " ");
+  if (!compact || compact === taskTitle) return null;
+  if (/acknowledged via|queued for local execution|received the message/i.test(compact)) return null;
+  const at = normalizeTimestampMs(ask?.updatedAt) ?? Date.now();
+  return { line: summarize(compact, 120), at };
+}
+
+function buildAgentWorkingCardData(
+  agent: Agent,
+  ask: FleetAsk | null | undefined,
+  nowMs: number,
+): AgentWorkingCardData {
+  const openedAt = normalizeTimestampMs(ask?.startedAt)
+    ?? normalizeTimestampMs(ask?.acknowledgedAt)
+    ?? normalizeTimestampMs(ask?.updatedAt)
+    ?? null;
+  const lastEventAt = normalizeTimestampMs(agent.updatedAt);
+  const startedAt = normalizeTimestampMs(ask?.startedAt) ?? normalizeTimestampMs(agent.createdAt);
+  const taskTitle = ask?.task?.trim()
+    || agent.cwd
+    || agent.project
+    || `Working in ${agent.project ?? "workspace"}`;
+  const askStatus: WorkingCardTaskStatus = ask?.status ?? "working";
+  const agentWorking = normalizeAgentState(agent.state) === "working";
+  const executionState: WorkingCardExecutionState =
+    askStatus === "completed" ? "delivered"
+      : askStatus === "failed" ? "failed"
+        : askStatus === "queued" ? "queued"
+          : agentWorking ? "working"
+            : "idle";
+
+  return {
+    agentId: agent.id,
+    agentName: agent.name,
+    agentHandle: agent.handle,
+    harness: ask?.harness ?? agent.harness,
+    model: agent.model,
+    branch: agent.branch ?? "main",
+    cwd: agent.cwd,
+    task: {
+      invocationId: ask?.invocationId ?? null,
+      title: taskTitle,
+      summary: ask?.summary ?? null,
+      openedAt,
+      status: askStatus,
+    },
+    execution: { state: executionState, lastEventAt, startedAt },
+    checkpoint: meaningfulCheckpoint(ask, taskTitle),
+    reply: {
+      state: askStatus === "completed" ? "delivered" : "none",
+      deliveredAt: normalizeTimestampMs(ask?.completedAt),
+    },
+  };
+}
+
+function workingCardLiveLabel(card: AgentWorkingCardData, nowMs: number): string {
+  if (card.reply.state === "delivered") {
+    const age = card.reply.deliveredAt ? formatAge(card.reply.deliveredAt, nowMs) : null;
+    return age ? `delivered · ${age}` : "delivered";
+  }
+  if (card.execution.state === "queued") return "queued";
+  if (card.execution.state === "failed") return "failed";
+  const age = card.execution.lastEventAt ? formatAge(card.execution.lastEventAt, nowMs) : null;
+  if (card.execution.state === "idle") return age ? `idle · ${age}` : "idle";
+  return age ? `live · ${age}` : "live";
 }
 
 function staleMotionSourceLabel(item: StaleMotionItem): string {
@@ -548,6 +730,51 @@ export function HomeScreen({
     [activeAskByAgent, agents, nowMs],
   );
   const activeIds = useMemo(() => new Set(active.map((agent) => agent.id)), [active]);
+
+  // Enrich active cards with live session id, model, and context-window usage.
+  // One batched observe-summary call covers every active agent (only a handful).
+  const activeIdsKey = useMemo(
+    () => active.map((agent) => agent.id).sort().join(","),
+    [active],
+  );
+  const [activeContext, setActiveContext] = useState<Record<string, ActiveAgentContext>>({});
+  useEffect(() => {
+    if (!activeIdsKey) {
+      setActiveContext({});
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const summaries = await api<ObserveAgentSummary[]>(
+        `/api/observe/agents?ids=${encodeURIComponent(activeIdsKey)}`,
+      ).catch(() => null);
+      if (cancelled || !summaries) return;
+      const next: Record<string, ActiveAgentContext> = {};
+      for (const summary of summaries) {
+        const session = summary?.data?.metadata?.session;
+        const usage = summary?.data?.metadata?.usage;
+        // Only a REAL window utilization (tokens-in-context / window) — never the
+        // synthetic ramp. Null when the harness doesn't report both numbers.
+        const total = usage?.totalTokens;
+        const window = usage?.contextWindowTokens;
+        const contextPct = typeof total === "number" && typeof window === "number" && window > 0
+          ? Math.min(100, Math.round((total / window) * 100))
+          : null;
+        next[summary.agentId] = {
+          sessionId: session?.externalSessionId ?? null,
+          model: session?.model ?? null,
+          contextPct,
+        };
+      }
+      setActiveContext(next);
+    };
+    void load();
+    const timer = setInterval(load, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeIdsKey]);
   const staleWorkingAgents = useMemo(
     () =>
       agents.filter((agent) =>
@@ -816,6 +1043,8 @@ export function HomeScreen({
                     key={agent.id}
                     agent={agent}
                     ask={activeAskByAgent.get(agent.id) ?? null}
+                    context={activeContext[agent.id] ?? null}
+                    nowMs={nowMs}
                     navigate={navigate}
                   />
                 ))}
@@ -1372,69 +1601,149 @@ function AttentionRow({
 function NowCard({
   agent,
   ask,
+  context,
+  nowMs,
   navigate,
 }: {
   agent: Agent;
   ask?: FleetAsk | null;
+  context?: ActiveAgentContext | null;
+  nowMs: number;
   navigate: (r: Route) => void;
 }) {
-  const handle = agent.handle ? `@${agent.handle}` : agent.id;
-  const role = agent.role ?? agent.agentClass;
-  const branch = agent.branch ?? "main";
-  const conversationId = conversationForAgent(agent.id);
-  const taskText = ask?.summary ?? ask?.task ?? agent.cwd ?? `Working in ${agent.project ?? "workspace"}`;
+  const card = buildAgentWorkingCardData(agent, ask, nowMs);
+  const fullRoot = agent.projectRoot ?? agent.cwd ?? undefined;
+  const rootLabel = compactPath(fullRoot) ?? "no workspace";
+  const branchLabel = card.branch ?? "no branch";
+  const runtimeLabel = card.harness ?? null;
+  // Model + the real harness session id come from the live observe summary;
+  // the bulk agent record only carries the relay descriptor in harnessSessionId.
+  const modelLabel = shortModelLabel(context?.model ?? card.model);
+  const sessionLabel = compactSessionId(context?.sessionId ?? agent.harnessSessionId);
+  const contextPct = context?.contextPct ?? null;
+  const machineLabel = compactNode(agent.homeNodeName ?? agent.nodeQualifier);
+  const uptime = agent.createdAt ? formatAge(agent.createdAt, nowMs) : null;
+  const turnAge = card.task.openedAt ? formatAge(card.task.openedAt, nowMs) : "new";
+  const liveLabel = workingCardLiveLabel(card, nowMs);
+  const liveTone = card.execution.state === "failed"
+    ? "failed"
+    : card.reply.state === "delivered"
+      ? "delivered"
+      : card.execution.state === "queued"
+        ? "queued"
+        : card.execution.state === "idle"
+          ? "idle"
+          : "live";
+  const checkpoint = card.reply.state === "delivered" && card.reply.deliveredAt
+    ? `reply ready · ${formatAge(card.reply.deliveredAt, nowMs)}`
+    : card.checkpoint?.line ?? null;
+
+  // Identity meta, inline next to the name — path · branch · runtime · model · context.
+  // Branch renders in full (no truncation cap); the row wraps when it needs the room.
+  const metaParts: { key: string; text: string; title?: string; mono?: boolean }[] = [
+    { key: "root", text: rootLabel, title: fullRoot, mono: true },
+    { key: "branch", text: branchLabel, title: branchLabel, mono: true },
+  ];
+  if (runtimeLabel) metaParts.push({ key: "runtime", text: runtimeLabel });
+  if (agent.role) metaParts.push({ key: "role", text: agent.role });
+  if (modelLabel) metaParts.push({ key: "model", text: modelLabel });
+
+  // Relevant at-a-glance tiles — only the signals we actually have data for.
+  // Liveness is carried by the pulse + border tone, so no redundant state tile.
+  const tiles: { key: string; label: string; value: string; tone?: "work" | "warn" | "dim" }[] = [
+    { key: "turn", label: "turn", value: turnAge, tone: card.task.openedAt ? "work" : "dim" },
+  ];
+  if (contextPct !== null) {
+    tiles.push({
+      key: "context",
+      label: "context",
+      value: `${contextPct}%`,
+      tone: contextPct >= 80 ? "warn" : "work",
+    });
+  } else if (uptime) {
+    tiles.push({ key: "uptime", label: "up", value: uptime });
+  }
+  if (sessionLabel) tiles.push({ key: "session", label: "session", value: sessionLabel });
+  if (machineLabel) tiles.push({ key: "machine", label: "machine", value: machineLabel });
+
+  const open = () =>
+    navigate({
+      view: "agents",
+      agentId: agent.id,
+      conversationId: conversationForAgent(agent.id),
+      tab: "observe",
+    });
 
   return (
     <div
-      className="s-now-card"
-      onClick={() =>
-        navigate({
-          view: "agents",
-          agentId: agent.id,
-          conversationId,
-          tab: "observe",
-        })
-      }
+      role="button"
+      tabIndex={0}
+      className={`s-now-card s-now-card--${liveTone}`}
+      onClick={open}
+      onKeyDown={(event) => handleContextCardKey(event, open)}
     >
-      <div className="s-now-card-head">
-        <div
-          className="s-avatar s-avatar-sm"
-          style={{ background: actorColor(agent.name) }}
-        >
-          {agent.name[0]?.toUpperCase() ?? "?"}
+      <div className="s-now-card-top">
+        <span
+          className={`s-now-card-pulse s-now-card-pulse--${liveTone}`}
+          aria-hidden="true"
+        />
+        <span className="s-now-card-name" title={card.agentName}>
+          {card.agentName}
+        </span>
+      </div>
+
+      <div className="s-now-card-idline">
+        {metaParts.map((part, index) => (
+          <span key={part.key} className="s-now-card-idgroup">
+            {index > 0 && (
+              <span className="s-now-card-idsep" aria-hidden="true">·</span>
+            )}
+            <span
+              className={`s-now-card-idpart${part.mono ? " s-now-card-idpart--mono" : ""}`}
+              title={part.title}
+            >
+              {part.text}
+            </span>
+          </span>
+        ))}
+      </div>
+
+      <div className="s-now-card-task">{card.task.title}</div>
+
+      {checkpoint && (
+        <div className="s-now-card-checkpoint">
+          <span aria-hidden="true">↳</span>
+          <span>{checkpoint}</span>
         </div>
-        <div className="s-now-card-copy">
-          <div className="s-now-card-name">{agent.name}</div>
-          <div className="s-now-card-meta">
-            {handle} · {role}
-          </div>
-        </div>
-        <span className="s-now-card-live">
-          <span className="s-now-card-live-dot" aria-hidden="true" />
-          live
-        </span>
-      </div>
+      )}
 
-      <div className="s-now-card-task">
-        {taskText}
-      </div>
-
-      <div className="s-now-card-ticker">
-        <span className="s-now-card-ticker-prompt">›</span>
-        <span className="s-now-card-ticker-text">
-          {ask ? `${ask.statusLabel} · ${ask.harness ?? agent.harness ?? "agent"}` : "working"}
-        </span>
-        <span className="s-now-card-ticker-dots" aria-hidden="true">
-          <span /><span /><span />
-        </span>
-        <span className="s-now-card-cursor" />
-      </div>
-
-      <div className="s-now-card-footer">
-        <span>{agent.updatedAt ? `updated ${timeAgo(agent.updatedAt)}` : "active"}</span>
-        <span>{branch}</span>
+      <div
+        className="s-now-card-metrics"
+        style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}
+        aria-label={`${card.agentName} signals`}
+      >
+        {tiles.map((tile) => (
+          <MetricTile key={tile.key} label={tile.label} value={tile.value} tone={tile.tone} />
+        ))}
       </div>
     </div>
+  );
+}
+
+function MetricTile({
+  label,
+  value,
+  tone = "dim",
+}: {
+  label: string;
+  value: string;
+  tone?: "work" | "warn" | "dim";
+}) {
+  return (
+    <span className={`s-metric-tile s-metric-tile--${tone}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </span>
   );
 }
 

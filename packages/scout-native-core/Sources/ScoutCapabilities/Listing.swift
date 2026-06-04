@@ -48,6 +48,23 @@ public struct SessionSummary: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
+/// Working-tree posture for an agent's checkout. All-zero == clean. Kept as
+/// plain counts so the row can phrase it ("+2 ↑1", "clean") however it likes.
+public struct GitState: Codable, Sendable, Equatable {
+    public var ahead: Int
+    public var behind: Int
+    /// Count of changed/uncommitted files in the working tree.
+    public var dirty: Int
+
+    public init(ahead: Int = 0, behind: Int = 0, dirty: Int = 0) {
+        self.ahead = ahead
+        self.behind = behind
+        self.dirty = dirty
+    }
+
+    public var isClean: Bool { ahead == 0 && behind == 0 && dirty == 0 }
+}
+
 public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     public enum State: String, Codable, Sendable { case live, idle, offline, unknown }
 
@@ -55,6 +72,13 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     public var title: String
     public var harness: String?
     public var projectName: String?
+    /// Current git branch of the agent's checkout (e.g. "feat/in-app-session").
+    public var branch: String?
+    /// Working-tree posture (ahead/behind/dirty). Nil when unknown.
+    public var git: GitState?
+    /// Precise model id (e.g. "claude-opus-4-8"), distinct from the harness family.
+    public var model: String?
+    /// What the agent is doing right now — the most-recent action, not a clock.
     public var statusLabel: String?
     public var state: State
     public var sessionId: String?
@@ -65,6 +89,9 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         title: String,
         harness: String? = nil,
         projectName: String? = nil,
+        branch: String? = nil,
+        git: GitState? = nil,
+        model: String? = nil,
         statusLabel: String? = nil,
         state: State = .unknown,
         sessionId: String? = nil,
@@ -74,6 +101,9 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.title = title
         self.harness = harness
         self.projectName = projectName
+        self.branch = branch
+        self.git = git
+        self.model = model
         self.statusLabel = statusLabel
         self.state = state
         self.sessionId = sessionId

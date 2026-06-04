@@ -67,6 +67,7 @@ interface RelayPeerState {
   clientId: string;
   transport: SecureTransport;
   deviceId?: string;
+  trustedPeer?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +194,7 @@ export function connectToRelay(
       clientId,
       transport: undefined as unknown as SecureTransport,
       deviceId: undefined,
+      trustedPeer: false,
     };
 
     const socketAdapter: SocketLike = {
@@ -206,13 +208,14 @@ export function connectToRelay(
       "responder",
       identity,
       {
-        onReady: (remotePublicKey) => {
+        onReady: (remotePublicKey, readyInfo) => {
           const pubHex = bytesToHex(remotePublicKey);
           peer.deviceId = pubHex.slice(0, 16);
+          peer.trustedPeer = readyInfo.wasTrustedPeer;
           replaceOlderPeerForSameDevice(peer);
           ensureBridgeEventSubscription();
           console.log(
-            `[relay-client] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., device: ${peer.deviceId}, client: ${clientId})`,
+            `[relay-client] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., trusted: ${peer.trustedPeer}, device: ${peer.deviceId}, client: ${clientId})`,
           );
           events?.onPaired?.({ relayUrl: publicRelayUrl, room: qrPayload.room, remotePublicKey });
           sendExistingSessions((json) => {
@@ -333,7 +336,7 @@ export function connectToRelay(
   async function dispatchTRPC(
     req: any,
     send: (json: string) => void,
-    deviceId?: string,
+    context: { deviceId?: string; secureTransport?: boolean; trustedPeer?: boolean } = {},
   ): Promise<void> {
     const { id, method, params } = req;
     const type = method as "query" | "mutation";
@@ -346,7 +349,7 @@ export function connectToRelay(
     }
 
     try {
-      const ctx = { bridge, deviceId, cwd: process.cwd() };
+      const ctx = { bridge, cwd: process.cwd(), ...context };
       const result = await callTRPCProcedure({
         router: bridgeRouter,
         path,
@@ -416,9 +419,17 @@ export function connectToRelay(
     };
 
     if (isTRPCMessage(req)) {
-      void dispatchTRPC(req, send, peer.deviceId);
+      void dispatchTRPC(req, send, {
+        deviceId: peer.deviceId,
+        secureTransport: true,
+        trustedPeer: peer.trustedPeer,
+      });
     } else {
-      void handleRPC(bridge, req, peer.deviceId).then((res) => send(JSON.stringify(res)));
+      void handleRPC(bridge, req, {
+        deviceId: peer.deviceId,
+        secureTransport: true,
+        trustedPeer: peer.trustedPeer,
+      }).then((res) => send(JSON.stringify(res)));
     }
   }
 

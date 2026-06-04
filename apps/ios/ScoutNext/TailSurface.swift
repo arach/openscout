@@ -6,8 +6,8 @@ import ScoutCapabilities
 /// Tail — recent cross-agent activity. Subscribes to `tailEvents(since:)`,
 /// prepends newest events (capped at ~200), and labels each row's attribution
 /// (scoutManaged / hudsonManaged / unattributed) via `HudBadge`. A
-/// `HudLiveIndicator` pinned at the top reflects the stream state (a real
-/// adapter keeps it open and live; the mock settles to idle after the batch).
+/// `HudLiveIndicator` pinned at the top reflects the stream state (a live
+/// adapter keeps it open; a finite batch settles to idle once it's drained).
 struct TailSurface: View {
     let client: any ScoutBrokerClient
 
@@ -117,8 +117,8 @@ struct TailSurface: View {
                 events.removeLast(events.count - Self.maxRows)
             }
         }
-        // Stream finished: a real adapter would stay `.live`; the static mock
-        // settles to a calm, non-pulsing state once the batch is in.
+        // Stream finished: a live adapter would stay `.live`; a finite batch
+        // settles to a calm, non-pulsing state once it's all in.
         status = .stale
     }
 }

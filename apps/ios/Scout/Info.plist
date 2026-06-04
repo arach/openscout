@@ -37,7 +37,7 @@
 		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
-			<key>tail1e8e67.ts.net</key>
+			<key>ts.net</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
