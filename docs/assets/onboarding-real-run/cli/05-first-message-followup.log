@@ -1,0 +1,13 @@
+$ scout wait flt-mpzwkiyy-vjqn3m --timeout 30
+queued - Message stored for Scout. Will deliver when online.
+Invocation: inv-mpzwkiyy-m3jpec
+Resolved: flight
+Message: msg-mpzwkixq-9oe8vc
+Ref: ref:y-vjqn3m
+Next: Still pending; run `scout wait inv-mpzwkiyy-m3jpec --timeout 600` again.
+
+$ scout inbox --latest 10
+15:43:10 openscout.feat-web-design-system.arts-mac-mini-local  QA ping from actual onboarding run on 2026-06-04. No action needed.
+
+$ scout latest --messages --limit 10
+No Scout messages yet.

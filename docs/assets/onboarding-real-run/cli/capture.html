@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenScout Actual CLI Run</title>
+  <style>
+    :root {
+      --bg: #070807;
+      --panel: #0b0c0b;
+      --line: rgba(255,255,255,.14);
+      --ink: rgba(255,255,255,.88);
+      --muted: rgba(255,255,255,.48);
+      --green: #9fe047;
+      --cyan: #48c7de;
+      --yellow: #f6c751;
+      --mono: "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+      background: radial-gradient(circle at 8% 8%, rgba(159,224,71,.08), transparent 30%), var(--bg);
+      color: var(--ink);
+      font-family: var(--mono);
+    }
+    .frame {
+      margin: 30px;
+      border: 1px solid var(--line);
+      background: rgba(10, 11, 10, .94);
+      min-height: 660px;
+      display: grid;
+      grid-template-rows: 76px 1fr;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 26px;
+    }
+    .kicker {
+      color: var(--green);
+      letter-spacing: .22em;
+      text-transform: uppercase;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: .06em;
+    }
+    .pill {
+      border: 1px solid rgba(159,224,71,.35);
+      color: var(--green);
+      padding: 9px 12px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }
+    .terminal {
+      margin: 24px;
+      border: 1px solid var(--line);
+      background: #050605;
+      overflow: hidden;
+      min-height: 560px;
+      display: grid;
+      grid-template-rows: 38px 1fr;
+    }
+    .bar {
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.2);
+    }
+    pre {
+      margin: 0;
+      padding: 24px 28px 34px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.54;
+      font-size: 13px;
+      color: rgba(255,255,255,.8);
+      height: 522px;
+      overflow: hidden;
+    }
+    .prompt { color: var(--cyan); }
+    .ok { color: var(--green); }
+    .warn { color: var(--yellow); }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <header>
+      <div>
+        <div class="kicker">actual CLI run</div>
+        <h1 id="title">OpenScout</h1>
+      </div>
+      <div class="pill" id="meta">raw log</div>
+    </header>
+    <main class="terminal">
+      <div class="bar">
+        <span class="dot" style="background:#ff6767"></span>
+        <span class="dot" style="background:#f6c751"></span>
+        <span class="dot" style="background:#9fe047"></span>
+        <span>zsh - /Users/art/dev/openscout</span>
+      </div>
+      <pre id="log">Loading...</pre>
+    </main>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const file = params.get("file") || "01-repo-install.log";
+    const titles = {
+      "01-repo-install.log": "Install, build, link, and help",
+      "02-setup.log": "Setup from clean Scout state",
+      "03-health.log": "Doctor, runtimes, whoami, who",
+      "04-first-message.log": "First message",
+      "05-first-message-followup.log": "Delivery follow-up"
+    };
+    document.getElementById("title").textContent = titles[file] || file;
+    document.getElementById("meta").textContent = file.replace(".log", "");
+    fetch("./" + file)
+      .then((res) => res.text())
+      .then((text) => {
+        document.getElementById("log").innerHTML = text
+          .replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]))
+          .replaceAll("$ ", "<span class=\"prompt\">$ </span>")
+          .replaceAll(" ok ", " <span class=\"ok\">ok</span> ")
+          .replaceAll("Reachable: yes", "<span class=\"ok\">Reachable: yes</span>")
+          .replaceAll("State: ready", "<span class=\"ok\">State: ready</span>")
+          .replaceAll("Caddy: ready", "<span class=\"ok\">Caddy: ready</span>")
+          .replaceAll("Still pending", "<span class=\"warn\">Still pending</span>");
+      });
+  </script>
+</body>
+</html>
