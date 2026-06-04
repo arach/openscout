@@ -200,7 +200,7 @@ function NameStep() {
   return (
     <>
       <Header
-        eyebrow="Step 1 of 2"
+        eyebrow="Identity"
         title="What should we call you?"
         description="Your name shows up on messages you send and in any agent that speaks for you. You can change it later in Settings."
       />
@@ -268,7 +268,7 @@ function ProjectStep() {
   return (
     <>
       <Header
-        eyebrow="Step 2 of 2"
+        eyebrow="Project"
         title="Where do your repos live?"
         description={
           <>
@@ -393,7 +393,7 @@ function SetupStep() {
   return (
     <>
       <Header
-        eyebrow="Final check"
+        eyebrow="Setup"
         title="Finish setup"
         description="Scout will install its harness skills, start the local broker, refresh discovery, and check for a ready agent runtime."
       />

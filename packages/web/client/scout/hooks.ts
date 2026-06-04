@@ -115,7 +115,7 @@ export function useScoutCommands(): CommandOption[] {
       }, {
         id: "nav:workflow-topology",
         label: "Open Workflow Topology",
-        action: () => navigate({ view: "ops", mode: "atop" }),
+        action: () => navigate({ view: "agents" }),
       }] : []),
       {
         id: "nav:settings",
