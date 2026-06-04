@@ -43,12 +43,6 @@ export {
 export type {
   ClaudeAgentTeamTopologyOptions,
 } from "./adapters/claude-code/team-topology.js";
-export {
-  readClaudeWorkflowTopology,
-} from "./adapters/claude-code/workflow-topology.js";
-export type {
-  ClaudeWorkflowTopologyOptions,
-} from "./adapters/claude-code/workflow-topology.js";
 export { createAdapter as createCodexAdapter } from "./adapters/codex.js";
 export {
   CodexObservedTopologyTracker,
