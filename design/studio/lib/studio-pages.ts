@@ -181,6 +181,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Interactive QMD-style pass over six real sessions: files, index rows, queries, and raw drilldown.",
   },
   {
+    href: "/studies/workflow-run",
+    label: "Workflow Run Brief",
+    bucket: "studies",
+    surface: "web",
+    family: "workflow-observation",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/workflow-run/page.tsx",
+      "packages/agent-sessions/src/adapters/claude-code/workflow-topology.ts",
+      "packages/runtime/src/tail/claude-source.ts",
+    ],
+    blurb: "A concrete run brief for a Claude workflow: parent launch, journal, worker outputs, synthesis, and projection gaps.",
+  },
+  {
     href: "/studies/data",
     label: "Session DB Explorer",
     bucket: "studies",
