@@ -158,6 +158,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Per-agent sidebar card — no AVAILABLE tag, header→profile, Observe top-right, New-session CTA explored three ways.",
   },
   {
+    href: "/studies/agents-tree",
+    label: "Agents Tree",
+    bucket: "studies",
+    surface: "macos",
+    family: "agent-cards",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agents-tree/page.tsx",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+    ],
+    blurb: "The Agents view as a project · agent · session tree — keyboard-first (j/k/h/l), inspector follows the cursor.",
+  },
+  {
     href: "/studies/session-search",
     label: "Session Search",
     bucket: "studies",

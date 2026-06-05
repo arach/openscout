@@ -72,6 +72,11 @@ struct ScoutRootView: View {
     @AppStorage("scout.observeSidecar.width") private var observeSidecarWidth = Double(ScoutObserveSidecarMetrics.defaultWidth)
     @AppStorage("scout.fileViewer.width") private var fileViewerWidth = Double(ScoutFileViewerMetrics.defaultWidth)
 
+    /// Expansion + selection for the Agents project·agent·session tree. The
+    /// window-level keyboard chords drive it; selection is mirrored into
+    /// `store.selectedAgentId` so the inspector follows.
+    @StateObject private var agentsTree = ScoutAgentsTreeModel()
+
     private var manifest: HudAppManifest {
         HudAppManifest(
             name: "Scout",
@@ -227,8 +232,8 @@ struct ScoutRootView: View {
                         Button("") { showCheatsheet.toggle() }.keyboardShortcut("?", modifiers: [])
                         Button("") { moveSelection(1) }.keyboardShortcut("j", modifiers: [])
                         Button("") { moveSelection(-1) }.keyboardShortcut("k", modifiers: [])
-                        Button("") { moveSelection(1) }.keyboardShortcut("l", modifiers: [])
-                        Button("") { moveSelection(-1) }.keyboardShortcut("h", modifiers: [])
+                        Button("") { moveRight() }.keyboardShortcut("l", modifiers: [])
+                        Button("") { moveLeft() }.keyboardShortcut("h", modifiers: [])
                         Button("") { moveSelectionToEdge(last: false) }.keyboardShortcut("g", modifiers: [])
                         Button("") { moveSelectionToEdge(last: true) }.keyboardShortcut("g", modifiers: .shift)
                     }
@@ -263,11 +268,7 @@ struct ScoutRootView: View {
             let next = current.map { min(max($0 + delta, 0), channels.count - 1) } ?? 0
             store.selectChannel(channels[next].cId)
         case .agents:
-            let agents = store.agents
-            guard !agents.isEmpty else { return }
-            let current = agents.firstIndex { $0.id == store.selectedAgentId }
-            let next = current.map { min(max($0 + delta, 0), agents.count - 1) } ?? 0
-            store.selectAgent(agents[next].id)
+            treeMove(delta)
         case .tail:
             break
         }
@@ -281,12 +282,45 @@ struct ScoutRootView: View {
             guard let target = last ? channels.last : channels.first else { return }
             store.selectChannel(target.cId)
         case .agents:
-            let agents = store.agents
-            guard let target = last ? agents.last : agents.first else { return }
-            store.selectAgent(target.id)
+            treeEdge(last: last)
         case .tail:
             break
         }
+    }
+
+    // MARK: Agents tree navigation
+
+    private var treeGroups: [ScoutAgentsTreeModel.ProjectGroup] {
+        ScoutAgentsTreeModel.groups(agents: store.agents, channels: store.channels)
+    }
+
+    /// Mirror the tree's selection into the store so the inspector follows.
+    private func pushTreeSelection() {
+        if let agentId = agentsTree.selectedAgentID { store.selectAgent(agentId) }
+    }
+
+    private func treeMove(_ delta: Int) {
+        agentsTree.move(delta, groups: treeGroups)
+        pushTreeSelection()
+    }
+
+    private func treeEdge(last: Bool) {
+        agentsTree.moveToEdge(last: last, groups: treeGroups)
+        pushTreeSelection()
+    }
+
+    /// `l` / →  — expand a collapsed node, else descend.
+    private func moveRight() {
+        guard section == .agents else { moveSelection(1); return }
+        withAnimation(.easeOut(duration: 0.16)) { agentsTree.expandOrDescend(groups: treeGroups) }
+        pushTreeSelection()
+    }
+
+    /// `h` / ←  — collapse an expanded node, else step to the parent.
+    private func moveLeft() {
+        guard section == .agents else { moveSelection(-1); return }
+        withAnimation(.easeOut(duration: 0.16)) { agentsTree.collapseOrParent(groups: treeGroups) }
+        pushTreeSelection()
     }
 
     private func focusSearch() {
@@ -305,9 +339,16 @@ struct ScoutRootView: View {
         observeAgent(agent)
     }
 
-    /// Jump into the selected agent's conversation (⌘↩, Agents page).
+    /// Jump into the selected row's conversation (⌘↩, Agents page) — the focused
+    /// session if a session row is selected, else the agent's channel.
     private func openSelectedAgentChannel() {
-        guard section == .agents, let agent = store.selectedAgent else { return }
+        guard section == .agents else { return }
+        if let cId = agentsTree.selectedSessionCId {
+            store.selectChannel(cId)
+            section = .comms
+            return
+        }
+        guard let agent = store.selectedAgent else { return }
         store.openAgentChannel(agent)
         section = .comms
     }
@@ -1114,35 +1155,35 @@ struct ScoutRootView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 280), spacing: HudSpacing.xl)],
-                            alignment: .leading,
-                            spacing: HudSpacing.xl
-                        ) {
-                            ForEach(store.agents) { agent in
-                                ScoutAgentCard(
-                                    agent: agent,
-                                    isSelected: store.selectedAgentId == agent.id || store.selectedChannel?.agentId == agent.id
-                                ) {
-                                    previewAgent(agent)
-                                } observe: {
-                                    observeAgent(agent)
-                                } openChannel: {
-                                    store.openAgentChannel(agent)
-                                    section = .comms
-                                }
-                                .id(agent.id)
+                        ScoutAgentsTree(
+                            model: agentsTree,
+                            groups: treeGroups,
+                            onSelect: { pushTreeSelection() },
+                            onActivate: { openSelectedAgentChannel() },
+                            onObserve: { observeAgent($0) },
+                            onOpenDM: { agent in
+                                store.openAgentChannel(agent)
+                                section = .comms
                             }
-                        }
-                        .padding(HudSpacing.huge)
+                        )
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    // Keep the keyboard-selected card in view (it may be off-screen).
-                    .onChange(of: store.selectedAgentId) { _, id in
+                    // Keep the keyboard-selected row in view, but only scroll the
+                    // minimum needed (no anchor → no constant re-centering), so
+                    // moves inside the viewport don't shift the list at all.
+                    .onChange(of: agentsTree.selectedID) { _, id in
                         guard let id else { return }
-                        withAnimation(.easeOut(duration: 0.16)) {
-                            proxy.scrollTo(id, anchor: .center)
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(id)
                         }
+                    }
+                    // Follow selection arriving from elsewhere (e.g. Comms).
+                    .onChange(of: store.selectedAgentId) { _, id in
+                        agentsTree.syncToAgent(id, groups: treeGroups)
+                    }
+                    .onAppear {
+                        agentsTree.ensureSelection(groups: treeGroups, fallbackAgentID: store.selectedAgentId)
+                        pushTreeSelection()
                     }
                 }
             }
@@ -2738,57 +2779,6 @@ private struct ScoutMarkdownTable: View {
             options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(body)
         return ScoutFileLinkifier.apply(to: parsed, accent: ScoutPalette.accent)
-    }
-}
-
-private struct ScoutAgentCard: View {
-    let agent: ScoutAgent
-    let isSelected: Bool
-    let select: () -> Void
-    let observe: () -> Void
-    let openChannel: () -> Void
-
-    var body: some View {
-        HudCard {
-            VStack(alignment: .leading, spacing: HudSpacing.lg) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: HudSpacing.xs) {
-                        Text(agent.displayName)
-                            .font(HudFont.ui(17, weight: .semibold))
-                            .foregroundStyle(ScoutPalette.ink)
-                            .lineLimit(1)
-                        Text(agent.id)
-                            .font(HudFont.mono(HudTextSize.xxs))
-                            .foregroundStyle(ScoutPalette.dim)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer()
-                    HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
-                }
-
-                if !agent.detail.isEmpty {
-                    Text(agent.detail)
-                        .font(HudFont.ui(HudTextSize.sm))
-                        .foregroundStyle(ScoutPalette.muted)
-                        .lineLimit(2)
-                }
-
-                HudInset {
-                    VStack(alignment: .leading, spacing: HudSpacing.md) {
-                        HudKVRow("Branch", value: agent.branchLabel)
-                        HudKVRow("Workspace", value: agent.workspace)
-                        HudKVRow("Updated", value: agent.updatedLabel)
-                    }
-                }
-
-                HStack {
-                    HudButton("Inspect", icon: "sidebar.right", style: isSelected ? .primary(.green) : .secondary, action: select)
-                    HudButton("Observe", icon: "eye", style: .secondary, action: observe)
-                    HudButton("Open DM", icon: "bubble.left", style: .ghost, action: openChannel)
-                }
-            }
-        }
     }
 }
 
