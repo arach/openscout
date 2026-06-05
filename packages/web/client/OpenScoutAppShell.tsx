@@ -24,6 +24,7 @@ const SIDE_PANEL_MIN_WIDTH = 240;
 const SIDE_PANEL_MAX_WIDTH_HARD_CAP = 900;
 const SIDE_PANEL_MAX_WIDTH_VIEWPORT_RATIO = 0.45;
 const SIDE_PANEL_MAX_WIDTH_FLOOR = 500;
+const SEARCH_RIGHT_PANEL_MIN_WIDTH = 420;
 
 // Cap at 45% of viewport, floored at 500 so small screens still get usable inspector.
 function computeSidePanelMaxWidth(viewportWidth: number) {
@@ -111,6 +112,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const [sidePanelMaxWidth, setSidePanelMaxWidth] = useState(() =>
     computeSidePanelMaxWidth(typeof window !== "undefined" ? window.innerWidth : 1280),
   );
+  const isSearchRoute = typeof window !== "undefined" && window.location.pathname === "/search";
 
   useEffect(() => {
     const update = () => setSidePanelMaxWidth(computeSidePanelMaxWidth(window.innerWidth));
@@ -123,6 +125,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     setLeftWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
     setRightWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
   }, [sidePanelMaxWidth, setLeftWidth, setRightWidth]);
+
+  useEffect(() => {
+    if (!isSearchRoute || rightCollapsed || rightOverlay) return;
+    setRightWidth((current) => Math.max(current, Math.min(sidePanelMaxWidth, SEARCH_RIGHT_PANEL_MIN_WIDTH)));
+  }, [isSearchRoute, rightCollapsed, rightOverlay, setRightWidth, sidePanelMaxWidth]);
 
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);

@@ -16,6 +16,9 @@ export type OpenScoutSupportPaths = {
   managedInstallsPath: string;
   relayHubDirectory: string;
   controlHome: string;
+  knowledgeDirectory: string;
+  knowledgeQmdDirectory: string;
+  knowledgeSqlitePath: string;
   desktopStatusPath: string;
   workspaceStatePath: string;
   cutoverMarkerPath: string;
@@ -30,6 +33,9 @@ export function resolveOpenScoutSupportPaths(): OpenScoutSupportPaths {
   const logsDirectory = join(supportDirectory, "logs");
   const runtimeDirectory = join(supportDirectory, "runtime");
   const catalogDirectory = join(supportDirectory, "catalog");
+  const controlHome = process.env.OPENSCOUT_CONTROL_HOME
+    ?? join(home, ".openscout", "control-plane");
+  const knowledgeDirectory = join(controlHome, "knowledge");
 
   return {
     supportDirectory,
@@ -45,8 +51,10 @@ export function resolveOpenScoutSupportPaths(): OpenScoutSupportPaths {
     managedInstallsPath: join(supportDirectory, "managed-installs.json"),
     relayHubDirectory: process.env.OPENSCOUT_RELAY_HUB
       ?? join(home, ".openscout", "relay"),
-    controlHome: process.env.OPENSCOUT_CONTROL_HOME
-      ?? join(home, ".openscout", "control-plane"),
+    controlHome,
+    knowledgeDirectory,
+    knowledgeQmdDirectory: join(knowledgeDirectory, "qmd"),
+    knowledgeSqlitePath: join(knowledgeDirectory, "knowledge.sqlite"),
     desktopStatusPath: join(supportDirectory, "agent-status.json"),
     workspaceStatePath: join(supportDirectory, "workspace-state.json"),
     cutoverMarkerPath: join(supportDirectory, OPENSCOUT_RPC_CUTOVER_MARKER),

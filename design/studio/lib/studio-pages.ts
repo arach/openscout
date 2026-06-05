@@ -194,6 +194,21 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Read-only window into the session-search index.db — schema, FTS5 MATCH, ad-hoc SELECT, schema-aware shortcuts.",
   },
   {
+    href: "/studies/search-results",
+    label: "Search Results",
+    bucket: "studies",
+    surface: "web",
+    family: "session-search",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/search-results/page.tsx",
+      "packages/web/client/screens/KnowledgeSearchScreen.tsx",
+      "packages/web/client/screens/KnowledgeSearchInspector.tsx",
+      "docs/eng/reviews/knowledge-search-redesign-dewey.md",
+    ],
+    blurb: "Result-experience redesign: session cards, conversation-first inspector, rendered vs raw, ranking, next actions.",
+  },
+  {
     href: "/studies/tree-viewer",
     label: "Tree Viewer",
     bucket: "studies",
