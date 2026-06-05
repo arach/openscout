@@ -6,6 +6,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
     case comms
     case agents
     case tail
+    case repos
 
     var id: String { rawValue }
 
@@ -14,6 +15,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         case .comms: return "Comms"
         case .agents: return "Agents"
         case .tail: return "Tail"
+        case .repos: return "Repos"
         }
     }
 
@@ -22,6 +24,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         case .comms: return "bubble.left.and.bubble.right"
         case .agents: return "person.2"
         case .tail: return "waveform.path.ecg"
+        case .repos: return "arrow.triangle.branch"
         }
     }
 }

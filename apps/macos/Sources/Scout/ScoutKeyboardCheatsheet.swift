@@ -46,7 +46,7 @@ struct ScoutKeyboardCheatsheet: View {
 
             keyGroup("Navigate · when not typing", active: false) {
                 kbd("j  ↓  ·  k  ↑", "next / previous item")
-                kbd("l  ·  h", "Comms: next / prev  ·  Agents: expand / collapse")
+                kbd("l  ·  h", "Comms: next / prev  ·  Agents/Repos: expand / collapse")
                 kbd("g  ·  ⇧G", "first / last item")
                 kbd("⌘↑  ⌘↓", "next / previous (works while typing too)")
             }
@@ -65,6 +65,12 @@ struct ScoutKeyboardCheatsheet: View {
                 kbd("l  ·  h", "expand · collapse / parent")
                 kbd("⌘↩", "open session / agent channel")
                 kbd("⌘O", "observe agent")
+            }
+
+            keyGroup("Repos", active: section == .repos) {
+                kbd("j  k  ·  ↑ ↓", "walk repo · worktree")
+                kbd("l  ·  h", "expand · collapse / parent")
+                kbd("⌘↩", "reveal worktree in Finder")
             }
 
             keyGroup("Global", active: false) {
