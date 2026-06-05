@@ -109,6 +109,15 @@ final class ScoutRepoStore: ObservableObject {
             isLoading = false
             fetchTask = nil
         }
+        // Preview path: with OPENSCOUT_REPOS_SAMPLE set, serve the fixture so the
+        // section renders without a broker that implements the snapshot endpoint.
+        if ScoutRepoSample.isEnabled, let sample = ScoutRepoSample.snapshot() {
+            snapshot = sample
+            hasLoaded = true
+            lastFetchedAt = Date()
+            lastError = nil
+            return
+        }
         do {
             let url = ScoutBroker.baseURL()
                 .appending(path: "v1/repo-watch/snapshot")

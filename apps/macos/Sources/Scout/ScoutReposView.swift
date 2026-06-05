@@ -23,6 +23,14 @@ private enum ScoutReposMetrics {
     static let rowLeadingBase: CGFloat = 10
     static let indentStep: CGFloat = 16
     static let chevronSlot: CGFloat = 12
+
+    // Driftline columns — fixed widths so POSITION · WORK · LAST align across
+    // rows regardless of branch-name length (the branch column flexes).
+    static let gaugeWidth: CGFloat = 56
+    static let positionCellWidth: CGFloat = 104
+    static let workCellWidth: CGFloat = 92
+    static let lastCellWidth: CGFloat = 44
+    static let secondLineInset: CGFloat = 34
 }
 
 // MARK: - Severity → tone (one vocabulary, shared by tree + inspector)
@@ -458,10 +466,10 @@ struct ScoutReposTree: View {
         let selected = row.id == model.selectedID
         let hovered = row.id == hoveredID
 
-        HStack(spacing: HudSpacing.sm) {
+        HStack(spacing: HudSpacing.md) {
             content(for: row)
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 8)
         .padding(.trailing, HudSpacing.lg)
         .padding(.leading, ScoutReposMetrics.rowLeadingBase + CGFloat(row.depth) * ScoutReposMetrics.indentStep)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -512,50 +520,41 @@ struct ScoutReposTree: View {
                 .truncationMode(.middle)
             Spacer(minLength: HudSpacing.sm)
 
-            let stats = project.stats
-            if stats.conflictedWorktrees > 0 {
-                Text("\(stats.conflictedWorktrees) conflict")
-                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                    .tracking(0.4)
-                    .foregroundStyle(ScoutPalette.statusError)
-            } else if stats.dirtyWorktrees > 0 {
-                Text("\(stats.dirtyWorktrees) dirty")
-                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                    .tracking(0.4)
-                    .foregroundStyle(ScoutPalette.statusWarn)
-            }
+            // The attention dot already encodes severity — keep the header to a
+            // worktree count and a single live indicator; per-state counts live
+            // in the project's Context pane.
             Text("\(project.worktrees.count) wt")
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.dim)
-            if stats.attachedAgents > 0 {
+            if project.stats.attachedAgents > 0 {
                 ScoutRepoStateDot(color: ScoutPalette.accent, live: true, size: 6)
             }
         }
     }
 
+    /// Driftline worktree row — identity (state dot + branch) on the left, then
+    /// three fixed-width columns (POSITION gauge · WORK · LAST) so they align
+    /// down the list. Active worktrees gain a quiet second line: upstream, a
+    /// descriptive position phrase, and any agents — never a harsh verdict pill.
     @ViewBuilder
     private func worktreeRow(_ row: ScoutReposTreeModel.Row, worktree: RepoWorktree?) -> some View {
-        if let worktree {
-            Color.clear.frame(width: ScoutReposMetrics.chevronSlot, height: ScoutReposMetrics.chevronSlot)
-            ScoutRepoStateDot(
-                color: reposStateColor(worktree.state),
-                live: worktree.state == .live,
-                size: 7
-            )
-            branchLabel(worktree.branchParts)
-
-            let flag = worktree.driftFlag
-            if flag == "SCAN ERR" || (lens == .table && flag != "IN SYNC") {
-                HudBadge(flag, tint: reposDriftTint(flag))
+        if let wt = worktree {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: HudSpacing.md) {
+                    Color.clear.frame(width: ScoutReposMetrics.chevronSlot, height: ScoutReposMetrics.chevronSlot)
+                    ScoutRepoStateDot(color: reposStateColor(wt.state), live: wt.state == .live, size: 7)
+                    branchLabel(wt.branchParts)
+                    Spacer(minLength: HudSpacing.sm)
+                    positionCell(wt)
+                    workCell(wt)
+                    lastCell(wt)
+                }
+                .frame(maxWidth: .infinity)
+                if wt.hasActivity || lens == .drift {
+                    secondLine(wt)
+                }
             }
-
-            Spacer(minLength: HudSpacing.sm)
-
-            if lens == .drift {
-                driftTrailing(worktree)
-            } else {
-                tableTrailing(worktree)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -572,64 +571,118 @@ struct ScoutReposTree: View {
         .truncationMode(.middle)
     }
 
+    /// POSITION column — the hero. A calm behind◀upstream▶ahead gauge flanked by
+    /// the exact counts. Degrades to a quiet token for scan errors / detached /
+    /// upstream-less branches instead of an alarm.
     @ViewBuilder
-    private func tableTrailing(_ worktree: RepoWorktree) -> some View {
-        if worktree.churn.has {
-            ScoutRepoChurnLabel(churn: worktree.churn)
-        }
-        if worktree.status.changedFiles > 0 {
-            HStack(spacing: 2) {
-                Image(systemName: "doc.text").font(.system(size: 8))
-                Text("\(worktree.status.changedFiles)").monospacedDigit()
-            }
-            .font(HudFont.mono(HudTextSize.xxs))
-            .foregroundStyle(ScoutPalette.dim)
-        }
-        if !worktree.uniqueAgents.isEmpty {
-            HStack(spacing: 2) {
-                ForEach(Array(worktree.uniqueAgents.prefix(3))) { agent in
-                    ScoutRepoAgentChip(agent: agent)
+    private func positionCell(_ wt: RepoWorktree) -> some View {
+        Group {
+            if wt.error != nil {
+                Text("scan failed")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+            } else if wt.branch.detached {
+                Text("@" + String((wt.branch.head ?? "").prefix(7)))
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.muted)
+            } else if wt.branch.upstream == nil && !wt.branch.isMain {
+                Text("local")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+            } else {
+                HStack(spacing: 3) {
+                    Text(wt.branch.behind > 0 ? "↓\(wt.branch.behind)" : "")
+                        .foregroundStyle(ScoutPalette.muted)
+                        .frame(width: 20, alignment: .trailing)
+                    RepoDriftGauge(ahead: wt.branch.ahead, behind: wt.branch.behind, width: ScoutReposMetrics.gaugeWidth)
+                    Text(wt.branch.ahead > 0 ? "↑\(wt.branch.ahead)" : "")
+                        .foregroundStyle(ScoutPalette.accent)
+                        .frame(width: 20, alignment: .leading)
                 }
-                if worktree.uniqueAgents.count > 3 {
-                    Text("+\(worktree.uniqueAgents.count - 3)")
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(ScoutPalette.dim)
-                }
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .monospacedDigit()
             }
         }
-        Text(worktree.lastCommitAgo(generatedAt: generatedAt) ?? "—")
+        .frame(width: ScoutReposMetrics.positionCellWidth, alignment: .center)
+    }
+
+    /// WORK column — churn when there is any, else a quiet file summary, else
+    /// "clean". Muted throughout; the full breakdown lives in the inspector.
+    @ViewBuilder
+    private func workCell(_ wt: RepoWorktree) -> some View {
+        Group {
+            if wt.error != nil {
+                Text("—").foregroundStyle(ScoutPalette.dim)
+            } else if wt.churn.has {
+                HStack(spacing: 4) {
+                    Text("+\(wt.churn.add)").foregroundStyle(ScoutPalette.statusOk)
+                    Text("−\(wt.churn.del)").foregroundStyle(ScoutPalette.statusError)
+                }
+                .monospacedDigit()
+            } else if !wt.status.clean {
+                Text(workSummary(wt)).foregroundStyle(ScoutPalette.muted)
+            } else {
+                Text("clean").foregroundStyle(ScoutPalette.dim)
+            }
+        }
+        .font(HudFont.mono(HudTextSize.xxs))
+        .frame(width: ScoutReposMetrics.workCellWidth, alignment: .trailing)
+    }
+
+    private func workSummary(_ wt: RepoWorktree) -> String {
+        let s = wt.status
+        if s.conflicts > 0 { return "\(s.conflicts) conflict\(s.conflicts == 1 ? "" : "s")" }
+        if s.staged == 0 && s.unstaged == 0 && s.untracked > 0 { return "\(s.untracked) untracked" }
+        let n = s.changedFiles > 0 ? s.changedFiles : (s.staged + s.unstaged + s.untracked)
+        return "\(n) changed"
+    }
+
+    private func lastCell(_ wt: RepoWorktree) -> some View {
+        Text(wt.lastCommitAgo(generatedAt: generatedAt) ?? "—")
             .font(HudFont.mono(HudTextSize.xxs))
             .foregroundStyle(ScoutPalette.dim)
             .contentTransition(.numericText())
-            .frame(width: 40, alignment: .trailing)
+            .frame(width: ScoutReposMetrics.lastCellWidth, alignment: .trailing)
     }
 
+    /// Quiet second line for active worktrees — upstream, a descriptive position
+    /// phrase, and live agents. Calm by construction: dim/muted ink, no pills.
     @ViewBuilder
-    private func driftTrailing(_ worktree: RepoWorktree) -> some View {
-        if worktree.branch.ahead > 0 {
-            Text("↑\(worktree.branch.ahead)")
-                .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-                .foregroundStyle(ScoutPalette.statusInfo)
-                .monospacedDigit()
+    private func secondLine(_ wt: RepoWorktree) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Text("↳").foregroundStyle(ScoutPalette.dim)
+            if wt.error != nil {
+                Text("couldn't read this worktree — moved, deleted, or not a git repo")
+                    .foregroundStyle(ScoutPalette.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else {
+                if let upstream = wt.branch.upstream {
+                    Text(upstream).foregroundStyle(ScoutPalette.dim).lineLimit(1).truncationMode(.middle)
+                    Text("·").foregroundStyle(ScoutPalette.dim)
+                } else if wt.branch.detached {
+                    Text("detached").foregroundStyle(ScoutPalette.dim)
+                    Text("·").foregroundStyle(ScoutPalette.dim)
+                } else {
+                    Text("local only").foregroundStyle(ScoutPalette.dim)
+                    Text("·").foregroundStyle(ScoutPalette.dim)
+                }
+                Text(repoPositionPhrase(wt)).foregroundStyle(ScoutPalette.muted)
+                ForEach(Array(wt.uniqueAgents.prefix(2))) { agent in
+                    Text("·").foregroundStyle(ScoutPalette.dim)
+                    HStack(spacing: 3) {
+                        ScoutRepoStateDot(color: agent.live ? ScoutPalette.accent : ScoutPalette.dim, live: agent.live, size: 5)
+                        Text("\(agent.handle) \(agent.live ? "working" : agent.stateWord.lowercased())")
+                            .foregroundStyle(agent.live ? ScoutPalette.muted : ScoutPalette.dim)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
         }
-        if worktree.branch.behind > 0 {
-            Text("↓\(worktree.branch.behind)")
-                .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-                .foregroundStyle(ScoutPalette.statusWarn)
-                .monospacedDigit()
-        }
-        if let upstream = worktree.branch.upstream {
-            Text(upstream)
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: 120, alignment: .trailing)
-        }
-        Text(worktree.lastCommitAgo(generatedAt: generatedAt) ?? "—")
-            .font(HudFont.mono(HudTextSize.xxs))
-            .foregroundStyle(ScoutPalette.dim)
-            .frame(width: 40, alignment: .trailing)
+        .font(HudFont.mono(HudTextSize.micro))
+        .padding(.leading, ScoutReposMetrics.secondLineInset)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func chevron(for row: ScoutReposTreeModel.Row) -> some View {
@@ -660,6 +713,64 @@ struct ScoutReposTree: View {
 }
 
 // MARK: - Small primitives
+
+/// A calm, descriptive position phrase — a fact, never a verdict ("behind 2 ·
+/// ahead 5" instead of "DIVERGED"). Upstream / detached / error are surfaced by
+/// the row separately.
+func repoPositionPhrase(_ wt: RepoWorktree) -> String {
+    let b = wt.branch
+    if b.ahead > 0 && b.behind > 0 { return "behind \(b.behind) · ahead \(b.ahead)" }
+    if b.behind > 0 { return "behind \(b.behind)" }
+    if b.ahead > 0 { return "ahead \(b.ahead)" }
+    return "in sync"
+}
+
+/// The behind◀upstream▶ahead position gauge — the redesign's hero. A base line
+/// with a center tick at the fork point; a muted fill extends left for `behind`
+/// commits and an accent fill extends right to a head marker for `ahead`. In
+/// sync reads as a head dot sitting on the center line. Magnitudes are clamped
+/// to `cap` commits; the exact counts live in the flanking labels.
+struct RepoDriftGauge: View {
+    let ahead: Int
+    let behind: Int
+    var width: CGFloat = 56
+
+    private let cap = 10
+    private let barHeight: CGFloat = 5
+
+    var body: some View {
+        let center = width / 2
+        let half = width / 2
+        let aheadLen = half * min(CGFloat(max(ahead, 0)), CGFloat(cap)) / CGFloat(cap)
+        let behindLen = half * min(CGFloat(max(behind, 0)), CGFloat(cap)) / CGFloat(cap)
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(ScoutPalette.hairlineStrong)
+                .frame(width: width, height: 1.5)
+            if behind > 0 {
+                Capsule()
+                    .fill(ScoutPalette.muted)
+                    .frame(width: behindLen, height: barHeight)
+                    .offset(x: center - behindLen)
+            }
+            if ahead > 0 {
+                Capsule()
+                    .fill(ScoutPalette.accent)
+                    .frame(width: aheadLen, height: barHeight)
+                    .offset(x: center)
+            }
+            Rectangle()
+                .fill(ScoutPalette.dim)
+                .frame(width: 1, height: barHeight + 3)
+                .offset(x: center - 0.5)
+            Circle()
+                .fill(ahead > 0 ? ScoutPalette.accent : ScoutPalette.muted)
+                .frame(width: 5, height: 5)
+                .offset(x: center + aheadLen - 2.5)
+        }
+        .frame(width: width, height: barHeight + 4)
+    }
+}
 
 /// State dot with the shared sonar-ping for live nodes (matches the Agents
 /// tree's `ScoutTreeStateDot`, but keyed on a resolved color so both attention
@@ -762,8 +873,7 @@ struct ScoutReposInspector: View {
                             .foregroundStyle(ScoutPalette.ink)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Spacer(minLength: HudSpacing.sm)
-                        HudBadge(worktree.driftFlag, tint: reposDriftTint(worktree.driftFlag))
+                        Spacer(minLength: 0)
                     }
                     Text(repoShortPath(worktree.path, segments: 4))
                         .font(HudFont.mono(HudTextSize.xxs))
@@ -772,6 +882,10 @@ struct ScoutReposInspector: View {
                 }
 
                 HudDivider(color: ScoutDesign.hairline)
+
+                section("Position") {
+                    positionBlock(worktree)
+                }
 
                 section("Status") {
                     if worktree.status.clean && worktree.error == nil {
@@ -798,10 +912,6 @@ struct ScoutReposInspector: View {
                     }
                 }
 
-                section("Branch") {
-                    branchRows(worktree.branch)
-                }
-
                 if !worktree.status.files.isEmpty {
                     section("Changed files (\(worktree.status.files.count))") {
                         changedFiles(worktree.status.files)
@@ -826,10 +936,17 @@ struct ScoutReposInspector: View {
 
                 if let error = worktree.error {
                     section("Scan error") {
-                        Text(error)
-                            .font(HudFont.mono(HudTextSize.xxs))
-                            .foregroundStyle(ScoutPalette.statusError)
-                            .textSelection(.enabled)
+                        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                            Text("Scout ran git here and it failed — usually the folder was moved or deleted, or it isn't a git worktree anymore. The raw git output:")
+                                .font(HudFont.ui(HudTextSize.xs))
+                                .foregroundStyle(ScoutPalette.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(error)
+                                .font(HudFont.mono(HudTextSize.xxs))
+                                .foregroundStyle(ScoutPalette.statusError)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }
@@ -956,29 +1073,45 @@ struct ScoutReposInspector: View {
         }
     }
 
+    /// The Position block — the gauge + a descriptive phrase + the branch facts,
+    /// leading the inspector the same way the row's POSITION column leads the list.
     @ViewBuilder
-    private func branchRows(_ branch: RepoBranch) -> some View {
-        VStack(alignment: .leading, spacing: HudSpacing.xs) {
-            if let name = branch.name {
-                keyValue("Branch", name)
+    private func positionBlock(_ wt: RepoWorktree) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            if wt.error != nil {
+                Text("Scan failed — position unavailable")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                    .foregroundStyle(ScoutPalette.muted)
+            } else {
+                HStack(spacing: HudSpacing.sm) {
+                    Text(wt.branch.behind > 0 ? "↓\(wt.branch.behind)" : "")
+                        .foregroundStyle(ScoutPalette.muted)
+                        .frame(width: 24, alignment: .trailing)
+                    RepoDriftGauge(ahead: wt.branch.ahead, behind: wt.branch.behind, width: 104)
+                    Text(wt.branch.ahead > 0 ? "↑\(wt.branch.ahead)" : "")
+                        .foregroundStyle(ScoutPalette.accent)
+                        .frame(width: 24, alignment: .leading)
+                }
+                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                .monospacedDigit()
+                Text(repoPositionPhrase(wt))
+                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                    .foregroundStyle(ScoutPalette.ink)
             }
-            if branch.detached {
-                keyValue("Detached", String((branch.head ?? "").prefix(7)))
-            }
-            if let upstream = branch.upstream {
-                keyValue("Upstream", upstream)
-            }
-            if branch.ahead > 0 {
-                keyValue("Ahead", "\(branch.ahead)", tint: ScoutPalette.statusInfo)
-            }
-            if branch.behind > 0 {
-                keyValue("Behind", "\(branch.behind)", tint: ScoutPalette.statusWarn)
-            }
-            if branch.isMain {
-                keyValue("Default branch", "yes")
-            }
-            if let head = branch.head, !branch.detached {
-                keyValue("HEAD", String(head.prefix(10)))
+            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                if let name = wt.branch.name {
+                    keyValue(wt.branch.isMain ? "Branch · default" : "Branch", name)
+                }
+                if wt.branch.detached {
+                    keyValue("Detached", String((wt.branch.head ?? "").prefix(7)))
+                } else if let upstream = wt.branch.upstream {
+                    keyValue("Upstream", upstream)
+                } else {
+                    keyValue("Upstream", "—  local only")
+                }
+                if let head = wt.branch.head, !wt.branch.detached {
+                    keyValue("HEAD", String(head.prefix(10)))
+                }
             }
         }
     }

@@ -1285,9 +1285,11 @@ struct ScoutRootView: View {
         if section == .tail {
             HudBadge(tail.isFollowing ? "Live" : "Paused", tint: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted, dot: tail.isFollowing)
         } else if section == .repos {
-            if let worktree = repos.worktree(id: reposTree.selectedWorktreeID) {
-                HudBadge(worktree.driftFlag, tint: reposDriftTint(worktree.driftFlag))
-            } else if let project = repos.project(id: reposTree.selectedProjectID) {
+            // No verdict pill for a worktree — the inspector's Position block
+            // carries current state calmly. Keep a project-level attention
+            // summary, which reads as a roll-up rather than a per-branch verdict.
+            if repos.worktree(id: reposTree.selectedWorktreeID) == nil,
+               let project = repos.project(id: reposTree.selectedProjectID) {
                 HudBadge(project.attention.rawValue, tint: reposAttentionColor(project.attention), dot: reposAttentionLive(project.attention))
             }
         } else if !multiAgent, let agent = store.selectedAgent {
