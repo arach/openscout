@@ -165,6 +165,48 @@ describe("resolveAgentLabel", () => {
     expect(legacyResult.kind).toBe("unknown");
   });
 
+  test("routes qualified openscout project agents despite the reserved product handle", () => {
+    const snapshot = makeSnapshot(
+      [
+        makeAgent({
+          id: "openscout.feat-web-design-system.arts-mac-mini-local",
+          definitionId: "openscout",
+          nodeQualifier: "arts-mac-mini-local",
+          workspaceQualifier: "feat-web-design-system",
+          selector: "@openscout.feat-web-design-system.node:arts-mac-mini-local",
+        }),
+      ],
+      [
+        makeEndpoint({
+          id: "endpoint.openscout.codex",
+          agentId: "openscout.feat-web-design-system.arts-mac-mini-local",
+          harness: "codex",
+          state: "waiting",
+        }),
+      ],
+    );
+
+    const qualified = resolveAgentLabel(
+      snapshot,
+      "@openscout.feat-web-design-system.node:arts-mac-mini-local",
+      { helpers },
+    );
+    expect(qualified.kind).toBe("resolved");
+    if (qualified.kind === "resolved") {
+      expect(qualified.agent.id).toBe("openscout.feat-web-design-system.arts-mac-mini-local");
+    }
+
+    const codex = resolveAgentLabel(
+      snapshot,
+      "@openscout.feat-web-design-system.arts-mac-mini-local#codex",
+      { helpers },
+    );
+    expect(codex.kind).toBe("resolved");
+    if (codex.kind === "resolved") {
+      expect(codex.agent.id).toBe("openscout.feat-web-design-system.arts-mac-mini-local");
+    }
+  });
+
   test("returns ambiguous when multiple agents share the same label", () => {
     const snapshot = makeSnapshot([
       makeAgent({ id: "scoutie.main.mini", definitionId: "scoutie", nodeQualifier: "mini", workspaceQualifier: "main" }),

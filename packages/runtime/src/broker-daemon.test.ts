@@ -1508,6 +1508,84 @@ describe("broker daemon comms layer", () => {
     }
   }, 15_000);
 
+  test("drains queued local invocations when the endpoint comes online", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "sleepy",
+      kind: "agent",
+      definitionId: "sleepy",
+      displayName: "Sleepy",
+      handle: "sleepy",
+      labels: ["test"],
+      selector: "@sleepy",
+      defaultSelector: "@sleepy",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await postJson<{
+      accepted: boolean;
+      flightId: string;
+      state: string;
+    }>(harness.baseUrl, "/v1/invocations", {
+      id: "inv-sleepy-queued",
+      requesterId: "operator",
+      requesterNodeId: harness.nodeId,
+      targetAgentId: "sleepy",
+      action: "consult",
+      task: "Wake and reply.",
+      conversationId: "channel.shared",
+      ensureAwake: true,
+      stream: false,
+      createdAt: Date.now(),
+      metadata: { source: "test" },
+    });
+
+    expect(response.accepted).toBe(true);
+    await waitFor(
+      () => getJson<{
+        flights: Record<string, { state: string }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => snapshot.flights[response.flightId]?.state === "queued",
+    );
+
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-sleepy-pairing",
+      agentId: "sleepy",
+      nodeId: harness.nodeId,
+      harness: "codex",
+      transport: "pairing_bridge",
+      state: "idle",
+      sessionId: "missing-pairing-session",
+      metadata: { source: "test", agentName: "Sleepy" },
+    });
+
+    const drained = await waitFor(
+      () => getJson<{
+        flights: Record<string, { state: string; summary?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => {
+        const flight = snapshot.flights[response.flightId];
+        return Boolean(flight && flight.state !== "queued");
+      },
+    );
+    const flight = drained.flights[response.flightId];
+
+    expect(flight?.state).not.toBe("queued");
+    expect(flight?.summary).not.toBe("Message stored for Sleepy. Will deliver when online.");
+    expect(flight?.metadata?.dispatchAck).toEqual(expect.objectContaining({
+      endpointId: "endpoint-sleepy-pairing",
+      transport: "pairing_bridge",
+    }));
+  }, 15_000);
+
   test("keeps replayed invocations available to daemon routes after restart", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const firstHarness = await startBroker({ controlHome });
@@ -2431,6 +2509,80 @@ describe("broker daemon comms layer", () => {
       createdById: "operator",
       maxUses: 1,
     }));
+  }, 15_000);
+
+  test("uses a one-time project agent when fresh project work asks for one", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "fresh-route");
+    mkdirSync(projectRoot, { recursive: true });
+    writeRelayAgentRegistry(supportDirectory, {
+      "fresh-route": {
+        agentId: "fresh-route",
+        definitionId: "fresh-route",
+        displayName: "Fresh Project",
+        projectName: "Fresh Project",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-fresh-route-codex",
+          wakePolicy: "on_demand",
+        },
+        capabilities: ["chat", "invoke", "deliver"],
+      },
+    });
+
+    const harness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+      flight?: { targetAgentId: string; state: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-one-time-agent",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Review this project in fresh Codex context.",
+      intent: "consult",
+      execution: {
+        harness: "codex",
+        session: "new",
+      },
+      projectAgent: {
+        persistence: "one_time",
+      },
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).not.toBe("fresh-route.test-node");
+    expect(response.targetAgentId?.startsWith("fresh-route-card-")).toBe(true);
+    expect(response.targetAgentId?.endsWith(".test-node")).toBe(true);
+    expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.state).toBe("queued");
   }, 15_000);
 
   test("auto-provisions a one-time card when project-target delivery has ambiguous existing agents", async () => {

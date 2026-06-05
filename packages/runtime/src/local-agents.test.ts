@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +15,7 @@ import {
   buildLocalAgentSystemPromptTemplate,
   clearEndpointFailureMetadata,
   endpointStateAfterSuccessfulSessionWarmup,
+  areHarnessBinariesAvailable,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
@@ -23,8 +26,55 @@ import { DEFAULT_BROKER_URL } from "./broker-process-manager";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const scoutCli = `bun ${JSON.stringify(join(repoRoot, "packages", "cli", "bin", "scout.mjs"))}`;
 const scoutSkillPath = join(repoRoot, ".agents", "skills", "scout", "SKILL.md");
+const originalCodexBin = process.env.OPENSCOUT_CODEX_BIN;
+const originalCodeXBin = process.env.CODEX_BIN;
+const originalPath = process.env.PATH;
+const tempPaths = new Set<string>();
+
+afterEach(() => {
+  if (originalCodexBin === undefined) {
+    delete process.env.OPENSCOUT_CODEX_BIN;
+  } else {
+    process.env.OPENSCOUT_CODEX_BIN = originalCodexBin;
+  }
+  if (originalCodeXBin === undefined) {
+    delete process.env.CODEX_BIN;
+  } else {
+    process.env.CODEX_BIN = originalCodeXBin;
+  }
+  if (originalPath === undefined) {
+    delete process.env.PATH;
+  } else {
+    process.env.PATH = originalPath;
+  }
+
+  for (const tempPath of tempPaths) {
+    rmSync(tempPath, { recursive: true, force: true });
+  }
+  tempPaths.clear();
+});
+
+function writeFakeCodexExecutable(directory: string): string {
+  const executablePath = join(directory, "codex");
+  writeFileSync(executablePath, "#!/bin/sh\necho codex-cli 0.999.0\n", "utf8");
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
 
 describe("local agent prompts", () => {
+  test("accepts an explicit Codex executable for app-server warmup even when PATH is empty", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-warmup-"));
+    tempPaths.add(tempRoot);
+    process.env.OPENSCOUT_CODEX_BIN = writeFakeCodexExecutable(tempRoot);
+    delete process.env.CODEX_BIN;
+    process.env.PATH = "";
+
+    expect(areHarnessBinariesAvailable({
+      harness: "codex",
+      transport: "codex_app_server",
+    })).toBe(true);
+  });
+
   test("clears stale endpoint failure metadata after successful session warmup", () => {
     expect(clearEndpointFailureMetadata({
       source: "scoutbot",

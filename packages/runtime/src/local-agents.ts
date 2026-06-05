@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { SessionState } from "@openscout/agent-sessions";
+import { resolveCodexExecutableInventory } from "@openscout/agent-sessions/codex-executable";
 import type {
   AgentCapability,
   ActorIdentity,
@@ -3196,12 +3197,35 @@ function killAgentSession(sessionName: string): void {
   }
 }
 
-function areHarnessBinariesAvailable(record: LocalAgentRecord): boolean {
+function isShellCommandAvailable(binary: string): boolean {
+  try {
+    execFileSync("sh", ["-lc", `command -v ${JSON.stringify(binary)}`], {
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isCodexExecutableAvailable(): boolean {
+  const inventory = resolveCodexExecutableInventory();
+  return inventory.candidates.some((candidate) => {
+    if (!candidate.executable) return false;
+    if (candidate.path === "codex") return isShellCommandAvailable("codex");
+    return true;
+  });
+}
+
+export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harness" | "transport">): boolean {
   const harness = normalizeLocalAgentHarness(record.harness);
   const binaries = new Set<string>();
 
   if (record.transport === "codex_app_server" || harness === "codex") {
-    binaries.add("codex");
+    if (!isCodexExecutableAvailable()) {
+      return false;
+    }
   }
 
   if (record.transport === "claude_stream_json" || (record.transport === "tmux" && harness === "claude")) {
@@ -3217,12 +3241,7 @@ function areHarnessBinariesAvailable(record: LocalAgentRecord): boolean {
   }
 
   for (const binary of binaries) {
-    try {
-      execFileSync("sh", ["-lc", `command -v ${binary}`], {
-        stdio: ["ignore", "pipe", "ignore"],
-        encoding: "utf8",
-      });
-    } catch {
+    if (!isShellCommandAvailable(binary)) {
       return false;
     }
   }

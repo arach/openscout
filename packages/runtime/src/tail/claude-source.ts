@@ -179,6 +179,14 @@ function fallbackCwdForPath(filePath: string): string | null {
   return dirName ? decodeProjectDir(dirName) : null;
 }
 
+function isClaudeWorkflowJournalFile(root: string, filePath: string): boolean {
+  const rel = relative(root, filePath);
+  if (!rel || rel.startsWith("..")) return false;
+  const parts = rel.split(/[\\/]/).filter(Boolean);
+  if (parts.at(-1) !== "journal.jsonl") return false;
+  return parts.includes("subagents") && parts.includes("workflows");
+}
+
 function walkRecentJsonlFiles(
   root: string,
   scope: TailDiscoveryScope,
@@ -207,6 +215,7 @@ function walkRecentJsonlFiles(
         continue;
       }
       if (!entry.endsWith(".jsonl") || stats.mtimeMs < cutoff) continue;
+      if (isClaudeWorkflowJournalFile(root, path)) continue;
       found.push({ path, mtimeMs: stats.mtimeMs, size: stats.size });
     }
   }
