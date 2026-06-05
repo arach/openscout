@@ -145,6 +145,7 @@ import {
   readWorkMaterialContent,
   readWorkMaterialRaw,
 } from "./work-materials.ts";
+import { indexPlanDocuments } from "./plan-documents.ts";
 import {
   defaultHeuristicsResponse,
   globalHeuristicsFile,
@@ -2977,6 +2978,19 @@ export async function createOpenScoutWebServer(
     }
     const result = writeProjectHeuristicsFile(workspaceRoot, await rawHeuristicsFromRequest(c));
     return "config" in result ? c.json(result) : c.json(result, 400);
+  });
+  app.get("/api/plan-documents", async (c) => {
+    const agents = queryAgents();
+    return c.json(await indexPlanDocuments({
+      currentDirectory,
+      workspaces: agents.map((agent) => ({
+        agentId: agent.id,
+        agentName: agent.name,
+        cwd: agent.cwd,
+        project: agent.project,
+        projectRoot: agent.projectRoot,
+      })),
+    }));
   });
   const handleListWork = (c: Context) => {
     const agentId = c.req.query("agentId");
