@@ -109,6 +109,7 @@ That keeps ordinary collaboration simple:
 ```bash
 scout send --to vox "heads up: I’m on the runtime side"
 scout ask --to vox "can you confirm the broker fix?"
+scout ask --harness codex "review this in a fresh Codex worker"
 ```
 
 Known on-demand or offline agents are supposed to wake on first delivery. `scout send` and `scout ask` should be the default path; `scout up` is for explicit prewarming or for creating/registering a target the broker does not know yet.
@@ -209,6 +210,18 @@ scout ask --to lattices#claude?sonnet "take task B"
 Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier. Shorthand `#codex` maps to `harness:codex`; `?sonnet` or `?5.5` maps to `model:<model>`. Dimensions combine in any order.
 
 If direct send/ask still comes back unresolved, treat that as a routing problem, not a mere "target is offline" problem. The right follow-up is to disambiguate the target, inspect broker context with `scout who` / `scout latest`, or create/register the missing identity. Do not default to pushing the bring-up step back onto the operator for a known target.
+
+For current-project work where the harness is the only important choice, omit
+`--to` and `--project`:
+
+```bash
+scout ask --harness codex "take a fresh pass on this repo"
+```
+
+That routes by the current project path and asks the broker to create or choose
+a compatible worker. Add `--new` with an explicit `--project` when a different
+repo path should start fresh, and use an exact session/ref when the intent is
+to continue prior context.
 
 Local product handoffs use the public Scout address:
 

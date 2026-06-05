@@ -263,6 +263,12 @@ sender/project. This includes the case where multiple same-project cards are
 equally plausible but the ask requests fresh work rather than a specific
 session.
 
+When a CLI or MCP ask provides only execution preferences, such as
+`--harness codex` or `session: "new"`, Scout treats the current directory as the
+project target and requests a one-time project agent for that fresh work. This
+keeps "run this repo in a fresh compatible worker" cheap without forcing the
+caller to pre-create or choose a stable card.
+
 ## Ask Targets And Reply Sessions
 
 An ask has two different routes:
@@ -281,6 +287,12 @@ identity, harness/profile/model hints, project root, and return-address
 metadata; it does not mean "reuse whatever thread was last attached." Scout
 should consult stale session metadata only when the request names an exact
 `targetSessionId`/`session:<id>` and that session cannot be reached.
+
+`session: "new"` may also target an existing agent card. In that shape, the card
+supplies the identity, project, harness profile, and return-address metadata;
+the session policy says the work should enter fresh target context instead of
+continuing a concrete prior session for that card. Scout defines a one-time
+project agent when the caller routed by project and explicitly asked for one.
 
 Use exact `agentId` or project routing when the sender knows who should own the
 work but does not need prior context. That path should stay cheap and
