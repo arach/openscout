@@ -306,7 +306,13 @@ export function routeFromUrl(urlLike: string | URL): Route {
     }
     const mode = parseOpsMode(parts[1]) ?? "mission";
     const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
-    return { view: "ops", mode, ...(tailQuery ? { tailQuery } : {}) };
+    const planDocumentId = mode === "plan" ? url.searchParams.get("plan")?.trim() : "";
+    return {
+      view: "ops",
+      mode,
+      ...(tailQuery ? { tailQuery } : {}),
+      ...(planDocumentId ? { planDocumentId } : {}),
+    };
   }
   return scoped({ view: "inbox" });
 }
@@ -404,8 +410,11 @@ export function routePath(r: Route): string {
       return "/settings";
     case "ops":
       if (!r.mode) return "/ops";
-      if (r.mode === "tail" && r.tailQuery) {
-        return `/ops/${opsModePath(r.mode)}?q=${encodeURIComponent(r.tailQuery)}`;
+      if (r.mode === "tail" || r.mode === "plan") {
+        const params = new URLSearchParams();
+        if (r.mode === "tail" && r.tailQuery) params.set("q", r.tailQuery);
+        if (r.mode === "plan" && r.planDocumentId) params.set("plan", r.planDocumentId);
+        return `/ops/${opsModePath(r.mode)}${searchSuffix(params)}`;
       }
       return `/ops/${opsModePath(r.mode)}`;
     case "follow": {
@@ -456,7 +465,7 @@ function routeKey(r: Route): string {
     case "work":
       return `work:${r.workId}${scope}`;
     case "ops":
-      return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}`;
+      return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}:${r.planDocumentId ?? ""}`;
     case "follow":
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     case "terminal":
