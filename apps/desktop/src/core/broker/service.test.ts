@@ -1092,6 +1092,128 @@ describe("scoutAskHandler", () => {
 
   }, 15000);
 
+  test("infers a one-time project target when an ask only specifies execution preferences", async () => {
+    useIsolatedOpenScoutHome();
+    const projectRoot = "/tmp/talkie";
+
+    type CapturedDelivery = {
+      target?: { kind?: string; projectPath?: string };
+      targetLabel?: string;
+      execution?: { harness?: string; session?: string };
+      projectAgent?: { persistence?: string };
+    };
+    const captured = {
+      delivery: null as CapturedDelivery | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = (await request.json()) as NonNullable<
+          typeof captured.delivery
+        >;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.talkie",
+            kind: "direct",
+            title: "Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "talkie.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.talkie",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Review this.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "talkie.main",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "talkie.main",
+            state: "waking",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const receipt = await scoutAskHandler({
+      senderId: "operator",
+      body: "Review this.",
+      harness: "codex",
+      currentDirectory: projectRoot,
+    });
+
+    expect(receipt.ids.targetAgentId).toBe("talkie.main");
+    expect(captured.delivery?.target).toEqual({
+      kind: "project_path",
+      projectPath: projectRoot,
+    });
+    expect(captured.delivery?.targetLabel).toBe(projectRoot);
+    expect(captured.delivery?.execution).toEqual({
+      harness: "codex",
+      session: "new",
+    });
+    expect(captured.delivery?.projectAgent).toEqual({
+      persistence: "one_time",
+    });
+
+    captured.delivery = null;
+    await scoutAskHandler({
+      senderId: "operator",
+      projectPath: projectRoot,
+      body: "Review this.",
+      session: "new",
+      currentDirectory: "/tmp",
+    });
+
+    const explicitProjectDelivery = captured.delivery as CapturedDelivery | null;
+    expect(explicitProjectDelivery?.target).toEqual({
+      kind: "project_path",
+      projectPath: projectRoot,
+    });
+    expect(explicitProjectDelivery?.execution).toEqual({
+      session: "new",
+    });
+    expect(explicitProjectDelivery?.projectAgent).toEqual({
+      persistence: "one_time",
+    });
+  }, 15000);
+
   test("rejects project-prefixed to targets at the core boundary", async () => {
     const receipt = await scoutAskHandler({
       senderId: "operator",

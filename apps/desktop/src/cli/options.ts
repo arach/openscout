@@ -34,6 +34,7 @@ export type ScoutAskCommandOptions = ContextRootOptions & {
   projectPath?: string;
   channel?: string;
   harness?: string;
+  session?: "new";
   timeoutSeconds?: number;
   replyMode?: "inline" | "notify" | "none";
   labels?: string[];
@@ -181,6 +182,36 @@ function rejectMixedBodySources(kind: "message" | "question"): never {
       ? "provide either an inline message or --message-file/--body-file, not both"
       : "provide either an inline question or --prompt-file/--body-file, not both",
   );
+}
+
+function parseAskSessionPreference(
+  value: string,
+): NonNullable<ScoutAskCommandOptions["session"]> {
+  if (value === "new") {
+    return value;
+  }
+  throw new ScoutCliError(`invalid session: ${value}`);
+}
+
+function mergeAskSessionPreference(
+  current: ScoutAskCommandOptions["session"],
+  next: NonNullable<ScoutAskCommandOptions["session"]>,
+): NonNullable<ScoutAskCommandOptions["session"]> {
+  if (current && current !== next) {
+    throw new ScoutCliError("provide only one ask session preference");
+  }
+  return next;
+}
+
+function shouldInferCurrentProjectAskTarget(input: {
+  targetLabel?: string | null;
+  projectPath?: string;
+  harness?: string;
+  session?: ScoutAskCommandOptions["session"];
+}): boolean {
+  return !input.targetLabel
+    && !input.projectPath
+    && Boolean(input.harness || input.session);
 }
 
 function parseContextRootPrefix(
@@ -486,6 +517,7 @@ export function parseAskCommandOptions(
   let projectPath: string | undefined;
   let channel: string | undefined;
   let harness: string | undefined;
+  let session: ScoutAskCommandOptions["session"];
   let timeoutSeconds: number | undefined;
   let replyMode: ScoutAskCommandOptions["replyMode"];
   let promptFile: string | undefined;
@@ -529,6 +561,19 @@ export function parseAskCommandOptions(
       const value = parseFlagValue(parsed.args, index, "--harness");
       harness = value.value;
       index = value.nextIndex;
+      continue;
+    }
+    if (current === "--session" || current.startsWith("--session=")) {
+      const value = parseFlagValue(parsed.args, index, "--session");
+      session = mergeAskSessionPreference(
+        session,
+        parseAskSessionPreference(value.value),
+      );
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--new") {
+      session = mergeAskSessionPreference(session, "new");
       continue;
     }
     if (current === "--timeout" || current.startsWith("--timeout=")) {
@@ -589,6 +634,12 @@ export function parseAskCommandOptions(
       message = routed.message;
     }
   }
+  if (shouldInferCurrentProjectAskTarget({ targetLabel, projectPath, harness, session })) {
+    projectPath = parsed.currentDirectory;
+    if (harness && !session) {
+      session = "new";
+    }
+  }
   if (targetLabel && projectPath) {
     throw new ScoutCliError("provide either --to/--ref or --project, not both");
   }
@@ -611,6 +662,7 @@ export function parseAskCommandOptions(
     projectPath,
     channel,
     harness,
+    session,
     timeoutSeconds,
     replyMode,
     ...(labels.length ? { labels } : {}),
@@ -627,6 +679,7 @@ export function parseImplicitAskCommandOptions(
   let agentName: string | null = null;
   let channel: string | undefined;
   let harness: string | undefined;
+  let session: ScoutAskCommandOptions["session"];
   let timeoutSeconds: number | undefined;
   let replyMode: ScoutAskCommandOptions["replyMode"];
   let promptFile: string | undefined;
@@ -651,6 +704,19 @@ export function parseImplicitAskCommandOptions(
       const value = parseFlagValue(parsed.args, index, "--harness");
       harness = value.value;
       index = value.nextIndex;
+      continue;
+    }
+    if (current === "--session" || current.startsWith("--session=")) {
+      const value = parseFlagValue(parsed.args, index, "--session");
+      session = mergeAskSessionPreference(
+        session,
+        parseAskSessionPreference(value.value),
+      );
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--new") {
+      session = mergeAskSessionPreference(session, "new");
       continue;
     }
     if (current === "--timeout" || current.startsWith("--timeout=")) {
@@ -701,7 +767,7 @@ export function parseImplicitAskCommandOptions(
   }
 
   const input = messageParts.join(" ").trim();
-  if (!input) {
+  if (!input && !promptFile) {
     throw new ScoutCliError("no question provided");
   }
 
@@ -724,6 +790,7 @@ export function parseImplicitAskCommandOptions(
       projectPath: routed.projectPath,
       channel: mergeComposerChannel(channel, routed.channel),
       harness,
+      session,
       timeoutSeconds,
       replyMode,
       ...(labels.length ? { labels } : {}),
@@ -734,6 +801,23 @@ export function parseImplicitAskCommandOptions(
 
   const mentions = extractMentionTargets(input);
   if (mentions.length === 0) {
+    if (shouldInferCurrentProjectAskTarget({ harness, session })) {
+      const inferredSession = harness && !session ? "new" : session;
+      return {
+        currentDirectory: parsed.currentDirectory,
+        args: parsed.args,
+        agentName,
+        projectPath: parsed.currentDirectory,
+        channel,
+        harness,
+        session: inferredSession,
+        timeoutSeconds,
+        replyMode,
+        ...(labels.length ? { labels } : {}),
+        message: input,
+        promptFile,
+      };
+    }
     throw new ScoutCliError("implicit ask requires >> target or an @agent mention");
   }
   if (mentions.length > 1) {
@@ -756,6 +840,7 @@ export function parseImplicitAskCommandOptions(
     targetLabel: target.label,
     channel,
     harness,
+    session,
     timeoutSeconds,
     replyMode,
     ...(labels.length ? { labels } : {}),
