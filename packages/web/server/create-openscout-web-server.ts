@@ -115,6 +115,7 @@ import {
 import {
   createScoutbotAssistantService,
   ScoutbotAssistantError,
+  type ScoutbotCodexAssistantInvoker,
   type ScoutbotBrief,
   type ScoutbotBriefCapture,
   type ScoutbotBriefObservation,
@@ -138,7 +139,7 @@ import {
   startScoutbotRunner,
   type ScoutbotRunnerHandle,
 } from "./scoutbot/runner.ts";
-import { SCOUTBOT_AGENT_ID } from "./scoutbot/role.ts";
+import { SCOUTBOT_AGENT_ID, SCOUTBOT_REASONING_EFFORT } from "./scoutbot/role.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
@@ -186,8 +187,12 @@ import {
   saveOpenScoutOnboardingProject,
   skipOpenScoutOnboarding,
 } from "@openscout/runtime/onboarding";
-import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
+import { relayAgentLogsDirectory, relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
+import {
+  invokeCodexAppServerAgent,
+  normalizeCodexAppServerLaunchArgs,
+} from "@openscout/runtime/codex-app-server";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
   const trimmed = value?.trim();
@@ -287,6 +292,9 @@ export type CreateOpenScoutWebServerOptions = {
   createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
+  scoutbotAssistant?: {
+    invokeCodex?: ScoutbotCodexAssistantInvoker;
+  };
   scoutbot?: {
     enabled?: boolean;
     brokerBaseUrl?: string;
@@ -1885,6 +1893,49 @@ async function resolveScoutbotCredentialState(
   };
 }
 
+function createDefaultScoutbotCodexInvoker(currentDirectory: string): ScoutbotCodexAssistantInvoker {
+  return async (input) => {
+    const runtimeName = `scoutbot-assistant-${sanitizeSupportPathSegment(input.sessionId)}`;
+    const result = await invokeCodexAppServerAgent({
+      agentName: "scoutbot-assistant",
+      sessionId: input.sessionId,
+      cwd: currentDirectory,
+      systemPrompt: input.systemPrompt,
+      runtimeDirectory: relayAgentRuntimeDirectory(runtimeName),
+      logsDirectory: relayAgentLogsDirectory(runtimeName),
+      launchArgs: buildScoutbotAssistantCodexLaunchArgs(process.env),
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      prompt: input.prompt,
+      timeoutMs: input.timeoutMs,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+    });
+    return {
+      output: result.output,
+      threadId: result.threadId,
+    };
+  };
+}
+
+function buildScoutbotAssistantCodexLaunchArgs(env: NodeJS.ProcessEnv): string[] {
+  const args: string[] = [];
+  const model = env.OPENSCOUT_SCOUTBOT_CODEX_MODEL?.trim();
+  const reasoningEffort = env.OPENSCOUT_SCOUTBOT_CODEX_REASONING_EFFORT?.trim()
+    || SCOUTBOT_REASONING_EFFORT;
+  if (model) args.push("--model", model);
+  if (reasoningEffort) args.push("--reasoning-effort", reasoningEffort);
+  return normalizeCodexAppServerLaunchArgs(args);
+}
+
+function sanitizeSupportPathSegment(value: string): string {
+  const sanitized = value
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return sanitized || "default";
+}
+
 function renderScoutLocalPortal(input: {
   requestUrl: string;
   portalHost: string;
@@ -2133,6 +2184,8 @@ export async function createOpenScoutWebServer(
       const config = await loadScoutRelayConfig().catch(() => null);
       return config?.openaiApiKey ?? scoutbotCredentials.getOpenAIKey();
     },
+    invokeCodex: options.scoutbotAssistant?.invokeCodex
+      ?? createDefaultScoutbotCodexInvoker(currentDirectory),
   });
   let scoutbotRunner: ScoutbotRunnerHandle | null = null;
   if (options.scoutbot?.enabled) {
