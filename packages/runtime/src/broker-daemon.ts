@@ -5195,7 +5195,7 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       await upsertAgentDurably(command.agent);
       return { ok: true };
     case "agent.endpoint.upsert":
-      await upsertEndpointDurably(command.endpoint);
+      await persistEndpoint(command.endpoint);
       return { ok: true };
     case "conversation.upsert":
       await upsertConversationDurably(command.conversation);
@@ -6747,7 +6747,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/endpoints") {
     try {
       const endpoint = await readRequestBody<AgentEndpoint>(request);
-      await runtime.upsertEndpoint(endpoint);
+      await persistEndpoint(endpoint);
       json(response, 200, { ok: true, endpoint });
     } catch (error) {
       badRequest(response, error);
