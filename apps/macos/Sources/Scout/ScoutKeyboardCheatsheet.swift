@@ -46,7 +46,7 @@ struct ScoutKeyboardCheatsheet: View {
 
             keyGroup("Navigate · when not typing", active: false) {
                 kbd("j  ↓  ·  k  ↑", "next / previous item")
-                kbd("l  ·  h", "next / previous item")
+                kbd("l  ·  h", "Comms: next / prev  ·  Agents: expand / collapse")
                 kbd("g  ·  ⇧G", "first / last item")
                 kbd("⌘↑  ⌘↓", "next / previous (works while typing too)")
             }
@@ -61,7 +61,9 @@ struct ScoutKeyboardCheatsheet: View {
             }
 
             keyGroup("Agents", active: section == .agents) {
-                kbd("⌘↩", "open agent's channel")
+                kbd("j  k  ·  ↑ ↓", "walk project · agent · session")
+                kbd("l  ·  h", "expand · collapse / parent")
+                kbd("⌘↩", "open session / agent channel")
                 kbd("⌘O", "observe agent")
             }
 
