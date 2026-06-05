@@ -41,8 +41,8 @@ export const ATTENTION: Record<RepoWatchAttentionLevel, AttentionVisual> = {
   attention: {
     label: "ATTENTION",
     tone: "warn",
-    fg: "var(--status-warn-fg)",
-    bg: "var(--status-warn-bg)",
+    fg: "var(--studio-ink)",
+    bg: "var(--status-neutral-bg)",
     rank: 1,
     glyph: "▲",
     gloss: "Dirty main, diverged branch, or status couldn't be read.",

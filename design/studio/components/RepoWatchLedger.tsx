@@ -1,34 +1,31 @@
 "use client";
 
 /**
- * Repo Watch — Dense Ledger treatment (SCO-061).
+ * Repo Watch — calm inventory treatment (SCO-061).
  *
- * The "ssh into the machine" maximal-density read. One severity-sorted
- * ledger of every worktree, grouped under thin project header rows. Each
- * worktree is ONE scannable line whose columns align across the whole
- * table: attention glyph · name · branch (+ahead/behind) · dirty chips
- * (staged/unstaged/untracked/conflicts) · diff shortstat · attached agent
- * handles (live ones lifted) · last-commit ago. A top totals strip and a
- * legend anchor the read; conflicts are made unmistakable.
+ * A bird's-eye list of every repo on the machine and the worktrees with
+ * something going on, presented in the app's OWN vocabulary: each repo is a
+ * titled section over a lifted surface card; each worktree is a padded row that
+ * reads in plain English (sans titles, mono only for numerics). Structure comes
+ * from surface tone + spacing — NO rules, lines, or dividers anywhere (they read
+ * as harsh near-white seams on the app theme, which the operator rejects).
+ * Clean checkouts fold away ("+N clean"); fully-idle repos drop
+ * to a quiet tray under "all"; ignore hides a repo entirely.
  *
- * Calm, not loud: the accent is a signal (live agents, active rank), tone
- * vars carry severity, hairline token dividers do all the partitioning.
- * The single interaction is an optional per-row expand that drops the
- * porcelain file list — every other field is visible without a click.
+ * Colour is reserved for meaning only: red = conflict, accent = a live agent.
+ * Everything else is ink / muted / faint. The single interaction is an optional
+ * per-row expand that reveals the changed-file list; every headline fact (what
+ * changed, how big, who's on it, how stale) is visible without a click.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   RepoWatchSnapshot,
   RepoWatchWorktree,
   RepoWatchProject,
-  RepoWatchAttentionLevel,
 } from "@/lib/repo-watch/types";
 import {
   ATTENTION,
-  ATTENTION_ORDER,
-  aheadBehind,
-  pathLeaf,
   shortPath,
   agoFromMillis,
   fileStatusTone,
@@ -36,152 +33,231 @@ import {
   isConflict,
   agentLive,
   agentHandle,
-  agentLabel,
   toneFg,
   toneBg,
 } from "@/lib/repo-watch/ui";
 
-/* ── Shared column geometry ────────────────────────────────────────────
- * One grid template drives the project header rows AND every worktree
- * row, so the columns line up vertically down the entire ledger — the
- * thing that makes a dense table feel engineered rather than stacked.
+/* ── View model: filter + ignore (no table-header sorting) ───────────────
+ * "recent" shows only the repos with something going on; "all" also lists the
+ * clean, idle ones in a quiet tray. Ignore is a per-machine curation: an ignored
+ * repo drops out of the list (and the counts) entirely, reachable again only via
+ * the ignored tray. */
+type FilterMode = "recent" | "all";
+
+/* Severity reads as ONE small dot, tone + size by level — red critical, bright
+ * attention, accent active, faint idle. No new hues; the dot is the only mark
+ * the eye has to parse at the head of a row. */
+const SEV_DOT: Record<string, { size: number; color: string }> = {
+  critical: { size: 7, color: "var(--status-error-fg)" },
+  attention: { size: 6, color: "var(--studio-ink)" },
+  active: { size: 6, color: "var(--scout-accent)" },
+  quiet: { size: 4, color: "var(--studio-ink-faint)" },
+  unknown: { size: 4, color: "var(--studio-ink-faint)" },
+};
+
+/* Panels float on the canvas by a lifted FILL plus a soft shadow — NEVER a
+ * border or rule. On the near-black app theme a 1px edge reads as a harsh
+ * near-white seam, so the boundary of every panel is a soft tonal step.
  *
- *   glyph · name · branch · dirty-chips · diff · agents · ago
- */
-const GRID =
-  "grid-cols-[14px_minmax(170px,1.15fr)_minmax(190px,1.5fr)_136px_minmax(150px,1fr)_minmax(120px,0.9fr)_46px]";
+ * The fill is anchored to canvas + ink — the two tokens that are IDENTICAL in
+ * the studio and the live app (0.14 / 0.96). `--studio-surface` is NOT used: it
+ * differs between the two (0.20 studio vs 0.18 live), which is exactly why an
+ * earlier surface-anchored fill looked crisp in the studio but washed out live.
+ * Anchoring to canvas makes the studio a faithful preview of the live result. */
+const PANEL_BG =
+  "color-mix(in oklab, var(--studio-canvas) 84%, var(--studio-ink))";
+const PANEL_SHADOW =
+  "shadow-[0_1px_2px_rgba(0,0,0,0.45),0_10px_26px_-8px_rgba(0,0,0,0.5)]";
+
+/* Ignored repos — persisted in localStorage so the operator's curation sticks
+ * across reloads. Stored as a Set of project ids. */
+const IGNORED_KEY = "openscout.repos.ignored";
+
+function useIgnored() {
+  const [ignored, setIgnored] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set<string>();
+    try {
+      const raw = window.localStorage.getItem(IGNORED_KEY);
+      return new Set<string>(raw ? JSON.parse(raw) : []);
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const toggle = (id: string) =>
+    setIgnored((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        window.localStorage.setItem(IGNORED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore quota / privacy-mode failures */
+      }
+      return next;
+    });
+  return [ignored, toggle] as const;
+}
+
+/* Stable worktree order within a repo: worst-first, main winning ties. */
+function worktreeOrder(a: RepoWatchWorktree, b: RepoWatchWorktree): number {
+  const r = ATTENTION[a.attention].rank - ATTENTION[b.attention].rank;
+  if (r !== 0) return r;
+  if (a.branch.isMain !== b.branch.isMain) return a.branch.isMain ? -1 : 1;
+  return a.name.localeCompare(b.name);
+}
+
+/* A worktree is "going on" when there's something live or unfinished in it:
+ * uncommitted changes, an unpushed/unpulled commit, a live agent, or a parked
+ * session. Clean, idle worktrees fold away rather than spending a row each. */
+function hasActivity(wt: RepoWatchWorktree): boolean {
+  return (
+    !wt.status.clean ||
+    wt.branch.ahead > 0 ||
+    wt.branch.behind > 0 ||
+    wt.agents.some(agentLive) ||
+    wt.sessions.length > 0
+  );
+}
 
 export function RepoWatchLedger({ snapshot }: { snapshot: RepoWatchSnapshot }) {
-  const { totals } = snapshot;
+  const [filter, setFilter] = useState<FilterMode>("recent");
+  const [ignored, toggleIgnore] = useIgnored();
+  const [showIgnored, setShowIgnored] = useState(false);
 
-  // Stable severity ordering for the project blocks: worst-first by the
-  // project's own rollup, ties broken by name so the read never shuffles.
-  const projects = [...snapshot.projects].sort((a, b) => {
-    const r = ATTENTION[a.attention].rank - ATTENTION[b.attention].rank;
-    return r !== 0 ? r : a.name.localeCompare(b.name);
-  });
+  // Partition the inventory: ignored repos drop out entirely (reachable only
+  // via the tray); the rest split into live (something going on) and quiet
+  // (clean, idle). Live leads, worst-first then name; the tails are name-sorted.
+  const { live, quiet, ignoredList } = useMemo(() => {
+    const live: RepoWatchProject[] = [];
+    const quiet: RepoWatchProject[] = [];
+    const ignoredList: RepoWatchProject[] = [];
+    for (const p of snapshot.projects) {
+      if (ignored.has(p.id)) ignoredList.push(p);
+      else if (p.worktrees.some(hasActivity)) live.push(p);
+      else quiet.push(p);
+    }
+    const byName = (a: RepoWatchProject, b: RepoWatchProject) =>
+      a.name.localeCompare(b.name);
+    live.sort(
+      (a, b) =>
+        ATTENTION[a.attention].rank - ATTENTION[b.attention].rank || byName(a, b),
+    );
+    quiet.sort(byName);
+    ignoredList.sort(byName);
+    return { live, quiet, ignoredList };
+  }, [snapshot.projects, ignored]);
 
-  // Per-level worktree counts → drives the distribution bar + its legend.
-  // Gated to levels actually present so we never key a tone the table
-  // doesn't use.
-  const levelCounts = {} as Record<RepoWatchAttentionLevel, number>;
-  for (const p of snapshot.projects)
-    for (const wt of p.worktrees)
-      levelCounts[wt.attention] = (levelCounts[wt.attention] ?? 0) + 1;
-  const dist = ATTENTION_ORDER.filter((l) => (levelCounts[l] ?? 0) > 0).map(
-    (l) => ({ level: l, count: levelCounts[l] }),
-  );
+  // Overview counts reflect what's actually in view — ignoring a repo drops it
+  // from the totals too, so the numbers always match what you're looking at.
+  let repos = 0;
+  let worktrees = 0;
+  let active = 0;
+  let changed = 0;
+  let conflicts = 0;
+  let liveAgents = 0;
+  for (const p of [...live, ...quiet]) {
+    repos++;
+    for (const wt of p.worktrees) {
+      worktrees++;
+      if (hasActivity(wt)) active++;
+      if (!wt.status.clean) changed++;
+      if (wt.status.conflicts > 0) conflicts++;
+      liveAgents += wt.agents.filter(agentLive).length;
+    }
+  }
 
   return (
-    <section className="font-mono text-studio-ink">
-      {/* ── Hero + totals strip ───────────────────────────────────── */}
-      <header className="mb-5">
-        <div className="flex items-baseline justify-between gap-4">
-          <div>
-            <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-              · repo watch · state of repos
-            </div>
-            <h1 className="mt-1 font-display text-[24px] font-medium leading-none tracking-tight text-studio-ink">
-              Working tree ledger
-            </h1>
-          </div>
-          <div className="shrink-0 text-right font-mono text-[9.5px] leading-tight text-studio-ink-faint">
-            <div className="uppercase tracking-eyebrow">snapshot</div>
-            <div className="mt-0.5 tabular-nums text-studio-ink-muted">
-              {fmtClock(snapshot.generatedAt)}
-            </div>
-          </div>
-        </div>
-
-        {/* Totals — the rollup the operator reads first. Conflicts and
-            attention get tone; the rest stay neutral counts. A stacked
-            distribution bar underneath gives the severity mix at a glance,
-            before the eye reaches the table. */}
-        <div className="mt-3 rounded-md border border-studio-edge bg-studio-surface px-3.5 py-2.5">
-          <div className="flex flex-wrap items-stretch gap-x-5 gap-y-2">
-            <Total label="projects" value={totals.projects} />
-            <Total label="worktrees" value={totals.worktrees} />
-            <Divider />
-            <Total label="dirty" value={totals.dirtyWorktrees} tone="warn" />
-            <Total
-              label="conflicts"
-              value={totals.conflictedWorktrees}
-              tone={totals.conflictedWorktrees > 0 ? "error" : undefined}
-              emphatic={totals.conflictedWorktrees > 0}
-            />
-            <Total
-              label="attention"
-              value={totals.attentionWorktrees}
-              tone="warn"
-            />
-            <Divider />
-            <Total label="agents" value={totals.attachedAgents} tone="accent" />
-            <Total label="sessions" value={totals.attachedSessions} />
-          </div>
-
-          <DistributionBar dist={dist} total={totals.worktrees} />
+    <section className="text-studio-ink">
+      {/* Overview line — the inventory on the left, the filter (and a way back
+          to ignored repos) on the right. "Everything you've got going on." */}
+      <header className="mb-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <SummaryStrip
+          repos={repos}
+          worktrees={worktrees}
+          active={active}
+          changed={changed}
+          conflicts={conflicts}
+          live={liveAgents}
+        />
+        <div className="flex shrink-0 items-center gap-3">
+          {ignored.size > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowIgnored((v) => !v)}
+              aria-pressed={showIgnored}
+              className={[
+                "text-[11px] transition-colors",
+                showIgnored
+                  ? "text-studio-ink-muted"
+                  : "text-studio-ink-faint hover:text-studio-ink-muted",
+              ].join(" ")}
+            >
+              ignored ({ignored.size})
+            </button>
+          ) : null}
+          <FilterControl filter={filter} onFilter={setFilter} />
         </div>
       </header>
 
-      {/* ── Table — header rail + body share GRID so all seven columns
-            align down the whole ledger. The scroll wrapper lets that dense
-            table scroll rather than compress on a narrow native panel,
-            instead of crushing the min column widths. ─────────────────── */}
-      <div className="overflow-x-auto">
-       <div className="min-w-[860px]">
-      {/* Column header rail */}
-      <div
-        className={[
-          "grid items-end gap-x-3 border-b border-studio-edge-strong px-2 pb-1.5",
-          GRID,
-        ].join(" ")}
-      >
-        <span aria-hidden />
-        <ColHead>worktree</ColHead>
-        <ColHead>branch</ColHead>
-        <ColHead className="justify-self-start">
-          <span title="staged / unstaged / untracked / conflicts">
-            S·U·?·X
-          </span>
-        </ColHead>
-        <ColHead>diff</ColHead>
-        <ColHead>agents</ColHead>
-        <ColHead className="justify-self-end">ago</ColHead>
-      </div>
+      {/* Live repos — one soft panel PER repo, separated by spacing (no lines),
+          so the list reads as distinct cards, not one big blob. A single-worktree
+          repo is a compact one-line card; a multi-worktree project is a taller
+          card: quiet sub-head + indented worktree sub-rows + "+N clean". */}
+      {live.length > 0 ? (
+        <div className="space-y-3">
+          {live.map((project) => (
+            <RepoEntry
+              key={project.id}
+              project={project}
+              generatedAt={snapshot.generatedAt}
+              onIgnore={() => toggleIgnore(project.id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div
+          className={`rounded-xl px-4 py-5 text-[12px] text-studio-ink-faint ${PANEL_SHADOW}`}
+          style={{ background: PANEL_BG }}
+        >
+          Nothing going on right now
+          {quiet.length > 0 ? " — switch to all to see your other repos" : ""}.
+        </div>
+      )}
 
-      {/* ── Ledger body ───────────────────────────────────────────── */}
-      <div className="rounded-b-md border border-t-0 border-studio-edge bg-studio-canvas-alt">
-        {projects.map((project, pi) => (
-          <ProjectBlock
-            key={project.id}
-            project={project}
-            generatedAt={snapshot.generatedAt}
-            first={pi === 0}
-          />
-        ))}
-      </div>
-       </div>
-      </div>
+      {/* Clean tray — only under "all"; cared-about-but-idle repos, still
+          findable, kept out of the way without having to ignore them. */}
+      {filter === "all" && quiet.length > 0 ? (
+        <QuietSection
+          label={`clean & idle (${quiet.length})`}
+          projects={quiet}
+          onIgnore={toggleIgnore}
+        />
+      ) : null}
 
-      {/* ── Snapshot warnings ─────────────────────────────────────── */}
+      {/* Ignored tray — opened from the header; restore with "unignore". */}
+      {showIgnored && ignoredList.length > 0 ? (
+        <QuietSection
+          label={`ignored (${ignoredList.length})`}
+          projects={ignoredList}
+          onIgnore={toggleIgnore}
+          ignored
+        />
+      ) : null}
+
+      {/* Scan warnings — a quiet note, never a heavy banner. */}
       {snapshot.warnings.length > 0 ? (
-        <footer className="mt-4 rounded-md border border-studio-edge bg-studio-surface px-3.5 py-2.5">
-          <div className="mb-1.5 flex items-center gap-2">
-            <span
-              className="text-[10px] leading-none"
-              style={{ color: ATTENTION.attention.fg }}
-            >
-              {ATTENTION.attention.glyph}
-            </span>
-            <span className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-              scan warnings · {snapshot.warnings.length}
-            </span>
+        <footer
+          className={`mt-5 rounded-xl px-4 py-3 ${PANEL_SHADOW}`}
+          style={{ background: PANEL_BG }}
+        >
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            scan warnings ({snapshot.warnings.length})
           </div>
           <ul className="space-y-1">
             {snapshot.warnings.map((w, i) => (
               <li
                 key={i}
-                className="flex gap-2 font-mono text-[10.5px] leading-snug text-studio-ink-muted"
+                className="flex gap-2 font-mono text-[11px] leading-snug text-studio-ink-muted"
               >
                 <span className="select-none text-studio-ink-faint">—</span>
                 <span className="min-w-0">{w}</span>
@@ -194,127 +270,225 @@ export function RepoWatchLedger({ snapshot }: { snapshot: RepoWatchSnapshot }) {
   );
 }
 
-/* ── Project block: thin header row + its worktrees ────────────────── */
+/* ── Filter control — segmented, app-calm. "recent" hides the clean tray. ── */
 
-function ProjectBlock({
-  project,
-  generatedAt,
-  first,
+function FilterControl({
+  filter,
+  onFilter,
 }: {
-  project: RepoWatchProject;
-  generatedAt: number;
-  first: boolean;
+  filter: FilterMode;
+  onFilter: (m: FilterMode) => void;
 }) {
-  // Severity-sort worktrees inside the project; ties → main first, then
-  // name. Main floats up within a rank so the canonical tree leads.
-  const worktrees = [...project.worktrees].sort((a, b) => {
-    const r = ATTENTION[a.attention].rank - ATTENTION[b.attention].rank;
-    if (r !== 0) return r;
-    if (a.branch.isMain !== b.branch.isMain) return a.branch.isMain ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  const av = ATTENTION[project.attention];
-  const s = project.stats;
-
   return (
-    <div className={first ? "" : "border-t border-studio-edge-strong"}>
-      {/* Project header rail — spans the full width, sits a half-step
-          above the data rows on the deepest canvas tone. */}
-      <div className="flex items-center gap-2.5 bg-studio-canvas px-2 py-1.5">
-        <span
-          aria-hidden
-          className="text-[10px] leading-none"
-          style={{ color: av.fg }}
-          title={av.gloss}
-        >
-          {av.glyph}
-        </span>
-        <span className="font-sans text-[12.5px] font-semibold tracking-tight text-studio-ink">
-          {project.name}
-        </span>
-        <span className="truncate font-mono text-[10px] text-studio-ink-faint">
-          {shortPath(project.root, 3)}
-        </span>
-
-        {/* Per-project mini rollup — calm counts, tone only where it
-            earns it (conflicts / dirty / agents). */}
-        <span className="ml-auto flex items-center gap-2.5 font-mono text-[9.5px] tabular-nums">
-          <MiniStat label="wt" value={s.worktrees} />
-          {s.dirtyWorktrees > 0 ? (
-            <MiniStat label="dirty" value={s.dirtyWorktrees} tone="warn" />
-          ) : null}
-          {s.conflictedWorktrees > 0 ? (
-            <MiniStat
-              label="conflict"
-              value={s.conflictedWorktrees}
-              tone="error"
-            />
-          ) : null}
-          {s.attachedAgents > 0 ? (
-            <MiniStat
-              label="agents"
-              value={s.attachedAgents}
-              tone="accent"
-            />
-          ) : null}
-        </span>
-      </div>
-
-      {/* Worktree rows */}
-      <div className="divide-y divide-studio-edge">
-        {worktrees.map((wt) => (
-          <WorktreeRow key={wt.id} wt={wt} generatedAt={generatedAt} />
-        ))}
-      </div>
+    <div
+      role="group"
+      aria-label="Filter repos"
+      className="flex items-center gap-0.5 rounded-[7px] bg-studio-canvas-alt p-0.5 text-[11px]"
+    >
+      {(["recent", "all"] as FilterMode[]).map((f) => {
+        const on = f === filter;
+        return (
+          <button
+            key={f}
+            type="button"
+            onClick={() => onFilter(f)}
+            aria-pressed={on}
+            className={[
+              "rounded-[5px] px-2.5 py-1 capitalize transition-colors duration-75",
+              on
+                ? "bg-studio-surface text-studio-ink"
+                : "text-studio-ink-faint hover:text-studio-ink-muted",
+            ].join(" ")}
+          >
+            {f}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-/* ── Worktree row: the dense, single-line read ─────────────────────── */
+/* ── Repo entry: one repo inside the unified panel ─────────────────────────
+ * A single-worktree repo (the common case) is ONE compact line: repo · branch ·
+ * status · agents · ago. A multi-worktree project shows a quiet sub-head (name ·
+ * path · rollup) and its active worktrees as indented sub-rows, with the clean
+ * ones folded into a "+N clean" note. Severity dots align down a single rail. */
 
-function WorktreeRow({
+function RepoEntry({
+  project,
+  generatedAt,
+  onIgnore,
+}: {
+  project: RepoWatchProject;
+  generatedAt: number;
+  onIgnore: () => void;
+}) {
+  const going = [...project.worktrees].filter(hasActivity).sort(worktreeOrder);
+  const quietCount = project.worktrees.length - going.length;
+  const multi = project.worktrees.length > 1;
+  const panelCls = `overflow-hidden rounded-xl ${PANEL_SHADOW}`;
+
+  // Single-worktree repo → a compact one-line card. Repo name leads (bold),
+  // branch rides along muted; the whole line reads left-to-right, no empty middle.
+  if (!multi) {
+    const wt = going[0] ?? project.worktrees[0];
+    return (
+      <div className={panelCls} style={{ background: PANEL_BG }}>
+        <EntryRow
+          wt={wt}
+          generatedAt={generatedAt}
+          primary={project.name}
+          secondary={branchLabel(wt)}
+          onIgnore={onIgnore}
+        />
+      </div>
+    );
+  }
+
+  // Multi-worktree project → a taller card grouping its worktrees.
+  return (
+    <div className={`${panelCls} py-1`} style={{ background: PANEL_BG }}>
+      <RepoSubhead project={project} onIgnore={onIgnore} />
+      {going.map((wt) => (
+        <EntryRow
+          key={wt.id}
+          wt={wt}
+          generatedAt={generatedAt}
+          primary={branchLabel(wt)}
+          indent
+        />
+      ))}
+      {quietCount > 0 ? (
+        <div className="py-1 pl-[52px] pr-4 text-[11px] text-studio-ink-faint">
+          + {quietCount} clean {quietCount === 1 ? "worktree" : "worktrees"}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* Quiet sub-head for a multi-worktree project: name + path + a calm rollup,
+ * carrying the repo's overall severity dot so it aligns with single-repo rows. */
+function RepoSubhead({
+  project,
+  onIgnore,
+}: {
+  project: RepoWatchProject;
+  onIgnore: () => void;
+}) {
+  const total = project.worktrees.length;
+  const conflicts = project.stats.conflictedWorktrees;
+  const dot = SEV_DOT[project.attention];
+  return (
+    <div className="group/row relative flex items-baseline gap-2.5 px-4 pb-0.5 pt-2">
+      <span className="flex h-5 w-3 shrink-0 translate-y-1 items-center justify-center">
+        <span
+          aria-hidden
+          className="rounded-full"
+          style={{ height: `${dot.size}px`, width: `${dot.size}px`, background: dot.color }}
+        />
+      </span>
+      <span className="shrink-0 text-[12.5px] font-semibold leading-5 text-studio-ink">
+        {project.name}
+      </span>
+      <span className="min-w-0 truncate font-mono text-[11px] text-studio-ink-faint">
+        {shortPath(project.root, 3)}
+      </span>
+      <span className="ml-auto flex shrink-0 items-baseline gap-3 text-[11px] tabular-nums text-studio-ink-faint">
+        {conflicts > 0 ? (
+          <span style={{ color: "var(--status-error-fg)" }}>
+            {conflicts} conflict{conflicts > 1 ? "s" : ""}
+          </span>
+        ) : null}
+        <span>{total} worktrees</span>
+      </span>
+      <HoverIgnore onIgnore={onIgnore} />
+    </div>
+  );
+}
+
+/* A hover-revealed "ignore" pinned to the row's right edge — out of the content
+ * flow so it never disturbs the line, present on every repo-level row. */
+function HoverIgnore({ onIgnore }: { onIgnore: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onIgnore();
+      }}
+      title="Ignore this repo — hide it from the list"
+      aria-label="Ignore this repo"
+      className="absolute right-3 top-1.5 z-10 rounded-[4px] px-1 text-[11px] text-studio-ink-faint opacity-0 transition-opacity hover:text-studio-ink-muted group-hover/row:opacity-100"
+      style={{ background: PANEL_BG }}
+    >
+      ignore
+    </button>
+  );
+}
+
+/* Branch identity for a worktree. Detached HEAD reads as jargon, so show the
+ * short commit it's parked on; the "no branch" marker carries the meaning. */
+function branchLabel(wt: RepoWatchWorktree): string {
+  const b = wt.branch;
+  if (b.detached) return b.head ? b.head.slice(0, 7) : "no branch";
+  return b.name ?? wt.name;
+}
+
+/* ── Entry row: one compact line for a repo or a worktree ──────────────────
+ * dot · primary (bold) · secondary (muted) · markers · what-changed · diff ·
+ * ahead/behind · agents · ago — all flowing left-to-right in reading order so a
+ * calm row never strands metadata across an empty middle. A faint "why" line
+ * follows for critical/attention rows; the file list expands on click. */
+
+function EntryRow({
   wt,
   generatedAt,
+  primary,
+  secondary,
+  indent,
+  onIgnore,
 }: {
   wt: RepoWatchWorktree;
   generatedAt: number;
+  primary: string;
+  secondary?: string;
+  indent?: boolean;
+  onIgnore?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const b = wt.branch;
   const av = ATTENTION[wt.attention];
-  const isCritical = wt.attention === "critical";
-  const conflicts = wt.status.conflicts;
-  const hasFiles = wt.status.files.length > 0;
-  const errored = wt.error != null;
+  const dot = SEV_DOT[wt.attention];
 
-  // The expand affordance only exists when there's something to reveal:
-  // a porcelain file list or an error/reason worth dropping.
-  const expandable = hasFiles || errored || wt.attentionReasons.length > 0;
+  const expandable = wt.status.files.length > 0 || wt.error != null;
+  const isCritical = wt.attention === "critical";
+  const reason =
+    isCritical || wt.attention === "attention"
+      ? cleanReason(wt.attentionReasons[0] ?? "")
+      : "";
+  const branchTip = b.upstream
+    ? `${secondary ?? primary} → ${b.upstream}`
+    : secondary ?? primary;
 
   return (
-    <div
-      className={[
-        "group relative",
-        // Critical rows get a solid tone rail on the left so a conflict
-        // is unmistakable even in peripheral vision.
-        isCritical ? "shadow-[inset_2px_0_0_var(--status-error-fg)]" : "",
-      ].join(" ")}
-      style={
-        isCritical
-          ? {
-              background:
-                "color-mix(in oklab, var(--status-error-bg) 22%, transparent)",
-            }
-          : undefined
-      }
-    >
+    <div className="group/row relative">
       <div
         className={[
-          "grid items-center gap-x-3 px-2 py-[7px] transition-colors duration-75",
-          "hover:bg-[color-mix(in_oklab,var(--studio-surface)_70%,transparent)]",
+          "flex items-start gap-2.5 py-2 pr-4 transition-colors duration-75",
+          indent ? "pl-[36px]" : "pl-4",
           expandable ? "cursor-pointer" : "",
-          GRID,
+          expandable && !isCritical ? "hover:bg-studio-canvas-alt/50" : "",
         ].join(" ")}
+        // A conflict tints its row a faint red — tone, not a rule.
+        style={
+          isCritical
+            ? {
+                background:
+                  "color-mix(in oklab, var(--status-error-bg) 16%, transparent)",
+              }
+            : undefined
+        }
         onClick={expandable ? () => setOpen((o) => !o) : undefined}
         role={expandable ? "button" : undefined}
         tabIndex={expandable ? 0 : undefined}
@@ -329,395 +503,301 @@ function WorktreeRow({
             : undefined
         }
       >
-        {/* 1 — attention glyph (color+shape cue, with an sr-only level
-            label so severity isn't conveyed by color alone) */}
+        {/* Severity dot — fixed box so the rail stays straight down the panel. */}
         <span
-          className="text-[11px] leading-none"
-          style={{ color: av.fg }}
+          className="flex h-5 w-3 shrink-0 items-center justify-center"
           title={`${av.label} — ${av.gloss}`}
         >
-          <span aria-hidden>{av.glyph}</span>
+          <span
+            aria-hidden
+            className="rounded-full"
+            style={{
+              height: `${dot.size}px`,
+              width: `${dot.size}px`,
+              background: dot.color,
+            }}
+          />
           <span className="sr-only">{av.label}</span>
         </span>
 
-        {/* 2 — worktree name (+ main / bare / detached marker) */}
-        <span className="flex min-w-0 items-center gap-1.5">
-          {expandable ? (
-            <span
-              aria-hidden
-              className={[
-                "select-none text-[8px] leading-none text-studio-ink-faint transition-transform duration-100",
-                open ? "rotate-90" : "",
-              ].join(" ")}
-            >
-              ▶
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+            {/* Identity — primary (bold) + branch (muted) + markers. */}
+            <span className="flex min-w-0 items-baseline gap-2" title={branchTip}>
+              <span className="truncate text-[12.5px] font-semibold leading-5 text-studio-ink">
+                {primary}
+              </span>
+              {secondary ? (
+                <span className="truncate text-[12px] leading-5 text-studio-ink-muted">
+                  {secondary}
+                </span>
+              ) : null}
+              {b.detached ? <Marker>no branch</Marker> : null}
+              {wt.isBare ? <Marker>bare</Marker> : null}
+              {!b.detached && !b.upstream ? (
+                <Marker title="no upstream configured">local</Marker>
+              ) : null}
             </span>
-          ) : (
-            <span aria-hidden className="w-[8px]" />
-          )}
-          <span className="truncate text-[11px] text-studio-ink">
-            {pathLeaf(wt.path)}
-          </span>
-          {wt.branch.isMain ? <Marker tone="warn">main</Marker> : null}
-          {wt.branch.detached ? <Marker tone="error">detached</Marker> : null}
-          {wt.isBare ? <Marker tone="neutral">bare</Marker> : null}
-        </span>
 
-        {/* 3 — branch + ahead/behind + upstream cue */}
-        <BranchCell wt={wt} />
+            {/* Status — flowing left, never pinned to the far edge. */}
+            <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-[11px] text-studio-ink-muted">
+              <ChangeSummary wt={wt} />
+              {b.ahead > 0 ? <Meta>{b.ahead} ahead</Meta> : null}
+              {b.behind > 0 ? <Meta>{b.behind} behind</Meta> : null}
+              <AgentChips wt={wt} />
+              <span className="font-mono tabular-nums text-studio-ink-faint">
+                {agoFromMillis(wt.lastCommitAt, generatedAt)}
+              </span>
+            </span>
 
-        {/* 4 — dirty chips: staged · unstaged · untracked · conflicts */}
-        <DirtyChips wt={wt} />
+            {expandable ? (
+              <span
+                aria-hidden
+                className={[
+                  "select-none text-[9px] leading-5 text-studio-ink-faint transition-transform duration-100",
+                  open ? "rotate-90" : "",
+                ].join(" ")}
+              >
+                ▶
+              </span>
+            ) : null}
+          </div>
 
-        {/* 5 — diff shortstat (staged + unstaged) */}
-        <DiffCell wt={wt} />
-
-        {/* 6 — attached agents (live lifted) + session count */}
-        <AgentsCell wt={wt} />
-
-        {/* 7 — last-commit ago */}
-        <span className="justify-self-end text-[10px] tabular-nums text-studio-ink-faint">
-          {agoFromMillis(wt.lastCommitAt, generatedAt)}
-        </span>
+          {reason ? (
+            <div className="mt-0.5 truncate text-[11px] text-studio-ink-faint">
+              {reason}
+            </div>
+          ) : null}
+        </div>
       </div>
 
-      {/* ── Expanded drawer: porcelain file list + reasons / error ── */}
-      {open ? (
-        <ExpandedDetail wt={wt} />
-      ) : conflicts > 0 ? (
-        // Even collapsed, a conflict spells out which files are stuck —
-        // a conflict should never need a click to be understood.
-        <ConflictHint wt={wt} />
-      ) : wt.attention === "critical" || wt.attention === "attention" ? (
-        // The top two severities also surface their reason inline, so the
-        // "why" for a dirty main / diverged branch reads without a click.
-        // Active + quiet rows stay clean to protect the table's calm.
-        <ReasonHint wt={wt} />
-      ) : null}
+      {onIgnore ? <HoverIgnore onIgnore={onIgnore} /> : null}
+      {open ? <ExpandedDetail wt={wt} /> : null}
     </div>
   );
 }
 
-/* ── Branch cell ───────────────────────────────────────────────────── */
+/* ── Change summary — the headline of what's uncommitted, in plain words ───
+ * "N changed" carries the read; conflicts earn red; the diff size rides along
+ * in mono so the magnitude of the work is legible at a glance. */
 
-function BranchCell({ wt }: { wt: RepoWatchWorktree }) {
-  const b = wt.branch;
-  const ab = aheadBehind(b.ahead, b.behind);
-  const name = b.detached
-    ? `(detached) ${b.head ?? ""}`.trim()
-    : b.name ?? "—";
-
-  return (
-    <span className="flex min-w-0 items-center gap-1.5 text-[10.5px]">
-      <span
-        className={[
-          "truncate",
-          b.detached ? "text-status-error-fg" : "text-studio-ink-muted",
-        ].join(" ")}
-        title={b.upstream ? `${name} → ${b.upstream}` : name}
-      >
-        {name}
-      </span>
-
-      {/* ahead/behind cue — diverged gets tone, plain sync stays faint */}
-      {ab ? (
-        <span
-          className="shrink-0 tabular-nums"
-          style={{
-            color: b.diverged
-              ? "var(--status-warn-fg)"
-              : "var(--studio-ink-faint)",
-          }}
-          title={
-            b.diverged
-              ? `diverged ${ab} from ${b.upstream ?? "upstream"}`
-              : `${ab} vs ${b.upstream ?? "upstream"}`
-          }
-        >
-          {ab}
-        </span>
-      ) : null}
-
-      {/* no-upstream marker — a real, common state worth flagging quietly */}
-      {!b.detached && !b.upstream ? (
-        <span
-          className="shrink-0 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint"
-          title="no upstream configured"
-        >
-          local
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-/* ── Dirty summary: calm tone-colored counts ───────────────────────────
- * Plain text counts, fixed-width so the column still aligns down the whole
- * ledger. No fills, no boxes — only a real conflict is allowed to carry a
- * tinted pill, so a row stays quiet right up until it shouldn't be. */
-
-function DirtyChips({ wt }: { wt: RepoWatchWorktree }) {
+function ChangeSummary({ wt }: { wt: RepoWatchWorktree }) {
   const s = wt.status;
-  if (s.clean) {
-    return (
-      <span className="justify-self-start text-[10px] uppercase tracking-eyebrow text-studio-ink-faint">
-        clean
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center gap-2.5 text-[10px] leading-none">
-      <Count n={s.staged} label="S" tone="ok" title="staged" />
-      <Count n={s.unstaged} label="U" tone="warn" title="unstaged" />
-      <Count n={s.untracked} label="?" tone="info" title="untracked" />
-      {s.conflicts > 0 ? (
-        <span
-          className="inline-flex items-baseline gap-0.5 rounded-[2px] px-1 py-px text-[9px] font-semibold tabular-nums"
-          style={{ color: toneFg("error"), background: toneBg("error") }}
-          title={`${s.conflicts} conflicts`}
-        >
-          <span className="opacity-70">X</span>
-          {s.conflicts}
-        </span>
-      ) : (
-        <Count n={0} label="X" tone="error" title="conflicts" />
-      )}
-    </span>
-  );
-}
-
-/* One porcelain count — tone-colored when present, a faint placeholder dot
- * when zero; fixed width keeps the column aligned without a box. */
-function Count({
-  n,
-  label,
-  tone,
-  title,
-}: {
-  n: number;
-  label: string;
-  tone: "ok" | "warn" | "info" | "error";
-  title: string;
-}) {
-  const active = n > 0;
-  return (
-    <span
-      className="inline-flex w-[22px] items-baseline gap-0.5 tabular-nums"
-      title={`${n} ${title}`}
-      style={active ? { color: toneFg(tone) } : undefined}
-    >
-      <span className={active ? "opacity-55" : "text-studio-ink-faint/45"}>
-        {label}
-      </span>
-      {active ? (
-        <span className="font-semibold">{n}</span>
-      ) : (
-        <span className="text-studio-ink-faint/35">·</span>
-      )}
-    </span>
-  );
-}
-
-/* ── Diff shortstat cell ───────────────────────────────────────────── */
-
-function DiffCell({ wt }: { wt: RepoWatchWorktree }) {
   const staged = parseShortstat(wt.diff.stagedShortstat);
   const unstaged = parseShortstat(wt.diff.unstagedShortstat);
-
-  if (!staged && !unstaged) {
-    return <span className="text-[10px] text-studio-ink-faint/60">—</span>;
-  }
-
-  // Sum across staged + unstaged for the compact +/- read; the file
-  // count comes from whichever stat is present.
   const ins = (staged?.ins ?? 0) + (unstaged?.ins ?? 0);
   const del = (staged?.del ?? 0) + (unstaged?.del ?? 0);
-  const files = Math.max(staged?.files ?? 0, unstaged?.files ?? 0);
+
+  if (s.clean) {
+    return <span className="text-studio-ink-faint">no changes</span>;
+  }
 
   return (
-    <span
-      className="flex items-center gap-2 text-[10px] tabular-nums"
-      title={[wt.diff.stagedShortstat, wt.diff.unstagedShortstat]
-        .filter(Boolean)
-        .join("  ·  ")}
-    >
-      <span className="text-studio-ink-faint">{files}f</span>
-      <span className="flex items-center gap-1.5">
-        {ins > 0 ? (
-          <span style={{ color: "var(--status-ok-fg)" }}>+{ins}</span>
-        ) : null}
-        {del > 0 ? (
-          <span style={{ color: "var(--status-error-fg)" }}>−{del}</span>
-        ) : null}
-      </span>
-    </span>
+    <>
+      {s.changedFiles > 0 ? <Meta>{s.changedFiles} changed</Meta> : null}
+      {ins > 0 || del > 0 ? (
+        <span
+          className="shrink-0 font-mono tabular-nums"
+          title={[wt.diff.stagedShortstat, wt.diff.unstagedShortstat]
+            .filter(Boolean)
+            .join("  ·  ")}
+        >
+          {ins > 0 ? (
+            <span className="text-studio-ink">+{ins.toLocaleString()}</span>
+          ) : null}
+          {del > 0 ? (
+            <span className="ml-1.5 text-studio-ink-muted">
+              −{del.toLocaleString()}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+      {s.conflicts > 0 ? (
+        <span
+          className="shrink-0 tabular-nums"
+          style={{ color: "var(--status-error-fg)" }}
+        >
+          {s.conflicts} conflict{s.conflicts > 1 ? "s" : ""}
+        </span>
+      ) : null}
+    </>
   );
 }
 
-/* ── Agents cell — attached handles, live ones lifted ──────────────── */
+/* One muted metadata token on line 2. */
+function Meta({ children }: { children: React.ReactNode }) {
+  return <span className="shrink-0 tabular-nums">{children}</span>;
+}
 
-function AgentsCell({ wt }: { wt: RepoWatchWorktree }) {
+/* ── Agents — live ones lifted, the rest collapsed ─────────────────────────
+ * A worktree accumulates dozens of agents over its life; only the live ones are
+ * signal. Show live first with a single small accent dot (green stays scarce),
+ * cap the inline handles, and collapse the long tail into "+N". */
+
+const MAX_AGENT_CHIPS = 2;
+
+function AgentChips({ wt }: { wt: RepoWatchWorktree }) {
   const { agents, sessions } = wt;
-  if (agents.length === 0 && sessions.length === 0) {
-    return <span className="text-[10px] text-studio-ink-faint/60">—</span>;
+  if (agents.length === 0) return null;
+
+  const seen = new Set<string>();
+  const unique: typeof agents = [];
+  for (const a of [...agents].sort(
+    (x, y) => Number(agentLive(y)) - Number(agentLive(x)),
+  )) {
+    const h = agentHandle(a);
+    if (seen.has(h)) continue;
+    seen.add(h);
+    unique.push(a);
   }
+  const shown = unique.slice(0, MAX_AGENT_CHIPS);
+  const overflow = unique.length - shown.length;
+  const sessionTip =
+    sessions.length > 0
+      ? `\n${sessions.length} session${sessions.length > 1 ? "s" : ""}`
+      : "";
 
   return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      <span className="flex min-w-0 flex-wrap items-center gap-1">
-        {agents.map((a) => {
-          const live = agentLive(a);
-          return (
-            <span
-              key={a.id}
-              className={[
-                "inline-flex items-center gap-1 text-[10px] leading-none",
-                live ? "font-semibold" : "",
-              ].join(" ")}
-              style={{
-                color: live ? "var(--scout-accent)" : "var(--studio-ink-faint)",
-              }}
-              title={`${agentLabel(a)}${a.harness ? ` · ${a.harness}` : ""} (${a.state ?? "unknown"})`}
-            >
-              {live ? (
-                <span
-                  aria-hidden
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: "var(--scout-accent)" }}
-                />
-              ) : null}
-              {agentHandle(a)}
-            </span>
-          );
-        })}
-      </span>
-
-      {/* Session ref count — secondary, only when there are sessions. */}
-      {sessions.length > 0 ? (
+    <span
+      className="flex min-w-0 items-center gap-2 overflow-hidden text-[11px] leading-5"
+      title={
+        unique.map((a) => `${agentHandle(a)} (${a.state ?? "unknown"})`).join("\n") +
+        sessionTip
+      }
+    >
+      {shown.map((a) => (
         <span
-          className="shrink-0 text-[9px] uppercase tracking-eyebrow text-studio-ink-faint"
-          title={sessions.map((s) => `${s.harness ?? "session"} · ${s.id}`).join("  ·  ")}
+          key={a.id}
+          className="inline-flex min-w-0 items-center gap-1 text-studio-ink-muted"
         >
-          {sessions.length}s
+          {agentLive(a) ? (
+            <span
+              aria-hidden
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: "var(--scout-accent)" }}
+            />
+          ) : null}
+          <span className="truncate">{agentHandle(a)}</span>
         </span>
+      ))}
+      {overflow > 0 ? (
+        <span className="shrink-0 text-studio-ink-faint">+{overflow}</span>
       ) : null}
     </span>
   );
 }
 
-/* ── Collapsed conflict hint — spells out stuck files inline ───────── */
+/* ── Quiet tray — clean/idle or ignored repos, one calm row each ───────────
+ * Low-value to show prominently, but findable. A faint dot, the name, the path,
+ * a one-word state, and a hover affordance to ignore / unignore. */
 
-function ConflictHint({ wt }: { wt: RepoWatchWorktree }) {
-  const conflicted = wt.status.files.filter((f) => isConflict(f.status));
-  if (conflicted.length === 0) return null;
+function QuietSection({
+  label,
+  projects,
+  onIgnore,
+  ignored,
+}: {
+  label: string;
+  projects: RepoWatchProject[];
+  onIgnore: (id: string) => void;
+  ignored?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-2 px-2 pb-1.5 pl-[34px] text-[10px]">
-      <span
-        className="shrink-0 rounded-[2px] px-1 py-px text-[9px] font-semibold uppercase tracking-eyebrow"
-        style={{
-          color: "var(--status-error-fg)",
-          background: "var(--status-error-bg)",
-        }}
+    <div className="mt-5">
+      <div className="mb-2 pl-0.5 text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        {label}
+      </div>
+      <div
+        className="overflow-hidden rounded-xl py-1"
+        style={{ background: PANEL_BG }}
       >
-        unmerged
-      </span>
-      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-studio-ink-muted">
-        {conflicted.map((f) => (
-          <span key={f.path} className="truncate" title={f.path}>
-            {shortPath(f.path, 2)}
-          </span>
-        ))}
-      </span>
+        {projects.map((project) => {
+          const n = project.worktrees.length;
+          return (
+            <div
+              key={project.id}
+              className="group/q flex items-center gap-2.5 px-4 py-2"
+            >
+              <span
+                aria-hidden
+                className="h-1 w-1 shrink-0 rounded-full"
+                style={{ background: "var(--studio-ink-faint)" }}
+              />
+              <span className="shrink-0 text-[12px] text-studio-ink-muted">
+                {project.name}
+              </span>
+              <span className="min-w-0 truncate font-mono text-[11px] text-studio-ink-faint">
+                {shortPath(project.root, 3)}
+              </span>
+              <span className="ml-auto shrink-0 text-[11px] text-studio-ink-faint">
+                {ignored ? "ignored" : n > 1 ? `${n} worktrees · clean` : "clean"}
+              </span>
+              <button
+                type="button"
+                onClick={() => onIgnore(project.id)}
+                className="shrink-0 text-[11px] text-studio-ink-faint opacity-0 transition-opacity hover:text-studio-ink-muted group-hover/q:opacity-100"
+              >
+                {ignored ? "unignore" : "ignore"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-/* ── Collapsed reason hint — the top "why" for critical/attention rows ─
- * The two highest severities earn their reason inline (dirty main, diverged,
- * status errored) so the operator never has to expand to learn why a row is
- * flagged. Active + quiet rows stay clean to keep the table calm. */
-
-function ReasonHint({ wt }: { wt: RepoWatchWorktree }) {
-  const av = ATTENTION[wt.attention];
-  const reason = wt.attentionReasons[0];
-  if (!reason) return null;
-  const more = wt.attentionReasons.length - 1;
-  return (
-    <div className="flex items-center gap-2 px-2 pb-1.5 pl-[34px] text-[10px]">
-      <span
-        aria-hidden
-        className="h-1 w-1 shrink-0 rounded-full"
-        style={{ background: av.fg }}
-      />
-      <span
-        className="min-w-0 truncate font-sans text-[10.5px] text-studio-ink-muted"
-        title={wt.attentionReasons.join(" · ")}
-      >
-        {reason}
-        {more > 0 ? (
-          <span className="ml-1 font-mono text-[9px] text-studio-ink-faint">
-            +{more}
-          </span>
-        ) : null}
-      </span>
-    </div>
-  );
-}
-
-/* ── Expanded detail drawer ────────────────────────────────────────── */
+/* ── Expanded detail — the changed-file preview + reasons / error ──────────── */
 
 function ExpandedDetail({ wt }: { wt: RepoWatchWorktree }) {
   return (
-    <div className="border-t border-studio-edge bg-studio-canvas px-2 pb-2.5 pl-[34px] pt-2">
+    <div className="bg-studio-canvas/40 px-4 pb-3 pt-2.5 pl-[39px]">
       {/* Reasons — why this row carries its attention level. */}
       {wt.attentionReasons.length > 0 ? (
         <div className="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             why
           </span>
           {wt.attentionReasons.map((r, i) => (
             <span
               key={i}
-              className="rounded-[2px] bg-studio-canvas-alt px-1.5 py-px text-[9.5px] text-studio-ink-muted"
+              className="rounded-[4px] bg-studio-canvas-alt px-1.5 py-px text-[10px] text-studio-ink-muted"
             >
-              {r}
+              {cleanReason(r)}
             </span>
           ))}
         </div>
       ) : null}
 
-      {/* Scan error — the unknown / errored case. */}
+      {/* Scan error — quiet inline note, never a heavy full-width banner. */}
       {wt.error ? (
-        <div
-          className="mb-2 flex items-start gap-2 rounded-[3px] px-2 py-1.5"
-          style={{ background: "var(--status-error-bg)" }}
-        >
+        <div className="mb-2 flex items-start gap-2">
           <span
-            className="mt-px shrink-0 text-[9px] font-semibold uppercase tracking-eyebrow"
+            className="mt-px shrink-0 text-[10px] font-semibold uppercase tracking-eyebrow"
             style={{ color: "var(--status-error-fg)" }}
           >
             error
           </span>
-          <span className="min-w-0 break-words font-mono text-[10px] leading-snug text-studio-ink-muted">
+          <span className="min-w-0 break-words font-mono text-[11px] leading-snug text-studio-ink-muted">
             {wt.error}
           </span>
         </div>
       ) : null}
 
-      {/* Porcelain file list — the small preview, status-toned. */}
+      {/* Changed-file preview — a small list, status-toned. */}
       {wt.status.files.length > 0 ? (
-        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
           {wt.status.files.map((f) => {
             const tone = fileStatusTone(f.status);
             const conflict = isConflict(f.status);
             return (
               <div
                 key={f.path}
-                className="flex items-center gap-2 font-mono text-[10px]"
+                className="flex items-center gap-2 font-mono text-[11px]"
               >
                 <span
                   className={[
-                    "grid h-[14px] w-[18px] shrink-0 place-items-center rounded-[2px] text-[9px] font-semibold leading-none",
+                    "grid h-[15px] w-[18px] shrink-0 place-items-center rounded-[3px] text-[9px] font-semibold leading-none",
                     conflict ? "ring-1" : "",
                   ].join(" ")}
                   style={{
@@ -739,185 +819,92 @@ function ExpandedDetail({ wt }: { wt: RepoWatchWorktree }) {
           })}
         </div>
       ) : !wt.error ? (
-        <div className="text-[10px] text-studio-ink-faint">
-          no changed files
-        </div>
+        <div className="text-[11px] text-studio-ink-faint">no changed files</div>
       ) : null}
     </div>
   );
 }
 
-/* ── Small presentational atoms ────────────────────────────────────── */
+/* ── Small presentational atoms ────────────────────────────────────────── */
 
-/* Severity distribution bar — a stacked, full-width read of the worktree
- * mix by attention level: the rollup's center of gravity. Each segment is
- * sized by share with a 4% floor so a lone critical never disappears at a
- * seam; the inline legend below doubles as the key. */
-function DistributionBar({
-  dist,
-  total,
+/* Overview strip — the calm, app-native "everything you've got going on" line.
+ * The whole inventory (repos · worktrees) sits beside how much is actually live
+ * (active · changed · conflicts · live). Numbers carry the contrast, labels stay
+ * quiet, and only a real conflict earns colour. */
+function SummaryStrip({
+  repos,
+  worktrees,
+  active,
+  changed,
+  conflicts,
+  live,
 }: {
-  dist: { level: RepoWatchAttentionLevel; count: number }[];
-  total: number;
+  repos: number;
+  worktrees: number;
+  active: number;
+  changed: number;
+  conflicts: number;
+  live: number;
 }) {
-  if (total === 0 || dist.length === 0) return null;
   return (
-    <div className="mt-2.5 border-t border-studio-edge pt-2.5">
-      <div
-        className="flex h-1.5 w-full overflow-hidden rounded-full bg-studio-canvas"
-        role="img"
-        aria-label={`Worktrees by attention: ${dist
-          .map((d) => `${ATTENTION[d.level].label} ${d.count}`)
-          .join(", ")}`}
-      >
-        {dist.map(({ level, count }) => (
-          <span
-            key={level}
-            className="h-full"
-            style={{
-              width: `${Math.max(4, (count / total) * 100)}%`,
-              background: ATTENTION[level].fg,
-            }}
-            title={`${ATTENTION[level].label} · ${count}`}
-          />
-        ))}
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1">
-        {dist.map(({ level, count }) => (
-          <span key={level} className="inline-flex items-center gap-1.5">
-            <span
-              aria-hidden
-              className="h-2 w-2 rounded-[2px]"
-              style={{ background: ATTENTION[level].fg }}
-            />
-            <span className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-              {ATTENTION[level].label}
-            </span>
-            <span
-              className="text-[9.5px] font-semibold tabular-nums"
-              style={{ color: ATTENTION[level].fg }}
-            >
-              {count}
-            </span>
-          </span>
-        ))}
-      </div>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-studio-ink-muted">
+      <Stat value={repos} label="repos" />
+      <Stat value={worktrees} label="worktrees" />
+      <Sep />
+      <Stat value={active} label="active" />
+      <Stat value={changed} label="changed" />
+      {conflicts > 0 ? (
+        <Stat value={conflicts} label="conflicts" valueColor={ATTENTION.critical.fg} />
+      ) : null}
+      {live > 0 ? <Stat value={live} label="live" /> : null}
     </div>
   );
 }
 
-function Total({
-  label,
+/* One "value label" pair in the overview line. The number reads (ink, medium);
+ * the label stays faint. Colour is reserved — only a real conflict passes one. */
+function Stat({
   value,
-  tone,
-  emphatic,
+  label,
+  valueColor,
 }: {
-  label: string;
   value: number;
-  tone?: "warn" | "error" | "accent";
-  emphatic?: boolean;
+  label: string;
+  valueColor?: string;
 }) {
-  const color =
-    tone === "error"
-      ? "var(--status-error-fg)"
-      : tone === "warn"
-        ? "var(--status-warn-fg)"
-        : tone === "accent"
-          ? "var(--scout-accent)"
-          : "var(--studio-ink)";
-  // Counts of zero stay calm regardless of tone — tone is reserved for
-  // "there is something here", not the column's identity.
-  const live = value > 0 && tone != null;
   return (
-    <div className="flex flex-col gap-0.5">
+    <span className="inline-flex items-baseline gap-1.5">
       <span
-        className="text-[16px] font-semibold leading-none tabular-nums"
-        style={{ color: live ? color : "var(--studio-ink)" }}
+        className="font-mono font-medium tabular-nums text-studio-ink"
+        style={valueColor ? { color: valueColor } : undefined}
       >
         {value}
-        {emphatic ? (
-          <span
-            className="ml-1 align-middle text-[10px]"
-            style={{ color }}
-          >
-            {ATTENTION.critical.glyph}
-          </span>
-        ) : null}
       </span>
-      <span className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-        {label}
-      </span>
-    </div>
-  );
-}
-
-function Divider() {
-  return <span className="self-stretch border-l border-studio-edge" />;
-}
-
-function MiniStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: "warn" | "error" | "accent";
-}) {
-  const color =
-    tone === "error"
-      ? "var(--status-error-fg)"
-      : tone === "warn"
-        ? "var(--status-warn-fg)"
-        : tone === "accent"
-          ? "var(--scout-accent)"
-          : "var(--studio-ink-faint)";
-  return (
-    <span className="inline-flex items-baseline gap-1">
-      <span style={{ color }} className="font-semibold">
-        {value}
-      </span>
-      <span className="uppercase tracking-eyebrow text-studio-ink-faint">
-        {label}
-      </span>
+      <span className="text-studio-ink-faint">{label}</span>
     </span>
   );
 }
 
+function Sep() {
+  return (
+    <span aria-hidden className="text-studio-ink-faint/40">
+      ·
+    </span>
+  );
+}
+
+/* Inline branch/state marker — bare faint uppercase, no fill. */
 function Marker({
   children,
-  tone,
+  title,
 }: {
   children: React.ReactNode;
-  tone: "warn" | "error" | "neutral";
-}) {
-  const fg =
-    tone === "neutral" ? "var(--studio-ink-faint)" : `var(--status-${tone}-fg)`;
-  const bg =
-    tone === "neutral" ? "var(--status-neutral-bg)" : `var(--status-${tone}-bg)`;
-  return (
-    <span
-      className="shrink-0 rounded-[2px] px-1 py-px text-[8.5px] font-semibold uppercase leading-none tracking-eyebrow"
-      style={{ color: fg, background: bg }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function ColHead({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
+  title?: string;
 }) {
   return (
     <span
-      className={[
-        "text-[9px] uppercase tracking-eyebrow text-studio-ink-faint",
-        className,
-      ].join(" ")}
+      className="shrink-0 text-[10px] font-semibold uppercase leading-5 tracking-eyebrow text-studio-ink-faint"
+      title={title}
     >
       {children}
     </span>
@@ -930,6 +917,16 @@ interface Shortstat {
   files: number;
   ins: number;
   del: number;
+}
+
+/** Soften backend reason phrasing for display. The classifier emits strings
+ *  like "Dirty main" / "Dirty master"; we don't surface the word "dirty", so
+ *  rewrite those to plain English and downcase any stray "dirty" elsewhere. */
+function cleanReason(reason: string): string {
+  if (!reason) return "";
+  const onBranch = reason.match(/^dirty\s+(.+)$/i);
+  if (onBranch) return `Uncommitted changes on ${onBranch[1]}`;
+  return reason.replace(/\bdirty\b/gi, "uncommitted");
 }
 
 /** Parse `git diff --shortstat` text into numbers. Tolerant of any of the
@@ -945,13 +942,4 @@ function parseShortstat(text: string | null): Shortstat | null {
     ins: ins ? Number(ins[1]) : 0,
     del: del ? Number(del[1]) : 0,
   };
-}
-
-/** Deterministic HH:MM clock from the snapshot's generatedAt (epoch ms).
- *  Uses UTC so screenshots are byte-stable regardless of host TZ. */
-function fmtClock(ms: number): string {
-  const d = new Date(ms);
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${hh}:${mm} UTC`;
 }
