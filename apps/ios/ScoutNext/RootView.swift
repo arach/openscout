@@ -14,6 +14,12 @@ struct RootView: View {
 
     private var client: any ScoutBrokerClient { model.client }
 
+    /// Friendly name of the Mac we're connected to, for the New composer's
+    /// read-only target. nil when unconnected.
+    private var activeMachineName: String? {
+        model.pairedMachines.first(where: { $0.isActive })?.name
+    }
+
     enum Surface: String, CaseIterable, Identifiable {
         case home = "Home"
         case agents = "Agents"
@@ -58,7 +64,7 @@ struct RootView: View {
                     case .agents:   AgentsSurface(client: client, reloadToken: model.dataReadyToken)
                     case .comms:    CommsSurface(client: client, reloadToken: model.dataReadyToken)
                     case .terminal: TerminalSurface(client: client, reloadToken: model.dataReadyToken, connectedHost: model.terminalSSHHost)
-                    case .new:      NewSessionSurface(client: client)
+                    case .new:      NewSessionSurface(client: client, targetMachineName: activeMachineName)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -140,7 +146,7 @@ struct RootView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, HudSpacing.xxxl)
+        .padding(.horizontal, HudSpacing.xxl)
         .padding(.top, HudSpacing.lg)
         .padding(.bottom, HudSpacing.xl)
     }

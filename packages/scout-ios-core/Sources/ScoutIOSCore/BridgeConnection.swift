@@ -1076,7 +1076,8 @@ private struct WireTailEvent: Codable, Sendable {
             source: source,
             harness: mappedHarness,
             kind: mappedKind,
-            summary: summary
+            summary: summary,
+            conversationId: sessionId.trimmedNonEmpty
         )
     }
 }

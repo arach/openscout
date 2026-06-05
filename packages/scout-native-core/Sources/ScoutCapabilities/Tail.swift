@@ -27,6 +27,9 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
     public var harness: Harness
     public var kind: Kind
     public var summary: String
+    /// The conversation/session this event belongs to, when known — lets a row
+    /// tap through to where it happened. nil for events with no thread linkage.
+    public var conversationId: String?
 
     public init(
         id: String,
@@ -34,7 +37,8 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
         source: Source,
         harness: Harness = .unattributed,
         kind: Kind = .other,
-        summary: String
+        summary: String,
+        conversationId: String? = nil
     ) {
         self.id = id
         self.tsMs = tsMs
@@ -42,6 +46,7 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
         self.harness = harness
         self.kind = kind
         self.summary = summary
+        self.conversationId = conversationId
     }
 }
 
@@ -49,4 +54,15 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
 /// cursor (ms epoch); the transport delivers events as they arrive.
 public protocol TailCapability: Sendable {
     func tailEvents(since: Int64?) -> AsyncStream<TailEvent>
+
+    /// Recent activity history (newest-first), for *seeding* a view before the
+    /// live `tailEvents` stream takes over. `tailEvents` only delivers events
+    /// that arrive after subscription, so a freshly-opened surface shows nothing
+    /// without this backfill. Conformers without a history source get the
+    /// default empty list.
+    func recentActivity(limit: Int) async throws -> [TailEvent]
+}
+
+public extension TailCapability {
+    func recentActivity(limit: Int) async throws -> [TailEvent] { [] }
 }

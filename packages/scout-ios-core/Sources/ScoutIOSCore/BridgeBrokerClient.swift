@@ -185,6 +185,16 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         }
     }
 
+    /// Recent activity from the broker's *curated* home feed (via the
+    /// `mobile/activity` procedure → `readScoutBrokerHome().activity`): one row per
+    /// message, name-resolved, always thread-linked. This is the orientation feed
+    /// Home renders; the raw lifecycle firehose stays on the Tail tab.
+    public func recentActivity(limit: Int) async throws -> [TailEvent] {
+        let params = MobileActivityParams(limit: limit)
+        let wire: [MobileActivityItem] = try await connection.rpc("mobile/activity", params: params)
+        return wire.map { $0.toTailEvent() }
+    }
+
     // MARK: - CommsCapability
 
     public func listConversations(kind: CommsConversation.Kind?, limit: Int) async throws -> [CommsConversation] {
@@ -209,6 +219,13 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         )
         let result: MobileCommsSendResult = try await connection.rpc("mobile/comms/send", params: params)
         return result.messageId
+    }
+
+    @discardableResult
+    public func markConversationRead(conversationId: String) async throws -> Int {
+        let params = MobileCommsMarkReadParams(conversationId: conversationId, lastReadMessageId: nil)
+        let result: MobileCommsMarkReadResult = try await connection.rpc("mobile/comms/read", params: params)
+        return result.unreadCount ?? 0
     }
 
     // MARK: - TerminalAccessProviding
@@ -321,6 +338,49 @@ struct MobileTerminalProvisionResult: Codable, Sendable {
 
 // MARK: - Listing wire shapes → contract summaries (best-effort mapping)
 
+/// Input for `mobile.activity`. Only `limit` is sent from the phone — the other
+/// server-side filters (agent/actor/conversation) stay unset for the fleet feed.
+struct MobileActivityParams: Codable, Sendable {
+    let limit: Int
+}
+
+/// Donor `ScoutBrokerHomeActivityRecord` (broker/service.ts), served via
+/// `mobile/activity`. This is the broker's *curated* home feed — already deduped
+/// to one row per message, name-resolved, and always thread-linked — so the phone
+/// maps it straight onto a `TailEvent` with no substring guessing. The raw
+/// `/v1/activity` lifecycle firehose lives on the Tail tab, not here.
+struct MobileActivityItem: Codable, Sendable {
+    let id: String
+    let kind: String            // "message" | "system"
+    let actorId: String
+    let actorName: String
+    let title: String
+    let detail: String?
+    let conversationId: String?
+    let channel: String?
+    let timestamp: Int
+
+    func toTailEvent() -> TailEvent {
+        TailEvent(
+            id: id,
+            tsMs: Int64(scoutEpochMilliseconds(timestamp)),
+            source: actorName,
+            harness: .unattributed,         // curated activity carries no harness attribution
+            kind: mappedKind,
+            summary: title,
+            conversationId: conversationId?.trimmedNonEmpty
+        )
+    }
+
+    /// The curated feed gives an exact role, so there's no guessing: the operator's
+    /// own posts read as `.user`, an agent's as `.assistant`, broker notices as
+    /// `.system`. (This drives the row's dot color.)
+    private var mappedKind: TailEvent.Kind {
+        if kind == "system" { return .system }
+        return actorId == "operator" ? .user : .assistant
+    }
+}
+
 /// Donor `MobileSessionSummary` (RPC.swift). Mapped into `SessionSummary`.
 struct MobileSessionSummary: Codable, Sendable {
     let id: String
@@ -431,6 +491,16 @@ struct MobileCommsSendParams: Codable, Sendable {
 struct MobileCommsSendResult: Codable, Sendable {
     let conversationId: String
     let messageId: String
+}
+
+struct MobileCommsMarkReadParams: Codable, Sendable {
+    let conversationId: String
+    var lastReadMessageId: String?
+}
+
+struct MobileCommsMarkReadResult: Codable, Sendable {
+    let conversationId: String
+    let unreadCount: Int?
 }
 
 /// Donor `mobile/comms/conversations` row. Flattened by the broker (participants
