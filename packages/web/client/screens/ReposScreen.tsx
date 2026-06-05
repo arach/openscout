@@ -40,8 +40,13 @@ function usePersistedState<T extends string>(
 ): [T, (next: T) => void] {
   const [value, setValue] = useState<T>(() => {
     if (typeof window === "undefined") return fallback;
-    const stored = window.localStorage.getItem(key) as T | null;
-    return stored && allowed.includes(stored) ? stored : fallback;
+    try {
+      const stored = window.localStorage.getItem(key) as T | null;
+      return stored && allowed.includes(stored) ? stored : fallback;
+    } catch {
+      // Safari private mode / sandboxed iframes can throw on access.
+      return fallback;
+    }
   });
   const set = useCallback(
     (next: T) => {

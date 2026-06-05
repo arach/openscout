@@ -317,11 +317,16 @@ function Flag({
   if (hasError) {
     return <div className="bd-flag err">SCAN ERR</div>;
   }
-  if (ahead > 0) {
-    return <div className="bd-flag ahead">AHEAD {ahead}</div>;
+  // Diverged (ahead AND behind) must be called out before the ahead-only case,
+  // otherwise a branch that needs a rebase reads as a clean "AHEAD".
+  if (ahead > 0 && behind > 0) {
+    return <div className="bd-flag rebase">DIVERGED ▸</div>;
   }
   if (behind > 0) {
     return <div className="bd-flag rebase">REBASE ▸</div>;
+  }
+  if (ahead > 0) {
+    return <div className="bd-flag ahead">AHEAD {ahead}</div>;
   }
   return <div className="bd-flag sync">IN SYNC</div>;
 }

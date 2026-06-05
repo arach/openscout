@@ -198,7 +198,11 @@ export default function RepoWatchContext({
               </span>
             </div>
           ) : (
-            <div className="ctx-churn-clean">working tree clean</div>
+            // No +/− shortstat doesn't mean clean: untracked-only, rename/mode,
+            // or binary changes leave a dirty tree with zero line churn.
+            <div className="ctx-churn-clean">
+              {wt.status.clean ? "working tree clean" : "no line changes"}
+            </div>
           )}
         </div>
 

@@ -58,13 +58,18 @@ type SortKey = "attention" | "name" | "churn" | "files" | "drift" | "agents";
 type SortDir = "asc" | "desc";
 
 const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
-  attention: "asc", // worst (critical / error) first
+  // `score` maps higher = more significant (critical attention, more churn, …),
+  // so every data column defaults to descending; only name sorts A→Z.
+  attention: "desc", // worst (critical / error) first
   name: "asc",
   churn: "desc",
   files: "desc",
   drift: "desc",
   agents: "desc",
 };
+
+/* The view opens sorted by attention so the worst worktrees surface first. */
+const DEFAULT_SORT_KEY: SortKey = "attention";
 
 /* A worktree is "going on" when there's something live or unfinished in it. */
 function hasActivity(wt: RepoWatchWorktree): boolean {
@@ -102,8 +107,8 @@ export default function RepoWatchTable({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("attention");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT_KEY);
+  const [sortDir, setSortDir] = useState<SortDir>(SORT_DEFAULT_DIR[DEFAULT_SORT_KEY]);
   const [showClean, setShowClean] = useState(false);
 
   // Flatten + partition the snapshot. Active worktrees feed the table; clean &
@@ -117,7 +122,9 @@ export default function RepoWatchTable({
       for (const wt of project.worktrees) {
         const row = buildRow(wt, project);
         if (row.live > 0) live++;
-        if (wt.error != null || wt.status.conflicts > 0 || wt.attention === "critical") attn++;
+        // "Needs attention" = the backend's critical or attention levels (dirty
+        // main, diverged, conflicts, or a scan that errored) — not just conflicts.
+        if (attentionRank(wt.attention) <= 1) attn++;
         (hasActivity(wt) ? liveRows : cleanRows).push(row);
       }
     }
@@ -365,9 +372,6 @@ function WorktreeRow({
               {top && !guide ? <span className="lead">{project.name}&nbsp;&nbsp;</span> : null}
               <BranchLabel branch={wt.branch} fallback={wt.name} />
             </span>
-            {wt.branch.detached && wt.branch.head ? (
-              <span className="ref">{wt.branch.head.slice(0, 7)}</span>
-            ) : null}
             <Tags wt={wt} />
           </div>
         </div>

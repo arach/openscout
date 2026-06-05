@@ -85,15 +85,6 @@ export const ATTENTION: Record<RepoWatchAttentionLevel, AttentionVisual> = {
   },
 };
 
-/** Severity order for sorting/grouping — critical first, unknown last. */
-export const ATTENTION_ORDER: RepoWatchAttentionLevel[] = [
-  "critical",
-  "attention",
-  "active",
-  "quiet",
-  "unknown",
-];
-
 export function attentionRank(level: RepoWatchAttentionLevel): number {
   return ATTENTION[level].rank;
 }
@@ -115,10 +106,6 @@ export function agentHandle(agent: RepoWatchAgentRef): string {
   return agent.id;
 }
 
-export function agentLabel(agent: RepoWatchAgentRef): string {
-  return agent.name?.trim() || agent.id;
-}
-
 /** Live-first, de-duplicated agent list. The wire format repeats a name across
  *  many worktree-scoped ids; collapse by display handle so each agent appears
  *  once, with live ones first. Every view shows agents this way. */
@@ -137,14 +124,6 @@ export function uniqueAgents(wt: RepoWatchWorktree): RepoWatchAgentRef[] {
 }
 
 /* ── Branch / path formatting ──────────────────────────────────────────── */
-
-/** Compact ahead/behind cue, e.g. "↑2 ↓1", or "" when in sync. */
-export function aheadBehind(ahead: number, behind: number): string {
-  const parts: string[] = [];
-  if (ahead > 0) parts.push(`↑${ahead}`);
-  if (behind > 0) parts.push(`↓${behind}`);
-  return parts.join(" ");
-}
 
 /** Leaf of an absolute path — the worktree's short name. */
 export function pathLeaf(p: string): string {
@@ -197,10 +176,6 @@ export function fileStatusBadge(status: string): string {
   if (s === "unstaged") return "M";
   if (s === "changed" || s === "modified") return "~";
   return "•";
-}
-
-export function isConflict(status: string): boolean {
-  return status.toLowerCase().includes("conflict");
 }
 
 export function toneFg(tone: StatusTone): string {
