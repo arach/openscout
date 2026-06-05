@@ -152,6 +152,11 @@
       "types": "./src/conversations/legacy-ids.ts",
       "bun": "./src/conversations/legacy-ids.ts",
       "default": "./dist/conversations/legacy-ids.js"
+    },
+    "./knowledge": {
+      "types": "./src/knowledge/index.ts",
+      "bun": "./src/knowledge/index.ts",
+      "default": "./dist/knowledge/index.js"
     }
   },
   "types": "./src/index.ts",

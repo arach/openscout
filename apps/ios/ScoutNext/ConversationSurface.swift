@@ -19,6 +19,7 @@ struct ConversationSurface: View {
 
     @State private var projection = ConversationProjection()
     @State private var isStreaming = false
+    @State private var loadPhase: LoadPhase = .loading
     @State private var composerText = ""
     @State private var isSending = false
     @State private var showSettings = false
@@ -27,6 +28,11 @@ struct ConversationSurface: View {
     @FocusState private var composerFocused: Bool
 
     private var turns: [TurnState] { projection.state?.turns ?? [] }
+
+    /// Distinguishes the three reasons a transcript can be empty so the surface
+    /// never renders an unexplained void: still fetching, loaded-but-no-history,
+    /// or the snapshot RPC failed.
+    private enum LoadPhase { case loading, loaded, failed }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -241,7 +247,50 @@ struct ConversationSurface: View {
 
     // MARK: - Transcript
 
+    @ViewBuilder
     private var transcript: some View {
+        if turns.isEmpty {
+            emptyState
+        } else {
+            transcriptScroll
+        }
+    }
+
+    /// Shown when there's nothing to render — explains *why* rather than leaving a
+    /// black void: a card-created or never-run agent legitimately has no history,
+    /// which reads as "no messages yet" + the composer below; a failed fetch reads
+    /// as an error you can retry.
+    @ViewBuilder
+    private var emptyState: some View {
+        VStack {
+            Spacer(minLength: 0)
+            switch loadPhase {
+            case .loading:
+                HudEmptyState(title: "Loading conversation", icon: "ellipsis.bubble")
+            case .failed:
+                VStack(spacing: HudSpacing.lg) {
+                    HudEmptyState(
+                        title: "Couldn’t load conversation",
+                        subtitle: "The bridge didn’t return a transcript for this session.",
+                        icon: "exclamationmark.bubble"
+                    )
+                    HudButton("Retry", icon: "arrow.clockwise", style: .secondary) {
+                        Task { await run() }
+                    }
+                }
+            case .loaded:
+                HudEmptyState(
+                    title: "No messages yet",
+                    subtitle: "Steer the agent below to begin.",
+                    icon: "bubble.left.and.bubble.right"
+                )
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var transcriptScroll: some View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView {
@@ -277,12 +326,19 @@ struct ConversationSurface: View {
     // MARK: - Lifecycle
 
     private func run() async {
+        loadPhase = .loading
         // Recover authoritative state, then fold live events on top — exactly
         // the snapshot-then-stream contract the projection is built around.
-        if let snapshot = try? await client.snapshot(conversationId: conversationId) {
+        do {
+            let snapshot = try await client.snapshot(conversationId: conversationId)
             var p = ConversationProjection()
             p.applySnapshot(snapshot)
             projection = p
+            loadPhase = .loaded
+        } catch {
+            // No authoritative snapshot. Surface the failure, but still attach to
+            // the live stream so a session that's actively producing can populate.
+            loadPhase = .failed
         }
         // Live events flip the badge on only when they actually arrive — a
         // static (already-settled) conversation stays "idle".

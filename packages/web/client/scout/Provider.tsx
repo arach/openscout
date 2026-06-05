@@ -24,6 +24,7 @@ import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
+import type { KnowledgeHit } from "../lib/knowledge-search.ts";
 
 declare global {
   interface Window {
@@ -79,6 +80,11 @@ export interface ScoutContextValue {
   selectedBrokerAttempt: BrokerRouteAttempt | null;
   inspectBrokerAttempt: (attempt: BrokerRouteAttempt) => void;
   clearBrokerAttempt: () => void;
+
+  selectedKnowledgeHit: KnowledgeHit | null;
+  selectedKnowledgeQuery: string;
+  inspectKnowledgeHit: (hit: KnowledgeHit, query?: string) => void;
+  clearKnowledgeHit: () => void;
 
   openFilePreview: (path: string) => void;
   closeFilePreview: () => void;
@@ -203,12 +209,24 @@ export function ScoutProvider({
   const [onboardingSkipped, setOnboardingSkipped] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedBrokerAttempt, setSelectedBrokerAttempt] = useState<BrokerRouteAttempt | null>(null);
+  const [selectedKnowledgeHit, setSelectedKnowledgeHit] = useState<KnowledgeHit | null>(null);
+  const [selectedKnowledgeQuery, setSelectedKnowledgeQuery] = useState("");
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const inspectBrokerAttempt = useCallback((attempt: BrokerRouteAttempt) => {
     setSelectedBrokerAttempt(attempt);
   }, []);
   const clearBrokerAttempt = useCallback(() => setSelectedBrokerAttempt(null), []);
+  const inspectKnowledgeHit = useCallback((hit: KnowledgeHit, query?: string) => {
+    setSelectedKnowledgeHit(hit);
+    if (typeof query === "string") {
+      setSelectedKnowledgeQuery(query.trim());
+    }
+  }, []);
+  const clearKnowledgeHit = useCallback(() => {
+    setSelectedKnowledgeHit(null);
+    setSelectedKnowledgeQuery("");
+  }, []);
   const themeVars = initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
   const scoutbotAgentId = useMemo(() => resolveScoutbotAgentId(agents), [agents]);
   const scoutbotDmConversationId = useMemo(() => scoutbotConversationId(scoutbotAgentId), [scoutbotAgentId]);
@@ -350,6 +368,7 @@ export function ScoutProvider({
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotConversationId: scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
+      selectedKnowledgeHit, selectedKnowledgeQuery, inspectKnowledgeHit, clearKnowledgeHit,
       openFilePreview, closeFilePreview,
     }),
     [
@@ -358,6 +377,7 @@ export function ScoutProvider({
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
+      selectedKnowledgeHit, selectedKnowledgeQuery, inspectKnowledgeHit, clearKnowledgeHit,
       openFilePreview, closeFilePreview,
     ],
   );

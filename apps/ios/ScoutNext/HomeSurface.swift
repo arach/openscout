@@ -54,12 +54,11 @@ struct HomeSurface: View {
                     if !recentActivity.isEmpty { activitySection }
                 }
             }
-            .padding(.horizontal, HudSpacing.xxxl)
+            .padding(.horizontal, HudSpacing.xxl)
             .padding(.vertical, HudSpacing.xxl)
         }
         .refreshable { await load() }
         .task(id: reloadToken) { await load() }
-        .task(id: reloadToken) { await streamActivity() }
         .navigationDestination(item: $route) { route in
             ConversationSurface(
                 client: client,
@@ -281,19 +280,34 @@ struct HomeSurface: View {
             listCard {
                 ForEach(Array(recentActivity.enumerated()), id: \.element.id) { index, event in
                     if index > 0 { rowSeparator() }
-                    ActivityRow(event: event)
+                    ActivityRow(event: event, onTap: tapActivity(event))
                 }
             }
         }
     }
 
-    /// Subscribe to the activity firehose and keep the newest events. The Tail tab
-    /// owns the full live view; here we just surface the most recent few.
-    private func streamActivity() async {
-        for await event in client.tailEvents(since: nil) {
-            activity.insert(event, at: 0)
-            if activity.count > 24 { activity.removeLast(activity.count - 24) }
+    /// Tap an activity row to open the conversation it happened in. Events with
+    /// no thread linkage (`conversationId == nil`) stay non-interactive.
+    private func tapActivity(_ event: TailEvent) -> (() -> Void)? {
+        guard let conversationId = event.conversationId, !conversationId.isEmpty else { return nil }
+        return { route = ConversationRoute(id: conversationId, title: event.source) }
+    }
+
+    /// Merge the curated activity feed into `activity`, deduped by id and
+    /// newest-first. Home is an orientation surface, so it reads the broker's
+    /// curated message feed and refreshes on appear / pull-to-refresh — it does
+    /// NOT fold in the live process firehose (that's the Tail tab's job).
+    private func mergeActivity(_ incoming: [TailEvent]) {
+        guard !incoming.isEmpty else { return }
+        var seen = Set(activity.map(\.id))
+        var merged = activity
+        for event in incoming where !seen.contains(event.id) {
+            merged.append(event)
+            seen.insert(event.id)
         }
+        merged.sort { $0.tsMs > $1.tsMs }
+        if merged.count > 24 { merged.removeLast(merged.count - 24) }
+        activity = merged
     }
 
     // MARK: - Load
@@ -301,6 +315,10 @@ struct HomeSurface: View {
     private func load() async {
         isLoading = true
         agents = (try? await client.listAgents(query: nil, limit: 20)) ?? []
+        // Backfill recent activity — the live tail stream only delivers events
+        // that arrive after we subscribe, so without this the section is empty
+        // until something new happens.
+        mergeActivity((try? await client.recentActivity(limit: 24)) ?? [])
         isLoading = false
         #if DEBUG
         if ProcessInfo.processInfo.environment["SCOUTNEXT_DEMO"] == "1" { seedDemoActivity() }
@@ -435,8 +453,16 @@ private struct BlinkingCursor: View {
 /// One line of the activity log — what an agent did, who, and when.
 private struct ActivityRow: View {
     let event: TailEvent
+    /// Set when the event links to a conversation; nil rows render inert.
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
+        Button { onTap?() } label: { rowContent }
+            .buttonStyle(.plain)
+            .disabled(onTap == nil)
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .top, spacing: HudSpacing.md) {
             HudStatusDot(color: kindColor, size: 6, pulses: false)
                 .padding(.top, 5)
@@ -450,10 +476,17 @@ private struct ActivityRow: View {
                     .font(HudFont.mono(HudTextSize.micro))
                     .foregroundStyle(HudPalette.muted)
             }
+            if onTap != nil {
+                Image(systemName: "chevron.right")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(HudPalette.dim)
+                    .padding(.top, 4)
+            }
         }
         .padding(.horizontal, HudSpacing.xl)
         .padding(.vertical, HudSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private var metaLine: String {
@@ -585,12 +618,17 @@ private struct AgentFleetRow: View {
                 .font(HudFont.ui(HudTextSize.md, weight: .semibold))
                 .foregroundStyle(HudPalette.ink)
                 .lineLimit(1)
+                .layoutPriority(1)
             if let locator = locator {
                 Text(locator)
                     .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(HudPalette.ink)
+                    // Subordinate to the name: the mono locator was reading at full
+                    // ink and fighting the sans title. Muted lets the name lead and
+                    // the runtime/project sit as a quiet tag beside it.
+                    .foregroundStyle(HudPalette.muted)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .layoutPriority(0)
             }
             Spacer(minLength: HudSpacing.md)
             if showsStateBadge {

@@ -40,7 +40,6 @@ import {
 import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
 import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-push";
 import {
-  conversationIdForAgent,
   queryMobileAgentDetail,
   queryMobileAgents,
   queryMobileSessions,
@@ -877,13 +876,12 @@ const mobileRouter = t.router({
           message: "conversationId is required",
         });
       }
-      // Accept conversation IDs directly, or resolve agent IDs →
-      // dm.operator.{agentId} (the broker's deterministic convention).
-      const conversationId = rawId.startsWith("dm.")
-        ? rawId
-        : conversationIdForAgent(rawId);
+      // Pass the routed id straight through — the snapshot service resolves it
+      // against the live broker snapshot (a `c.…`/`dm.…` conversation id, or a
+      // bare agent id → its actual conversation). The old `dm.operator.{agentId}`
+      // wrap was wrong for agents whose conversation is keyed `c.…`.
       return getScoutMobileSessionSnapshot(
-        conversationId,
+        rawId,
         {
           beforeTurnId: input.beforeTurnId ?? null,
           limit: typeof input.limit === "number" ? input.limit : null,

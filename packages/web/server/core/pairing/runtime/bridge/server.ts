@@ -35,6 +35,7 @@ import {
   getScoutMobileSessionSnapshot,
   getScoutMobileSessions,
   getScoutMobileWorkspaces,
+  markScoutMobileConversationRead,
   sendScoutMobileComms,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
@@ -757,6 +758,20 @@ async function handleRPCInner(
             resolveMobileCurrentDirectory(),
             rpcContext.deviceId,
           ),
+        };
+      }
+
+      case "mobile/comms/read": {
+        const p = req.params as { conversationId?: string; lastReadMessageId?: string | null };
+        if (!p?.conversationId) {
+          return { id: req.id, error: { code: -32602, message: "conversationId is required" } };
+        }
+        return {
+          id: req.id,
+          result: await markScoutMobileConversationRead({
+            conversationId: p.conversationId,
+            lastReadMessageId: p.lastReadMessageId ?? null,
+          }),
         };
       }
 

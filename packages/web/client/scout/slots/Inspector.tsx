@@ -16,6 +16,7 @@ import { WorkInspector } from "../inspector/WorkInspector.tsx";
 import { MeshInspectorPanel } from "../inspector/MeshInspector.tsx";
 import { ScoutbotPanel } from "../scoutbot/ScoutbotPanel.tsx";
 import { BrokerAttemptInspector } from "../../screens/BrokerScreen.tsx";
+import { KnowledgeSearchInspector } from "../../screens/KnowledgeSearchInspector.tsx";
 import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-state.ts";
 import { VerticalResizeHandle } from "./VerticalResizeHandle.tsx";
 import type {
@@ -108,6 +109,9 @@ export function ScoutInspector() {
       break;
     case "sessions":
       content = <SessionsInspector />;
+      break;
+    case "search":
+      content = <KnowledgeSearchInspector />;
       break;
     case "conversation":
       content = <ConversationInspector />;

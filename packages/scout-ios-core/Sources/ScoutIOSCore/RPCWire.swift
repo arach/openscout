@@ -37,6 +37,7 @@ struct TRPCRoute: Sendable {
 let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/sessions":         TRPCRoute(path: "mobile.sessions",        method: .query),
     "mobile/agents":           TRPCRoute(path: "mobile.agents",          method: .query),
+    "mobile/activity":         TRPCRoute(path: "mobile.activity",        method: .query),
     "mobile/session/snapshot": TRPCRoute(path: "mobile.sessionSnapshot", method: .query),
     "mobile/message/send":     TRPCRoute(path: "mobile.sendMessage",     method: .mutation),
     "mobile/session/create":   TRPCRoute(path: "mobile.createSession",   method: .mutation),
@@ -46,6 +47,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/comms/conversations": TRPCRoute(path: "mobile.commsConversations", method: .query),
     "mobile/comms/messages":      TRPCRoute(path: "mobile.commsMessages",      method: .query),
     "mobile/comms/send":          TRPCRoute(path: "mobile.commsSend",          method: .mutation),
+    "mobile/comms/read":          TRPCRoute(path: "mobile.commsMarkRead",      method: .mutation),
     "mobile/terminal/provision":  TRPCRoute(path: "mobile.terminalProvision",  method: .mutation),
 ]
 

@@ -113,13 +113,14 @@ struct AgentsSurface: View {
                 )
             }
         } else {
-            // Most-recent: a flat list, newest first, every row self-describing
-            // (project shown inline since there's no header to carry it).
+            // Most-recent: a flat list, newest first. The name + harness + age is
+            // the identity here; we don't repeat the project (that's PROJECT mode's
+            // job) — the second line only appears when the agent is on a branch.
             ForEach(Array(recents.enumerated()), id: \.element.id) { idx, agent in
                 AgentRow(
                     agent: agent,
                     connector: nil,
-                    showProject: true,
+                    showProject: false,
                     onTap: { tapAgent(agent) }
                 )
                 if idx < recents.count - 1 { rowDivider }
@@ -334,7 +335,8 @@ private struct AgentRow: View {
     let agent: AgentSummary
     /// Non-nil ⇒ a leaf under a multi-agent project (tree rail + indent).
     let connector: Connector?
-    /// Recent/flat mode prepends the project to the session line for context.
+    /// When set, prepends the project to the session line — only useful where no
+    /// header carries it. Recent mode leaves this off (name + age is enough).
     var showProject: Bool = false
     let onTap: () -> Void
 
@@ -385,8 +387,8 @@ private struct AgentRow: View {
 
     /// The session coordinate beneath the name: the working branch when the agent
     /// is on one (recency is already shown as the age on the right — no point
-    /// repeating the idle "Available" status). Recent mode prefixes the project so
-    /// a flat row is self-describing.
+    /// repeating the idle "Available" status). With `showProject`, the project is
+    /// prefixed for rows that have no header to carry it.
     private var sessionLine: String? {
         let branch = agent.branch.flatMap { $0.isEmpty ? nil : $0 }
         let parts = [showProject ? displayProjectName(agent.projectName) : nil, branch].compactMap { $0 }

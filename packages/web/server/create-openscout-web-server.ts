@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { createReadStream, existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
@@ -91,6 +92,12 @@ import {
   snapshotRecentEvents,
   type DiscoveredTranscript,
 } from "@openscout/runtime/tail";
+import {
+  indexRecentSessionKnowledge,
+  resolveOpenScoutKnowledgePaths,
+  SQLiteKnowledgeStore,
+  type KnowledgeSourceRef,
+} from "@openscout/runtime/knowledge";
 import type { ScoutVantageNativeSession } from "@openscout/runtime/vantage-plan";
 import {
   projectSessionsAttention,
@@ -599,6 +606,246 @@ function parseOptionalBoolean(value: string | undefined): boolean | undefined {
     return true;
   }
   return undefined;
+}
+
+type HarnessTranscriptSourceRef = Extract<KnowledgeSourceRef, { kind: "harness_transcript" }>;
+
+type JsonlPreviewRecord = {
+  index: number;
+  raw: string;
+  type?: string;
+  role?: string;
+  kind?: string;
+  summary: string;
+  renderedText: string;
+  parsed: boolean;
+  matched?: boolean;
+  matchCount?: number;
+  matchTerms?: string[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringField(value: unknown, key: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const field = value[key];
+  return typeof field === "string" && field.trim() ? field.trim() : undefined;
+}
+
+function trimPreviewLine(value: string, max = 260): string {
+  const flat = value.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, Math.max(0, max - 3))}...`;
+}
+
+function previewQueryTerms(query: string | undefined): string[] {
+  const seen = new Set<string>();
+  return (query ?? "")
+    .split(/[^A-Za-z0-9_./-]+/u)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 1)
+    .filter((term) => {
+      const key = term.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
+function matchStats(text: string, terms: string[]): { count: number; terms: string[] } {
+  if (!text || terms.length === 0) return { count: 0, terms: [] };
+  const lower = text.toLowerCase();
+  let count = 0;
+  const matchedTerms: string[] = [];
+  for (const term of terms) {
+    const needle = term.toLowerCase();
+    let index = lower.indexOf(needle);
+    let matched = false;
+    while (index >= 0) {
+      count++;
+      matched = true;
+      index = lower.indexOf(needle, index + needle.length);
+    }
+    if (matched) matchedTerms.push(term);
+  }
+  return { count, terms: matchedTerms };
+}
+
+function extractPreviewText(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const joined = value
+      .map((entry) => extractPreviewText(entry))
+      .filter((entry): entry is string => Boolean(entry))
+      .join(" ");
+    return joined || null;
+  }
+  if (!isRecord(value)) return null;
+  for (const key of [
+    "text",
+    "message",
+    "content",
+    "input",
+    "arguments",
+    "args",
+    "output",
+    "result",
+    "prompt",
+    "command",
+    "lastPrompt",
+    "aiTitle",
+    "summary",
+  ]) {
+    const extracted = extractPreviewText(value[key]);
+    if (extracted) return extracted;
+  }
+  return null;
+}
+
+function summarizeJsonlRecord(raw: string, index: number, terms: string[]): JsonlPreviewRecord {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const payload = isRecord(parsed) ? parsed.payload : null;
+    const message = isRecord(parsed) ? parsed.message : null;
+    const candidate = payload ?? message ?? parsed;
+    const type = stringField(parsed, "type") ?? stringField(candidate, "type");
+    const role = stringField(parsed, "role") ?? stringField(candidate, "role") ?? stringField(message, "role");
+    const kind = stringField(parsed, "kind") ?? stringField(candidate, "kind") ?? type ?? role;
+    const renderedText = extractPreviewText(candidate) ?? extractPreviewText(parsed) ?? raw;
+    const summary = trimPreviewLine(renderedText);
+    const stats = matchStats(`${summary}\n${renderedText}\n${raw}`, terms);
+    return {
+      index,
+      raw,
+      ...(type ? { type } : {}),
+      ...(role ? { role } : {}),
+      ...(kind ? { kind } : {}),
+      summary,
+      renderedText,
+      parsed: true,
+      matched: stats.count > 0,
+      matchCount: stats.count,
+      matchTerms: stats.terms,
+    };
+  } catch {
+    const stats = matchStats(raw, terms);
+    return {
+      index,
+      raw,
+      kind: "unparseable",
+      summary: trimPreviewLine(raw),
+      renderedText: raw,
+      parsed: false,
+      matched: stats.count > 0,
+      matchCount: stats.count,
+      matchTerms: stats.terms,
+    };
+  }
+}
+
+function isInsideRoot(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function resolveKnowledgePreviewPath(
+  sourceRef: HarnessTranscriptSourceRef,
+  currentDirectory: string,
+): string | null {
+  const paths = resolveOpenScoutKnowledgePaths();
+  const controlHome = dirname(paths.knowledgeRoot);
+  const portable = sourceRef.path;
+  const relPath = portable.relPath?.trim();
+  if (!relPath) return null;
+
+  if (portable.root === "ABSOLUTE") {
+    const absolute = resolve(relPath);
+    const trustedRoots = [homedir(), currentDirectory, controlHome].map((root) => resolve(root));
+    return trustedRoots.some((root) => isInsideRoot(root, absolute)) ? absolute : null;
+  }
+
+  const root = portable.root === "HOME"
+    ? homedir()
+    : portable.root === "OPENSCOUT_CONTROL_HOME"
+      ? controlHome
+      : portable.root === "OPENSCOUT_SUPPORT_DIRECTORY"
+        ? dirname(controlHome)
+        : portable.root === "PROJECT_ROOT"
+          ? currentDirectory
+          : null;
+  if (!root) return null;
+  const resolved = resolve(root, relPath);
+  return isInsideRoot(resolve(root), resolved) ? resolved : null;
+}
+
+async function readKnowledgeJsonlPreview(input: {
+  sourceRef: HarnessTranscriptSourceRef;
+  currentDirectory: string;
+  contextRecords?: number;
+  maxRecords?: number;
+  query?: string;
+}) {
+  const resolvedPath = resolveKnowledgePreviewPath(input.sourceRef, input.currentDirectory);
+  if (!resolvedPath) {
+    throw new Error("source path is outside trusted preview roots");
+  }
+  const stats = statSync(resolvedPath);
+  if (!stats.isFile()) {
+    throw new Error("source path is not a file");
+  }
+
+  const requested = input.sourceRef.recordRange;
+  const requestedStart = Array.isArray(requested) && Number.isFinite(requested[0])
+    ? Math.max(0, Math.floor(requested[0]))
+    : 0;
+  const requestedEnd = Array.isArray(requested) && Number.isFinite(requested[1])
+    ? Math.max(requestedStart, Math.floor(requested[1]))
+    : requestedStart + 24;
+  const contextRecords = Math.min(20, Math.max(0, Math.floor(input.contextRecords ?? 4)));
+  const maxRecords = Math.min(120, Math.max(1, Math.floor(input.maxRecords ?? 80)));
+  const start = Math.max(0, requestedStart - contextRecords);
+  const desiredEnd = requestedEnd + contextRecords;
+  const end = Math.min(desiredEnd, start + maxRecords - 1);
+  const terms = previewQueryTerms(input.query);
+
+  const records: JsonlPreviewRecord[] = [];
+  let index = 0;
+  let truncatedAfter = false;
+  const reader = createInterface({
+    input: createReadStream(resolvedPath, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of reader) {
+    if (index > end) {
+      truncatedAfter = true;
+      reader.close();
+      break;
+    }
+    if (index >= start) {
+      records.push(summarizeJsonlRecord(line, index, terms));
+    }
+    index++;
+  }
+
+  const first = records[0]?.index ?? start;
+  const last = records.at(-1)?.index ?? first;
+  return {
+    path: resolvedPath,
+    sourcePath: input.sourceRef.path,
+    harness: input.sourceRef.harness,
+    sessionId: input.sourceRef.sessionId,
+    requestedRange: requested,
+    previewRange: [first, last] as [number, number],
+    records,
+    recordsRead: records.length,
+    truncatedBefore: start > 0,
+    truncatedAfter,
+    query: input.query,
+    queryTerms: terms,
+  };
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -2255,6 +2502,88 @@ export async function createOpenScoutWebServer(
     }),
   );
   app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
+
+  app.get("/api/knowledge/status", (c) => {
+    const store = new SQLiteKnowledgeStore();
+    try {
+      return c.json(store.status());
+    } finally {
+      store.close();
+    }
+  });
+
+  app.get("/api/knowledge/search", (c) => {
+    const q = c.req.query("q") ?? "";
+    const limit = parseOptionalPositiveInt(c.req.query("limit"), 30) ?? 30;
+    const store = new SQLiteKnowledgeStore();
+    try {
+      return c.json({
+        q,
+        hits: store.searchLexical({
+          q,
+          sourceKinds: ["sessions"],
+          limit,
+          mode: "lexical",
+        }),
+        status: store.status(),
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  app.post("/api/knowledge/source-preview", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sourceRef?: unknown;
+      contextRecords?: unknown;
+      maxRecords?: unknown;
+      q?: unknown;
+    };
+    const sourceRef = body.sourceRef;
+    if (!isRecord(sourceRef) || sourceRef.kind !== "harness_transcript") {
+      return c.json({ error: "sourceRef must be a harness transcript ref" }, 400);
+    }
+    try {
+      return c.json(await readKnowledgeJsonlPreview({
+        sourceRef: sourceRef as HarnessTranscriptSourceRef,
+        currentDirectory,
+        contextRecords: typeof body.contextRecords === "number" ? body.contextRecords : undefined,
+        maxRecords: typeof body.maxRecords === "number" ? body.maxRecords : undefined,
+        query: typeof body.q === "string" ? body.q : undefined,
+      }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = message.includes("trusted preview roots") ? 403 : 500;
+      return c.json({ error: message }, status as 403 | 500);
+    }
+  });
+
+  app.post("/api/knowledge/sessions/index", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      days?: unknown;
+      limit?: unknown;
+      force?: unknown;
+    };
+    const days = typeof body.days === "number" && Number.isFinite(body.days)
+      ? body.days
+      : 3;
+    const limit = typeof body.limit === "number" && Number.isFinite(body.limit)
+      ? body.limit
+      : 220;
+    const force = body.force === true;
+    try {
+      const result = await indexRecentSessionKnowledge({ days, limit, force });
+      const store = new SQLiteKnowledgeStore();
+      try {
+        return c.json({ result, status: store.status() });
+      } finally {
+        store.close();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
 
   app.get("/api/ui/scenes", async (c) => {
     const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);

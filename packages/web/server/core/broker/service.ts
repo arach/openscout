@@ -708,6 +708,27 @@ export async function appendScoutUnblockRequestEvent(
   await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.unblockRequestEvents, event);
 }
 
+/// Advance an actor's read cursor in a conversation. With no `lastReadMessageId`
+/// the broker marks read through the conversation's latest message (and stamps
+/// `lastReadAt = now`), which is the "I just opened this thread" case. The broker
+/// enforces monotonic progress, so this never rewinds a further-along cursor.
+export async function recordScoutBrokerReadCursor(
+  input: {
+    conversationId: string;
+    actorId: string;
+    lastReadMessageId?: string | null;
+    lastReadAt?: number;
+  },
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<{ ok: boolean; acknowledgedDeliveries?: number }> {
+  const path = `${scoutBrokerPaths.v1.conversations}/${encodeURIComponent(input.conversationId)}/read-cursors`;
+  return brokerPostJson<{ ok: boolean; acknowledgedDeliveries?: number }>(baseUrl, path, {
+    actorId: input.actorId,
+    lastReadMessageId: input.lastReadMessageId ?? undefined,
+    lastReadAt: input.lastReadAt,
+  });
+}
+
 export async function loadScoutBrokerContext(
   baseUrl = resolveScoutBrokerUrl(),
   options: { signal?: AbortSignal } = {},

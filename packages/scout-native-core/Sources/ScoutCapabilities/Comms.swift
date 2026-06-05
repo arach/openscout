@@ -111,4 +111,11 @@ public protocol CommsCapability: Sendable {
     /// post under an existing message. Returns the new message id.
     @discardableResult
     func postMessage(conversationId: String, body: String, replyTo: String?) async throws -> String
+
+    /// Mark a conversation read — advances the operator's read cursor on the
+    /// broker through the latest message, clearing the unread badge. Returns the
+    /// resulting unread count (0 when caught up). Opening a thread should call
+    /// this so the count doesn't linger forever.
+    @discardableResult
+    func markConversationRead(conversationId: String) async throws -> Int
 }

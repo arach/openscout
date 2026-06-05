@@ -58,8 +58,25 @@ struct CommsSurface: View {
         .refreshable { await load() }
         .task(id: reloadToken) { await load() }
         .navigationDestination(item: $route) { convo in
-            CommsThreadView(client: client, conversation: convo, onClose: { route = nil })
+            CommsThreadView(
+                client: client,
+                conversation: convo,
+                onClose: { route = nil },
+                onRead: { await markRead(convo.id) }
+            )
         }
+    }
+
+    /// Opening a thread clears its unread badge: drop the count locally so the row
+    /// is already caught up when the operator pops back, then tell the broker to
+    /// advance the operator's read cursor. Best-effort — a failed write just means
+    /// the badge returns on the next list pull.
+    private func markRead(_ conversationId: String) async {
+        if let idx = conversations.firstIndex(where: { $0.id == conversationId }),
+           conversations[idx].unreadCount != 0 {
+            conversations[idx].unreadCount = 0
+        }
+        _ = try? await client.markConversationRead(conversationId: conversationId)
     }
 
     // MARK: - Filtering
@@ -106,13 +123,27 @@ private struct CommsRow: View {
 
     private var unread: Bool { conversation.unreadCount > 0 }
 
+    /// Only channels/threads/groups/system carry a leading type glyph. DMs (the
+    /// vast majority) used to reserve a blank slot here, which just shoved every
+    /// title ~one glyph off the content margin for a column that drew nothing —
+    /// so they now render with no leading element and the title sits flush left.
+    private var showsTypeGlyph: Bool {
+        switch conversation.kind {
+        case .direct, .unknown: return false
+        default: return true
+        }
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 0) {
                 HStack(spacing: HudSpacing.md) {
-                    // Left: conversation TYPE — a hand-drawn glyph, the list's rhythm.
-                    CommsTypeGlyph(kind: conversation.kind)
-                        .foregroundStyle(HudPalette.muted)
+                    // Left: conversation TYPE — a hand-drawn glyph, the list's
+                    // rhythm — but only when it actually marks something.
+                    if showsTypeGlyph {
+                        CommsTypeGlyph(kind: conversation.kind)
+                            .foregroundStyle(HudPalette.muted)
+                    }
 
                     Text(displayTitle)
                         .font(HudFont.ui(HudTextSize.md, weight: unread ? .semibold : .medium))
@@ -476,6 +507,9 @@ struct CommsThreadView: View {
     let client: any ScoutBrokerClient
     let conversation: CommsConversation
     let onClose: () -> Void
+    /// Called once the thread is on screen so the list can clear the unread badge
+    /// and the broker can advance the operator's read cursor. Defaults to a no-op.
+    var onRead: () async -> Void = {}
 
     @State private var messages: [CommsMessage] = []
     @State private var isLoading = true
@@ -497,7 +531,7 @@ struct CommsThreadView: View {
         // optional, not the only way out of a thread.
         .background(InteractivePopGestureEnabler())
         .safeAreaInset(edge: .bottom) { composer }
-        .task { await load() }
+        .task { await load(); await onRead() }
         .onAppear { voice.prepare() }
         .onDisappear { if voice.isListening { voice.cancel() } }
     }

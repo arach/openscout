@@ -17,13 +17,14 @@ import { upScoutAgent } from "../agents/service.ts";
 import { queryFleet } from "../../server/db-queries.ts";
 import {
   loadScoutBrokerContext,
-  loadScoutActivityItems,
+  readScoutBrokerHome,
   openScoutPeerSession,
   registerScoutLocalAgentBinding,
   replyToScoutMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
-  type ScoutActivityItem,
+  type ScoutBrokerConversationRecord,
+  type ScoutBrokerHomeActivityRecord,
   type ScoutBrokerSnapshot,
   type ScoutDirectMessageResult,
 } from "../broker/service.ts";
@@ -613,6 +614,40 @@ export async function getScoutFleet(
   return queryFleet(options);
 }
 
+/**
+ * Resolve whatever id the phone routed with onto a real broker conversation.
+ * The phone may send a conversation id directly (`c.…` from the activity feed, or
+ * a `dm.…` direct id) or a bare agent id (from the Agents tab). Not every agent
+ * has an `operator` DM — many only have ask/consult conversations keyed `c.…` —
+ * so when there's no direct hit and no `dm.operator.{agentId}`, fall back to the
+ * most-recent conversation the agent actually participates in.
+ */
+function resolveMobileConversation(
+  snapshot: ScoutBrokerSnapshot,
+  rawId: string,
+): ScoutBrokerConversationRecord | null {
+  const direct = snapshot.conversations[rawId];
+  if (direct) return direct;
+
+  const operatorDm = snapshot.conversations[`dm.operator.${rawId}`];
+  if (operatorDm) return operatorDm;
+
+  const participating = Object.values(snapshot.conversations).filter(
+    (conversation) => conversation.participantIds?.includes(rawId),
+  );
+  if (participating.length === 0) return null;
+
+  const lastActivityMs = (conversationId: string): number =>
+    Object.values(snapshot.messages).reduce((latest, message) => {
+      if (message.conversationId !== conversationId) return latest;
+      return Math.max(latest, normalizeTimestampMs(message.createdAt) ?? 0);
+    }, 0);
+
+  return participating
+    .slice()
+    .sort((a, b) => lastActivityMs(b.id) - lastActivityMs(a.id))[0] ?? null;
+}
+
 export async function getScoutMobileSessionSnapshot(
   conversationId: string,
   options: {
@@ -624,7 +659,7 @@ export async function getScoutMobileSessionSnapshot(
   void currentDirectory;
   const broker = await requireMobileRelayContext();
   const { snapshot } = broker;
-  const conversation = snapshot.conversations[conversationId];
+  const conversation = resolveMobileConversation(snapshot, conversationId);
 
   // The conversation may not exist yet — the iOS app navigates to
   // dm.operator.{agentId} before any messages are sent.  Return an
@@ -677,7 +712,7 @@ export async function getScoutMobileSessionSnapshot(
     : null;
   const endpoint = directAgentId ? endpointForAgent(snapshot, directAgentId) : null;
   const agent = directAgentId ? snapshot.agents[directAgentId] : null;
-  const messagePage = pageMessagesForConversation(snapshot, conversationId, options);
+  const messagePage = pageMessagesForConversation(snapshot, conversation.id, options);
   const messages = messagePage.messages;
   const activeFlight = latestActiveFlightForAgent(snapshot, directAgentId);
   const lastAgentMessageAt = messages
@@ -1131,13 +1166,13 @@ export type ScoutMobileActivityFilters = {
 
 export async function getScoutMobileActivity(
   filters: ScoutMobileActivityFilters = {},
-): Promise<ScoutActivityItem[]> {
-  return loadScoutActivityItems({
-    agentId: filters.agentId,
-    actorId: filters.actorId,
-    conversationId: filters.conversationId,
-    limit: filters.limit ?? 100,
-  });
+): Promise<ScoutBrokerHomeActivityRecord[]> {
+  // Home is an orientation surface, so it reads the broker's *curated* home
+  // activity — one row per message, named actors, always thread-linked — not the
+  // raw `/v1/activity` lifecycle firehose (ask_opened / flight_updated / …),
+  // which is an ops feed and stays on the Tail tab. See project_home_purpose.
+  const home = await readScoutBrokerHome();
+  return (home?.activity ?? []).slice(0, filters.limit ?? 100);
 }
 
 // -- Comms (channels + DMs) ----------------------------------------------
