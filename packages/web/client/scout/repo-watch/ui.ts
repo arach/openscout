@@ -14,9 +14,18 @@
 import type {
   RepoWatchAgentRef,
   RepoWatchAttentionLevel,
+  RepoWatchBranchSummary,
+  RepoWatchWorktree,
 } from "./types.ts";
 
 export type StatusTone = "ok" | "warn" | "error" | "info" | "neutral" | "accent";
+
+/** Console palette permutation — warm / cool / mono (see console.css). Owned by
+ *  ReposScreen, shared here so the screen and every view agree on the union. */
+export type Tone = "warm" | "cool" | "mono";
+
+/** Integer formatting with thousands separators ("1,024"). */
+export const fmt = (n: number): string => n.toLocaleString("en-US");
 
 export interface AttentionVisual {
   label: string;
@@ -41,8 +50,8 @@ export const ATTENTION: Record<RepoWatchAttentionLevel, AttentionVisual> = {
   attention: {
     label: "ATTENTION",
     tone: "warn",
-    fg: "var(--status-warn-fg)",
-    bg: "var(--status-warn-bg)",
+    fg: "var(--studio-ink)",
+    bg: "var(--status-neutral-bg)",
     rank: 1,
     glyph: "▲",
     gloss: "Dirty main, diverged branch, or status couldn't be read.",
@@ -108,6 +117,23 @@ export function agentHandle(agent: RepoWatchAgentRef): string {
 
 export function agentLabel(agent: RepoWatchAgentRef): string {
   return agent.name?.trim() || agent.id;
+}
+
+/** Live-first, de-duplicated agent list. The wire format repeats a name across
+ *  many worktree-scoped ids; collapse by display handle so each agent appears
+ *  once, with live ones first. Every view shows agents this way. */
+export function uniqueAgents(wt: RepoWatchWorktree): RepoWatchAgentRef[] {
+  const seen = new Set<string>();
+  const out: RepoWatchAgentRef[] = [];
+  for (const a of [...wt.agents].sort(
+    (x, y) => Number(agentLive(y)) - Number(agentLive(x)),
+  )) {
+    const handle = agentHandle(a);
+    if (seen.has(handle)) continue;
+    seen.add(handle);
+    out.push(a);
+  }
+  return out;
 }
 
 /* ── Branch / path formatting ──────────────────────────────────────────── */
@@ -183,4 +209,93 @@ export function toneFg(tone: StatusTone): string {
 
 export function toneBg(tone: StatusTone): string {
   return tone === "accent" ? "var(--scout-accent-soft)" : `var(--status-${tone}-bg)`;
+}
+
+/* ── Worktree state — the worst-of derivation behind every view's status dot ─
+ * Error wins (a scan we can't trust), then a live agent, then any dirtiness or
+ * drift, else clean. The table, drift ruler, and context pane all read this. */
+
+export type WtState = "error" | "live" | "dirty" | "clean";
+
+export function wtState(wt: RepoWatchWorktree): WtState {
+  if (wt.error != null) return "error";
+  if (wt.agents.some(agentLive)) return "live";
+  if (!wt.status.clean || wt.branch.ahead > 0 || wt.branch.behind > 0) return "dirty";
+  return "clean";
+}
+
+/* ── Churn — parse `git diff --shortstat` and sum staged + unstaged ──────── */
+
+interface Shortstat {
+  files: number;
+  ins: number;
+  del: number;
+}
+
+function parseShortstat(text: string | null): Shortstat | null {
+  if (!text) return null;
+  const files = /(\d+)\s+files?\s+changed/.exec(text);
+  const ins = /(\d+)\s+insertions?\(\+\)/.exec(text);
+  const del = /(\d+)\s+deletions?\(-\)/.exec(text);
+  if (!files && !ins && !del) return null;
+  return {
+    files: files ? Number(files[1]) : 0,
+    ins: ins ? Number(ins[1]) : 0,
+    del: del ? Number(del[1]) : 0,
+  };
+}
+
+export interface Churn {
+  add: number;
+  del: number;
+  total: number;
+  /** Whether there's any working-tree churn at all (`total > 0`). */
+  has: boolean;
+}
+
+/** Working-tree churn for a worktree — staged + unstaged insertions/deletions
+ *  parsed from the diff shortstats (null on the fast path → zero). */
+export function churnOf(wt: RepoWatchWorktree): Churn {
+  const staged = parseShortstat(wt.diff.stagedShortstat);
+  const unstaged = parseShortstat(wt.diff.unstagedShortstat);
+  const add = (staged?.ins ?? 0) + (unstaged?.ins ?? 0);
+  const del = (staged?.del ?? 0) + (unstaged?.del ?? 0);
+  return { add, del, total: add + del, has: add > 0 || del > 0 };
+}
+
+/* ── Branch identity — split a ref into a dimmed path prefix + meaningful leaf,
+ * e.g. "codex/repo-watch" → { prefix: "codex/", leaf: "repo-watch" } so the
+ * distinguishing part reads first. Detached heads surface a short sha instead.
+ * Pure — the <BranchLabel> in parts.tsx renders the result. ──────────────── */
+
+export interface BranchParts {
+  detached: boolean;
+  sha: string | null;
+  prefix: string;
+  leaf: string;
+}
+
+export function branchParts(
+  branch: RepoWatchBranchSummary,
+  fallback: string,
+): BranchParts {
+  if (branch.detached) {
+    return {
+      detached: true,
+      sha: branch.head ? branch.head.slice(0, 7) : null,
+      prefix: "",
+      leaf: "",
+    };
+  }
+  const name = branch.name ?? fallback;
+  const slash = name.lastIndexOf("/");
+  if (slash >= 0) {
+    return {
+      detached: false,
+      sha: null,
+      prefix: name.slice(0, slash + 1),
+      leaf: name.slice(slash + 1),
+    };
+  }
+  return { detached: false, sha: null, prefix: "", leaf: name };
 }

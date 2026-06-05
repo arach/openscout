@@ -39,34 +39,53 @@
   --color-status-neutral-bg: var(--status-neutral-bg);
 
   --tracking-eyebrow: 0.22em;
-  --font-display: "Play", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Scoped values — mapped onto the app's --hud-* tokens (which flip with
- * html[data-scout-theme-mode]). Fallbacks are the studio dark palette. */
+/* Theme-faithful mapping. Repo Watch is part of the app first and a studio
+ * design second, so the studio token vocabulary is mapped 1:1 onto the app's
+ * own hudsonkit theme tokens (`--hud-*`, set on `[data-scout-theme]`). Those
+ * flip with the active theme mode and carry the accent the operator picks in
+ * Settings — so this view tracks the app in dark AND light, never a frozen
+ * studio palette. The studio-dark values remain only as last-resort fallbacks
+ * if a `--hud-*` token is ever unset. */
 .repo-watch-scope {
   --studio-canvas: var(--hud-bg, oklch(0.14 0.008 80));
   --studio-surface: var(--hud-surface, oklch(0.2 0.01 80));
-  --studio-canvas-alt: color-mix(in oklab, var(--studio-surface) 55%, var(--studio-canvas));
+  --studio-canvas-alt: color-mix(in oklab, var(--studio-surface) 60%, var(--studio-canvas));
   --studio-ink: var(--hud-ink, oklch(0.96 0.008 80));
-  --studio-ink-muted: color-mix(in oklab, var(--studio-ink) 72%, var(--studio-canvas));
-  --studio-ink-faint: color-mix(in oklab, var(--studio-ink) 50%, var(--studio-canvas));
-  --studio-edge: color-mix(in oklab, var(--studio-ink) 16%, var(--studio-canvas));
-  --studio-edge-strong: color-mix(in oklab, var(--studio-ink) 26%, var(--studio-canvas));
+  --studio-ink-muted: var(--hud-muted, oklch(0.72 0.012 80));
+  /* The neutral theme's --hud-dim (#737373) is too low-contrast on #0a0a0a for
+   * the many faint labels/captions this view uses; lift it a touch toward ink
+   * so secondary text stays legible without becoming loud. */
+  --studio-ink-faint: color-mix(in oklab, var(--hud-dim, oklch(0.58 0.012 80)), var(--hud-ink, oklch(0.96 0.008 80)) 16%);
+
+  /* Edges follow the app's own hairline (--hud-border) and NOTHING is allowed
+   * to be brighter than it — no ink-mixed "strong" rules. A line on near-black
+   * reads as harsh the instant it lifts toward white, so every divider in this
+   * view is the same quiet translucent hairline; hierarchy comes from spacing
+   * and background tone, not heavier lines. */
+  --studio-edge: var(--hud-border, oklch(0.25 0.008 80));
+  --studio-edge-strong: var(--studio-edge);
 
   --scout-accent: var(--hud-accent, oklch(0.86 0.17 125));
-  --scout-accent-soft: color-mix(in oklab, var(--scout-accent) 18%, transparent);
+  --scout-accent-soft: var(--hud-accent-soft, color-mix(in oklab, var(--scout-accent) 18%, transparent));
 
   --status-ok-fg: var(--hud-status-ok, oklch(0.84 0.16 155));
-  --status-ok-bg: color-mix(in oklab, var(--status-ok-fg) 17%, transparent);
+  --status-ok-bg: color-mix(in oklab, var(--status-ok-fg) 16%, transparent);
   --status-warn-fg: var(--hud-status-warn, oklch(0.85 0.15 85));
-  --status-warn-bg: color-mix(in oklab, var(--status-warn-fg) 16%, transparent);
+  --status-warn-bg: color-mix(in oklab, var(--status-warn-fg) 15%, transparent);
   --status-error-fg: var(--hud-status-error, oklch(0.78 0.17 25));
-  --status-error-bg: color-mix(in oklab, var(--status-error-fg) 16%, transparent);
-  --status-info-fg: oklch(0.8 0.1 220);
-  --status-info-bg: color-mix(in oklab, var(--status-info-fg) 18%, transparent);
-  --status-neutral-fg: color-mix(in oklab, var(--studio-ink) 78%, var(--studio-canvas));
+  --status-error-bg: color-mix(in oklab, var(--status-error-fg) 15%, transparent);
+  --status-info-fg: color-mix(in oklab, var(--studio-ink-muted) 40%, oklch(0.72 0.12 230));
+  --status-info-bg: color-mix(in oklab, var(--status-info-fg) 16%, transparent);
+  --status-neutral-fg: var(--studio-ink-muted);
   --status-neutral-bg: color-mix(in oklab, var(--studio-ink) 7%, transparent);
 
   color: var(--studio-ink);
+
+  /* Rendering baseline — crisp text + aligned numerals across the whole view. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
 }

@@ -1,37 +1,131 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Route } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
-import type { RepoWatchSnapshot } from "../scout/repo-watch/types.ts";
-import { RepoWatchLedger } from "../scout/repo-watch/RepoWatchLedger.tsx";
-import { RepoWatchTriage } from "../scout/repo-watch/RepoWatchTriage.tsx";
+import type {
+  RepoWatchSnapshot,
+  RepoWatchWorktree,
+  RepoWatchProject,
+} from "../scout/repo-watch/types.ts";
+import RepoWatchTable from "../scout/repo-watch/RepoWatchTable.tsx";
+import RepoWatchDrift from "../scout/repo-watch/RepoWatchDrift.tsx";
+import RepoWatchContext from "../scout/repo-watch/RepoWatchContext.tsx";
+import { attentionRank, type Tone } from "../scout/repo-watch/ui.ts";
 
 /**
  * Repo Watch / State of Repos (SCO-061) — the live web view.
  *
- * Polls `GET /v1/repo-watch/snapshot` and renders the studio-designed Ledger
- * (default) with an optional Triage toggle. The components were authored in the
- * design studio against the exact `@openscout/runtime` snapshot shape, so they
- * render the broker response directly. Their `--studio-*` / `--status-*` tokens
- * are supplied by `.repo-watch-scope` (see scout/repo-watch/repo-watch.css),
- * mapped onto the app's `--hud-*` theme tokens.
+ * Polls `GET /api/repo-watch` and renders the Fleet Table: every repo and
+ * worktree on the machine in one operator-console panel — repos grouped with an
+ * indented worktree tree, churn / drift / agents per row, sorted so unfinished
+ * work floats to the top. The `--studio-*` / `--status-*` tokens are supplied by
+ * `.repo-watch-scope` (see scout/repo-watch/repo-watch.css); the table itself
+ * carries its own warm operator-console palette scoped to `.rw-table`.
  */
 
 const REFRESH_MS = 10_000;
-type ViewKey = "ledger" | "triage";
+const TONE_KEY = "openscout.repos.tone";
+const TONES: readonly Tone[] = ["warm", "cool", "mono"];
+
+type ReposView = "table" | "drift";
+const VIEW_KEY = "openscout.repos.view";
+const VIEWS: readonly ReposView[] = ["table", "drift"];
+
+/** A bit of UI state mirrored to localStorage, validated against `allowed` so a
+ *  stale or garbage stored value can never wedge the view. SSR-safe. */
+function usePersistedState<T extends string>(
+  key: string,
+  allowed: readonly T[],
+  fallback: T,
+): [T, (next: T) => void] {
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === "undefined") return fallback;
+    const stored = window.localStorage.getItem(key) as T | null;
+    return stored && allowed.includes(stored) ? stored : fallback;
+  });
+  const set = useCallback(
+    (next: T) => {
+      setValue(next);
+      try {
+        window.localStorage.setItem(key, next);
+      } catch {
+        /* ignore private-mode / quota failures */
+      }
+    },
+    [key],
+  );
+  return [value, set];
+}
+
+/* The default selection — the most-relevant worktree so the context pane isn't
+ * empty on load: worst attention first, then live-agent count, then churn. */
+function pickDefaultWorktree(
+  snapshot: RepoWatchSnapshot,
+): RepoWatchWorktree | null {
+  let best: RepoWatchWorktree | null = null;
+  let bestScore = -Infinity;
+  for (const project of snapshot.projects) {
+    for (const wt of project.worktrees) {
+      const liveAgents = wt.agents.filter(
+        (a) => (a.state ?? "").toLowerCase() === "active",
+      ).length;
+      const score =
+        (4 - attentionRank(wt.attention)) * 1_000_000 +
+        liveAgents * 10_000 +
+        wt.status.changedFiles;
+      if (score > bestScore) {
+        bestScore = score;
+        best = wt;
+      }
+    }
+  }
+  return best;
+}
+
+function findById(
+  snapshot: RepoWatchSnapshot | null,
+  id: string | null,
+): { worktree: RepoWatchWorktree | null; project: RepoWatchProject | null } {
+  if (!snapshot || !id) return { worktree: null, project: null };
+  for (const project of snapshot.projects) {
+    for (const wt of project.worktrees) {
+      if (wt.id === id) return { worktree: wt, project };
+    }
+  }
+  return { worktree: null, project: null };
+}
 
 export function ReposScreen(_props: { navigate: (route: Route) => void }) {
   const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(null);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewKey>("ledger");
   const hasData = useRef(false);
+  const emptyStreak = useRef(0);
+
+  // Tone + view persist to localStorage; selection is shared across both views.
+  // All three reach the table and the context pane through the `.rw-scope`
+  // wrapper (which carries the tone palette vars).
+  const [tone, setTone] = usePersistedState<Tone>(TONE_KEY, TONES, "warm");
+  const [view, setView] = usePersistedState<ReposView>(VIEW_KEY, VIEWS, "table");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const data = await api<RepoWatchSnapshot>(
         "/api/repo-watch?includeDiff=1&includeLastCommit=1",
       );
+      // The broker scan intermittently returns an empty (or sharply smaller)
+      // snapshot even while repos exist — its filesystem scan races a budget.
+      // Don't let a transient empty result wipe a good snapshot we already
+      // showed; keep the last good data until a non-empty scan lands.
+      if (data.projects.length === 0 && hasData.current && emptyStreak.current < 3) {
+        // Ride out a few transient empty scans before believing repos are gone,
+        // so the page doesn't flicker to empty — but don't get stuck forever.
+        emptyStreak.current += 1;
+        setPhase("ready");
+        return;
+      }
+      emptyStreak.current = 0;
       hasData.current = true;
       setSnapshot(data);
       setError(null);
@@ -49,6 +143,23 @@ export function ReposScreen(_props: { navigate: (route: Route) => void }) {
     const timer = setInterval(() => void load(), REFRESH_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  // Seed the selection once a snapshot lands (or if the selected worktree
+  // vanished from a later scan) so the context pane is never blank.
+  useEffect(() => {
+    if (!snapshot) return;
+    const stillThere = snapshot.projects.some((p) =>
+      p.worktrees.some((w) => w.id === selectedId),
+    );
+    if (!stillThere) {
+      setSelectedId(pickDefaultWorktree(snapshot)?.id ?? null);
+    }
+  }, [snapshot, selectedId]);
+
+  const selection = useMemo(
+    () => findById(snapshot, selectedId),
+    [snapshot, selectedId],
+  );
 
   if (phase === "loading") {
     return (
@@ -100,53 +211,67 @@ export function ReposScreen(_props: { navigate: (route: Route) => void }) {
 
   return (
     <div className="repo-watch-scope">
-      <div className="mx-auto max-w-[1680px] px-7 py-6">
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
-          <div className="min-w-0">
-            <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-              · repo watch · state of repos
-            </div>
-            <h1 className="mt-1 font-display text-[26px] font-medium leading-none tracking-tight text-studio-ink">
-              Repos
-            </h1>
-            <p className="mt-2.5 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
-              The state of every repo on this machine — projects, worktrees,
-              branches, dirty state, and which agents are attached.
-            </p>
-          </div>
-
-          <div
-            role="group"
-            aria-label="Repo Watch view"
-            className="flex shrink-0 items-center gap-0.5 rounded-[7px] border border-studio-edge bg-studio-surface p-0.5"
-          >
-            {(["ledger", "triage"] as ViewKey[]).map((key) => {
-              const on = key === view;
-              return (
+      <div className={"rw-scope tone-" + tone}>
+        <div className="mx-auto max-w-[1560px] px-6 py-6">
+          {/* Shared toolbar: view toggle (left) + tone toggle (right). */}
+          <div className="rw-toolbar">
+            <div className="rw-tone" role="group" aria-label="View">
+              {VIEWS.map((v) => (
                 <button
-                  key={key}
+                  key={v}
                   type="button"
-                  onClick={() => setView(key)}
-                  aria-pressed={on}
-                  className={[
-                    "rounded-[5px] px-3.5 py-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-eyebrow transition-colors duration-75",
-                    on
-                      ? "bg-scout-accent-soft text-scout-accent"
-                      : "text-studio-ink-faint hover:text-studio-ink",
-                  ].join(" ")}
+                  className={v === view ? "on" : ""}
+                  aria-pressed={v === view}
+                  onClick={() => setView(v)}
                 >
-                  {key}
+                  {v}
                 </button>
-              );
-            })}
+              ))}
+            </div>
+            <div
+              className="rw-tone"
+              style={{ marginLeft: "auto" }}
+              role="group"
+              aria-label="Console tone"
+            >
+              {TONES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={t === tone ? "on" : ""}
+                  aria-pressed={t === tone}
+                  onClick={() => setTone(t)}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
           </div>
-        </header>
-
-        {view === "ledger" ? (
-          <RepoWatchLedger snapshot={snapshot} />
-        ) : (
-          <RepoWatchTriage snapshot={snapshot} />
-        )}
+          <div className="flex items-start gap-6">
+            <div className="min-w-0 flex-1">
+              {view === "drift" ? (
+                <RepoWatchDrift
+                  snapshot={snapshot}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                />
+              ) : (
+                <RepoWatchTable
+                  snapshot={snapshot}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                />
+              )}
+            </div>
+            <div className="hidden w-[340px] flex-none lg:block sticky top-6 self-start">
+              <RepoWatchContext
+                worktree={selection.worktree}
+                project={selection.project}
+                generatedAt={snapshot.generatedAt}
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

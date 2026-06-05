@@ -97,6 +97,7 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "conversation",
   "agents",
   "fleet",
+  "repos",
   "conversations",
   "messages",
   "sessions",
@@ -215,6 +216,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
     });
   }
   if (parts[0] === "fleet") return scoped({ view: "fleet" });
+  if (parts[0] === "repos") return scoped({ view: "repos" });
   // /c/{conversationId} always opens the conversation surface directly.
   if (parts[0] === "c" && parts[1]) {
     return scoped({
@@ -361,6 +363,8 @@ export function routePath(r: Route): string {
     }
     case "fleet":
       return pathWithMachineScope("/fleet", r);
+    case "repos":
+      return pathWithMachineScope("/repos", r);
     case "conversations":
       return pathWithMachineScope("/conversations", r);
     case "messages": {
