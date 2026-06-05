@@ -22,6 +22,12 @@ import type {
 
 type SQLiteBinding = string | number | bigint | boolean | null | Uint8Array;
 
+type SQLiteTransactionalDatabase = Database & {
+  transaction<TArgs extends unknown[], TResult>(
+    callback: (...args: TArgs) => TResult
+  ): (...args: TArgs) => TResult;
+};
+
 type CollectionRow = {
   id: string;
   kind: KnowledgeCollection["kind"];
@@ -314,7 +320,7 @@ function searchHitFromRow(row: ChunkRow, query: string): KnowledgeSearchHit {
 }
 
 function insertFacetRows(db: Database, collectionId: string, chunkId: string | null, facets: KnowledgeFacets): void {
-  const statement = db.prepare(
+  const statement = db.query(
     `INSERT INTO facets (collection_id, chunk_id, key, value) VALUES (?1, ?2, ?3, ?4)`,
   );
   for (const [key, rawValue] of Object.entries(facets)) {
@@ -326,7 +332,7 @@ function insertFacetRows(db: Database, collectionId: string, chunkId: string | n
 }
 
 function insertSourceRefs(db: Database, collectionId: string, chunkId: string | null, refs: KnowledgeSourceRef[]): void {
-  const statement = db.prepare(
+  const statement = db.query(
     `INSERT INTO source_refs (id, collection_id, chunk_id, kind, ref_json)
      VALUES (?1, ?2, ?3, ?4, ?5)`,
   );
@@ -406,7 +412,7 @@ export class SQLiteKnowledgeStore {
   }
 
   deleteCollection(id: string): void {
-    this.db.transaction(() => {
+    (this.db as SQLiteTransactionalDatabase).transaction(() => {
       const chunkRows = this.db.query(
         "SELECT id FROM chunks WHERE collection_id = ?1",
       ).all(id) as Array<{ id: string }>;
@@ -442,7 +448,7 @@ export class SQLiteKnowledgeStore {
 
   upsertChunk(chunk: KnowledgeChunk, title = chunk.documentPath): void {
     const now = nowMs();
-    this.db.transaction(() => {
+    (this.db as SQLiteTransactionalDatabase).transaction(() => {
       this.db.query(
         `INSERT INTO chunks (
           id, collection_id, document_id, document_path, ordinal, text, text_hash,
