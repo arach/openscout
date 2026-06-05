@@ -280,7 +280,7 @@ function ThreadColumn({ messages }: { messages: ChatMsg[] }) {
 }
 
 function Msg({ msg }: { msg: ChatMsg }) {
-  const isOp = msg.who === "operator";
+  const isOp = msg.who === "you";
   return (
     <div
       className="flex flex-col gap-0.5"
