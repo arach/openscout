@@ -74,6 +74,25 @@ describe("buildPiProcessEnv", () => {
     expect(env.XAI_API_KEY).toBe("adapter-xai-key");
   });
 
+  test("maps SCOUT_XAI_API_KEY to XAI_API_KEY for Grok models", () => {
+    const env = buildPiProcessEnv(
+      {
+        env: {
+          SCOUT_XAI_API_KEY: "adapter-scout-xai-key",
+        },
+        options: {
+          model: "grok-4.3",
+        },
+      },
+      {
+        XAI_API_KEY: "source-xai-key",
+      },
+    );
+
+    expect(env.XAI_API_KEY).toBe("adapter-scout-xai-key");
+    expect(env).not.toHaveProperty("SCOUT_XAI_API_KEY");
+  });
+
   test("does not forward provider credentials when no provider can be inferred", () => {
     const env = buildPiProcessEnv(
       {

@@ -314,6 +314,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
         { kind: "env", key: "OPENAI_API_KEY" },
         { kind: "env", key: "OPENROUTER_API_KEY" },
         { kind: "env", key: "XAI_API_KEY" },
+        { kind: "env", key: "SCOUT_XAI_API_KEY" },
         { kind: "env", key: "MINIMAX_API_KEY" },
         { kind: "env", key: "GEMINI_API_KEY" },
       ],

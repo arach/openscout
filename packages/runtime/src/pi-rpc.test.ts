@@ -41,6 +41,7 @@ describe("Pi RPC launch args", () => {
     const sources = {
       env: {
         XAI_API_KEY: "xai-key",
+        SCOUT_XAI_API_KEY: "scout-xai-key",
       },
       readSecret: () => undefined,
     };
@@ -50,6 +51,22 @@ describe("Pi RPC launch args", () => {
     });
     expect(buildPiRpcCredentialEnv({ provider: "grok" }, sources)).toEqual({
       XAI_API_KEY: "xai-key",
+    });
+  });
+
+  test("maps SCOUT_XAI_API_KEY credentials for Grok launches", () => {
+    expect(
+      buildPiRpcCredentialEnv(
+        { model: "grok-4.3" },
+        {
+          env: {
+            SCOUT_XAI_API_KEY: "scout-xai-key",
+          },
+          readSecret: () => undefined,
+        },
+      ),
+    ).toEqual({
+      XAI_API_KEY: "scout-xai-key",
     });
   });
 
@@ -73,11 +90,11 @@ describe("Pi RPC launch args", () => {
         { model: "grok-4.3" },
         {
           env: {},
-          readSecret: (name) => name === "XAI_API_KEY" ? "xai-secret" : undefined,
+          readSecret: (name) => name === "SCOUT_XAI_API_KEY" ? "scout-xai-secret" : undefined,
         },
       ),
     ).toEqual({
-      XAI_API_KEY: "xai-secret",
+      XAI_API_KEY: "scout-xai-secret",
     });
   });
 });

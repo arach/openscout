@@ -90,8 +90,8 @@ const PI_RPC_CREDENTIAL_ENV: Record<string, readonly PiRpcCredentialEnvMapping[]
   }],
   xai: [{
     outputKey: "XAI_API_KEY",
-    envKeys: ["XAI_API_KEY"],
-    secretKeys: ["XAI_API_KEY"],
+    envKeys: ["XAI_API_KEY", "SCOUT_XAI_API_KEY"],
+    secretKeys: ["XAI_API_KEY", "SCOUT_XAI_API_KEY"],
   }],
 };
 
