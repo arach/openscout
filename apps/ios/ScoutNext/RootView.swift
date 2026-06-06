@@ -172,7 +172,10 @@ struct RootView: View {
         }
         var items = [StatusReadout(glyph: .signal, label: stateLabel, tint: model.statusTint)]
         if let machine = activeMachineName {
-            items.append(StatusReadout(label: machine, tint: HudPalette.muted))
+            // Cap only the machine readout: a long hostname truncates here instead
+            // of shoving the fleet stats — and every surface — off the screen. The
+            // route + stat readouts stay intrinsic, so none of them truncate.
+            items.append(StatusReadout(label: machine, tint: HudPalette.muted, maxLabelWidth: 120))
         }
         return items
     }

@@ -12,12 +12,21 @@ import HudsonUI
 /// One readout cell — an optional (optionally pulsing) status dot followed by a
 /// short mono label. The atom the bar is built from.
 struct StatusReadout: View, Identifiable {
-    let id = UUID()
+    // Stable identity: readouts are rebuilt on every body pass, so a fresh UUID
+    // each time would make ForEach tear down and recreate them — restarting any
+    // pulse animation. The label is unique within a run, so key on it.
+    // `nonisolated` because `Identifiable.id` must satisfy the protocol off the
+    // MainActor; `label` is an immutable `let`, so reading it is race-free.
+    nonisolated var id: String { label }
     var dot: Color? = nil
     var glyph: GlyphShape.Kind? = nil
     var pulses: Bool = false
     let label: String
     var tint: Color = HudPalette.muted
+    /// When set, the label truncates within this width instead of taking its full
+    /// intrinsic size. Used for the machine readout, whose name can be long enough
+    /// (a verbose hostname) to otherwise push the whole bar past the screen.
+    var maxLabelWidth: CGFloat? = nil
 
     var body: some View {
         HStack(spacing: HudSpacing.xs) {
@@ -32,8 +41,13 @@ struct StatusReadout: View, Identifiable {
                 .tracking(0.4)
                 .foregroundStyle(tint)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: maxLabelWidth, alignment: .leading)
         }
-        .fixedSize()
+        // Short readouts stay intrinsic (crisp, no truncation); a capped readout
+        // goes horizontally flexible so its label truncates instead of forcing the
+        // bar — and every surface beneath it — wider than the screen.
+        .fixedSize(horizontal: maxLabelWidth == nil, vertical: true)
     }
 }
 

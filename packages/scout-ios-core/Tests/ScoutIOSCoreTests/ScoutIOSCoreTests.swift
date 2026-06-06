@@ -9,6 +9,8 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(classifyTransport(host: "bridge.tailnet.ts.net"), .tailnet)
         XCTAssertEqual(classifyTransport(host: "oscout.net"), .oscout)
         XCTAssertEqual(classifyTransport(host: "localhost"), .loopback)
+        XCTAssertEqual(classifyTransport(host: "127.0.0.1"), .loopback)
+        XCTAssertEqual(classifyTransport(host: "::1"), .loopback)
         XCTAssertEqual(transportKind(forRelayURL: "ws://10.0.0.5:8080").label, "LAN")
     }
 

@@ -113,7 +113,10 @@ public struct BridgeRouteSummary: Equatable, Sendable {
 
 public func classifyTransport(host: String) -> TransportKind {
     let lower = host.lowercased()
-    if lower == "localhost" {
+    // `localhost` and IPv6 loopback `::1` are local-only — the `a == 127` IPv4
+    // check below never sees `::1` (it has no dotted quads), so name it here to
+    // stay consistent with `isLocalOnlyRelayHost`.
+    if lower == "localhost" || lower == "::1" {
         return .loopback
     }
     // Tailscale MagicDNS hostnames look like `<machine>.<tailnet>.ts.net`.

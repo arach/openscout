@@ -119,7 +119,10 @@ final class AppModel {
     /// Refresh the fleet rollup shown in the status bar. A cheap directory read;
     /// callers poll it while the shell is up so `active` stays roughly live.
     func refreshFleetStats() async {
-        let agents = (try? await client.listAgents(query: nil, limit: 200)) ?? []
+        // Keep the last good rollup on a transient failure — a dropped poll
+        // shouldn't blink the status bar to "0 agents". Only a successful fetch
+        // (even an empty fleet) updates the counts. Mirrors HomeSurface.load().
+        guard let agents = try? await client.listAgents(query: nil, limit: 200) else { return }
         agentCount = agents.count
         activeAgentCount = agents.filter { $0.state == .live }.count
     }

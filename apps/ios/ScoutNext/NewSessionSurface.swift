@@ -1,14 +1,15 @@
 import SwiftUI
 import HudsonUI
+import HudsonVoice
 import ScoutCapabilities
 
 /// New Session — a composer that builds a project-modality
 /// `SessionInitiationSpec` (target.projectPath set, execution.session = .new,
 /// seed.instructions) and dispatches it through the broker client, then shows
 /// the returned ids. The reading order is the operator's: pick the **project**,
-/// write the **instructions**, then confirm/adjust the **agent** (harness,
-/// model, target) — which leads with a sensible default and stays calm and
-/// value-like until you engage it.
+/// confirm/adjust the **agent** (harness · model · target — leads with a sensible
+/// default and stays calm until engaged), write the **prompt** (typed or
+/// dictated), then **Start**.
 struct NewSessionSurface: View {
     let client: any ScoutBrokerClient
     /// Friendly name of the Mac the live bridge is connected to, shown as the
@@ -29,6 +30,11 @@ struct NewSessionSurface: View {
     @State private var errorText: String?
     @State private var route: ConversationRoute?
     @FocusState private var instructionsFocused: Bool
+
+    /// Shared on-device dictation (Parakeet via Vox + Apple fallback), injected at
+    /// the app root — the same controller the Comms composer and Settings use.
+    @Environment(HudDictation.self) private var voice
+    @State private var micPulse = false
 
     /// A Hashable navigation target — contract models stay transport-pure.
     private struct ConversationRoute: Hashable, Identifiable {
@@ -84,8 +90,8 @@ struct NewSessionSurface: View {
         ScrollView {
             VStack(alignment: .leading, spacing: HudSpacing.xxl) {
                 projectSection
-                instructionsSection
                 agentSection
+                instructionsSection
                 if let errorText {
                     Text(errorText)
                         .font(HudFont.mono(HudTextSize.xs))
@@ -167,15 +173,81 @@ struct NewSessionSurface: View {
 
     private var instructionsSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Instructions")
-            TextEditor(text: $instructions)
-                .font(HudFont.ui(HudTextSize.base))
-                .foregroundStyle(HudPalette.ink)
-                .scrollContentBackground(.hidden)
-                .focused($instructionsFocused)
-                .frame(minHeight: 120)
-                .padding(HudSpacing.lg)
-                .scoutCard(cornerRadius: HudRadius.standard)
+            HudSectionLabel("Prompt")
+            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                TextEditor(text: $instructions)
+                    .font(HudFont.ui(HudTextSize.base))
+                    .foregroundStyle(HudPalette.ink)
+                    .scrollContentBackground(.hidden)
+                    .focused($instructionsFocused)
+                    .frame(minHeight: 168)
+                // Floating dictation mic, centered along the bottom of the box —
+                // the live partial transcript surfaces just above it while active.
+                VStack(spacing: HudSpacing.xs) {
+                    if voice.isListening, !voice.partialText.isEmpty {
+                        Text(voice.partialText)
+                            .font(HudFont.mono(HudTextSize.xxs))
+                            .foregroundStyle(HudPalette.muted)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                    micButton
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .padding(HudSpacing.lg)
+            .scoutCard(cornerRadius: HudRadius.standard)
+        }
+    }
+
+    // MARK: - Dictation
+
+    /// Dictation toggle, mirroring the Comms composer: tap to start/stop, a pulsing
+    /// accent ring while listening, transcribed text appended to the prompt.
+    private var micButton: some View {
+        Button {
+            voice.toggle()
+        } label: {
+            ZStack {
+                // A persistent inset disc so the mic reads as a floating control,
+                // not a stray glyph; it warms to the accent + a pulse while active.
+                Circle()
+                    .fill(voice.isListening ? HudPalette.accent.opacity(micPulse ? 0.24 : 0.12) : HudSurface.inset)
+                Circle()
+                    .stroke(voice.isListening ? HudPalette.accent.opacity(0.45) : HudHairline.standard,
+                            lineWidth: HudStrokeWidth.thin)
+                MicGlyph()
+                    .stroke(micColor, style: StrokeStyle(lineWidth: voice.isListening ? 1.8 : 1.3, lineCap: .round, lineJoin: .round))
+                    .frame(width: 17, height: 17)
+            }
+            .frame(width: 38, height: 38)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onChange(of: voice.state) { _, newState in updatePulse(for: newState) }
+        .onChange(of: voice.finalCount) { _, _ in
+            let text = voice.finalText
+            if !text.isEmpty { appendDictation(text) }
+        }
+    }
+
+    private var micColor: Color {
+        switch voice.state {
+        case .listening: return HudPalette.accent
+        case .transcribing, .preparing: return HudPalette.muted
+        case .unavailable: return HudPalette.dim.opacity(0.5)
+        case .idle: return HudPalette.muted
+        }
+    }
+
+    private func appendDictation(_ text: String) {
+        instructions = instructions.isEmpty ? text : instructions + " " + text
+    }
+
+    private func updatePulse(for state: HudDictation.State) {
+        micPulse = false
+        if case .listening = state {
+            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { micPulse = true }
         }
     }
 

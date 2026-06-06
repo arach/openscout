@@ -264,6 +264,13 @@ struct AppSettingsView: View {
     /// Color the event token by severity — error/warn pop, a fresh connect reads
     /// accent, routine lifecycle chatter recedes to dim.
     private func logEventColor(_ entry: ConnectionLogEntry) -> Color {
+        // Route enable/disable is logged at .info level, so color by level alone
+        // would render it muted — make those events read as a warning regardless,
+        // matching ConnectionView's event-aware coloring.
+        switch entry.event {
+        case .routeDisabled, .routeUnavailable: return HudPalette.statusWarn
+        default: break
+        }
         switch entry.level {
         case .error:   return HudPalette.statusError
         case .warning: return HudPalette.statusWarn
