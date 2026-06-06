@@ -6,12 +6,12 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "bun": "./src/index.ts",
       "default": "./dist/index.js"
     },
     "./client": {
-      "types": "./dist/client.d.ts",
+      "types": "./src/client.ts",
       "bun": "./src/client.ts",
       "default": "./dist/client.js"
     },
@@ -19,6 +19,11 @@
       "types": "./src/adapters/claude-code/team-topology.ts",
       "bun": "./src/adapters/claude-code/team-topology.ts",
       "default": "./dist/adapters/claude-code/team-topology.js"
+    },
+    "./adapters/claude-code/workflow-topology": {
+      "types": "./src/adapters/claude-code/workflow-topology.ts",
+      "bun": "./src/adapters/claude-code/workflow-topology.ts",
+      "default": "./dist/adapters/claude-code/workflow-topology.js"
     },
     "./adapters/codex/topology": {
       "types": "./src/adapters/codex/topology.ts",
@@ -36,7 +41,7 @@
       "default": "./dist/protocol/primitives.js"
     }
   },
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "files": [
     "src",
     "dist",

@@ -636,12 +636,12 @@ enum ScoutTailEventKind: String, Decodable, Sendable, CaseIterable, Identifiable
 
     var tint: Color {
         switch self {
-        case .user: return HudPalette.statusInfo
-        case .assistant: return HudPalette.accent
+        case .user: return ScoutPalette.statusInfo
+        case .assistant: return ScoutPalette.accent
         case .tool: return .cyan
         case .toolResult: return .orange
-        case .system: return HudPalette.muted
-        case .other: return HudPalette.dim
+        case .system: return ScoutPalette.muted
+        case .other: return ScoutPalette.dim
         }
     }
 }

@@ -113,6 +113,14 @@ export function useScoutCommands(): CommandOption[] {
         label: "Go to Ops",
         action: () => navigate({ view: "ops" }),
         shortcut: "Cmd+8",
+      }, {
+        id: "nav:ops-atop",
+        label: "Open Atop",
+        action: () => navigate({ view: "ops", mode: "atop" }),
+      }, {
+        id: "nav:workflow-topology",
+        label: "Open Workflow Topology",
+        action: () => navigate({ view: "agents" }),
       }] : []),
       {
         id: "nav:settings",
@@ -368,7 +376,9 @@ export function useScoutTakeover(): TakeoverState | null {
   // block the app on reloads and true would flash a takeover for returning
   // users. Waiting one RTT is cheap and correct.
   if (!onboarding) return null;
-  if (onboardingSkipped) return { active: false, dismissible: true };
+  if (onboardingSkipped || onboarding.needed === false || onboarding.skippedAt || onboarding.completedAt) {
+    return { active: false, dismissible: true };
+  }
   const needsLocal = !onboarding.hasLocalConfig;
   const needsProject = !onboarding.hasProjectConfig;
   const needsName = !onboarding.hasOperatorName;

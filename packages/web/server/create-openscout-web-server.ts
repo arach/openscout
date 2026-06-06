@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { createReadStream, existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
@@ -91,6 +92,12 @@ import {
   snapshotRecentEvents,
   type DiscoveredTranscript,
 } from "@openscout/runtime/tail";
+import {
+  indexRecentSessionKnowledge,
+  resolveOpenScoutKnowledgePaths,
+  SQLiteKnowledgeStore,
+  type KnowledgeSourceRef,
+} from "@openscout/runtime/knowledge";
 import type { ScoutVantageNativeSession } from "@openscout/runtime/vantage-plan";
 import {
   projectSessionsAttention,
@@ -115,6 +122,7 @@ import {
 import {
   createScoutbotAssistantService,
   ScoutbotAssistantError,
+  type ScoutbotCodexAssistantInvoker,
   type ScoutbotBrief,
   type ScoutbotBriefCapture,
   type ScoutbotBriefObservation,
@@ -138,13 +146,14 @@ import {
   startScoutbotRunner,
   type ScoutbotRunnerHandle,
 } from "./scoutbot/runner.ts";
-import { SCOUTBOT_AGENT_ID } from "./scoutbot/role.ts";
+import { SCOUTBOT_AGENT_ID, SCOUTBOT_REASONING_EFFORT } from "./scoutbot/role.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
   readWorkMaterialContent,
   readWorkMaterialRaw,
 } from "./work-materials.ts";
+import { indexPlanDocuments } from "./plan-documents.ts";
 import {
   defaultHeuristicsResponse,
   globalHeuristicsFile,
@@ -171,21 +180,27 @@ import {
   resolveOperatorName,
 } from "@openscout/runtime/user-config";
 import {
-  DEFAULT_LOCAL_CONFIG,
-  loadLocalConfig,
-  localConfigExists,
   localConfigPath,
-  writeLocalConfig,
 } from "@openscout/runtime/local-config";
 import {
-  findNearestProjectRoot,
-  initializeOpenScoutSetup,
   loadResolvedRelayAgents,
   readOpenScoutSettings,
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
-import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
+import {
+  ensureOpenScoutOnboardingLocalConfig,
+  loadOpenScoutOnboardingState,
+  runOpenScoutOnboardingSetup,
+  saveOpenScoutOnboardingIdentity,
+  saveOpenScoutOnboardingProject,
+  skipOpenScoutOnboarding,
+} from "@openscout/runtime/onboarding";
+import { relayAgentLogsDirectory, relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
+import {
+  invokeCodexAppServerAgent,
+  normalizeCodexAppServerLaunchArgs,
+} from "@openscout/runtime/codex-app-server";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
   const trimmed = value?.trim();
@@ -285,6 +300,9 @@ export type CreateOpenScoutWebServerOptions = {
   createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
+  scoutbotAssistant?: {
+    invokeCodex?: ScoutbotCodexAssistantInvoker;
+  };
   scoutbot?: {
     enabled?: boolean;
     brokerBaseUrl?: string;
@@ -588,6 +606,246 @@ function parseOptionalBoolean(value: string | undefined): boolean | undefined {
     return true;
   }
   return undefined;
+}
+
+type HarnessTranscriptSourceRef = Extract<KnowledgeSourceRef, { kind: "harness_transcript" }>;
+
+type JsonlPreviewRecord = {
+  index: number;
+  raw: string;
+  type?: string;
+  role?: string;
+  kind?: string;
+  summary: string;
+  renderedText: string;
+  parsed: boolean;
+  matched?: boolean;
+  matchCount?: number;
+  matchTerms?: string[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringField(value: unknown, key: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const field = value[key];
+  return typeof field === "string" && field.trim() ? field.trim() : undefined;
+}
+
+function trimPreviewLine(value: string, max = 260): string {
+  const flat = value.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, Math.max(0, max - 3))}...`;
+}
+
+function previewQueryTerms(query: string | undefined): string[] {
+  const seen = new Set<string>();
+  return (query ?? "")
+    .split(/[^A-Za-z0-9_./-]+/u)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 1)
+    .filter((term) => {
+      const key = term.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
+function matchStats(text: string, terms: string[]): { count: number; terms: string[] } {
+  if (!text || terms.length === 0) return { count: 0, terms: [] };
+  const lower = text.toLowerCase();
+  let count = 0;
+  const matchedTerms: string[] = [];
+  for (const term of terms) {
+    const needle = term.toLowerCase();
+    let index = lower.indexOf(needle);
+    let matched = false;
+    while (index >= 0) {
+      count++;
+      matched = true;
+      index = lower.indexOf(needle, index + needle.length);
+    }
+    if (matched) matchedTerms.push(term);
+  }
+  return { count, terms: matchedTerms };
+}
+
+function extractPreviewText(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const joined = value
+      .map((entry) => extractPreviewText(entry))
+      .filter((entry): entry is string => Boolean(entry))
+      .join(" ");
+    return joined || null;
+  }
+  if (!isRecord(value)) return null;
+  for (const key of [
+    "text",
+    "message",
+    "content",
+    "input",
+    "arguments",
+    "args",
+    "output",
+    "result",
+    "prompt",
+    "command",
+    "lastPrompt",
+    "aiTitle",
+    "summary",
+  ]) {
+    const extracted = extractPreviewText(value[key]);
+    if (extracted) return extracted;
+  }
+  return null;
+}
+
+function summarizeJsonlRecord(raw: string, index: number, terms: string[]): JsonlPreviewRecord {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const payload = isRecord(parsed) ? parsed.payload : null;
+    const message = isRecord(parsed) ? parsed.message : null;
+    const candidate = payload ?? message ?? parsed;
+    const type = stringField(parsed, "type") ?? stringField(candidate, "type");
+    const role = stringField(parsed, "role") ?? stringField(candidate, "role") ?? stringField(message, "role");
+    const kind = stringField(parsed, "kind") ?? stringField(candidate, "kind") ?? type ?? role;
+    const renderedText = extractPreviewText(candidate) ?? extractPreviewText(parsed) ?? raw;
+    const summary = trimPreviewLine(renderedText);
+    const stats = matchStats(`${summary}\n${renderedText}\n${raw}`, terms);
+    return {
+      index,
+      raw,
+      ...(type ? { type } : {}),
+      ...(role ? { role } : {}),
+      ...(kind ? { kind } : {}),
+      summary,
+      renderedText,
+      parsed: true,
+      matched: stats.count > 0,
+      matchCount: stats.count,
+      matchTerms: stats.terms,
+    };
+  } catch {
+    const stats = matchStats(raw, terms);
+    return {
+      index,
+      raw,
+      kind: "unparseable",
+      summary: trimPreviewLine(raw),
+      renderedText: raw,
+      parsed: false,
+      matched: stats.count > 0,
+      matchCount: stats.count,
+      matchTerms: stats.terms,
+    };
+  }
+}
+
+function isInsideRoot(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function resolveKnowledgePreviewPath(
+  sourceRef: HarnessTranscriptSourceRef,
+  currentDirectory: string,
+): string | null {
+  const paths = resolveOpenScoutKnowledgePaths();
+  const controlHome = dirname(paths.knowledgeRoot);
+  const portable = sourceRef.path;
+  const relPath = portable.relPath?.trim();
+  if (!relPath) return null;
+
+  if (portable.root === "ABSOLUTE") {
+    const absolute = resolve(relPath);
+    const trustedRoots = [homedir(), currentDirectory, controlHome].map((root) => resolve(root));
+    return trustedRoots.some((root) => isInsideRoot(root, absolute)) ? absolute : null;
+  }
+
+  const root = portable.root === "HOME"
+    ? homedir()
+    : portable.root === "OPENSCOUT_CONTROL_HOME"
+      ? controlHome
+      : portable.root === "OPENSCOUT_SUPPORT_DIRECTORY"
+        ? dirname(controlHome)
+        : portable.root === "PROJECT_ROOT"
+          ? currentDirectory
+          : null;
+  if (!root) return null;
+  const resolved = resolve(root, relPath);
+  return isInsideRoot(resolve(root), resolved) ? resolved : null;
+}
+
+async function readKnowledgeJsonlPreview(input: {
+  sourceRef: HarnessTranscriptSourceRef;
+  currentDirectory: string;
+  contextRecords?: number;
+  maxRecords?: number;
+  query?: string;
+}) {
+  const resolvedPath = resolveKnowledgePreviewPath(input.sourceRef, input.currentDirectory);
+  if (!resolvedPath) {
+    throw new Error("source path is outside trusted preview roots");
+  }
+  const stats = statSync(resolvedPath);
+  if (!stats.isFile()) {
+    throw new Error("source path is not a file");
+  }
+
+  const requested = input.sourceRef.recordRange;
+  const requestedStart = Array.isArray(requested) && Number.isFinite(requested[0])
+    ? Math.max(0, Math.floor(requested[0]))
+    : 0;
+  const requestedEnd = Array.isArray(requested) && Number.isFinite(requested[1])
+    ? Math.max(requestedStart, Math.floor(requested[1]))
+    : requestedStart + 24;
+  const contextRecords = Math.min(20, Math.max(0, Math.floor(input.contextRecords ?? 4)));
+  const maxRecords = Math.min(120, Math.max(1, Math.floor(input.maxRecords ?? 80)));
+  const start = Math.max(0, requestedStart - contextRecords);
+  const desiredEnd = requestedEnd + contextRecords;
+  const end = Math.min(desiredEnd, start + maxRecords - 1);
+  const terms = previewQueryTerms(input.query);
+
+  const records: JsonlPreviewRecord[] = [];
+  let index = 0;
+  let truncatedAfter = false;
+  const reader = createInterface({
+    input: createReadStream(resolvedPath, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of reader) {
+    if (index > end) {
+      truncatedAfter = true;
+      reader.close();
+      break;
+    }
+    if (index >= start) {
+      records.push(summarizeJsonlRecord(line, index, terms));
+    }
+    index++;
+  }
+
+  const first = records[0]?.index ?? start;
+  const last = records.at(-1)?.index ?? first;
+  return {
+    path: resolvedPath,
+    sourcePath: input.sourceRef.path,
+    harness: input.sourceRef.harness,
+    sessionId: input.sourceRef.sessionId,
+    requestedRange: requested,
+    previewRange: [first, last] as [number, number],
+    records,
+    recordsRead: records.length,
+    truncatedBefore: start > 0,
+    truncatedAfter,
+    query: input.query,
+    queryTerms: terms,
+  };
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -1883,6 +2141,49 @@ async function resolveScoutbotCredentialState(
   };
 }
 
+function createDefaultScoutbotCodexInvoker(currentDirectory: string): ScoutbotCodexAssistantInvoker {
+  return async (input) => {
+    const runtimeName = `scoutbot-assistant-${sanitizeSupportPathSegment(input.sessionId)}`;
+    const result = await invokeCodexAppServerAgent({
+      agentName: "scoutbot-assistant",
+      sessionId: input.sessionId,
+      cwd: currentDirectory,
+      systemPrompt: input.systemPrompt,
+      runtimeDirectory: relayAgentRuntimeDirectory(runtimeName),
+      logsDirectory: relayAgentLogsDirectory(runtimeName),
+      launchArgs: buildScoutbotAssistantCodexLaunchArgs(process.env),
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      prompt: input.prompt,
+      timeoutMs: input.timeoutMs,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+    });
+    return {
+      output: result.output,
+      threadId: result.threadId,
+    };
+  };
+}
+
+function buildScoutbotAssistantCodexLaunchArgs(env: NodeJS.ProcessEnv): string[] {
+  const args: string[] = [];
+  const model = env.OPENSCOUT_SCOUTBOT_CODEX_MODEL?.trim();
+  const reasoningEffort = env.OPENSCOUT_SCOUTBOT_CODEX_REASONING_EFFORT?.trim()
+    || SCOUTBOT_REASONING_EFFORT;
+  if (model) args.push("--model", model);
+  if (reasoningEffort) args.push("--reasoning-effort", reasoningEffort);
+  return normalizeCodexAppServerLaunchArgs(args);
+}
+
+function sanitizeSupportPathSegment(value: string): string {
+  const sanitized = value
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return sanitized || "default";
+}
+
 function renderScoutLocalPortal(input: {
   requestUrl: string;
   portalHost: string;
@@ -2094,6 +2395,18 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   };
 }
 
+async function readLocalHarnessTopologySnapshot() {
+  try {
+    const { HarnessTopologyObserver } = await import("@openscout/runtime/harness-topology");
+    const observer = new HarnessTopologyObserver({
+      cwd: process.env.OPENSCOUT_SETUP_CWD || process.cwd(),
+    });
+    return await observer.getSnapshot(true);
+  } catch {
+    return null;
+  }
+}
+
 export async function createOpenScoutWebServer(
   options: CreateOpenScoutWebServerOptions,
 ): Promise<OpenScoutWebServer> {
@@ -2119,6 +2432,8 @@ export async function createOpenScoutWebServer(
       const config = await loadScoutRelayConfig().catch(() => null);
       return config?.openaiApiKey ?? scoutbotCredentials.getOpenAIKey();
     },
+    invokeCodex: options.scoutbotAssistant?.invokeCodex
+      ?? createDefaultScoutbotCodexInvoker(currentDirectory),
   });
   let scoutbotRunner: ScoutbotRunnerHandle | null = null;
   if (options.scoutbot?.enabled) {
@@ -2187,6 +2502,88 @@ export async function createOpenScoutWebServer(
     }),
   );
   app.get("/api/build", (c) => c.json(loadOpenScoutBuildInfo(currentDirectory)));
+
+  app.get("/api/knowledge/status", (c) => {
+    const store = new SQLiteKnowledgeStore();
+    try {
+      return c.json(store.status());
+    } finally {
+      store.close();
+    }
+  });
+
+  app.get("/api/knowledge/search", (c) => {
+    const q = c.req.query("q") ?? "";
+    const limit = parseOptionalPositiveInt(c.req.query("limit"), 30) ?? 30;
+    const store = new SQLiteKnowledgeStore();
+    try {
+      return c.json({
+        q,
+        hits: store.searchLexical({
+          q,
+          sourceKinds: ["sessions"],
+          limit,
+          mode: "lexical",
+        }),
+        status: store.status(),
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  app.post("/api/knowledge/source-preview", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sourceRef?: unknown;
+      contextRecords?: unknown;
+      maxRecords?: unknown;
+      q?: unknown;
+    };
+    const sourceRef = body.sourceRef;
+    if (!isRecord(sourceRef) || sourceRef.kind !== "harness_transcript") {
+      return c.json({ error: "sourceRef must be a harness transcript ref" }, 400);
+    }
+    try {
+      return c.json(await readKnowledgeJsonlPreview({
+        sourceRef: sourceRef as HarnessTranscriptSourceRef,
+        currentDirectory,
+        contextRecords: typeof body.contextRecords === "number" ? body.contextRecords : undefined,
+        maxRecords: typeof body.maxRecords === "number" ? body.maxRecords : undefined,
+        query: typeof body.q === "string" ? body.q : undefined,
+      }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = message.includes("trusted preview roots") ? 403 : 500;
+      return c.json({ error: message }, status as 403 | 500);
+    }
+  });
+
+  app.post("/api/knowledge/sessions/index", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      days?: unknown;
+      limit?: unknown;
+      force?: unknown;
+    };
+    const days = typeof body.days === "number" && Number.isFinite(body.days)
+      ? body.days
+      : 3;
+    const limit = typeof body.limit === "number" && Number.isFinite(body.limit)
+      ? body.limit
+      : 220;
+    const force = body.force === true;
+    try {
+      const result = await indexRecentSessionKnowledge({ days, limit, force });
+      const store = new SQLiteKnowledgeStore();
+      try {
+        return c.json({ result, status: store.status() });
+      } finally {
+        store.close();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
 
   app.get("/api/ui/scenes", async (c) => {
     const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);
@@ -2875,11 +3272,22 @@ export async function createOpenScoutWebServer(
     if (c.req.query("force") === "1") {
       url.searchParams.set("force", "1");
     }
-    const res = await fetch(url);
-    if (!res.ok) {
-      return c.json({ error: `broker topology unavailable (${res.status})` }, 502);
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const brokerSnapshot = await res.json();
+        if (brokerSnapshot?.totals?.sources > 0) {
+          return c.json(brokerSnapshot);
+        }
+        const localSnapshot = await readLocalHarnessTopologySnapshot();
+        return c.json(localSnapshot?.totals.sources ? localSnapshot : brokerSnapshot);
+      }
+    } catch {
+      /* Fall through to the local read-only observer. */
     }
-    return c.json(await res.json());
+    const localSnapshot = await readLocalHarnessTopologySnapshot();
+    if (localSnapshot) return c.json(localSnapshot);
+    return c.json({ error: "broker topology unavailable" }, 502);
   });
   app.get("/api/broker", (c) =>
     c.json(
@@ -2952,6 +3360,19 @@ export async function createOpenScoutWebServer(
     }
     const result = writeProjectHeuristicsFile(workspaceRoot, await rawHeuristicsFromRequest(c));
     return "config" in result ? c.json(result) : c.json(result, 400);
+  });
+  app.get("/api/plan-documents", async (c) => {
+    const agents = queryAgents();
+    return c.json(await indexPlanDocuments({
+      currentDirectory,
+      workspaces: agents.map((agent) => ({
+        agentId: agent.id,
+        agentName: agent.name,
+        cwd: agent.cwd,
+        project: agent.project,
+        projectRoot: agent.projectRoot,
+      })),
+    }));
   });
   const handleListWork = (c: Context) => {
     const agentId = c.req.query("agentId");
@@ -3341,25 +3762,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/onboarding/state", async (c) => {
-    const hasLocalConfig = localConfigExists();
-    const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);
-    const configuredContextRoot = settings?.discovery.contextRoot ?? null;
-    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(() => null)
-      ?? await findNearestProjectRoot(configuredContextRoot ?? "").catch(() => null);
-    const hasProjectConfig = projectRoot !== null;
-    const userName = loadUserConfig().name?.trim() ?? "";
-    return c.json({
-      hasLocalConfig,
-      hasProjectConfig,
-      hasOperatorName: userName.length > 0,
-      localConfigPath: localConfigPath(),
-      localConfig: hasLocalConfig ? loadLocalConfig() : null,
-      projectRoot,
-      currentDirectory,
-      contextRoot: configuredContextRoot,
-      operatorName: userName || null,
-      operatorNameSuggestion: resolveOperatorName(),
-    });
+    return c.json(await loadOpenScoutOnboardingState({ currentDirectory }));
   });
 
   app.delete("/api/onboarding/state", (c) => {
@@ -3369,6 +3772,35 @@ export async function createOpenScoutWebServer(
       /* already absent */
     }
     return c.json({ ok: true, localConfigPath: localConfigPath() });
+  });
+
+  app.post("/api/onboarding/skip", async (c) => {
+    return c.json(await skipOpenScoutOnboarding({ currentDirectory }));
+  });
+
+  app.post("/api/onboarding/setup", async (c) => {
+    const state = await loadOpenScoutOnboardingState({ currentDirectory });
+    const contextRoot = state.contextRoot || state.projectRoot || state.currentDirectory;
+    try {
+      const result = await runOpenScoutOnboardingSetup({
+        currentDirectory: contextRoot,
+        contextRoot,
+        sourceRoots: state.sourceRoots,
+        defaultHarness: state.defaultHarness,
+      });
+      return c.json({
+        ok: true,
+        projectConfigPath: result.setup.currentProjectConfigPath,
+        brokerReachable: result.broker.reachable,
+        brokerWarning: result.brokerWarning,
+        hasReadyRuntime: result.state.hasReadyRuntime,
+        state: result.state,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[onboarding/setup]", message);
+      return c.json({ error: message }, 500);
+    }
   });
 
   app.post("/api/onboarding/project", async (c) => {
@@ -3387,20 +3819,26 @@ export async function createOpenScoutWebServer(
     const harness = body.defaultHarness === "codex" ? "codex" : "claude";
 
     try {
-      await writeOpenScoutSettings({
-        discovery: {
-          contextRoot,
-          workspaceRoots: sourceRoots,
-        },
-        agents: { defaultHarness: harness },
+      await saveOpenScoutOnboardingProject({
+        currentDirectory,
+        contextRoot,
+        sourceRoots,
+        defaultHarness: harness,
       });
 
-      const result = await initializeOpenScoutSetup({
+      const result = await runOpenScoutOnboardingSetup({
         currentDirectory: contextRoot,
+        contextRoot,
+        sourceRoots,
+        defaultHarness: harness,
       });
       return c.json({
         ok: true,
-        projectConfigPath: result.currentProjectConfigPath,
+        projectConfigPath: result.setup.currentProjectConfigPath,
+        brokerReachable: result.broker.reachable,
+        brokerWarning: result.brokerWarning,
+        hasReadyRuntime: result.state.hasReadyRuntime,
+        state: result.state,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -3414,19 +3852,16 @@ export async function createOpenScoutWebServer(
       host?: string;
       ports?: { broker?: number; web?: number; pairing?: number };
     };
-    writeLocalConfig({
-      version: 1,
-      host: body.host ?? DEFAULT_LOCAL_CONFIG.host,
-      ports: {
-        broker: body.ports?.broker ?? DEFAULT_LOCAL_CONFIG.ports.broker,
-        web: body.ports?.web ?? DEFAULT_LOCAL_CONFIG.ports.web,
-        pairing: body.ports?.pairing ?? DEFAULT_LOCAL_CONFIG.ports.pairing,
-      },
+    const state = await ensureOpenScoutOnboardingLocalConfig({
+      currentDirectory,
+      host: body.host,
+      ports: body.ports,
     });
     return c.json({
       ok: true,
-      localConfig: loadLocalConfig(),
-      localConfigPath: localConfigPath(),
+      localConfig: state.localConfig,
+      localConfigPath: state.localConfigPath,
+      state,
     });
   });
 
@@ -3457,6 +3892,12 @@ export async function createOpenScoutWebServer(
     }
 
     saveUserConfig(config);
+    if (typeof body.name === "string" && body.name.trim()) {
+      await saveOpenScoutOnboardingIdentity({
+        currentDirectory,
+        name: body.name.trim(),
+      });
+    }
     return c.json({
       name: resolveOperatorName(),
       handle: config.handle ?? "",
@@ -3722,18 +4163,32 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/ask", async (c) => {
-    const { body, cId, conversationId } = (await c.req.json()) as {
-      body: string;
+    const requestBody = (await c.req.json().catch(() => ({}))) as {
+      body?: unknown;
       cId?: string;
       conversationId?: string;
+      targetAgentId?: unknown;
+      targetLabel?: unknown;
+      execution?: {
+        harness?: unknown;
+        model?: unknown;
+      };
     };
-    if (!body?.trim()) {
+    const message = optionalString(requestBody.body)?.trim();
+    if (!message) {
       return c.json({ error: "body is required" }, 400);
     }
 
-    const { directAgentId, senderId } =
-      resolveConversationRouting(cId ?? conversationId);
-    if (!directAgentId) {
+    const explicitTargetAgentId = optionalString(requestBody.targetAgentId)?.trim();
+    const explicitTargetLabel = optionalString(requestBody.targetLabel)?.trim();
+    const routed = explicitTargetAgentId
+      ? {
+          directAgentId: explicitTargetAgentId,
+          senderId: resolveOperatorName().trim() || "operator",
+        }
+      : resolveConversationRouting(requestBody.cId ?? requestBody.conversationId);
+    const agent = routed.directAgentId ? queryAgentById(routed.directAgentId) : null;
+    if (!routed.directAgentId) {
       return c.json(
         {
           error:
@@ -3742,12 +4197,21 @@ export async function createOpenScoutWebServer(
         400,
       );
     }
+    const executionHarness =
+      coerceAgentHarness(requestBody.execution?.harness) ??
+      coerceAgentHarness(agent?.harness);
+    const executionModel =
+      optionalString(requestBody.execution?.model)?.trim() ||
+      agent?.model?.trim() ||
+      undefined;
 
     const result = await askScoutQuestion({
-      senderId,
-      targetLabel: directAgentId,
-      targetAgentId: directAgentId,
-      body: body.trim(),
+      senderId: routed.senderId,
+      targetLabel: explicitTargetLabel || routed.directAgentId,
+      targetAgentId: routed.directAgentId,
+      body: message,
+      ...(executionHarness ? { executionHarness } : {}),
+      ...(executionModel ? { executionModel } : {}),
       currentDirectory,
     });
 

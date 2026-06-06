@@ -1,16 +1,18 @@
-import { Bot, Crosshair } from "lucide-react";
 import type { Route } from "../lib/types.ts";
-import {
-  BriefSequenceView,
-  useBriefSequenceRuntime,
-} from "../components/brief-sequence/index.tsx";
-import { briefGenerationSequence } from "../components/brief-sequence/sample-sequence.ts";
-import "../components/brief-sequence/brief-sequence.css";
 import "./home-hero.css";
 
 type HeartrateBucketView = { ts: number; count: number; value: number };
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
+
+type ServiceQuotaWindowGauge = {
+  label: string;
+  fill: number;
+  usedLabel: string;
+  capLabel: string;
+  unitLabel: string;
+  resetAt: number;
+};
 
 export type ServiceGauge =
   | {
@@ -22,38 +24,17 @@ export type ServiceGauge =
       capLabel: string;
       unitLabel: string;
       resetAt: number;
+      windows?: ServiceQuotaWindowGauge[];
     }
   | {
       id: string;
       label: string;
       kind: "status";
       statusLabel: string;
+      windowLabel?: string;
+      detailLabel?: string;
       tone: GaugeTone;
     };
-
-export type HomeHeroSignal = {
-  id: string;
-  label: string;
-  value: string;
-  tone?: GaugeTone;
-  route?: Route;
-  onClick?: () => void;
-};
-
-export type HomeHeroBriefReference = {
-  id: string;
-  kind: string;
-  label: string;
-  route?: Route;
-  detail?: string;
-};
-
-export type HomeHeroBriefObservation = {
-  id: string;
-  text: string;
-  tone?: string;
-  references: HomeHeroBriefReference[];
-};
 
 export type HomeHeroProps = {
   now: Date;
@@ -63,25 +44,20 @@ export type HomeHeroProps = {
   error: string | null;
   loading: boolean;
   refreshing: boolean;
-  briefRefreshing: boolean;
   onRefresh: () => void;
-  onRegenerateBrief: () => void;
-  onSpeakBrief?: () => void;
-  briefSpeaking?: boolean;
-  briefIsNew?: boolean;
   totalOperatorQueue: number;
   narrativeParts: string[];
-  briefStatement: string | null;
-  briefObservations: HomeHeroBriefObservation[];
   navigate: (route: Route) => void;
   opsEnabled: boolean;
   onReviewQueue: () => void;
   heartrate: HeartrateBucketView[];
   heartrateWindow: string;
   heartrateBucketLabel: string;
+  heartrateVisibleEventThreshold?: number;
   serviceGauges: ServiceGauge[];
-  systemSignals: HomeHeroSignal[];
 };
+
+const HEARTRATE_VISIBLE_EVENT_THRESHOLD = 3;
 
 function gaugeTone(fill: number): GaugeTone {
   if (fill >= 0.9) return "err";
@@ -120,10 +96,113 @@ function formatResetRelative(resetAt: number, now: Date): string {
   return `${Math.max(1, Math.floor(diffSec / 60))}m`;
 }
 
+function quotaWindows(g: Extract<ServiceGauge, { kind: "quota" }>): ServiceQuotaWindowGauge[] {
+  return g.windows && g.windows.length > 0
+    ? g.windows
+    : [{
+        label: formatLegacyQuotaLabel(g.unitLabel),
+        fill: g.fill,
+        usedLabel: g.usedLabel,
+        capLabel: g.capLabel,
+        unitLabel: g.unitLabel,
+        resetAt: g.resetAt,
+      }];
+}
+
+function formatLegacyQuotaLabel(label: string): string {
+  switch (label) {
+    case "weekly":
+      return "7d";
+    case "req/h":
+      return "1h";
+    default:
+      return label || "quota";
+  }
+}
+
 function buildTooltip(g: Extract<ServiceGauge, { kind: "quota" }>, now: Date): string {
-  const chip = formatResetChip(g.resetAt, now);
-  const rel = formatResetRelative(g.resetAt, now);
-  return `${g.usedLabel} / ${g.capLabel} ${g.unitLabel} · resets ${chip.label} (in ${rel})`;
+  return quotaWindows(g)
+    .map((window) => {
+      const chip = formatResetChip(window.resetAt, now);
+      const rel = formatResetRelative(window.resetAt, now);
+      return `${window.label}: ${window.usedLabel} / ${window.capLabel} ${window.unitLabel} · resets ${chip.label} (in ${rel})`;
+    })
+    .join(" · ");
+}
+
+function quotaWindowMinutes(label: string): number | null {
+  const match = label.trim().match(/^(\d+(?:\.\d+)?)([mhd])$/i);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  switch (match[2]?.toLowerCase()) {
+    case "m":
+      return value;
+    case "h":
+      return value * 60;
+    case "d":
+      return value * 24 * 60;
+    default:
+      return null;
+  }
+}
+
+function splitQuotaWindows(windows: ServiceQuotaWindowGauge[]): {
+  shortWindow: ServiceQuotaWindowGauge | null;
+  longWindow: ServiceQuotaWindowGauge | null;
+} {
+  const sorted = [...windows].sort((a, b) =>
+    (quotaWindowMinutes(a.label) ?? Number.MAX_SAFE_INTEGER) -
+    (quotaWindowMinutes(b.label) ?? Number.MAX_SAFE_INTEGER),
+  );
+  const longWindow =
+    sorted.find((window) => (quotaWindowMinutes(window.label) ?? 0) >= 24 * 60) ??
+    (sorted.length > 1 ? sorted[sorted.length - 1]! : null);
+  const shortWindow = sorted.find((window) => window !== longWindow) ?? null;
+  return { shortWindow, longWindow };
+}
+
+function usageLabel(window: ServiceQuotaWindowGauge): string {
+  if (window.capLabel === "100%" && window.usedLabel.endsWith("%")) {
+    return window.usedLabel;
+  }
+  return `${window.usedLabel}/${window.capLabel}`;
+}
+
+function EmptyGaugeCell() {
+  return <span className="hd-gauge-cell hd-gauge-cell--empty">—</span>;
+}
+
+function QuotaUsageCell({ window }: { window: ServiceQuotaWindowGauge | null }) {
+  if (!window) return <EmptyGaugeCell />;
+  const windowPct = Math.round(window.fill * 100);
+  const windowTone = gaugeTone(window.fill);
+  return (
+    <span className="hd-gauge-cell hd-gauge-cell--usage">
+      <span className="hd-gauge-window-name">{window.label}</span>
+      <span className="hd-gauge-bar" aria-hidden="true">
+        <span className={`hd-gauge-bar-fill hd-gauge-bar-fill--${windowTone}`} style={{ width: `${windowPct}%` }} />
+      </span>
+      <span className="hd-gauge-window-used">{usageLabel(window)}</span>
+    </span>
+  );
+}
+
+function QuotaResetCell({
+  window,
+  now,
+}: {
+  window: ServiceQuotaWindowGauge | null;
+  now: Date;
+}) {
+  if (!window) return <EmptyGaugeCell />;
+  const chip = formatResetChip(window.resetAt, now);
+  const rel = formatResetRelative(window.resetAt, now);
+  return (
+    <span className={`hd-gauge-cell hd-gauge-reset${chip.imminent ? " hd-gauge-reset--imminent" : ""}`}>
+      ↻ {rel}
+    </span>
+  );
 }
 
 function buildSmoothPath(points: { x: number; y: number }[]): string {
@@ -157,17 +236,6 @@ function HeartrateGraph({ buckets }: { buckets: HeartrateBucketView[] }) {
     return (
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
         <line x1="0" y1={bottom} x2={W} y2={bottom} stroke="var(--border)" />
-        <text
-          x={W / 2}
-          y={H / 2 + 2}
-          textAnchor="middle"
-          fill="var(--dim)"
-          fontSize="10"
-          fontFamily="var(--font-mono)"
-          letterSpacing="0.18em"
-        >
-          NO SIGNAL
-        </text>
       </svg>
     );
   }
@@ -215,28 +283,6 @@ function formatClock(d: Date): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-function splitBriefStatements(value: string): string[] {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (!compact) return [];
-
-  const sentenceParts = compact.match(/[^.!?]+[.!?]?/g)
-    ?.map((part) => part.trim())
-    .filter(Boolean) ?? [];
-  const parts = sentenceParts.length > 1
-    ? sentenceParts
-    : compact.split(/\s+[;:]\s+|\s+—\s+/).map((part) => part.trim()).filter(Boolean);
-
-  return parts.slice(0, 4).map((part) => /[.!?]$/.test(part) ? part : `${part}.`);
-}
-
-function fallbackBriefObservations(value: string): HomeHeroBriefObservation[] {
-  return splitBriefStatements(value).map((text, index) => ({
-    id: `fallback-${index + 1}`,
-    text,
-    references: [],
-  }));
-}
-
 function Gauge({
   gauge,
   now,
@@ -254,119 +300,44 @@ function Gauge({
   if (gauge.kind === "status") {
     return (
       <Tag
-        className={`hd-gauge hd-gauge--${gauge.tone}${onClick ? " hd-gauge--interactive" : ""}`}
+        className={`hd-gauge hd-gauge--status hd-gauge--${gauge.tone}${onClick ? " hd-gauge--interactive" : ""}`}
+        aria-label={`${gauge.label} subscription usage`}
         {...interactiveProps}
       >
-        <span className="hd-gauge-label">{gauge.label}</span>
-        <span className={`hd-gauge-dot hd-gauge-dot--${gauge.tone}`} aria-hidden="true" />
-        <span className="hd-gauge-status">{gauge.statusLabel}</span>
+        <span className="hd-gauge-head">
+          <span className="hd-gauge-label">{gauge.label}</span>
+          <span className={`hd-gauge-dot hd-gauge-dot--${gauge.tone}`} aria-hidden="true" />
+        </span>
+        <EmptyGaugeCell />
+        <EmptyGaugeCell />
+        <span className="hd-gauge-cell hd-gauge-cell--usage hd-gauge-cell--status">
+          <span className="hd-gauge-window-name">{gauge.windowLabel ?? "usage"}</span>
+          <span className="hd-gauge-status">{gauge.statusLabel}</span>
+        </span>
+        <span className="hd-gauge-cell hd-gauge-reset">{gauge.detailLabel ?? "quota n/a"}</span>
       </Tag>
     );
   }
-  const tone = gaugeTone(gauge.fill);
-  const pct = Math.round(gauge.fill * 100);
-  const chip = formatResetChip(gauge.resetAt, now);
+  const windows = quotaWindows(gauge);
+  const { shortWindow, longWindow } = splitQuotaWindows(windows);
+  const tone = gaugeTone(Math.max(...windows.map((window) => window.fill)));
+  const pct = Math.round(Math.max(...windows.map((window) => window.fill)) * 100);
   return (
     <Tag
       className={`hd-gauge hd-gauge--${tone}${onClick ? " hd-gauge--interactive" : ""}`}
       title={buildTooltip(gauge, now)}
+      aria-label={`${gauge.label} subscription usage`}
       {...interactiveProps}
     >
-      <span className="hd-gauge-label">{gauge.label}</span>
-      <span className="hd-gauge-bar" aria-hidden="true">
-        <span className="hd-gauge-bar-fill" style={{ width: `${pct}%` }} />
+      <span className="hd-gauge-head">
+        <span className="hd-gauge-label">{gauge.label}</span>
+        <span className={`hd-gauge-pct hd-gauge-pct--${tone}`}>{pct}%</span>
       </span>
-      <span className="hd-gauge-pct">{pct}%</span>
-      {chip.imminent && (
-        <span className="hd-gauge-reset hd-gauge-reset--imminent">
-          ↻ {chip.label}
-        </span>
-      )}
+      <QuotaUsageCell window={shortWindow} />
+      <QuotaResetCell window={shortWindow} now={now} />
+      <QuotaUsageCell window={longWindow} />
+      <QuotaResetCell window={longWindow} now={now} />
     </Tag>
-  );
-}
-
-function SystemSignalStack({
-  signals,
-  navigate,
-}: {
-  signals: HomeHeroSignal[];
-  navigate: (route: Route) => void;
-}) {
-  if (signals.length === 0) return null;
-  return (
-    <div className="hd-signal-stack" aria-label="system signals">
-      {signals.map((signal) => {
-        const content = (
-          <>
-            <span className={`hd-signal-led hd-signal-led--${signal.tone ?? "dim"}`} aria-hidden="true" />
-            <span className="hd-signal-copy">
-              <span className="hd-signal-label">{signal.label}</span>
-              <span className="hd-signal-value">{signal.value}</span>
-            </span>
-          </>
-        );
-        const signalRoute = signal.route;
-        const handleClick = signal.onClick ?? (signalRoute ? () => navigate(signalRoute) : undefined);
-        if (handleClick) {
-          return (
-            <button
-              key={signal.id}
-              type="button"
-              className="hd-signal-row hd-signal-row--button"
-              onClick={handleClick}
-            >
-              {content}
-            </button>
-          );
-        }
-        return (
-          <div key={signal.id} className="hd-signal-row">
-            {content}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function BriefReferenceChips({
-  references,
-  navigate,
-}: {
-  references: HomeHeroBriefReference[];
-  navigate: (route: Route) => void;
-}) {
-  if (references.length === 0) return null;
-  return (
-    <span className="hd-brief-refs" aria-label="brief references">
-      {references.slice(0, 4).map((ref) => {
-        const content = (
-          <>
-            <span className="hd-brief-ref-kind">{ref.kind}</span>
-            <span className="hd-brief-ref-label">{ref.label}</span>
-          </>
-        );
-        if (ref.route) {
-          return (
-            <button
-              key={ref.id}
-              type="button"
-              className="hd-brief-ref hd-brief-ref--button"
-              title={ref.detail}
-              onClick={() => navigate(ref.route as Route)}
-            >
-              {content}
-            </button>
-          );
-        }
-        return (
-          <span key={ref.id} className="hd-brief-ref" title={ref.detail}>
-            {content}
-          </span>
-        );
-      })}
-    </span>
   );
 }
 
@@ -378,122 +349,79 @@ export default function HomeHero(props: HomeHeroProps) {
     error,
     loading,
     refreshing,
-    briefRefreshing,
     onRefresh,
-    onRegenerateBrief,
-    onSpeakBrief,
-    briefSpeaking = false,
-    briefIsNew = false,
     totalOperatorQueue,
     narrativeParts,
-    briefStatement,
-    briefObservations,
     navigate,
     opsEnabled,
     onReviewQueue,
     heartrate,
     heartrateWindow,
     heartrateBucketLabel,
+    heartrateVisibleEventThreshold = HEARTRATE_VISIBLE_EVENT_THRESHOLD,
     serviceGauges,
-    systemSignals,
   } = props;
 
-  const spokenBrief = briefStatement?.trim() || "";
   const ledePart =
     narrativeParts.find((p) => p.includes("need")) ?? narrativeParts[0] ?? "";
-  const displayLede = spokenBrief || (ledePart ? `${ledePart}.` : "");
-  const observations = briefObservations.length > 0
-    ? briefObservations
-    : fallbackBriefObservations(displayLede);
-  const otherParts = spokenBrief
-    ? narrativeParts
-    : narrativeParts.filter((p) => p !== ledePart);
-  const leadsNeedsYou = !spokenBrief && ledePart.includes("need");
+  const displayLede = ledePart ? `${ledePart}.` : "Scout is waiting for a fresh snapshot.";
+  const otherParts = narrativeParts.filter((p) => p !== ledePart);
+  const leadsNeedsYou = ledePart.includes("need");
   const subline = otherParts.join(" · ");
   const syncTone = error ? "err" : "ok";
   const gauges = serviceGauges;
-  const briefSheetVisible = briefRefreshing || observations.length > 0;
-  const { runtime: sequenceRuntime } = useBriefSequenceRuntime(briefGenerationSequence, {
-    active: briefRefreshing,
-    speed: 3,
-  });
+  const showHeartrate = heartrate.reduce((total, bucket) => total + bucket.count, 0)
+    >= heartrateVisibleEventThreshold;
   return (
     <section className="hd">
       <div className="hd-topbar">
         <div className="hd-topbar-l">
-          <span className="hd-mark" aria-hidden="true">◆</span>
-          <span className="hd-mark-text">SCOUT</span>
-          <span className="hd-sep">·</span>
-          <span className="hd-mark-role">home</span>
+          <span className="hd-path">home</span>
+          <span className="hd-path-sep">/</span>
+          <span className="hd-path">fleet</span>
+          <span className="hd-path-sep">/</span>
+          <span className="hd-path hd-path--muted">{formatDateChip(now)}</span>
         </div>
-        {gauges.length > 0 && (
-          <div className="hd-topbar-c" aria-label="service usage">
-            <span className="hd-gauge-window">USAGE</span>
-            <span className="hd-gauge-divider" aria-hidden="true" />
-            {gauges.map((g, i) => (
-              <span key={g.id} className="hd-gauge-wrap">
-                {i > 0 && <span className="hd-gauge-divider" aria-hidden="true" />}
-                <Gauge gauge={g} now={now} onClick={() => navigate({ view: "ops" })} />
-              </span>
-            ))}
-          </div>
-        )}
         <div className="hd-topbar-r">
-          <span className="hd-meta">operator: {operatorName.toLowerCase()}</span>
-          <span className="hd-sep">·</span>
+          <span className="hd-meta-label">operator</span>
+          <span className="hd-meta hd-meta--operator">{operatorName.toLowerCase()}</span>
+          <span className="hd-path-sep">/</span>
           <span className="hd-meta">{formatClock(now)}</span>
           <span className={`hd-dot hd-dot--${syncTone}`} aria-hidden="true" />
           <span className={`hd-meta hd-meta--${syncTone}`}>{syncLabel}</span>
         </div>
+        {gauges.length > 0 && (
+          <div className="hd-topbar-c" aria-label="service usage">
+            <span className="hd-gauge-window">SUBSCRIPTIONS</span>
+            <div className="hd-gauge-set">
+              <div className="hd-gauge-table-head" aria-hidden="true">
+                <span>service</span>
+                <span>short window</span>
+                <span>resets</span>
+                <span>long window</span>
+                <span>resets</span>
+              </div>
+              {gauges.map((g) => (
+                <span key={g.id} className="hd-gauge-wrap">
+                  <Gauge gauge={g} now={now} onClick={() => navigate({ view: "ops" })} />
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="hd-grid">
-        <div
-          className="hd-panel hd-panel--lede"
-          data-brief-refreshing={briefRefreshing || undefined}
-        >
+      <div className={`hd-grid${showHeartrate ? "" : " hd-grid--single"}`}>
+        <div className="hd-panel hd-panel--lede">
           <div className="hd-panel-title">
-            <Bot className="hd-brief-scoutbot-glyph" size={12} aria-hidden="true" />
-            <span>BRIEFING</span>
+            <span>STATUS</span>
             <span className="hd-sep">·</span>
             <span>{formatDateChip(now)}</span>
-            <button
-              type="button"
-              className="hd-brief-archive-link"
-              onClick={() => navigate({ view: "briefings" })}
-            >
-              view archive
-            </button>
           </div>
 
-          {briefSheetVisible && (
-            <div
-              className="hd-brief-sheet"
-              data-brief-refreshing={briefRefreshing || undefined}
-              aria-busy={briefRefreshing || undefined}
-            >
-              {briefRefreshing ? (
-                <div className="hd-brief-seq" aria-busy="true">
-                  <BriefSequenceView runtime={sequenceRuntime} />
-                </div>
-              ) : (
-                <div className="hd-brief-copy">
-                {observations.map((observation, index) => (
-                  <p
-                    key={observation.id || `${observation.text}-${index}`}
-                    className={`hd-brief-line${leadsNeedsYou && index === 0 ? " hd-brief-line--warn" : ""}`}
-                  >
-                    <Crosshair className="hd-brief-icon" size={14} strokeWidth={1.7} aria-hidden="true" />
-                    <span className="hd-brief-line-body">
-                      <span>{observation.text}</span>
-                      <BriefReferenceChips references={observation.references} navigate={navigate} />
-                    </span>
-                  </p>
-                ))}
-                </div>
-              )}
-            </div>
-          )}
+          <p className={`hd-status-line${leadsNeedsYou ? " hd-status-line--warn" : ""}`}>
+            {displayLede}
+          </p>
 
           {subline.length > 0 && (
             <p className="hd-sub">{subline}.</p>
@@ -522,24 +450,6 @@ export default function HomeHero(props: HomeHeroProps) {
                 [open ops]
               </button>
             )}
-            {onSpeakBrief && (
-              <button
-                type="button"
-                className={`hd-btn${briefIsNew && !briefSpeaking ? " hd-btn--primary" : ""}`}
-                onClick={onSpeakBrief}
-                title={briefSpeaking ? "Stop reading the brief" : briefIsNew ? "Read the new brief aloud" : "Replay the brief"}
-              >
-                [{briefSpeaking ? "■ stop" : briefIsNew ? "▸ speak brief" : "▸ replay"}]
-              </button>
-            )}
-            <button
-              type="button"
-              className="hd-btn"
-              disabled={briefRefreshing}
-              onClick={onRegenerateBrief}
-            >
-              [{briefRefreshing ? "briefing" : "new brief"}]
-            </button>
             <button
               type="button"
               className="hd-btn"
@@ -551,21 +461,22 @@ export default function HomeHero(props: HomeHeroProps) {
           </div>
         </div>
 
-        <div className="hd-panel hd-panel--hr">
-          <div className="hd-panel-title">
-            <span>HEART-RATE</span>
-            <span className="hd-sep">·</span>
-            <span>{heartrateWindow}</span>
-            {heartrateBucketLabel ? (
-              <>
-                <span className="hd-sep">·</span>
-                <span>{heartrateBucketLabel}</span>
-              </>
-            ) : null}
+        {showHeartrate && (
+          <div className="hd-panel hd-panel--hr">
+            <div className="hd-panel-title">
+              <span>HEART-RATE</span>
+              <span className="hd-sep">·</span>
+              <span>{heartrateWindow}</span>
+              {heartrateBucketLabel ? (
+                <>
+                  <span className="hd-sep">·</span>
+                  <span>{heartrateBucketLabel}</span>
+                </>
+              ) : null}
+            </div>
+            <HeartrateGraph buckets={heartrate} />
           </div>
-          <HeartrateGraph buckets={heartrate} />
-          <SystemSignalStack signals={systemSignals} navigate={navigate} />
-        </div>
+        )}
       </div>
     </section>
   );

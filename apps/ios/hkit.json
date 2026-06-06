@@ -1,0 +1,12 @@
+{
+  "app": "ScoutNext",
+  "bundleId": "com.openscout.scoutnext",
+  "xcodeproj": "Scout.xcodeproj",
+  "xcodegen": "project.yml",
+  "scheme": "ScoutNext",
+  "configuration": "Debug",
+  "features": ["terminal", "voice"],
+  "derivedData": ".deriveddata/devphone",
+  "destination": "generic/platform=iOS",
+  "device": "1E273304-29B6-5B10-BEC2-F4361F1CA25B"
+}

@@ -2,11 +2,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-md);
   min-width: 0;
-  padding: 8px;
+  padding: var(--space-sm);
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--surface) 82%, var(--bg));
 }
 
@@ -18,8 +18,8 @@
 .agent-live-actions--compact {
   flex-direction: column;
   align-items: stretch;
-  gap: 7px;
-  padding: 8px 0 0;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0 0;
   border: 0;
   border-top: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
   border-radius: 0;
@@ -29,10 +29,10 @@
 .agent-live-actions-status {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-xs);
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 
@@ -40,7 +40,7 @@
   width: 7px;
   height: 7px;
   flex: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--ink) 22%, transparent);
 }
 
@@ -70,7 +70,7 @@
   flex: none;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--space-xs);
 }
 
 .agent-live-actions-button {
@@ -78,16 +78,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 10px;
+  padding: 0 var(--space-md);
   border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
-  border-radius: 7px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--ink) 4%, transparent);
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 650;
-  line-height: 1;
-  letter-spacing: 0.08em;
+  line-height: var(--leading-none);
+  letter-spacing: var(--tracking-md);
   text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
@@ -115,8 +115,8 @@
 
 .agent-live-actions--compact .agent-live-actions-button {
   min-height: 26px;
-  padding: 0 8px;
-  font-size: 9px;
+  padding: 0 var(--space-sm);
+  font-size: var(--text-2xs);
 }
 
 @media (max-width: 720px) {

@@ -1,0 +1,251 @@
+$ bun install
+[0.24ms] ".env.local"
+bun install v1.3.11 (af24e281)
+Resolving dependencies
+Resolved, downloaded and extracted [47]
+Saved lockfile
+
+Checked 586 installs across 765 packages (no changes) [856.00ms]
+
+$ npm --prefix packages/cli run build
+
+> @openscout/scout@0.2.70 build
+> npm --prefix ../protocol run build && npm --prefix ../runtime run build && node ./scripts/build.mjs
+
+
+> @openscout/protocol@0.2.70 build
+> rm -rf dist && tsc -p tsconfig.json
+
+
+> @openscout/runtime@0.2.70 build
+> npm --prefix ../agent-sessions run build && rm -rf dist && node_modules/.bin/tsc -p tsconfig.json
+
+
+> @openscout/agent-sessions@0.2.70 build
+> rm -rf dist && tsc -p tsconfig.json
+
+Bundled 657 modules in 89ms
+
+  main.js                                     5.61 MB  (entry point)
+  highlights-ghv9g403.scm                     2.86 KB  (asset)
+  tree-sitter-javascript-nd0q4pe9.wasm        0.41 MB  (asset)
+  highlights-eq9cgrbb.scm                     9.83 KB  (asset)
+  tree-sitter-typescript-zxjzwt75.wasm        1.41 MB  (asset)
+  highlights-r812a2qc.scm                     3.44 KB  (asset)
+  tree-sitter-markdown-411r6y9b.wasm          0.42 MB  (asset)
+  injections-73j83es3.scm                     0.82 KB  (asset)
+  highlights-x6tmsnaa.scm                     2.15 KB  (asset)
+  tree-sitter-markdown_inline-j5349f42.wasm   0.43 MB  (asset)
+  highlights-hk7bwhj4.scm                     3.48 KB  (asset)
+  tree-sitter-zig-e78zbjpm.wasm               0.69 MB  (asset)
+
+Bundled 2 modules in 2ms
+
+  openscout-terminal-relay.mjs  18.86 KB  (entry point)
+
+Bundled 337 modules in 22ms
+
+  scout-control-plane-web.mjs  1.65 MB  (entry point)
+
+Bundled 337 modules in 66ms
+
+  scout-web-server.mjs  1.65 MB  (entry point)
+
+Bundled 7 modules in 5ms
+
+  base-daemon.mjs  54.91 KB  (entry point)
+
+  bundled runtime base -> /Users/art/dev/openscout/packages/cli/dist/runtime/base-daemon.mjs
+Bundled 332 modules in 40ms
+
+  broker-daemon.mjs  2.0 MB  (entry point)
+
+  bundled runtime broker -> /Users/art/dev/openscout/packages/cli/dist/runtime/broker-daemon.mjs
+Bundled 4 modules in 4ms
+
+  broker-process-manager.mjs  32.78 KB  (entry point)
+
+  bundled runtime service -> /Users/art/dev/openscout/packages/cli/dist/runtime/broker-process-manager.mjs
+Bundled 5 modules in 4ms
+
+  mesh-discover.mjs  33.87 KB  (entry point)
+
+  bundled runtime discover -> /Users/art/dev/openscout/packages/cli/dist/runtime/mesh-discover.mjs
+Bundled 416 modules in 37ms
+
+  pair-supervisor.mjs  1.74 MB  (entry point)
+
+
+> @openscout/web@0.2.70 build
+> node ./scripts/build.mjs
+
+vite v7.3.1 building client environment for production...
+<script src="/api/bootstrap.js"> in "/index.html" can't be bundled without type="module" attribute
+transforming...
+✓ 2748 modules transformed.
+rendering chunks...
+computing gzip size...
+../dist/client/index.html                          0.88 kB │ gzip:   0.45 kB
+../dist/client/assets/index-DsG7TgkU.css         711.04 kB │ gzip:  98.27 kB
+../dist/client/assets/addon-fit-4Rg3Oqyt.js        1.83 kB │ gzip:   0.83 kB
+../dist/client/assets/addon-webgl-DEx3OZZT.js    248.26 kB │ gzip:  70.47 kB
+../dist/client/assets/xterm-F_OSDatl.js          489.13 kB │ gzip: 128.29 kB
+../dist/client/assets/index-Bgc8LJw0.js        1,507.55 kB │ gzip: 441.68 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.67s
+Bundled 337 modules in 36ms
+
+  openscout-web-server.mjs  1.65 MB  (entry point)
+
+Bundled 416 modules in 38ms
+
+  pair-supervisor.mjs  1.74 MB  (entry point)
+
+Bundled 2 modules in 3ms
+
+  openscout-terminal-relay.mjs  18.82 KB  (entry point)
+
+
+$ (cd packages/cli && bun link)
+bun link v1.3.11 (af24e281)
+Success! Registered "@openscout/scout"
+
+To use @openscout/scout in a project, run:
+  bun link @openscout/scout
+
+Or add it in dependencies in your package.json file:
+  "@openscout/scout": "link:@openscout/scout"
+
+$ scout --help
+scout 0.2.70
+
+Usage:
+  scout [--json] <command> [options]
+  scout relay <command> [options]
+
+Commands:
+  help         Show help text
+  version      Print the Scout CLI version
+  setup        Bootstrap local settings and broker
+  doctor       Show broker health and project inventory
+  runtimes     Show harness catalog and readiness
+  env          Show executable and agent identity context
+  whoami       Resolve your current Scout sender identity
+  inbox        Read recent direct or addressed messages for this identity
+  send         Tell one target or post to an explicit channel
+  speak        Send and speak aloud via TTS
+  ask          Hand work to one agent and wait for acknowledgement
+  wait         Wait for an ask by invocation, flight, message, or ref
+  flight       Follow an existing ask flight
+  label        Watch, feed, or brief related work by label
+  card         Create a dedicated reply-ready Scout agent card
+  watch        Stream broker messages
+  tail         Stream observed harness events
+  who          List agents and last activity
+  latest       Show the latest Scout activity
+  mcp          Run a Scout MCP server over stdio
+  channel      Read channel messages or run a Claude Code channel server
+  enroll       Generate enrollment prompt
+  broadcast    Broadcast to channel.shared
+  up           Spawn a local agent for a project
+  down         Stop one or all local agents
+  ps           List configured local agents
+  restart      Restart configured local agents
+  menu         Launch the OpenScout macOS menu bar app
+  vantage      Build a Hudson Vantage terminal canvas plan
+  config       View or set user config (name, handle, etc.)
+  mesh         Mesh status and diagnostics
+  pair         Pair a companion device via QR
+  server       Run the Scout web UI (Bun; see: scout server start/open)
+  tui          Terminal monitor dashboard
+  init         Write ~/.openscout/config.json with broker/web/pairing ports
+
+Global flags:
+  --json        Structured JSON (doctor: NDJSON stream; last object has phase "complete")
+
+First run:
+  scout config set name "Ada"
+  scout setup --source-root ~/dev --default-harness codex
+  scout doctor
+  scout runtimes
+
+Fast path:
+  scout send --to hudson "ready for review"      # tell / update in a DM
+  scout ask --to hudson "review the parser"      # owned work; wait for ack
+  scout ask --project ../talkie "compare auth"   # no agent id needed; route by project path
+  scout ask --to hudson --prompt-file ./handoff.md
+  scout wait inv_123 --timeout 600               # follow an existing ask
+  scout tail --source codex --kind tool-result   # observe harness activity
+  scout label watch release:0.2.66 --interval 2  # label-scoped activity firehose
+
+Orientation (only when route or sender is unclear):
+  scout whoami
+  scout inbox --latest 10 --json
+  scout who
+  scout channel triage --latest 10 --json
+  scout latest
+  scout latest --channel triage --messages --limit 3
+  scout menu
+  scout server open
+
+Lifecycle:
+  scout send --to hudson "ready for review"      # tell / update in a DM
+  scout ask --to hudson "review the parser"      # owned work; wait for ack
+  scout wait inv_123 --timeout 600               # wait by invocation, flight, message, or ref
+  scout flight get flt_123                       # current ask state
+  scout flight wait flt_123 --timeout 60         # bounded wait for terminal state
+  scout tail --project openscout --query test     # observed harness firehose
+  scout label feed release:0.2.66 --since 10m    # normalized label backlog
+  scout label brief release:0.2.66               # compact label digest
+  scout card create                              # fresh reply-ready return address
+  scout broadcast "deploying in 15m"             # explicit shared broadcast
+
+Implicit ask shortcut:
+  scout @agent your request
+  scout @agent --prompt-file ./handoff.md
+  scout hey @agent can you review this?
+  scout @agent.harness:codex use the Codex-backed one
+  scout @agent#codex?5.5 use the Codex 5.5-backed one
+
+File-backed input:
+  ask uses --prompt-file for the primary work prompt
+  send/broadcast/speak use --message-file for the message body
+  --body-file is accepted as the shared alias
+
+One-to-one delegation:
+  scout ask --to hudson "review the parser"      # DM by default; wait for ack
+  scout ask --as premotion.master.mini --to hudson "build the editor"
+  scout ask --to hudson --prompt-file ./handoff.md
+
+Project targets:
+  scout ask --project ../talkie "compare auth"   # broker resolves the concrete agent/session
+  scout ask --project ../talkie --harness codex "review this from Codex"
+  scout ask '>> project:../talkie compare auth'  # composer route form; quote >> in shells
+  use --project when you know the repo path but not the current Scout handle
+
+Routing:
+  scout send --to hudson "ready for review"      # one target -> DM
+  scout send --channel triage "need two reviewers"  # explicit group thread
+  scout broadcast "deploying in 15m"             # explicit shared broadcast
+  no target + no channel                         # error, not fallback
+  multiple targets + no channel                  # error, not fallback
+
+Addressing:
+  @name                              short form; requires exactly one live match
+  @name.harness:<codex|claude|...>   pin a specific harness (alias: runtime:)
+  @name#codex?<model>                shorthand for harness + model
+  @name.profile:<id>                 pin a specific profile (alias: persona:)
+  @name.model:<id>                   pin a specific model
+  @name.node:<host>                  pin a specific machine
+  Dimensions combine, any order: @vox.harness:codex.model:sonnet.node:mini
+
+MCP parity:
+  ask handles agent-to-agent work; messages_send handles tell/update
+
+Compatibility:
+  relay         Namespace alias for ask/send/speak/watch/card
+  scout         Canonical CLI binary

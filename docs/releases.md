@@ -16,7 +16,7 @@ public `@openscout/scout` package version, then runs the release train:
 
 - bump root and `@openscout/scout` manifests
 - verify the internal builds and packed public manifest
-- build the signed/notarized macOS DMG as `OpenScoutMenu-<version>.dmg`
+- build the signed/notarized macOS DMG as `OpenScout-<version>.dmg`
 - commit the version bump and create `v<version>`
 - push the branch and tag
 - create the GitHub release and upload the DMG
@@ -62,6 +62,6 @@ Routine pull requests run the Linux typecheck/unit workflow only. Merges to
 - `candidate-v*` runs `Release Candidate`: Linux checks, native macOS/iOS
   simulator checks, package dry-runs, and runtime scenarios.
 - `npm-v*` runs `Release Package npm` and publishes `@openscout/scout`.
-- `app-macos-v*` runs `Release App macOS` and builds/uploads the signed,
-  notarized DMG.
+- macOS DMGs are built/notarized locally and attached to a release tag with
+  `npm run ship:macos -- <tag>`.
 - `app-ios-v*` runs `Release App iOS` and uploads through App Store Connect.

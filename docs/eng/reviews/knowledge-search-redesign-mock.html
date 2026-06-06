@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenScout Search — result experience mock (dewey)</title>
+<!--
+  Static, dependency-free design mock for the Knowledge Search redesign.
+  Companion to knowledge-search-redesign-dewey.md. Not production code — a visual target.
+  Palette approximates OpenScout's hud dark theme; when embedded it should inherit
+  the real --bg/--surface/--ink/--accent tokens.
+-->
+<style>
+  :root{
+    --bg:#0c0f12; --surface:#14181d; --surface-2:#1a1f26; --ink:#e7ecf1;
+    --muted:#9aa6b2; --dim:#6b7682; --border:#262d36; --accent:#5ad1c7;
+    --accent-dim:#2b4d4a; --good:#d8b54a; --weak:#7a8694; --match:#5ad1c7;
+    --radius-md:6px; --radius-lg:9px;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(900px 400px at 20% -5%, color-mix(in srgb,var(--surface) 60%, transparent), transparent),
+      var(--bg);
+    color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;
+    padding:22px 26px 60px;}
+  .legend{max-width:1180px;margin:0 auto 16px;color:var(--muted);font-size:12.5px}
+  .legend b{color:var(--accent);font-family:var(--mono);text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+  .legend code{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 5px;color:var(--ink);font-family:var(--mono);font-size:11.5px}
+
+  .app{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:minmax(340px,1fr) minmax(420px,1.25fr);
+    gap:18px;align-items:start}
+  .panel{background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 70%,transparent),transparent 180px),var(--surface);
+    border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+
+  /* ---- search column ---- */
+  .searchbar{display:flex;align-items:center;gap:9px;padding:13px 14px;border-bottom:1px solid var(--border)}
+  .searchbar input{flex:1;background:var(--surface-2);border:1px solid var(--border);color:var(--ink);
+    border-radius:var(--radius-md);padding:9px 11px;font-size:13.5px;font-family:var(--sans)}
+  .searchbar input::placeholder{color:var(--dim)}
+  .listhead{display:flex;justify-content:space-between;align-items:center;padding:9px 15px;color:var(--muted);font-size:12px}
+  .listhead b{color:var(--ink);font-weight:600}
+  .cards{display:flex;flex-direction:column;gap:9px;padding:4px 11px 14px}
+
+  .card{position:relative;text-align:left;width:100%;cursor:pointer;background:var(--surface-2);
+    border:1px solid var(--border);border-left:2px solid transparent;border-radius:var(--radius-md);
+    padding:11px 13px 10px;color:inherit;font:inherit;transition:border-color .12s, transform .12s}
+  .card:hover{border-color:color-mix(in srgb,var(--accent) 30%,var(--border))}
+  .card.sel{border-left-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface-2))}
+  .crow{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11.5px;margin-bottom:5px}
+  .crow .harness{color:var(--ink);font-weight:600}
+  .crow .dot{color:var(--dim)}
+  .crow .fresh{margin-left:auto;color:var(--dim);font-family:var(--mono);font-size:11px}
+  .headline{font-size:14.5px;font-weight:600;color:var(--ink);margin:0 0 5px;line-height:1.3}
+  .quote{margin:0 0 7px;color:var(--muted);font-size:13px;line-height:1.42}
+  .quote mark, .convo mark{background:color-mix(in srgb,var(--match) 26%,transparent);color:var(--ink);
+    border-radius:3px;padding:0 2px}
+  .reason{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+  .reason b{color:var(--ink);font-weight:600}
+  .strength{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--dim)}
+  .pips{letter-spacing:1px}
+  .pips .on{color:var(--accent)} .pips .on.good{color:var(--good)} .pips .off{color:var(--border)}
+  .moments-toggle{margin-top:8px;background:none;border:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;padding:0}
+  .moments{margin-top:7px;border-top:1px dashed var(--border);padding-top:7px;display:none;flex-direction:column;gap:5px}
+  .card.open .moments{display:flex}
+  .moment{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted);font-family:var(--mono)}
+  .moment .idx{color:var(--dim)} .moment .kind{color:var(--ink);min-width:104px}
+  .moment .mq{flex:1;color:var(--muted);font-family:var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hoveractions{display:flex;gap:6px;margin-top:9px;opacity:0;max-height:0;overflow:hidden;transition:opacity .12s}
+  .card:hover .hoveractions, .card.sel .hoveractions{opacity:1;max-height:40px}
+  .chip{display:inline-flex;align-items:center;gap:5px;background:var(--surface);border:1px solid var(--border);
+    color:var(--muted);border-radius:5px;padding:4px 8px;font-size:11.5px;cursor:pointer}
+  .chip.primary{background:color-mix(in srgb,var(--accent) 18%,var(--surface));border-color:var(--accent-dim);color:var(--ink)}
+  .chip:hover{border-color:var(--accent);color:var(--ink)}
+
+  /* ---- inspector ---- */
+  .insp-head{padding:13px 15px;border-bottom:1px solid var(--border)}
+  .insp-ctx{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11.5px;margin-bottom:6px}
+  .insp-ctx .x{margin-left:auto;color:var(--dim);cursor:pointer;border:1px solid var(--border);border-radius:5px;
+    width:24px;height:24px;display:grid;place-items:center}
+  .insp-title{font-size:16px;font-weight:600;margin:0 0 11px}
+  .actionbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:6px;border-radius:6px;padding:7px 12px;font-size:12.5px;
+    cursor:pointer;border:1px solid var(--border);background:var(--surface-2);color:var(--ink)}
+  .btn.primary{background:var(--accent);color:#04201d;border-color:var(--accent);font-weight:600}
+  .btn.ghost{background:none;color:var(--muted)} .btn.ghost:hover{color:var(--ink);border-color:var(--accent)}
+  .btn.icon{padding:7px 9px;color:var(--muted)}
+
+  .section-cap{display:flex;align-items:center;gap:8px;padding:12px 15px 5px;color:var(--accent);
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+  .section-cap .range{margin-left:auto;color:var(--dim);letter-spacing:0;text-transform:none}
+
+  .convo{padding:2px 15px 6px;display:flex;flex-direction:column;gap:11px}
+  .turn{border-left:2px solid var(--border);padding:1px 0 1px 11px}
+  .turn.user{border-left-color:#3d4b8a}
+  .turn.assistant{border-left-color:var(--accent-dim)}
+  .turn.matched{border-left-color:var(--accent)}
+  .turn .who{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:3px}
+  .turn .who .role{color:var(--ink);font-weight:600}
+  .turn .who .id{color:var(--dim)}
+  .turn .who .tag{margin-left:auto;color:var(--accent);font-size:10.5px;display:inline-flex;align-items:center;gap:4px}
+  .turn .body{font-size:13.5px;color:var(--ink);line-height:1.5}
+  .turn.assistant .body{color:#dde6ee}
+  .toolfold{display:flex;align-items:center;gap:8px;color:var(--dim);font-size:12px;font-family:var(--mono);
+    background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;cursor:pointer}
+  .toolfold:hover{border-color:var(--accent);color:var(--muted)}
+
+  .disc{margin:8px 13px;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface-2)}
+  .disc>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:9px;padding:10px 12px;font-size:12.5px;color:var(--ink)}
+  .disc>summary::-webkit-details-marker{display:none}
+  .disc>summary .meta{margin-left:auto;color:var(--dim);font-size:11.5px;font-family:var(--mono)}
+  .disc[open]>summary{border-bottom:1px solid var(--border)}
+  .disc .body{padding:11px 13px;font-size:12.5px;color:var(--muted)}
+  .why-grid{display:grid;grid-template-columns:120px 1fr;gap:7px 14px}
+  .why-grid .k{color:var(--dim);font-family:var(--mono);font-size:11.5px}
+  .why-grid .v{color:var(--ink)}
+  .why-grid .v .num{color:var(--dim);font-family:var(--mono);font-size:11.5px}
+
+  .raw-rec{border-top:1px solid var(--border);font-family:var(--mono);font-size:11.5px}
+  .raw-rec:first-child{border-top:0}
+  .raw-rec>summary{list-style:none;cursor:pointer;display:flex;gap:9px;align-items:center;padding:7px 2px;color:var(--muted)}
+  .raw-rec>summary::-webkit-details-marker{display:none}
+  .raw-rec .id{color:var(--dim)} .raw-rec .k{color:var(--ink);min-width:78px}
+  .raw-rec.matched>summary{color:var(--ink)}
+  .raw-rec.matched .k{color:var(--accent)}
+  .raw-rec pre{margin:4px 0 9px;padding:9px 11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;
+    color:var(--muted);white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.5}
+
+  .footer{margin:6px 13px 14px;padding:10px 0 0;border-top:1px solid var(--border);color:var(--dim);font-size:11.5px}
+  .footer .prov{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  .footer .prov .tag{border:1px solid var(--border);border-radius:5px;padding:2px 7px;color:var(--muted);font-family:var(--mono);font-size:10.5px}
+  .footer .path{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .footer .path .copy{margin-left:auto;cursor:pointer;color:var(--dim)}
+  .footer .path .copy:hover{color:var(--accent)}
+  @media(max-width:880px){.app{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+  <div class="legend">
+    <b>Mock</b> &nbsp;OpenScout Knowledge Search — redesigned result experience.
+    Click a <code>card</code> to select · click <code>▸ 3 matches</code> to expand moments ·
+    open <code>Why this matched</code> / <code>Raw evidence</code> · click <code>▸ tool steps</code> to unfold.
+    Design spec: <code>knowledge-search-redesign-dewey.md</code>.
+  </div>
+
+  <div class="app">
+    <!-- ============ SEARCH COLUMN ============ -->
+    <section class="panel">
+      <div class="searchbar">
+        <span style="color:var(--dim)">⌕</span>
+        <input value="embeddings" placeholder="Search your sessions — topics, files, decisions…" />
+        <button class="btn primary" style="padding:8px 13px">Search</button>
+      </div>
+      <div class="listhead"><span>7 matches across 3 sessions</span><b>1,284 moments indexed</b></div>
+
+      <div class="cards">
+        <!-- selected, multi-moment card -->
+        <button class="card sel open" onclick="event.preventDefault()">
+          <div class="crow"><span>◆</span><span class="harness">claude</span><span class="dot">·</span>
+            <span>openscout · knowledge index</span><span class="fresh">2d ago</span></div>
+          <p class="headline">Designing the QMD knowledge search index</p>
+          <p class="quote">“…we should <mark>embed</mark> selected QMD chunks, not raw source files, and record the provider, model, and dimensions so the index stays rebuildable…”</p>
+          <div class="reason">Matched <b>“embeddings”</b> in an assistant reply
+            <span class="strength">Strong <span class="pips"><span class="on">●</span><span class="on">●</span><span class="on">●</span><span class="off">○</span></span></span>
+          </div>
+          <div class="moments">
+            <div class="moment"><span class="idx">0313</span><span class="kind">assistant reply</span><span class="mq">…embed selected QMD chunks, not raw…</span></div>
+            <div class="moment"><span class="idx">0420</span><span class="kind">tool output</span><span class="mq">embeddings provider model dimensions</span></div>
+            <div class="moment"><span class="idx">0511</span><span class="kind">your message</span><span class="mq">should embeddings be opt-in?</span></div>
+          </div>
+          <div class="hoveractions">
+            <span class="chip primary">▸ Open conversation</span><span class="chip">⤴ Fork</span><span class="chip">⧉ Copy ref</span><span class="chip">⋯</span>
+          </div>
+        </button>
+
+        <!-- collapsed multi-moment card -->
+        <button class="card" onclick="event.preventDefault();this.classList.toggle('open')">
+          <div class="crow"><span>◇</span><span class="harness">codex</span><span class="dot">·</span>
+            <span>openscout · runtime</span><span class="fresh">4d ago</span></div>
+          <p class="headline">Vector store choice for local semantic search</p>
+          <p class="quote">“brute-force cosine over <mark>embeddings</mark> in knowledge.sqlite is fine under ~100k chunks; sqlite-vec only if it grows…”</p>
+          <div class="reason">Matched <b>“embeddings”</b> in 2 assistant replies
+            <span class="strength">Good <span class="pips"><span class="on good">●</span><span class="on good">●</span><span class="off">○</span><span class="off">○</span></span></span>
+          </div>
+          <button class="moments-toggle">▸ 2 matches in this session</button>
+          <div class="moments">
+            <div class="moment"><span class="idx">0088</span><span class="kind">assistant reply</span><span class="mq">brute-force cosine over embeddings…</span></div>
+            <div class="moment"><span class="idx">0142</span><span class="kind">assistant reply</span><span class="mq">sqlite-vec extension vs in-memory…</span></div>
+          </div>
+          <div class="hoveractions">
+            <span class="chip primary">▸ Open conversation</span><span class="chip">⤴ Fork</span><span class="chip">⧉ Copy ref</span><span class="chip">⋯</span>
+          </div>
+        </button>
+
+        <!-- single-moment card (no moments toggle) -->
+        <button class="card" onclick="event.preventDefault()">
+          <div class="crow"><span>◆</span><span class="harness">claude</span><span class="dot">·</span>
+            <span>dewey · docs</span><span class="fresh">6d ago</span></div>
+          <p class="headline">Opt-in policy for embedding cost</p>
+          <p class="quote">“keep <mark>embeddings</mark> disabled by default until the user enables semantic search…”</p>
+          <div class="reason">Matched <b>“embeddings”</b> in your message
+            <span class="strength">Weak <span class="pips"><span class="on">●</span><span class="off">○</span><span class="off">○</span><span class="off">○</span></span></span>
+          </div>
+          <div class="hoveractions">
+            <span class="chip primary">▸ Open conversation</span><span class="chip">⤴ Fork</span><span class="chip">⧉ Copy ref</span><span class="chip">⋯</span>
+          </div>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ INSPECTOR ============ -->
+    <section class="panel">
+      <div class="insp-head">
+        <div class="insp-ctx"><span>◆ claude</span><span>·</span><span>openscout</span><span>·</span><span>2d ago</span>
+          <span class="x">✕</span></div>
+        <h2 class="insp-title">Designing the QMD knowledge search index</h2>
+        <div class="actionbar">
+          <span class="btn primary">▸ Open conversation</span>
+          <span class="btn">⤴ Fork from here</span>
+          <span class="btn ghost icon">⧉ Copy ref</span>
+          <span class="btn ghost icon">⤓ Raw</span>
+          <span class="btn ghost icon">⋯</span>
+        </div>
+      </div>
+
+      <div class="section-cap">Conversation <span class="range">records 308–340</span></div>
+      <div class="convo">
+        <div class="turn user">
+          <div class="who"><span class="role">user</span><span class="id">0312</span></div>
+          <div class="body">how should we store <mark>embeddings</mark> for the chunks?</div>
+        </div>
+        <div class="turn assistant matched">
+          <div class="who"><span class="role">assistant</span><span class="id">0313</span><span class="tag">● matched</span></div>
+          <div class="body">We should <mark>embed</mark> selected QMD chunks, not raw source files, and record provider, model, and dimensions so the index stays rebuildable when the chunk policy changes.</div>
+        </div>
+        <div class="toolfold" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display==='block'?'none':'block'">▸ 3 tool steps&nbsp; (Read, Bash, Edit)</div>
+        <div style="display:none;font-family:var(--mono);font-size:11.5px;color:var(--dim);padding:2px 0 2px 11px;border-left:2px solid var(--border)">
+          0314 Read packages/runtime/knowledge/embeddings/provider.ts<br/>
+          0316 Bash node dist/cli index --source sessions<br/>
+          0319 Edit knowledge.sqlite schema (embeddings table)
+        </div>
+        <div class="turn assistant">
+          <div class="who"><span class="role">assistant</span><span class="id">0339</span></div>
+          <div class="body">…that keeps the index rebuildable without re-embedding everything when only the lexical layer changes.</div>
+        </div>
+      </div>
+
+      <details class="disc">
+        <summary>▸ Why this matched <span class="meta">Strong · exact words</span></summary>
+        <div class="body">
+          <div class="why-grid">
+            <span class="k">Relevance</span><span class="v">Strong <span class="num">●●●○</span></span>
+            <span class="k">Found in</span><span class="v">assistant reply (2×) · session title</span>
+            <span class="k">Match type</span><span class="v">Exact words: “embeddings”, “QMD”</span>
+            <span class="k">details</span><span class="v"><span class="num">bm25 −8.42 · fts over title + body</span></span>
+          </div>
+        </div>
+      </details>
+
+      <details class="disc">
+        <summary>▸ Raw evidence <span style="color:var(--dim)">(advanced)</span> <span class="meta">records 308–344 · earlier hidden · later hidden</span></summary>
+        <div class="body" style="padding:4px 13px 8px">
+          <details class="raw-rec"><summary><span class="id">0312</span><span class="k">user</span><span>how should we store embeddings…</span></summary>
+            <pre>{ "type":"message","role":"user","content":[{"type":"text","text":"how should we store embeddings for the chunks?"}] }</pre></details>
+          <details class="raw-rec matched" open><summary><span class="id">0313</span><span class="k">assistant</span><span>We should embed selected QMD chunks…</span></summary>
+            <pre>{ "type":"message","role":"assistant","content":[{"type":"text","text":"We should embed selected QMD chunks, not raw source files, and record provider, model, and dimensions…"}] }</pre></details>
+          <details class="raw-rec"><summary><span class="id">0314</span><span class="k">tool_use</span><span>Read provider.ts</span></summary>
+            <pre>{ "type":"tool_use","name":"Read","input":{"file_path":"packages/runtime/knowledge/embeddings/provider.ts"} }</pre></details>
+        </div>
+      </details>
+
+      <div class="footer">
+        <div class="prov"><span class="tag">derived</span><span class="tag">observed source</span><span>indexed 2d ago · mechanical extraction</span></div>
+        <div class="path">~/.claude/projects/openscout/3f9c…session.jsonl<span class="copy">⧉ copy</span></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // Card selection + moments toggle (visual only)
+    document.querySelectorAll('.card').forEach(card=>{
+      card.addEventListener('click',e=>{
+        if(e.target.closest('.moments-toggle')||e.target.closest('.chip')) return;
+        document.querySelectorAll('.card').forEach(c=>c.classList.remove('sel'));
+        card.classList.add('sel');
+      });
+    });
+    document.querySelectorAll('.moments-toggle').forEach(t=>{
+      t.addEventListener('click',e=>{e.stopPropagation();t.closest('.card').classList.toggle('open');});
+    });
+  </script>
+</body>
+</html>

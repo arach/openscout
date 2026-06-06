@@ -29,12 +29,17 @@ import {
   createScoutSession,
   getScoutMobileActivity,
   getScoutMobileAgents,
+  getScoutMobileConversations,
+  getScoutMobileConversationMessages,
   getScoutMobileHome,
   getScoutMobileSessionSnapshot,
   getScoutMobileSessions,
   getScoutMobileWorkspaces,
+  markScoutMobileConversationRead,
+  sendScoutMobileComms,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
+import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
 import {
   SecureTransport,
   type SocketLike,
@@ -71,6 +76,14 @@ interface SocketState {
   unsub?: () => void;
   transport?: SecureTransport;
   deviceId?: string;
+  secureTransport?: boolean;
+  trustedPeer?: boolean;
+}
+
+export interface BridgeRpcContext {
+  deviceId?: string;
+  secureTransport?: boolean;
+  trustedPeer?: boolean;
 }
 
 function replaySyncEvents(
@@ -172,13 +185,22 @@ export function startBridgeServer(
             "responder",
             identity,
             {
-              onReady: (remotePublicKey) => {
+              onReady: (remotePublicKey, readyInfo) => {
                 const pubHex = bytesToHex(remotePublicKey);
-                const trusted = isTrustedPeer(pubHex);
+                const trusted = readyInfo.wasTrustedPeer && isTrustedPeer(pubHex);
                 state.deviceId = pubHex.slice(0, 16);
+                state.secureTransport = true;
+                state.trustedPeer = trusted;
                 console.log(
                   `[bridge] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., trusted: ${trusted}, device: ${state.deviceId})`,
                 );
+                if (!trusted) {
+                  console.warn(
+                    `[bridge] rejecting untrusted direct secure peer ${pubHex.slice(0, 12)}...; pair via the QR relay first`,
+                  );
+                  ws.close(4003, "Untrusted peer");
+                  return;
+                }
 
                 // Push existing sessions through the encrypted channel.
                 for (const session of bridge.listSessions()) {
@@ -210,7 +232,7 @@ export function startBridgeServer(
                   return;
                 }
 
-                handleRPC(bridge, req, state.deviceId).then((res) => {
+                handleRPC(bridge, req, state).then((res) => {
                   transport.send(JSON.stringify(res));
                 });
               },
@@ -223,6 +245,7 @@ export function startBridgeServer(
                 state.unsub?.();
               },
             },
+            { trustOnComplete: false },
           );
 
           state.transport = transport;
@@ -264,7 +287,7 @@ export function startBridgeServer(
           }
 
           const connState = socketState.get(ws);
-          handleRPC(bridge, req, connState?.deviceId).then((res) => {
+          handleRPC(bridge, req, connState).then((res) => {
             ws.send(JSON.stringify(res));
           });
         }
@@ -292,15 +315,22 @@ export function startBridgeServer(
 // RPC handler — also used by relay-client.ts for relayed connections
 // ---------------------------------------------------------------------------
 
+function normalizeBridgeRpcContext(input?: string | BridgeRpcContext): BridgeRpcContext {
+  if (!input) return {};
+  if (typeof input === "string") return { deviceId: input };
+  return input;
+}
+
 export async function handleRPC(
   bridge: Bridge,
   req: RPCRequest,
-  deviceId?: string,
+  rpcContext?: string | BridgeRpcContext,
 ): Promise<RPCResponse> {
+  const context = normalizeBridgeRpcContext(rpcContext);
   const rpcStart = Date.now();
   const paramsSnippet = summarizeRPCParams(req.method, req.params);
   log.info("rpc:req", `→ ${req.method}${paramsSnippet}`);
-  const result = await handleRPCInner(bridge, req, deviceId);
+  const result = await handleRPCInner(bridge, req, context);
   const elapsed = Date.now() - rpcStart;
   if (result.error) {
     log.error("rpc:res", `✗ ${req.method} — ${result.error.message} (${elapsed}ms)`);
@@ -314,7 +344,7 @@ export async function handleRPC(
 async function handleRPCInner(
   bridge: Bridge,
   req: RPCRequest,
-  deviceId?: string,
+  rpcContext: BridgeRpcContext = {},
 ): Promise<RPCResponse> {
   try {
     switch (req.method) {
@@ -650,7 +680,7 @@ async function handleRPCInner(
         };
         return {
           id: req.id,
-          result: await createScoutSession(p, resolveMobileCurrentDirectory(), deviceId),
+          result: await createScoutSession(p, resolveMobileCurrentDirectory(), rpcContext.deviceId),
         };
       }
 
@@ -665,7 +695,7 @@ async function handleRPCInner(
         };
         return {
           id: req.id,
-          result: await sendScoutMobileMessage(p, resolveMobileCurrentDirectory(), deviceId),
+          result: await sendScoutMobileMessage(p, resolveMobileCurrentDirectory(), rpcContext.deviceId),
         };
       }
 
@@ -679,6 +709,91 @@ async function handleRPCInner(
         return {
           id: req.id,
           result: await getScoutMobileActivity(p),
+        };
+      }
+
+      // -- Comms (channels + DMs) ---------------------------------------------
+
+      case "mobile/comms/conversations": {
+        const p = req.params as { kind?: string; limit?: number } | undefined;
+        return {
+          id: req.id,
+          result: await getScoutMobileConversations(p ?? {}),
+        };
+      }
+
+      case "mobile/comms/messages": {
+        const p = req.params as { conversationId?: string; limit?: number };
+        if (!p?.conversationId) {
+          return { id: req.id, error: { code: -32602, message: "conversationId is required" } };
+        }
+        return {
+          id: req.id,
+          result: await getScoutMobileConversationMessages(
+            p.conversationId,
+            typeof p.limit === "number" ? p.limit : 200,
+          ),
+        };
+      }
+
+      case "mobile/comms/send": {
+        const p = req.params as {
+          conversationId?: string;
+          body?: string;
+          replyToMessageId?: string | null;
+          clientMessageId?: string | null;
+        };
+        if (!p?.conversationId || !p?.body) {
+          return { id: req.id, error: { code: -32602, message: "conversationId and body are required" } };
+        }
+        return {
+          id: req.id,
+          result: await sendScoutMobileComms(
+            {
+              conversationId: p.conversationId,
+              body: p.body,
+              replyToMessageId: p.replyToMessageId ?? null,
+              clientMessageId: p.clientMessageId ?? null,
+            },
+            resolveMobileCurrentDirectory(),
+            rpcContext.deviceId,
+          ),
+        };
+      }
+
+      case "mobile/comms/read": {
+        const p = req.params as { conversationId?: string; lastReadMessageId?: string | null };
+        if (!p?.conversationId) {
+          return { id: req.id, error: { code: -32602, message: "conversationId is required" } };
+        }
+        return {
+          id: req.id,
+          result: await markScoutMobileConversationRead({
+            conversationId: p.conversationId,
+            lastReadMessageId: p.lastReadMessageId ?? null,
+          }),
+        };
+      }
+
+      // -- Terminal (in-app SSH/PTY) ------------------------------------------
+
+      case "mobile/terminal/provision": {
+        const p = req.params as { sshPublicKey?: string };
+        if (!p?.sshPublicKey) {
+          return { id: req.id, error: { code: -32602, message: "sshPublicKey is required" } };
+        }
+        if (!rpcContext.secureTransport || !rpcContext.trustedPeer || !rpcContext.deviceId) {
+          return {
+            id: req.id,
+            error: {
+              code: -32001,
+              message: "Terminal provisioning requires a trusted paired device over the encrypted bridge.",
+            },
+          };
+        }
+        return {
+          id: req.id,
+          result: provisionMobileTerminalAccess(p.sshPublicKey, rpcContext.deviceId),
         };
       }
 

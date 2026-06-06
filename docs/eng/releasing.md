@@ -1,6 +1,6 @@
 # Releasing OpenScout
 
-Scope: how to cut a release of the public npm package and the macOS menu bar helper.
+Scope: how to cut a release of the public npm package and the macOS app installer.
 
 The npm package and the `.dmg` are independent artifacts but are typically
 shipped at the same version so the helper app matches the runtime it pairs
@@ -10,9 +10,10 @@ with.
 
 - **npm package** (published to the public registry)
   - `@openscout/scout` (the `scout` CLI, bundled broker/runtime, and web UI)
-- **macOS helper**
-  - `apps/macos/dist/OpenScoutMenu.app`
-  - `apps/macos/dist/OpenScoutMenu.dmg` (signed + notarized)
+- **macOS app installer**
+  - `apps/macos/dist/OpenScout.app`
+  - `apps/macos/dist/OpenScout-<version>.dmg` (signed + notarized)
+  - `apps/macos/dist/OpenScout.dmg` (stable local alias for release upload)
 
 ## Prerequisites
 
@@ -130,23 +131,31 @@ npm view @openscout/scout version
 
 ## Building the macOS DMG
 
-The helper app bundle and DMG are built from `apps/macos/`:
+The app bundle and DMG are built locally from `apps/macos/` through Hudson's
+file-path packager. This path intentionally does not require Hudson to be
+checked out or vendored by CI.
+
+By default the script expects the sibling checkout at `../hudson`. Override with
+`HUDSON_DIR` or `HKIT_BIN` when using a different local path.
 
 ```bash
 # One-shot: build app bundle, create DMG, codesign, notarize, staple.
 ./apps/macos/scripts/build-dmg.sh 0.2.41
 ```
 
-`build-dmg.sh` resolves the version from its first argument, then
-`VERSION` env, then the repo root `package.json`. It will:
+`build-dmg.sh` resolves the version from its first argument, then `VERSION`
+env, then the repo root `package.json`. It will:
 
-1. Run `bun apps/macos/bin/openscout-menu.ts build --version <v>` to produce
-   `apps/macos/dist/OpenScoutMenu.app`.
-2. Stage the `.app` with an `/Applications` symlink and run `hdiutil create`
-   to produce `apps/macos/dist/OpenScoutMenu.dmg` (UDZO).
-3. `codesign` the DMG with the Developer ID identity.
-4. Submit to `notarytool` with `--wait`, then `stapler staple` the result.
-5. `spctl --assess` the final DMG.
+1. Build the SwiftPM app products.
+2. Assemble `apps/macos/dist/OpenScout.app` with `OpenScout Menu.app` embedded
+   under `Contents/Library/LoginItems`.
+3. Stage `OpenScout.app` with an `/Applications` symlink and write the Finder
+   installer layout.
+4. Produce `apps/macos/dist/OpenScout-<version>.dmg` and the stable local alias
+   `apps/macos/dist/OpenScout.dmg`.
+5. `codesign` the app bundles and DMG with the Developer ID identity.
+6. Submit to `notarytool` with `--wait`, then `stapler staple` the result.
+7. `spctl --assess` the final DMG.
 
 `apps/macos/dist/` is gitignored — artifacts do not land in git. Attach the
 DMG to a GitHub release (or similar) for distribution.
@@ -159,33 +168,37 @@ SKIP_NOTARIZE=1 ./apps/macos/scripts/build-dmg.sh 0.2.41
 
 The DMG is still signed, just not submitted for notarization.
 
-### Lower-level entry point
-
-`openscout-menu.ts` also exposes a `dmg` subcommand if you want the helper
-to orchestrate signing without the shell wrapper:
+### Ship the local DMG to a GitHub release
 
 ```bash
-bun apps/macos/bin/openscout-menu.ts dmg
+npm run ship:macos -- v0.2.70
 ```
 
-The shell script stays the source of truth for release builds because it
-fails fast when signing or notarization is misconfigured.
+The macOS ship command builds/notarizes the DMG locally, then uploads both:
 
-### GitHub Actions app release
+- `apps/macos/dist/OpenScout-<version>.dmg`
+- `apps/macos/dist/OpenScout.dmg`
 
-Tag `app-macos-v<version>` to build and upload the signed, notarized DMG from
-CI. The workflow expects these repository secrets:
+It uses `gh release upload` when the release exists. If the tag exists but no
+GitHub release exists yet, it creates the release with `--verify-tag` and then
+uploads the assets. The website download CTA points at GitHub's latest-release
+`OpenScout.dmg` asset:
 
-- `MACOS_DEVELOPER_ID_APPLICATION_P12_BASE64`
-- `MACOS_DEVELOPER_ID_APPLICATION_P12_PASSWORD`
-- `MACOS_RELEASE_KEYCHAIN_PASSWORD`
-- `APPLE_ID`
-- `APPLE_TEAM_ID`
-- `APPLE_APP_SPECIFIC_PASSWORD`
+```text
+https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg
+```
 
-Optional repository variables:
+Use `--clobber` only when intentionally replacing existing release assets:
 
-- `OPENSCOUT_SIGN_IDENTITY`
+```bash
+npm run ship:macos -- v0.2.70 --clobber
+```
+
+To upload an already-built DMG without rebuilding:
+
+```bash
+npm run ship:macos -- v0.2.70 --skip-build
+```
 
 Tag `app-ios-v<version>` to run the iOS App Store Connect upload. The tag
 version must match the root `package.json` version because

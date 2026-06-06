@@ -1549,6 +1549,7 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("routes direct DM asks through askScoutQuestion and rejects channel asks", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
     querySessionByIdImpl = (conversationId) => {
       if (conversationId === "dm.operator.agent-1") {
         return {
@@ -1604,6 +1605,39 @@ describe("createOpenScoutWebServer", () => {
     expect(await channelResponse.json()).toEqual({
       error: "ask is only available in a direct conversation with one agent",
     });
+
+    const explicitResponse = await server.app.request("http://localhost/api/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "What should we catch up on?",
+        targetAgentId: "agent-2",
+        targetLabel: "Talkie",
+        execution: {
+          harness: "codex",
+          model: "gpt-test",
+        },
+      }),
+    });
+    expect(explicitResponse.status).toBe(200);
+    expect(askScoutQuestionCalls).toEqual([
+      {
+        senderId: "operator",
+        targetLabel: "agent-1",
+        targetAgentId: "agent-1",
+        body: "Please own this and report back.",
+        currentDirectory: "/tmp/openscout",
+      },
+      {
+        senderId: expect.any(String),
+        targetLabel: "Talkie",
+        targetAgentId: "agent-2",
+        body: "What should we catch up on?",
+        executionHarness: "codex",
+        executionModel: "gpt-test",
+        currentDirectory: "/tmp/openscout",
+      },
+    ]);
   });
 
   test("routes Scoutbot ask actions through askScoutQuestion", async () => {
@@ -1934,10 +1968,16 @@ describe("createOpenScoutWebServer", () => {
     expect(dismissed.reminders.find((reminder) => reminder.id === due.reminder.id)?.status).toBe("dismissed");
   });
 
-  test("returns a setup error when Scoutbot assistant has no OpenAI key", async () => {
+  test("falls back to local Codex when Scoutbot assistant has no OpenAI key", async () => {
     useIsolatedOpenScoutHome();
     delete process.env.OPENAI_API_KEY;
     let fetchCalled = false;
+    const codexCalls: Array<{
+      sessionId: string;
+      threadId?: string | null;
+      prompt: string;
+      systemPrompt: string;
+    }> = [];
     globalThis.fetch = (async () => {
       fetchCalled = true;
       return new Response("{}", { status: 200 });
@@ -1947,6 +1987,20 @@ describe("createOpenScoutWebServer", () => {
       currentDirectory: "/tmp/openscout",
       assetMode: "static",
       staticRoot: makeStaticRoot(),
+      scoutbotAssistant: {
+        invokeCodex: async (input) => {
+          codexCalls.push({
+            sessionId: input.sessionId,
+            threadId: input.threadId,
+            prompt: input.prompt,
+            systemPrompt: input.systemPrompt,
+          });
+          return {
+            output: "Codex fallback works.",
+            threadId: "codex-thread-1",
+          };
+        },
+      },
     });
 
     const response = await server.app.request("http://localhost/api/scoutbot/chat", {
@@ -1955,17 +2009,28 @@ describe("createOpenScoutWebServer", () => {
       body: JSON.stringify({ body: "state?" }),
     });
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      error: "An OpenAI API key is required for Scoutbot assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.",
-    });
+    expect(response.status).toBe(200);
+    const json = await response.json() as {
+      reply: { body: string };
+      responseId: string | null;
+      session: { messages: Array<{ role: string; body: string }> };
+    };
+    expect(json.reply.body).toBe("Codex fallback works.");
+    expect(json.responseId).toBe("codex-thread-1");
+    expect(json.session.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(fetchCalled).toBe(false);
+    expect(codexCalls).toHaveLength(1);
+    expect(codexCalls[0].threadId).toBeNull();
+    expect(codexCalls[0].prompt).toContain("Operator request:");
+    expect(codexCalls[0].prompt).toContain("Current Scout control-plane snapshot");
+    expect(codexCalls[0].systemPrompt).toContain("not a peer agent");
   });
 
-  test("does not use a transient request supplied OpenAI key for Scoutbot assistant", async () => {
+  test("ignores a transient request supplied OpenAI key and still uses configured providers", async () => {
     useIsolatedOpenScoutHome();
     delete process.env.OPENAI_API_KEY;
     let fetchCalled = false;
+    const codexCalls: Array<{ prompt: string }> = [];
     globalThis.fetch = (async (_input, init) => {
       fetchCalled = true;
       void init;
@@ -1982,6 +2047,15 @@ describe("createOpenScoutWebServer", () => {
       currentDirectory: "/tmp/openscout",
       assetMode: "static",
       staticRoot: makeStaticRoot(),
+      scoutbotAssistant: {
+        invokeCodex: async (input) => {
+          codexCalls.push({ prompt: input.prompt });
+          return {
+            output: "Request key ignored; Codex handled this.",
+            threadId: "codex-thread-request-key",
+          };
+        },
+      },
     });
 
     const response = await server.app.request("http://localhost/api/scoutbot/chat", {
@@ -1993,11 +2067,13 @@ describe("createOpenScoutWebServer", () => {
       }),
     });
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      error: "An OpenAI API key is required for Scoutbot assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.",
-    });
+    expect(response.status).toBe(200);
+    const json = await response.json() as { reply: { body: string }; responseId: string | null };
+    expect(json.reply.body).toContain("Codex handled this");
+    expect(json.responseId).toBe("codex-thread-request-key");
     expect(fetchCalled).toBe(false);
+    expect(codexCalls).toHaveLength(1);
+    expect(codexCalls[0].prompt).not.toContain("sk-request-test");
   });
 
   test("saves and uses the local Scoutbot OpenAI credential store", async () => {

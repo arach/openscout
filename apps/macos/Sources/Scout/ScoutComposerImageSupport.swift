@@ -1,4 +1,5 @@
 import SwiftUI
+import HudsonUI
 #if os(macOS)
 import AppKit
 
@@ -95,7 +96,7 @@ struct ScoutImageLightbox: View {
                     Spacer()
                     Button(action: onDismiss) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22))
+                            .font(.system(size: HudTextSize.xxl))
                             .foregroundStyle(.white, .black.opacity(0.45))
                     }
                     .buttonStyle(.plain).scoutPointerCursor()

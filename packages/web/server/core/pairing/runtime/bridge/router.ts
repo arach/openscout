@@ -32,12 +32,16 @@ import type { AgentHarness } from "@openscout/protocol";
 import {
   createScoutSession,
   getScoutMobileActivity,
+  getScoutMobileConversations,
+  getScoutMobileConversationMessages,
   getScoutMobileSessionSnapshot,
+  markScoutMobileConversationRead,
+  sendScoutMobileComms,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
+import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
 import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-push";
 import {
-  conversationIdForAgent,
   queryMobileAgentDetail,
   queryMobileAgents,
   queryMobileSessions,
@@ -63,6 +67,8 @@ export interface BridgeContext {
   bridge: Bridge;
   cwd: string;
   deviceId?: string;
+  secureTransport?: boolean;
+  trustedPeer?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -823,13 +829,12 @@ const mobileRouter = t.router({
           message: "conversationId is required",
         });
       }
-      // Accept conversation IDs directly, or resolve agent IDs →
-      // dm.operator.{agentId} (the broker's deterministic convention).
-      const conversationId = rawId.startsWith("dm.")
-        ? rawId
-        : conversationIdForAgent(rawId);
+      // Pass the routed id straight through — the snapshot service resolves it
+      // against the live broker snapshot (a `c.…`/`dm.…` conversation id, or a
+      // bare agent id → its actual conversation). The old `dm.operator.{agentId}`
+      // wrap was wrong for agents whose conversation is keyed `c.…`.
       return getScoutMobileSessionSnapshot(
-        conversationId,
+        rawId,
         {
           beforeTurnId: input.beforeTurnId ?? null,
           limit: typeof input.limit === "number" ? input.limit : null,
@@ -984,6 +989,69 @@ const mobileRouter = t.router({
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ input }) => {
       return interruptLocalAgent(input.agentId);
+    }),
+
+  // -- Comms (channels + DMs) -------------------------------------------------
+
+  commsConversations: procedure
+    .input(
+      z
+        .object({
+          kind: z.string().optional(),
+          limit: z.number().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ input }) => {
+      return getScoutMobileConversations(input ?? {});
+    }),
+
+  commsMessages: procedure
+    .input(
+      z.object({
+        conversationId: z.string(),
+        limit: z.number().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return getScoutMobileConversationMessages(input.conversationId, input.limit ?? 200);
+    }),
+
+  commsSend: procedure
+    .input(
+      z.object({
+        conversationId: z.string(),
+        body: z.string(),
+        replyToMessageId: z.string().nullable().optional(),
+        clientMessageId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return sendScoutMobileComms(input, resolveMobileCurrentDirectory(), ctx.deviceId);
+    }),
+
+  commsMarkRead: procedure
+    .input(
+      z.object({
+        conversationId: z.string(),
+        lastReadMessageId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return markScoutMobileConversationRead(input);
+    }),
+
+  // -- Terminal (in-app SSH/PTY) ------------------------------------------
+  terminalProvision: procedure
+    .input(z.object({ sshPublicKey: z.string() }))
+    .mutation(({ input, ctx }) => {
+      if (!ctx.secureTransport || !ctx.trustedPeer || !ctx.deviceId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Terminal provisioning requires a trusted paired device over the encrypted bridge.",
+        });
+      }
+      return provisionMobileTerminalAccess(input.sshPublicKey, ctx.deviceId);
     }),
 });
 

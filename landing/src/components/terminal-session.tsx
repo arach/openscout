@@ -31,13 +31,13 @@ export function TerminalSession({
   };
 
   return (
-    <div className="group/terminal relative overflow-hidden rounded-xl border border-[#232320] bg-[#111110] shadow-lg">
+    <div className="scout-terminal group/terminal relative overflow-hidden rounded-2xl border border-[#0a0805] bg-[#0E100D]">
       {/* Title bar */}
-      <div className="flex items-center justify-between border-b border-[#232320] px-4 py-2.5">
-        <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#3a3a36]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#3a3a36]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#3a3a36]" />
+      <div className="flex items-center justify-between border-b border-[#232320] bg-gradient-to-b from-[#1B1E18] to-transparent px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#C45A38]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#C99A3F]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#6E9A52]" />
         </div>
         <button
           type="button"
@@ -69,7 +69,7 @@ export function TerminalSession({
               </div>
               {/* Command line */}
               <div className="text-[#e8e5de]">
-                <span className="select-none text-[#6b6963]">$ </span>
+                <span className="select-none text-[#86BC63]">$ </span>
                 {step.command}
               </div>
             </div>

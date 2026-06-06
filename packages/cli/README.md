@@ -31,6 +31,15 @@ scout ask --to dewey "can you review our docs?"
 
 It also discovers local and project-backed agents from your configured workspace roots, installs the base Scout service, attempts to start it, and ensures Caddy is available for the local `scout.local` edge. On macOS, setup installs missing Caddy with `brew install caddy`; otherwise install Caddy yourself or set `OPENSCOUT_CADDY_BIN`.
 
+For a CLI-only onboarding pass, save the same identity, workspace roots, and
+runtime choice used by the app flows:
+
+```bash
+scout config set name "Ada"
+scout setup --source-root ~/dev --default-harness codex
+scout runtimes
+```
+
 `scout init` writes `~/.openscout/config.json` with the broker, web, and pairing ports that every Scout component reads. Run it once after install, or with `--force` to overwrite.
 
 When the input is not a known subcommand and includes exactly one `@agent` mention, Scout treats it as an implicit `ask`: it records durable work with the broker, waits for the target to acknowledge or complete immediately, and leaves later completion visible through the conversation or flight follow-up. For example:
@@ -100,6 +109,7 @@ That keeps ordinary collaboration simple:
 ```bash
 scout send --to vox "heads up: I’m on the runtime side"
 scout ask --to vox "can you confirm the broker fix?"
+scout ask --harness codex "review this in a fresh Codex worker"
 ```
 
 Known on-demand or offline agents are supposed to wake on first delivery. `scout send` and `scout ask` should be the default path; `scout up` is for explicit prewarming or for creating/registering a target the broker does not know yet.
@@ -200,6 +210,18 @@ scout ask --to lattices#claude?sonnet "take task B"
 Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier. Shorthand `#codex` maps to `harness:codex`; `?sonnet` or `?5.5` maps to `model:<model>`. Dimensions combine in any order.
 
 If direct send/ask still comes back unresolved, treat that as a routing problem, not a mere "target is offline" problem. The right follow-up is to disambiguate the target, inspect broker context with `scout who` / `scout latest`, or create/register the missing identity. Do not default to pushing the bring-up step back onto the operator for a known target.
+
+For current-project work where the harness is the only important choice, omit
+`--to` and `--project`:
+
+```bash
+scout ask --harness codex "take a fresh pass on this repo"
+```
+
+That routes by the current project path and asks the broker to create or choose
+a compatible worker. Add `--new` with an explicit `--project` when a different
+repo path should start fresh, and use an exact session/ref when the intent is
+to continue prior context.
 
 Local product handoffs use the public Scout address:
 

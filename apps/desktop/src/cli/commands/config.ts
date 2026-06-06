@@ -1,7 +1,9 @@
 import { loadUserConfig, saveUserConfig, resolveOperatorHandle, resolveOperatorName } from "@openscout/runtime/user-config";
+import { saveOpenScoutOnboardingIdentity } from "@openscout/runtime/onboarding";
 import type { ScoutCommandContext } from "../context.ts";
+import { defaultScoutContextDirectory } from "../context.ts";
 
-export async function runConfigCommand(_context: ScoutCommandContext, args: string[]): Promise<void> {
+export async function runConfigCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   const [subcommand, key, ...rest] = args;
 
   if (subcommand === "set" && (key === "name" || key === "handle") && rest.length > 0) {
@@ -9,6 +11,12 @@ export async function runConfigCommand(_context: ScoutCommandContext, args: stri
     const config = loadUserConfig();
     config[key] = value;
     saveUserConfig(config);
+    if (key === "name") {
+      await saveOpenScoutOnboardingIdentity({
+        currentDirectory: defaultScoutContextDirectory(context),
+        name: value,
+      });
+    }
     console.log(`${key === "name" ? "Name" : "Handle"} set to: ${value}`);
     return;
   }

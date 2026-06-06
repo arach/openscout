@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
+import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
 import { openContent } from "../scout/slots/openContent.ts";
@@ -433,6 +434,14 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
           <div className="s-atop-summary-lbl">visible</div>
         </div>
       </div>
+
+      <ObservedTopologyPanel
+        title="Observed harness families"
+        size="compact"
+        maxAgents={8}
+        maxTasks={4}
+        showEmpty
+      />
 
       <div className="s-atop-fbar">
         <label className="s-atop-search">

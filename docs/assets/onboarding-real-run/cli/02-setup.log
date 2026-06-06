@@ -1,0 +1,199 @@
+$ scout config set name "Art"
+Name set to: Art
+
+$ scout setup --source-root ~/dev --default-harness codex
+Scout initialized.
+Context root: /Users/art/dev/openscout
+Support directory: /Users/art/Library/Application Support/OpenScout
+Settings: /Users/art/Library/Application Support/OpenScout/settings.json
+Harness catalog: /Users/art/Library/Application Support/OpenScout/catalog/harness-catalog.json
+Agent registry: /Users/art/Library/Application Support/OpenScout/relay-agents.json
+Managed installs: /Users/art/Library/Application Support/OpenScout/managed-installs.json
+Current project config: /Users/art/dev/openscout/.openscout/project.json
+Created project config: yes
+
+Source roots:
+  - /Users/art/dev
+
+Project inventory: 19
+  - Art (art.arts-mac-mini-local)
+    Root: /Users/art
+    Source root: /Users/art
+    Relative path: .
+    State: discovered project
+    Default harness: codex
+    Harnesses: claude (.claude) | codex (.codex) | cursor (.cursor) | pi (.pi)
+  - Dev (dev.arts-mac-mini-local)
+    Root: /Users/art/dev
+    Source root: /Users/art/dev
+    Relative path: .
+    State: discovered project
+    Default harness: claude
+    Harnesses: claude (.claude) | cursor (.cursor)
+  - Tmp (tmp.arts-mac-mini-local)
+    Root: /tmp
+    Source root: /tmp
+    Relative path: .
+    State: discovered project
+    Default harness: codex
+    Harnesses: codex (OpenScout default)
+  - Action (action.codex-polished-mira-demo.arts-mac-mini-local)
+    Root: /Users/art/dev/action
+    Source root: /Users/art/dev
+    Relative path: action
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default) | codex (AGENTS.md)
+    Manifest: /Users/art/dev/action/.openscout/project.json
+  - Claude Scout (claude-scout.main.arts-mac-mini-local)
+    Root: /Users/art/dev/claude-scout
+    Source root: /Users/art/dev
+    Relative path: claude-scout
+    State: discovered project
+    Default harness: codex
+    Harnesses: codex (OpenScout default)
+  - Dewey (dewey.main.arts-mac-mini-local)
+    Root: /Users/art/dev/dewey
+    Source root: /Users/art/dev
+    Relative path: dewey
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default) | codex (AGENTS.md)
+    Manifest: /Users/art/dev/dewey/.openscout/project.json
+  - Hermes Scout (hermes-scout.dev.arts-mac-mini-local)
+    Root: /Users/art/dev/hermes-scout
+    Source root: /Users/art/dev
+    Relative path: hermes-scout
+    State: discovered project
+    Default harness: codex
+    Harnesses: codex (OpenScout default)
+  - Hudson (hudson.main.arts-mac-mini-local)
+    Root: /Users/art/dev/hudson
+    Source root: /Users/art/dev
+    Relative path: hudson
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default) | codex (AGENTS.md)
+    Manifest: /Users/art/dev/hudson/.openscout/project.json
+  - Iris (iris.arts-mac-mini-local)
+    Root: /Users/art/dev/iris
+    Source root: /Users/art/dev
+    Relative path: iris
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default)
+    Manifest: /Users/art/dev/iris/.openscout/project.json
+  - Lattices (lattices.main.arts-mac-mini-local)
+    Root: /Users/art/dev/lattices
+    Source root: /Users/art/dev
+    Relative path: lattices
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default) | codex (AGENTS.md)
+    Manifest: /Users/art/dev/lattices/.openscout/project.json
+  - Linea (linea.main.arts-mac-mini-local)
+    Root: /Users/art/dev/linea
+    Source root: /Users/art/dev
+    Relative path: linea
+    State: discovered project
+    Default harness: codex
+    Harnesses: codex (OpenScout default)
+  - Openscout (openscout.feat-web-design-system.arts-mac-mini-local)
+    Root: /Users/art/dev/openscout
+    Source root: /Users/art/dev
+    Relative path: openscout
+    State: configured agent
+    Default harness: codex
+    Harnesses: codex (Project manifest default) | claude (CLAUDE.md) | cursor (.cursor)
+    Manifest: /Users/art/dev/openscout/.openscout/project.json
+  - Pi Scout (pi-scout.main.arts-mac-mini-local)
+    Root: /Users/art/dev/pi-scout
+    Source root: /Users/art/dev
+    Relative path: pi-scout
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default)
+    Manifest: /Users/art/dev/pi-scout/.openscout/project.json
+  - Preframe (preframe.main.arts-mac-mini-local)
+    Root: /Users/art/dev/preframe
+    Source root: /Users/art/dev
+    Relative path: preframe
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default)
+    Manifest: /Users/art/dev/preframe/.openscout/project.json
+  - Premotion (premotion.master.arts-mac-mini-local)
+    Root: /Users/art/dev/premotion
+    Source root: /Users/art/dev
+    Relative path: premotion
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default)
+    Manifest: /Users/art/dev/premotion/.openscout/project.json
+  - Talkie (talkie.codex-top-band-study.arts-mac-mini-local)
+    Root: /Users/art/dev/talkie
+    Source root: /Users/art/dev
+    Relative path: talkie
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default) | codex (AGENTS.md)
+    Manifest: /Users/art/dev/talkie/.openscout/project.json
+  - Usetalkie Com (usetalkie-com.main.arts-mac-mini-local)
+    Root: /Users/art/dev/usetalkie.com
+    Source root: /Users/art/dev
+    Relative path: usetalkie.com
+    State: configured agent
+    Default harness: claude
+    Harnesses: claude (Project manifest default) | codex (AGENTS.md)
+    Manifest: /Users/art/dev/usetalkie.com/.openscout/project.json
+  - Vox (vox.main.arts-mac-mini-local)
+    Root: /Users/art/dev/vox
+    Source root: /Users/art/dev
+    Relative path: vox
+    State: discovered project
+    Default harness: codex
+    Harnesses: claude (CLAUDE.md) | codex (AGENTS.md)
+  - Hudson (hudson.arts-mac-mini-local)
+    Root: /Users/art/dev/vox/app/.build/checkouts/hudson
+    Source root: /Users/art/dev
+    Relative path: vox/app/.build/checkouts/hudson
+    State: discovered project
+    Default harness: codex
+    Harnesses: claude (CLAUDE.md) | codex (AGENTS.md)
+
+Base service:
+  Label: dev.openscout
+  Broker URL: http://127.0.0.1:65535
+  Broker socket: /Users/art/Library/Application Support/OpenScout/runtime/broker.sock
+  Health transport: unix_socket
+  Reachable: yes
+  LaunchAgent: /Users/art/Library/LaunchAgents/dev.openscout.plist
+  Bootout: /bin/launchctl bootout gui/501/dev.openscout
+  Logs: /Users/art/Library/Application Support/OpenScout/logs/broker/stdout.log | /Users/art/Library/Application Support/OpenScout/logs/broker/stderr.log
+
+Local edge:
+  Caddy: ready
+  Detail: Caddy is available for the Scout local edge.
+  Path: /opt/homebrew/bin/caddy
+  Version: v2.11.4 h1:XKxkMTgNSizEvKG6QHue6cAsFOteU2qA61w2tKkCWi0=
+
+Harnesses:
+  - Claude Code (claude)
+    State: ready
+    Detail: Claude Code is ready for workspace, collaboration.
+  - Codex (codex)
+    State: ready
+    Detail: Codex is ready for workspace, collaboration.
+  - Cursor Agent SDK (cursor)
+    State: missing
+    Detail: Cursor Agent SDK is not installed yet.
+  - Flue (flue)
+    State: missing
+    Detail: Flue is not installed yet.
+  - Pi (pi)
+    State: ready
+    Detail: Pi is ready for workspace, collaboration, files.
+
+Next:
+  scout doctor
+  scout runtimes

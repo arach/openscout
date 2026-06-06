@@ -1,13 +1,12 @@
 import "./fleet-home.css";
 import "./activity-stream.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, ExternalLink, Settings, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Check, Copy, ExternalLink, Send, Settings, X } from "lucide-react";
 import HomeHero, {
-  type HomeHeroBriefObservation,
-  type HomeHeroSignal,
   type ServiceGauge,
 } from "./HomeHero.tsx";
+import { TailView } from "./TailView.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import {
@@ -18,11 +17,6 @@ import {
 import { actorColor } from "../lib/colors.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { normalizeAgentState } from "../lib/agent-state.ts";
-import {
-  startHomeBriefSpeech,
-  stopHomeBriefSpeech,
-  useHomeBriefPlayerState,
-} from "../lib/home-brief-player.ts";
 import { usePersistentNumber, usePersistentString } from "../lib/persistent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { conversationForAgent, routeMachineId } from "../lib/router.ts";
@@ -42,9 +36,37 @@ import type {
   OperatorAttentionItem,
   OperatorAttentionState,
   Route,
+  TailEvent,
 } from "../lib/types.ts";
 
 type LookbackOption = { label: string; value: number; activityLimit: number };
+
+// Live context for an active agent, pulled from the observe summary endpoint
+// (the bulk /api/agents list doesn't carry session/model/token usage).
+type ActiveAgentContext = {
+  sessionId: string | null;
+  model: string | null;
+  contextPct: number | null;
+};
+
+type ObserveAgentSummary = {
+  agentId: string;
+  data?: {
+    metadata?: {
+      session?: {
+        externalSessionId?: string | null;
+        model?: string | null;
+        turnCount?: number | null;
+      };
+      // Real token usage. `data.contextUsage` is deliberately ignored — it's a
+      // synthetic ramp (syntheticContextUsage), not actual window utilization.
+      usage?: {
+        totalTokens?: number | null;
+        contextWindowTokens?: number | null;
+      };
+    };
+  };
+};
 
 const LOOKBACK_WINDOWS: LookbackOption[] = [
   { label: "30m", value: 30 * 60_000, activityLimit: 80 },
@@ -57,40 +79,12 @@ const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
 // and doesn't change minute-to-minute. Refresh once an hour; the server
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
-const FLEET_BRIEF_REFRESH_MS = 5 * 60_000;
 const MOVING_ACTIVE_WINDOW_MS = 30 * 60_000;
 const STALE_MOTION_INACTIVE_KEY = "openscout.home.staleMotionInactive.v1";
 const STALE_MOTION_INACTIVE_LIMIT = 200;
-
-type FleetHomeBrief = {
-  id: string;
-  statement: string;
-  observations?: HomeHeroBriefObservation[];
-  preparedAt: number;
-  expiresAt: number;
-  ttlMs: number;
-  sourceBriefId?: string;
-};
-
-type BriefingKind = "fleet-home" | "tour";
-
-type BriefingSummary = {
-  id: string;
-  kind: BriefingKind;
-  title: string;
-  summary: string;
-  recommendation: string | null;
-  preparedAt: number;
-  ttlMs: number;
-  observationCount: number;
-  hasMarkdown: boolean;
-  createdAt: number;
-};
-
-const BRIEFING_KIND_LABEL: Record<BriefingKind, string> = {
-  "fleet-home": "fleet",
-  tour: "tour",
-};
+const LOCAL_TAIL_RECENT_LIMIT = 1000;
+const LOCAL_TAIL_REFRESH_MS = 30_000;
+const HEARTRATE_COMBINED_EVENT_THRESHOLD = 3;
 
 type StaleMotionItem = {
   agentId: string;
@@ -191,17 +185,54 @@ function computeActivityShape(
   };
 }
 
-function formatTimeUntil(timestamp: number | null | undefined, nowMs: number): string {
-  const timestampMs = normalizeTimestampMs(timestamp);
-  if (timestampMs === null) return "unknown";
-  const seconds = Math.floor((timestampMs - nowMs) / 1000);
-  if (seconds <= 0) return "expired";
-  if (seconds < 60) return `in ${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `in ${hours}h`;
-  return `in ${Math.floor(hours / 24)}d`;
+function smoothHeartrateCounts(counts: number[]): number[] {
+  const energy = counts.map((count) => Math.sqrt(count));
+  const weights = [0.56, 0.28, 0.11, 0.05];
+
+  return energy.map((_, index) => {
+    let total = 0;
+    let weightTotal = 0;
+    for (let offset = -3; offset <= 3; offset++) {
+      const nextIndex = index + offset;
+      if (nextIndex < 0 || nextIndex >= energy.length) continue;
+      const weight = weights[Math.abs(offset)] ?? 0;
+      total += energy[nextIndex]! * weight;
+      weightTotal += weight;
+    }
+    return weightTotal > 0 ? total / weightTotal : 0;
+  });
+}
+
+function combineHeartrateWithTailEvents(
+  heartrate: HeartrateBucketView[],
+  tailEvents: TailEvent[],
+  nowMs: number,
+): HeartrateBucketView[] {
+  if (heartrate.length < 2 || tailEvents.length === 0) return heartrate;
+
+  const bucketMs = Math.max(1, heartrate[1]!.ts - heartrate[0]!.ts);
+  const startMs = heartrate[0]!.ts;
+  const endMs = heartrate[heartrate.length - 1]!.ts + bucketMs;
+  const counts = heartrate.map((bucket) => bucket.count);
+
+  for (const event of tailEvents) {
+    const eventTs = normalizeTimestampMs(event.ts);
+    if (eventTs === null || eventTs < startMs || eventTs > nowMs || eventTs >= endMs) {
+      continue;
+    }
+    const index = Math.floor((eventTs - startMs) / bucketMs);
+    if (index >= 0 && index < counts.length) {
+      counts[index] = (counts[index] ?? 0) + 1;
+    }
+  }
+
+  const smoothed = smoothHeartrateCounts(counts);
+  const peak = Math.max(1, ...smoothed);
+  return heartrate.map((bucket, index) => ({
+    ...bucket,
+    count: counts[index] ?? bucket.count,
+    value: (smoothed[index] ?? 0) / peak,
+  }));
 }
 
 function isFreshMovingTimestamp(
@@ -245,6 +276,161 @@ function routeForFleetAsk(ask: FleetAsk): Route {
   return { view: "agents", agentId: ask.agentId };
 }
 
+// ── Active-agent card helpers ───────────────────────────────────────────────
+function middleTruncate(value: string, max = 118): string {
+  if (value.length <= max) return value;
+  const head = Math.ceil((max - 1) * 0.58);
+  const tail = Math.floor((max - 1) * 0.42);
+  return `${value.slice(0, head).trimEnd()}…${value.slice(value.length - tail).trimStart()}`;
+}
+
+function compactPath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith("/Users/")) return `~/${path.split("/").slice(3).join("/")}`;
+  return path;
+}
+
+function compactSessionId(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  const withoutExtension = raw.endsWith(".jsonl") ? raw.slice(0, -".jsonl".length) : raw;
+  const segment = withoutExtension.split(/[/:]/u).filter(Boolean).pop() ?? withoutExtension;
+  // UUID-like ids read best as head…tail (e.g. 019e93aa…ee4f07), matching the
+  // observe panel; everything else falls back to a middle truncation.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-/iu.test(segment)) {
+    return `${segment.slice(0, 8)}…${segment.slice(-6)}`;
+  }
+  return middleTruncate(segment, 22);
+}
+
+function shortModelLabel(value: string | null | undefined): string | null {
+  const model = value?.trim();
+  if (!model) return null;
+  return model
+    .replace(/^claude-/iu, "")
+    .replace(/^gpt-/iu, "gpt ")
+    .replace(/\s*\([^)]*\)\s*/u, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function contextLabelFromModel(value: string | null | undefined): string | null {
+  const match = value?.match(/(\d+(?:\.\d+)?\s*[km])\s*context/iu);
+  return match?.[1]?.replace(/\s+/g, "").toUpperCase() ?? null;
+}
+
+function compactNode(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  return raw.replace(/\.local$/iu, "").replace(/-local$/iu, "");
+}
+
+function handleContextCardKey(event: KeyboardEvent<HTMLElement>, action: () => void) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  action();
+}
+
+type WorkingCardTaskStatus = FleetAsk["status"] | "working";
+type WorkingCardExecutionState = "working" | "idle" | "queued" | "delivered" | "failed";
+
+type AgentWorkingCardData = {
+  agentId: string;
+  agentName: string;
+  agentHandle: string | null;
+  harness: string | null;
+  model: string | null;
+  branch: string | null;
+  cwd: string | null;
+  task: {
+    invocationId: string | null;
+    title: string;
+    summary: string | null;
+    openedAt: number | null;
+    status: WorkingCardTaskStatus;
+  };
+  execution: {
+    state: WorkingCardExecutionState;
+    lastEventAt: number | null;
+    startedAt: number | null;
+  };
+  checkpoint: { line: string; at: number } | null;
+  reply: { state: "none" | "delivered"; deliveredAt: number | null };
+};
+
+function meaningfulCheckpoint(
+  ask: FleetAsk | null | undefined,
+  taskTitle: string,
+): AgentWorkingCardData["checkpoint"] {
+  const raw = ask?.summary?.trim();
+  if (!raw) return null;
+  const compact = raw.replace(/\s+/g, " ");
+  if (!compact || compact === taskTitle) return null;
+  if (/acknowledged via|queued for local execution|received the message/i.test(compact)) return null;
+  const at = normalizeTimestampMs(ask?.updatedAt) ?? Date.now();
+  return { line: summarize(compact, 120), at };
+}
+
+function buildAgentWorkingCardData(
+  agent: Agent,
+  ask: FleetAsk | null | undefined,
+  nowMs: number,
+): AgentWorkingCardData {
+  const openedAt = normalizeTimestampMs(ask?.startedAt)
+    ?? normalizeTimestampMs(ask?.acknowledgedAt)
+    ?? normalizeTimestampMs(ask?.updatedAt)
+    ?? null;
+  const lastEventAt = normalizeTimestampMs(agent.updatedAt);
+  const startedAt = normalizeTimestampMs(ask?.startedAt) ?? normalizeTimestampMs(agent.createdAt);
+  const taskTitle = ask?.task?.trim()
+    || agent.cwd
+    || agent.project
+    || `Working in ${agent.project ?? "workspace"}`;
+  const askStatus: WorkingCardTaskStatus = ask?.status ?? "working";
+  const agentWorking = normalizeAgentState(agent.state) === "working";
+  const executionState: WorkingCardExecutionState =
+    askStatus === "completed" ? "delivered"
+      : askStatus === "failed" ? "failed"
+        : askStatus === "queued" ? "queued"
+          : agentWorking ? "working"
+            : "idle";
+
+  return {
+    agentId: agent.id,
+    agentName: agent.name,
+    agentHandle: agent.handle,
+    harness: ask?.harness ?? agent.harness,
+    model: agent.model,
+    branch: agent.branch ?? "main",
+    cwd: agent.cwd,
+    task: {
+      invocationId: ask?.invocationId ?? null,
+      title: taskTitle,
+      summary: ask?.summary ?? null,
+      openedAt,
+      status: askStatus,
+    },
+    execution: { state: executionState, lastEventAt, startedAt },
+    checkpoint: meaningfulCheckpoint(ask, taskTitle),
+    reply: {
+      state: askStatus === "completed" ? "delivered" : "none",
+      deliveredAt: normalizeTimestampMs(ask?.completedAt),
+    },
+  };
+}
+
+function workingCardLiveLabel(card: AgentWorkingCardData, nowMs: number): string {
+  if (card.reply.state === "delivered") {
+    const age = card.reply.deliveredAt ? formatAge(card.reply.deliveredAt, nowMs) : null;
+    return age ? `delivered · ${age}` : "delivered";
+  }
+  if (card.execution.state === "queued") return "queued";
+  if (card.execution.state === "failed") return "failed";
+  const age = card.execution.lastEventAt ? formatAge(card.execution.lastEventAt, nowMs) : null;
+  if (card.execution.state === "idle") return age ? `idle · ${age}` : "idle";
+  return age ? `live · ${age}` : "live";
+}
+
 function staleMotionSourceLabel(item: StaleMotionItem): string {
   const parts: string[] = [];
   if (item.hasAgentState) parts.push("agent state");
@@ -271,7 +457,17 @@ function greetingFor(hour: number): string {
 
 function settledError(result: PromiseSettledResult<unknown>): string | null {
   if (result.status === "fulfilled") return null;
-  return result.reason instanceof Error ? result.reason.message : String(result.reason);
+  return friendlySyncError(result.reason instanceof Error ? result.reason.message : String(result.reason));
+}
+
+function friendlySyncError(message: string): string {
+  return /failed to fetch|networkerror|load failed|couldn't connect|connection refused/i.test(message)
+    ? "Scout server is unreachable"
+    : message;
+}
+
+function isOfflineSyncError(message: string | null): boolean {
+  return message === "Scout server is unreachable";
 }
 
 export function HomeScreen({
@@ -294,11 +490,8 @@ export function HomeScreen({
   const [heartrate, setHeartrate] = useState<HeartrateBucketView[]>([]);
   const [heartrateWindow, setHeartrateWindow] = useState("trailing 7d");
   const [heartrateBucketLabel, setHeartrateBucketLabel] = useState("3h buckets");
+  const [tailEvents, setTailEvents] = useState<TailEvent[]>([]);
   const [serviceGauges, setServiceGauges] = useState<ServiceGauge[]>([]);
-  const [fleetBrief, setFleetBrief] = useState<FleetHomeBrief | null>(null);
-  const [latestBriefing, setLatestBriefing] = useState<BriefingSummary | null>(null);
-  const [briefArchiveLoaded, setBriefArchiveLoaded] = useState(false);
-  const [briefRefreshing, setBriefRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -419,39 +612,24 @@ export function HomeScreen({
     };
   }, []);
 
-  const fetchLatestBriefing = useCallback(async () => {
+  const loadLocalTailSnapshot = useCallback(async () => {
     try {
-      const result = await api<{ briefings: BriefingSummary[] }>("/api/briefings?limit=1");
-      setLatestBriefing(result.briefings[0] ?? null);
-      setBriefArchiveLoaded(true);
+      const params = new URLSearchParams({
+        limit: String(LOCAL_TAIL_RECENT_LIMIT),
+        transcripts: "true",
+      });
+      const recent = await api<{ events: TailEvent[] }>(`/api/tail/recent?${params.toString()}`);
+      setTailEvents(recent.events ?? []);
     } catch {
-      setBriefArchiveLoaded(true);
-      // Silent: the archive is a fallback for the live generated brief.
+      // Silent: the embedded Tail view owns the visible error/empty state.
     }
   }, []);
 
-  const fetchFleetBrief = useCallback(async (force = false) => {
-    if (force) setBriefRefreshing(true);
-    try {
-      const path = force ? "/api/fleet/brief?refresh=1" : "/api/fleet/brief";
-      const result = await api<FleetHomeBrief>(path);
-      setFleetBrief(result);
-      void fetchLatestBriefing();
-    } catch {
-      // Silent: the generated brief is additive; the computed status line remains available.
-    } finally {
-      if (force) setBriefRefreshing(false);
-    }
-  }, [fetchLatestBriefing]);
-
-  const briefPlayer = useHomeBriefPlayerState();
-
   useEffect(() => {
-    void fetchLatestBriefing();
-    void fetchFleetBrief();
-    const id = setInterval(() => void fetchFleetBrief(), FLEET_BRIEF_REFRESH_MS);
+    void loadLocalTailSnapshot();
+    const id = setInterval(() => void loadLocalTailSnapshot(), LOCAL_TAIL_REFRESH_MS);
     return () => clearInterval(id);
-  }, [fetchFleetBrief, fetchLatestBriefing]);
+  }, [loadLocalTailSnapshot]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -552,6 +730,51 @@ export function HomeScreen({
     [activeAskByAgent, agents, nowMs],
   );
   const activeIds = useMemo(() => new Set(active.map((agent) => agent.id)), [active]);
+
+  // Enrich active cards with live session id, model, and context-window usage.
+  // One batched observe-summary call covers every active agent (only a handful).
+  const activeIdsKey = useMemo(
+    () => active.map((agent) => agent.id).sort().join(","),
+    [active],
+  );
+  const [activeContext, setActiveContext] = useState<Record<string, ActiveAgentContext>>({});
+  useEffect(() => {
+    if (!activeIdsKey) {
+      setActiveContext({});
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const summaries = await api<ObserveAgentSummary[]>(
+        `/api/observe/agents?ids=${encodeURIComponent(activeIdsKey)}`,
+      ).catch(() => null);
+      if (cancelled || !summaries) return;
+      const next: Record<string, ActiveAgentContext> = {};
+      for (const summary of summaries) {
+        const session = summary?.data?.metadata?.session;
+        const usage = summary?.data?.metadata?.usage;
+        // Only a REAL window utilization (tokens-in-context / window) — never the
+        // synthetic ramp. Null when the harness doesn't report both numbers.
+        const total = usage?.totalTokens;
+        const window = usage?.contextWindowTokens;
+        const contextPct = typeof total === "number" && typeof window === "number" && window > 0
+          ? Math.min(100, Math.round((total / window) * 100))
+          : null;
+        next[summary.agentId] = {
+          sessionId: session?.externalSessionId ?? null,
+          model: session?.model ?? null,
+          contextPct,
+        };
+      }
+      setActiveContext(next);
+    };
+    void load();
+    const timer = setInterval(load, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeIdsKey]);
   const staleWorkingAgents = useMemo(
     () =>
       agents.filter((agent) =>
@@ -671,6 +894,10 @@ export function HomeScreen({
     onboarding?.operatorName?.trim()
     || onboarding?.operatorNameSuggestion?.trim()
     || "operator";
+  const combinedHeartrate = useMemo(
+    () => combineHeartrateWithTailEvents(heartrate, tailEvents, nowMs),
+    [heartrate, tailEvents, nowMs],
+  );
 
   // Native/unmanaged actors observed via the activity firehose in the last 10 minutes.
   // Anything Scout already tracks as a managed agent is excluded — those render as NowCard.
@@ -709,10 +936,6 @@ export function HomeScreen({
     );
   }, [scopedFleet?.activity, nowMs, agents, operatorName]);
 
-  const fleetBriefExpiresAtMs = normalizeTimestampMs(fleetBrief?.expiresAt);
-  const fleetBriefIsFresh =
-    fleetBriefExpiresAtMs !== null && fleetBriefExpiresAtMs > nowMs;
-
   const markStaleMotionInactive = useCallback((item: StaleMotionItem) => {
     setStaleMotionInactiveRaw(encodeStaleMotionInactive({
       ...staleMotionInactive,
@@ -727,130 +950,6 @@ export function HomeScreen({
     }
     setStaleMotionInactiveRaw(encodeStaleMotionInactive(next));
   }, [setStaleMotionInactiveRaw, staleMotionInactive, visibleStaleMotionItems]);
-
-  const scrollToStaleMotion = useCallback(() => {
-    document.getElementById("home-stale-motion")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, []);
-
-  const systemSignals = useMemo<HomeHeroSignal[]>(() => {
-    const signals: HomeHeroSignal[] = [];
-
-    if (totalOperatorQueue > 0) {
-      signals.push({
-        id: "attention-age",
-        label: "needs you",
-        value: oldestNeedsTs
-          ? `oldest item has waited ${timeAgo(oldestNeedsTs)}`
-          : "operator queue has waiting work",
-        tone: "warn",
-      });
-    } else {
-      signals.push({
-        id: "attention-clear",
-        label: "needs you",
-        value: "no human-only queue in the current snapshot",
-        tone: "ok",
-      });
-    }
-
-    if (movingAsksWithoutActiveAgent.length > 0) {
-      signals.push({
-        id: "unanchored-work",
-        label: "hidden motion",
-        value: `${movingAsksWithoutActiveAgent.length} moving ask${movingAsksWithoutActiveAgent.length === 1 ? "" : "s"} without an active registered agent`,
-        tone: "warn",
-        route: { view: "activity" },
-      });
-    } else if (visibleStaleMotionItems.length > 0) {
-      const count = visibleStaleMotionItems.length;
-      signals.push({
-        id: "stale-motion",
-        label: "stale motion",
-        value: `${count} old state${count === 1 ? "" : "s"} ready to mark inactive`,
-        tone: "dim",
-        onClick: scrollToStaleMotion,
-      });
-    } else if (observedActiveActors.length > 0) {
-      signals.push({
-        id: "organic-work",
-        label: "organic work",
-        value: `${observedActiveActors.length} recent actor${observedActiveActors.length === 1 ? "" : "s"} outside the managed roster`,
-        tone: "ok",
-        route: { view: "activity" },
-      });
-    } else {
-      signals.push({
-        id: "hidden-clear",
-        label: "hidden motion",
-        value: "no recent untracked movement detected",
-        tone: "dim",
-      });
-    }
-
-    const stressedGauge = serviceGauges.find((g) =>
-      g.kind === "status"
-        ? g.tone === "warn" || g.tone === "err"
-        : g.fill >= 0.75,
-    );
-    if (stressedGauge) {
-      signals.push({
-        id: "service-pressure",
-        label: "service pressure",
-        value: stressedGauge.kind === "status"
-          ? `${stressedGauge.label} reports ${stressedGauge.statusLabel.toLowerCase()}`
-          : `${stressedGauge.label} is at ${Math.round(stressedGauge.fill * 100)}% of ${stressedGauge.unitLabel}`,
-        tone: stressedGauge.kind === "status" ? stressedGauge.tone : "warn",
-        route: { view: "ops" },
-      });
-    } else {
-      signals.push({
-        id: "service-pressure",
-        label: "service pressure",
-        value: "no usage pressure above threshold",
-        tone: "ok",
-        route: { view: "ops" },
-      });
-    }
-
-    const briefArchiveRoute: Route = latestBriefing
-      ? { view: "briefings", briefingId: latestBriefing.id }
-      : fleetBrief?.sourceBriefId
-        ? { view: "briefings", briefingId: fleetBrief.sourceBriefId }
-        : { view: "briefings" };
-    const briefMemoryValue = fleetBrief
-      ? `prepared ${timeAgo(fleetBrief.preparedAt)} · expires ${formatTimeUntil(fleetBrief.expiresAt, nowMs)}`
-      : latestBriefing
-        ? `latest ${BRIEFING_KIND_LABEL[latestBriefing.kind]} prepared ${timeAgo(latestBriefing.preparedAt)} · archived`
-        : briefArchiveLoaded
-          ? "no generated brief loaded yet"
-          : "checking brief archive...";
-
-    signals.push({
-      id: "brief-memory",
-      label: "brief memory",
-      value: briefMemoryValue,
-      tone: fleetBriefIsFresh || latestBriefing || !briefArchiveLoaded ? "dim" : "warn",
-      route: briefArchiveRoute,
-    });
-
-    return signals;
-  }, [
-    fleetBrief,
-    fleetBriefIsFresh,
-    briefArchiveLoaded,
-    latestBriefing,
-    movingAsksWithoutActiveAgent.length,
-    nowMs,
-    observedActiveActors.length,
-    oldestNeedsTs,
-    scrollToStaleMotion,
-    serviceGauges,
-    totalOperatorQueue,
-    visibleStaleMotionItems.length,
-  ]);
 
   const narrativeParts = useMemo(() => {
     const parts: string[] = [];
@@ -869,38 +968,10 @@ export function HomeScreen({
   const syncLabel = loading
     ? "syncing"
     : error
-      ? `sync issue · ${lastLoadedAt ? timeAgo(lastLoadedAt) : "waiting"}`
+      ? `${isOfflineSyncError(error) ? "offline" : "sync issue"} · ${lastLoadedAt ? timeAgo(lastLoadedAt) : "waiting"}`
       : lastLoadedAt
         ? `updated ${timeAgo(lastLoadedAt)}`
         : "waiting";
-
-  const briefSpeechText = useMemo(() => {
-    if (!fleetBrief || !fleetBriefIsFresh) return "";
-    const parts: string[] = [];
-    const statement = fleetBrief.statement?.trim();
-    if (statement) parts.push(statement);
-    for (const obs of fleetBrief.observations ?? []) {
-      const text = obs.text?.trim();
-      if (text) parts.push(text);
-    }
-    return parts.join(". ");
-  }, [fleetBrief, fleetBriefIsFresh]);
-
-  const speakBrief = useCallback(() => {
-    if (briefPlayer.speaking) {
-      stopHomeBriefSpeech();
-      return;
-    }
-    if (!fleetBrief || !briefSpeechText) return;
-    startHomeBriefSpeech({ briefId: fleetBrief.id, text: briefSpeechText });
-  }, [briefPlayer.speaking, briefSpeechText, fleetBrief]);
-
-  const briefSpeakable = Boolean(briefSpeechText);
-  const briefIsNew = Boolean(
-    fleetBrief
-      && fleetBriefIsFresh
-      && fleetBrief.id !== briefPlayer.lastSpokenBriefId,
-  );
 
   const heroProps = {
     now,
@@ -910,33 +981,40 @@ export function HomeScreen({
     error,
     loading,
     refreshing,
-    briefRefreshing,
     onRefresh: () => void load("manual"),
-    onRegenerateBrief: () => void fetchFleetBrief(true),
-    onSpeakBrief: briefSpeakable || briefPlayer.speaking ? speakBrief : undefined,
-    briefSpeaking: briefPlayer.speaking,
-    briefIsNew,
     totalOperatorQueue,
     narrativeParts,
-    briefStatement: fleetBrief && fleetBriefIsFresh ? fleetBrief.statement : null,
-    briefObservations: fleetBrief && fleetBriefIsFresh ? fleetBrief.observations ?? [] : [],
     navigate,
     opsEnabled,
     onReviewQueue: () => {
       const target = document.getElementById("home-needs-you");
       target?.scrollIntoView({ behavior: "smooth", block: "start" });
     },
-    heartrate,
+    heartrate: combinedHeartrate,
     heartrateWindow,
     heartrateBucketLabel,
+    heartrateVisibleEventThreshold: HEARTRATE_COMBINED_EVENT_THRESHOLD,
     serviceGauges,
-    systemSignals,
   };
+  const hideEmptyActivityModule =
+    !loading &&
+    !error &&
+    liveActivity.length === 0 &&
+    lookbackMs >= DEFAULT_LOOKBACK_MS;
+  const showQuietStart =
+    !loading &&
+    !error &&
+    liveActivity.length === 0;
+  const showActivitySection =
+    loading ||
+    liveActivity.length > 0 ||
+    Boolean(error) ||
+    !hideEmptyActivityModule;
 
   return (
     <div className="s-fleet-home">
       <div className="s-fleet-home-inner">
-        {/* ── Hero briefing ──────────────────────────────────────── */}
+        {/* ── Home status ─────────────────────────────────────────── */}
         <HomeHero {...heroProps} />
 
         {/* ── What's moving ──────────────────────────────────────── */}
@@ -965,6 +1043,8 @@ export function HomeScreen({
                     key={agent.id}
                     agent={agent}
                     ask={activeAskByAgent.get(agent.id) ?? null}
+                    context={activeContext[agent.id] ?? null}
+                    nowMs={nowMs}
                     navigate={navigate}
                   />
                 ))}
@@ -1021,66 +1101,77 @@ export function HomeScreen({
         )}
 
         {/* ── Activity stream ────────────────────────────────────── */}
-        <div className="s-fleet-section">
-          <SectionRule
-            label={`Live activity · ${liveActivity.length}${activityCapReached ? "+" : ""}`}
-            right={
-              <LookbackPicker
-                value={lookbackMs}
-                onChange={setLookbackMs}
-                refreshing={refreshing && !loading}
-              />
-            }
-          />
-          {activityShape && (
-            <div className="s-fleet-live-shape">
-              <span>last {formatDuration(activityShape.lastAgoMs)} ago</span>
-              <span>·</span>
-              <span>longest gap {formatDuration(activityShape.longestGapMs)}</span>
-              {activityCapReached && (
-                <>
-                  <span>·</span>
-                  <span style={{ color: "var(--amber)" }}>
-                    showing {Math.min(liveActivity.length, 30)} of {lookbackOption.activityLimit}+ (capped)
-                  </span>
-                </>
-              )}
-              {!activityCapReached && liveActivity.length > 30 && (
-                <>
-                  <span>·</span>
-                  <span>showing 30 of {liveActivity.length}</span>
-                </>
-              )}
-            </div>
-          )}
-          {loading && liveActivity.length === 0 ? (
-            <ActivityStreamSkeleton />
-          ) : liveActivity.length === 0 ? (
-            <LiveActivityEmpty
-              lookbackMs={lookbackMs}
-              nextOption={nextLookbackOption}
-              onWiden={(opt) => setLookbackMs(opt.value)}
-              loadedAt={lastLoadedAt}
-              nowMs={nowMs}
-              error={error}
-              onRetry={() => void load("manual")}
-            />
-          ) : (
-            <div className="s-mc-stream s-fleet-live-stream">
-              {liveActivity.slice(0, 30).map((item) => (
-                <ActivityRow
-                  key={item.id}
-                  item={item}
-                  nowMs={nowMs}
-                  onOpen={() => {
-                    const route = fleetActivityRoute(item);
-                    if (route) navigate(route);
-                  }}
+        {showActivitySection && (
+          <div className="s-fleet-section">
+            <SectionRule
+              label={`Live activity · ${liveActivity.length}${activityCapReached ? "+" : ""}`}
+              right={
+                <LookbackPicker
+                  value={lookbackMs}
+                  onChange={setLookbackMs}
+                  refreshing={refreshing && !loading}
                 />
-              ))}
-            </div>
-          )}
-        </div>
+              }
+            />
+            {activityShape && (
+              <div className="s-fleet-live-shape">
+                <span>last {formatDuration(activityShape.lastAgoMs)} ago</span>
+                <span>·</span>
+                <span>longest gap {formatDuration(activityShape.longestGapMs)}</span>
+                {activityCapReached && (
+                  <>
+                    <span>·</span>
+                    <span style={{ color: "var(--amber)" }}>
+                      showing {Math.min(liveActivity.length, 30)} of {lookbackOption.activityLimit}+ (capped)
+                    </span>
+                  </>
+                )}
+                {!activityCapReached && liveActivity.length > 30 && (
+                  <>
+                    <span>·</span>
+                    <span>showing 30 of {liveActivity.length}</span>
+                  </>
+                )}
+              </div>
+            )}
+            {loading && liveActivity.length === 0 ? (
+              <ActivityStreamSkeleton />
+            ) : liveActivity.length === 0 ? (
+              <LiveActivityEmpty
+                lookbackMs={lookbackMs}
+                nextOption={nextLookbackOption}
+                onWiden={(opt) => setLookbackMs(opt.value)}
+                loadedAt={lastLoadedAt}
+                nowMs={nowMs}
+                error={error}
+                onRetry={() => void load("manual")}
+              />
+            ) : (
+              <div className="s-mc-stream s-fleet-live-stream">
+                {liveActivity.slice(0, 30).map((item) => (
+                  <ActivityRow
+                    key={item.id}
+                    item={item}
+                    nowMs={nowMs}
+                    onOpen={() => {
+                      const route = fleetActivityRoute(item);
+                      if (route) navigate(route);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {showQuietStart && (
+          <div className="s-fleet-section s-fleet-section--quiet-start">
+            <QuietStartPanel
+              agents={agents}
+              navigate={navigate}
+            />
+          </div>
+        )}
 
         {/* ── Network signals (only when something demands attention) ─ */}
         {totalOperatorQueue > 0 && (
@@ -1510,69 +1601,149 @@ function AttentionRow({
 function NowCard({
   agent,
   ask,
+  context,
+  nowMs,
   navigate,
 }: {
   agent: Agent;
   ask?: FleetAsk | null;
+  context?: ActiveAgentContext | null;
+  nowMs: number;
   navigate: (r: Route) => void;
 }) {
-  const handle = agent.handle ? `@${agent.handle}` : agent.id;
-  const role = agent.role ?? agent.agentClass;
-  const branch = agent.branch ?? "main";
-  const conversationId = conversationForAgent(agent.id);
-  const taskText = ask?.summary ?? ask?.task ?? agent.cwd ?? `Working in ${agent.project ?? "workspace"}`;
+  const card = buildAgentWorkingCardData(agent, ask, nowMs);
+  const fullRoot = agent.projectRoot ?? agent.cwd ?? undefined;
+  const rootLabel = compactPath(fullRoot) ?? "no workspace";
+  const branchLabel = card.branch ?? "no branch";
+  const runtimeLabel = card.harness ?? null;
+  // Model + the real harness session id come from the live observe summary;
+  // the bulk agent record only carries the relay descriptor in harnessSessionId.
+  const modelLabel = shortModelLabel(context?.model ?? card.model);
+  const sessionLabel = compactSessionId(context?.sessionId ?? agent.harnessSessionId);
+  const contextPct = context?.contextPct ?? null;
+  const machineLabel = compactNode(agent.homeNodeName ?? agent.nodeQualifier);
+  const uptime = agent.createdAt ? formatAge(agent.createdAt, nowMs) : null;
+  const turnAge = card.task.openedAt ? formatAge(card.task.openedAt, nowMs) : "new";
+  const liveLabel = workingCardLiveLabel(card, nowMs);
+  const liveTone = card.execution.state === "failed"
+    ? "failed"
+    : card.reply.state === "delivered"
+      ? "delivered"
+      : card.execution.state === "queued"
+        ? "queued"
+        : card.execution.state === "idle"
+          ? "idle"
+          : "live";
+  const checkpoint = card.reply.state === "delivered" && card.reply.deliveredAt
+    ? `reply ready · ${formatAge(card.reply.deliveredAt, nowMs)}`
+    : card.checkpoint?.line ?? null;
+
+  // Identity meta, inline next to the name — path · branch · runtime · model · context.
+  // Branch renders in full (no truncation cap); the row wraps when it needs the room.
+  const metaParts: { key: string; text: string; title?: string; mono?: boolean }[] = [
+    { key: "root", text: rootLabel, title: fullRoot, mono: true },
+    { key: "branch", text: branchLabel, title: branchLabel, mono: true },
+  ];
+  if (runtimeLabel) metaParts.push({ key: "runtime", text: runtimeLabel });
+  if (agent.role) metaParts.push({ key: "role", text: agent.role });
+  if (modelLabel) metaParts.push({ key: "model", text: modelLabel });
+
+  // Relevant at-a-glance tiles — only the signals we actually have data for.
+  // Liveness is carried by the pulse + border tone, so no redundant state tile.
+  const tiles: { key: string; label: string; value: string; tone?: "work" | "warn" | "dim" }[] = [
+    { key: "turn", label: "turn", value: turnAge, tone: card.task.openedAt ? "work" : "dim" },
+  ];
+  if (contextPct !== null) {
+    tiles.push({
+      key: "context",
+      label: "context",
+      value: `${contextPct}%`,
+      tone: contextPct >= 80 ? "warn" : "work",
+    });
+  } else if (uptime) {
+    tiles.push({ key: "uptime", label: "up", value: uptime });
+  }
+  if (sessionLabel) tiles.push({ key: "session", label: "session", value: sessionLabel });
+  if (machineLabel) tiles.push({ key: "machine", label: "machine", value: machineLabel });
+
+  const open = () =>
+    navigate({
+      view: "agents",
+      agentId: agent.id,
+      conversationId: conversationForAgent(agent.id),
+      tab: "observe",
+    });
 
   return (
     <div
-      className="s-now-card"
-      onClick={() =>
-        navigate({
-          view: "agents",
-          agentId: agent.id,
-          conversationId,
-          tab: "observe",
-        })
-      }
+      role="button"
+      tabIndex={0}
+      className={`s-now-card s-now-card--${liveTone}`}
+      onClick={open}
+      onKeyDown={(event) => handleContextCardKey(event, open)}
     >
-      <div className="s-now-card-head">
-        <div
-          className="s-avatar s-avatar-sm"
-          style={{ background: actorColor(agent.name) }}
-        >
-          {agent.name[0]?.toUpperCase() ?? "?"}
+      <div className="s-now-card-top">
+        <span
+          className={`s-now-card-pulse s-now-card-pulse--${liveTone}`}
+          aria-hidden="true"
+        />
+        <span className="s-now-card-name" title={card.agentName}>
+          {card.agentName}
+        </span>
+      </div>
+
+      <div className="s-now-card-idline">
+        {metaParts.map((part, index) => (
+          <span key={part.key} className="s-now-card-idgroup">
+            {index > 0 && (
+              <span className="s-now-card-idsep" aria-hidden="true">·</span>
+            )}
+            <span
+              className={`s-now-card-idpart${part.mono ? " s-now-card-idpart--mono" : ""}`}
+              title={part.title}
+            >
+              {part.text}
+            </span>
+          </span>
+        ))}
+      </div>
+
+      <div className="s-now-card-task">{card.task.title}</div>
+
+      {checkpoint && (
+        <div className="s-now-card-checkpoint">
+          <span aria-hidden="true">↳</span>
+          <span>{checkpoint}</span>
         </div>
-        <div className="s-now-card-copy">
-          <div className="s-now-card-name">{agent.name}</div>
-          <div className="s-now-card-meta">
-            {handle} · {role}
-          </div>
-        </div>
-        <span className="s-now-card-live">
-          <span className="s-now-card-live-dot" aria-hidden="true" />
-          live
-        </span>
-      </div>
+      )}
 
-      <div className="s-now-card-task">
-        {taskText}
-      </div>
-
-      <div className="s-now-card-ticker">
-        <span className="s-now-card-ticker-prompt">›</span>
-        <span className="s-now-card-ticker-text">
-          {ask ? `${ask.statusLabel} · ${ask.harness ?? agent.harness ?? "agent"}` : "working"}
-        </span>
-        <span className="s-now-card-ticker-dots" aria-hidden="true">
-          <span /><span /><span />
-        </span>
-        <span className="s-now-card-cursor" />
-      </div>
-
-      <div className="s-now-card-footer">
-        <span>{agent.updatedAt ? `updated ${timeAgo(agent.updatedAt)}` : "active"}</span>
-        <span>{branch}</span>
+      <div
+        className="s-now-card-metrics"
+        style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}
+        aria-label={`${card.agentName} signals`}
+      >
+        {tiles.map((tile) => (
+          <MetricTile key={tile.key} label={tile.label} value={tile.value} tone={tile.tone} />
+        ))}
       </div>
     </div>
+  );
+}
+
+function MetricTile({
+  label,
+  value,
+  tone = "dim",
+}: {
+  label: string;
+  value: string;
+  tone?: "work" | "warn" | "dim";
+}) {
+  return (
+    <span className={`s-metric-tile s-metric-tile--${tone}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </span>
   );
 }
 
@@ -1837,6 +2008,192 @@ function LiveActivityEmpty({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+type QuietAskResult = {
+  conversationId?: string;
+  flight?: {
+    targetAgentId?: string | null;
+  };
+};
+
+function sortedCatchupAgents(agents: Agent[]): Agent[] {
+  return [...agents].sort((a, b) => {
+    const aState = normalizeAgentState(a.state);
+    const bState = normalizeAgentState(b.state);
+    const aRank = aState === "available" ? 0 : aState === "working" ? 1 : 2;
+    const bRank = bState === "available" ? 0 : bState === "working" ? 1 : 2;
+    return aRank - bRank || a.name.localeCompare(b.name);
+  });
+}
+
+function buildHarnessOptions(agent: Agent | null): string[] {
+  const options = new Set<string>();
+  const harness = agent?.harness?.trim();
+  if (harness) options.add(harness);
+  options.add("claude");
+  options.add("codex");
+  options.add("pi");
+  return [...options];
+}
+
+function buildModelOptions(agent: Agent | null): string[] {
+  const options = new Set<string>();
+  const model = agent?.model?.trim();
+  if (model) options.add(model);
+  return [...options];
+}
+
+function QuietStartPanel({
+  agents,
+  navigate,
+}: {
+  agents: Agent[];
+  navigate: (r: Route) => void;
+}) {
+  const catchupAgents = useMemo(() => sortedCatchupAgents(agents), [agents]);
+  const [agentId, setAgentId] = useState(() => catchupAgents[0]?.id ?? "");
+  const selectedAgent = catchupAgents.find((agent) => agent.id === agentId) ?? null;
+  const harnessOptions = useMemo(() => buildHarnessOptions(selectedAgent), [selectedAgent]);
+  const modelOptions = useMemo(() => buildModelOptions(selectedAgent), [selectedAgent]);
+  const [prompt, setPrompt] = useState("");
+  const [harness, setHarness] = useState(selectedAgent?.harness?.trim() ?? "");
+  const [model, setModel] = useState(selectedAgent?.model?.trim() ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (catchupAgents.some((agent) => agent.id === agentId)) return;
+    setAgentId(catchupAgents[0]?.id ?? "");
+  }, [agentId, catchupAgents]);
+
+  useEffect(() => {
+    setHarness(selectedAgent?.harness?.trim() ?? "");
+    setModel(selectedAgent?.model?.trim() ?? "");
+  }, [selectedAgent?.id]);
+
+  const submitAsk = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = prompt.trim();
+    if (!selectedAgent || !trimmed) return;
+    setSubmitting(true);
+    setAskError(null);
+    try {
+      const result = await api<QuietAskResult>("/api/ask", {
+        method: "POST",
+        body: JSON.stringify({
+          body: trimmed,
+          targetAgentId: selectedAgent.id,
+          targetLabel: selectedAgent.name,
+          execution: {
+            harness: harness || undefined,
+            model: model || undefined,
+          },
+        }),
+      });
+      navigate({
+        view: "conversation",
+        conversationId: result.conversationId ?? selectedAgent.conversationId ?? conversationForAgent(selectedAgent.id),
+      });
+    } catch (submitError) {
+      setAskError(submitError instanceof Error ? submitError.message : String(submitError));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="s-quiet-start">
+      <div className="s-quiet-panel s-quiet-panel--tail">
+        <div className="s-quiet-panel-head">
+          <span className="s-eyebrow">Local tail</span>
+          <button
+            type="button"
+            className="s-icon-btn"
+            title="Open tail"
+            onClick={() => navigate({ view: "ops", mode: "tail" })}
+          >
+            <ExternalLink size={14} aria-hidden="true" />
+            <span>Open tail</span>
+          </button>
+        </div>
+        <div className="s-quiet-tail-frame">
+          <TailView navigate={navigate} chrome="embedded" />
+        </div>
+      </div>
+
+      <form className="s-quiet-panel s-quiet-panel--ask" onSubmit={submitAsk}>
+        <div className="s-quiet-panel-head">
+          <span className="s-eyebrow">Ask</span>
+          <button
+            type="submit"
+            className="s-icon-btn s-icon-btn--primary"
+            title="Ask selected agent"
+            disabled={submitting || !selectedAgent || !prompt.trim()}
+          >
+            <Send size={14} aria-hidden="true" />
+            <span>{submitting ? "Asking" : "Ask"}</span>
+          </button>
+        </div>
+        <div className="s-quiet-target-row">
+          <label className="s-quiet-label" htmlFor="home-catchup-agent">
+            To
+          </label>
+          <select
+            id="home-catchup-agent"
+            className="s-quiet-select s-quiet-select--target"
+            value={agentId}
+            onChange={(event) => setAgentId(event.target.value)}
+            disabled={catchupAgents.length === 0 || submitting}
+          >
+            {catchupAgents.length === 0 ? (
+              <option value="">No registered agents</option>
+            ) : catchupAgents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <textarea
+          className="s-quiet-textarea"
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="Type a message..."
+          aria-label="Message"
+          rows={4}
+          disabled={submitting || !selectedAgent}
+        />
+        <div className="s-quiet-controls">
+          <select
+            className="s-quiet-select"
+            value={harness}
+            onChange={(event) => setHarness(event.target.value)}
+            disabled={submitting || !selectedAgent}
+            aria-label="Harness"
+          >
+            <option value="">default harness</option>
+            {harnessOptions.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+          <select
+            className="s-quiet-select"
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            disabled={submitting || !selectedAgent}
+            aria-label="Model"
+          >
+            <option value="">default model</option>
+            {modelOptions.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        </div>
+        {askError && <div className="s-quiet-error">{askError}</div>}
+      </form>
     </div>
   );
 }

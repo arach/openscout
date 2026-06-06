@@ -1,0 +1,11 @@
+$ scout menu status
+Installed: yes
+Bundle: /Users/art/dev/openscout/apps/macos/dist/OpenScoutMenu.app
+Running: yes
+Helper: /Users/art/dev/openscout/apps/macos/bin/openscout-menu.ts
+
+$ pgrep -fl OpenScoutMenu
+65345 /Users/art/dev/openscout/apps/macos/dist/OpenScoutMenu.app/Contents/MacOS/OpenScoutMenu
+
+$ pgrep -fl "OpenScout.app"
+72567 /Users/art/dev/openscout/apps/macos/dist/OpenScout.app/Contents/MacOS/Scout

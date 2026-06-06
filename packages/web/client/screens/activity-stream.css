@@ -1,9 +1,9 @@
 /* Command (Mission Control): window-driven operator view. */
 
 .s-mc {
-  --mc-pad: 14px;
-  --mc-gap: 12px;
-  --mc-radius: 6px;
+  --mc-pad: var(--space-xl);
+  --mc-gap: var(--space-lg);
+  --mc-radius: var(--radius-md);
   height: 100%;
   min-height: 0;
   display: grid;
@@ -28,9 +28,9 @@
   grid-template-areas:
     "headline window"
     "kpis     kpis";
-  gap: 10px 14px;
+  gap: var(--space-md) var(--space-xl);
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--space-lg) var(--space-2xl);
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 78%, var(--bg));
 }
@@ -39,25 +39,25 @@
   grid-area: headline;
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: var(--space-2xs);
 }
 
 .s-mc-eyebrow {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 650;
-  letter-spacing: 0.16em;
+  letter-spacing: var(--tracking-xl);
   text-transform: uppercase;
   color: var(--ink);
 }
 
 .s-mc-clock {
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-sm);
   color: var(--dim);
   display: flex;
-  gap: 6px;
+  gap: var(--space-xs);
   align-items: center;
 }
 
@@ -68,13 +68,13 @@
   grid-area: window;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .s-mc-window-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-lg);
   text-transform: uppercase;
   color: var(--dim);
 }
@@ -91,11 +91,11 @@
   appearance: none;
   background: transparent;
   border: 0;
-  padding: 6px 14px;
+  padding: var(--space-xs) var(--space-xl);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-md);
   color: var(--muted);
   cursor: pointer;
   transition: background 120ms, color 120ms;
@@ -117,15 +117,15 @@
   grid-area: kpis;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .s-mc-kpi {
   display: grid;
   align-content: center;
   justify-items: start;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: var(--space-2xs);
+  padding: var(--space-md) var(--space-lg);
   border: 1px solid var(--border);
   border-radius: var(--mc-radius);
   background: color-mix(in srgb, var(--bg) 55%, var(--surface));
@@ -134,17 +134,17 @@
 
 .s-mc-kpi-value {
   font-family: var(--font-mono);
-  font-size: 20px;
+  font-size: var(--text-4xl);
   font-weight: 650;
-  line-height: 1;
+  line-height: var(--leading-none);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
 
 .s-mc-kpi-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-lg);
   text-transform: uppercase;
   color: var(--dim);
 }
@@ -180,48 +180,48 @@
   flex-direction: column;
   background: var(--bg);
   overflow: auto;
-  padding: 16px 18px;
+  padding: var(--space-2xl) var(--space-3xl);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--border) 85%, transparent) transparent;
 }
 
 .s-mc-side {
   background: color-mix(in srgb, var(--surface) 30%, var(--bg));
-  gap: 18px;
+  gap: var(--space-2xl);
 }
 
-.s-mc-main { gap: 20px; }
+.s-mc-main { gap: var(--space-3xl); }
 
 /* ── Section ────────────────────────────────────── */
 
 .s-mc-section {
   display: grid;
-  gap: 8px;
+  gap: var(--space-sm);
   min-width: 0;
 }
 
-.s-mc-section--dense { gap: 6px; }
+.s-mc-section--dense { gap: var(--space-xs); }
 
 .s-mc-section-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding-bottom: 4px;
+  padding-bottom: var(--space-2xs);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .s-mc-section-title {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 650;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--tracking-lg);
   text-transform: uppercase;
   color: var(--ink);
 }
 
 .s-mc-section-count {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   color: var(--dim);
 }
@@ -237,9 +237,9 @@
 
 .s-mc-empty {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   color: var(--dim);
-  padding: 14px 12px;
+  padding: var(--space-xl) var(--space-lg);
   border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: var(--mc-radius);
   background: color-mix(in srgb, var(--bg) 60%, var(--surface));
@@ -256,8 +256,8 @@
   cursor: pointer;
   display: grid;
   grid-template-columns: minmax(140px, 0.18fr) minmax(0, 1fr) auto;
-  gap: 14px;
-  padding: 12px 14px;
+  gap: var(--space-xl);
+  padding: var(--space-lg) var(--space-xl);
   align-items: start;
   transition: background 120ms;
   min-width: 0;
@@ -279,9 +279,9 @@
 
 .s-mc-row-actor {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-md);
   text-transform: uppercase;
   color: var(--ink);
   overflow: hidden;
@@ -292,13 +292,13 @@
 .s-mc-row-main {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: var(--space-3xs);
 }
 
 .s-mc-row-title {
   font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
   font-weight: 400;
   color: color-mix(in srgb, var(--ink) 90%, transparent);
   overflow: hidden;
@@ -310,8 +310,8 @@
 
 .s-mc-row-summary {
   font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -323,7 +323,7 @@
 .s-mc-row-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .s-mc-row-glyph {
@@ -332,8 +332,8 @@
   justify-content: center;
   width: 14px;
   height: 14px;
-  font-size: 12px;
-  line-height: 1;
+  font-size: var(--text-md);
+  line-height: var(--leading-none);
   font-weight: 600;
 }
 
@@ -343,7 +343,7 @@
 
 .s-mc-row-age {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   color: var(--dim);
   white-space: nowrap;
@@ -356,12 +356,12 @@
 
 .s-mc-pill {
   display: inline-block;
-  padding: 2px 7px;
-  border-radius: 999px;
+  padding: var(--space-3xs) var(--space-sm);
+  border-radius: var(--radius-pill);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   font-weight: 650;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-md);
   text-transform: uppercase;
   border: 1px solid transparent;
   width: fit-content;
@@ -410,10 +410,10 @@
   display: grid;
   grid-template-columns: 14px minmax(80px, 1fr) minmax(0, 1.2fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   transition: background 120ms;
   min-width: 0;
 }
@@ -434,7 +434,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10.5px;
+  font-size: var(--text-sm);
 }
 
 .s-mc-fleet-age { text-align: right; font-variant-numeric: tabular-nums; }
@@ -480,11 +480,11 @@
   display: grid;
   grid-template-columns: 36px auto auto minmax(0, 1fr);
   align-items: baseline;
-  gap: 8px;
-  padding: 7px 10px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
   transition: background 120ms;
   min-width: 0;
 }
@@ -501,7 +501,7 @@
   font-weight: 500;
   font-family: var(--font-mono);
   color: var(--ink);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-xs);
 }
 .s-mc-stream-verb {
   color: var(--muted);

@@ -1,0 +1,70 @@
+{
+    "currentDirectory": "/Users/art/dev/openscout",
+    "contextRoot": "/Users/art/dev/openscout",
+    "sourceRoots": [
+        "/Users/art/dev/openscout"
+    ],
+    "defaultHarness": "codex",
+    "hasLocalConfig": true,
+    "localConfigPath": "/Users/art/.openscout/config.json",
+    "localConfig": {
+        "version": 1,
+        "host": "127.0.0.1",
+        "ports": {
+            "broker": 65535,
+            "web": 3200,
+            "pairing": 7888
+        }
+    },
+    "hasOperatorName": true,
+    "operatorName": "Art",
+    "operatorNameSuggestion": "Art",
+    "operatorNameSource": "user-config",
+    "hasProjectConfig": true,
+    "projectRoot": "/Users/art/dev/openscout",
+    "projectConfigPath": "/Users/art/dev/openscout/.openscout/project.json",
+    "brokerReachable": true,
+    "hasReadyRuntime": true,
+    "readyRuntimeCount": 3,
+    "skippedAt": null,
+    "completedAt": 1780602481117,
+    "needed": false,
+    "steps": [
+        {
+            "id": "local-config",
+            "title": "Create local config",
+            "detail": "Local config exists at /Users/art/.openscout/config.json.",
+            "complete": true
+        },
+        {
+            "id": "identity",
+            "title": "Set operator identity",
+            "detail": "Scout will call you Art.",
+            "complete": true
+        },
+        {
+            "id": "project",
+            "title": "Choose project context",
+            "detail": "Project config exists at /Users/art/dev/openscout/.openscout/project.json.",
+            "complete": true
+        },
+        {
+            "id": "setup",
+            "title": "Run setup",
+            "detail": "Broker service is reachable.",
+            "complete": true
+        },
+        {
+            "id": "doctor",
+            "title": "Run doctor",
+            "detail": "Run doctor to verify broker health, project discovery, and local support files.",
+            "complete": false
+        },
+        {
+            "id": "runtimes",
+            "title": "Verify runtimes",
+            "detail": "3 runtimes ready.",
+            "complete": true
+        }
+    ]
+}

@@ -9,6 +9,8 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  BudgetQuotaWindowSnapshot,
+  BudgetUsageRecord,
   CollaborationEvent,
   CollaborationRecord,
   CollaborationRelation,
@@ -60,6 +62,7 @@ import { openControlPlaneDrizzle } from "./drizzle-client.js";
 import { applyControlPlaneDrizzleMigrations, stampControlPlaneSchemaVersion } from "./drizzle-migrate.js";
 import { Conversations, type ConversationsApi } from "./conversations/api.js";
 import { CONTROL_PLANE_SQLITE_SCHEMA, deliveryAttemptsTable, deliveriesTable } from "./schema.js";
+import { budgetObservationsFromEndpoint } from "./budget-observations.js";
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -176,6 +179,15 @@ function queryAll<Row, Params extends SQLiteBinding[] = []>(
   return statement.all(...params);
 }
 
+function queryAllDynamic<Row>(
+  db: Database,
+  sql: string,
+  params: SQLiteBinding[],
+): Row[] {
+  const statement = db.query(sql) as SQLiteStatementLike<Row, SQLiteBinding[]>;
+  return statement.all(...params);
+}
+
 function queryGet<Row, Params extends SQLiteBinding[] = []>(
   db: Database,
   sql: string,
@@ -247,6 +259,158 @@ interface EndpointRow {
   cwd: string | null;
   project_root: string | null;
   metadata_json: string | null;
+}
+
+interface BudgetUsageRow {
+  id: string;
+  scope: BudgetUsageRecord["scope"];
+  source: BudgetUsageRecord["source"];
+  provider: string | null;
+  harness: string | null;
+  transport: string | null;
+  model: string | null;
+  agent_id: string | null;
+  endpoint_id: string | null;
+  session_id: string | null;
+  project_root: string | null;
+  conversation_id: string | null;
+  message_id: string | null;
+  invocation_id: string | null;
+  flight_id: string | null;
+  work_id: string | null;
+  occurred_at: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  reasoning_output_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  total_tokens: number | null;
+  estimated_usd: number | null;
+  billed_usd: number | null;
+  currency: string | null;
+  dedup_key: string | null;
+  metadata_json: string | null;
+  created_at: number;
+}
+
+interface BudgetQuotaWindowRow {
+  id: string;
+  source: BudgetQuotaWindowSnapshot["source"];
+  provider: string | null;
+  harness: string | null;
+  transport: string | null;
+  model: string | null;
+  agent_id: string | null;
+  endpoint_id: string | null;
+  session_id: string | null;
+  user_id: string | null;
+  account_id: string | null;
+  plan_type: string | null;
+  label: string;
+  window_kind: string | null;
+  used_percent: number | null;
+  percent_remaining: number | null;
+  used: number | null;
+  limit_value: number | null;
+  reset_at: number | null;
+  window_ms: number | null;
+  captured_at: number;
+  metadata_json: string | null;
+  created_at: number;
+}
+
+interface BudgetUsageListOptions {
+  scope?: BudgetUsageRecord["scope"];
+  provider?: string;
+  agentId?: string;
+  endpointId?: string;
+  sessionId?: string;
+  invocationId?: string;
+  flightId?: string;
+  since?: number;
+  until?: number;
+  limit?: number;
+}
+
+interface BudgetQuotaWindowListOptions {
+  provider?: string;
+  agentId?: string;
+  endpointId?: string;
+  sessionId?: string;
+  label?: string;
+  source?: BudgetQuotaWindowSnapshot["source"];
+  since?: number;
+  until?: number;
+  limit?: number;
+}
+
+function budgetUsageFromRow(row: BudgetUsageRow): BudgetUsageRecord {
+  return {
+    id: row.id,
+    scope: row.scope,
+    source: row.source,
+    provider: row.provider ?? undefined,
+    harness: row.harness ?? undefined,
+    transport: row.transport ?? undefined,
+    model: row.model ?? undefined,
+    agentId: row.agent_id ?? undefined,
+    endpointId: row.endpoint_id ?? undefined,
+    sessionId: row.session_id ?? undefined,
+    projectRoot: row.project_root ?? undefined,
+    conversationId: row.conversation_id ?? undefined,
+    messageId: row.message_id ?? undefined,
+    invocationId: row.invocation_id ?? undefined,
+    flightId: row.flight_id ?? undefined,
+    workId: row.work_id ?? undefined,
+    occurredAt: row.occurred_at,
+    inputTokens: row.input_tokens ?? undefined,
+    outputTokens: row.output_tokens ?? undefined,
+    reasoningOutputTokens: row.reasoning_output_tokens ?? undefined,
+    cacheCreationInputTokens: row.cache_creation_input_tokens ?? undefined,
+    cacheReadInputTokens: row.cache_read_input_tokens ?? undefined,
+    totalTokens: row.total_tokens ?? undefined,
+    estimatedUsd: row.estimated_usd ?? undefined,
+    billedUsd: row.billed_usd ?? undefined,
+    currency: row.currency ?? undefined,
+    dedupKey: row.dedup_key ?? undefined,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+    createdAt: row.created_at,
+  };
+}
+
+function normalizedListLimit(value: number | undefined, fallback = 100, max = 500): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(1, Math.min(max, Math.floor(value)));
+}
+
+function budgetQuotaWindowFromRow(row: BudgetQuotaWindowRow): BudgetQuotaWindowSnapshot {
+  return {
+    id: row.id,
+    source: row.source,
+    provider: row.provider ?? undefined,
+    harness: row.harness ?? undefined,
+    transport: row.transport ?? undefined,
+    model: row.model ?? undefined,
+    agentId: row.agent_id ?? undefined,
+    endpointId: row.endpoint_id ?? undefined,
+    sessionId: row.session_id ?? undefined,
+    userId: row.user_id ?? undefined,
+    accountId: row.account_id ?? undefined,
+    planType: row.plan_type ?? undefined,
+    label: row.label,
+    windowKind: row.window_kind ?? undefined,
+    usedPercent: row.used_percent ?? undefined,
+    percentRemaining: row.percent_remaining ?? undefined,
+    used: row.used ?? undefined,
+    limit: row.limit_value ?? undefined,
+    resetAt: row.reset_at ?? undefined,
+    windowMs: row.window_ms ?? undefined,
+    capturedAt: row.captured_at,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+    createdAt: row.created_at,
+  };
 }
 
 interface ConversationRow {
@@ -1292,6 +1456,216 @@ export class SQLiteControlPlaneStore {
       stringify(endpoint.metadata),
       currentTimestampMs(),
     );
+
+    this.recordEndpointBudgetObservations(endpoint);
+  }
+
+  private recordEndpointBudgetObservations(endpoint: AgentEndpoint): void {
+    const observations = budgetObservationsFromEndpoint(endpoint, currentTimestampMs());
+    for (const record of observations.usage) {
+      this.recordBudgetUsageEvent(record);
+    }
+    for (const snapshot of observations.quotaWindows) {
+      this.recordBudgetQuotaWindowSnapshot(snapshot);
+    }
+  }
+
+  recordBudgetUsageEvent(record: BudgetUsageRecord): void {
+    const createdAt = record.createdAt ?? currentTimestampMs();
+    this.db.query(
+      `INSERT INTO budget_usage_events (
+        id, scope, source, provider, harness, transport, model, agent_id, endpoint_id,
+        session_id, project_root, conversation_id, message_id, invocation_id, flight_id,
+        work_id, occurred_at, input_tokens, output_tokens, reasoning_output_tokens,
+        cache_creation_input_tokens, cache_read_input_tokens, total_tokens, estimated_usd,
+        billed_usd, currency, dedup_key, metadata_json, created_at
+      ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+        ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        scope = excluded.scope,
+        source = excluded.source,
+        provider = excluded.provider,
+        harness = excluded.harness,
+        transport = excluded.transport,
+        model = excluded.model,
+        agent_id = excluded.agent_id,
+        endpoint_id = excluded.endpoint_id,
+        session_id = excluded.session_id,
+        project_root = excluded.project_root,
+        conversation_id = excluded.conversation_id,
+        message_id = excluded.message_id,
+        invocation_id = excluded.invocation_id,
+        flight_id = excluded.flight_id,
+        work_id = excluded.work_id,
+        occurred_at = excluded.occurred_at,
+        input_tokens = excluded.input_tokens,
+        output_tokens = excluded.output_tokens,
+        reasoning_output_tokens = excluded.reasoning_output_tokens,
+        cache_creation_input_tokens = excluded.cache_creation_input_tokens,
+        cache_read_input_tokens = excluded.cache_read_input_tokens,
+        total_tokens = excluded.total_tokens,
+        estimated_usd = excluded.estimated_usd,
+        billed_usd = excluded.billed_usd,
+        currency = excluded.currency,
+        dedup_key = excluded.dedup_key,
+        metadata_json = excluded.metadata_json,
+        created_at = excluded.created_at`,
+    ).run(
+      record.id,
+      record.scope,
+      record.source,
+      record.provider ?? null,
+      record.harness ?? null,
+      record.transport ?? null,
+      record.model ?? null,
+      record.agentId ?? null,
+      record.endpointId ?? null,
+      record.sessionId ?? null,
+      record.projectRoot ?? null,
+      record.conversationId ?? null,
+      record.messageId ?? null,
+      record.invocationId ?? null,
+      record.flightId ?? null,
+      record.workId ?? null,
+      record.occurredAt,
+      record.inputTokens ?? null,
+      record.outputTokens ?? null,
+      record.reasoningOutputTokens ?? null,
+      record.cacheCreationInputTokens ?? null,
+      record.cacheReadInputTokens ?? null,
+      record.totalTokens ?? null,
+      record.estimatedUsd ?? null,
+      record.billedUsd ?? null,
+      record.currency ?? null,
+      record.dedupKey ?? null,
+      stringify(record.metadata),
+      createdAt,
+    );
+  }
+
+  listBudgetUsageEvents(options: BudgetUsageListOptions = {}): BudgetUsageRecord[] {
+    const predicates: string[] = [];
+    const params: SQLiteBinding[] = [];
+    const addPredicate = (sql: string, value: SQLiteBinding): void => {
+      predicates.push(sql);
+      params.push(value);
+    };
+
+    if (options.scope) addPredicate("scope = ?", options.scope);
+    if (options.provider) addPredicate("provider = ?", options.provider);
+    if (options.agentId) addPredicate("agent_id = ?", options.agentId);
+    if (options.endpointId) addPredicate("endpoint_id = ?", options.endpointId);
+    if (options.sessionId) addPredicate("session_id = ?", options.sessionId);
+    if (options.invocationId) addPredicate("invocation_id = ?", options.invocationId);
+    if (options.flightId) addPredicate("flight_id = ?", options.flightId);
+    if (typeof options.since === "number") addPredicate("occurred_at >= ?", options.since);
+    if (typeof options.until === "number") addPredicate("occurred_at <= ?", options.until);
+
+    const where = predicates.length > 0 ? `WHERE ${predicates.join(" AND ")}` : "";
+    const rows = queryAllDynamic<BudgetUsageRow>(
+      this.readDb,
+      `SELECT *
+      FROM budget_usage_events
+      ${where}
+      ORDER BY occurred_at DESC, created_at DESC
+      LIMIT ?`,
+      [...params, normalizedListLimit(options.limit)],
+    );
+    return rows.map(budgetUsageFromRow);
+  }
+
+  recordBudgetQuotaWindowSnapshot(snapshot: BudgetQuotaWindowSnapshot): void {
+    const createdAt = snapshot.createdAt ?? currentTimestampMs();
+    this.db.query(
+      `INSERT INTO budget_quota_window_snapshots (
+        id, source, provider, harness, transport, model, agent_id, endpoint_id,
+        session_id, user_id, account_id, plan_type, label, window_kind, used_percent,
+        percent_remaining, used, limit_value, reset_at, window_ms, captured_at,
+        metadata_json, created_at
+      ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+        ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        source = excluded.source,
+        provider = excluded.provider,
+        harness = excluded.harness,
+        transport = excluded.transport,
+        model = excluded.model,
+        agent_id = excluded.agent_id,
+        endpoint_id = excluded.endpoint_id,
+        session_id = excluded.session_id,
+        user_id = excluded.user_id,
+        account_id = excluded.account_id,
+        plan_type = excluded.plan_type,
+        label = excluded.label,
+        window_kind = excluded.window_kind,
+        used_percent = excluded.used_percent,
+        percent_remaining = excluded.percent_remaining,
+        used = excluded.used,
+        limit_value = excluded.limit_value,
+        reset_at = excluded.reset_at,
+        window_ms = excluded.window_ms,
+        captured_at = excluded.captured_at,
+        metadata_json = excluded.metadata_json,
+        created_at = excluded.created_at`,
+    ).run(
+      snapshot.id,
+      snapshot.source,
+      snapshot.provider ?? null,
+      snapshot.harness ?? null,
+      snapshot.transport ?? null,
+      snapshot.model ?? null,
+      snapshot.agentId ?? null,
+      snapshot.endpointId ?? null,
+      snapshot.sessionId ?? null,
+      snapshot.userId ?? null,
+      snapshot.accountId ?? null,
+      snapshot.planType ?? null,
+      snapshot.label,
+      snapshot.windowKind ?? null,
+      snapshot.usedPercent ?? null,
+      snapshot.percentRemaining ?? null,
+      snapshot.used ?? null,
+      snapshot.limit ?? null,
+      snapshot.resetAt ?? null,
+      snapshot.windowMs ?? null,
+      snapshot.capturedAt,
+      stringify(snapshot.metadata),
+      createdAt,
+    );
+  }
+
+  listBudgetQuotaWindowSnapshots(options: BudgetQuotaWindowListOptions = {}): BudgetQuotaWindowSnapshot[] {
+    const predicates: string[] = [];
+    const params: SQLiteBinding[] = [];
+    const addPredicate = (sql: string, value: SQLiteBinding): void => {
+      predicates.push(sql);
+      params.push(value);
+    };
+
+    if (options.source) addPredicate("source = ?", options.source);
+    if (options.provider) addPredicate("provider = ?", options.provider);
+    if (options.agentId) addPredicate("agent_id = ?", options.agentId);
+    if (options.endpointId) addPredicate("endpoint_id = ?", options.endpointId);
+    if (options.sessionId) addPredicate("session_id = ?", options.sessionId);
+    if (options.label) addPredicate("label = ?", options.label);
+    if (typeof options.since === "number") addPredicate("captured_at >= ?", options.since);
+    if (typeof options.until === "number") addPredicate("captured_at <= ?", options.until);
+
+    const where = predicates.length > 0 ? `WHERE ${predicates.join(" AND ")}` : "";
+    const rows = queryAllDynamic<BudgetQuotaWindowRow>(
+      this.readDb,
+      `SELECT *
+      FROM budget_quota_window_snapshots
+      ${where}
+      ORDER BY captured_at DESC, created_at DESC
+      LIMIT ?`,
+      [...params, normalizedListLimit(options.limit)],
+    );
+    return rows.map(budgetQuotaWindowFromRow);
   }
 
   upsertConversation(conversation: ConversationDefinition): void {

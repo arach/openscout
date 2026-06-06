@@ -154,20 +154,20 @@ struct ScoutFileViewerPanel: View {
     private var header: some View {
         HStack(spacing: HudSpacing.md) {
             Image(systemName: glyph(forFile: fileName))
-                .font(HudFont.ui(12, weight: .semibold))
-                .foregroundStyle(HudPalette.accent)
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(ScoutPalette.accent)
                 .frame(width: 22, height: 22)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(HudPalette.accentSoft))
+                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutPalette.accentSoft))
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(fileName)
-                    .font(HudFont.ui(13, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(dirPath)
-                    .font(HudFont.mono(9))
-                    .foregroundStyle(HudPalette.dim)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -180,30 +180,30 @@ struct ScoutFileViewerPanel: View {
 
             if let line = target.line, !(document?.isMarkdown == true && showPreview) {
                 Text("L\(line)")
-                    .font(HudFont.mono(9, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .monospacedDigit()
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutPalette.muted)
                     .padding(.horizontal, HudSpacing.sm)
-                    .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(HudSurface.inset))
+                    .padding(.vertical, HudSpacing.xxs)
+                    .background(RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous).fill(HudSurface.inset))
             }
 
             Button(action: onOpenInEditor) {
                 Image(systemName: "arrow.up.forward.app")
-                    .font(HudFont.ui(12, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
             }
             .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(HudPalette.muted)
+            .foregroundStyle(ScoutPalette.muted)
             .frame(width: 26, height: 26)
             .contentShape(Rectangle())
             .help("Open in editor")
 
             Button(action: onClose) {
                 Image(systemName: "sidebar.right")
-                    .font(HudFont.ui(12, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
             }
             .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(HudPalette.muted)
+            .foregroundStyle(ScoutPalette.muted)
             .frame(width: 26, height: 26)
             .contentShape(Rectangle())
             .help("Close file viewer")
@@ -255,8 +255,8 @@ struct ScoutFileViewerPanel: View {
                     }
                     if document.truncated {
                         Text("Preview truncated at \(ScoutFileViewerMetrics.maxLines) lines — open in editor for the rest.")
-                            .font(HudFont.mono(9))
-                            .foregroundStyle(HudPalette.dim)
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutPalette.dim)
                             .padding(HudSpacing.lg)
                     }
                 }
@@ -274,36 +274,36 @@ struct ScoutFileViewerPanel: View {
         let isTarget = target.line == number
         return HStack(alignment: .top, spacing: HudSpacing.md) {
             Text("\(number)")
-                .font(HudFont.mono(10))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .monospacedDigit()
-                .foregroundStyle(isTarget ? HudPalette.accent : HudPalette.dim)
+                .foregroundStyle(isTarget ? ScoutPalette.accent : ScoutPalette.dim)
                 .frame(width: gutter, alignment: .trailing)
             Text(content)
-                .font(HudFont.mono(11))
-                .foregroundStyle(HudPalette.ink)
+                .font(HudFont.mono(HudTextSize.xs))
+                .foregroundStyle(ScoutPalette.ink)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, HudSpacing.lg)
         .padding(.vertical, 1)
-        .background(isTarget ? HudPalette.accentSoft : Color.clear)
+        .background(isTarget ? ScoutPalette.accentSoft : Color.clear)
     }
 
     private func errorState(_ message: String) -> some View {
         VStack(spacing: HudSpacing.md) {
             Image(systemName: "doc.questionmark")
-                .font(HudFont.ui(22, weight: .regular))
-                .foregroundStyle(HudPalette.dim)
+                .font(HudFont.ui(HudTextSize.xxl, weight: .regular))
+                .foregroundStyle(ScoutPalette.dim)
             Text(message)
-                .font(HudFont.ui(12))
-                .foregroundStyle(HudPalette.muted)
+                .font(HudFont.ui(HudTextSize.sm))
+                .foregroundStyle(ScoutPalette.muted)
                 .multilineTextAlignment(.center)
             Button(action: onOpenInEditor) {
                 Text("Open in editor")
-                    .font(HudFont.ui(11, weight: .semibold))
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
             }
             .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(HudPalette.accent)
+            .foregroundStyle(ScoutPalette.accent)
         }
         .padding(HudSpacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -344,11 +344,11 @@ private struct ScoutMarkdownModeToggle: View {
     @Binding var showPreview: Bool
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: HudSpacing.xxs) {
             segment("Preview", active: showPreview) { showPreview = true }
             segment("Source", active: !showPreview) { showPreview = false }
         }
-        .padding(2)
+        .padding(HudSpacing.xxs)
         .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
         .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
     }
@@ -356,13 +356,13 @@ private struct ScoutMarkdownModeToggle: View {
     private func segment(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(HudFont.mono(9, weight: .semibold))
-                .foregroundStyle(active ? HudPalette.ink : HudPalette.muted)
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .foregroundStyle(active ? ScoutPalette.ink : ScoutPalette.muted)
                 .padding(.horizontal, HudSpacing.sm)
                 .frame(height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.standard - 2, style: .continuous)
-                        .fill(active ? HudSurface.selected(HudPalette.accent) : Color.clear)
+                        .fill(active ? HudSurface.selected(ScoutPalette.accent) : Color.clear)
                 )
                 .contentShape(Rectangle())
         }
@@ -449,7 +449,7 @@ enum ScoutCodeLanguage {
 /// line. Carries block-comment state across lines. Colors stay inside the
 /// approved cyan/blue/teal/emerald/amber family (no purple).
 enum ScoutSyntaxHighlighter {
-    private static let commentColor = HudPalette.dim
+    private static let commentColor = ScoutPalette.dim
     private static let stringColor = HudTint.green.color
     private static let keywordColor = HudTint.blue.color
     private static let numberColor = HudTint.amber.color

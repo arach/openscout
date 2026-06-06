@@ -59,6 +59,8 @@ export interface BridgeContext {
   bridge: Bridge;
   deviceId: string | undefined;
   cwd: string;
+  secureTransport?: boolean;
+  trustedPeer?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +77,10 @@ interface SocketState {
   transport?: SecureTransport;
   /** Short device ID derived from the remote peer's public key. */
   deviceId?: string;
+  /** True only for encrypted mobile WebSocket/relay transport. */
+  secureTransport?: boolean;
+  /** True only when the phone key was already paired before this connection. */
+  trustedPeer?: boolean;
   /** Abort controller for the connection lifetime — aborts all subscriptions on close. */
   abortController: AbortController;
   /** Per-request abort controllers keyed by tRPC message id. */
@@ -203,6 +209,8 @@ export function startBridgeServerTRPC(options: {
           bridge,
           deviceId: c.req.header("x-device-id") ?? undefined,
           cwd: resolveCurrentDirectory(),
+          secureTransport: false,
+          trustedPeer: false,
         }),
       }),
     );
@@ -605,20 +613,32 @@ export function startBridgeServerTRPC(options: {
             "responder",
             identity,
             {
-              onReady: (remotePublicKey) => {
+              onReady: (remotePublicKey, readyInfo) => {
                 const pubHex = bytesToHex(remotePublicKey);
-                const trusted = isTrustedPeer(pubHex);
+                const trusted = readyInfo.wasTrustedPeer && isTrustedPeer(pubHex);
                 state.deviceId = pubHex.slice(0, 16);
+                state.secureTransport = true;
+                state.trustedPeer = trusted;
                 log.info(
                   "server-trpc",
                   `secure handshake complete (peer: ${pubHex.slice(0, 12)}..., trusted: ${trusted}, device: ${state.deviceId})`,
                 );
+                if (!trusted) {
+                  log.warn(
+                    "server-trpc",
+                    `rejecting untrusted direct secure peer ${pubHex.slice(0, 12)}...; pair via the QR relay first`,
+                  );
+                  ws.close(4003, "Untrusted peer");
+                  return;
+                }
 
                 // Build tRPC context now that we know the peer.
                 state.ctx = {
                   bridge,
                   deviceId: state.deviceId,
                   cwd: resolveCurrentDirectory(),
+                  secureTransport: true,
+                  trustedPeer: trusted,
                 };
                 state.ready = true;
 
@@ -654,6 +674,7 @@ export function startBridgeServerTRPC(options: {
                 state.abortController.abort();
               },
             },
+            { trustOnComplete: false },
           );
 
           state.transport = transport;
@@ -663,6 +684,8 @@ export function startBridgeServerTRPC(options: {
             bridge,
             deviceId: undefined,
             cwd: resolveCurrentDirectory(),
+            secureTransport: false,
+            trustedPeer: false,
           };
           state.ready = true;
 

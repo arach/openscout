@@ -101,6 +101,15 @@ function isReservedProductIdentity(definitionId: string): boolean {
     || definitionId === OPENSCOUT_COORDINATOR_AGENT_ID;
 }
 
+function isBareReservedProductIdentity(identity: AgentIdentity): boolean {
+  return isReservedProductIdentity(identity.definitionId)
+    && !identity.nodeQualifier
+    && !identity.workspaceQualifier
+    && !identity.profile
+    && !identity.harness
+    && !identity.model;
+}
+
 export function buildAgentLabelCandidates(
   snapshot: RuntimeSnapshot,
   helpers: Pick<DispatcherHelpers, "isStale">,
@@ -214,7 +223,7 @@ export function resolveAgentLabel(
   if (!identity) {
     return { kind: "unparseable", label };
   }
-  if (isReservedProductIdentity(identity.definitionId)) {
+  if (isBareReservedProductIdentity(identity)) {
     return { kind: "unknown", label: identity.label };
   }
 

@@ -113,8 +113,8 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v5
         with:
-          name: OpenScoutMenu-${{ steps.release.outputs.version }}
-          path: apps/macos/dist/OpenScoutMenu-${{ steps.release.outputs.version }}.dmg
+          name: OpenScout-${{ steps.release.outputs.version }}
+          path: apps/macos/dist/OpenScout-${{ steps.release.outputs.version }}.dmg
           if-no-files-found: error
 
       - name: Create or update GitHub release
@@ -126,7 +126,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          dmg="apps/macos/dist/OpenScoutMenu-${RELEASE_VERSION}.dmg"
+          dmg="apps/macos/dist/OpenScout-${RELEASE_VERSION}.dmg"
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$dmg" --clobber

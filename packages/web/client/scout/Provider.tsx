@@ -24,6 +24,7 @@ import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
+import type { KnowledgeHit } from "../lib/knowledge-search.ts";
 
 declare global {
   interface Window {
@@ -40,9 +41,18 @@ export interface OnboardingState {
   hasOperatorName: boolean;
   localConfigPath: string | null;
   projectRoot: string | null;
+  projectConfigPath?: string | null;
   currentDirectory: string | null;
+  contextRoot?: string | null;
+  sourceRoots?: string[];
+  defaultHarness?: string;
   operatorName: string | null;
   operatorNameSuggestion: string | null;
+  brokerReachable?: boolean;
+  hasReadyRuntime?: boolean;
+  skippedAt?: number | null;
+  completedAt?: number | null;
+  needed?: boolean;
 }
 
 export interface ScoutContextValue {
@@ -70,6 +80,11 @@ export interface ScoutContextValue {
   selectedBrokerAttempt: BrokerRouteAttempt | null;
   inspectBrokerAttempt: (attempt: BrokerRouteAttempt) => void;
   clearBrokerAttempt: () => void;
+
+  selectedKnowledgeHit: KnowledgeHit | null;
+  selectedKnowledgeQuery: string;
+  inspectKnowledgeHit: (hit: KnowledgeHit, query?: string) => void;
+  clearKnowledgeHit: () => void;
 
   openFilePreview: (path: string) => void;
   closeFilePreview: () => void;
@@ -112,6 +127,16 @@ const DARK_THEME_VARS: ThemeVars = {
   "--hud-status-ok": "oklch(0.80 0.15 155)",
   "--hud-status-warn": "oklch(0.82 0.15 85)",
   "--hud-status-error": "oklch(0.72 0.18 25)",
+  // Scout semantic colors (web-only; no HudsonKit equivalent).
+  "--scrim": "rgba(0, 0, 0, 0.5)",
+  "--scrim-soft": "rgba(0, 0, 0, 0.3)",
+  "--info": "#62b6ff",
+  "--shadow-card": "0 8px 22px rgba(0, 0, 0, 0.22)",
+  "--shadow-card-hover": "0 14px 36px rgba(0, 0, 0, 0.30)",
+  // Categorical / brand accents — distinct from status colors, do not flatten.
+  "--cat-gold": "#d7a978",
+  "--cat-purple": "#c58cff",
+  "--cat-sky": "#38bdf8",
   "--scout-chrome-ink-strong": "color-mix(in srgb, var(--hud-ink) 92%, transparent)",
   "--scout-chrome-ink": "color-mix(in srgb, var(--hud-ink) 78%, transparent)",
   "--scout-chrome-ink-soft": "color-mix(in srgb, var(--hud-ink) 58%, transparent)",
@@ -140,6 +165,16 @@ const LIGHT_THEME_VARS: ThemeVars = {
   "--hud-status-ok": "oklch(0.64 0.16 155)",
   "--hud-status-warn": "oklch(0.72 0.15 85)",
   "--hud-status-error": "oklch(0.62 0.19 25)",
+  // Scout semantic colors (web-only; no HudsonKit equivalent).
+  "--scrim": "rgba(20, 22, 26, 0.32)",
+  "--scrim-soft": "rgba(20, 22, 26, 0.18)",
+  "--info": "#2f7fd6",
+  "--shadow-card": "0 8px 22px oklch(0.42 0.01 80 / 0.10)",
+  "--shadow-card-hover": "0 14px 36px oklch(0.42 0.01 80 / 0.14)",
+  // Categorical / brand accents — distinct from status colors, do not flatten.
+  "--cat-gold": "#a9824f",
+  "--cat-purple": "#8b5cf6",
+  "--cat-sky": "#0ea5e9",
   "--scout-chrome-ink-strong": "color-mix(in srgb, var(--hud-ink) 94%, transparent)",
   "--scout-chrome-ink": "color-mix(in srgb, var(--hud-ink) 78%, transparent)",
   "--scout-chrome-ink-soft": "color-mix(in srgb, var(--hud-ink) 60%, transparent)",
@@ -172,15 +207,26 @@ export function ScoutProvider({
   const [agents, setAgents] = useState<Agent[]>([]);
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [onboardingSkipped, setOnboardingSkipped] = useState(false);
-  const skipOnboarding = useCallback(() => setOnboardingSkipped(true), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedBrokerAttempt, setSelectedBrokerAttempt] = useState<BrokerRouteAttempt | null>(null);
+  const [selectedKnowledgeHit, setSelectedKnowledgeHit] = useState<KnowledgeHit | null>(null);
+  const [selectedKnowledgeQuery, setSelectedKnowledgeQuery] = useState("");
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const inspectBrokerAttempt = useCallback((attempt: BrokerRouteAttempt) => {
     setSelectedBrokerAttempt(attempt);
   }, []);
   const clearBrokerAttempt = useCallback(() => setSelectedBrokerAttempt(null), []);
+  const inspectKnowledgeHit = useCallback((hit: KnowledgeHit, query?: string) => {
+    setSelectedKnowledgeHit(hit);
+    if (typeof query === "string") {
+      setSelectedKnowledgeQuery(query.trim());
+    }
+  }, []);
+  const clearKnowledgeHit = useCallback(() => {
+    setSelectedKnowledgeHit(null);
+    setSelectedKnowledgeQuery("");
+  }, []);
   const themeVars = initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
   const scoutbotAgentId = useMemo(() => resolveScoutbotAgentId(agents), [agents]);
   const scoutbotDmConversationId = useMemo(() => scoutbotConversationId(scoutbotAgentId), [scoutbotAgentId]);
@@ -223,6 +269,13 @@ export function ScoutProvider({
       });
     }
   }, []);
+
+  const skipOnboarding = useCallback(() => {
+    setOnboardingSkipped(true);
+    void api("/api/onboarding/skip", { method: "POST", body: "{}" })
+      .then(() => refreshOnboarding())
+      .catch(() => null);
+  }, [refreshOnboarding]);
 
   useEffect(() => {
     void reload();
@@ -315,6 +368,7 @@ export function ScoutProvider({
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotConversationId: scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
+      selectedKnowledgeHit, selectedKnowledgeQuery, inspectKnowledgeHit, clearKnowledgeHit,
       openFilePreview, closeFilePreview,
     }),
     [
@@ -323,6 +377,7 @@ export function ScoutProvider({
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
+      selectedKnowledgeHit, selectedKnowledgeQuery, inspectKnowledgeHit, clearKnowledgeHit,
       openFilePreview, closeFilePreview,
     ],
   );

@@ -10,6 +10,8 @@ import {
 } from "./lib/theme.ts";
 import { initAppearance } from "./lib/appearance.ts";
 import { ScoutbotFxLab } from "./dev/ScoutbotFxLab.tsx";
+import "./styles/tokens.css";
+import "./styles/primitives.css";
 import "./arc-tailwind.css";
 import "./app.css";
 

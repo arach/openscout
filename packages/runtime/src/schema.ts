@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 8;
+export const CONTROL_PLANE_SCHEMA_VERSION = 9;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -382,6 +382,64 @@ CREATE TABLE IF NOT EXISTS activity_items (
   payload_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS budget_usage_events (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  source TEXT NOT NULL,
+  provider TEXT,
+  harness TEXT,
+  transport TEXT,
+  model TEXT,
+  agent_id TEXT,
+  endpoint_id TEXT,
+  session_id TEXT,
+  project_root TEXT,
+  conversation_id TEXT,
+  message_id TEXT,
+  invocation_id TEXT,
+  flight_id TEXT,
+  work_id TEXT,
+  occurred_at INTEGER NOT NULL,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  reasoning_output_tokens INTEGER,
+  cache_creation_input_tokens INTEGER,
+  cache_read_input_tokens INTEGER,
+  total_tokens INTEGER,
+  estimated_usd REAL,
+  billed_usd REAL,
+  currency TEXT,
+  dedup_key TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
+
+CREATE TABLE IF NOT EXISTS budget_quota_window_snapshots (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  provider TEXT,
+  harness TEXT,
+  transport TEXT,
+  model TEXT,
+  agent_id TEXT,
+  endpoint_id TEXT,
+  session_id TEXT,
+  user_id TEXT,
+  account_id TEXT,
+  plan_type TEXT,
+  label TEXT NOT NULL,
+  window_kind TEXT,
+  used_percent REAL,
+  percent_remaining REAL,
+  used REAL,
+  limit_value REAL,
+  reset_at INTEGER,
+  window_ms INTEGER,
+  captured_at INTEGER NOT NULL,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
+
 CREATE TABLE IF NOT EXISTS mobile_push_registrations (
   id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,
@@ -505,6 +563,21 @@ CREATE INDEX IF NOT EXISTS idx_activity_items_kind_ts
   ON activity_items (kind, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_items_session_ts
   ON activity_items (session_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_budget_usage_events_scope_occurred
+  ON budget_usage_events (scope, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_budget_usage_events_session_occurred
+  ON budget_usage_events (session_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_budget_usage_events_invocation
+  ON budget_usage_events (invocation_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_budget_usage_events_flight
+  ON budget_usage_events (flight_id, occurred_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_budget_usage_events_dedup
+  ON budget_usage_events (scope, source, dedup_key)
+  WHERE dedup_key IS NOT NULL AND dedup_key != '';
+CREATE INDEX IF NOT EXISTS idx_budget_quota_windows_session_captured
+  ON budget_quota_window_snapshots (session_id, captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_budget_quota_windows_provider_label
+  ON budget_quota_window_snapshots (provider, label, captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_conversations_created_at
   ON conversations (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scout_dispatches_dispatched_at

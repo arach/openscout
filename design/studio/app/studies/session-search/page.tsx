@@ -227,7 +227,7 @@ const STAGES: Stage[] = [
     input: "qmd sidecar files",
     output: "sqlite tables + FTS5",
     summary:
-      "Walks every $TMPDIR/scout-study/qmd/<session>/ directory, splits each markdown file into H2 sections, and writes rows into a real better-sqlite3 db at $TMPDIR/scout-study/index.db. Schema: sessions, documents, chunks, chunks_fts (FTS5 over chunks.text).",
+      "Walks every $TMPDIR/scout-study/qmd/<session>/ directory, splits event transcripts into bounded record ranges and other markdown into sections, then writes rows into a real better-sqlite3 db at $TMPDIR/scout-study/index.db. Schema: sessions, documents, chunks, chunks_fts (FTS5 over chunks.text).",
   },
   {
     id: "ask",
@@ -1609,7 +1609,7 @@ function IndexBody({
   const schemaRows: Array<{ table: string; rows: number; note: string }> = [
     { table: "sessions", rows: result.sessions, note: "one per QMD directory" },
     { table: "documents", rows: result.documents, note: "one per markdown / json file" },
-    { table: "chunks", rows: result.chunks, note: "one per H2 section" },
+    { table: "chunks", rows: result.chunks, note: "searchable transcript / markdown sections" },
     { table: "chunks_fts", rows: result.ftsRows, note: "FTS5 virtual table" },
   ];
   return (
@@ -1651,7 +1651,9 @@ function IndexBody({
           )}
         </div>
         <div className="border-t border-studio-edge px-3 py-2 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
-          Chunks are one per H2 section. Walks every file in{" "}
+          Event files are split into 50-record search chunks. Other markdown is split by{" "}
+          <code className="font-mono text-[11px] text-studio-ink">##</code>{" "}
+          sections. Walks every file in{" "}
           <code className="font-mono text-[11px] text-studio-ink">$TMPDIR/scout-study/qmd/&lt;session&gt;/</code>{" "}
           (skipping <code className="font-mono text-[11px] text-studio-ink">_</code>-prefixed metadata).
         </div>

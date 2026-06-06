@@ -1,5 +1,4 @@
 {
-  "originHash" : "2a4c24f06cd6f58e08ceb62e419696f3046623145ae6883065372fba415ff84a",
   "pins" : [
     {
       "identity" : "fluidaudio",
@@ -51,8 +50,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "f71c8d2a5e74a2c6d11a0fbe324774b5d6084237",
-        "version" : "2.99.0"
+        "revision" : "57c0a08a331aaea9f5d7a932ad94ef43be942a95",
+        "version" : "2.100.0"
       }
     },
     {
@@ -83,13 +82,14 @@
       }
     },
     {
-      "identity" : "termini",
+      "identity" : "vox",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/arach/Termini.git",
+      "location" : "git@github.com:arach/vox.git",
       "state" : {
-        "revision" : "5f337c1faf802412d83cdeabf753aead6d614780"
+        "branch" : "main",
+        "revision" : "960a1df81f6f6c0b7c1a40bcea3137d4b506e7b1"
       }
     }
   ],
-  "version" : 3
+  "version" : 2
 }

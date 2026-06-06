@@ -18,6 +18,11 @@
       "bun": "./src/setup.ts",
       "default": "./dist/setup.js"
     },
+    "./onboarding": {
+      "types": "./src/onboarding.ts",
+      "bun": "./src/onboarding.ts",
+      "default": "./dist/onboarding.js"
+    },
     "./local-agents": {
       "types": "./src/local-agents.ts",
       "bun": "./src/local-agents.ts",
@@ -152,6 +157,11 @@
       "types": "./src/conversations/legacy-ids.ts",
       "bun": "./src/conversations/legacy-ids.ts",
       "default": "./dist/conversations/legacy-ids.js"
+    },
+    "./knowledge": {
+      "types": "./src/knowledge/index.ts",
+      "bun": "./src/knowledge/index.ts",
+      "default": "./dist/knowledge/index.js"
     }
   },
   "types": "./src/index.ts",
@@ -191,6 +201,7 @@
     "@cursor/sdk": "1.0.13",
     "@types/node": "^22",
     "@types/ws": "^8.5.13",
+    "bun-types": "^1.3.11",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5"
   }

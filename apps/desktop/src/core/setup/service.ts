@@ -9,18 +9,16 @@ import {
 } from "@openscout/runtime/local-config";
 import { resolveOpenScoutLocalEdgeConfig } from "@openscout/runtime/local-edge";
 import {
-  initializeOpenScoutSetup,
-  installScoutSkillToHarnesses,
   loadResolvedRelayAgents,
-  writeOpenScoutSettings,
   type ProjectInventoryEntry,
+  type SetupResult,
   type ScoutSkillInstallReport,
 } from "@openscout/runtime/setup";
+import { runOpenScoutOnboardingSetup } from "@openscout/runtime/onboarding";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
 import {
   getRuntimeBrokerServiceStatus,
-  runRuntimeBrokerService,
 } from "../../app/host/runtime-service-client.ts";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { withScoutCoreCommandLock } from "./command-lock.ts";
@@ -71,7 +69,7 @@ export type ScoutDoctorReport = {
 
 export type ScoutSetupReport = {
   currentDirectory: string;
-  setup: Awaited<ReturnType<typeof initializeOpenScoutSetup>>;
+  setup: SetupResult;
   broker: BrokerServiceStatus;
   brokerWarning: string | null;
   localEdge: ScoutLocalEdgeDependencyReport;
@@ -236,53 +234,24 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 export async function runScoutSetup(input: {
   currentDirectory: string;
   sourceRoots: string[];
+  defaultHarness?: string | null;
 }): Promise<ScoutSetupReport> {
   return withScoutCoreCommandLock("setup", async () => {
-    if (input.sourceRoots.length > 0) {
-      await writeOpenScoutSettings({
-        discovery: {
-          workspaceRoots: input.sourceRoots,
-        },
-      }, {
-        currentDirectory: input.currentDirectory,
-      });
-    }
-
-    const setup = await initializeOpenScoutSetup({ currentDirectory: input.currentDirectory });
-    const catalog = await loadHarnessCatalogSnapshot();
-    const scoutSkill = await installScoutSkillToHarnesses();
+    const setupResult = await runOpenScoutOnboardingSetup({
+      currentDirectory: input.currentDirectory,
+      sourceRoots: input.sourceRoots,
+      defaultHarness: input.defaultHarness,
+    });
     const localEdge = ensureScoutLocalEdgeDependencies({ trustLocalHttps: false });
-    let broker = await getRuntimeBrokerServiceStatus();
-    let brokerWarning: string | null = null;
-    try {
-      broker = await runRuntimeBrokerService("start");
-    } catch (error) {
-      brokerWarning = error instanceof Error ? error.message : String(error);
-      broker = await getRuntimeBrokerServiceStatus();
-    }
-
-    // Trigger mesh discovery after broker is up so peers are found immediately
-    if (broker.reachable && broker.brokerUrl) {
-      try {
-        await fetch(new URL("/v1/mesh/discover", broker.brokerUrl), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: "{}",
-          signal: AbortSignal.timeout(10_000),
-        });
-      } catch {
-        // Best-effort: broker may not support mesh or peers may not be ready yet
-      }
-    }
 
     return {
       currentDirectory: input.currentDirectory,
-      setup,
-      broker,
-      brokerWarning,
+      setup: setupResult.setup,
+      broker: setupResult.broker,
+      brokerWarning: setupResult.brokerWarning,
       localEdge,
-      catalog,
-      scoutSkill,
+      catalog: setupResult.catalog,
+      scoutSkill: setupResult.scoutSkill,
     };
   });
 }

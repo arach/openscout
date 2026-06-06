@@ -29,8 +29,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-2xl);
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 70%, var(--bg));
 }
@@ -38,9 +38,9 @@
 .bstudio-bar-l {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  letter-spacing: 0.18em;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-xl);
   text-transform: uppercase;
   color: var(--dim);
 }
@@ -51,8 +51,8 @@
 
 .bstudio-meta {
   color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-sm);
   text-transform: none;
 }
 
@@ -65,7 +65,7 @@
   border: 1px solid var(--border);
   background: transparent;
   color: var(--muted);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
 }
@@ -80,19 +80,19 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
+  gap: var(--space-2xl);
+  padding: var(--space-md) var(--space-2xl);
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 50%, var(--bg));
 }
 
-.bstudio-ctrl-group { display: inline-flex; align-items: center; gap: 6px; }
+.bstudio-ctrl-group { display: inline-flex; align-items: center; gap: var(--space-xs); }
 .bstudio-ctrl-group--meta { margin-left: auto; }
 
 .bstudio-ctrl-label {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: var(--tracking-xl);
   color: var(--dim);
 }
 
@@ -100,16 +100,16 @@
 .bstudio-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2xs);
   height: 22px;
-  padding: 0 8px;
+  padding: 0 var(--space-sm);
   border: 1px solid var(--border);
   background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  border-radius: 4px;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-sm);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
 }
@@ -127,7 +127,7 @@
 
 .bstudio-phase-tag {
   color: var(--accent);
-  letter-spacing: 0.18em;
+  letter-spacing: var(--tracking-xl);
 }
 
 /* ── Stage / card ──────────────────────────────────────────────── */
@@ -137,28 +137,28 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 32px 16px;
+  padding: var(--space-5xl) var(--space-2xl);
   overflow: auto;
 }
 
 .bstudio-card {
   width: min(100%, 760px);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 18px 22px;
+  border-radius: var(--radius-md);
+  padding: var(--space-3xl) var(--space-4xl);
   background: color-mix(in srgb, var(--surface) 60%, var(--bg));
 }
 
 .bstudio-card-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-xl);
   text-transform: uppercase;
   color: var(--dim);
-  padding-bottom: 10px;
-  margin-bottom: 4px;
+  padding-bottom: var(--space-md);
+  margin-bottom: var(--space-2xs);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   width: 100%;
 }
@@ -173,8 +173,8 @@
 .bstudio-card-status {
   margin-left: auto;
   color: var(--accent);
-  font-size: 10px;
-  letter-spacing: 0.18em;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-xl);
 }
 
 /* ── Idle preview — quick-scan + CTA ─────────────────────────── */
@@ -182,16 +182,16 @@
 .bstudio-idle {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 14px 0 4px;
+  gap: var(--space-3xl);
+  padding: var(--space-xl) 0 var(--space-2xs);
   animation: bstudio-fade-in 240ms ease both;
 }
 
-.bstudio-idle-scan { display: flex; flex-direction: column; gap: 6px; }
+.bstudio-idle-scan { display: flex; flex-direction: column; gap: var(--space-xs); }
 
 .bstudio-idle-label {
-  font-size: 9px;
-  letter-spacing: 0.18em;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xl);
   text-transform: uppercase;
   color: var(--dim);
 }
@@ -199,7 +199,7 @@
 .bstudio-idle-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-xs);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -208,9 +208,9 @@
 .bstudio-idle-item {
   display: inline-flex;
   align-items: flex-start;
-  gap: 8px;
-  font-size: 11px;
-  line-height: 1.45;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
   color: var(--ink);
 }
 
@@ -220,26 +220,26 @@
   flex-shrink: 0;
 }
 
-.bstudio-idle-item--warn { color: color-mix(in srgb, gold 60%, var(--ink)); }
-.bstudio-idle-item--err  { color: color-mix(in srgb, crimson 60%, var(--ink)); }
+.bstudio-idle-item--warn { color: color-mix(in srgb, var(--amber) 60%, var(--ink)); }
+.bstudio-idle-item--err  { color: color-mix(in srgb, var(--red) 60%, var(--ink)); }
 
 .bstudio-idle-pitch {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .bstudio-idle-copy {
   display: inline-flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--space-sm);
   margin: 0;
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
   color: var(--muted);
 }
 
@@ -254,14 +254,14 @@
   display: inline-flex;
   align-items: center;
   height: 26px;
-  padding: 0 12px;
+  padding: 0 var(--space-lg);
   border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border));
   background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  border-radius: 4px;
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-sm);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background-color 0.12s ease, border-color 0.12s ease;
 }
@@ -280,19 +280,19 @@
 .bstudio-logs {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px 0 6px;
-  font-size: 11px;
-  line-height: 1.4;
+  gap: var(--space-2xs);
+  padding: var(--space-lg) 0 var(--space-xs);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
 }
 
 .bstudio-log-row {
   display: grid;
   grid-template-columns: 16px minmax(140px, max-content) 1fr max-content;
   align-items: center;
-  gap: 8px;
-  padding: 3px 4px;
-  border-radius: 2px;
+  gap: var(--space-sm);
+  padding: var(--space-3xs) var(--space-2xs);
+  border-radius: var(--radius-xs);
   transition: background-color 0.18s ease, color 0.18s ease, opacity 0.24s ease;
 }
 
@@ -315,10 +315,10 @@
 .bstudio-log-row[data-state="active"]  .bstudio-log-state { color: var(--accent); }
 .bstudio-log-row[data-state="done"]    .bstudio-log-state { color: var(--accent); }
 
-.bstudio-log-pending { font-size: 14px; line-height: 1; color: var(--muted); }
+.bstudio-log-pending { font-size: var(--text-xl); line-height: var(--leading-none); color: var(--muted); }
 
 .bstudio-log-label {
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-xs);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -339,8 +339,8 @@
 .bstudio-log-row[data-state="pending"] .bstudio-log-leader { opacity: 0.18; }
 
 .bstudio-log-result {
-  font-size: 10px;
-  letter-spacing: 0.02em;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-xs);
   text-align: right;
   color: var(--accent);
   white-space: nowrap;
@@ -351,22 +351,22 @@
 }
 .bstudio-log-row[data-state="pending"] .bstudio-log-result { color: var(--dim); }
 
-.bstudio-log-result--warn { color: color-mix(in srgb, gold 70%, var(--accent)) !important; }
-.bstudio-log-result--err  { color: color-mix(in srgb, crimson 70%, var(--accent)) !important; }
+.bstudio-log-result--warn { color: color-mix(in srgb, var(--amber) 70%, var(--accent)) !important; }
+.bstudio-log-result--err  { color: color-mix(in srgb, var(--red) 70%, var(--accent)) !important; }
 
 /* ── View 2 — SEQUENCE — row + active preview panel ──────────── */
 
 .bstudio-seq {
   display: flex;
   flex-direction: column;
-  padding: 10px 0 4px;
+  padding: var(--space-md) 0 var(--space-2xs);
 }
 
 .bstudio-seq-row {
   display: flex;
   flex-direction: column;
   border-bottom: 1px dashed color-mix(in srgb, var(--border) 50%, transparent);
-  padding: 8px 0;
+  padding: var(--space-sm) 0;
   transition: opacity 0.18s ease;
 }
 .bstudio-seq-row:last-child { border-bottom: none; }
@@ -379,9 +379,9 @@
   display: grid;
   grid-template-columns: 16px minmax(140px, max-content) 1fr max-content;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  line-height: 1.4;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
 }
 
 .bstudio-seq-state {
@@ -402,7 +402,7 @@
 
 .bstudio-seq-label {
   font-family: var(--font-mono);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-xs);
   white-space: nowrap;
   color: var(--ink);
 }
@@ -422,8 +422,8 @@
 
 .bstudio-seq-result {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.02em;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-xs);
   text-align: right;
   color: var(--accent);
   white-space: nowrap;
@@ -434,12 +434,12 @@
   color: color-mix(in srgb, var(--accent) 70%, var(--muted));
 }
 
-.bstudio-seq-result--warn { color: color-mix(in srgb, gold 70%, var(--accent)) !important; }
-.bstudio-seq-result--err  { color: color-mix(in srgb, crimson 70%, var(--accent)) !important; }
+.bstudio-seq-result--warn { color: color-mix(in srgb, var(--amber) 70%, var(--accent)) !important; }
+.bstudio-seq-result--err  { color: color-mix(in srgb, var(--red) 70%, var(--accent)) !important; }
 
 .bstudio-seq-body {
-  padding: 10px 0 4px;
-  margin-left: 24px;
+  padding: var(--space-md) 0 var(--space-2xs);
+  margin-left: var(--space-4xl);
   animation: bstudio-fade-in 200ms ease both;
 }
 
@@ -451,22 +451,22 @@
 .bstudio-carousel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 10px 0 4px;
+  gap: var(--space-lg);
+  padding: var(--space-md) 0 var(--space-2xs);
 }
 
 .bstudio-stepper {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 2px;
+  gap: var(--space-2xs);
+  padding: 0 var(--space-3xs);
 }
 
 .bstudio-stepper-pip {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2xs);
   min-width: 0;
 }
 
@@ -475,7 +475,7 @@
   flex: 1;
   height: 1px;
   background: color-mix(in srgb, var(--border) 60%, transparent);
-  margin-right: 4px;
+  margin-right: var(--space-2xs);
 }
 
 /* The line LEADING INTO the active pip fills lime as the previous step
@@ -522,7 +522,7 @@
 .bstudio-carousel-screen {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-md);
   animation: bstudio-slide-in-right 320ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
 }
 
@@ -534,10 +534,10 @@
 .bstudio-carousel-now {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1;
+  font-size: var(--text-sm);
+  line-height: var(--leading-none);
 }
 
 .bstudio-carousel-now-icon {
@@ -548,22 +548,22 @@
 .bstudio-carousel-now-action {
   color: var(--accent);
   font-style: italic;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-sm);
 }
 
 .bstudio-carousel-now-label {
   color: var(--ink);
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 10px;
+  letter-spacing: var(--tracking-xl);
+  font-size: var(--text-xs);
 }
 
 .bstudio-carousel-now-counter {
   margin-left: auto;
   color: var(--dim);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-sm);
 }
 
 .bstudio-carousel-progress {
@@ -583,8 +583,8 @@
 .bstudio-carousel-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 4px;
+  gap: var(--space-sm);
+  padding-top: var(--space-2xs);
 }
 
 /* ── Sample panels ─────────────────────────────────────────── */
@@ -592,31 +592,31 @@
 .bstudio-sample {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .bstudio-sample-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-xs);
 }
 
 .bstudio-sample-rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-xs);
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
 .bstudio-sample-more {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--dim);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-sm);
 }
 .bstudio-sample-more--row {
-  padding: 4px 0;
+  padding: var(--space-2xs) 0;
   font-style: italic;
 }
 
@@ -624,11 +624,11 @@
 .bstudio-agent-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  font-size: 10px;
+  gap: var(--space-2xs);
+  padding: var(--space-3xs) var(--space-sm);
+  font-size: var(--text-xs);
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 50%, var(--bg));
   color: var(--ink);
   animation: bstudio-row-in 280ms ease both;
@@ -640,29 +640,29 @@
   background: var(--accent);
   flex-shrink: 0;
 }
-.bstudio-agent-chip--idle .bstudio-agent-dot { background: gold; opacity: 0.6; }
-.bstudio-agent-chip--err  .bstudio-agent-dot { background: crimson; }
+.bstudio-agent-chip--idle .bstudio-agent-dot { background: var(--amber); opacity: 0.6; }
+.bstudio-agent-chip--err  .bstudio-agent-dot { background: var(--red); }
 .bstudio-agent-project { color: var(--dim); }
 
 /* — Session cards — fragments that look like real session detail rows — */
 .bstudio-session-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 12px;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-lg);
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   border-left: 2px solid color-mix(in srgb, var(--accent) 50%, var(--border));
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--surface) 50%, var(--bg));
   animation: bstudio-row-in 300ms ease both;
 }
 .bstudio-session-meta {
   display: inline-flex;
   align-items: baseline;
-  gap: 8px;
-  font-size: 10px;
+  gap: var(--space-sm);
+  font-size: var(--text-xs);
   color: var(--dim);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-xs);
 }
 .bstudio-session-id {
   font-family: var(--font-mono);
@@ -671,37 +671,37 @@
 }
 .bstudio-session-project-chip {
   display: inline-flex;
-  padding: 1px 6px;
+  padding: 1px var(--space-xs);
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 70%, var(--bg));
   color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.06em;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-md);
 }
 .bstudio-session-ago { color: var(--dim); }
 .bstudio-session-summary {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--ink);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 /* — Broker message cards — fragments that look like real queue rows — */
 .bstudio-broker-card {
   display: grid;
   grid-template-columns: 28px 1fr;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   border-left: 2px solid color-mix(in srgb, var(--accent) 50%, var(--border));
   background: color-mix(in srgb, var(--surface) 50%, var(--bg));
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   animation: bstudio-row-in 320ms ease both;
   align-items: start;
 }
-.bstudio-broker-card--warn { border-left-color: color-mix(in srgb, gold 80%, var(--border)); }
-.bstudio-broker-card--err  { border-left-color: color-mix(in srgb, crimson 80%, var(--border)); }
+.bstudio-broker-card--warn { border-left-color: color-mix(in srgb, var(--amber) 80%, var(--border)); }
+.bstudio-broker-card--err  { border-left-color: color-mix(in srgb, var(--red) 80%, var(--border)); }
 
 .bstudio-broker-avatar {
   width: 28px;
@@ -714,83 +714,83 @@
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-sm);
   flex-shrink: 0;
 }
 
 .bstudio-broker-card--warn .bstudio-broker-avatar {
-  background: color-mix(in srgb, gold 16%, transparent);
-  border-color: color-mix(in srgb, gold 50%, var(--border));
-  color: color-mix(in srgb, gold 80%, var(--ink));
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 50%, var(--border));
+  color: color-mix(in srgb, var(--amber) 80%, var(--ink));
 }
 .bstudio-broker-card--err .bstudio-broker-avatar {
-  background: color-mix(in srgb, crimson 16%, transparent);
-  border-color: color-mix(in srgb, crimson 50%, var(--border));
-  color: color-mix(in srgb, crimson 80%, var(--ink));
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  border-color: color-mix(in srgb, var(--red) 50%, var(--border));
+  color: color-mix(in srgb, var(--red) 80%, var(--ink));
 }
 
 .bstudio-broker-main {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-3xs);
   min-width: 0;
 }
 
 .bstudio-broker-meta {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
-  font-size: 10px;
+  gap: var(--space-xs);
+  font-size: var(--text-xs);
   color: var(--dim);
   flex-wrap: wrap;
 }
 .bstudio-broker-from { color: var(--accent); font-weight: 500; }
 .bstudio-broker-to   { color: var(--ink); }
 .bstudio-broker-arrow { opacity: 0.5; }
-.bstudio-broker-ago  { margin-left: auto; color: var(--dim); font-size: 9.5px; }
+.bstudio-broker-ago  { margin-left: auto; color: var(--dim); font-size: var(--text-2xs); }
 
 .bstudio-broker-tag {
   display: inline-flex;
-  padding: 0 6px;
+  padding: 0 var(--space-xs);
   height: 14px;
   align-items: center;
-  border-radius: 9999px;
-  font-size: 8.5px;
-  letter-spacing: 0.12em;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-lg);
   text-transform: uppercase;
 }
 .bstudio-broker-tag--warn {
-  background: color-mix(in srgb, gold 18%, transparent);
-  color: color-mix(in srgb, gold 80%, var(--ink));
-  border: 1px solid color-mix(in srgb, gold 40%, var(--border));
+  background: color-mix(in srgb, var(--amber) 18%, transparent);
+  color: color-mix(in srgb, var(--amber) 80%, var(--ink));
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--border));
 }
 .bstudio-broker-tag--err {
-  background: color-mix(in srgb, crimson 18%, transparent);
-  color: color-mix(in srgb, crimson 80%, var(--ink));
-  border: 1px solid color-mix(in srgb, crimson 40%, var(--border));
+  background: color-mix(in srgb, var(--red) 18%, transparent);
+  color: color-mix(in srgb, var(--red) 80%, var(--ink));
+  border: 1px solid color-mix(in srgb, var(--red) 40%, var(--border));
 }
 
 .bstudio-broker-body {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--ink);
   margin: 0;
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 /* — Tail event rows — */
 .bstudio-tail-rows {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .bstudio-tail-row {
   display: grid;
   grid-template-columns: max-content max-content max-content 1fr;
-  gap: 10px;
-  padding: 3px 8px;
+  gap: var(--space-md);
+  padding: var(--space-3xs) var(--space-sm);
   background: color-mix(in srgb, var(--surface) 30%, var(--bg));
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   align-items: baseline;
   animation: bstudio-row-in 260ms ease both;
 }
@@ -798,15 +798,15 @@
 .bstudio-tail-source { color: color-mix(in srgb, var(--accent) 60%, var(--ink)); }
 .bstudio-tail-kind {
   color: var(--muted);
-  padding: 1px 5px;
+  padding: 1px var(--space-2xs);
   background: color-mix(in srgb, var(--surface) 70%, var(--bg));
-  border-radius: 2px;
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-sm);
 }
 .bstudio-tail-row[data-kind="error"] .bstudio-tail-kind {
-  background: color-mix(in srgb, crimson 18%, transparent);
-  color: color-mix(in srgb, crimson 80%, var(--ink));
+  background: color-mix(in srgb, var(--red) 18%, transparent);
+  color: color-mix(in srgb, var(--red) 80%, var(--ink));
 }
 .bstudio-tail-body {
   color: var(--ink);
@@ -820,29 +820,29 @@
 .bstudio-plan-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 4%, transparent);
   animation: bstudio-row-in 320ms ease both;
 }
 .bstudio-plan-meta {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  font-size: 11px;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
 }
 .bstudio-plan-title { color: var(--ink); flex: 1; }
 .bstudio-plan-status {
-  font-size: 9.5px;
+  font-size: var(--text-2xs);
   color: var(--accent);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-sm);
 }
 .bstudio-plan-sub {
   display: inline-flex;
-  gap: 6px;
-  font-size: 10px;
+  gap: var(--space-xs);
+  font-size: var(--text-xs);
   color: var(--dim);
 }
 
@@ -850,60 +850,60 @@
 .bstudio-anom-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, gold 35%, var(--border));
-  background: color-mix(in srgb, gold 6%, transparent);
-  border-radius: 4px;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--border));
+  background: color-mix(in srgb, var(--amber) 6%, transparent);
+  border-radius: var(--radius-sm);
   animation: bstudio-row-in 320ms ease both;
 }
 .bstudio-anom-card--error {
-  border-color: color-mix(in srgb, crimson 40%, var(--border));
-  background: color-mix(in srgb, crimson 6%, transparent);
+  border-color: color-mix(in srgb, var(--red) 40%, var(--border));
+  background: color-mix(in srgb, var(--red) 6%, transparent);
 }
 
 .bstudio-anom-head {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
-.bstudio-anom-icon { color: gold; flex-shrink: 0; }
-.bstudio-anom-card--error .bstudio-anom-icon { color: crimson; }
+.bstudio-anom-icon { color: var(--amber); flex-shrink: 0; }
+.bstudio-anom-card--error .bstudio-anom-icon { color: var(--red); }
 .bstudio-anom-label {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--ink);
   font-weight: 500;
 }
 .bstudio-anom-severity {
   margin-left: auto;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: color-mix(in srgb, gold 70%, var(--ink));
+  letter-spacing: var(--tracking-xl);
+  color: color-mix(in srgb, var(--amber) 70%, var(--ink));
 }
 .bstudio-anom-card--error .bstudio-anom-severity {
-  color: color-mix(in srgb, crimson 70%, var(--ink));
+  color: color-mix(in srgb, var(--red) 70%, var(--ink));
 }
 
 .bstudio-anom-rows {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-left: 21px;
+  gap: var(--space-2xs);
+  padding-left: var(--space-3xl);
 }
 .bstudio-anom-row {
   display: grid;
   grid-template-columns: 56px 1fr;
-  gap: 8px;
-  font-size: 10.5px;
-  line-height: 1.4;
+  gap: var(--space-sm);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
 }
 .bstudio-anom-key {
   color: var(--dim);
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 9px;
-  padding-top: 2px;
+  letter-spacing: var(--tracking-xl);
+  font-size: var(--text-2xs);
+  padding-top: var(--space-3xs);
 }
 .bstudio-anom-val { color: var(--ink); }
 .bstudio-anom-val--action {
@@ -914,10 +914,10 @@
 /* — Synthesize sample (bars folding in) — */
 .bstudio-sample--synth {
   align-items: flex-start;
-  gap: 6px;
+  gap: var(--space-xs);
 }
 .bstudio-synth-copy {
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--muted);
   font-style: italic;
   margin: 0;
@@ -925,7 +925,7 @@
 .bstudio-synth-bars {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2xs);
   width: 100%;
   max-width: 380px;
 }
@@ -955,75 +955,75 @@
 .bstudio-brief {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 12px 0 4px;
+  gap: var(--space-xl);
+  padding: var(--space-lg) 0 var(--space-2xs);
   animation: bstudio-fade-in 320ms ease both;
 }
 
 .bstudio-brief-head {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding-bottom: 6px;
+  gap: var(--space-md);
+  padding-bottom: var(--space-xs);
   border-bottom: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
 }
 .bstudio-brief-eyebrow {
-  font-size: 9px;
-  letter-spacing: 0.18em;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xl);
   text-transform: uppercase;
   color: var(--accent);
 }
 .bstudio-brief-meta {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--dim);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-sm);
 }
 
-.bstudio-brief-list { display: flex; flex-direction: column; gap: 12px; }
+.bstudio-brief-list { display: flex; flex-direction: column; gap: var(--space-lg); }
 
 .bstudio-brief-line {
   display: grid;
   grid-template-columns: 14px 1fr;
-  gap: 10px;
+  gap: var(--space-md);
   align-items: flex-start;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
   color: var(--ink);
   animation: bstudio-row-in 320ms ease both;
 }
 .bstudio-brief-icon { color: var(--accent); transform: translateY(3px); }
-.bstudio-brief-line--warn { color: color-mix(in srgb, gold 70%, var(--ink)); }
-.bstudio-brief-line--err  { color: color-mix(in srgb, crimson 70%, var(--ink)); }
+.bstudio-brief-line--warn { color: color-mix(in srgb, var(--amber) 70%, var(--ink)); }
+.bstudio-brief-line--err  { color: color-mix(in srgb, var(--red) 70%, var(--ink)); }
 
 .bstudio-brief-line-body {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: var(--space-2xs);
   min-width: 0;
 }
 
 .bstudio-brief-refs {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-2xs);
 }
 
 .bstudio-brief-ref {
   display: inline-flex;
   align-items: center;
-  padding: 1px 7px;
+  padding: 1px var(--space-sm);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 9999px;
-  font-size: 9.5px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-2xs);
   color: var(--dim);
   background: color-mix(in srgb, var(--surface) 40%, var(--bg));
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-xs);
 }
 
 .bstudio-brief-actions {
   display: flex;
-  gap: 6px;
-  padding-top: 4px;
+  gap: var(--space-xs);
+  padding-top: var(--space-2xs);
 }
 
 /* ── Reduced motion ──────────────────────────────────────────── */

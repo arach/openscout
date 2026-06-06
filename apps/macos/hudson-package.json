@@ -1,0 +1,77 @@
+{
+  "macos": {
+    "productName": "OpenScout",
+    "packageJson": "../../package.json",
+    "distDir": "dist",
+    "minimumSystemVersion": "14.0",
+    "builds": [
+      {
+        "command": "swift",
+        "args": ["build", "-c", "release"],
+        "cwd": ".",
+        "env": {
+          "OPENSCOUT_HUDSON_SOURCE": "path"
+        }
+      }
+    ],
+    "signing": {
+      "identityEnv": "OPENSCOUT_SIGN_IDENTITY",
+      "notaryProfileEnv": "OPENSCOUT_NOTARY_PROFILE",
+      "requireIdentity": true
+    },
+    "apps": [
+      {
+        "name": "OpenScout",
+        "bundleName": "OpenScout.app",
+        "displayName": "OpenScout",
+        "product": "Scout",
+        "executableName": "Scout",
+        "binaryPath": ".build/release/Scout",
+        "infoPlist": "ScoutInfo.plist",
+        "bundleIdentifier": "com.openscout.scout",
+        "icon": "../../apps/desktop/public/scout-icon.png",
+        "embeddedHelpers": [
+          {
+            "name": "OpenScout Menu",
+            "bundleName": "OpenScout Menu.app",
+            "displayName": "OpenScout Menu",
+            "product": "OpenScoutMenu",
+            "executableName": "OpenScoutMenu",
+            "binaryPath": ".build/release/OpenScoutMenu",
+            "infoPlist": "Info.plist",
+            "bundleIdentifier": "com.openscout.menu",
+            "lsuiElement": true,
+            "icon": "../../apps/desktop/public/scout-icon.png",
+            "destination": "Contents/Library/LoginItems"
+          }
+        ]
+      }
+    ],
+    "dmg": {
+      "name": "OpenScout-${version}.dmg",
+      "latestName": "OpenScout.dmg",
+      "volumeName": "OpenScout",
+      "title": "OpenScout",
+      "subtitle": "Slack for agents",
+      "accent": "#B7F34A",
+      "backgroundColor": "#0B0F14",
+      "gridColor": "#263241",
+      "cornerBrackets": "all",
+      "bracketInset": 40,
+      "bracketLength": 20,
+      "bracketTop": 20,
+      "bracketBottomY": 348,
+      "bracketStroke": 1,
+      "shelfInset": 52,
+      "shelfTop": 196,
+      "installLabelY": 174,
+      "width": 680,
+      "height": 400,
+      "iconSize": 96,
+      "positions": [
+        { "name": "OpenScout.app", "x": 190, "y": 250 },
+        { "name": "Applications", "x": 500, "y": 250 }
+      ]
+    }
+  }
+}

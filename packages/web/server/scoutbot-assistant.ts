@@ -25,6 +25,7 @@ export type ScoutbotAssistantSession = ScoutbotAssistantSessionSummary & {
 export type ScoutbotAssistantConfig = {
   editable: true;
   model: string;
+  provider: ScoutbotAssistantProviderPreference;
   systemPrompt: string;
 };
 
@@ -127,6 +128,7 @@ export type ScoutbotAssistantContextSnapshot = {
 };
 
 export type ScoutbotBriefCall = {
+  provider: ScoutbotAssistantProvider;
   model: string;
   systemPrompt: string;
   operatorRequest: string;
@@ -193,10 +195,27 @@ type StoredSession = {
   createdAt: number;
   updatedAt: number;
   model: string;
+  responseProvider: ScoutbotAssistantProvider | null;
   previousResponseId: string | null;
   messages: ScoutbotAssistantMessage[];
   archivedAt: number | null;
 };
+
+export type ScoutbotAssistantProvider = "openai" | "codex";
+
+export type ScoutbotAssistantProviderPreference = "auto" | ScoutbotAssistantProvider;
+
+export type ScoutbotCodexAssistantInvocation = {
+  sessionId: string;
+  threadId?: string | null;
+  systemPrompt: string;
+  prompt: string;
+  timeoutMs?: number;
+};
+
+export type ScoutbotCodexAssistantInvoker = (
+  input: ScoutbotCodexAssistantInvocation,
+) => Promise<{ output: string; threadId: string }>;
 
 type OpenAIResponsePayload = {
   id?: unknown;
@@ -275,6 +294,7 @@ export function createScoutbotAssistantService(input: {
   currentDirectory: string;
   loadContext: (route?: unknown) => Promise<Record<string, unknown>> | Record<string, unknown>;
   resolveApiKey?: () => Promise<string | null | undefined> | string | null | undefined;
+  invokeCodex?: ScoutbotCodexAssistantInvoker;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
 }): ScoutbotAssistantService {
@@ -289,6 +309,7 @@ export function createScoutbotAssistantService(input: {
   ) ?? DEFAULT_MODEL;
   let systemPrompt = firstNonEmptyString(env.OPENSCOUT_SCOUTBOT_ASSISTANT_PROMPT)
     ?? DEFAULT_SYSTEM_PROMPT;
+  const providerPreference = normalizeProviderPreference(env.OPENSCOUT_SCOUTBOT_ASSISTANT_PROVIDER);
   const activeSessionLimit = clampInteger(
     env.OPENSCOUT_SCOUTBOT_ACTIVE_SESSION_LIMIT,
     DEFAULT_ACTIVE_SESSION_LIMIT,
@@ -334,7 +355,7 @@ export function createScoutbotAssistantService(input: {
       archivedCount: sessions.filter((session) => session.archivedAt !== null).length,
       totalCount: sessions.length,
     },
-    config: { editable: true, model, systemPrompt },
+    config: { editable: true, model, provider: providerPreference, systemPrompt },
   });
   const enforceSessionRetention = (): void => {
     const active = activeSessions();
@@ -380,13 +401,13 @@ export function createScoutbotAssistantService(input: {
   });
 
   return {
-    getConfig: () => ({ editable: true, model, systemPrompt }),
+    getConfig: () => ({ editable: true, model, provider: providerPreference, systemPrompt }),
     updateConfig: (next) => {
       const nextModel = next.model?.trim();
       const nextPrompt = next.systemPrompt?.trim();
       if (nextModel) model = nextModel;
       if (nextPrompt) systemPrompt = nextPrompt;
-      return { editable: true, model, systemPrompt };
+      return { editable: true, model, provider: providerPreference, systemPrompt };
     },
     getSessionState: snapshot,
     resetSession: () => {
@@ -420,22 +441,20 @@ export function createScoutbotAssistantService(input: {
         throw new ScoutbotAssistantError("body is required", 400);
       }
 
-      const apiKey = await resolveApiKey();
-      if (!apiKey) {
-        throw new ScoutbotAssistantError("An OpenAI API key is required for Scoutbot assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
-      }
-
       const session = ensureSession();
       const context = await contextSnapshot(route);
-
-      const response = await callOpenAIResponse({
-        apiKey,
-        baseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
+      const response = await callAssistantModel({
+        apiKey: await resolveApiKey(),
+        codexInvoker: input.invokeCodex,
+        providerPreference,
+        openAIBaseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
           ?? DEFAULT_OPENAI_BASE_URL,
         fetchImpl,
         model,
         systemPrompt,
-        previousResponseId: session.previousResponseId,
+        sessionId: session.id,
+        previousResponseId: session.responseProvider === "openai" ? session.previousResponseId : null,
+        threadId: session.responseProvider === "codex" ? session.previousResponseId : null,
         body: trimmed,
         context,
       });
@@ -462,6 +481,7 @@ export function createScoutbotAssistantService(input: {
       session.messages.splice(0, Math.max(0, session.messages.length - MAX_MESSAGES_PER_SESSION));
       session.updatedAt = assistantMessage.createdAt;
       session.model = model;
+      session.responseProvider = response.provider;
       session.previousResponseId = response.id ?? session.previousResponseId;
       if (session.title === "New Scout Session") {
         session.title = titleFromRequest(trimmed);
@@ -475,25 +495,25 @@ export function createScoutbotAssistantService(input: {
       };
     },
     createBrief: async ({ route, ttlMs, mode = "tour", onCaptured }) => {
-      const apiKey = await resolveApiKey();
-      if (!apiKey) {
-        throw new ScoutbotAssistantError("An OpenAI API key is required for Scoutbot assistant. Add one in Settings > Credentials or set OPENAI_API_KEY.", 503);
-      }
-
       const now = Date.now();
       const resolvedTtlMs = clampNumber(ttlMs ?? DEFAULT_BRIEF_TTL_MS, MIN_BRIEF_TTL_MS, MAX_BRIEF_TTL_MS);
       const context = await contextSnapshot(route);
       const resolvedSystemPrompt = briefSystemPrompt(systemPrompt, mode);
       const operatorRequest = briefOperatorRequest(resolvedTtlMs, mode);
       const analystStart = Date.now();
-      const response = await callOpenAIResponse({
+      const apiKey = await resolveApiKey();
+      const response = await callAssistantModel({
         apiKey,
-        baseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
+        codexInvoker: input.invokeCodex,
+        providerPreference,
+        openAIBaseUrl: firstNonEmptyString(env.OPENAI_BASE_URL, env.OPENSCOUT_OPENAI_BASE_URL)
           ?? DEFAULT_OPENAI_BASE_URL,
         fetchImpl,
         model,
         systemPrompt: resolvedSystemPrompt,
+        sessionId: `brief-${mode}`,
         previousResponseId: null,
+        threadId: null,
         body: operatorRequest,
         context,
       });
@@ -514,7 +534,7 @@ export function createScoutbotAssistantService(input: {
       // cadence. On failure we keep the derived narration and skip TTS
       // polish — the brief is still readable.
       let presenterTelemetry: BriefPresenterTelemetry | undefined;
-      if (brief.markdown) {
+      if (brief.markdown && response.provider === "openai" && apiKey) {
         const presenterStart = Date.now();
         if (!presenterRateGuardAllow(presenterStart)) {
           // SCO-037 step 6: cost cap. Don't burn the relay budget if briefs
@@ -589,6 +609,7 @@ export function createScoutbotAssistantService(input: {
           onCaptured({
             snapshot: context,
             call: {
+              provider: response.provider,
               model,
               systemPrompt: resolvedSystemPrompt,
               operatorRequest,
@@ -615,6 +636,87 @@ export class ScoutbotAssistantError extends Error {
 }
 
 const OPENAI_CALL_TIMEOUT_MS = 60_000;
+
+async function callAssistantModel(input: {
+  apiKey?: string | null;
+  codexInvoker?: ScoutbotCodexAssistantInvoker;
+  providerPreference: ScoutbotAssistantProviderPreference;
+  openAIBaseUrl: string;
+  fetchImpl: typeof fetch;
+  model: string;
+  systemPrompt: string;
+  sessionId: string;
+  previousResponseId: string | null;
+  threadId: string | null;
+  body: string;
+  context: ScoutbotAssistantContextSnapshot;
+}): Promise<{
+  provider: ScoutbotAssistantProvider;
+  id: string | null;
+  text: string;
+  usage: BriefTokenUsage | null;
+}> {
+  const apiKey = input.apiKey?.trim();
+  if (input.providerPreference !== "codex" && apiKey) {
+    const response = await callOpenAIResponse({
+      apiKey,
+      baseUrl: input.openAIBaseUrl,
+      fetchImpl: input.fetchImpl,
+      model: input.model,
+      systemPrompt: input.systemPrompt,
+      previousResponseId: input.previousResponseId,
+      body: input.body,
+      context: input.context,
+    });
+    return { provider: "openai", ...response };
+  }
+
+  if (input.providerPreference !== "openai" && input.codexInvoker) {
+    try {
+      const response = await callCodexResponse({
+        invokeCodex: input.codexInvoker,
+        sessionId: input.sessionId,
+        threadId: input.threadId,
+        systemPrompt: input.systemPrompt,
+        body: input.body,
+        context: input.context,
+      });
+      return { provider: "codex", id: response.threadId, text: response.output, usage: null };
+    } catch (error) {
+      if (error instanceof ScoutbotAssistantError) throw error;
+      throw new ScoutbotAssistantError(
+        `Local Codex fallback failed for Scoutbot assistant: ${errorMessage(error)}. Check that Codex is installed and signed in.`,
+        503,
+      );
+    }
+  }
+
+  if (input.providerPreference === "codex") {
+    throw new ScoutbotAssistantError("Codex is configured for Scoutbot assistant, but the local Codex runtime is not available.", 503);
+  }
+
+  throw new ScoutbotAssistantError(
+    "Scoutbot assistant needs either a local Codex runtime or an OpenAI API key. Install or sign in to Codex, or add OPENAI_API_KEY.",
+    503,
+  );
+}
+
+async function callCodexResponse(input: {
+  invokeCodex: ScoutbotCodexAssistantInvoker;
+  sessionId: string;
+  threadId: string | null;
+  systemPrompt: string;
+  body: string;
+  context: ScoutbotAssistantContextSnapshot;
+}): Promise<{ output: string; threadId: string }> {
+  return input.invokeCodex({
+    sessionId: input.sessionId,
+    threadId: input.threadId,
+    systemPrompt: input.systemPrompt,
+    prompt: buildAssistantUserPrompt(input.body, input.context),
+    timeoutMs: OPENAI_CALL_TIMEOUT_MS,
+  });
+}
 
 async function callOpenAIResponse(input: {
   apiKey: string;
@@ -650,12 +752,7 @@ async function callOpenAIResponse(input: {
             content: [
               {
                 type: "input_text",
-                text: [
-                  `Operator request:\n${input.body}`,
-                  "",
-                  "Current Scout control-plane snapshot:",
-                  JSON.stringify(input.context),
-                ].join("\n"),
+                text: buildAssistantUserPrompt(input.body, input.context),
               },
             ],
           },
@@ -1483,6 +1580,7 @@ function createSession(model: string): StoredSession {
     createdAt: now,
     updatedAt: now,
     model,
+    responseProvider: null,
     previousResponseId: null,
     messages: [],
     archivedAt: null,
@@ -1521,6 +1619,28 @@ function clampInteger(value: string | undefined | null, fallback: number, min: n
   const parsed = Number.parseInt(value ?? "", 10);
   if (!Number.isInteger(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
+}
+
+function normalizeProviderPreference(value: string | undefined | null): ScoutbotAssistantProviderPreference {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "openai" || normalized === "codex") return normalized;
+  return "auto";
+}
+
+function buildAssistantUserPrompt(
+  body: string,
+  context: ScoutbotAssistantContextSnapshot,
+): string {
+  return [
+    `Operator request:\n${body}`,
+    "",
+    "Current Scout control-plane snapshot:",
+    JSON.stringify(context),
+  ].join("\n");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function firstNonEmptyString(...values: Array<string | undefined | null>): string | undefined {

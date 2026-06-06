@@ -36,6 +36,7 @@ import {
   type ScoutInvocationLifecycle,
   type ScoutDeliverResponse,
   type ScoutDispatchRecord,
+  type ScoutProjectAgentSpec,
   type WakePolicy,
   type WorkItemRecord,
   type WorkItemState,
@@ -3810,6 +3811,7 @@ export async function deliverScoutAsk(input: {
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
+  projectAgent?: ScoutProjectAgentSpec;
   targetSessionId?: string;
   replyToSessionId?: string;
   currentDirectory?: string;
@@ -3884,6 +3886,7 @@ export async function deliverScoutAsk(input: {
       ...(targetSessionId ? { targetSessionId } : {}),
       session: input.executionSession ?? defaultAskExecutionSession(input.target),
     },
+    ...(input.projectAgent ? { projectAgent: input.projectAgent } : {}),
     ensureAwake: true,
     ...(labels ? { labels } : {}),
     messageMetadata: deliveryMetadata,
@@ -3936,6 +3939,7 @@ export async function askScoutQuestion(input: {
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
+  projectAgent?: ScoutProjectAgentSpec;
   targetSessionId?: string;
   replyToSessionId?: string;
   currentDirectory?: string;
@@ -3961,6 +3965,7 @@ export async function askScoutQuestion(input: {
     workspace: input.workspace,
     senderContext: input.senderContext,
     labels: input.labels,
+    projectAgent: input.projectAgent,
     targetSessionId: input.targetSessionId,
     replyToSessionId: input.replyToSessionId,
     currentDirectory: input.currentDirectory,

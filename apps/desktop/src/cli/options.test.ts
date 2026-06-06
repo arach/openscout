@@ -137,6 +137,37 @@ describe("parseAskCommandOptions", () => {
     expect(options.message).toBe("compare auth");
   });
 
+  test("infers the current project when only a harness is provided", () => {
+    const options = parseAskCommandOptions(
+      ["--harness", "codex", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.projectPath).toBe("/tmp/workspace");
+    expect(options.targetLabel).toBeUndefined();
+    expect(options.harness).toBe("codex");
+    expect(options.session).toBe("new");
+    expect(options.message).toBe("review this");
+  });
+
+  test("parses ask session preference flags", () => {
+    const options = parseAskCommandOptions(
+      ["--new", "--harness", "codex", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.projectPath).toBe("/tmp/workspace");
+    expect(options.session).toBe("new");
+  });
+
+  test("does not expose reuse as a CLI ask session preference", () => {
+    expect(() =>
+      parseAskCommandOptions(
+        ["--session", "reuse", "--harness", "codex", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("invalid session: reuse");
+  });
+
   test("accepts a composer project path target", () => {
     const options = parseAskCommandOptions(
       [">>", "project:../talkie", "compare", "auth"],
@@ -223,6 +254,19 @@ describe("parseImplicitAskCommandOptions", () => {
 
     expect(notify.replyMode).toBe("notify");
     expect(noWait.replyMode).toBe("none");
+  });
+
+  test("infers the current project for implicit harness-only asks", () => {
+    const options = parseImplicitAskCommandOptions(
+      ["--harness", "codex", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.projectPath).toBe("/tmp/workspace");
+    expect(options.targetLabel).toBeUndefined();
+    expect(options.harness).toBe("codex");
+    expect(options.session).toBe("new");
+    expect(options.message).toBe("review this");
   });
 
   test("extracts a target agent from the composer route operator", () => {

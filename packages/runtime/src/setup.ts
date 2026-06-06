@@ -21,6 +21,7 @@ import {
 } from "@openscout/protocol";
 
 import { ensureHarnessCatalogOverrideFile } from "./harness-catalog.js";
+import { upsertManagedInstall } from "./managed-installs.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
@@ -310,6 +311,7 @@ export type SetupResult = {
   settingsPath: string;
   harnessCatalogPath: string;
   relayAgentsPath: string;
+  managedInstallsPath: string;
   relayHubPath: string;
   currentProjectConfigPath: string | null;
   createdProjectConfig: boolean;
@@ -794,6 +796,7 @@ function resolveWorkspaceQualifier(projectRoot: string): { workspaceQualifier: s
   const normalizedProjectRoot = normalizePath(projectRoot);
   const branch = detectGitBranch(normalizedProjectRoot);
   const workspaceQualifier = branch ? normalizeAgentSelectorSegment(branch) : "";
+
   return {
     workspaceQualifier,
     branch,
@@ -1606,6 +1609,10 @@ async function normalizeSettingsRecord(
   const telegramSecretToken = normalizeOptionalString(telegram.secretToken) || seededTelegramSecretToken;
   const telegramApiBaseUrl = normalizeOptionalString(telegram.apiBaseUrl) || seededTelegramApiBaseUrl;
   const telegramUserName = normalizeOptionalString(telegram.userName) || seededTelegramUserName;
+  const defaultHarness = normalizeHarness(
+    typeof agents.defaultHarness === "string" ? agents.defaultHarness : undefined,
+    base.agents.defaultHarness,
+  );
 
   return {
     version: SETTINGS_VERSION,
@@ -1635,11 +1642,12 @@ async function normalizeSettingsRecord(
       hiddenProjectRoots,
     },
     agents: {
-      defaultHarness: normalizeHarness(
-        typeof agents.defaultHarness === "string" ? agents.defaultHarness : undefined,
-        base.agents.defaultHarness,
+      defaultHarness,
+      defaultTransport: normalizeTransport(
+        typeof agents.defaultTransport === "string" ? agents.defaultTransport : undefined,
+        defaultHarness,
+        base.agents.defaultTransport,
       ),
-      defaultTransport: DEFAULT_TRANSPORT,
       defaultCapabilities: normalizeCapabilities(agents.defaultCapabilities),
       sessionPrefix: normalizeSessionPrefix(typeof agents.sessionPrefix === "string" ? agents.sessionPrefix : undefined),
       coreAgents: normalizeStringList(agents.coreAgents),
@@ -1908,6 +1916,20 @@ export async function installScoutSkillToHarnesses(): Promise<ScoutSkillInstallR
     try {
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, content, "utf8");
+      await upsertManagedInstall({
+        kind: "skill",
+        owner: "openscout",
+        name: "scout-skill",
+        title: "Scout harness skill",
+        status: "active",
+        harness,
+        targetPath: target,
+        sourcePath: source,
+        uninstall: {
+          strategy: "delete-target",
+          notes: "Remove this skill file from the harness skill directory.",
+        },
+      });
       entries.push({ harness, target, status: "installed" });
     } catch (error) {
       entries.push({
@@ -2897,6 +2919,7 @@ export async function loadResolvedRelayAgents(options: {
     settingsPath: supportPaths.settingsPath,
     harnessCatalogPath: supportPaths.harnessCatalogPath,
     relayAgentsPath: supportPaths.relayAgentsRegistryPath,
+    managedInstallsPath: supportPaths.managedInstallsPath,
     relayHubPath: supportPaths.relayHubDirectory,
     currentProjectConfigPath: currentProjectConfig.projectConfigPath,
     createdProjectConfig: currentProjectConfig.created,

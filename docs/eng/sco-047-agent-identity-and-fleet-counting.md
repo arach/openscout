@@ -64,7 +64,7 @@ The supporting nouns are:
 | --- | --- |
 | **Project** | Grouping context for workspaces, code, and default agent definitions. It is not the addressee. |
 | **Agent** | Durable named/addressable identity the operator can route to, inspect, configure, or manage. |
-| **Agent card** | The explicit identity and capability document for one addressable agent. Persistent cards may admit top-level agents; one-time cards are disposable reply/session helpers unless explicitly promoted. |
+| **Agent card** | The explicit identity, settings, and capability document for one addressable agent. Persistent cards may admit top-level agents; one-time cards are disposable reply/session helpers unless explicitly promoted. |
 | **Session** | One running instantiation of an agent in a harness conversation, process, or thread. |
 | **Endpoint** | A routable attachment between an agent identity and a concrete session, transport, or node. |
 | **Harness** | The execution backend for a session, such as Codex, Claude, or Pi. |
@@ -85,9 +85,65 @@ default.
 Endpoints route to sessions. Endpoints do not become new top-level agents by
 default.
 
+Agent cards are durable settings, not cached sessions. A card may become
+**invalid** when its setting is no longer true, for example the project path is
+gone, the configured harness or model is unavailable, or the permission/profile
+configuration cannot run. A stale or superseded session/endpoint does not make
+the card stale. It only means the broker must choose, start, attach, resume, or
+diagnose a runtime context for that still-valid identity.
+
 Node, harness, model, workspace, and profile qualifiers disambiguate and route
 an agent. They only create separate top-level agents when the configuration or
 card explicitly says those qualified identities are distinct managed agents.
+
+## 2026-06-04 Amendment: Cards, Sessions, Endpoints, And Messaging Intent
+
+Do not expose "stale card" as a normal product concept.
+
+The product model is:
+
+- **Agent card** = durable setting and addressable identity.
+- **Session** = disposable or resumable runtime context.
+- **Endpoint** = internal route from an identity to one concrete session.
+- **Send** = message/update into a conversation, channel, or agent DM.
+- **Ask** = owned work that creates invocation and flight lifecycle.
+- **Attach/continue** = explicit prior-session intent.
+
+Runtime reuse is an optimization, not identity. When an operator or agent sends
+to an agent card, Scout may reuse a compatible live session for latency,
+context, or cost, but it may also start a fresh session when that is cheaper or
+clearer. A dead, replaced, or superseded endpoint should not block ordinary
+card-targeted messaging when the card settings are still valid and a compatible
+session can be created.
+
+When the caller wants one exact prior context, the request must name the
+session, for example with `targetSessionId` or a `session:<id>` route. That path
+should be described as attaching to, continuing, resuming, or forking from a
+session. If the exact session cannot be reached, the error should be phrased in
+session terms and offer a next step such as starting fresh or forking from a
+saved state.
+
+`metadata.staleLocalRegistration=true` is therefore diagnostic runtime
+metadata. It means a stored local registration or endpoint has been superseded
+by the current setup; it does not mean the durable card setting is stale. Normal
+views should hide or group those records. Diagnostic views may label them as
+"superseded endpoint" or "historical registration" and show
+`replacedByAgentId` when available.
+
+Use card validity language only for durable configuration failures:
+
+- **Invalid configuration** when the path, harness, model, profile, or required
+  local dependency cannot satisfy the card.
+- **Unavailable** when a valid card cannot currently be run because a required
+  provider or machine is not reachable.
+- **Session reference not attachable** when an exact prior session was requested
+  but Scout cannot load, parse, or resolve the session reference needed to attach.
+- **Session not currently reachable** when the reference is usable, but Scout
+  cannot confirm a live provider, harness process, or transport for it.
+- **Session terminal** only when a harness or provider reports an explicit
+  stopped, closed, cancelled, or completed terminal state.
+- **Superseded endpoint** for internal or diagnostic runtime rows replaced by a
+  newer registration.
 
 ## Counting Model
 
@@ -185,6 +241,7 @@ It should derive at least:
 - `registrationSource`: `manual` | `manifest` | `generated` | `unknown`
 - `recordKind`: `agent_identity` | `session_instance` | `endpoint_attachment` | `node_mirror` | `stale_registration`
 - `cardLifecycle`: `persistent` | `one_time` | `none`
+- `cardValidity`: `valid` | `invalid_configuration` | `unavailable` | `unknown`
 - `nodeRole`: `local_authority` | `remote_authority` | `mirrored` | `unknown`
 - `actionability`: `active` | `idle` | `waiting` | `wakeable` | `offline` | `unknown`
 - `isTopLevelFleetAgent`
@@ -258,6 +315,14 @@ Add a deliberate diagnostic affordance for raw rows and stale registrations.
 This keeps the engineering data visible without forcing every operator-facing
 view to explain historical storage rows.
 
+Diagnostics should use runtime language for runtime rows. Prefer labels such as
+"superseded endpoint", "historical registration", "session reference not
+attachable", or "session not currently reachable". Use terminal session language
+only when a harness or provider reports an explicit stopped, closed, cancelled,
+or completed state. Do not label a durable card as stale unless the card
+settings themselves are invalid, and in that case prefer "invalid
+configuration".
+
 ### 7. Backfill Or Retire Stale Rows Deliberately
 
 Do not bulk-delete stale local registrations as the first fix.
@@ -266,6 +331,19 @@ After readers are corrected, add a lifecycle pass that can safely mark old
 `staleLocalRegistration` rows as `retiredFromFleet` when a newer durable
 identity supersedes them. This should be a compaction/cleanup improvement, not
 the only thing preventing bad counts.
+
+### 8. Keep Send, Ask, And Session Continuation Distinct
+
+Audit routing and UI paths that send to an agent card or label. Ordinary
+`send` and `ask` calls should target the durable identity and let the broker
+reuse, start, or attach a compatible runtime session. They should not fail
+because the most recent endpoint registration was superseded when the card
+configuration is still valid.
+
+Only exact session requests, such as `targetSessionId` or `session:<id>`, should
+be blocked by inability to load the session reference or reach that exact prior
+context. Those failures should offer session-shaped remedies: start fresh,
+attach a live session, or fork from a saved state.
 
 ## Acceptance Criteria
 
@@ -279,6 +357,16 @@ the only thing preventing bad counts.
   configured top-level agents unless promoted.
 - A session, endpoint, node mirror, harness qualifier, or model qualifier does
   not create a top-level agent without explicit admission.
+- Main views and ordinary messaging flows do not present "stale card" as a
+  user-facing state. They use invalid configuration, unavailable, session
+  reference not attachable, session not currently reachable, terminal session,
+  or superseded endpoint according to the layer that failed and the evidence
+  available.
+- Sending or asking by durable agent card can create or choose a compatible
+  session when no exact session was requested and the card settings are valid.
+- Exact session continuation uses explicit session ids and fails in session
+  language when the reference cannot be loaded or the requested context cannot
+  be reached.
 - Tests cover at least one fixture with configured agents, stale registrations,
   endpoint-backed sessions, one-time cards, persistent cards, remote-authority
   rows, and node mirror rows.
@@ -312,6 +400,9 @@ the only thing preventing bad counts.
 
 - [`docs/glossary.md`](../glossary.md)
 - [`docs/agent-identity.md`](../agent-identity.md)
+- [`docs/runtime-sessions.md`](../runtime-sessions.md)
 - [`sco-004-addressable-identities-and-session-bindings-proposal.md`](./sco-004-addressable-identities-and-session-bindings-proposal.md)
 - [`sco-036-agent-state-vocabulary.md`](./sco-036-agent-state-vocabulary.md)
 - [`sco-046-cross-machine-agent-ui-spec.md`](./sco-046-cross-machine-agent-ui-spec.md)
+- [`sco-049-session-forking-and-excellent-session-states.md`](./sco-049-session-forking-and-excellent-session-states.md)
+- [`sco-060-comms-channel-primitive-and-adapter-destinations.md`](./sco-060-comms-channel-primitive-and-adapter-destinations.md)

@@ -27,7 +27,7 @@
   right: 4px;
   width: 1px;
   background: color-mix(in srgb, var(--ink, #fff) 14%, transparent);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   opacity: 1;              /* faintly visible always — users can see the edge */
   transition: background 120ms ease-out, top 120ms ease-out, bottom 120ms ease-out, width 120ms ease-out;
 }

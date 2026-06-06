@@ -226,6 +226,12 @@ function resolveAskProjectPath(
   return trimmed ? resolve(currentDirectory, trimmed) : undefined;
 }
 
+function shouldInferCurrentProjectAskTarget(
+  command: ScoutAskCommand,
+): boolean {
+  return Boolean(command.harness || command.workspace || command.session);
+}
+
 function isProjectRouteTarget(to: string): boolean {
   const parsed = parseScoutComposerRouteTarget(to);
   return parsed?.kind === "project_path";
@@ -256,6 +262,17 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     currentDirectory,
   );
   const requestedTo = command.to?.trim() || "";
+  const inferredProjectPath =
+    !requestedTo && !commandProjectPath && shouldInferCurrentProjectAskTarget(command)
+      ? currentDirectory
+      : undefined;
+  const targetProjectPath = commandProjectPath ?? inferredProjectPath;
+  const projectAgent =
+    targetProjectPath
+    && !requestedTo
+    && (inferredProjectPath || command.session === "new")
+      ? { persistence: "one_time" as const }
+      : undefined;
   if (requestedTo && commandProjectPath) {
     return {
       ok: false,
@@ -280,7 +297,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
   }
   const resolvedTarget = askResolvedTargetFor({
     to: requestedTo,
-    projectPath: commandProjectPath,
+    projectPath: targetProjectPath,
   });
   if (!resolvedTarget) {
     return {
@@ -314,6 +331,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     executionSession: executionSessionForAsk(command.session),
     workspace: command.workspace,
     senderContext,
+    projectAgent,
     currentDirectory,
     source: command.source ?? "scout-ask",
   });

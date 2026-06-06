@@ -102,6 +102,35 @@ describe("tail transcript sources", () => {
     expect(event?.summary).toBe("hello from claude");
   });
 
+  test("does not turn Claude workflow journals into session transcripts", () => {
+    const projectDir = join(process.env.OPENSCOUT_TAIL_CLAUDE_PROJECTS_ROOT!, "-Users-arach-dev-openscout");
+    const workflowDir = join(projectDir, "claude-session", "subagents", "workflows", "wf_fixture");
+    mkdirSync(workflowDir, { recursive: true });
+    const transcriptPath = join(projectDir, "claude-session.jsonl");
+    writeFileSync(
+      transcriptPath,
+      JSON.stringify({
+        type: "system",
+        timestamp: "2026-04-27T15:00:00.000Z",
+        session_id: "claude-session",
+        cwd: "/Users/arach/dev/openscout",
+      }) + "\n",
+      "utf8",
+    );
+    writeFileSync(
+      join(workflowDir, "journal.jsonl"),
+      [
+        JSON.stringify({ type: "started", agentId: "a111" }),
+        JSON.stringify({ type: "result", agentId: "a111", result: { ok: true } }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const transcripts = ClaudeSource.discoverTranscripts([]);
+    expect(transcripts.map((transcript) => transcript.sessionId)).toEqual(["claude-session"]);
+    expect(transcripts.some((transcript) => transcript.transcriptPath.endsWith("journal.jsonl"))).toBe(false);
+  });
+
   test("discovers and parses Codex rollout files without process discovery", () => {
     const sessionDir = join(process.env.OPENSCOUT_TAIL_CODEX_SESSIONS_ROOT!, "2026", "04", "27");
     mkdirSync(sessionDir, { recursive: true });

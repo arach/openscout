@@ -1,23 +1,23 @@
 .pa-panel {
-  padding: 12px 10px;
+  padding: var(--space-lg) var(--space-md);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-2xl);
   font-family: var(--font-mono);
 }
 
 .pa-group {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-3xs);
 }
 
 .pa-group-title {
-  font-size: 9px;
-  letter-spacing: 0.22em;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xl);
   text-transform: uppercase;
   color: var(--dim);
-  padding: 0 6px 4px;
+  padding: 0 var(--space-xs) var(--space-2xs);
 }
 
 .pa-row {
@@ -28,12 +28,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: 3px;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   color: var(--ink);
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: background 100ms ease;
 }
@@ -53,7 +53,7 @@
 }
 
 .pa-row-count {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--dim);
   font-variant-numeric: tabular-nums;
 }
@@ -64,9 +64,9 @@
 
 .pa-chips {
   display: flex;
-  gap: 4px;
+  gap: var(--space-2xs);
   flex-wrap: wrap;
-  padding: 0 4px;
+  padding: 0 var(--space-2xs);
 }
 
 .pa-chip {
@@ -75,9 +75,9 @@
   background: transparent;
   color: var(--ink);
   font-family: inherit;
-  font-size: 10.5px;
-  padding: 3px 8px;
-  border-radius: 2px;
+  font-size: var(--text-sm);
+  padding: var(--space-2xs) var(--space-sm);
+  border-radius: var(--radius-xs);
   cursor: pointer;
   transition: background 100ms ease, border-color 100ms ease;
 }
