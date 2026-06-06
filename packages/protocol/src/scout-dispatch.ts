@@ -37,12 +37,17 @@ export type ScoutRouteTarget =
 export interface ScoutRoutePolicy {
   preferLocalNodeId?: ScoutId;
   ambiguous?: ScoutRouteAmbiguousPolicy;
+  allowHistoricalDirectId?: boolean;
+  /** @deprecated use allowHistoricalDirectId */
   allowStaleDirectId?: boolean;
 }
 
 export type ScoutDispatchUnavailableReason =
   | "manual_wake_required"
   | "retired"
+  | "superseded_registration"
+  | "session_reference_not_attachable"
+  /** @deprecated use superseded_registration or session_reference_not_attachable */
   | "stale_registration"
   | "unknown";
 

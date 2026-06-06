@@ -2103,7 +2103,7 @@ export async function sendScoutDirectMessage(input: {
   const source = input.source?.trim() || "scout-mobile";
   const targetEndpoints = Object.values(broker.snapshot.endpoints ?? {})
     .filter((endpoint) => endpoint.agentId === input.agentId);
-  const targetIsStale = isSupersededBrokerAgent(broker.snapshot, input.agentId)
+  const targetIsSuperseded = isSupersededBrokerAgent(broker.snapshot, input.agentId)
     || (
       targetEndpoints.length > 0
       && targetEndpoints.every((endpoint) => (
@@ -2111,9 +2111,9 @@ export async function sendScoutDirectMessage(input: {
         || metadataBoolean(endpoint.metadata, "staleLocalRegistration")
       ))
     );
-  if (targetIsStale) {
+  if (targetIsSuperseded) {
     throw new Error(
-      `${displayNameForBrokerActor(broker.snapshot, input.agentId)} is a stale local registration. Start the current project session from Workspaces before sending.`,
+      `${displayNameForBrokerActor(broker.snapshot, input.agentId)} is a superseded local registration. Start the current project session from Workspaces before sending.`,
     );
   }
   const delivery = await brokerPostDeliver(broker.baseUrl, {

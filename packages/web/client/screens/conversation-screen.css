@@ -764,7 +764,7 @@ button.s-thread-msg-actor:focus-visible {
   font-family: var(--font-mono);
 }
 
-.s-thread-msg-kind--stale {
+.s-thread-msg-kind--quiet {
   border-color: color-mix(in srgb, var(--amber) 35%, var(--border));
   background: color-mix(in srgb, var(--amber) 8%, var(--bg));
   color: var(--amber);
@@ -899,7 +899,7 @@ button.s-thread-msg-actor:focus-visible {
   background: color-mix(in srgb, var(--green) 2%, var(--surface));
 }
 
-.s-thread-msg-working-card--stale {
+.s-thread-msg-working-card--quiet {
   border-color: color-mix(in srgb, var(--amber) 26%, var(--border));
   background: color-mix(in srgb, var(--amber) 4%, var(--surface));
 }
@@ -931,7 +931,7 @@ button.s-thread-msg-actor:focus-visible {
   min-width: 0;
 }
 
-.s-thread-turn-snapshot--stale .s-thread-msg-working-copy {
+.s-thread-turn-snapshot--quiet .s-thread-msg-working-copy {
   color: color-mix(in srgb, var(--amber) 78%, var(--ink));
 }
 
@@ -955,7 +955,7 @@ button.s-thread-msg-actor:focus-visible {
   animation: s-thread-turn-pulse 1.8s ease-out infinite;
 }
 
-.s-thread-turn-snapshot-pulse--stale {
+.s-thread-turn-snapshot-pulse--quiet {
   background: var(--amber);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 12%, transparent);
 }
@@ -986,7 +986,7 @@ button.s-thread-msg-actor:focus-visible {
   border-top: 1px solid color-mix(in srgb, var(--green) 12%, transparent);
 }
 
-.s-thread-msg-working-card--stale .s-thread-turn-snapshot-stats {
+.s-thread-msg-working-card--quiet .s-thread-turn-snapshot-stats {
   border-top-color: color-mix(in srgb, var(--amber) 18%, transparent);
 }
 
@@ -1043,7 +1043,7 @@ button.s-thread-msg-actor:focus-visible {
   animation-delay: 0.3s;
 }
 
-.s-thread-stale-indicator {
+.s-thread-no-recent-update-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -1053,7 +1053,7 @@ button.s-thread-msg-actor:focus-visible {
   opacity: 0.85;
 }
 
-.s-thread-stale-indicator--gone {
+.s-thread-no-recent-update-indicator--gone {
   background: var(--muted);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 12%, transparent);
 }
@@ -1110,7 +1110,7 @@ button.s-thread-msg-actor:focus-visible {
   white-space: nowrap;
 }
 
-.s-thread-presence-line--stale .s-thread-presence-line-label {
+.s-thread-presence-line--quiet .s-thread-presence-line-label {
   color: color-mix(in srgb, var(--amber) 72%, var(--muted));
 }
 
@@ -1129,7 +1129,7 @@ button.s-thread-msg-actor:focus-visible {
   animation: s-thread-thinking-strip 2s ease-in-out infinite;
 }
 
-.s-thread-presence-strip--stale {
+.s-thread-presence-strip--quiet {
   background: color-mix(in srgb, var(--amber) 70%, transparent);
   background-size: auto;
   animation: none;
@@ -1748,20 +1748,12 @@ details[open] > .s-thread-meta-toggle::before {
   border-color: color-mix(in srgb, var(--green) 20%, var(--border));
 }
 
-.s-thread-status--stale {
-  border-color: color-mix(in srgb, var(--amber) 22%, var(--border));
-}
-
 .s-thread-status-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
   animation: s-thread-sidebar-pulse 1.5s ease-in-out infinite;
-}
-
-.s-thread-status--stale .s-thread-status-dot {
-  animation: none;
 }
 
 .s-thread-status-copy {

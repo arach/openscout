@@ -147,7 +147,7 @@ function MeshHud({
           {loading
             ? "Loading…"
             : error && hasMesh
-              ? `Stale — ${lastLoadedAt ? timeAgo(lastLoadedAt) : "unknown"}`
+              ? `Last sync old — ${lastLoadedAt ? timeAgo(lastLoadedAt) : "unknown"}`
               : lastLoadedAt
                 ? timeAgo(lastLoadedAt)
                 : "—"}

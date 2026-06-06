@@ -2054,7 +2054,7 @@ function staleLocalEndpointReason(endpoint: AgentEndpoint | null): string | null
   const replacement = typeof replacementAgentId === "string" && replacementAgentId.trim().length > 0
     ? `; replacement agent is ${replacementAgentId.trim()}`
     : "";
-  return `endpoint ${endpoint.id} is a stale local registration superseded by current setup${replacement}`;
+  return `endpoint ${endpoint.id} is a superseded local registration replaced by current setup${replacement}`;
 }
 
 function staleLocalAgentReason(
@@ -2082,7 +2082,7 @@ function staleLocalAgentReason(
   const replacement = replacementAgentId
     ? `; replacement agent is ${replacementAgentId}`
     : "";
-  return `agent ${agent.id} is a stale local registration superseded by current setup${replacement}`;
+  return `agent ${agent.id} is a superseded local registration replaced by current setup${replacement}`;
 }
 
 function flightDispatchEndpointId(flight: FlightRecord): string | null {
@@ -2553,19 +2553,19 @@ function describeUnavailableDeliveryTarget(
   agent: AgentDefinition,
   targetSessionId?: string,
 ): ScoutDispatchUnavailableTarget | null {
-  const staleReason = targetSessionId
+  const supersededReason = targetSessionId
     ? staleLocalAgentReason(snapshot, agent)
     : agent.metadata?.staleLocalRegistration === true
     ? staleLocalAgentReason(snapshot, agent)
     : null;
-  if (staleReason) {
+  if (supersededReason) {
     const endpoint = latestEndpointForAgent(snapshot, agent.id);
     const projectRoot = brokerTargetProjectRoot(agent, endpoint);
     return {
       agentId: agent.id,
       displayName: agent.displayName ?? agent.id,
-      reason: "stale_registration",
-      detail: staleReason,
+      reason: targetSessionId ? "session_reference_not_attachable" : "superseded_registration",
+      detail: supersededReason,
       wakePolicy: agent.wakePolicy,
       endpointState: endpoint?.state === "active" || endpoint?.state === "idle" || endpoint?.state === "waiting"
         ? "online"
@@ -2796,7 +2796,7 @@ function staleWorkingFlightReason(
   }
   if (agent?.metadata?.staleLocalRegistration === true) {
     return staleLocalEndpointReason(latestEndpointForAgent(snapshot, flight.targetAgentId))
-      ?? `target agent ${flight.targetAgentId} is a stale local registration superseded by current setup`;
+      ?? `target agent ${flight.targetAgentId} is a superseded local registration replaced by current setup`;
   }
 
   const dispatchEndpointReason = flightDispatchEndpointUnavailableReason(snapshot, flight);
@@ -3404,11 +3404,11 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
       state: "offline",
       metadata: {
         ...staleLocalRegistrationMetadata(endpoint.metadata, staleAt, replacementAgentId),
-        lastError: "stale local agent registration superseded by current setup",
+        lastError: "superseded local agent registration replaced by current setup",
         lastFailedAt: staleAt,
       },
     });
-    console.log(`[openscout-runtime] archived stale local endpoint ${endpoint.id}`);
+    console.log(`[openscout-runtime] archived superseded local endpoint ${endpoint.id}`);
   }
 }
 
@@ -3982,7 +3982,7 @@ function describeRemoteAuthorityIssue(
   const projectRoot = brokerTargetProjectRoot(agent, endpoint);
   const detail = unavailable
     ? `${displayName} belongs to peer node ${nodeLabel}, but that peer has no reachable broker URL or mesh entrypoint.`
-    : `${displayName} belongs to peer node ${nodeLabel}, but that peer is stale (${formatMeshNodeLastSeen(authorityNode)}).`;
+    : `${displayName} belongs to peer node ${nodeLabel}, but that peer has not been seen recently (${formatMeshNodeLastSeen(authorityNode)}).`;
 
   return {
     agentId: agent.id,
@@ -7025,8 +7025,10 @@ function remediationForDispatch(
     return {
       kind: dispatch.target?.reason === "manual_wake_required"
         ? "wake_target"
-        : dispatch.target?.reason === "stale_registration"
-        ? "stale_reference"
+        : dispatch.target?.reason === "session_reference_not_attachable"
+        ? "session_reference_not_attachable"
+        : dispatch.target?.reason === "superseded_registration" || dispatch.target?.reason === "stale_registration"
+        ? "use_current_registration"
         : "retry_later",
       detail: dispatch.target?.detail ?? dispatch.detail,
       targetAgentId: dispatch.target?.agentId,
