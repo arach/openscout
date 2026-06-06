@@ -43,9 +43,9 @@ export function stateColor(state: string | null): string {
   switch (normalizeAgentState(state)) {
     case "working":
       return "var(--green)";
-    case "available":
+    case "ready":
       return "var(--accent)";
-    default:
+    case "not_ready":
       return "var(--dim)";
   }
 }

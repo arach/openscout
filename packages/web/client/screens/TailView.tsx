@@ -239,6 +239,70 @@ function matchesFilter(
   return terms.some((term) => haystack.includes(term));
 }
 
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? "";
+  } catch {
+    return String(value);
+  }
+}
+
+function tailMetadataText(event: TailEvent): string {
+  const rows = [
+    ["time", formatFullTime(event.ts)],
+    ["kind", event.kind],
+    ["project", event.project],
+    ["cwd", event.cwd || "—"],
+    ["session", event.sessionId || "—"],
+    ["source", displayHarness(event.source)],
+    ["origin", ATTRIBUTION_LABEL[event.harness]],
+    ["pid", event.parentPid != null ? `${event.pid} <- ${event.parentPid}` : String(event.pid)],
+  ];
+  return rows.map(([key, value]) => `${key}: ${value}`).join("\n");
+}
+
+function tailDetailSnapshot(event: TailEvent) {
+  const harnessLabel = displayHarness(event.source);
+  const originLabel = ATTRIBUTION_LABEL[event.harness];
+  const raw = safeJson(event.raw ?? event);
+  const metadata = [
+    { label: "Time", value: formatFullTime(event.ts) },
+    { label: "Kind", value: event.kind },
+    { label: "Project", value: event.project },
+    { label: "Cwd", value: event.cwd || "—" },
+    { label: "Session", value: event.sessionId || "—" },
+    { label: "Source", value: harnessLabel },
+    { label: "Origin", value: originLabel },
+    {
+      label: "Pid",
+      value: event.parentPid != null ? `${event.pid} <- ${event.parentPid}` : String(event.pid),
+    },
+  ];
+  return {
+    source: "tail",
+    focus: "item",
+    title: `${event.kind} · ${harnessLabel}`,
+    meta: `${formatFullTime(event.ts)} · ${event.project} · ${shortSession(event.sessionId)}`,
+    body: event.summary,
+    metadata,
+    copy: [
+      { label: "Copy message", value: event.summary },
+      { label: "Copy metadata", value: tailMetadataText(event) },
+      { label: "Copy raw", value: raw },
+    ],
+    action: event.sessionId
+      ? { label: "Open session", route: { view: "sessions", sessionId: event.sessionId } }
+      : null,
+  };
+}
+
+function publishOpsDetail(detail: unknown) {
+  if (typeof window === "undefined") return;
+  const target = window as typeof window & { scoutOpsDetailSnapshot?: unknown };
+  target.scoutOpsDetailSnapshot = detail;
+  window.dispatchEvent(new CustomEvent("scout:ops-detail", { detail }));
+}
+
 export function TailView({
   navigate,
   initialFilter,
@@ -294,7 +358,7 @@ export function TailView({
     void (async () => {
       try {
         const params = new URLSearchParams({ limit: String(DEFAULT_RECENT_LIMIT) });
-        if (embedded) {
+        if (embedded || initialFilter) {
           params.set("transcripts", "true");
         }
         const result = await api<{ events: TailEvent[] }>(
@@ -308,7 +372,13 @@ export function TailView({
     return () => {
       cancelled = true;
     };
-  }, [embedded]);
+  }, [embedded, initialFilter]);
+
+  useEffect(() => {
+    if (embedded) return;
+    publishOpsDetail(selected ? tailDetailSnapshot(selected) : null);
+    return () => publishOpsDetail(null);
+  }, [embedded, selected]);
 
   const loadDiscovery = useCallback(async () => {
     try {
@@ -618,7 +688,7 @@ export function TailView({
         </div>
       )}
 
-      {selected && (
+      {embedded && selected && (
         <TailDetailSheet
           event={selected}
           onClose={() => setSelected(null)}

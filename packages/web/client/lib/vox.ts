@@ -122,6 +122,17 @@ export type VoxLaunchContext = {
 const DEFAULT_VOX_BRIDGE = "http://127.0.0.1:43115";
 const VOX_CLIENT_ID = "openscout-web";
 
+export function shouldAutoProbeVoxBridge(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  // The browser-side Vox bridge is local HTTP. Probing it automatically from an
+  // HTTPS Scout page downgrades Chrome's page security state even though the
+  // Scout document and assets are served securely.
+  return window.location.protocol !== "https:";
+}
+
 export class VoxBrowserClient {
   private state: VoxConnectionState = "unknown";
   private unavailableReason: string | null = null;

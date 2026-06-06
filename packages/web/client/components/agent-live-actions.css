@@ -78,6 +78,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-xs);
   padding: 0 var(--space-md);
   border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
   border-radius: var(--radius-lg);
@@ -97,16 +98,31 @@
     color 140ms ease;
 }
 
+.agent-live-actions-button svg {
+  flex: none;
+}
+
 .agent-live-actions-button:hover {
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--ink);
 }
 
+.agent-live-actions-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 52%, transparent);
+  outline-offset: 2px;
+}
+
 .agent-live-actions-button--primary {
   border-color: color-mix(in srgb, var(--accent) 38%, transparent);
   background: color-mix(in srgb, var(--accent) 13%, var(--surface));
   color: var(--accent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
+}
+
+.agent-live-actions-button--primary:hover {
+  border-color: color-mix(in srgb, var(--accent) 56%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
 }
 
 .agent-live-actions--compact .agent-live-actions-buttons {
@@ -117,6 +133,11 @@
   min-height: 26px;
   padding: 0 var(--space-sm);
   font-size: var(--text-2xs);
+}
+
+.agent-live-actions--compact .agent-live-actions-button--primary {
+  flex: 1 1 100%;
+  min-height: 30px;
 }
 
 @media (max-width: 720px) {

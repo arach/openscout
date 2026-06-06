@@ -127,8 +127,8 @@ function RackBody({
         const working = bucket.agents.filter(
           (a) => normalizeAgentState(a.state) === "working",
         ).length;
-        const available = bucket.agents.filter(
-          (a) => normalizeAgentState(a.state) === "available",
+        const ready = bucket.agents.filter(
+          (a) => normalizeAgentState(a.state) === "ready",
         ).length;
         const dominant =
           !bucket.online
@@ -152,7 +152,7 @@ function RackBody({
           ? "unreachable"
           : bucket.agents.length === 0
             ? "idle"
-            : `${working}w · ${available}a`;
+            : `${working}w · ${ready}r`;
         return (
           <div
             key={bucket.machineId}

@@ -25,8 +25,7 @@ import "./mesh-nav-panel.css";
 const COMPACT_LIMIT = 10;
 
 function tokenForAgent(a: Agent): AgentStateToken {
-  const s = normalizeAgentState(a.state);
-  return s === "working" || s === "available" ? s : "offline";
+  return normalizeAgentState(a.state);
 }
 
 function recencyKey(a: Agent): number {
@@ -123,7 +122,7 @@ export function MeshNavLeftPanel() {
               ? `${working}/${b.agents.length}`
               : b.online
                 ? "—"
-                : "offline";
+                : "not ready";
           return (
             <div key={b.machineId} className="mesh-nav-machine">
               <RailRow

@@ -90,7 +90,7 @@ function agentIdentityRank(agent: Agent, identity: AgentIdentity): number {
     identity.profile,
   ].filter(Boolean).length * 100;
   const state = normalizeAgentState(agent.state);
-  const stateRank = state === "working" ? 30 : state === "available" ? 20 : 0;
+  const stateRank = state === "working" ? 30 : state === "ready" ? 20 : 0;
   return exact + specificity + stateRank + Math.min(agent.updatedAt ?? 0, 9_999_999_999) / 1_000_000_000;
 }
 

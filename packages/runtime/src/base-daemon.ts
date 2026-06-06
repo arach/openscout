@@ -155,6 +155,10 @@ function resolveEdgeScheme(): OpenScoutLocalEdgeScheme {
   return "http";
 }
 
+function forwardedProtoForEdgeScheme(scheme: OpenScoutLocalEdgeScheme): "http" | "https" {
+  return scheme === "http" ? "http" : "https";
+}
+
 function resolveEdgeConfig(): OpenScoutLocalEdgeConfig {
   const portalHost = process.env.OPENSCOUT_WEB_PORTAL_HOST?.trim() || DEFAULT_SCOUT_WEB_PORTAL_HOST;
   const nodeHost = process.env.OPENSCOUT_WEB_ADVERTISED_HOST?.trim()
@@ -300,7 +304,7 @@ async function startWebWhenBrokerIsReady(): Promise<void> {
 
   try {
     const edgeConfig = resolveEdgeConfig();
-    const scheme = edgeConfig.scheme === "https" ? "https" : "http";
+    const scheme = forwardedProtoForEdgeScheme(edgeConfig.scheme);
     const response = await fetch(new URL("/v1/web/start", config.brokerUrl), {
       method: "POST",
       headers: {

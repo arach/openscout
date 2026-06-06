@@ -612,8 +612,8 @@ function describePresence(input: {
 
   if (isAgentOnline(agentState)) {
     return {
-      label: "Available",
-      detail: `${agentName} is connected.`,
+      label: "Ready",
+      detail: `${agentName} is ready.`,
       tone: "idle",
       showStrip: false,
       showTyping: false,
@@ -621,8 +621,8 @@ function describePresence(input: {
   }
 
   return {
-    label: "Offline",
-    detail: `${agentName} is offline right now. Sending a message will wake it up.`,
+    label: "Not ready",
+    detail: `${agentName} is not ready right now. Sending a message will try to wake it up.`,
     tone: "offline",
     showStrip: true,
     showTyping: false,
@@ -932,7 +932,7 @@ function PresenceSidebar({
     name: "You",
     handle: "operator",
     activity: null as string | null,
-    state: "available" as const,
+    state: "ready" as const,
     agent: null as Agent | null,
   };
 
@@ -984,7 +984,7 @@ function PresenceSidebar({
                       {p.activity}
                     </span>
                   </>
-                ) : p.state === "available" || p.id === "operator" ? (
+                ) : p.state === "ready" || p.id === "operator" ? (
                   <span
                     className="s-thread-sidebar-activity-dot"
                     style={{ background: stateColor(p.state) }}
@@ -1502,7 +1502,7 @@ export function ConversationScreen({
   const workingTurnHasNoRecentUpdate = showWorkingTurn && currentFlightHasNoRecentUpdate;
   const workingTurnIsGone =
     workingTurnHasNoRecentUpdate &&
-    normalizeAgentState(agent?.state ?? null) === "offline";
+    normalizeAgentState(agent?.state ?? null) === "not_ready";
   const shouldPollOutstandingTurn =
     isDm && (sending || awaitingResponseSince !== null || showWorkingTurn);
   const hasOutstandingReply =

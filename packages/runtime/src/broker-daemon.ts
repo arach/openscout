@@ -219,6 +219,31 @@ function readRequestBody<T>(request: IncomingMessage): Promise<T> {
   });
 }
 
+function requestAbortSignal(request: IncomingMessage, response: ServerResponse): AbortSignal {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(new Error("Broker request aborted by caller"));
+    }
+  };
+  request.on("aborted", abort);
+  request.on("error", abort);
+  response.on("close", () => {
+    if (!response.writableEnded) {
+      abort();
+    }
+  });
+  return controller.signal;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Broker request aborted");
+  }
+}
+
 function json(response: ServerResponse, status: number, payload: unknown): void {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(payload, null, 2));
@@ -6714,17 +6739,22 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   }
 
   if (method === "POST" && url.pathname === "/v1/deliver") {
+    const signal = requestAbortSignal(request, response);
     try {
       const payload = await readRequestBody<ScoutDeliverRequest>(request);
       const result = brokerService.deliver
-        ? await brokerService.deliver(payload)
-        : await acceptBrokerDelivery(payload);
+        ? await brokerService.deliver(payload, { signal })
+        : await acceptBrokerDelivery(payload, { signal });
+      throwIfAborted(signal);
       json(
         response,
         result.kind === "delivery" ? 202 : result.kind === "question" ? 409 : 422,
         result,
       );
     } catch (error) {
+      if (signal.aborted || response.destroyed || response.writableEnded) {
+        return;
+      }
       badRequest(response, error);
     }
     return;
@@ -7515,8 +7545,11 @@ async function recordOperatorDeliveryIssue(input: {
 
 async function acceptBrokerDelivery(
   payload: ScoutDeliverRequest,
+  options: { signal?: AbortSignal } = {},
 ): Promise<ScoutDeliverResponse> {
+  throwIfAborted(options.signal);
   await syncRegisteredLocalAgentsIfChanged("delivery");
+  throwIfAborted(options.signal);
   const requestId = payload.id?.trim() || createRuntimeId("deliver");
   const createdAt = typeof payload.createdAt === "number" && Number.isFinite(payload.createdAt)
     ? payload.createdAt
@@ -7549,6 +7582,7 @@ async function acceptBrokerDelivery(
 
   const messageRef = messageRefCandidateForRouteTarget(payload);
   const replyTarget = messageRef ? resolveBrokerMessageRef(runtime.snapshot(), messageRef) : null;
+  throwIfAborted(options.signal);
   if (replyTarget) {
     await ensureBrokerActorForDelivery(requesterId);
     await ensureBrokerActorForDelivery(replyTarget.actorId);
@@ -7589,6 +7623,7 @@ async function acceptBrokerDelivery(
         },
       };
       await postConversationMessage(message);
+      throwIfAborted(options.signal);
       return {
         kind: "delivery",
         accepted: true,
@@ -7652,6 +7687,7 @@ async function acceptBrokerDelivery(
       },
     };
     await postConversationMessage(message);
+    throwIfAborted(options.signal);
     return {
       kind: "delivery",
       accepted: true,
@@ -7715,6 +7751,7 @@ async function acceptBrokerDelivery(
       },
     };
     await postConversationMessage(message);
+    throwIfAborted(options.signal);
     queueOperatorDeliveryIssue({
       kind: "unassigned_scout",
       requestId,
@@ -7784,6 +7821,7 @@ async function acceptBrokerDelivery(
       },
     };
     await postConversationMessage(message);
+    throwIfAborted(options.signal);
     return {
       kind: "delivery",
       accepted: true,
@@ -7810,6 +7848,7 @@ async function acceptBrokerDelivery(
     currentDirectory: projectPathRouteTarget(payload),
     reason: "implicit project delivery card",
   });
+  throwIfAborted(options.signal);
 
   if (resolved.kind !== "resolved") {
     const { record } = await recordScoutDispatchDurably(
@@ -7824,6 +7863,7 @@ async function acceptBrokerDelivery(
         requesterId,
       },
     );
+    throwIfAborted(options.signal);
     queueOperatorDeliveryIssue({
       kind: "rejected",
       requestId,
@@ -7855,6 +7895,7 @@ async function acceptBrokerDelivery(
         requesterId,
       },
     );
+    throwIfAborted(options.signal);
     queueOperatorDeliveryIssue({
       kind: "unavailable",
       requestId,
@@ -7887,6 +7928,7 @@ async function acceptBrokerDelivery(
         createdAt,
       })
     : deliveryWorkItemResolutionForTell(payload);
+  throwIfAborted(options.signal);
   const workRecord = workResolution.record;
   const collaborationRecordId = workResolution.collaborationRecordId;
   const snapshot = runtime.snapshot();
@@ -7927,6 +7969,7 @@ async function acceptBrokerDelivery(
     },
   };
   await postConversationMessage(message);
+  throwIfAborted(options.signal);
 
   const shouldDispatchTargetTurn =
     payload.intent === "consult"
@@ -8005,6 +8048,7 @@ async function acceptBrokerDelivery(
     },
   };
   const flight = await acceptInvocationDurably(invocation);
+  throwIfAborted(options.signal);
   const bindingRef = flight.id.slice(-8);
   dispatchAcceptedInvocation(invocation).catch((error) => {
     console.error(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);

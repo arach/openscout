@@ -1355,9 +1355,7 @@
 }
 
 .s-agent-project--working {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--green) 5%, transparent), transparent 18rem),
-    var(--bg);
+  background: var(--bg);
 }
 
 .s-agent-project--selected {
@@ -1605,9 +1603,7 @@
 }
 
 .s-agent-project-tree-row--working {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--green) 7%, transparent), transparent 18rem),
-    color-mix(in srgb, var(--bg) 55%, transparent);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
 .s-agent-project-tree-row--session {
@@ -2693,7 +2689,7 @@
 }
 
 .s-agent-project-labeled--working {
-  background: color-mix(in srgb, var(--green) 3%, transparent);
+  background: transparent;
 }
 
 .s-agent-project-labeled-body {
@@ -2767,6 +2763,28 @@
   background: color-mix(in srgb, var(--surface) 42%, transparent);
   font-size: var(--text-2xs);
   text-overflow: ellipsis;
+}
+
+.s-agent-project-more {
+  width: 100%;
+  min-height: 28px;
+  margin-top: var(--space-xs);
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 32%, transparent);
+  color: var(--dim);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-sm);
+  text-transform: uppercase;
+}
+
+.s-agent-project-more:hover,
+.s-agent-project-more:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  color: var(--ink);
+  outline: none;
 }
 
 @media (max-width: 1180px) {

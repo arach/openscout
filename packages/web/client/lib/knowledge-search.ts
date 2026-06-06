@@ -92,6 +92,28 @@ export type IndexResponse = {
   status: KnowledgeStatus;
 };
 
+export type WorktreeIndexResponse = {
+  result: {
+    repoRoot: string;
+    branch: string;
+    files: number;
+    chunks: number;
+    skipped: number;
+    clean: boolean;
+    collectionId: string;
+    qmdPath: string;
+    indexedFiles: Array<{
+      path: string;
+      state: "staged" | "unstaged" | "untracked";
+      chunks: number;
+      bytes: number;
+      skipped?: boolean;
+      reason?: string;
+    }>;
+  };
+  status: KnowledgeStatus;
+};
+
 export type KnowledgeSourcePreviewRecord = {
   index: number;
   raw: string;
@@ -132,10 +154,41 @@ export function pathLabel(path: PortablePath): string {
   return `$${path.root}/${path.relPath}`;
 }
 
+export function normalizeSessionRef(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(/[\\/]+$/, "");
+  const leaf = normalized.split(/[\\/]/).filter(Boolean).at(-1) ?? normalized;
+  return leaf.endsWith(".jsonl") ? leaf.slice(0, -".jsonl".length) : leaf;
+}
+
 export function firstTranscriptRef(hit: KnowledgeHit): Extract<KnowledgeSourceRef, { kind: "harness_transcript" }> | null {
   return hit.sourceRefs.find((ref): ref is Extract<KnowledgeSourceRef, { kind: "harness_transcript" }> =>
     ref.kind === "harness_transcript"
   ) ?? null;
+}
+
+export function firstFileRef(hit: KnowledgeHit): Extract<KnowledgeSourceRef, { kind: "file" }> | null {
+  return hit.sourceRefs.find((ref): ref is Extract<KnowledgeSourceRef, { kind: "file" }> =>
+    ref.kind === "file"
+  ) ?? null;
+}
+
+export function transcriptSessionId(
+  ref: Extract<KnowledgeSourceRef, { kind: "harness_transcript" }> | null | undefined,
+): string | null {
+  if (!ref) return null;
+  return normalizeSessionRef(ref.sessionId) ?? normalizeSessionRef(pathLabel(ref.path));
+}
+
+export function transcriptTailQuery(
+  ref: Extract<KnowledgeSourceRef, { kind: "harness_transcript" }> | null | undefined,
+): string | null {
+  const sessionId = transcriptSessionId(ref);
+  if (!sessionId) return null;
+  const range = ref?.recordRange;
+  if (!range) return sessionId;
+  return `${sessionId}|records ${range[0]}..${range[1]}`;
 }
 
 export function facetText(hit: KnowledgeHit, key: string): string {

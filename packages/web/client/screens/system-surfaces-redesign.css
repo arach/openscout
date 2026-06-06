@@ -10,6 +10,11 @@
   max-width: 1080px !important;
 }
 
+.sys-surface-page-fluid {
+  width: 100%;
+  max-width: none !important;
+}
+
 .sys-page-head {
   display: flex;
   align-items: flex-start;
@@ -261,6 +266,90 @@
   text-transform: uppercase;
 }
 
+.sys-broker-page {
+  gap: var(--space-xl);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.sys-ledger-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  min-height: 38px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.sys-ledger-toolbar .sys-tab-row {
+  min-width: 0;
+  flex: 1 1 auto;
+  border-bottom: 0;
+}
+
+.sys-tab-row--toolbar .sys-tab {
+  padding-bottom: var(--space-md);
+}
+
+.sys-ledger-actions {
+  padding-bottom: var(--space-sm);
+}
+
+.sys-ledger-kicker {
+  padding-bottom: var(--space-md);
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+}
+
+.sys-broker-table {
+  --sys-broker-ledger-grid: 54px 44px minmax(240px, 2.1fr) minmax(80px, 0.65fr) minmax(150px, 1.05fr) 34px minmax(78px, 0.4fr);
+
+  overflow-x: auto;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.sys-broker-table-head,
+.sys-broker-row--ledger {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: var(--sys-broker-ledger-grid);
+  column-gap: var(--space-md);
+  align-items: center;
+  min-width: 820px;
+  width: 100%;
+}
+
+.sys-broker-table-head {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--dim);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+}
+
+.sys-broker-table-head span:nth-child(6) {
+  justify-self: center;
+  text-align: center;
+}
+
+.sys-broker-table-head span:last-child {
+  justify-self: end;
+  text-align: right;
+}
+
+.sys-broker-table-body {
+  display: flex;
+  flex-direction: column;
+}
+
 .sys-broker-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -278,6 +367,154 @@
 
 .sys-broker-row-selected {
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.sys-broker-row--ledger {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--sys-broker-ledger-grid);
+  column-gap: var(--space-md);
+  align-items: center;
+  min-width: 820px;
+  row-gap: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom-color: color-mix(in srgb, var(--ink) 5%, transparent);
+  border-left: 2px solid transparent;
+}
+
+.sys-broker-row--ledger:hover,
+.sys-broker-row--ledger:focus-visible {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.sys-broker-row--ledger.sys-broker-row-selected {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.sys-broker-cell {
+  min-width: 0;
+}
+
+.sys-broker-cell-state,
+.sys-broker-cell-time,
+.sys-broker-cell-party,
+.sys-broker-cell-route,
+.sys-broker-cell-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.sys-broker-cell-state {
+  flex-wrap: wrap;
+}
+
+.sys-broker-cell-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.sys-broker-cell-time {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sys-broker-cell-time span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sys-broker-cell-party {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sys-broker-cell-party span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sys-broker-cell-action {
+  justify-content: flex-end;
+}
+
+.sys-broker-cell-route {
+  justify-content: center;
+}
+
+.sys-route-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.sys-route-glyph svg {
+  stroke-width: 1.8;
+}
+
+.sys-route-glyph-dm {
+  color: var(--accent);
+}
+
+.sys-route-glyph-channel {
+  color: var(--green);
+}
+
+.sys-route-glyph-broadcast {
+  color: var(--amber);
+}
+
+.sys-route-glyph-none {
+  width: auto;
+  max-width: 100%;
+  color: var(--dim);
+  opacity: 0.72;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sys-broker-thread-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+  line-height: var(--leading-none);
+}
+
+.sys-broker-row--ledger .sys-broker-title {
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sys-broker-row--ledger .sys-broker-meta {
+  flex-wrap: nowrap;
+  gap: var(--space-md);
+  overflow: hidden;
+}
+
+.sys-broker-row--ledger .sys-broker-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sys-broker-row-main {
@@ -324,6 +561,26 @@
   overflow-wrap: anywhere;
 }
 
+@media (max-width: 760px) {
+  .sys-broker-table-head {
+    display: none;
+  }
+
+  .sys-broker-row--ledger {
+    grid-template-columns: 1fr;
+    min-width: 0;
+    row-gap: var(--space-sm);
+  }
+
+  .sys-broker-cell-action {
+    justify-content: flex-start;
+  }
+
+  .sys-broker-row--ledger .sys-broker-meta {
+    flex-wrap: wrap;
+  }
+}
+
 .sys-broker-inspector {
   display: flex;
   width: 100%;
@@ -354,6 +611,18 @@
   min-width: 0;
   flex-direction: column;
   gap: var(--space-sm);
+}
+
+.sys-broker-metadata-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.sys-broker-metadata-copy {
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
 }
 
 .sys-broker-metadata pre {
@@ -1171,6 +1440,16 @@
 .sys-copy-btn:hover {
   color: var(--ink);
   background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.sys-copy-btn--copied {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+.sys-copy-btn--failed {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
 }
 
 .sys-settings-controls {

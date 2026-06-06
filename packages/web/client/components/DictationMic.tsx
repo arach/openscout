@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Square } from "lucide-react";
 
-import { VoxBrowserClient, type VoxLiveHandle } from "../lib/vox.ts";
+import { shouldAutoProbeVoxBridge, VoxBrowserClient, type VoxLiveHandle } from "../lib/vox.ts";
 
 import "./dictation-mic.css";
 
@@ -18,13 +18,24 @@ export function DictationMic({
 }) {
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
-  const [state, setState] = useState<MicState>("probing");
+  const [state, setState] = useState<MicState>(() => shouldAutoProbeVoxBridge() ? "probing" : "idle");
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const client = new VoxBrowserClient();
     clientRef.current = client;
+    if (!shouldAutoProbeVoxBridge()) {
+      return () => {
+        cancelled = true;
+        const live = liveRef.current;
+        if (live) {
+          void live.cancel().catch(() => undefined);
+          liveRef.current = null;
+        }
+      };
+    }
+
     void client.probe().then((ok) => {
       if (cancelled) return;
       if (ok) {

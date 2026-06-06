@@ -172,7 +172,10 @@ export type ActiveScoutBrokerService = {
   ) => Promise<{ ok: boolean; watchId: string }>;
   executeCommand: (command: ControlCommand) => Promise<unknown>;
   postConversationMessage?: (message: MessageRecord) => Promise<unknown>;
-  deliver?: (request: ScoutDeliverRequest) => Promise<ScoutDeliverResponse>;
+  deliver?: (
+    request: ScoutDeliverRequest,
+    options?: { signal?: AbortSignal },
+  ) => Promise<ScoutDeliverResponse>;
   invokeAgent?: (
     request: InvocationRequest & BrokerRouteTargetInput,
   ) => Promise<unknown>;
@@ -203,6 +206,7 @@ type ScoutBrokerWireResult = {
 };
 
 const activeScoutBrokerServices: ActiveScoutBrokerService[] = [];
+const DEFAULT_BROKER_JSON_REQUEST_TIMEOUT_MS = 30_000;
 
 function handled<T>(value: T): ActiveScoutBrokerServiceResult<T> {
   return { handled: true, value };
@@ -345,16 +349,24 @@ function requestBrokerOverUnixSocket<T>(
   });
 }
 
+function defaultBrokerRequestSignal(options: ScoutBrokerJsonRequestOptions<unknown>): AbortSignal {
+  return options.signal ?? AbortSignal.timeout(DEFAULT_BROKER_JSON_REQUEST_TIMEOUT_MS);
+}
+
 async function requestBrokerWire<T>(
   baseUrl: string,
   path: string,
   options: ScoutBrokerJsonRequestOptions<T>,
 ): Promise<ScoutBrokerWireResult> {
+  const requestOptions = {
+    ...options,
+    signal: defaultBrokerRequestSignal(options),
+  };
   const socketPath = options.socketPath?.trim();
   if (socketPath) {
     try {
       return {
-        response: await requestBrokerOverUnixSocket(socketPath, baseUrl, path, options),
+        response: await requestBrokerOverUnixSocket(socketPath, baseUrl, path, requestOptions),
         trace: {
           transport: "unix_socket",
           socketPath,
@@ -365,7 +377,7 @@ async function requestBrokerWire<T>(
         throw error;
       }
       return {
-        response: await requestBrokerOverHttp(baseUrl, path, options),
+        response: await requestBrokerOverHttp(baseUrl, path, requestOptions),
         trace: {
           transport: "http",
           socketPath,
@@ -375,7 +387,7 @@ async function requestBrokerWire<T>(
     }
   }
   return {
-    response: await requestBrokerOverHttp(baseUrl, path, options),
+    response: await requestBrokerOverHttp(baseUrl, path, requestOptions),
     trace: {
       transport: "http",
     },
@@ -689,6 +701,7 @@ export async function maybePostJsonToActiveScoutBrokerService<T>(
   baseUrl: string,
   path: string,
   body: unknown,
+  options: { signal?: AbortSignal } = {},
 ): Promise<ActiveScoutBrokerServiceResult<T>> {
   const service = getActiveServiceForBaseUrl(baseUrl);
   if (!service) {
@@ -784,7 +797,9 @@ export async function maybePostJsonToActiveScoutBrokerService<T>(
     if (!service.deliver) {
       return unhandled();
     }
-    return handled(await service.deliver(body as ScoutDeliverRequest) as T);
+    return handled(await service.deliver(body as ScoutDeliverRequest, {
+      signal: options.signal,
+    }) as T);
   }
 
   if (url.pathname === "/v1/invocations") {

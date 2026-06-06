@@ -11,6 +11,7 @@ import type {
 } from "../lib/types.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
+import { AgentsSubnav } from "./AgentsSubnav.tsx";
 import "./system-surfaces-redesign.css";
 
 function chipTone(value: string): string {
@@ -26,10 +27,24 @@ function chipTone(value: string): string {
       return "sys-chip-warning";
     case "missing":
     case "offline":
+    case "not_ready":
     case "error":
       return "sys-chip-danger";
     default:
       return "sys-chip-neutral";
+  }
+}
+
+function agentConfigStatusLabel(value: string): string {
+  switch (value) {
+    case "available":
+    case "ready":
+      return "ready";
+    case "offline":
+    case "not_ready":
+      return "not ready";
+    default:
+      return value;
   }
 }
 
@@ -109,7 +124,7 @@ function AgentRow({
         </div>
       </div>
       <div className="agent-config-row-side">
-        <span className={`sys-chip ${chipTone(agent.status)}`}>{agent.status}</span>
+        <span className={`sys-chip ${chipTone(agent.status)}`}>{agentConfigStatusLabel(agent.status)}</span>
         <span className="agent-config-row-meta">{shortPath(agent.projectRoot ?? agent.cwd)}</span>
       </div>
     </button>
@@ -169,7 +184,7 @@ function SelectedAgentPanel({
       <div className="agent-config-detail-grid">
         <div>
           <span className="agent-config-label">Status</span>
-          <span className={`sys-chip ${chipTone(agent.status)}`}>{agent.status}</span>
+          <span className={`sys-chip ${chipTone(agent.status)}`}>{agentConfigStatusLabel(agent.status)}</span>
         </div>
         <div>
           <span className="agent-config-label">Harness</span>
@@ -203,6 +218,7 @@ export function AgentConfigurationScreen({
   navigate: (r: Route) => void;
   selectedAgentId?: string;
 }) {
+  const { route } = useScout();
   const [snapshot, setSnapshot] = useState<AgentConfigurationState | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -248,13 +264,18 @@ export function AgentConfigurationScreen({
   const metrics = snapshot ? [
     { label: "Runtimes", value: String(snapshot.runtimes.length), detail: `${snapshot.runtimes.filter((runtime) => runtime.state === "ready").length} ready` },
     { label: "BYOK", value: String(providers.length), detail: `${providers.filter((provider) => provider.status === "configured").length} configured` },
-    { label: "Agents", value: String(snapshot.agents.length), detail: `${snapshot.agents.filter((agent) => agent.status !== "offline").length} reachable` },
+    { label: "Agents", value: String(snapshot.agents.length), detail: `${snapshot.agents.filter((agent) => agentConfigStatusLabel(agent.status) !== "not ready").length} ready` },
     { label: "Broker", value: snapshot.broker.label, detail: snapshot.broker.nodeId ?? "No node id" },
   ] : [];
 
   return (
-    <div className="sys-surface-page sys-surface-page-wide">
-      <div className="sys-page-head">
+    <div className="s-secondary-nav-shell">
+      <div className="s-secondary-nav-bar">
+        <AgentsSubnav activeRoute={route} navigate={navigate} />
+      </div>
+      <div className="s-secondary-nav-body s-secondary-nav-body--scroll">
+        <div className="sys-surface-page sys-surface-page-wide">
+          <div className="sys-page-head">
         <div className="sys-page-title-group">
           <h2 className="sys-page-title">Agent Configuration</h2>
           <p className="sys-page-subtitle">
@@ -424,6 +445,8 @@ export function AgentConfigurationScreen({
           </div>
         </>
       )}
+        </div>
+      </div>
     </div>
   );
 }

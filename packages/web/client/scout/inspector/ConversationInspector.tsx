@@ -1,8 +1,10 @@
+import { ScrollText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { openContent } from "../slots/openContent.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
+import { useTailEvents } from "../../lib/tail-events.ts";
 import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
@@ -14,7 +16,22 @@ import {
 import { formatAbsoluteTimestamp, timeAgo } from "../../lib/time.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
 import { isActiveConversationFlight } from "../../lib/conversations.ts";
-import type { Flight, Message, SessionEntry } from "../../lib/types.ts";
+import {
+  buildTailRouteQuery,
+  buildTailPreviewContext,
+  compactSessionId,
+  mergeTailPreviewEvents,
+  tailEventMatchesContext,
+  tailKindLabel,
+  tailSummary,
+} from "../../lib/tail-preview.ts";
+import type {
+  Flight,
+  Message,
+  SessionCatalogWithResume,
+  SessionEntry,
+  TailEvent,
+} from "../../lib/types.ts";
 
 const KIND_LABELS: Record<string, string> = {
   direct: "Conversation",
@@ -107,6 +124,23 @@ export function ConversationInspector() {
     () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
     [agents, agentId],
   );
+  const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const [tailPreviewEvents, setTailPreviewEvents] = useState<TailEvent[]>([]);
+
+  useEffect(() => {
+    setCatalog(null);
+    if (!agentId) return;
+    let cancelled = false;
+    api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agentId)}/session-catalog`)
+      .then((result) => {
+        if (!cancelled) setCatalog(result);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
   const agentName = minimalAgentDisplayName({
     name: agent?.name,
     agentName: meta?.agentName,
@@ -124,6 +158,45 @@ export function ConversationInspector() {
         .filter(isActiveConversationFlight)
         .sort((l, r) => (r.startedAt ?? 0) - (l.startedAt ?? 0))[0] ?? null,
     [flights],
+  );
+  const activeSessionId = catalog?.activeSessionId ?? agent?.harnessSessionId ?? meta?.harnessSessionId ?? null;
+  const tailPreviewContext = useMemo(
+    () => buildTailPreviewContext({ activeSessionId, agent, sessionMeta: meta }),
+    [activeSessionId, agent, meta],
+  );
+  const hasTailPreviewScope =
+    tailPreviewContext.sessionIds.length > 0 ||
+    tailPreviewContext.paths.length > 0 ||
+    tailPreviewContext.projects.length > 0;
+
+  useEffect(() => {
+    setTailPreviewEvents([]);
+    if (!hasTailPreviewScope) return;
+    let cancelled = false;
+    const params = new URLSearchParams({ limit: "180", transcripts: "true" });
+    api<{ events: TailEvent[] }>(`/api/tail/recent?${params.toString()}`)
+      .then((result) => {
+        if (cancelled) return;
+        const matched = (result.events ?? []).filter((event) =>
+          tailEventMatchesContext(event, tailPreviewContext),
+        );
+        setTailPreviewEvents(mergeTailPreviewEvents([], matched));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hasTailPreviewScope, tailPreviewContext]);
+
+  useTailEvents(
+    useCallback(
+      (event) => {
+        if (!hasTailPreviewScope) return;
+        if (!tailEventMatchesContext(event, tailPreviewContext)) return;
+        setTailPreviewEvents((previous) => mergeTailPreviewEvents(previous, [event]));
+      },
+      [hasTailPreviewScope, tailPreviewContext],
+    ),
   );
 
   if (!conversationId) return null;
@@ -152,12 +225,33 @@ export function ConversationInspector() {
   const preview =
     latestMessage?.body?.trim() || meta?.preview?.trim() || null;
   const previewActor = latestMessage?.actorName ?? null;
+  const liveSessionLabel = compactSessionId(activeSessionId);
+  const liveSummary = activeFlight?.summary?.trim()
+    ?? (activeSessionId
+      ? "Terminal session is live."
+      : tailPreviewEvents.length > 0
+        ? "Streaming matching Tail events."
+        : null);
+  const tailRouteQuery = buildTailRouteQuery(tailPreviewContext, tailPreviewEvents);
+  const showLiveActivity = Boolean(agent && (activeFlight || activeSessionId || tailPreviewEvents.length > 0));
 
   const goToAgentProfile = () => {
     if (!agentId) return;
     openContent(
       navigate,
       { view: "agent-info", conversationId },
+      { returnTo: route },
+    );
+  };
+
+  const goToTail = () => {
+    openContent(
+      navigate,
+      {
+        view: "ops",
+        mode: "tail",
+        ...(tailRouteQuery ? { tailQuery: tailRouteQuery } : {}),
+      },
       { returnTo: route },
     );
   };
@@ -203,19 +297,6 @@ export function ConversationInspector() {
               </div>
             )}
           </div>
-        </section>
-      )}
-
-      {agent && (
-        <section className="ctx-panel-section">
-          <div className="ctx-panel-section-label">Agent</div>
-          <AgentLiveActions
-            agent={agent}
-            navigate={navigate}
-            returnTo={route}
-            variant="compact"
-            className="ctx-panel-live-actions"
-          />
         </section>
       )}
 
@@ -268,8 +349,71 @@ export function ConversationInspector() {
         </section>
       )}
 
+      {showLiveActivity && agent && (
+        <section className="ctx-panel-section ctx-panel-conversation-live-section">
+          <div className="ctx-panel-section-label">
+            <span>Live activity</span>
+            {liveSessionLabel && (
+              <span className="ctx-panel-live-session" title={activeSessionId ?? undefined}>
+                {liveSessionLabel}
+              </span>
+            )}
+          </div>
+          <div className="ctx-panel-live-card">
+            <AgentLiveActions
+              agent={agent}
+              catalog={catalog}
+              navigate={navigate}
+              returnTo={route}
+              variant="compact"
+              className="ctx-panel-live-actions"
+            />
+            {liveSummary && (
+              <div className="ctx-panel-live-summary">{liveSummary}</div>
+            )}
+            <div className="ctx-panel-live-stream" aria-live="polite">
+              {tailPreviewEvents.length > 0 ? (
+                <ol className="ctx-panel-live-events">
+                  {tailPreviewEvents.map((event) => (
+                    <li key={event.id} className="ctx-panel-live-event">
+                      <span className="ctx-panel-live-event-kind">
+                        {tailKindLabel(event.kind)}
+                      </span>
+                      <span className="ctx-panel-live-event-summary">
+                        {tailSummary(event.summary)}
+                      </span>
+                      <span
+                        className="ctx-panel-live-event-time"
+                        title={formatAbsoluteTimestamp(event.ts)}
+                      >
+                        {timeAgo(event.ts)}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <div className="ctx-panel-live-stream-empty">
+                  Waiting for matching Tail events
+                </div>
+              )}
+            </div>
+            {hasTailPreviewScope && (
+              <button
+                type="button"
+                className="ctx-panel-live-tail-button"
+                onClick={goToTail}
+                title={tailRouteQuery ? `Tail filter: ${tailRouteQuery}` : "Open Tail"}
+              >
+                <ScrollText size={13} strokeWidth={1.9} aria-hidden="true" />
+                <span>Tail</span>
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+
       {agentId && (
-        <section className="ctx-panel-section">
+        <section className="ctx-panel-section ctx-panel-conversation-profile-section">
           <button
             type="button"
             className="ctx-panel-roster-button ctx-panel-conversation-profile-button"

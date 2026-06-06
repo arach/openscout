@@ -1180,6 +1180,25 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"vantageOpenPath":"/api/vantage/open"');
   });
 
+  test("adds mixed-content protection only for HTTPS edge requests", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const plainResponse = await server.app.request("http://localhost/api/bootstrap.js");
+    expect(plainResponse.headers.get("content-security-policy")).toBeNull();
+
+    const forwardedHttpsResponse = await server.app.request("http://localhost/api/bootstrap.js", {
+      headers: {
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(forwardedHttpsResponse.headers.get("content-security-policy"))
+      .toBe("upgrade-insecure-requests; block-all-mixed-content");
+  });
+
   test("creates Vantage handoffs through the configured native hook", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const server = await createOpenScoutWebServer({

@@ -7,6 +7,7 @@ import type {
   MessagesSort,
   OpsMode,
   Route,
+  SearchMode,
 } from "./types.ts";
 
 /* ── URL ↔ Route mapping ── */
@@ -53,6 +54,10 @@ function parseMessagesFilter(value: string | null): MessagesFilter | undefined {
 
 function parseMessagesSort(value: string | null): MessagesSort | undefined {
   return value === "recent" || value === "name" || value === "unread" ? value : undefined;
+}
+
+function parseSearchMode(value: string | undefined): SearchMode | undefined {
+  return value === "indexer" || value === "knowledge" ? value : undefined;
 }
 
 function parseFollowPreferredView(value: string | null): FollowPreferredView | undefined {
@@ -239,7 +244,10 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return scoped(base);
   }
   if (parts[0] === "sessions") return scoped({ view: "sessions" });
-  if (parts[0] === "search") return { view: "search" };
+  if (parts[0] === "search") {
+    const mode = parseSearchMode(parts[1]);
+    return { view: "search", ...(mode && mode !== "knowledge" ? { mode } : {}) };
+  }
   if (parts[0] === "channels" && parts[1]) {
     return scoped({ view: "channels", channelId: decodeURIComponent(parts[1]) });
   }
@@ -384,7 +392,7 @@ export function routePath(r: Route): string {
         ? `/sessions/${encodeURIComponent(r.sessionId)}`
         : "/sessions", r);
     case "search":
-      return "/search";
+      return r.mode === "indexer" ? "/search/indexer" : "/search";
     case "channels":
       return pathWithMachineScope(r.channelId
         ? `/channels/${encodeURIComponent(r.channelId)}`
@@ -466,6 +474,8 @@ function routeKey(r: Route): string {
       return `work:${r.workId}${scope}`;
     case "ops":
       return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}:${r.planDocumentId ?? ""}`;
+    case "search":
+      return `search:${r.mode ?? "knowledge"}`;
     case "follow":
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     case "terminal":

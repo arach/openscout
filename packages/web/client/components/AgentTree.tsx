@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import type { Agent } from "../lib/types.ts";
-import { normalizeAgentState } from "../lib/agent-state.ts";
+import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { stateColor } from "../lib/colors.ts";
 import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useAgentHoverCard } from "./useAgentHoverCard.tsx";
 
-type AgentState = "working" | "available" | "offline";
+type AgentState = "working" | "ready" | "not_ready";
 
 type BranchGroup = {
   branch: string;
@@ -61,7 +61,7 @@ function groupAgentsForTree(agents: Agent[]): ProjectGroup[] {
     const project = pickLabel(projectKey);
     const branches: BranchGroup[] = [];
     let projectLatest = 0;
-    const counts: Record<AgentState, number> = { working: 0, available: 0, offline: 0 };
+    const counts: Record<AgentState, number> = { working: 0, ready: 0, not_ready: 0 };
     const projectAgents: Agent[] = [];
     for (const [branch, list] of branchMap) {
       const sorted = [...list].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
@@ -163,16 +163,16 @@ export function AgentTree({
                     {group.counts.working}
                   </span>
                 )}
-                {group.counts.available > 0 && (
+                {group.counts.ready > 0 && (
                   <span className="mesh-tree-count mesh-tree-count--available">
                     <span className="mesh-tree-count-dot" />
-                    {group.counts.available}
+                    {group.counts.ready}
                   </span>
                 )}
-                {group.counts.offline > 0 && (
+                {group.counts.not_ready > 0 && (
                   <span className="mesh-tree-count mesh-tree-count--offline">
                     <span className="mesh-tree-count-dot" />
-                    {group.counts.offline}
+                    {group.counts.not_ready}
                   </span>
                 )}
               </span>
@@ -192,6 +192,7 @@ export function AgentTree({
                     <div className="mesh-tree-agents">
                       {branchGroup.agents.map((agent) => {
                         const state = normalizeAgentState(agent.state);
+                        const stateClass = agentStateCssToken(agent.state);
                         const isOrganic = agent.agentClass === "organic";
                         const rowState = hover.getState(agent.id);
                         const cwd = homify(agent.cwd) ?? homify(agent.projectRoot);
@@ -211,7 +212,7 @@ export function AgentTree({
                             {...bindings}
                           >
                             <span
-                              className={`mesh-tree-agent-dot mesh-tree-agent-dot--${state}`}
+                              className={`mesh-tree-agent-dot mesh-tree-agent-dot--${stateClass}`}
                               style={{ background: stateColor(agent.state) }}
                             />
                             <span className="mesh-tree-agent-name">{agent.handle ?? agent.name}</span>
@@ -226,7 +227,7 @@ export function AgentTree({
                                 </span>
                               ))}
                             </span>
-                            <span className={`mesh-tree-agent-state mesh-tree-agent-state--${state}`}>{state}</span>
+                            <span className={`mesh-tree-agent-state mesh-tree-agent-state--${stateClass}`}>{agentStateLabel(state)}</span>
                             <span className="mesh-tree-agent-time">
                               {agent.updatedAt ? timeAgo(agent.updatedAt) : ""}
                             </span>

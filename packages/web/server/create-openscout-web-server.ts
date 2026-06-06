@@ -226,6 +226,35 @@ function parseStringArray(value: unknown): string[] {
     : [];
 }
 
+function isHttpsWebRequest(c: Context, publicOrigin: string | undefined): boolean {
+  const forwardedProto = c.req.header("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    .toLowerCase();
+  if (forwardedProto === "https") return true;
+
+  try {
+    if (new URL(c.req.url).protocol === "https:") return true;
+  } catch {
+    // Fall through to the configured public origin.
+  }
+
+  if (!publicOrigin) return false;
+  try {
+    return new URL(publicOrigin).protocol === "https:";
+  } catch {
+    return publicOrigin.trim().toLowerCase().startsWith("https://");
+  }
+}
+
+function installHttpsEdgeSecurityHeaders(app: Hono, publicOrigin: string | undefined): void {
+  app.use("*", async (c, next) => {
+    await next();
+    if (!isHttpsWebRequest(c, publicOrigin)) return;
+    c.header("Content-Security-Policy", "upgrade-insecure-requests; block-all-mixed-content");
+  });
+}
+
 function resolveVantageNativeSessions(
   transcripts: readonly DiscoveredTranscript[],
   selectedIds: readonly string[],
@@ -2416,6 +2445,7 @@ export async function createOpenScoutWebServer(
   ensureOpenScoutVoxOrigins();
   startGlobalHeuristicsWatcher();
   const app = new Hono();
+  installHttpsEdgeSecurityHeaders(app, options.publicOrigin);
   const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(
     loadOpenScoutWebShellState,
     shellTtl,

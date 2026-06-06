@@ -55,6 +55,33 @@ describe("broker launch agent config", () => {
     expect(plist).toContain("<string>/Users/arach/Library/Application Support/OpenScout/runtime/broker.sock</string>");
   });
 
+  test("preserves optional web edge environment overrides", () => {
+    const originalEdgeScheme = process.env.OPENSCOUT_WEB_EDGE_SCHEME;
+    const originalPublicOrigin = process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+    try {
+      process.env.OPENSCOUT_WEB_EDGE_SCHEME = "both";
+      process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = "https://scout.local";
+
+      const plist = renderLaunchAgentPlist(config);
+
+      expect(plist).toContain("<key>OPENSCOUT_WEB_EDGE_SCHEME</key>");
+      expect(plist).toContain("<string>both</string>");
+      expect(plist).toContain("<key>OPENSCOUT_WEB_PUBLIC_ORIGIN</key>");
+      expect(plist).toContain("<string>https://scout.local</string>");
+    } finally {
+      if (originalEdgeScheme === undefined) {
+        delete process.env.OPENSCOUT_WEB_EDGE_SCHEME;
+      } else {
+        process.env.OPENSCOUT_WEB_EDGE_SCHEME = originalEdgeScheme;
+      }
+      if (originalPublicOrigin === undefined) {
+        delete process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+      } else {
+        process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = originalPublicOrigin;
+      }
+    }
+  });
+
   test("parses launchctl print output for pid and state", () => {
     const parsed = parseLaunchctlPrint(`
 system/com.example.job = {
