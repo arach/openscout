@@ -875,7 +875,15 @@ async function scanProject(
     const hints = matchedHints.length > 0 || worktree.path !== root.topLevel
       ? matchedHints
       : root.hints;
-    worktrees.push(await scanWorktree(worktree, hints, git, now, options));
+    const scanned = await scanWorktree(worktree, hints, git, now, options);
+    // Drop worktrees we can't actually read — stale `git worktree list`
+    // registrations whose dir was deleted (ephemeral /tmp or cache builds), or
+    // otherwise unreadable. They surface as "SCAN ERR" noise with no signal.
+    if (scanned.error != null) {
+      warnings.push(`Repo Watch skipped unreadable worktree ${worktree.path}.`);
+      continue;
+    }
+    worktrees.push(scanned);
   }
   const stats = statsForProject(worktrees);
   const attention = maxAttention(worktrees.map((worktree) => worktree.attention));
@@ -986,7 +994,11 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
       includeLastCommit: options.includeLastCommit ?? false,
       deadlineMs,
     });
-    projects.push(result.project);
+    // A project whose only worktrees were unreadable (all skipped) is itself
+    // stale — don't surface an empty shell.
+    if (result.project.worktrees.length > 0) {
+      projects.push(result.project);
+    }
     warnings.push(...result.warnings);
   }
   projects.sort((left, right) => {
