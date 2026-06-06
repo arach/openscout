@@ -8,16 +8,24 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Child, Command, ExitCode, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_BROKER_HOST: &str = "127.0.0.1";
 const DEFAULT_BROKER_HOST_MESH: &str = "0.0.0.0";
 const DEFAULT_BROKER_PORT: u16 = 65_535;
+const RESTART_MIN_DELAY: Duration = Duration::from_secs(1);
+const RESTART_MAX_DELAY: Duration = Duration::from_secs(30);
 const START_TIMEOUT: Duration = Duration::from_secs(15);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
+const CHILD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
+const STATE_WRITE_INTERVAL: Duration = Duration::from_secs(2);
+const SIGINT: i32 = 2;
+const SIGTERM: i32 = 15;
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_MESH_ID",
     "OPENSCOUT_MESH_SEEDS",
@@ -29,6 +37,14 @@ const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_TAILSCALE_STATUS_JSON",
     "OPENSCOUT_SSE_KEEPALIVE_MS",
 ];
+
+unsafe extern "C" {
+    fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
+}
+
+extern "C" fn request_shutdown(_: i32) {
+    SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+}
 
 fn main() -> ExitCode {
     match run() {
@@ -77,6 +93,7 @@ fn run() -> Result<(), String> {
             print_status(&status, json);
             Ok(())
         }
+        "supervise" | "daemon" => supervise_service(&config),
         "-h" | "--help" | "help" => {
             print_help();
             Ok(())
@@ -99,6 +116,8 @@ struct Config {
     stderr_log_path: PathBuf,
     control_home: PathBuf,
     runtime_package_dir: PathBuf,
+    supervisor_executable: PathBuf,
+    supervisor_state_path: PathBuf,
     bun_executable: String,
     broker_host: String,
     broker_port: u16,
@@ -146,6 +165,10 @@ impl Config {
             None => find_workspace_runtime_dir(&env::current_dir().map_err(|error| error.to_string())?)
                 .ok_or_else(|| "unable to resolve runtime package dir; set OPENSCOUT_RUNTIME_PACKAGE_DIR".to_string())?,
         };
+        let supervisor_executable = match env_nonempty("OPENSCOUT_SUPERVISOR_BIN") {
+            Some(value) => PathBuf::from(value),
+            None => env::current_exe().map_err(|error| error.to_string())?,
+        };
         let bun_executable = env_nonempty("OPENSCOUT_BUN_BIN")
             .unwrap_or_else(|| {
                 let home_bun = home.join(".bun/bin/bun");
@@ -174,6 +197,7 @@ impl Config {
             env_nonempty("OPENSCOUT_BROKER_SOCKET_PATH")
                 .unwrap_or_else(|| runtime_directory.join("broker.sock").to_string_lossy().to_string()),
         );
+        let supervisor_state_path = runtime_directory.join("supervisor-state.json");
 
         Ok(Self {
             label: label.clone(),
@@ -188,6 +212,8 @@ impl Config {
             stderr_log_path: logs_directory.join("stderr.log"),
             control_home,
             runtime_package_dir,
+            supervisor_executable,
+            supervisor_state_path,
             bun_executable,
             broker_host,
             broker_port,
@@ -226,6 +252,7 @@ struct ServiceStatus {
     config: Config,
     launchctl: LaunchctlStatus,
     health: HealthStatus,
+    supervisor_state: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -259,11 +286,142 @@ fn stop_service(config: &Config) -> Result<ServiceStatus, String> {
     wait_for_stopped(config)
 }
 
+fn supervise_service(config: &Config) -> Result<(), String> {
+    install_signal_handlers();
+    ensure_supervisor_directories(config)?;
+    eprintln!(
+        "[openscout-supervisor] starting Bun base from {}",
+        config.runtime_entrypoint().display(),
+    );
+
+    let started_at_ms = epoch_ms();
+    let mut restart_count = 0_u32;
+    let mut restart_delay = RESTART_MIN_DELAY;
+    let mut child = spawn_base_process(config)?;
+    write_supervisor_state(config, started_at_ms, Some(child.id()), "running", restart_count)?;
+    let mut next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
+
+    while !SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+        match child.try_wait().map_err(|error| error.to_string())? {
+            Some(status) => {
+                write_supervisor_state(config, started_at_ms, None, "exited", restart_count)?;
+                eprintln!("[openscout-supervisor] Bun base exited: {status}");
+                restart_count = restart_count.saturating_add(1);
+                sleep_until_or_shutdown(Instant::now() + restart_delay);
+                if SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+                    break;
+                }
+                restart_delay = doubled_delay(restart_delay);
+                child = spawn_base_process(config)?;
+                write_supervisor_state(config, started_at_ms, Some(child.id()), "running", restart_count)?;
+                next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
+            }
+            None => {
+                if Instant::now() >= next_state_write {
+                    write_supervisor_state(config, started_at_ms, Some(child.id()), "running", restart_count)?;
+                    next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
+                }
+                thread::sleep(POLL_INTERVAL);
+            }
+        }
+    }
+
+    write_supervisor_state(config, started_at_ms, Some(child.id()), "stopping", restart_count)?;
+    terminate_child(&mut child, "Bun base", CHILD_SHUTDOWN_TIMEOUT)?;
+    write_supervisor_state(config, started_at_ms, None, "stopped", restart_count)?;
+    Ok(())
+}
+
+fn install_signal_handlers() {
+    unsafe {
+        let _ = signal(SIGINT, request_shutdown);
+        let _ = signal(SIGTERM, request_shutdown);
+    }
+}
+
+fn spawn_base_process(config: &Config) -> Result<Child, String> {
+    let mut command = Command::new(&config.bun_executable);
+    command
+        .arg(config.runtime_entrypoint())
+        .arg("base")
+        .current_dir(&config.runtime_package_dir)
+        .env("OPENSCOUT_PARENT_PID", std::process::id().to_string())
+        .env("OPENSCOUT_SUPPORT_DIRECTORY", config.support_directory.to_string_lossy().to_string())
+        .env("OPENSCOUT_RUNTIME_PACKAGE_DIR", config.runtime_package_dir.to_string_lossy().to_string())
+        .env("OPENSCOUT_BROKER_HOST", &config.broker_host)
+        .env("OPENSCOUT_BROKER_PORT", config.broker_port.to_string())
+        .env("OPENSCOUT_BROKER_URL", &config.broker_url)
+        .env("OPENSCOUT_BROKER_SOCKET_PATH", config.broker_socket_path.to_string_lossy().to_string())
+        .env("OPENSCOUT_CONTROL_HOME", config.control_home.to_string_lossy().to_string())
+        .env("OPENSCOUT_BROKER_SERVICE_MODE", &config.service_mode)
+        .env("OPENSCOUT_BROKER_SERVICE_LABEL", &config.label)
+        .env("OPENSCOUT_SERVICE_LABEL", &config.label)
+        .env("OPENSCOUT_ADVERTISE_SCOPE", &config.advertise_scope)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    for &key in OPTIONAL_LAUNCH_ENV_KEYS {
+        if let Some(value) = env_nonempty(key) {
+            command.env(key, value);
+        }
+    }
+    if let Some(core_agents) = env_nonempty("OPENSCOUT_CORE_AGENTS") {
+        command.env("OPENSCOUT_CORE_AGENTS", core_agents);
+    }
+
+    command.spawn().map_err(|error| format!("failed to start Bun base: {error}"))
+}
+
+fn sleep_until_or_shutdown(deadline: Instant) {
+    while Instant::now() < deadline && !SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
+fn doubled_delay(delay: Duration) -> Duration {
+    let doubled = delay.as_millis().saturating_mul(2);
+    Duration::from_millis(doubled.min(RESTART_MAX_DELAY.as_millis()) as u64)
+}
+
+fn terminate_child(child: &mut Child, label: &str, timeout: Duration) -> Result<(), String> {
+    if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+        return Ok(());
+    }
+
+    let _ = send_process_signal(child.id(), "TERM");
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+            return Ok(());
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+
+    eprintln!("[openscout-supervisor] {label} did not exit after SIGTERM; forcing shutdown");
+    child.kill().map_err(|error| error.to_string())?;
+    let _ = child.wait();
+    Ok(())
+}
+
+fn send_process_signal(pid: u32, signal_name: &str) -> Result<(), String> {
+    let status = Command::new("/bin/kill")
+        .arg(format!("-{signal_name}"))
+        .arg(pid.to_string())
+        .status()
+        .map_err(|error| error.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("kill -{signal_name} {pid} exited with {status}"))
+    }
+}
+
 fn broker_service_status(config: &Config) -> ServiceStatus {
     ServiceStatus {
         config: config.clone(),
         launchctl: inspect_launchctl(config),
         health: fetch_health(config),
+        supervisor_state: read_supervisor_state_json(config),
     }
 }
 
@@ -434,7 +592,25 @@ fn doctor_report(config: &Config) -> DoctorReport {
             status.config.broker_socket_path.display(),
         ));
     }
+    if status.launchctl.loaded && status.supervisor_state.is_none() {
+        warnings.push(format!(
+            "launchd service is loaded but supervisor state is missing: {}",
+            status.config.supervisor_state_path.display(),
+        ));
+    }
 
+    let supervisor_processes: Vec<&ProcessInfo> = processes
+        .iter()
+        .filter(|process| command_references_process(&process.command, "openscout-supervisor"))
+        .collect();
+    if supervisor_processes.len() > 1 {
+        warnings.push(format!("multiple openscout-supervisor processes found: {}", supervisor_processes.len()));
+    }
+    for process in supervisor_processes {
+        if process.ppid == 1 && status.launchctl.pid != Some(process.pid) {
+            warnings.push(format!("orphaned openscout-supervisor process: pid {}", process.pid));
+        }
+    }
     let broker_processes: Vec<&ProcessInfo> = processes
         .iter()
         .filter(|process| command_references_process(&process.command, "scout-broker"))
@@ -473,6 +649,7 @@ fn process_snapshot() -> Vec<ProcessInfo> {
         .filter_map(parse_process_line)
         .filter(|process| {
             process.command.contains("openscout-runtime")
+                || command_references_process(&process.command, "openscout-supervisor")
                 || command_references_process(&process.command, "scout-base")
                 || command_references_process(&process.command, "scout-broker")
                 || command_references_process(&process.command, "scout-web")
@@ -506,16 +683,22 @@ fn parse_process_line(line: &str) -> Option<ProcessInfo> {
 }
 
 fn ensure_launch_agent(config: &Config) -> Result<(), String> {
+    ensure_supervisor_directories(config)?;
+    let plist = render_launch_agent_plist(config);
+    if fs::read_to_string(&config.launch_agent_path).ok().as_deref() != Some(plist.as_str()) {
+        fs::write(&config.launch_agent_path, plist)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn ensure_supervisor_directories(config: &Config) -> Result<(), String> {
     fs::create_dir_all(&config.support_directory).map_err(|error| error.to_string())?;
     fs::create_dir_all(&config.runtime_directory).map_err(|error| error.to_string())?;
     fs::create_dir_all(&config.logs_directory).map_err(|error| error.to_string())?;
     fs::create_dir_all(&config.control_home).map_err(|error| error.to_string())?;
     if let Some(parent) = config.launch_agent_path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    if !config.launch_agent_path.exists() {
-        fs::write(&config.launch_agent_path, render_launch_agent_plist(config))
-            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -529,6 +712,8 @@ fn render_launch_agent_plist(config: &Config) -> String {
             "OPENSCOUT_BROKER_SOCKET_PATH",
             config.broker_socket_path.to_string_lossy().to_string(),
         ),
+        ("OPENSCOUT_SUPPORT_DIRECTORY", config.support_directory.to_string_lossy().to_string()),
+        ("OPENSCOUT_RUNTIME_PACKAGE_DIR", config.runtime_package_dir.to_string_lossy().to_string()),
         ("OPENSCOUT_CONTROL_HOME", config.control_home.to_string_lossy().to_string()),
         ("OPENSCOUT_BROKER_SERVICE_MODE", config.service_mode.clone()),
         ("OPENSCOUT_BROKER_SERVICE_LABEL", config.label.clone()),
@@ -565,9 +750,8 @@ fn render_launch_agent_plist(config: &Config) -> String {
   <string>{label}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{bun}</string>
-    <string>{entrypoint}</string>
-    <string>base</string>
+    <string>{supervisor}</string>
+    <string>supervise</string>
   </array>
   <key>WorkingDirectory</key>
   <string>{cwd}</string>
@@ -589,12 +773,58 @@ fn render_launch_agent_plist(config: &Config) -> String {
 </plist>
 "#,
         label = xml_escape(&config.label),
-        bun = xml_escape(&config.bun_executable),
-        entrypoint = xml_escape(&config.runtime_entrypoint().to_string_lossy()),
+        supervisor = xml_escape(&config.supervisor_executable.to_string_lossy()),
         cwd = xml_escape(&config.runtime_package_dir.to_string_lossy()),
         stdout = xml_escape(&config.stdout_log_path.to_string_lossy()),
         stderr = xml_escape(&config.stderr_log_path.to_string_lossy()),
     )
+}
+
+fn read_supervisor_state_json(config: &Config) -> Option<String> {
+    let raw = fs::read_to_string(&config.supervisor_state_path).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
+fn write_supervisor_state(
+    config: &Config,
+    started_at_ms: u128,
+    base_pid: Option<u32>,
+    base_state: &str,
+    restart_count: u32,
+) -> Result<(), String> {
+    fs::create_dir_all(&config.runtime_directory).map_err(|error| error.to_string())?;
+    let payload = format!(
+        "{{\
+\"schemaVersion\":1,\
+\"supervisorPid\":{},\
+\"startedAtMs\":{},\
+\"basePid\":{},\
+\"baseState\":{},\
+\"restartCount\":{},\
+\"updatedAtMs\":{}\
+}}\n",
+        std::process::id(),
+        started_at_ms,
+        json_opt_u32(base_pid),
+        json_string(base_state),
+        restart_count,
+        epoch_ms(),
+    );
+    let temporary_path = config.supervisor_state_path.with_extension("json.tmp");
+    fs::write(&temporary_path, payload).map_err(|error| error.to_string())?;
+    fs::rename(&temporary_path, &config.supervisor_state_path).map_err(|error| error.to_string())
+}
+
+fn epoch_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
 }
 
 #[derive(Debug)]
@@ -726,7 +956,7 @@ fn first_nonempty(first: &str, second: &str) -> String {
 
 fn print_help() {
     println!(
-        "openscout-supervisor <status|start|stop|restart|doctor> [--json]\n\n\
+        "openscout-supervisor <status|start|stop|restart|doctor|supervise> [--json]\n\n\
          First native supervisor slice for the OpenScout local control plane."
     );
 }
@@ -739,6 +969,7 @@ fn print_status(status: &ServiceStatus, json: bool) {
         println!("loaded: {}", yes_no(status.launchctl.loaded));
         println!("pid: {}", status.launchctl.pid.map(|pid| pid.to_string()).unwrap_or_else(|| "-".to_string()));
         println!("launchd state: {}", status.launchctl.launchd_state.as_deref().unwrap_or("-"));
+        println!("supervisor state: {}", if status.supervisor_state.is_some() { "recorded" } else { "missing" });
         println!("broker url: {}", status.config.broker_url);
         println!("broker socket: {}", status.config.broker_socket_path.display());
         println!("reachable: {}", yes_no(status.health.reachable));
@@ -768,6 +999,9 @@ fn status_json(status: &ServiceStatus) -> String {
         "{{\
 \"label\":{},\
 \"launchAgentPath\":{},\
+\"supervisorExecutable\":{},\
+\"supervisorStatePath\":{},\
+\"supervisorState\":{},\
 \"brokerUrl\":{},\
 \"brokerSocketPath\":{},\
 \"loaded\":{},\
@@ -783,6 +1017,9 @@ fn status_json(status: &ServiceStatus) -> String {
 }}",
         json_string(&status.config.label),
         json_string(&status.config.launch_agent_path.to_string_lossy()),
+        json_string(&status.config.supervisor_executable.to_string_lossy()),
+        json_string(&status.config.supervisor_state_path.to_string_lossy()),
+        status.supervisor_state.as_deref().unwrap_or("null"),
         json_string(&status.config.broker_url),
         json_string(&status.config.broker_socket_path.to_string_lossy()),
         status.launchctl.loaded,

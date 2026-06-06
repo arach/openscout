@@ -36,11 +36,16 @@ openscout-supervisor start --json
 openscout-supervisor stop --json
 openscout-supervisor restart --json
 openscout-supervisor doctor --json
+openscout-supervisor supervise
 ```
 
 The existing JavaScript `scout` CLI remains the operator entrypoint. It may
 shell out to `openscout-supervisor` when the binary is available, and fall back
 to the current Bun service manager when it is not.
+
+`supervise` is the long-running process. The other commands are one-shot
+operator commands that inspect launchd/broker state or ask launchd to start and
+stop the daemon.
 
 ## 4. Why Rust
 
@@ -84,11 +89,17 @@ The first slice should:
 2. Render and install a launchd plist when one is missing.
 3. Read launchd state with `launchctl print`.
 4. Probe broker health through the Unix socket first, then TCP HTTP.
-5. Start the existing `openscout-runtime.mjs base` process through launchd.
-6. Stop the service through launchd and wait until both launchd and broker health report down.
-7. Restart as stop-then-start.
-8. Emit stable JSON for `status` and `doctor`.
-9. Detect obvious orphan candidates such as `scout-broker` with parent pid `1`.
+5. Start `openscout-supervisor supervise` through launchd.
+6. Have `supervise` start the existing `openscout-runtime.mjs base` process as
+   a child.
+7. Restart the child with bounded backoff if it exits unexpectedly.
+8. Stop the service through launchd and wait until both launchd and broker health report down.
+9. Restart as stop-then-start.
+10. Emit stable JSON for `status` and `doctor`.
+11. Write a small supervisor state file with daemon pid, child pid, restart
+    count, and last update time.
+12. Detect obvious orphan candidates such as `openscout-supervisor`,
+    `scout-broker`, and `scout-web` with parent pid `1`.
 
 This first crate should avoid external Rust dependencies. Once the shape feels
 right, we can add `clap`, `serde`, and `serde_json` for maintainability.
@@ -159,6 +170,8 @@ shortcut until stop and start are boring.
 
 Includes `status` plus local process observations and warnings:
 
+- missing supervisor state while launchd is loaded
+- multiple supervisors
 - multiple brokers
 - orphaned brokers
 - stale web processes
@@ -170,8 +183,10 @@ Includes `status` plus local process observations and warnings:
 
 - `openscout-supervisor status --json` works when the broker is up or down.
 - `openscout-supervisor start --json` can bring up the existing Bun service.
+- launchd starts `openscout-supervisor supervise`, not Bun directly.
 - `openscout-supervisor stop --json` leaves no `scout-broker` or supervised `scout-web` descendants behind.
 - `openscout-supervisor restart --json` succeeds from a healthy service.
+- `openscout-supervisor status --json` includes the last written supervisor state when the daemon is running.
 - `openscout-supervisor doctor --json` reports orphaned broker processes without mutating state.
 - Existing `scout` CLI and Bun service manager continue to work if the supervisor binary is absent.
 

@@ -38,19 +38,28 @@ openscout-supervisor start --json
 openscout-supervisor stop --json
 openscout-supervisor restart --json
 openscout-supervisor doctor --json
+openscout-supervisor supervise
 ```
 
 The first repository slice should:
 
 - install the launchd plist for the base service when it is missing
-- start the existing `openscout-runtime.mjs base` process
+- start `openscout-supervisor supervise` through launchd
+- have `supervise` start the existing `openscout-runtime.mjs base` process as
+  a child
+- restart the child with bounded backoff when it exits unexpectedly
+- write a small supervisor state file for status and doctor commands
 - inspect the base process, broker wrapper, broker process, supervised web process, and menu app
-- detect and report orphaned `scout-broker` and `scout-web` children
+- detect and report orphaned `openscout-supervisor`, `scout-broker`, and
+  `scout-web` children
 - verify the broker over the Unix socket first, then HTTP as fallback
 - fail `stop` if launchd or broker health do not report stopped within a bounded timeout
 - produce JSON status that the existing `scout` CLI can render
 
-The existing TypeScript service manager can become a thin compatibility wrapper that shells out to `openscout-supervisor` when it is present.
+The existing TypeScript service manager can become a thin compatibility wrapper
+that shells out to `openscout-supervisor` when it is present. The long-running
+process is the supervisor daemon; `status`, `doctor`, `start`, `stop`, and
+`restart` remain short-lived operator commands.
 
 Later supervisor ownership can expand into explicit process-tree signal
 forwarding, forced cleanup, edge proxy inspection, mDNS helper inspection, and
