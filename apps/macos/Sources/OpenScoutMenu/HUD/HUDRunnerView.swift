@@ -8,7 +8,7 @@ private enum HUDRunnerFocusedField: Hashable {
 
 struct HUDRunnerOverlay: View {
     @ObservedObject private var runner = HUDRunnerState.shared
-    @ObservedObject private var vox = HudVoxService.shared
+    @ObservedObject private var voice = HudVoiceService.shared
     @FocusState private var focusedField: HUDRunnerFocusedField?
 
     var body: some View {
@@ -236,11 +236,11 @@ struct HUDRunnerOverlay: View {
                 Spacer()
                 Button(action: { Task { await runner.toggleDictation() } }) {
                     HStack(spacing: 5) {
-                        Image(systemName: vox.state == .recording ? "stop.fill" : "mic.fill")
-                        Text(vox.state == .recording ? "Stop" : "Voice")
+                        Image(systemName: voice.state == .recording ? "stop.fill" : "mic.fill")
+                        Text(voice.state == .recording ? "Stop" : "Voice")
                     }
                 }
-                .buttonStyle(HUDRunnerButtonStyle(isAccent: vox.state == .recording))
+                .buttonStyle(HUDRunnerButtonStyle(isAccent: voice.state == .recording))
             }
             TextEditor(text: $runner.instructions)
                 .font(HUDType.body(12))

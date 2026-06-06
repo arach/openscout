@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
     @StateObject private var tail = ScoutTailStore()
-    @ObservedObject private var vox = ScoutVoxService.shared
+    @ObservedObject private var voice = ScoutVoiceService.shared
     @State private var section: ScoutSection = .comms
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
     @AppStorage("scout.inspector.collapsed") private var inspectorCollapsed = false
@@ -635,7 +635,7 @@ struct ScoutRootView: View {
                 .padding(.top, HudSpacing.xs)
             }
             .animation(.easeOut(duration: 0.16), value: isDictating)
-            .onChange(of: vox.state) { _, newState in
+            .onChange(of: voice.state) { _, newState in
                 guard pendingSendAfterDictation else { return }
                 switch newState {
                 case .idle:
@@ -706,7 +706,7 @@ struct ScoutRootView: View {
         .animation(.easeOut(duration: 0.12), value: suggestions.count)
         .onChange(of: draft) { _, _ in refreshSuggestions() }
         .onChange(of: store.agents.count) { _, _ in refreshSuggestions() }
-        .onReceive(vox.$lastFinalText) { spliceDictatedFinal($0) }
+        .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
         .background(
             ImagePasteCatcher(
                 isActive: { store.selectedCId != nil && sessionDraft == nil },
@@ -766,7 +766,7 @@ struct ScoutRootView: View {
                     }
 
                 if showDictationPreview {
-                    ScoutDictationPreview(text: vox.partial)
+                    ScoutDictationPreview(text: voice.partial)
                         .allowsHitTesting(false)
                 }
             }
@@ -943,8 +943,8 @@ struct ScoutRootView: View {
 
     private var composerStatusText: String? {
         if store.selectedChannel == nil { return "Select a conversation to message" }
-        if isDictating { return voxStatusLine }
-        if let reason = voxUnavailableReason { return reason }
+        if isDictating { return voiceStatusLine }
+        if let reason = voiceUnavailableReason { return reason }
         if store.isSending { return "Sending..." }
         if !pendingImages.isEmpty {
             let noun = pendingImages.count == 1 ? "image" : "images"
@@ -957,32 +957,32 @@ struct ScoutRootView: View {
     }
 
     private var showDictationPreview: Bool {
-        draft.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
+        draft.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
     }
 
     private var isDictating: Bool {
-        switch vox.state {
+        switch voice.state {
         case .starting, .recording, .processing: return true
         default: return false
         }
     }
 
     private var isDictationProcessing: Bool {
-        if case .processing = vox.state { return true }
+        if case .processing = voice.state { return true }
         return false
     }
 
-    private var voxStatusLine: String {
-        if !vox.partial.isEmpty { return vox.partial }
-        switch vox.state {
-        case .starting: return "Starting Vox..."
+    private var voiceStatusLine: String {
+        if !voice.partial.isEmpty { return voice.partial }
+        switch voice.state {
+        case .starting: return "Starting voice..."
         case .processing: return "Transcribing..."
         default: return "Listening..."
         }
     }
 
-    private var voxUnavailableReason: String? {
-        if case .unavailable(let reason) = vox.state { return reason }
+    private var voiceUnavailableReason: String? {
+        if case .unavailable(let reason) = voice.state { return reason }
         return nil
     }
 
@@ -993,7 +993,7 @@ struct ScoutRootView: View {
         if isDictating {
             guard composerReady else { return }
             pendingSendAfterDictation = true
-            vox.stop()
+            voice.stop()
             return
         }
         sendDraft()
@@ -1015,14 +1015,14 @@ struct ScoutRootView: View {
     private func toggleDictation() {
         composerFocused = true
         Task {
-            switch ScoutDictationController.toggleDecision(for: vox.state) {
+            switch ScoutDictationController.toggleDecision(for: voice.state) {
             case .probeThenStartIfIdle:
-                await vox.probe()
-                if case .idle = vox.state { vox.start() }
+                await voice.probe()
+                if case .idle = voice.state { voice.start() }
             case .start:
-                vox.start()
+                voice.start()
             case .stop:
-                vox.stop()
+                voice.stop()
             case .ignore:
                 break
             }
@@ -1036,7 +1036,7 @@ struct ScoutRootView: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         draft = ScoutDictationBuffer.appending(trimmed, to: draft)
-        ScoutVoxService.shared.consumeFinalText()
+        ScoutVoiceService.shared.consumeFinalText()
         composerFocused = true
         moveComposerCaretToEnd()
     }
@@ -2591,7 +2591,7 @@ private struct ScoutSendButton: View {
 }
 
 // Hand-drawn dictation mic, ported from the HUD's HudMessageDock. Tap to
-// toggle Vox dictation. Visual state mirrors ScoutVoxService.state:
+// toggle HudsonKit dictation. Visual state mirrors ScoutVoiceService.state:
 //   idle/probing → faint stroke · recording → accent stroke + pulsing halo
 //   processing   → muted stroke that breathes · unavailable → dim + dashed.
 // Lightweight equalizer-style waveform shown while dictating. Decorative
@@ -2628,12 +2628,12 @@ struct ScoutMicButton: View {
     let glyph: CGFloat
     let action: () -> Void
 
-    @ObservedObject private var vox = ScoutVoxService.shared
+    @ObservedObject private var voice = ScoutVoiceService.shared
     @State private var hovering = false
 
-    private var isRecording: Bool { vox.state.isCaptureActive }
-    private var isProcessing: Bool { vox.state.isProcessing }
-    private var isUnavailable: Bool { vox.state.isUnavailable }
+    private var isRecording: Bool { voice.state.isCaptureActive }
+    private var isProcessing: Bool { voice.state.isProcessing }
+    private var isUnavailable: Bool { voice.state.isUnavailable }
 
     private var strokeColor: Color {
         if isRecording { return ScoutPalette.accent }
@@ -2643,9 +2643,9 @@ struct ScoutMicButton: View {
     }
 
     private var tooltip: String {
-        switch vox.state {
-        case .probing:               return "Checking Vox companion…"
-        case .idle:                  return "Tap to dictate with Vox"
+        switch voice.state {
+        case .probing:               return "Preparing voice…"
+        case .idle:                  return "Tap to dictate"
         case .starting:              return "Starting recording…"
         case .recording:             return "Recording — tap to commit"
         case .processing:            return "Transcribing…"
@@ -2685,7 +2685,7 @@ struct ScoutMicButton: View {
         .buttonStyle(.plain).scoutPointerCursor()
         .help(tooltip)
         .onHover { hovering = $0 }
-        .task { if vox.state == .probing { await vox.probe() } }
+        .task { if voice.state == .probing { await voice.probe() } }
     }
 
     private var micFillColor: Color {

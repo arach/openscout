@@ -26,6 +26,10 @@
     <true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>OpenScout uses Apple Events to detect running terminal sessions (iTerm2 and Terminal) and to focus a session when you Enter on it from the HUD.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>OpenScout uses the microphone for HudsonKit-powered dictation in the HUD and message composer.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>OpenScout uses speech recognition to provide live dictation previews and fallback transcription.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>
