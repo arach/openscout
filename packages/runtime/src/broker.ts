@@ -466,6 +466,17 @@ export class InMemoryControlRuntime implements ControlRuntime {
     });
   }
 
+  refreshEndpointSilently(endpoint: AgentEndpoint): void {
+    const previous = this.registry.endpoints[endpoint.id];
+    if (previous && previous.agentId !== endpoint.agentId) {
+      this.unindexEndpoint(previous);
+    }
+    this.registry.endpoints[endpoint.id] = endpoint;
+    if (!previous || previous.agentId !== endpoint.agentId) {
+      this.indexEndpoint(endpoint);
+    }
+  }
+
   deleteEndpoint(id: string): void {
     const endpoint = this.registry.endpoints[id];
     if (!endpoint) return;

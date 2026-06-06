@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -252,6 +252,29 @@ describe("invokeClaudeStreamJsonAgent", () => {
     });
 
     await shutdownClaudeStreamJsonAgent(options);
+  });
+
+  test("reset shutdown creates a missing runtime directory catalog", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-missing-runtime-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "missing", "runtime");
+    const options = {
+      agentName: "hudson-missing-runtime",
+      sessionId: "relay-hudson-missing-runtime",
+      cwd: process.cwd(),
+      systemPrompt: "You are a test Claude relay agent.",
+      runtimeDirectory,
+      logsDirectory: join(tempRoot, "logs"),
+      launchArgs: [],
+    } as const;
+
+    await expect(shutdownClaudeStreamJsonAgent(options, { resetSession: true })).resolves.toBeUndefined();
+
+    const catalog = JSON.parse(readFileSync(join(runtimeDirectory, "session-catalog.json"), "utf8")) as {
+      activeSessionId?: string | null;
+      sessions?: unknown[];
+    };
+    expect(catalog).toEqual({ activeSessionId: null, sessions: [] });
   });
 
   test("rejects completed stream-json turns with no visible output", async () => {

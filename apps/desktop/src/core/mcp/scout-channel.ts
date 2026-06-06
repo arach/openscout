@@ -31,6 +31,8 @@ type InboxStreamEvent = {
   items?: InboxItem[];
 };
 
+const scoutChannelStartedAt = Date.now();
+
 async function resolveAgentId(
   currentDirectory: string,
   env: NodeJS.ProcessEnv,
@@ -231,7 +233,7 @@ function buildScoutChannelEndpoint(input: {
     metadata: {
       source: "scout-channel",
       processId: process.pid,
-      startedAt: now,
+      startedAt: scoutChannelStartedAt,
       lastSeenAt: now,
     },
   };

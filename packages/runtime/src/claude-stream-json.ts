@@ -211,6 +211,7 @@ async function readSessionCatalog(runtimeDirectory: string): Promise<SessionCata
 
 async function writeSessionCatalog(runtimeDirectory: string, catalog: SessionCatalog): Promise<void> {
   const catalogPath = join(runtimeDirectory, SESSION_CATALOG_FILENAME);
+  await mkdir(runtimeDirectory, { recursive: true });
   await writeFile(catalogPath, JSON.stringify(catalog, null, 2) + "\n");
 }
 

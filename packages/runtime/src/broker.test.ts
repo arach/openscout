@@ -138,6 +138,44 @@ describe("InMemoryControlRuntime", () => {
     expect(runtime.flightForInvocation("invocation-1")?.id).toBe("flight-1");
   });
 
+  test("refreshes endpoint liveness without emitting events", async () => {
+    const runtime = createInMemoryControlRuntime();
+
+    await runtime.upsertEndpoint({
+      id: "endpoint-1",
+      agentId: "fabric",
+      nodeId: "node-1",
+      harness: "claude",
+      transport: "claude_channel",
+      state: "active",
+      metadata: {
+        source: "scout-channel",
+        startedAt: 100,
+        lastSeenAt: 100,
+      },
+    });
+
+    const eventCount = runtime.recentEvents().length;
+
+    runtime.refreshEndpointSilently({
+      id: "endpoint-1",
+      agentId: "fabric",
+      nodeId: "node-1",
+      harness: "claude",
+      transport: "claude_channel",
+      state: "active",
+      metadata: {
+        source: "scout-channel",
+        startedAt: 100,
+        lastSeenAt: 200,
+      },
+    });
+
+    expect(runtime.snapshot().endpoints["endpoint-1"]?.metadata?.lastSeenAt).toBe(200);
+    expect(runtime.endpointsForAgent("fabric")[0]?.metadata?.lastSeenAt).toBe(200);
+    expect(runtime.recentEvents()).toHaveLength(eventCount);
+  });
+
   test("records broker-owned unblock requests and emits events", async () => {
     const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
 

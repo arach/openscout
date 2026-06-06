@@ -138,6 +138,7 @@ export function isLoopbackHost(host: string): boolean {
 }
 const BROKER_SERVICE_POLL_INTERVAL_MS = 100;
 const DEFAULT_BROKER_START_TIMEOUT_MS = 15_000;
+const DEFAULT_BROKER_STOP_TIMEOUT_MS = 20_000;
 
 export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
   return `http://${host}:${port}`;
@@ -275,6 +276,14 @@ function resolveBrokerStartTimeoutMs(): number {
     return Math.max(explicit, BROKER_SERVICE_POLL_INTERVAL_MS);
   }
   return DEFAULT_BROKER_START_TIMEOUT_MS;
+}
+
+function resolveBrokerStopTimeoutMs(): number {
+  const explicit = Number.parseInt(process.env.OPENSCOUT_BROKER_STOP_TIMEOUT_MS ?? "", 10);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return Math.max(explicit, BROKER_SERVICE_POLL_INTERVAL_MS);
+  }
+  return DEFAULT_BROKER_STOP_TIMEOUT_MS;
 }
 
 function resolveBrokerServiceLabel(mode: BrokerServiceMode): string {
@@ -727,6 +736,7 @@ export async function startBrokerService(config: BrokerServiceConfig = resolveBr
   bootoutLegacyBrokerService(config);
   writeLaunchAgentPlist(config);
   runCommand(launchctlPath(), ["bootout", config.serviceTarget], { allowFailure: true });
+  await waitForBrokerServiceStopped(config);
   runCommand(launchctlPath(), ["bootstrap", config.domainTarget, config.launchAgentPath], { allowFailure: true });
   runCommand(launchctlPath(), ["kickstart", "-k", config.serviceTarget], { allowFailure: true });
 
@@ -747,16 +757,22 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function stopBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  runCommand(launchctlPath(), ["bootout", config.serviceTarget], { allowFailure: true });
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    const status = await brokerServiceStatus(config);
-    if (!status.health.reachable) {
+async function waitForBrokerServiceStopped(config: BrokerServiceConfig): Promise<BrokerServiceStatus> {
+  let status = await brokerServiceStatus(config);
+  const attempts = Math.ceil(resolveBrokerStopTimeoutMs() / BROKER_SERVICE_POLL_INTERVAL_MS);
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    status = await brokerServiceStatus(config);
+    if (!status.loaded && !status.health.reachable) {
       return status;
     }
     await sleep(BROKER_SERVICE_POLL_INTERVAL_MS);
   }
-  return brokerServiceStatus(config);
+  return status;
+}
+
+export async function stopBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
+  runCommand(launchctlPath(), ["bootout", config.serviceTarget], { allowFailure: true });
+  return waitForBrokerServiceStopped(config);
 }
 
 export async function restartBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {

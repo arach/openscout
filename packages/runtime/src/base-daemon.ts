@@ -25,6 +25,7 @@ const RESTART_MIN_DELAY_MS = 1_000;
 const RESTART_MAX_DELAY_MS = 30_000;
 const BROKER_HEALTH_TIMEOUT_MS = 30_000;
 const BROKER_HEALTH_POLL_MS = 250;
+const CHILD_SHUTDOWN_TIMEOUT_MS = 12_000;
 const MENU_BUNDLE_ID = "com.openscout.menu";
 const MENU_PROCESS_NAME = "OpenScoutMenu";
 const PROCESS_NAME = "scout-base";
@@ -381,6 +382,51 @@ function stopMenuBarApp(): void {
   spawn("pkill", ["-x", MENU_PROCESS_NAME], { stdio: "ignore" }).unref();
 }
 
+function isChildExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (isChildExited(child)) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      child.off("exit", onExit);
+      resolve(false);
+    }, timeoutMs);
+    timeout.unref();
+    const onExit = () => {
+      clearTimeout(timeout);
+      resolve(true);
+    };
+    child.once("exit", onExit);
+  });
+}
+
+async function terminateChildProcess(
+  child: ChildProcess | null,
+  label: string,
+  timeoutMs = CHILD_SHUTDOWN_TIMEOUT_MS,
+): Promise<void> {
+  if (!child || isChildExited(child)) {
+    return;
+  }
+  if (!child.killed) {
+    child.kill("SIGTERM");
+  }
+  if (await waitForChildExit(child, timeoutMs)) {
+    return;
+  }
+  warn(`${label} did not exit after SIGTERM; forcing shutdown`, { pid: child.pid });
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    return;
+  }
+  await waitForChildExit(child, 2_000);
+}
+
 function stopSupervisedWeb(): void {
   if (supervisedWebPid && supervisedWebPid > 0) {
     try {
@@ -403,11 +449,10 @@ async function shutdown(exitCode = 0): Promise<void> {
   }
   stopSupervisedWeb();
   stopMenuBarApp();
+  const activeCaddyProcess = caddyProcess;
   stopEdgeProcesses();
-  if (brokerProcess && !brokerProcess.killed) {
-    brokerProcess.kill("SIGTERM");
-  }
-  await sleep(500);
+  await terminateChildProcess(brokerProcess, "broker");
+  await terminateChildProcess(activeCaddyProcess, "local edge", 2_000);
   process.exit(exitCode);
 }
 

@@ -353,9 +353,11 @@ const BROKER_VOICE_CHANNEL_ID = "channel.voice";
 const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const WEB_START_POLL_TIMEOUT_MS = 15_000;
 const WEB_START_POLL_INTERVAL_MS = 250;
+const SHUTDOWN_SERVER_CLOSE_TIMEOUT_MS = 5_000;
 let webServerProcess: ChildProcess | null = null;
 let webStartInFlight: Promise<WebSupervisorStatus> | null = null;
 let meshRendezvousPublisher: MeshRendezvousPublisher | null = null;
+let parentWatcher: ReturnType<typeof setInterval> | null = null;
 
 type LegacyRelayMessage = {
   id: string;
@@ -1136,6 +1138,12 @@ async function upsertAgentDurably(agent: AgentDefinition): Promise<void> {
 }
 
 async function upsertEndpointDurably(endpoint: AgentEndpoint): Promise<void> {
+  const previous = runtime.peek().endpoints[endpoint.id];
+  if (isEndpointLastSeenHeartbeat(previous, endpoint)) {
+    runtime.refreshEndpointSilently(endpoint);
+    return;
+  }
+
   await runDurableWrite(async () => {
     await commitDurableEntries(
       { kind: "agent.endpoint.upsert", endpoint },
@@ -3300,6 +3308,66 @@ function sameSerializedRecord<T>(left: T | undefined, right: T): boolean {
   }
 
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function normalizeComparableValue(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeComparableValue(entry));
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, normalizeComparableValue(entry)] as const);
+    return Object.fromEntries(entries);
+  }
+
+  return value;
+}
+
+function comparableEndpointWithoutHeartbeatMetadata(endpoint: AgentEndpoint): unknown {
+  const ignoredMetadataKeys = new Set(["lastSeenAt"]);
+  if (endpoint.metadata?.source === "scout-channel") {
+    // Older scout-channel clients recompute startedAt on every heartbeat.
+    ignoredMetadataKeys.add("startedAt");
+  }
+  const metadata = endpoint.metadata
+    ? Object.fromEntries(
+      Object.entries(endpoint.metadata)
+        .filter(([key]) => !ignoredMetadataKeys.has(key)),
+    )
+    : undefined;
+
+  return normalizeComparableValue({
+    ...endpoint,
+    metadata: metadata && Object.keys(metadata).length > 0 ? metadata : undefined,
+  });
+}
+
+function isEndpointLastSeenHeartbeat(previous: AgentEndpoint | undefined, next: AgentEndpoint): boolean {
+  if (!previous) {
+    return false;
+  }
+
+  const previousLastSeenAt = previous.metadata?.lastSeenAt;
+  const nextLastSeenAt = next.metadata?.lastSeenAt;
+  if (
+    typeof previousLastSeenAt !== "number"
+    || typeof nextLastSeenAt !== "number"
+    || !Number.isFinite(previousLastSeenAt)
+    || !Number.isFinite(nextLastSeenAt)
+    || nextLastSeenAt <= previousLastSeenAt
+  ) {
+    return false;
+  }
+
+  return JSON.stringify(comparableEndpointWithoutHeartbeatMetadata(previous))
+    === JSON.stringify(comparableEndpointWithoutHeartbeatMetadata(next));
 }
 
 function staleLocalAgentReplacementId(
@@ -8202,13 +8270,36 @@ if (Number.isFinite(localAgentSyncIntervalMs) && localAgentSyncIntervalMs > 0) {
   }, localAgentSyncIntervalMs).unref();
 }
 
+function forceCloseServer(serverInstance: ReturnType<typeof createServer>): void {
+  const forceCloseable = serverInstance as typeof serverInstance & {
+    closeAllConnections?: () => void;
+    closeIdleConnections?: () => void;
+  };
+  forceCloseable.closeAllConnections?.();
+  forceCloseable.closeIdleConnections?.();
+}
+
 function closeServer(serverInstance: ReturnType<typeof createServer>): Promise<void> {
   return new Promise((resolve) => {
     if (!serverInstance.listening) {
       resolve();
       return;
     }
-    serverInstance.close(() => resolve());
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      resolve();
+    };
+    const timeout = setTimeout(() => {
+      forceCloseServer(serverInstance);
+      finish();
+    }, SHUTDOWN_SERVER_CLOSE_TIMEOUT_MS);
+    timeout.unref();
+    serverInstance.close(() => finish());
   });
 }
 
@@ -8217,6 +8308,10 @@ async function shutdownBroker(exitCode = 0): Promise<void> {
     return;
   }
   shuttingDown = true;
+  if (parentWatcher) {
+    clearInterval(parentWatcher);
+    parentWatcher = null;
+  }
   if (webServerProcess && !webServerProcess.killed) {
     webServerProcess.kill("SIGTERM");
     webServerProcess = null;
@@ -8250,7 +8345,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 if (Number.isFinite(parentPid) && parentPid > 0) {
-  setInterval(() => {
+  parentWatcher = setInterval(() => {
     try {
       process.kill(parentPid, 0);
     } catch {
@@ -8260,5 +8355,6 @@ if (Number.isFinite(parentPid) && parentPid > 0) {
         process.exit(1);
       });
     }
-  }, 2_000).unref();
+  }, 2_000);
+  parentWatcher.unref();
 }

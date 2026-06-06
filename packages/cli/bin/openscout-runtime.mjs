@@ -44,10 +44,31 @@ const child = spawn(process.execPath, [entrypoint, ...args], {
   stdio: "inherit",
 });
 
+let forwardingSignal = false;
+let childExited = false;
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    forwardingSignal = true;
+    if (!child.killed) {
+      child.kill(signal);
+    }
+    setTimeout(() => {
+      if (!childExited) {
+        child.kill("SIGKILL");
+      }
+    }, 10_000).unref();
+  });
+}
+
+child.on("error", (error) => {
+  console.error(error.message);
+  process.exit(1);
+});
 child.on("exit", (code, signal) => {
-  if (signal) {
+  childExited = true;
+  if (signal && !forwardingSignal) {
     process.kill(process.pid, signal);
   } else {
-    process.exit(code ?? 0);
+    process.exit(code ?? (signal ? 0 : 1));
   }
 });
