@@ -24,10 +24,12 @@ import {
 import {
   DEFAULT_OPERATOR_NAME,
   initializeOpenScoutSetup,
+  installClaudeStatuslineCapture,
   installScoutSkillToHarnesses,
   readOpenScoutSettings,
   type RelayRuntimeTransport,
   writeOpenScoutSettings,
+  type ClaudeStatuslineCaptureInstallReport,
   type SetupResult,
   type ScoutSkillInstallReport,
 } from "./setup.js";
@@ -82,6 +84,7 @@ export type OpenScoutOnboardingSetupResult = {
   brokerWarning: string | null;
   catalog: HarnessCatalogSnapshot;
   scoutSkill: ScoutSkillInstallReport;
+  claudeStatusline: ClaudeStatuslineCaptureInstallReport;
   state: OpenScoutOnboardingState;
 };
 
@@ -447,6 +450,7 @@ export async function runOpenScoutOnboardingSetup(input: {
 
   const setup = await initializeOpenScoutSetup({ currentDirectory: contextRoot });
   const scoutSkill = await installScoutSkillToHarnesses();
+  const claudeStatusline = await installClaudeStatuslineCapture();
   const catalog = await loadHarnessCatalogSnapshot();
   let broker = await brokerServiceStatus();
   let brokerWarning: string | null = null;
@@ -472,6 +476,7 @@ export async function runOpenScoutOnboardingSetup(input: {
     brokerWarning,
     catalog,
     scoutSkill,
+    claudeStatusline,
     state: await loadOpenScoutOnboardingState({
       currentDirectory: contextRoot,
       broker,

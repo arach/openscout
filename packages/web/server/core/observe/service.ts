@@ -717,7 +717,12 @@ async function readLiveSnapshot(agent: WebAgent, endpoint: AgentEndpoint | null)
   if (endpoint.transport === "pairing_bridge") {
     return await getScoutWebPairingSessionSnapshot(endpoint.sessionId);
   }
-  if (endpoint.transport === "codex_app_server" || endpoint.transport === "claude_stream_json" || endpoint.transport === "pi_rpc") {
+  if (
+    endpoint.transport === "codex_app_server"
+    || endpoint.transport === "claude_stream_json"
+    || endpoint.transport === "pi_rpc"
+    || endpoint.transport === "acp_stdio"
+  ) {
     return await getLocalAgentEndpointSessionSnapshot(endpoint);
   }
   return null;

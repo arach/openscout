@@ -435,7 +435,7 @@ export async function getScoutDesktopAgentSession(agentId: string): Promise<Scou
     }
   }
 
-  if (transport === "claude_stream_json" || transport === "codex_app_server") {
+  if (transport === "claude_stream_json" || transport === "codex_app_server" || transport === "acp_stdio") {
     const snapshot = agentConfig
       ? await getLocalAgentSessionSnapshot(agentId)
       : endpoint
@@ -564,7 +564,7 @@ export async function openScoutDesktopAgentSession(
     throw new Error("Trace-backed sessions open directly inside Scout.");
   }
 
-  if (session.transport === "claude_stream_json" || session.transport === "codex_app_server") {
+  if (session.transport === "claude_stream_json" || session.transport === "codex_app_server" || session.transport === "acp_stdio") {
     throw new Error("Managed local sessions are trace-backed inside Scout and do not open through tmux or raw log views.");
   }
 

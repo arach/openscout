@@ -199,6 +199,8 @@ export async function registerScoutWebAssets(
 ): Promise<void> {
   const viteUrl = options.viteDevUrl?.trim() || options.defaultViteUrl;
 
+  app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
+
   if (options.assetMode === "vite-proxy") {
     app.all("/*", async (c) => {
       const target = new URL(c.req.path, viteUrl);

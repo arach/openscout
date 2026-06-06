@@ -56,6 +56,42 @@ describe("buildPiProcessEnv", () => {
     expect(env).not.toHaveProperty("MINIMAX_TOKEN");
   });
 
+  test("maps SCOUT_XAI_API_KEY to XAI_API_KEY without forwarding the alias", () => {
+    const env = buildPiProcessEnv(
+      {
+        env: {
+          SCOUT_XAI_API_KEY: "scout-xai-key",
+        },
+        options: {
+          provider: "xai",
+        },
+      },
+      {
+        XAI_API_KEY: "source-xai-key",
+      },
+    );
+
+    expect(env.XAI_API_KEY).toBe("scout-xai-key");
+    expect(env).not.toHaveProperty("SCOUT_XAI_API_KEY");
+  });
+
+  test("infers xAI credentials from Grok model names", () => {
+    const env = buildPiProcessEnv(
+      {
+        env: {},
+        options: {
+          model: "grok-4.3",
+        },
+      },
+      {
+        SCOUT_XAI_API_KEY: "source-scout-xai-key",
+      },
+    );
+
+    expect(env.XAI_API_KEY).toBe("source-scout-xai-key");
+    expect(env).not.toHaveProperty("SCOUT_XAI_API_KEY");
+  });
+
   test("does not forward provider credentials when no provider can be inferred", () => {
     const env = buildPiProcessEnv(
       {

@@ -50,6 +50,31 @@ describe("tmux prompt delivery", () => {
     expect(strategy.verify(stuckTail)).toBe(false);
   });
 
+  test("verifier treats a collapsed Claude pasted-text composer as not submitted", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const stuckTail = paneTail([
+      "───────────────────────────── openscout-card-relay-agent ──",
+      "❯ [Pasted text #1]",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  ~/dev/openscout   feat/web-design-system  Opus 4.8 (1M context)",
+      "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
+    ]);
+
+    expect(strategy.verify(stuckTail)).toBe(false);
+  });
+
+  test("pi verifier does not apply Claude-specific collapsed pasted-text heuristics", () => {
+    const strategy = buildTmuxDispatchStrategy("pi", brokerAskPrompt);
+    const piTail = paneTail([
+      "───────────────────────────── openscout-card-relay-agent ──",
+      "❯ [Pasted text #1]",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  ~/dev/openscout   model ready",
+    ]);
+
+    expect(strategy.verify(piTail)).toBe(true);
+  });
+
   test("verifier treats an empty composer after harness activity as submitted", () => {
     const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
     const submittedTail = paneTail([
@@ -96,6 +121,27 @@ describe("tmux Claude readiness detection", () => {
         "╭──────────────────────────────────────────────────────────────────╮",
         "│ >                                                                │",
         "╰──────────────────────────────────────────────────────────────────╯",
+      ]),
+    },
+    {
+      name: "collapsed pasted text in inline composer",
+      ready: false,
+      tail: paneTail([
+        "───────────────────────────── openscout-card-relay-agent ──",
+        "❯ [Pasted text #1]",
+        "────────────────────────────────────────────────────────────────────────────────",
+        "  ~/dev/openscout   feat/web-design-system  Opus 4.8 (1M context)",
+        "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
+      ]),
+    },
+    {
+      name: "held text in inline composer",
+      ready: false,
+      tail: paneTail([
+        "❯ New broker ask from operator. Task: please refactor the dispatch path",
+        "────────────────────────────────────────────────────────────────────────────────",
+        "  Sonnet 4.6 │ ⎇ main │ ~/dev/openscout",
+        "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
       ]),
     },
     {

@@ -485,6 +485,74 @@ describe("local agent lifecycle", () => {
     ]);
   });
 
+  test("forks a Cursor project card from an existing Claude project agent", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    await writeRelayAgentOverrides({
+      "openscout.test-node": {
+        agentId: "openscout.test-node",
+        definitionId: "openscout",
+        displayName: "OpenScout",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "claude",
+        harnessProfiles: {
+          claude: {
+            cwd: projectRoot,
+            transport: "tmux",
+            sessionId: "relay-openscout-claude",
+            launchArgs: [],
+          },
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "claude",
+          transport: "tmux",
+          sessionId: "relay-openscout-claude",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "openscout-card-review",
+      harness: "cursor",
+      ensureOnline: false,
+      card: {
+        kind: "one_time",
+        createdAt: 1_780_000_000_000,
+        createdById: "operator",
+        expiresAt: 1_780_086_400_000,
+        maxUses: 1,
+      },
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status).toMatchObject({
+      definitionId: "openscout-card-review",
+      harness: "cursor",
+      transport: "cursor_exec",
+      isOnline: false,
+    });
+    expect(override?.runtime).toMatchObject({
+      harness: "cursor",
+      transport: "cursor_exec",
+    });
+    expect(override?.runtime?.sessionId).toContain("cursor");
+    expect(override?.harnessProfiles?.cursor).toMatchObject({
+      cwd: projectRoot,
+      transport: "cursor_exec",
+    });
+    expect(override?.harnessProfiles?.cursor?.sessionId).toContain("cursor");
+    expect(override?.harnessProfiles?.claude?.transport).toBe("tmux");
+  });
+
   test("explicit Pi startup migrates an existing Pi tmux profile to RPC", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");

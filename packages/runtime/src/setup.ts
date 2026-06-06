@@ -25,7 +25,7 @@ import { upsertManagedInstall } from "./managed-installs.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
-export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "tmux" | "cursor_exec";
+export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "tmux" | "cursor_exec" | "acp_stdio";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
 export const SCOUT_PRIMARY_CONVERSATION_ID = "dm.scout.primary";
@@ -863,6 +863,10 @@ function normalizeTransport(
   harness: AgentHarness,
   fallback: RelayRuntimeTransport,
 ): RelayRuntimeTransport {
+  if (value === "acp_stdio") {
+    return "acp_stdio";
+  }
+
   if (harness === "codex") {
     return "codex_app_server";
   }
@@ -885,6 +889,10 @@ function normalizeTransport(
 
   if (value === "pi_rpc") {
     return "pi_rpc";
+  }
+
+  if (value === "cursor_exec") {
+    return "cursor_exec";
   }
 
   if (value === "tmux") {
@@ -1898,6 +1906,15 @@ export type ScoutSkillInstallReport = {
   entries: ScoutSkillInstallEntry[];
 };
 
+export type ClaudeStatuslineCaptureInstallReport = {
+  settingsPath: string;
+  scriptPath: string;
+  latestPath: string;
+  historyPath: string;
+  command: string;
+  delegateCommand: string | null;
+};
+
 export async function installScoutSkillToHarnesses(): Promise<ScoutSkillInstallReport> {
   const source = resolveScoutSkillSourcePath();
   if (!source) {
@@ -1942,6 +1959,146 @@ export async function installScoutSkillToHarnesses(): Promise<ScoutSkillInstallR
   }
 
   return { source, entries };
+}
+
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function extractShellSingleQuotedEnv(command: string, key: string): string | null {
+  const match = command.match(new RegExp(`${key}='((?:'\\\\''|[^'])*)'`));
+  return match ? match[1].replace(/'\\''/g, "'") : null;
+}
+
+function extractClaudeStatuslineDelegate(command: string | null, scriptPath: string): string | null {
+  if (!command) return null;
+  const existingDelegate = extractShellSingleQuotedEnv(command, "OPENSCOUT_CLAUDE_STATUSLINE_DELEGATE");
+  if (existingDelegate) return existingDelegate;
+  return command.includes(scriptPath) ? null : command;
+}
+
+function renderClaudeStatuslineCaptureScript(options: {
+  statuslineDirectory: string;
+  latestPath: string;
+  historyPath: string;
+}): string {
+  return `#!/usr/bin/env bash
+# OpenScout-managed Claude statusline capture.
+# Receives Claude Code statusline JSON on stdin, records a narrow local snapshot,
+# then delegates rendering to the user's previous statusline command when present.
+
+input="$(cat)"
+status_dir=${shellQuoteArg(options.statuslineDirectory)}
+latest=${shellQuoteArg(options.latestPath)}
+history=${shellQuoteArg(options.historyPath)}
+
+mkdir -p "$status_dir" 2>/dev/null || true
+
+if command -v jq >/dev/null 2>&1; then
+  captured_ms=$(( $(date +%s) * 1000 ))
+  normalized="$(printf '%s' "$input" | jq -c --argjson capturedAt "$captured_ms" '. + {openscoutCapturedAt: $capturedAt}' 2>/dev/null)"
+  if [ -n "$normalized" ]; then
+    tmp="$latest.$$"
+    if printf '%s\\n' "$normalized" > "$tmp"; then
+      mv "$tmp" "$latest" 2>/dev/null || true
+      printf '%s\\n' "$normalized" >> "$history" 2>/dev/null || true
+    else
+      rm -f "$tmp" 2>/dev/null || true
+    fi
+  fi
+fi
+
+delegate="\${OPENSCOUT_CLAUDE_STATUSLINE_DELEGATE:-}"
+if [ -n "$delegate" ]; then
+  printf '%s' "$input" | /bin/bash -lc "$delegate"
+  exit $?
+fi
+
+printf 'claude\\n'
+`;
+}
+
+export async function installClaudeStatuslineCapture(): Promise<ClaudeStatuslineCaptureInstallReport> {
+  const supportPaths = resolveOpenScoutSupportPaths();
+  const home = process.env.HOME?.trim() || homedir();
+  const settingsPath = join(home, ".claude", "settings.json");
+  const existingSettings = await readJsonFile<Record<string, unknown>>(settingsPath) ?? {};
+  const statusLine = typeof existingSettings.statusLine === "object" && existingSettings.statusLine
+    ? existingSettings.statusLine as Record<string, unknown>
+    : {};
+  const existingCommand = typeof statusLine.command === "string" ? statusLine.command.trim() : null;
+  const delegateCommand = extractClaudeStatuslineDelegate(existingCommand, supportPaths.claudeStatuslineScriptPath);
+  const command = [
+    delegateCommand ? `OPENSCOUT_CLAUDE_STATUSLINE_DELEGATE=${shellQuoteArg(delegateCommand)}` : null,
+    "bash",
+    shellQuoteArg(supportPaths.claudeStatuslineScriptPath),
+  ].filter(Boolean).join(" ");
+
+  await mkdir(supportPaths.statuslineDirectory, { recursive: true });
+  await writeFile(
+    supportPaths.claudeStatuslineScriptPath,
+    renderClaudeStatuslineCaptureScript({
+      statuslineDirectory: supportPaths.statuslineDirectory,
+      latestPath: supportPaths.claudeStatuslineLatestPath,
+      historyPath: supportPaths.claudeStatuslineHistoryPath,
+    }),
+    "utf8",
+  );
+  await writeJsonFile(settingsPath, {
+    ...existingSettings,
+    statusLine: {
+      ...statusLine,
+      type: "command",
+      command,
+    },
+  });
+
+  await upsertManagedInstall({
+    kind: "statusline",
+    owner: "openscout",
+    name: "claude-statusline-capture",
+    title: "Claude statusline capture",
+    status: "active",
+    harness: "claude",
+    targetPath: supportPaths.claudeStatuslineScriptPath,
+    uninstall: {
+      strategy: "delete-target",
+      notes: "Remove the capture script and restore the previous Claude statusLine command from managed install metadata if desired.",
+    },
+    metadata: {
+      settingsPath,
+      latestPath: supportPaths.claudeStatuslineLatestPath,
+      historyPath: supportPaths.claudeStatuslineHistoryPath,
+      delegateCommand,
+    },
+  });
+  await upsertManagedInstall({
+    kind: "config",
+    owner: "openscout",
+    name: "claude-statusline-settings",
+    title: "Claude statusline settings",
+    status: "active",
+    harness: "claude",
+    targetPath: settingsPath,
+    uninstall: {
+      strategy: "manual",
+      notes: "Restore the prior statusLine.command from this record's metadata if removing Scout's statusline capture.",
+    },
+    metadata: {
+      previousCommand: delegateCommand,
+      command,
+      scriptPath: supportPaths.claudeStatuslineScriptPath,
+    },
+  });
+
+  return {
+    settingsPath,
+    scriptPath: supportPaths.claudeStatuslineScriptPath,
+    latestPath: supportPaths.claudeStatuslineLatestPath,
+    historyPath: supportPaths.claudeStatuslineHistoryPath,
+    command,
+    delegateCommand,
+  };
 }
 
 export async function readRelayAgentOverrides(): Promise<Record<string, RelayAgentOverride>> {

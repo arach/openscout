@@ -32,6 +32,7 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   broker: "Dispatch",
   settings: "Settings",
   work: "Work",
+  harnesses: "Harnesses",
   ops: "Ops",
 };
 
@@ -60,6 +61,7 @@ export function topNavKeyForRoute(route: Route, opsEnabled: boolean): TopNavKey 
       return "search";
     case "mesh":
     case "broker":
+    case "harnesses":
     case "ops":
     case "work":
     case "follow":
@@ -83,6 +85,7 @@ export function topNavBreadcrumbForRoute(route: Route): string | null {
     case "channels":
     case "mesh":
     case "broker":
+    case "harnesses":
     case "work":
       return TOP_NAV_VIEW_LABELS[route.view] ?? route.view;
     default:

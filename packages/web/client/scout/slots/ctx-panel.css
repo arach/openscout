@@ -434,7 +434,7 @@
 .ctx-panel--ops .rr-row-head {
   min-height: 30px;
   padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
+  border-radius: 0;
 }
 
 .ctx-panel--ops .rr-row--active .rr-row-head {
@@ -829,9 +829,9 @@
   display: grid;
   gap: var(--space-3xs);
   padding: var(--space-lg);
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
 }
 
 .ctx-panel-plan-card span,
@@ -906,11 +906,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid currentColor;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: var(--radius-xs);
-  color: var(--accent);
+  color: var(--dim);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
+}
+
+.ctx-panel-plan-step--completed .ctx-panel-plan-step-marker {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+}
+
+.ctx-panel-plan-step--in_progress .ctx-panel-plan-step-marker {
+  color: var(--green);
+}
+
+.ctx-panel-plan-step--blocked .ctx-panel-plan-step-marker {
+  color: var(--amber);
 }
 
 .ctx-panel-plan-step-text {

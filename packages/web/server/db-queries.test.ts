@@ -811,6 +811,8 @@ describe("web db query agents", () => {
         rawDb.close();
       }
 
+      setSeededRunTimestamps(Date.now() - 2_000, Date.now() - 1_000);
+
       const agents = queryAgents(10);
       const exactAgent = queryAgentById("agent-1");
 
@@ -1296,6 +1298,24 @@ describe("web db query agents", () => {
       expect(listEntry?.state).toBe("available");
       expect(detail?.state).toBe("available");
       expect(detail?.activeFlights.map((flight) => flight.state)).toEqual(["queued"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("does not keep stale running flights in working agent state", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      setSeededRunTimestamps(now - 31 * 60_000, now - 31 * 60_000);
+
+      const listEntry = queryAgents(10).find((entry) => entry.id === "agent-1");
+      const fleet = queryFleet({ limit: 10, activityLimit: 20 });
+
+      expect(listEntry?.state).toBe("available");
+      expect(fleet.activeAsks.some((ask) => ask.agentId === "agent-1")).toBe(false);
+      expect(fleet.staleMotionAsks.some((ask) => ask.agentId === "agent-1")).toBe(true);
     } finally {
       store.close();
     }
@@ -1966,6 +1986,8 @@ describe("web db query fleet", () => {
         startedAt: now - 44_000,
         completedAt: now - 43_000,
       });
+
+      setSeededRunTimestamps(now - 2_000, now - 1_000);
 
       const fleet = queryFleet({ limit: 10, activityLimit: 20 });
 

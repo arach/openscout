@@ -72,12 +72,37 @@ export function isExecutingFlightState(state: string | null): boolean {
   return state === "running";
 }
 
-export function queryExecutingAgentIds(): Set<string> {
+export const AGENT_WORKING_MAX_AGE_MS = 30 * 60 * 1000;
+
+export function isFreshAgentWorkingTimestamp(
+  timestamp: number | string | null | undefined,
+  now = Date.now(),
+): boolean {
+  const timestampMs = normalizeTimestampMs(timestamp);
+  return timestampMs !== null && now - timestampMs <= AGENT_WORKING_MAX_AGE_MS;
+}
+
+export function queryExecutingAgentIds(maxAgeMs = AGENT_WORKING_MAX_AGE_MS): Set<string> {
+  const flightStartedAtExpression = sqlTimestampMsExpression("f.started_at");
+  const invocationCreatedAtExpression = sqlTimestampMsExpression("inv.created_at");
+  const activityTsExpression = sqlTimestampMsExpression("ai.ts");
+  const cutoff = Date.now() - maxAgeMs;
   return new Set(
     (db().prepare(
-      `SELECT DISTINCT target_agent_id FROM flights
-       WHERE state = 'running'`,
-    ).all() as Array<{ target_agent_id: string }>).map((row) => row.target_agent_id),
+      `SELECT DISTINCT f.target_agent_id
+       FROM flights f
+       LEFT JOIN invocations inv ON inv.id = f.invocation_id
+       WHERE f.state = 'running'
+         AND (
+           COALESCE(${flightStartedAtExpression}, ${invocationCreatedAtExpression}, 0) >= ?
+           OR EXISTS (
+             SELECT 1
+             FROM activity_items ai
+             WHERE ai.flight_id = f.id
+               AND ${activityTsExpression} >= ?
+           )
+         )`,
+    ).all(cutoff, cutoff) as Array<{ target_agent_id: string }>).map((row) => row.target_agent_id),
   );
 }
 

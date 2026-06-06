@@ -403,7 +403,7 @@ export default function HomeHero(props: HomeHeroProps) {
               </div>
               {gauges.map((g) => (
                 <span key={g.id} className="hd-gauge-wrap">
-                  <Gauge gauge={g} now={now} onClick={() => navigate({ view: "ops" })} />
+                  <Gauge gauge={g} now={now} onClick={() => navigate({ view: "harnesses" })} />
                 </span>
               ))}
             </div>

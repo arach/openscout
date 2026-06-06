@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { installScoutApiMiddleware } from "./server-core.ts";
+import { installScoutApiMiddleware, registerScoutWebAssets } from "./server-core.ts";
 
 function createApp(options?: Parameters<typeof installScoutApiMiddleware>[2]) {
   const app = new Hono();
@@ -70,5 +70,20 @@ describe("installScoutApiMiddleware", () => {
     });
 
     expect(response.status).toBe(200);
+  });
+
+  test("keeps unknown API routes out of the app shell fallback", async () => {
+    const app = createApp();
+    await registerScoutWebAssets(app, {
+      assetMode: "vite-proxy",
+      staticRoot: ".",
+      defaultViteUrl: "http://127.0.0.1:9",
+    });
+
+    const response = await app.request("http://localhost/api/missing");
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await response.json()).toEqual({ error: "not found" });
   });
 });

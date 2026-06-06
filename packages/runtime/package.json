@@ -88,6 +88,11 @@
       "bun": "./src/pi-rpc.ts",
       "default": "./dist/pi-rpc.js"
     },
+    "./acp-stdio": {
+      "types": "./src/acp-stdio.ts",
+      "bun": "./src/acp-stdio.ts",
+      "default": "./dist/acp-stdio.js"
+    },
     "./scout-agent-cards": {
       "types": "./src/scout-agent-cards.ts",
       "bun": "./src/scout-agent-cards.ts",

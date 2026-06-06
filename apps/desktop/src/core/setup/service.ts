@@ -10,6 +10,7 @@ import {
 import { resolveOpenScoutLocalEdgeConfig } from "@openscout/runtime/local-edge";
 import {
   loadResolvedRelayAgents,
+  type ClaudeStatuslineCaptureInstallReport,
   type ProjectInventoryEntry,
   type SetupResult,
   type ScoutSkillInstallReport,
@@ -75,6 +76,7 @@ export type ScoutSetupReport = {
   localEdge: ScoutLocalEdgeDependencyReport;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
   scoutSkill: ScoutSkillInstallReport;
+  claudeStatusline: ClaudeStatuslineCaptureInstallReport;
 };
 
 export type ScoutRuntimesReport = {
@@ -252,6 +254,7 @@ export async function runScoutSetup(input: {
       localEdge,
       catalog: setupResult.catalog,
       scoutSkill: setupResult.scoutSkill,
+      claudeStatusline: setupResult.claudeStatusline,
     };
   });
 }

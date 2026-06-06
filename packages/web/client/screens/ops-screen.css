@@ -60,8 +60,14 @@
 }
 
 .s-ops-tab--active {
-  background: var(--accent);
-  color: var(--bg);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 0 var(--accent);
+}
+
+.s-ops-tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .s-ops-body {

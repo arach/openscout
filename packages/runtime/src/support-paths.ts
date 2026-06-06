@@ -14,6 +14,10 @@ export type OpenScoutSupportPaths = {
   harnessCatalogPath: string;
   relayAgentsRegistryPath: string;
   managedInstallsPath: string;
+  statuslineDirectory: string;
+  claudeStatuslineScriptPath: string;
+  claudeStatuslineLatestPath: string;
+  claudeStatuslineHistoryPath: string;
   relayHubDirectory: string;
   controlHome: string;
   knowledgeDirectory: string;
@@ -49,6 +53,10 @@ export function resolveOpenScoutSupportPaths(): OpenScoutSupportPaths {
     harnessCatalogPath: join(catalogDirectory, "harness-catalog.json"),
     relayAgentsRegistryPath: join(supportDirectory, "relay-agents.json"),
     managedInstallsPath: join(supportDirectory, "managed-installs.json"),
+    statuslineDirectory: join(runtimeDirectory, "statusline"),
+    claudeStatuslineScriptPath: join(runtimeDirectory, "statusline", "claude-statusline-capture.sh"),
+    claudeStatuslineLatestPath: join(runtimeDirectory, "statusline", "claude-latest.json"),
+    claudeStatuslineHistoryPath: join(runtimeDirectory, "statusline", "claude-history.jsonl"),
     relayHubDirectory: process.env.OPENSCOUT_RELAY_HUB
       ?? join(home, ".openscout", "relay"),
     controlHome,

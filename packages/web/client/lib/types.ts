@@ -347,11 +347,13 @@ export type FleetState = {
   generatedAt: number;
   totals: {
     active: number;
+    staleMotion?: number;
     recentCompleted: number;
     needsAttention: number;
     activity: number;
   };
   activeAsks: FleetAsk[];
+  staleMotionAsks?: FleetAsk[];
   recentCompleted: FleetAsk[];
   needsAttention: FleetAttentionItem[];
   activity: FleetActivity[];
@@ -1116,6 +1118,7 @@ export type Route =
   | ({ view: "activity" } & MachineScopedRoute)
   | ({ view: "work"; workId: string } & MachineScopedRoute)
   | { view: "settings"; section?: "agents"; agentId?: string }
+  | { view: "harnesses" }
   | { view: "ops"; mode?: OpsMode; tailQuery?: string; planDocumentId?: string }
   | {
       view: "follow";

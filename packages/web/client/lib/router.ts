@@ -262,6 +262,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "work" && parts[1]) {
     return scoped({ view: "work", workId: decodeURIComponent(parts[1]) });
   }
+  if (parts[0] === "harnesses") return { view: "harnesses" };
   if (parts[0] === "follow") {
     const preferredView = parseFollowPreferredView(url.searchParams.get("view"));
     const route: Extract<Route, { view: "follow" }> = {
@@ -409,6 +410,8 @@ export function routePath(r: Route): string {
       return pathWithMachineScope("/activity", r);
     case "work":
       return pathWithMachineScope(`/work/${encodeURIComponent(r.workId)}`, r);
+    case "harnesses":
+      return "/harnesses";
     case "settings":
       if (r.section === "agents") {
         return r.agentId
@@ -474,6 +477,8 @@ function routeKey(r: Route): string {
       return `work:${r.workId}${scope}`;
     case "ops":
       return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}:${r.planDocumentId ?? ""}`;
+    case "harnesses":
+      return "harnesses";
     case "search":
       return `search:${r.mode ?? "knowledge"}`;
     case "follow":

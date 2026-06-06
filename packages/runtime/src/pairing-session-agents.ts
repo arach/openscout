@@ -873,7 +873,9 @@ function useDirectSessionTaskPrompt(endpoint: AgentEndpoint, invocation: Invocat
   const externalSource = endpointMetadataString(endpoint, "externalSource");
   const attachedTransport = endpointMetadataString(endpoint, "attachedTransport");
   const isLocalSession = source === "local-session" || externalSource === "local-session";
-  const isLocalRuntimeAttachment = attachedTransport === "codex_app_server" || attachedTransport === "claude_stream_json";
+  const isLocalRuntimeAttachment = attachedTransport === "codex_app_server"
+    || attachedTransport === "claude_stream_json"
+    || attachedTransport === "acp_stdio";
 
   return isLocalSession || isLocalRuntimeAttachment;
 }

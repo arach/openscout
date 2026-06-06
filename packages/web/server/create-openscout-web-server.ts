@@ -7,12 +7,14 @@ import { homedir } from "node:os";
 
 import { Hono, type Context } from "hono";
 import type {
+  AgentDefinition,
   AgentEndpoint,
   AgentHarness,
   CollaborationEvent,
   CollaborationKind,
   ConversationDefinition,
   ConversationKind,
+  FlightRecord,
   UnblockRequestEvent,
   UnblockRequestRecord,
 } from "@openscout/protocol";
@@ -94,6 +96,7 @@ import {
 } from "@openscout/runtime/tail";
 import {
   indexRecentSessionKnowledge,
+  indexWorktreeKnowledge,
   resolveOpenScoutKnowledgePaths,
   SQLiteKnowledgeStore,
   type KnowledgeSourceRef,
@@ -147,6 +150,7 @@ import {
   type ScoutbotRunnerHandle,
 } from "./scoutbot/runner.ts";
 import { SCOUTBOT_AGENT_ID, SCOUTBOT_REASONING_EFFORT } from "./scoutbot/role.ts";
+import { loadHarnessQuotas } from "./harness-quotas.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
@@ -981,6 +985,132 @@ function activeEndpointForAgent(
     }
   };
   return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
+}
+
+async function postScoutBrokerJson<T extends object>(path: string, body: T): Promise<void> {
+  const url = new URL(path, resolveScoutBrokerUrl());
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text.trim() || `broker write failed (${response.status})`);
+  }
+}
+
+async function clearAgentFleetState(
+  agentId: string,
+  options: { retire?: boolean } = {},
+): Promise<{
+  ok: true;
+  agentId: string;
+  retired: boolean;
+  agentRetired: boolean;
+  endpointsCleared: number;
+  flightsCleared: number;
+}> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    throw new Error("broker unreachable");
+  }
+
+  const agent = broker.snapshot.agents[agentId] ?? null;
+  const endpoints = Object.values(broker.snapshot.endpoints ?? {}).filter(
+    (endpoint) => endpoint.agentId === agentId,
+  );
+  if (!agent && endpoints.length === 0) {
+    throw new Error("agent not found");
+  }
+
+  const now = Date.now();
+  const retire = options.retire === true;
+  let agentRetired = false;
+  let endpointsCleared = 0;
+  let flightsCleared = 0;
+
+  if (agent && retire) {
+    const nextAgent: AgentDefinition = {
+      ...agent,
+      metadata: {
+        ...(agent.metadata ?? {}),
+        retiredFromFleet: true,
+        retiredAt: now,
+      },
+    };
+    await postScoutBrokerJson(scoutBrokerPaths.v1.agents, nextAgent);
+    agentRetired = true;
+  }
+
+  for (const endpoint of endpoints) {
+    const nextEndpoint: AgentEndpoint = {
+      ...endpoint,
+      state: "offline",
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        ...(retire
+          ? {
+              retiredFromFleet: true,
+              retiredAt: now,
+              lastError: "agent card retired by operator",
+            }
+          : {
+              staleMotionCleared: true,
+              staleMotionClearedAt: now,
+              lastError: "stale motion cleared by operator",
+            }),
+        lastFailedAt: now,
+      },
+    };
+    await postScoutBrokerJson(scoutBrokerPaths.v1.endpoints, nextEndpoint);
+    endpointsCleared += 1;
+  }
+
+  flightsCleared = await clearStaleMotionFlightsForAgent(agentId, now);
+
+  return {
+    ok: true,
+    agentId,
+    retired: retire,
+    agentRetired,
+    endpointsCleared,
+    flightsCleared,
+  };
+}
+
+async function clearStaleMotionFlightsForAgent(agentId: string, now = Date.now()): Promise<number> {
+  const staleFlights = new Map<string, FlightRecord>();
+  for (const ask of queryFleet({ limit: 200, activityLimit: 0 }).staleMotionAsks) {
+    if (ask.agentId !== agentId || !ask.flightId) continue;
+    const flight = queryFlightRecordById(ask.flightId);
+    if (flight && flight.state !== "completed" && flight.state !== "failed" && flight.state !== "cancelled") {
+      staleFlights.set(flight.id, flight);
+    }
+  }
+
+  let cleared = 0;
+  for (const flight of staleFlights.values()) {
+    await upsertScoutFlight({
+      ...flight,
+      state: "failed",
+      summary: "Stale motion cleared by operator.",
+      error: "Stale motion cleared by operator.",
+      completedAt: now,
+      metadata: {
+        ...(flight.metadata ?? {}),
+        staleMotionCleared: true,
+        staleMotionClearedAt: now,
+        operatorAttentionDismissedAt: now,
+        operatorAttentionItemUpdatedAt: now,
+        operatorAttentionDismissedBy: "operator",
+        failureStage: "stale_motion_clear",
+        failureSeverity: "noteworthy",
+      },
+    });
+    cleared += 1;
+  }
+  return cleared;
 }
 
 function parseVoxSpeechTimingRequest(value: unknown): VoxSpeechTimingRequest | null | undefined {
@@ -2551,7 +2681,7 @@ export async function createOpenScoutWebServer(
         q,
         hits: store.searchLexical({
           q,
-          sourceKinds: ["sessions"],
+          sourceKinds: ["sessions", "git_worktree"],
           limit,
           mode: "lexical",
         }),
@@ -2603,6 +2733,31 @@ export async function createOpenScoutWebServer(
     const force = body.force === true;
     try {
       const result = await indexRecentSessionKnowledge({ days, limit, force });
+      const store = new SQLiteKnowledgeStore();
+      try {
+        return c.json({ result, status: store.status() });
+      } finally {
+        store.close();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  app.post("/api/knowledge/worktree/index", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      force?: unknown;
+      includeUntracked?: unknown;
+    };
+    const force = body.force === true;
+    const includeUntracked = body.includeUntracked !== false;
+    try {
+      const result = await indexWorktreeKnowledge({
+        root: currentDirectory,
+        force,
+        includeUntracked,
+      });
       const store = new SQLiteKnowledgeStore();
       try {
         return c.json({ result, status: store.status() });
@@ -3078,6 +3233,30 @@ export async function createOpenScoutWebServer(
     const agent = queryAgentById(c.req.param("id"));
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
   });
+  app.post("/api/agents/:agentId/clear-motion", async (c) => {
+    const agentId = c.req.param("agentId");
+    try {
+      const result = await clearAgentFleetState(agentId);
+      shellStateCache.invalidate();
+      return c.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to clear stale motion";
+      return c.json({ error: message }, message === "agent not found" ? 404 : 502);
+    }
+  });
+  app.post("/api/agents/:agentId/retire", async (c) => {
+    const agentId = c.req.param("agentId");
+    try {
+      const { retireLocalAgent } = await import("@openscout/runtime/local-agents");
+      const localRetired = await retireLocalAgent(agentId).catch(() => null);
+      const result = await clearAgentFleetState(agentId, { retire: true });
+      shellStateCache.invalidate();
+      return c.json({ ...result, localRetired: Boolean(localRetired) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to retire agent";
+      return c.json({ error: message }, message === "agent not found" ? 404 : 502);
+    }
+  });
   // Flexible session initiation. A single payload expresses every modality —
   // start fresh in a project, start "the same agent" fresh, continue an
   // agent's existing harness session with full context, or seed a new
@@ -3328,7 +3507,18 @@ export async function createOpenScoutWebServer(
     ),
   );
   app.get("/api/heartrate", (c) => c.json(queryHeartrate()));
-  app.get("/api/service-budgets", async (c) => c.json(await loadServiceBudgets()));
+  app.get("/api/service-budgets", async (c) => {
+    const refresh = c.req.query("refresh");
+    return c.json(await loadServiceBudgets({
+      forceRefresh: refresh === "1" || refresh === "true",
+    }));
+  });
+  app.get("/api/harness-quotas", async (c) => {
+    const refresh = c.req.query("refresh");
+    return c.json(await loadHarnessQuotas({
+      forceRefresh: refresh === "1" || refresh === "true",
+    }));
+  });
   app.get("/api/fleet/brief", async (c) => {
     try {
       const refresh = c.req.query("refresh");

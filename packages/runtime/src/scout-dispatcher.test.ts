@@ -365,6 +365,49 @@ describe("resolveBrokerRouteTarget", () => {
     }
   });
 
+  test("follows replacement agents for binding refs that point at superseded local registrations", () => {
+    const stale = makeAgent({
+      id: "openscout-card-old.main",
+      definitionId: "openscout-card-old",
+      metadata: {
+        staleLocalRegistration: true,
+        replacedByAgentId: "openscout-card-current.main",
+      },
+    });
+    const current = makeAgent({
+      id: "openscout-card-current.main",
+      definitionId: "openscout-card-current",
+    });
+    const snapshot = makeSnapshot([stale, current], [], {
+      "flt-ref-to-old": {
+        id: "flt-ref-to-old",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: stale.id,
+        state: "completed",
+        metadata: {
+          bindingRef: "abc123",
+        },
+      },
+    });
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "binding_ref", ref: "abc123" } },
+      {
+        helpers: {
+          ...helpers,
+          isStale: (agent) => agent?.metadata?.staleLocalRegistration === true,
+        },
+      },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(current.id);
+    }
+  });
+
   test("keeps stale direct agent ids on the explicitly requested agent", () => {
     const snapshot = makeSnapshot([
       makeAgent({

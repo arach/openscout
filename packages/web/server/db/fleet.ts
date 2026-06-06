@@ -18,6 +18,7 @@ import { db } from "./internal/db.ts";
 import { normalizeTimestampMs } from "./internal/parse.ts";
 import { compact } from "./internal/paths.ts";
 import {
+  AGENT_WORKING_MAX_AGE_MS,
   isExecutingFlightState,
   isStaleActiveFlight,
   sqlJoinClauses,
@@ -336,6 +337,9 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
   const failed = row.flight_state === "failed" || row.status_kind === "ask_failed";
   const noteworthyFailure = failed && row.failure_severity === "noteworthy";
   const stoppedFailure = noteworthyFailure && row.failure_stage === "codex_app_server_proactive_shutdown";
+  const updatedAt = normalizeTimestampMs(
+    row.status_ts ?? row.completed_at ?? row.started_at ?? row.work_updated_at ?? row.created_at,
+  ) ?? Date.now();
   const staleActiveFlight = hasFlight
     && row.flight_state !== null
     && !TERMINAL_FLIGHT_STATES.has(row.flight_state)
@@ -350,9 +354,6 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     || row.acceptance_state === "pending",
   );
 
-  const updatedAt = normalizeTimestampMs(
-    row.status_ts ?? row.completed_at ?? row.started_at ?? row.work_updated_at ?? row.created_at,
-  ) ?? Date.now();
   const dismissedAt = normalizeTimestampMs(row.flight_dismissed_at);
   const recoveredAfterFailureAt = normalizeTimestampMs(row.recovered_after_failure_at);
   const failedDismissed = Boolean(dismissedAt !== null && dismissedAt >= updatedAt);
@@ -402,7 +403,7 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
           ? "badge"
           : "interrupt"
         : "silent",
-    agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
+    agentState: summarizeAgentState(row.endpoint_state, isActiveFlight && isExecutingFlightState(row.flight_state)),
     harness: row.harness,
     transport: row.transport,
     summary: row.status_summary ?? row.status_title ?? row.flight_summary ?? row.work_summary ?? row.work_title ?? null,
@@ -481,8 +482,14 @@ export function queryFleet(opts?: {
   const requesterIds = fleetRequesterIds();
   const requesterIdSet = new Set(requesterIds);
   const asks = queryFleetAskRows(requesterIds, Math.max(limit * 3, 24)).map((row) => projectFleetAsk(row, requesterIdSet));
+  const activeCutoff = Date.now() - AGENT_WORKING_MAX_AGE_MS;
   const activeAsks = asks
     .filter((ask) => ask.status === "queued" || ask.status === "working")
+    .filter((ask) => ask.updatedAt >= activeCutoff)
+    .slice(0, limit);
+  const staleMotionAsks = asks
+    .filter((ask) => ask.status === "queued" || ask.status === "working")
+    .filter((ask) => ask.updatedAt < activeCutoff)
     .slice(0, limit);
   const recentCompleted = asks
     .filter((ask) => ask.status === "completed" || (ask.status === "failed" && ask.attention !== "silent"))
@@ -509,11 +516,13 @@ export function queryFleet(opts?: {
     generatedAt: Date.now(),
     totals: {
       active: activeAsks.length,
+      staleMotion: staleMotionAsks.length,
       recentCompleted: recentCompleted.length,
       needsAttention: needsAttention.length,
       activity: activity.length,
     },
     activeAsks,
+    staleMotionAsks,
     recentCompleted,
     needsAttention,
     activity,

@@ -22,6 +22,14 @@ import { BUILT_IN_AGENT_DEFINITION_IDS, normalizeAgentSelectorSegment } from "@o
 import { DispatchStalledError } from "./dispatch-stalled.js";
 
 import {
+  ensureAcpStdioAgentOnline,
+  getAcpStdioAgentSnapshot,
+  invokeAcpStdioAgent,
+  isAcpStdioAgentAlive,
+  isAcpStdioCommandAvailable,
+  shutdownAcpStdioAgent,
+} from "./acp-stdio.js";
+import {
   answerClaudeStreamJsonQuestion,
   ensureClaudeStreamJsonAgentOnline,
   getClaudeStreamJsonAgentSnapshot,
@@ -53,6 +61,8 @@ import {
   parsePiRpcLaunchArgs,
   shutdownPiRpcAgent,
 } from "./pi-rpc.js";
+import { resolveCursorApiKey, resolveCursorAgentExecutable } from "./cursor-transport-spike/auth.js";
+import { runCursorCliTransportSpike } from "./cursor-transport-spike/cli-transport.js";
 import {
   buildRelayAgentInstance,
   ensureProjectConfigForDirectory,
@@ -368,7 +378,7 @@ function titleCaseLocalAgentName(value: string): string {
     .join(" ");
 }
 
-export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "pi"];
+export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "cursor", "pi"];
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
   "flue",
@@ -600,7 +610,7 @@ export function renderLocalAgentSystemPromptTemplate(
   const basePrompt = buildLocalAgentBasePrompt(context);
   const projectContext = buildLocalAgentProjectContextPrompt(context);
   const collaborationPrompt = buildLocalAgentCollaborationPrompt(context);
-  const protocolPrompt = options.transport === "codex_app_server" || options.transport === "claude_stream_json" || options.transport === "pi_rpc"
+  const protocolPrompt = options.transport === "codex_app_server" || options.transport === "claude_stream_json" || options.transport === "pi_rpc" || options.transport === "acp_stdio"
     ? buildLocalAgentDirectProtocolPrompt(context)
     : buildLocalAgentTmuxProtocolPrompt(context);
   const variables: Record<string, string> = {
@@ -731,7 +741,7 @@ function generatedLocalAgentSystemPromptCandidates(
 ): string[] {
   const baseContext = buildLocalAgentTemplateContext(agentId, projectName, projectPath);
   const relayCommands = [brokerRelayCommand(), legacyNodeBrokerRelayCommand()];
-  const transportModes: Array<RelayRuntimeTransport | undefined> = [undefined, "tmux", "codex_app_server", "claude_stream_json", "pi_rpc"];
+  const transportModes: Array<RelayRuntimeTransport | undefined> = [undefined, "tmux", "codex_app_server", "claude_stream_json", "pi_rpc", "acp_stdio"];
   const candidates = new Set<string>();
 
   for (const relayCommand of relayCommands) {
@@ -824,15 +834,23 @@ function normalizeTmuxSessionName(value: string | undefined, agentId: string): s
 }
 
 function normalizeLocalAgentHarness(value: string | undefined): AgentHarness {
-  if (value === "codex" || value === "claude" || value === "pi") {
+  if (value === "codex" || value === "claude" || value === "cursor" || value === "pi") {
     return value;
   }
   return DEFAULT_LOCAL_AGENT_HARNESS;
 }
 
 function normalizeLocalAgentTransport(value: string | undefined, harness: AgentHarness): RelayRuntimeTransport {
+  if (value === "acp_stdio") {
+    return "acp_stdio";
+  }
+
   if (harness === "codex") {
     return "codex_app_server";
+  }
+
+  if (harness === "cursor") {
+    return "cursor_exec";
   }
 
   if (harness === "pi" && value === undefined) {
@@ -849,6 +867,10 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
 
   if (value === "pi_rpc") {
     return "pi_rpc";
+  }
+
+  if (value === "cursor_exec") {
+    return "cursor_exec";
   }
 
   if (value === "tmux") {
@@ -1666,6 +1688,10 @@ export async function getLocalAgentSessionSnapshot(agentId: string): Promise<Ses
     return getPiRpcAgentSnapshot(buildPiAgentSessionOptions(agentId, record));
   }
 
+  if (record.transport === "acp_stdio") {
+    return getAcpStdioAgentSnapshot(buildAcpAgentSessionOptions(agentId, record));
+  }
+
   return null;
 }
 
@@ -1736,6 +1762,10 @@ export async function getLocalAgentEndpointSessionSnapshot(endpoint: AgentEndpoi
     return getPiRpcAgentSnapshot(buildPiEndpointSessionOptions(endpoint));
   }
 
+  if (endpoint.transport === "acp_stdio") {
+    return getAcpStdioAgentSnapshot(buildAcpEndpointSessionOptions(endpoint));
+  }
+
   return null;
 }
 
@@ -1756,6 +1786,18 @@ export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint):
   if (endpoint.transport === "pi_rpc") {
     const result = await ensurePiRpcAgentOnline(buildPiEndpointSessionOptions(endpoint));
     return { externalSessionId: result.sessionId, metadata: result.metadata };
+  }
+
+  if (endpoint.transport === "acp_stdio") {
+    const result = await ensureAcpStdioAgentOnline(buildAcpEndpointSessionOptions(endpoint));
+    return { externalSessionId: result.externalSessionId ?? result.sessionId, metadata: result.metadata };
+  }
+
+  if (endpoint.transport === "cursor_exec") {
+    if (!areHarnessBinariesAvailable({ harness: "cursor", transport: "cursor_exec" })) {
+      throw new Error("Cursor agent executable is not available. Install cursor-agent or set OPENSCOUT_CURSOR_AGENT_BIN.");
+    }
+    return { metadata: { transport: "cursor_exec" } };
   }
 
   return {};
@@ -1787,6 +1829,11 @@ export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Pro
 
   if (endpoint.transport === "pi_rpc") {
     await shutdownPiRpcAgent(buildPiEndpointSessionOptions(endpoint));
+    return;
+  }
+
+  if (endpoint.transport === "acp_stdio") {
+    await shutdownAcpStdioAgent(buildAcpEndpointSessionOptions(endpoint));
   }
 }
 
@@ -2165,6 +2212,30 @@ function buildPiAgentSessionOptions(
   };
 }
 
+function buildAcpAgentSessionOptions(
+  agentName: string,
+  record: LocalAgentRecord,
+  systemPrompt?: string,
+): {
+  agentName: string;
+  sessionId: string;
+  cwd: string;
+  systemPrompt: string;
+  runtimeDirectory: string;
+  logsDirectory: string;
+  launchArgs: string[];
+} {
+  return {
+    agentName,
+    sessionId: record.tmuxSession,
+    cwd: record.cwd,
+    systemPrompt: systemPrompt ?? buildLocalAgentSystemPrompt(agentName, record.project, record.cwd, { transport: "acp_stdio" }),
+    runtimeDirectory: relayAgentRuntimeDirectory(agentName),
+    logsDirectory: relayAgentLogsDirectory(agentName),
+    launchArgs: normalizeLocalAgentLaunchArgs(record.launchArgs),
+  };
+}
+
 function endpointMetadataString(endpoint: AgentEndpoint, key: string): string | undefined {
   const value = endpoint.metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
@@ -2204,6 +2275,10 @@ function attachedPiEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
   );
 }
 
+function attachedAcpEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
+  return endpointMetadataStringArray(endpoint, "launchArgs");
+}
+
 function endpointInvocationPrompt(
   endpoint: AgentEndpoint,
   agentName: string,
@@ -2225,6 +2300,7 @@ function endpointInvocationPrompt(
       || attachedTransport === "codex_app_server"
       || attachedTransport === "claude_stream_json"
       || attachedTransport === "pi_rpc"
+      || attachedTransport === "acp_stdio"
     )
   ) {
     return invocation.task;
@@ -2246,7 +2322,8 @@ function isSessionBackedEndpoint(endpoint: AgentEndpoint): boolean {
     || externalSource === "local-session"
     || attachedTransport === "codex_app_server"
     || attachedTransport === "claude_stream_json"
-    || attachedTransport === "pi_rpc";
+    || attachedTransport === "pi_rpc"
+    || attachedTransport === "acp_stdio";
 }
 
 function endpointAgentName(endpoint: AgentEndpoint): string {
@@ -2350,6 +2427,27 @@ function buildPiEndpointSessionOptions(endpoint: AgentEndpoint): {
   };
 }
 
+function buildAcpEndpointSessionOptions(endpoint: AgentEndpoint): {
+  agentName: string;
+  sessionId: string;
+  cwd: string;
+  systemPrompt: string;
+  runtimeDirectory: string;
+  logsDirectory: string;
+  launchArgs: string[];
+} {
+  const agentName = endpointAgentName(endpoint);
+  return {
+    agentName,
+    sessionId: endpointRuntimeInstanceId(endpoint),
+    cwd: endpointCwd(endpoint),
+    systemPrompt: attachedLocalSessionSystemPrompt(endpoint),
+    runtimeDirectory: relayAgentRuntimeDirectory(agentName),
+    logsDirectory: relayAgentLogsDirectory(agentName),
+    launchArgs: attachedAcpEndpointLaunchArgs(endpoint),
+  };
+}
+
 function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): boolean {
   const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
   if (normalizedRecord.transport === "codex_app_server") {
@@ -2362,6 +2460,14 @@ function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): 
 
   if (normalizedRecord.transport === "pi_rpc") {
     return isPiRpcAgentAlive(buildPiAgentSessionOptions(agentName, normalizedRecord));
+  }
+
+  if (normalizedRecord.transport === "acp_stdio") {
+    return isAcpStdioAgentAlive(buildAcpAgentSessionOptions(agentName, normalizedRecord));
+  }
+
+  if (normalizedRecord.transport === "cursor_exec") {
+    return areHarnessBinariesAvailable(normalizedRecord);
   }
 
   return isLocalAgentSessionAlive(normalizedRecord.tmuxSession);
@@ -2399,6 +2505,17 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
 
   if (endpoint.transport === "pi_rpc") {
     return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
+  }
+
+  if (endpoint.transport === "acp_stdio") {
+    return isAcpStdioAgentAlive(buildAcpEndpointSessionOptions(endpoint));
+  }
+
+  if (endpoint.transport === "cursor_exec") {
+    return areHarnessBinariesAvailable({
+      harness: "cursor",
+      transport: "cursor_exec",
+    });
   }
 
   const sessionId =
@@ -2749,6 +2866,9 @@ export function buildTmuxDispatchStrategy(harness: AgentHarness, prompt: string)
   // more reliable signal exists (e.g. a composer prompt marker).
   const promptAbsentFromTail = (paneTail: string) =>
     !tmuxPaneTailContainsPromptFragment(paneTail, prompt);
+  const claudePromptAbsentFromTail = (paneTail: string) =>
+    !tmuxPaneTailHasPendingComposerInput(paneTail)
+    && promptAbsentFromTail(paneTail);
 
   if (harness === "pi") {
     return { submit: ["Enter"], verify: promptAbsentFromTail };
@@ -2757,7 +2877,7 @@ export function buildTmuxDispatchStrategy(harness: AgentHarness, prompt: string)
   // historically prepended to "leave insert mode", but newer Claude Code builds
   // bind Escape to composer state actions (close suggestion, cancel pending tool)
   // and can silently swallow the Enter that follows.
-  return { submit: ["Enter"], verify: promptAbsentFromTail };
+  return { submit: ["Enter"], verify: claudePromptAbsentFromTail };
 }
 
 export async function sendTmuxPrompt(
@@ -2893,6 +3013,11 @@ export function tmuxPaneTailShowsReadyComposer(paneTail: string): boolean {
     return false;
   }
 
+  const composerText = collectTmuxComposerText(lines, anchor);
+  if (tmuxComposerTextHasPendingInput(composerText)) {
+    return false;
+  }
+
   const afterComposerLines: string[] = [];
   for (const line of lines.slice(anchor.index + 1)) {
     if (isTmuxComposerBoundary(line)) {
@@ -2901,6 +3026,20 @@ export function tmuxPaneTailShowsReadyComposer(paneTail: string): boolean {
     afterComposerLines.push(line);
   }
   return !tmuxPaneTailShowsHarnessActivity(afterComposerLines.join("\n"));
+}
+
+function tmuxPaneTailHasPendingComposerInput(paneTail: string): boolean {
+  const cleanedTail = stripTerminalControlSequences(paneTail);
+  const composerText = extractActiveTmuxComposerText(cleanedTail);
+  return composerText !== null && tmuxComposerTextHasPendingInput(composerText);
+}
+
+function tmuxComposerTextHasPendingInput(composerText: string): boolean {
+  const normalized = composerText.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return false;
+  }
+  return !/^Try\s+["“]/u.test(normalized);
 }
 
 export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: string): boolean {
@@ -2958,6 +3097,10 @@ function extractActiveTmuxComposerText(paneTail: string): string | null {
   if (!anchor) {
     return null;
   }
+  return collectTmuxComposerText(lines, anchor);
+}
+
+function collectTmuxComposerText(lines: readonly string[], anchor: TmuxComposerAnchor): string {
   return anchor.kind === "inline"
     ? collectInlineComposerText(lines, anchor.index)
     : collectBoxedComposerText(lines, anchor.index);
@@ -3218,9 +3361,13 @@ function isCodexExecutableAvailable(): boolean {
   });
 }
 
-export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harness" | "transport">): boolean {
+export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harness" | "transport"> & { launchArgs?: string[] }): boolean {
   const harness = normalizeLocalAgentHarness(record.harness);
   const binaries = new Set<string>();
+
+  if (record.transport === "acp_stdio") {
+    return isAcpStdioCommandAvailable(normalizeLocalAgentLaunchArgs(record.launchArgs));
+  }
 
   if (record.transport === "codex_app_server" || harness === "codex") {
     if (!isCodexExecutableAvailable()) {
@@ -3234,6 +3381,17 @@ export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harn
 
   if (record.transport === "pi_rpc" || (record.transport === "tmux" && harness === "pi")) {
     binaries.add("pi");
+  }
+
+  if (record.transport === "cursor_exec" || harness === "cursor") {
+    const executable = resolveCursorAgentExecutable();
+    if (executable.includes("/")) {
+      if (!existsSync(executable)) {
+        return false;
+      }
+    } else {
+      binaries.add(executable);
+    }
   }
 
   if (record.transport === "tmux") {
@@ -3308,6 +3466,34 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
     await writeFile(join(agentRuntimeDir, "prompt.txt"), systemPrompt);
     await ensurePiRpcAgentOnline(buildPiAgentSessionOptions(agentName, normalizedRecord, systemPrompt));
 
+    const registry = await readLocalAgentRegistry();
+    registry[agentName] = {
+      ...normalizedRecord,
+      startedAt: nowSeconds(),
+      systemPrompt: normalizedRecord.systemPrompt,
+    };
+    await writeLocalAgentRegistry(registry);
+
+    return registry[agentName];
+  }
+
+  if (normalizedRecord.transport === "acp_stdio") {
+    await writeFile(join(agentRuntimeDir, "prompt.txt"), systemPrompt);
+    await ensureAcpStdioAgentOnline(buildAcpAgentSessionOptions(agentName, normalizedRecord, systemPrompt));
+
+    const registry = await readLocalAgentRegistry();
+    registry[agentName] = {
+      ...normalizedRecord,
+      startedAt: nowSeconds(),
+      systemPrompt: normalizedRecord.systemPrompt,
+    };
+    await writeLocalAgentRegistry(registry);
+
+    return registry[agentName];
+  }
+
+  if (normalizedRecord.transport === "cursor_exec") {
+    await writeFile(join(agentRuntimeDir, "prompt.txt"), systemPrompt);
     const registry = await readLocalAgentRegistry();
     registry[agentName] = {
       ...normalizedRecord,
@@ -3486,6 +3672,15 @@ export async function restartLocalAgent(
         sessionId: sessionName,
       });
     }
+  } else if (normalizedRecord.transport === "acp_stdio") {
+    for (const sessionName of sessionsToStop) {
+      await shutdownAcpStdioAgent({
+        ...buildAcpAgentSessionOptions(agentId, normalizedRecord),
+        sessionId: sessionName,
+      });
+    }
+  } else if (normalizedRecord.transport === "cursor_exec") {
+    // Cursor exec is one-shot and has no resident tmux/process session to stop.
   } else {
     for (const sessionName of sessionsToStop) {
       killAgentSession(sessionName);
@@ -3963,7 +4158,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       // Pi RPC sessions are process-local adapter instances. `scout up` should
       // not keep a foreground CLI process alive as the session host; let the
       // broker-owned invocation path start the adapter on first work instead.
-      deferWarmupToInvocation = currentRecord.transport === "pi_rpc";
+      deferWarmupToInvocation = currentRecord.transport === "pi_rpc" || currentRecord.transport === "acp_stdio";
     }
   }
 
@@ -4021,6 +4216,13 @@ export async function stopLocalAgent(agentId: string): Promise<ScoutLocalAgentSt
     for (const sessionName of sessionsToStop) {
       await shutdownPiRpcAgent({
         ...buildPiAgentSessionOptions(agentId, normalizedRecord),
+        sessionId: sessionName,
+      });
+    }
+  } else if (normalizedRecord.transport === "acp_stdio") {
+    for (const sessionName of sessionsToStop) {
+      await shutdownAcpStdioAgent({
+        ...buildAcpAgentSessionOptions(agentId, normalizedRecord),
         sessionId: sessionName,
       });
     }
@@ -4394,6 +4596,47 @@ type LocalAgentInvocationResult = {
   metadata?: Record<string, unknown>;
 };
 
+async function invokeCursorExecAgent(input: {
+  cwd: string;
+  prompt: string;
+  invocation: InvocationRequest;
+}): Promise<LocalAgentInvocationResult> {
+  if (input.invocation.action === "wake") {
+    return { output: "" };
+  }
+
+  const auth = await resolveCursorApiKey();
+  const result = await runCursorCliTransportSpike({
+    mode: "cursor_cli_stream_json",
+    cwd: input.cwd,
+    prompt: input.prompt,
+    apiKey: auth.apiKey,
+    authSource: auth.source,
+    timeoutMs: input.invocation.timeoutMs ?? 300_000,
+  });
+
+  const metadata: Record<string, unknown> = {
+    transport: "cursor_exec",
+    mode: result.mode,
+    durationMs: result.durationMs,
+    authSource: result.authSource,
+    ...(typeof result.eventCount === "number" ? { eventCount: result.eventCount } : {}),
+    ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+    ...(result.notes?.length ? { notes: result.notes } : {}),
+  };
+
+  if (!result.ok) {
+    const detail = result.errorMessage?.trim();
+    throw new Error(detail ? `Cursor agent invocation failed: ${detail}` : "Cursor agent invocation failed.");
+  }
+
+  return {
+    output: result.outputText ?? "",
+    externalSessionId: result.sessionId ?? null,
+    metadata,
+  };
+}
+
 export async function invokeLocalAgentEndpoint(
   endpoint: AgentEndpoint,
   invocation: InvocationRequest,
@@ -4450,6 +4693,30 @@ export async function invokeLocalAgentEndpoint(
       externalSessionId: result.sessionId,
       metadata: result.metadata,
     };
+  }
+
+  if (!existing && endpoint.transport === "acp_stdio") {
+    await ensureLocalSessionEndpointOnline(endpoint);
+    const result = await invokeAcpStdioAgent({
+      ...buildAcpEndpointSessionOptions(endpoint),
+      prompt,
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.externalSessionId ?? result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (!existing && endpoint.transport === "cursor_exec") {
+    await ensureLocalSessionEndpointOnline(endpoint);
+    return invokeCursorExecAgent({
+      cwd: endpoint.projectRoot ?? endpoint.cwd ?? process.cwd(),
+      prompt,
+      invocation,
+    });
   }
 
   const projectRoot = endpoint.projectRoot ?? endpoint.cwd;
@@ -4561,6 +4828,36 @@ export async function invokeLocalAgentEndpoint(
       externalSessionId: result.sessionId,
       metadata: result.metadata,
     };
+  }
+
+  if (onlineRecord.transport === "acp_stdio") {
+    const result = await invokeAcpStdioAgent({
+      ...buildAcpAgentSessionOptions(
+        agentRuntimeId,
+        onlineRecord,
+        renderLocalAgentSystemPromptTemplate(
+          onlineRecord.systemPrompt || buildLocalAgentSystemPromptTemplate(),
+          buildLocalAgentTemplateContext(definitionId, onlineRecord.project, onlineRecord.cwd),
+          { transport: "acp_stdio" },
+        ),
+      ),
+      prompt,
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.externalSessionId ?? result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (onlineRecord.transport === "cursor_exec") {
+    return invokeCursorExecAgent({
+      cwd: onlineRecord.cwd,
+      prompt,
+      invocation,
+    });
   }
 
   const flightId = createLocalAgentFlightId();

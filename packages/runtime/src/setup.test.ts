@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { readManagedInstalls } from "./managed-installs.js";
-import { initializeOpenScoutSetup, installScoutSkillToHarnesses, resolveOpenScoutSetupContextRoot, writeOpenScoutSettings } from "./setup.js";
+import { initializeOpenScoutSetup, installClaudeStatuslineCapture, installScoutSkillToHarnesses, resolveOpenScoutSetupContextRoot, writeOpenScoutSettings } from "./setup.js";
 import { encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 const originalHome = process.env.HOME;
@@ -65,6 +65,35 @@ describe("setup inventory", () => {
     expect(skillInstalls.map((entry) => entry.harness).sort()).toEqual(["claude", "codex", "pi"]);
     expect(skillInstalls.every((entry) => entry.kind === "skill" && entry.owner === "openscout")).toBe(true);
     expect(skillInstalls.every((entry) => entry.status === "active" && entry.targetPath)).toBe(true);
+  });
+
+  test("installs Claude statusline capture and preserves the existing renderer", async () => {
+    const home = join(tmpdir(), `openscout-statusline-install-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    testDirectories.add(home);
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    const claudeSettingsPath = join(home, ".claude", "settings.json");
+    mkdirSync(dirname(claudeSettingsPath), { recursive: true });
+    writeFileSync(claudeSettingsPath, JSON.stringify({
+      statusLine: {
+        type: "command",
+        command: "bash /Users/art/.claude/statusline-command.sh",
+      },
+    }), "utf8");
+
+    const report = await installClaudeStatuslineCapture();
+    const settings = JSON.parse(readFileSync(claudeSettingsPath, "utf8")) as {
+      statusLine?: { command?: string };
+    };
+    const installs = await readManagedInstalls();
+
+    expect(readFileSync(report.scriptPath, "utf8")).toContain("OpenScout-managed Claude statusline capture");
+    expect(settings.statusLine?.command).toContain(report.scriptPath);
+    expect(settings.statusLine?.command).toContain("OPENSCOUT_CLAUDE_STATUSLINE_DELEGATE=");
+    expect(report.delegateCommand).toBe("bash /Users/art/.claude/statusline-command.sh");
+    expect(installs.some((entry) => entry.kind === "statusline" && entry.name === "claude-statusline-capture")).toBe(true);
+    expect(installs.some((entry) => entry.kind === "config" && entry.name === "claude-statusline-settings")).toBe(true);
   });
 
   test("resolves the configured setup context root from persisted settings when no env override is present", async () => {

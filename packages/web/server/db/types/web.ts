@@ -262,11 +262,13 @@ export type WebFleetState = {
   generatedAt: number;
   totals: {
     active: number;
+    staleMotion: number;
     recentCompleted: number;
     needsAttention: number;
     activity: number;
   };
   activeAsks: WebFleetAsk[];
+  staleMotionAsks: WebFleetAsk[];
   recentCompleted: WebFleetAsk[];
   needsAttention: WebFleetAttentionItem[];
   activity: WebFleetActivity[];

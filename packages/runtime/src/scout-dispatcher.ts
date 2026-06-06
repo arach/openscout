@@ -367,6 +367,25 @@ function resolveSessionTarget(
   };
 }
 
+function replacementAgentForStaleAgent(
+  snapshot: RuntimeSnapshot,
+  agent: AgentDefinition | undefined,
+  helpers: Pick<DispatcherHelpers, "isStale">,
+): AgentDefinition | null {
+  if (!agent || !helpers.isStale(agent)) {
+    return null;
+  }
+  const replacementAgentId = metadataStringValue(agent.metadata, "replacedByAgentId");
+  if (!replacementAgentId) {
+    return null;
+  }
+  const replacement = snapshot.agents[replacementAgentId];
+  if (!replacement || helpers.isStale(replacement)) {
+    return null;
+  }
+  return replacement;
+}
+
 export function resolveBrokerRouteTarget(
   snapshot: RuntimeSnapshot,
   input: BrokerRouteTargetInput,
@@ -412,7 +431,9 @@ export function resolveBrokerRouteTarget(
     );
     if (matches.length === 1) {
       const agent = snapshot.agents[matches[0]!.targetAgentId];
-      return agent ? { kind: "resolved", agent } : { kind: "unknown", label: `ref:${bindingRef}` };
+      const replacement = replacementAgentForStaleAgent(snapshot, agent, options.helpers);
+      const resolved = replacement ?? agent;
+      return resolved ? { kind: "resolved", agent: resolved } : { kind: "unknown", label: `ref:${bindingRef}` };
     }
     if (matches.length > 1) {
       return {

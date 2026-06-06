@@ -309,6 +309,14 @@ export function renderScoutSetupReport(report: ScoutSetupReport): string {
 
   lines.push(
     "",
+    "Claude statusline:",
+    `  Capture script: ${report.claudeStatusline.scriptPath}`,
+    `  Latest snapshot: ${report.claudeStatusline.latestPath}`,
+    `  History: ${report.claudeStatusline.historyPath}`,
+  );
+
+  lines.push(
+    "",
     "Next:",
     "  scout doctor",
     "  scout runtimes",

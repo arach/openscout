@@ -63,6 +63,10 @@ export function resolveHarnessSessionId(
     return metadataString(metadata, "externalSessionId") ?? endpointSessionId;
   }
 
+  if (transport === "acp_stdio") {
+    return metadataString(metadata, "externalSessionId") ?? endpointSessionId;
+  }
+
   return null;
 }
 
@@ -80,11 +84,13 @@ export function resolveHarnessLogPath(
         ? "codex"
         : attachedTransport === "claude_stream_json"
           ? "claude"
-          : null);
+          : attachedTransport === "acp_stdio"
+            ? "acp"
+            : null);
     return pairingHarnessLogPath(adapterType, pairingSessionId);
   }
 
-  if (transport === "codex_app_server" || transport === "claude_stream_json") {
+  if (transport === "codex_app_server" || transport === "claude_stream_json" || transport === "acp_stdio") {
     return relayHarnessLogPath(agentId);
   }
 

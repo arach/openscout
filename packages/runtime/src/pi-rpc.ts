@@ -107,11 +107,15 @@ function resolveDefaultPiScoutExtension(): string | null {
 function inferPiProvider(launch: Pick<PiRpcLaunchOptions, "provider" | "model">): string | undefined {
   const provider = normalizeOptionalString(launch.provider)?.toLowerCase();
   if (provider) {
+    if (provider === "grok") return "xai";
     return provider;
   }
   const model = normalizeOptionalString(launch.model)?.toLowerCase();
   if (model?.startsWith("minimax")) {
     return "minimax";
+  }
+  if (model?.startsWith("grok")) {
+    return "xai";
   }
   return undefined;
 }
@@ -128,15 +132,24 @@ function readSecretValue(name: string): string | undefined {
   }
 }
 
-function buildPiRpcCredentialEnv(launch: Pick<PiRpcLaunchOptions, "provider" | "model">): Record<string, string> | undefined {
-  if (inferPiProvider(launch) !== "minimax") {
-    return undefined;
+export function buildPiRpcCredentialEnv(launch: Pick<PiRpcLaunchOptions, "provider" | "model">): Record<string, string> | undefined {
+  const provider = inferPiProvider(launch);
+  if (provider === "minimax") {
+    const miniMaxKey = normalizeOptionalString(process.env.MINIMAX_API_KEY)
+      ?? normalizeOptionalString(process.env.MINIMAX_TOKEN)
+      ?? readSecretValue("MINIMAX_API_KEY");
+    return miniMaxKey ? { MINIMAX_API_KEY: miniMaxKey } : undefined;
   }
 
-  const miniMaxKey = normalizeOptionalString(process.env.MINIMAX_API_KEY)
-    ?? normalizeOptionalString(process.env.MINIMAX_TOKEN)
-    ?? readSecretValue("MINIMAX_API_KEY");
-  return miniMaxKey ? { MINIMAX_API_KEY: miniMaxKey } : undefined;
+  if (provider === "xai") {
+    const xaiKey = normalizeOptionalString(process.env.XAI_API_KEY)
+      ?? normalizeOptionalString(process.env.SCOUT_XAI_API_KEY)
+      ?? readSecretValue("XAI_API_KEY")
+      ?? readSecretValue("SCOUT_XAI_API_KEY");
+    return xaiKey ? { XAI_API_KEY: xaiKey } : undefined;
+  }
+
+  return undefined;
 }
 
 export function parsePiRpcLaunchArgs(

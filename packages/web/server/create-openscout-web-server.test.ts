@@ -98,8 +98,9 @@ mock.module("./db-queries.ts", () => ({
   queryHeartrate: () => [],
   queryFleet: () => ({
     generatedAt: Date.now(),
-    totals: { active: 0, recentCompleted: 0, needsAttention: 0, activity: 0 },
+    totals: { active: 0, staleMotion: 0, recentCompleted: 0, needsAttention: 0, activity: 0 },
     activeAsks: [],
+    staleMotionAsks: [],
     recentCompleted: [],
     needsAttention: [],
     activity: [],
@@ -509,6 +510,31 @@ afterEach(() => {
 });
 
 describe("createOpenScoutWebServer", () => {
+  test("serves knowledge status as JSON before the app shell fallback", async () => {
+    useIsolatedOpenScoutHome();
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/knowledge/status");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toMatchObject({
+      paths: {
+        knowledgeRoot: expect.any(String),
+        qmdRoot: expect.any(String),
+        sqlitePath: expect.any(String),
+      },
+      collections: 0,
+      readyCollections: 0,
+      chunks: 0,
+      activeJobs: [],
+    });
+  });
+
   test("serves and writes global material heuristics", async () => {
     const home = useIsolatedOpenScoutHome();
     const server = await createOpenScoutWebServer({

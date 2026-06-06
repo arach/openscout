@@ -10,6 +10,7 @@ describe("local agent transport predicates", () => {
     expect(isDirectLocalAgentTransport("codex_app_server")).toBe(true);
     expect(isDirectLocalAgentTransport("claude_stream_json")).toBe(true);
     expect(isDirectLocalAgentTransport("pi_rpc")).toBe(true);
+    expect(isDirectLocalAgentTransport("acp_stdio")).toBe(true);
     expect(isDirectLocalAgentTransport("tmux")).toBe(false);
   });
 
@@ -18,6 +19,7 @@ describe("local agent transport predicates", () => {
     expect(isBrokerRunnableLocalAgentTransport("codex_app_server")).toBe(true);
     expect(isBrokerRunnableLocalAgentTransport("claude_stream_json")).toBe(true);
     expect(isBrokerRunnableLocalAgentTransport("pi_rpc")).toBe(true);
+    expect(isBrokerRunnableLocalAgentTransport("acp_stdio")).toBe(true);
     expect(isBrokerRunnableLocalAgentTransport("pairing_bridge")).toBe(false);
     expect(isBrokerRunnableLocalAgentTransport(undefined)).toBe(false);
   });

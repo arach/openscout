@@ -10,6 +10,7 @@ import { ChannelsScreen } from "../../screens/ChannelsScreen.tsx";
 import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
 import { ConversationsScreen } from "../../screens/ConversationsScreen.tsx";
 import { FollowScreen } from "../../screens/FollowScreen.tsx";
+import { HarnessCentralScreen } from "../../screens/HarnessCentralScreen.tsx";
 import { HomeScreen } from "../../screens/HomeScreen.tsx";
 import { KnowledgeSearchScreen } from "../../screens/KnowledgeSearchScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
@@ -115,6 +116,8 @@ function renderScreen(
         : <BriefingsScreen navigate={navigate} />;
     case "activity":
       return <ActivityScreen navigate={navigate} />;
+    case "harnesses":
+      return <HarnessCentralScreen navigate={navigate} />;
     case "ops":
       return <OpsScreen navigate={navigate} mode={route.mode} tailQuery={route.tailQuery} />;
     case "terminal":

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   deterministicKnowledgeChunkId,
+  indexWorktreeKnowledge,
   knowledgeCollectionQmdPath,
   resolveOpenScoutKnowledgePaths,
   SQLiteKnowledgeStore,
@@ -172,6 +174,56 @@ describe("SQLiteKnowledgeStore", () => {
       expect(status.chunks).toBe(1);
       expect(status.activeJobs.map((activeJob) => activeJob.id)).toContain(job.id);
       expect(status.paths.sqlitePath).toBe(paths.sqlitePath);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("indexWorktreeKnowledge", () => {
+  test("indexes staged, unstaged, and untracked git diffs into searchable chunks", async () => {
+    const paths = useTempSupportPaths();
+    const repo = tempRoot("openscout-knowledge-git-");
+    execFileSync("git", ["init"], { cwd: repo });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo });
+
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(join(repo, "src", "usage.ts"), "export const oldValue = 'old';\n", "utf8");
+    execFileSync("git", ["add", "src/usage.ts"], { cwd: repo });
+    execFileSync("git", ["commit", "-m", "initial"], { cwd: repo });
+
+    writeFileSync(join(repo, "src", "usage.ts"), "export const note = 'contextline usage home page bridge';\n", "utf8");
+    writeFileSync(join(repo, "src", "budget.ts"), "export const table = 'budget_usage_events';\n", "utf8");
+    execFileSync("git", ["add", "src/budget.ts"], { cwd: repo });
+    writeFileSync(join(repo, "src", "notes.ts"), "export const cache = 'cache_read_input_tokens';\n", "utf8");
+
+    const result = await indexWorktreeKnowledge({ root: repo, force: true });
+    expect(result.files).toBe(3);
+    expect(result.clean).toBe(false);
+    expect(result.indexedFiles.map((file) => `${file.state}:${file.path}`).sort()).toEqual([
+      "staged:src/budget.ts",
+      "unstaged:src/usage.ts",
+      "untracked:src/notes.ts",
+    ]);
+
+    const store = new SQLiteKnowledgeStore(undefined, paths);
+    try {
+      const contextHits = store.searchLexical({
+        q: "contextline usage home",
+        sourceKinds: ["git_worktree"],
+        limit: 10,
+      });
+      expect(contextHits.length).toBeGreaterThan(0);
+      expect(contextHits[0]?.facets.source).toBe("git_worktree");
+      expect(contextHits[0]?.sourceRefs.some((ref) => ref.kind === "file")).toBe(true);
+
+      const budgetHits = store.searchLexical({
+        q: "budget_usage_events",
+        sourceKinds: ["git_worktree"],
+        limit: 10,
+      });
+      expect(budgetHits.length).toBeGreaterThan(0);
     } finally {
       store.close();
     }

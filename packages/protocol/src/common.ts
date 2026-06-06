@@ -71,6 +71,7 @@ export type DeliveryTransport =
   | "pi_rpc"
   | "tmux"
   | "cursor_exec"
+  | "acp_stdio"
   | "cursor_cli_text"
   | "cursor_cli_stream_json"
   | "cursor_sdk_local";

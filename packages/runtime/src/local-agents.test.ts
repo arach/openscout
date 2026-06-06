@@ -28,6 +28,9 @@ const scoutCli = `bun ${JSON.stringify(join(repoRoot, "packages", "cli", "bin", 
 const scoutSkillPath = join(repoRoot, ".agents", "skills", "scout", "SKILL.md");
 const originalCodexBin = process.env.OPENSCOUT_CODEX_BIN;
 const originalCodeXBin = process.env.CODEX_BIN;
+const originalCursorAgentBin = process.env.OPENSCOUT_CURSOR_AGENT_BIN;
+const originalCursorAgentBinAlias = process.env.CURSOR_AGENT_BIN;
+const originalAcpCommand = process.env.OPENSCOUT_ACP_COMMAND;
 const originalPath = process.env.PATH;
 const tempPaths = new Set<string>();
 
@@ -41,6 +44,21 @@ afterEach(() => {
     delete process.env.CODEX_BIN;
   } else {
     process.env.CODEX_BIN = originalCodeXBin;
+  }
+  if (originalCursorAgentBin === undefined) {
+    delete process.env.OPENSCOUT_CURSOR_AGENT_BIN;
+  } else {
+    process.env.OPENSCOUT_CURSOR_AGENT_BIN = originalCursorAgentBin;
+  }
+  if (originalCursorAgentBinAlias === undefined) {
+    delete process.env.CURSOR_AGENT_BIN;
+  } else {
+    process.env.CURSOR_AGENT_BIN = originalCursorAgentBinAlias;
+  }
+  if (originalAcpCommand === undefined) {
+    delete process.env.OPENSCOUT_ACP_COMMAND;
+  } else {
+    process.env.OPENSCOUT_ACP_COMMAND = originalAcpCommand;
   }
   if (originalPath === undefined) {
     delete process.env.PATH;
@@ -61,6 +79,20 @@ function writeFakeCodexExecutable(directory: string): string {
   return executablePath;
 }
 
+function writeFakeCursorAgentExecutable(directory: string): string {
+  const executablePath = join(directory, "cursor-agent");
+  writeFileSync(executablePath, "#!/bin/sh\necho cursor-agent 0.999.0\n", "utf8");
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
+
+function writeFakeAcpExecutable(directory: string): string {
+  const executablePath = join(directory, "fake-acp");
+  writeFileSync(executablePath, "#!/bin/sh\necho fake-acp 0.999.0\n", "utf8");
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
+
 describe("local agent prompts", () => {
   test("accepts an explicit Codex executable for app-server warmup even when PATH is empty", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-warmup-"));
@@ -72,6 +104,33 @@ describe("local agent prompts", () => {
     expect(areHarnessBinariesAvailable({
       harness: "codex",
       transport: "codex_app_server",
+    })).toBe(true);
+  });
+
+  test("accepts an explicit Cursor executable for cursor exec warmup even when PATH is empty", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-cursor-warmup-"));
+    tempPaths.add(tempRoot);
+    process.env.OPENSCOUT_CURSOR_AGENT_BIN = writeFakeCursorAgentExecutable(tempRoot);
+    delete process.env.CURSOR_AGENT_BIN;
+    process.env.PATH = "";
+
+    expect(areHarnessBinariesAvailable({
+      harness: "cursor",
+      transport: "cursor_exec",
+    })).toBe(true);
+  });
+
+  test("accepts an explicit ACP stdio command for warmup even when PATH is empty", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-acp-warmup-"));
+    tempPaths.add(tempRoot);
+    const executable = writeFakeAcpExecutable(tempRoot);
+    delete process.env.OPENSCOUT_ACP_COMMAND;
+    process.env.PATH = "";
+
+    expect(areHarnessBinariesAvailable({
+      harness: "claude",
+      transport: "acp_stdio",
+      launchArgs: ["--command", executable],
     })).toBe(true);
   });
 
@@ -97,6 +156,7 @@ describe("local agent prompts", () => {
   test("Scout harness attribution accepts Flue without making it a managed local launcher", () => {
     expect(SUPPORTED_SCOUT_HARNESSES).toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("flue");
+    expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("cursor");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("pi");
   });
 

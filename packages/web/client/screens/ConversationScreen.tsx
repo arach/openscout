@@ -287,8 +287,9 @@ function fleetAttentionIds(fleet: FleetState): Set<string> {
 function emptyFleetState(): FleetState {
   return {
     generatedAt: Date.now(),
-    totals: { active: 0, recentCompleted: 0, needsAttention: 0, activity: 0 },
+    totals: { active: 0, staleMotion: 0, recentCompleted: 0, needsAttention: 0, activity: 0 },
     activeAsks: [],
+    staleMotionAsks: [],
     recentCompleted: [],
     needsAttention: [],
     activity: [],

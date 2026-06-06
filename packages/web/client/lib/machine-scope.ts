@@ -118,6 +118,7 @@ export function filterFleetByMachineScope(
 ): FleetState | null {
   if (!fleet || !agentIds) return fleet;
   const activeAsks = fleet.activeAsks.filter((ask) => idRecordMatchesScope(ask, agentIds));
+  const staleMotionAsks = (fleet.staleMotionAsks ?? []).filter((ask) => idRecordMatchesScope(ask, agentIds));
   const recentCompleted = fleet.recentCompleted.filter((ask) => idRecordMatchesScope(ask, agentIds));
   const needsAttention = fleet.needsAttention.filter((item) => idRecordMatchesScope(item, agentIds));
   const activity = filterActivityByMachineScope(fleet.activity, agentIds);
@@ -125,11 +126,13 @@ export function filterFleetByMachineScope(
     ...fleet,
     totals: {
       active: activeAsks.length,
+      staleMotion: staleMotionAsks.length,
       recentCompleted: recentCompleted.length,
       needsAttention: needsAttention.length,
       activity: activity.length,
     },
     activeAsks,
+    staleMotionAsks,
     recentCompleted,
     needsAttention,
     activity,

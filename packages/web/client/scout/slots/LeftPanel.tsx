@@ -47,6 +47,8 @@ function resolveLeftRailSlot(route: Route): LeftRailSlot | null {
       return { mode: "takeover", render: () => <ScoutMessagesLeftPanel /> };
     case "mesh":
       return { mode: "takeover", render: () => <MeshNavLeftPanel /> };
+    case "harnesses":
+      return { mode: "takeover", render: () => <ScoutOpsLeftPanel /> };
     default:
       return null;
   }
@@ -219,11 +221,19 @@ function planPathBasename(value: string): string {
   return idx >= 0 ? clean.slice(idx + 1) : clean;
 }
 
-function planProgressLabel(document: PlanDocument): string {
-  if (document.steps.length === 0) return "No steps";
+function planProgressCompact(document: PlanDocument): string {
+  if (document.steps.length === 0) return "—";
   const done = document.steps.filter((step) => step.status === "completed").length;
-  return `${done}/${document.steps.length} steps`;
+  return `${done}/${document.steps.length}`;
 }
+
+// Statuses worth surfacing as a word in the dense rail row; draft/unknown are the
+// quiet default and rely on the neutral dot only.
+const NOTABLE_PLAN_STATUSES: ReadonlySet<PlanDocumentStatus> = new Set([
+  "active",
+  "blocked",
+  "completed",
+]);
 
 function planDocumentSearchText(document: PlanDocument): string {
   return [
@@ -310,6 +320,7 @@ function ScoutPlanDocumentsLeftPanel() {
             key={source}
             type="button"
             className={`s-plan-left-source${sourceFilter === source ? " s-plan-left-source--active" : ""}`}
+            aria-pressed={sourceFilter === source}
             onClick={() => setSourceFilter(source)}
           >
             <span>{PLAN_SOURCE_LABELS[source]}</span>
@@ -323,29 +334,34 @@ function ScoutPlanDocumentsLeftPanel() {
         ) : visibleDocuments.length === 0 ? (
           <div className="s-left-roster-empty">{documents.length === 0 ? "No plan documents found" : "No plans match"}</div>
         ) : (
-          visibleDocuments.map((document) => (
-            <button
-              key={document.id}
-              type="button"
-              className={`s-plan-left-document${document.id === selectedId ? " s-plan-left-document--active" : ""}`}
-              onClick={() => navigate({ view: "ops", mode: "plan", planDocumentId: document.id })}
-              title={`${document.path}\n${document.summary ?? ""}`}
-            >
-              <div className="s-plan-left-document-top">
-                <span className={`s-plan-left-status s-plan-left-status--${document.status}`}>
-                  {PLAN_STATUS_LABELS[document.status]}
+          visibleDocuments.map((document) => {
+            const active = document.id === selectedId;
+            const statusLabel = PLAN_STATUS_LABELS[document.status];
+            const notable = NOTABLE_PLAN_STATUSES.has(document.status);
+            return (
+              <button
+                key={document.id}
+                type="button"
+                className={`s-plan-left-document${active ? " s-plan-left-document--active" : ""}`}
+                aria-current={active ? "true" : undefined}
+                onClick={() => navigate({ view: "ops", mode: "plan", planDocumentId: document.id })}
+                title={`${statusLabel} · ${document.path}`}
+              >
+                <span
+                  className={`s-plan-left-dot s-plan-left-dot--${document.status}`}
+                  aria-hidden="true"
+                />
+                <span className="s-plan-left-document-body">
+                  <span className="s-plan-left-document-title">{document.title}</span>
+                  <span className="s-plan-left-document-meta">
+                    {notable ? `${statusLabel} · ` : ""}
+                    {PLAN_SOURCE_LABELS[document.source]} · {planPathBasename(document.path)} · {planProgressCompact(document)}
+                  </span>
                 </span>
-                <span>{PLAN_SOURCE_LABELS[document.source]}</span>
-                <time>{timeAgo(document.updatedAt)}</time>
-              </div>
-              <div className="s-plan-left-document-title">{document.title}</div>
-              {document.summary && <div className="s-plan-left-document-summary">{document.summary}</div>}
-              <div className="s-plan-left-document-foot">
-                <span>{planProgressLabel(document)}</span>
-                <span>{planPathBasename(document.path)}</span>
-              </div>
-            </button>
-          ))
+                <time className="s-plan-left-document-time">{timeAgo(document.updatedAt)}</time>
+              </button>
+            );
+          })
         )}
       </div>
     </div>

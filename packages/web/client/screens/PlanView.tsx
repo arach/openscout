@@ -23,15 +23,6 @@ const STATUS_LABELS: Record<PlanDocumentStatus, string> = {
   unknown: "Unknown",
 };
 
-const STATUS_COLORS: Record<PlanDocumentStatus, string> = {
-  active: "var(--green)",
-  archived: "var(--dim)",
-  blocked: "var(--amber)",
-  completed: "var(--muted)",
-  draft: "var(--accent)",
-  unknown: "var(--dim)",
-};
-
 function formatSource(document: PlanDocument): string {
   switch (document.source) {
     case "claude":
@@ -126,7 +117,7 @@ export function PlanView({
     <div className="s-plan">
       <div className="s-plan-inner s-plan-inner--documents">
         <header className="s-plan-banner">
-          <span className="s-plan-banner-badge">Plan Documents</span>
+          <span className="s-plan-banner-label">Plan documents</span>
           <span className="s-plan-banner-meta">
             {loading && documents.length === 0
               ? "indexing plan documents..."
@@ -187,14 +178,11 @@ function PlanDocumentDetail({
   return (
     <div className="s-plan-document">
       <div className="s-plan-readonly-head">
-        <div>
-          <div className="s-ops-eyebrow">Plan document</div>
-          <h1 className="s-plan-title">{document.title}</h1>
-          {document.summary && <p className="s-plan-goal">{document.summary}</p>}
+        <div className="s-plan-doc-meta-line">
+          Plan document · {STATUS_LABELS[document.status]} · {document.workspaceName ?? document.provenance.root} · updated {timeAgo(document.updatedAt)}
         </div>
-        <span className="s-ops-state-chip" style={{ color: STATUS_COLORS[document.status] }}>
-          {STATUS_LABELS[document.status]}
-        </span>
+        <h1 className="s-plan-title">{document.title}</h1>
+        {document.summary && <p className="s-plan-goal">{document.summary}</p>}
       </div>
 
       <section className="s-plan-doc-section s-plan-doc-section--primary">
@@ -205,6 +193,7 @@ function PlanDocumentDetail({
             <button
               type="button"
               className={`s-plan-tree-toggle-btn${mode === "preview" ? " s-plan-tree-toggle-btn--active" : ""}`}
+              aria-pressed={mode === "preview"}
               onClick={() => setMode("preview")}
             >
               Preview
@@ -212,6 +201,7 @@ function PlanDocumentDetail({
             <button
               type="button"
               className={`s-plan-tree-toggle-btn${mode === "source" ? " s-plan-tree-toggle-btn--active" : ""}`}
+              aria-pressed={mode === "source"}
               onClick={() => setMode("source")}
             >
               Source

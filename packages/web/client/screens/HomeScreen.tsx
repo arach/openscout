@@ -785,8 +785,16 @@ export function HomeScreen({
     [activeIds, agents],
   );
   const staleMovingAsks = useMemo(
-    () => movingAsks.filter((ask) => !isFreshMovingTimestamp(ask.updatedAt, nowMs)),
-    [movingAsks, nowMs],
+    () => {
+      const staleFromFleet = scopedFleet?.staleMotionAsks ?? [];
+      const staleFromLegacyActive = movingAsks.filter((ask) => !isFreshMovingTimestamp(ask.updatedAt, nowMs));
+      const byInvocation = new Map<string, FleetAsk>();
+      for (const ask of [...staleFromFleet, ...staleFromLegacyActive]) {
+        byInvocation.set(ask.invocationId, ask);
+      }
+      return [...byInvocation.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+    },
+    [movingAsks, nowMs, scopedFleet?.staleMotionAsks],
   );
   const staleMotionItems = useMemo<StaleMotionItem[]>(() => {
     const byAgent = new Map<string, StaleMotionItem>();
@@ -938,20 +946,53 @@ export function HomeScreen({
     );
   }, [scopedFleet?.activity, nowMs, agents, operatorName]);
 
-  const markStaleMotionInactive = useCallback((item: StaleMotionItem) => {
+  const hideStaleMotionItem = useCallback((item: StaleMotionItem) => {
     setStaleMotionInactiveRaw(encodeStaleMotionInactive({
       ...staleMotionInactive,
       [item.agentId]: item.updatedAtMs,
     }));
   }, [setStaleMotionInactiveRaw, staleMotionInactive]);
 
-  const markAllStaleMotionInactive = useCallback(() => {
+  const hideAllStaleMotionItems = useCallback(() => {
     const next = { ...staleMotionInactive };
     for (const item of visibleStaleMotionItems) {
       next[item.agentId] = item.updatedAtMs;
     }
     setStaleMotionInactiveRaw(encodeStaleMotionInactive(next));
   }, [setStaleMotionInactiveRaw, staleMotionInactive, visibleStaleMotionItems]);
+
+  const refreshAfterMotionClear = useCallback(() => {
+    void load("background");
+    void reload();
+  }, [load, reload]);
+
+  const clearStaleMotionItem = useCallback((item: StaleMotionItem) => {
+    hideStaleMotionItem(item);
+    void api(`/api/agents/${encodeURIComponent(item.agentId)}/clear-motion`, {
+      method: "POST",
+    })
+      .catch((error) => {
+        console.warn("Failed to clear stale motion", error);
+      })
+      .finally(refreshAfterMotionClear);
+  }, [hideStaleMotionItem, refreshAfterMotionClear]);
+
+  const clearAllStaleMotionItems = useCallback(() => {
+    const items = [...visibleStaleMotionItems];
+    hideAllStaleMotionItems();
+    void Promise.allSettled(items.map((item) =>
+      api(`/api/agents/${encodeURIComponent(item.agentId)}/clear-motion`, {
+        method: "POST",
+      })
+    ))
+      .then((results) => {
+        const failed = results.filter((result) => result.status === "rejected");
+        if (failed.length > 0) {
+          console.warn(`Failed to clear ${failed.length} stale motion item${failed.length === 1 ? "" : "s"}`);
+        }
+      })
+      .finally(refreshAfterMotionClear);
+  }, [hideAllStaleMotionItems, refreshAfterMotionClear, visibleStaleMotionItems]);
 
   const narrativeParts = useMemo(() => {
     const parts: string[] = [];
@@ -1089,9 +1130,9 @@ export function HomeScreen({
                 <button
                   type="button"
                   className="s-link-btn"
-                  onClick={markAllStaleMotionInactive}
+                  onClick={clearAllStaleMotionItems}
                 >
-                  mark all inactive
+                  clear all
                 </button>
               }
             />
@@ -1101,7 +1142,7 @@ export function HomeScreen({
                   key={item.agentId}
                   item={item}
                   navigate={navigate}
-                  onMarkInactive={() => markStaleMotionInactive(item)}
+                  onClear={() => clearStaleMotionItem(item)}
                 />
               ))}
             </div>
@@ -1864,11 +1905,11 @@ function MovingAskRow({
 function StaleMotionRow({
   item,
   navigate,
-  onMarkInactive,
+  onClear,
 }: {
   item: StaleMotionItem;
   navigate: (r: Route) => void;
-  onMarkInactive: () => void;
+  onClear: () => void;
 }) {
   const age = item.updatedAtMs > 0 ? timeAgo(item.updatedAtMs) : "unknown";
   const source = staleMotionSourceLabel(item);
@@ -1910,11 +1951,11 @@ function StaleMotionRow({
         <button
           type="button"
           className="s-icon-btn"
-          title="Mark inactive"
-          onClick={onMarkInactive}
+          title="Clear stale motion"
+          onClick={onClear}
         >
           <Check size={14} aria-hidden="true" />
-          <span>Mark inactive</span>
+          <span>Clear</span>
         </button>
       </div>
     </div>

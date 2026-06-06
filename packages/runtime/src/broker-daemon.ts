@@ -3242,6 +3242,7 @@ function managedLocalSessionEndpointForAgent(
     && (
       endpoint.transport === "codex_app_server"
       || endpoint.transport === "claude_stream_json"
+      || endpoint.transport === "acp_stdio"
       || endpoint.transport === "pairing_bridge"
     )
     && isManagedLocalSessionMetadata(endpoint.metadata)
@@ -4376,6 +4377,18 @@ function dispatchAckStrategyForEndpoint(input: {
   return "queued";
 }
 
+function endpointHarnessMismatchForInvocation(
+  invocation: InvocationRequest,
+  endpoint: AgentEndpoint,
+): string | null {
+  const requestedHarness = invocation.execution?.harness?.trim();
+  if (!requestedHarness || endpoint.harness === requestedHarness) {
+    return null;
+  }
+
+  return `Invocation requested ${requestedHarness}, but resolved endpoint ${endpoint.id} is ${endpoint.harness}.`;
+}
+
 function onlineConversationNotifyTargets(
   conversation: ConversationDefinition,
   requesterId: string,
@@ -4577,6 +4590,28 @@ async function executeLocalInvocation(
       },
     };
     await persistFlight(queuedFlight);
+    return;
+  }
+
+  const harnessMismatch = endpointHarnessMismatchForInvocation(invocation, endpoint);
+  if (harnessMismatch) {
+    const failedFlight = {
+      ...initialFlight,
+      state: "failed" as const,
+      summary: `${agent.displayName} could not be prepared.`,
+      error: `Endpoint resolution failed before execution: ${harnessMismatch}`,
+      completedAt: Date.now(),
+      metadata: {
+        ...(initialFlight.metadata ?? {}),
+        failureStage: "endpoint_resolution",
+        requestedHarness: invocation.execution?.harness,
+        resolvedEndpointId: endpoint.id,
+        resolvedHarness: endpoint.harness,
+        resolvedTransport: endpoint.transport,
+      },
+    };
+    await persistFlight(failedFlight);
+    await postInvocationStatusMessage(invocation, failedFlight);
     return;
   }
 
@@ -6382,13 +6417,21 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         : Object.values(snapshot.endpoints).find((candidate) => (
           candidate.agentId === input.agentId?.trim()
           && candidate.nodeId === nodeId
-          && (candidate.transport === "codex_app_server" || candidate.transport === "claude_stream_json")
+          && (
+            candidate.transport === "codex_app_server"
+            || candidate.transport === "claude_stream_json"
+            || candidate.transport === "acp_stdio"
+          )
           && candidate.state !== "offline"
         ));
       if (!endpoint) {
         throw new Error("local session endpoint not found");
       }
-      if (endpoint.transport !== "codex_app_server" && endpoint.transport !== "claude_stream_json") {
+      if (
+        endpoint.transport !== "codex_app_server"
+        && endpoint.transport !== "claude_stream_json"
+        && endpoint.transport !== "acp_stdio"
+      ) {
         throw new Error(`endpoint ${endpoint.id} does not use a local session transport`);
       }
       const sessionResult = await ensureLocalSessionEndpointOnline(endpoint);

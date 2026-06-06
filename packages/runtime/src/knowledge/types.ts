@@ -1,5 +1,6 @@
 export type KnowledgeCollectionKind =
   | "sessions"
+  | "git_worktree"
   | "skills"
   | "mcp"
   | "codebase"
