@@ -121,7 +121,10 @@ export type BrokerCoreServiceDeps = {
   readHome?: () => Promise<unknown>;
   executeCommand: (command: ControlCommand) => Promise<unknown>;
   postConversationMessage?: (message: MessageRecord) => Promise<unknown>;
-  deliver?: (request: ScoutDeliverRequest) => Promise<ScoutDeliverResponse>;
+  deliver?: (
+    request: ScoutDeliverRequest,
+    options?: { signal?: AbortSignal },
+  ) => Promise<ScoutDeliverResponse>;
   invokeAgent?: (
     request: InvocationRequest & BrokerRouteTargetInput,
   ) => Promise<unknown>;

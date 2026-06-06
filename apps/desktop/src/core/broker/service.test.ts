@@ -382,7 +382,7 @@ describe("parseScoutHarness", () => {
 
   test("keeps managed local launch harnesses explicit", () => {
     expect(() => parseScoutLocalHarness("flue")).toThrow(
-      'Unsupported local agent harness "flue". Use one of: claude, codex, pi',
+      'Unsupported local agent harness "flue". Use one of: claude, codex, cursor, pi',
     );
     expect(parseScoutLocalHarness("pi")).toBe("pi");
   });
