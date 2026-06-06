@@ -17,6 +17,10 @@ struct NewSessionSurface: View {
     /// nil when unconnected. A live target *picker* (choosing among paired
     /// machines) waits on multi-machine routing; today the bridge is one link.
     var targetMachineName: String? = nil
+    /// Bumps when the bridge becomes ready (data loaded) — re-runs the workspace
+    /// load so the machine-backed harness list fills in once connected, not just
+    /// on first appear (which can land before the connection is up).
+    var reloadToken: Int = 0
 
     @State private var projectPath: String = "/Users/arach/dev/openscout"
     @State private var instructions: String = "Stand up the ScoutNext shell and get it running in the simulator."
@@ -24,6 +28,11 @@ struct NewSessionSurface: View {
     /// Model is scoped to the harness, so changing harness resets it to Default.
     @State private var harnessId: String = HarnessOption.catalog[0].id
     @State private var modelId: String = ModelOption.defaultId
+    /// Machine-backed workspaces from the connected Mac (`mobile/workspaces`),
+    /// each carrying the harnesses actually installed there. Empty until loaded /
+    /// when offline, in which case the harness menu falls back to the curated
+    /// catalog below.
+    @State private var workspaces: [WorkspaceSummary] = []
     @State private var showProjectPicker = false
     @State private var isSubmitting = false
     @State private var result: SessionInitiationResult?
@@ -78,12 +87,55 @@ struct NewSessionSurface: View {
         static let defaultOption = ModelOption(id: defaultId, label: "Default", value: nil)
     }
 
-    private var selectedHarness: HarnessOption {
-        HarnessOption.catalog.first { $0.id == harnessId } ?? HarnessOption.catalog[0]
+    /// One selectable harness in the menu — sourced from the connected machine
+    /// when known, else the curated fallback.
+    private struct HarnessChoice: Identifiable, Hashable {
+        let id: String
+        let label: String
+        let readiness: WorkspaceSummary.Harness.Readiness?
+    }
+
+    /// The workspace whose root matches the chosen project, if the machine knows it.
+    private var selectedWorkspace: WorkspaceSummary? {
+        workspaces.first { $0.root == trimmedProjectPath }
+    }
+
+    /// Harness menu options: the machine's installed harnesses for the selected
+    /// project when available, otherwise the curated catalog (e.g. while offline).
+    private var harnessChoices: [HarnessChoice] {
+        // The machine's full harness set — the union of every usable harness across
+        // its known workspaces — so the menu reflects what's actually installed on
+        // that Mac, not just one project's default. Curated fallback when offline.
+        let live = workspaces.flatMap(\.harnesses).filter(\.isUsable)
+        if !live.isEmpty {
+            var seen = Set<String>()
+            return live
+                .filter { seen.insert($0.harness).inserted }
+                .map { HarnessChoice(id: $0.harness, label: harnessLabel($0.harness), readiness: $0.readiness) }
+                .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        }
+        return HarnessOption.catalog.map { HarnessChoice(id: $0.id, label: $0.label, readiness: nil) }
+    }
+
+    /// Friendly label for a harness id — the curated label when we have one, else
+    /// a capitalized form of the raw id (for harnesses we don't curate models for).
+    private func harnessLabel(_ id: String) -> String {
+        if let curated = HarnessOption.catalog.first(where: { $0.id == id }) { return curated.label }
+        return id.isEmpty ? id : id.prefix(1).uppercased() + id.dropFirst()
+    }
+
+    /// Model menu for a harness — the curated list when we have one, else just
+    /// "Default" (models are free-form CLI strings, not machine-cataloged).
+    private func modelChoices(_ harness: String) -> [ModelOption] {
+        HarnessOption.catalog.first(where: { $0.id == harness })?.models ?? [.defaultOption]
+    }
+
+    private var selectedHarnessLabel: String {
+        harnessChoices.first(where: { $0.id == harnessId })?.label ?? harnessLabel(harnessId)
     }
 
     private var selectedModel: ModelOption {
-        selectedHarness.models.first { $0.id == modelId } ?? ModelOption.defaultOption
+        modelChoices(harnessId).first { $0.id == modelId } ?? ModelOption.defaultOption
     }
 
     var body: some View {
@@ -116,6 +168,39 @@ struct NewSessionSurface: View {
         .sheet(isPresented: $showProjectPicker) {
             ProjectPickerSheet(client: client, projectPath: $projectPath)
         }
+        .task(id: reloadToken) { await loadWorkspaces() }
+        // When the project changes, adopt that machine workspace's harnesses.
+        .onChange(of: projectPath) { _, _ in applyWorkspaceDefault() }
+    }
+
+    // MARK: - Machine-backed harnesses
+
+    private func loadWorkspaces() async {
+        // Don't clobber the current list (or the curated fallback) on a failed
+        // fetch — only a successful load replaces it.
+        guard let loaded = try? await client.listWorkspaces(query: nil, limit: 200) else { return }
+        workspaces = loaded
+        applyWorkspaceDefault()
+    }
+
+    /// Adopt the machine's recommended harness for the selected project — its
+    /// `defaultHarness` when usable, else the first usable one — but only when the
+    /// current choice isn't valid for this workspace. No-op when the project isn't
+    /// a known workspace, so the curated fallback selection stays put.
+    private func applyWorkspaceDefault() {
+        let valid = harnessChoices.map(\.id)
+        guard !valid.isEmpty else { return }
+        // Prefer the selected project's recommended harness; otherwise keep the
+        // current choice if it's still valid, else fall back to the first.
+        if let preferred = selectedWorkspace?.defaultHarness, valid.contains(preferred) {
+            guard harnessId != preferred else { return }
+            harnessId = preferred
+        } else if valid.contains(harnessId) {
+            return
+        } else {
+            harnessId = valid[0]
+        }
+        modelId = ModelOption.defaultId
     }
 
     // MARK: - Project
@@ -261,10 +346,10 @@ struct NewSessionSurface: View {
         VStack(alignment: .leading, spacing: HudSpacing.lg) {
             HudSectionLabel("Agent")
             HStack(spacing: HudSpacing.md) {
-                choiceMenu(value: selectedHarness.label) {
+                choiceMenu(value: selectedHarnessLabel) {
                     Picker("Harness", selection: $harnessId) {
-                        ForEach(HarnessOption.catalog) { harness in
-                            Text(harness.label).tag(harness.id)
+                        ForEach(harnessChoices) { choice in
+                            Text(choice.label).tag(choice.id)
                         }
                     }
                     .pickerStyle(.inline)
@@ -272,7 +357,7 @@ struct NewSessionSurface: View {
                 tokenSeparator
                 choiceMenu(value: selectedModel.label) {
                     Picker("Model", selection: $modelId) {
-                        ForEach(selectedHarness.models) { model in
+                        ForEach(modelChoices(harnessId)) { model in
                             Text(model.label).tag(model.id)
                         }
                     }

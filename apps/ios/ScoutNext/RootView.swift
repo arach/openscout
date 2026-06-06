@@ -73,7 +73,7 @@ struct RootView: View {
                             case .agents:   AgentsSurface(client: client, reloadToken: model.dataReadyToken)
                             case .comms:    CommsSurface(client: client, reloadToken: model.dataReadyToken)
                             case .terminal: TerminalSurface(client: client, reloadToken: model.dataReadyToken, connectedHost: model.terminalSSHHost)
-                            case .new:      NewSessionSurface(client: client, targetMachineName: activeMachineName)
+                            case .new:      NewSessionSurface(client: client, targetMachineName: activeMachineName, reloadToken: model.dataReadyToken)
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
