@@ -194,6 +194,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Live activity below the inspector card while an agent works — NOW (Observe), TAIL (this agent), FILES — no drill-down.",
   },
   {
+    href: "/studies/agent-session-actions",
+    label: "Agent Session Actions",
+    bucket: "studies",
+    surface: "macos",
+    family: "agent-cards",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agent-session-actions/page.tsx",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+    ],
+    blurb: "Sessions as the unit — per-session role + progressive disclosure of Observe/Take over/Fork/Message (⋯); Message/New-session placement top vs end.",
+  },
+  {
     href: "/studies/session-search",
     label: "Session Search",
     bucket: "studies",
