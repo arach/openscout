@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed.
+- **Status:** Draft
+- **Owner:** OpenScout
+- **Scope:** Local-first asset storage, message/invocation attachments, UI display hints, and harness projection.
+- **Intent:** Define a durable attachment model that keeps bytes out of message bodies while letting adapters project content per harness.
+- **Related:** [`data-ownership`](../data-ownership.md), [`sco-060`](./sco-060-comms-channel-primitive-and-adapter-destinations.md), [`sco-062`](./sco-062-qmd-knowledge-search-and-context-index.md).
 
 ## Proposal ID
 
@@ -71,6 +75,16 @@ The first implementation SHOULD live in `packages/runtime` because the broker is
 the canonical writer for Scout-owned coordination records and already owns the
 SQLite store, support paths, and runtime HTTP API.
 
+Asset metadata MUST be created through the broker command/journal path, not
+side-written into SQLite. The broker may write bytes to the support directory as
+a side effect of accepting a journaled command, but replay and mesh forwarding
+must be able to recover the asset record from Scout-owned state.
+
+The local byte store is node-local. In the first slice, "local-first" means the
+capturing surface and broker authority are on the same machine. Mesh peers can
+receive asset metadata immediately, but byte fetch or replication is a later
+authorized projection.
+
 The web-only ephemeral blob route SHOULD remain useful as an ingestion cache and
 compatibility path, but durable message attachments SHOULD point at asset ids.
 
@@ -105,6 +119,10 @@ This preserves the boundary in `docs/data-ownership.md`: Scout owns coordination
 records and first-party artifacts; external harness source material remains
 harness-owned.
 
+The `agent_output` source is restricted to explicit Scout-workflow posting. An
+adapter observing Claude, Codex, Pi, or another harness must not auto-import
+harness-owned files as Scout assets just because they appeared in a transcript.
+
 ## Asset Shape
 
 The initial protocol shape can be kept conservative:
@@ -119,7 +137,7 @@ type AssetRecord = {
   fileName?: string;
   title?: string;
   source: AssetSource;
-  createdByActorId: string;
+  actorId: string;
   originNodeId: string;
   createdAt: number;
   updatedAt?: number;
@@ -170,6 +188,10 @@ not as the canonical message body. A likely layout:
 Content-addressed byte storage gives dedupe cheaply. Asset records remain
 separate because the same bytes can be attached with different names, sources,
 permissions, or display hints.
+
+Across mesh, asset identity should follow the existing Scout pattern: the stable
+reference is `(originNodeId, assetId)`. Local ids can stay compact while the
+authority node keeps them unambiguous.
 
 ## Attachment Shape
 
@@ -326,7 +348,7 @@ type CreateAssetRequest = {
   fileName?: string;
   source: AssetSource;
   dataBase64?: string;
-  localPath?: string;
+  trustedLocalPath?: string;
   url?: string;
   metadata?: Record<string, unknown>;
   retention?: AssetRetentionPolicy;
@@ -336,6 +358,21 @@ type CreateAssetRequest = {
 The request allows base64 at the HTTP edge because that may be the simplest path
 for browsers and native clients. The broker stores bytes and returns an asset
 record. It does not place base64 into messages.
+
+`trustedLocalPath` is only for trusted same-machine surfaces such as Talkie or
+the native app. Remote, web, or agent-provided callers should upload bytes or
+create an external-ref URL asset. The broker must not read arbitrary
+caller-supplied paths outside an allowlisted local import flow.
+
+Content reads are not ordinary JSON broker commands:
+
+```text
+GET /v1/assets/:assetId/content
+```
+
+This endpoint should stream bytes with `content-type`, `content-length`, private
+cache headers, and eventually range support. It can live beside the JSON command
+API, but it should not pretend binary content is a normal command envelope.
 
 `send`, `ask`, and reply APIs should accept:
 
@@ -400,6 +437,18 @@ Exact migrations should follow the repo's SQLite migration posture. The key
 direction is that attachment rows become joins between messages and assets, not
 the only place asset metadata lives.
 
+Asset writes must be atomic at both layers:
+
+- journal the asset metadata command before exposing the asset id
+- write bytes to a temporary object path, verify size/hash, then rename into the
+  content-addressed object path
+- tolerate concurrent uploads of the same hash
+- run an orphan sweep for unreferenced, expired, or failed-import assets
+
+Phase 1 should include a minimal orphan sweep even if richer retention UI waits.
+The existing image blob cache uses a 25 MB image limit; the first durable image
+slice should reuse that limit unless product requirements change it.
+
 ## Security And Trust
 
 This is local-first but still needs boundaries:
@@ -414,6 +463,9 @@ This is local-first but still needs boundaries:
 - Require explicit mesh authorization before exposing assets to another node.
 - Treat OCR, transcript, and summaries as derivatives that may contain sensitive
   content.
+- Treat OCR and transcript text as untrusted input. If a derivative is projected
+  into an agent prompt or indexed for retrieval, it should carry provenance and
+  prompt-injection caveats just like fetched web text or copied logs.
 
 The first slice is still a high-trust local pilot, matching Scout's current
 posture. It should not claim enterprise DLP, compliance retention, or
@@ -433,9 +485,9 @@ remote peer, a message with attachments needs one of these policies:
 3. **Replicated envelope:** broker forwards the bytes or an encrypted bundle to
    the authority peer.
 
-Phase 1 can choose metadata-only for mesh. Phase 2 can add on-demand fetch.
-Replication is a later explicit design because it touches trust, retention, and
-storage budgets.
+The first local phases can choose metadata-only for mesh. A later mesh phase can
+add on-demand fetch. Replication is a separate explicit design because it
+touches trust, retention, and storage budgets.
 
 ## Implementation Plan
 
@@ -446,15 +498,28 @@ storage budgets.
   right nouns.
 - Keep current ephemeral `/api/blobs` path working.
 
-### Phase 1: Durable Local Image Assets
+### Phase 1A: Durable Local Image Asset Store
 
 - Add `AssetRecord` protocol/runtime types.
 - Add runtime SQLite asset tables and store methods.
 - Add a broker asset service under `packages/runtime`.
 - Add `POST /v1/assets` and `GET /v1/assets/:id/content`.
+- Create asset records through the broker command/journal path.
+- Store image bytes with temp-write, hash verification, and atomic rename.
+- Reuse the existing 25 MB image limit from the ephemeral blob store.
+- Add a minimal orphan/expired-asset sweep.
+
+Done when a pasted screenshot can be stored as an asset, reopened by asset id
+after broker restart, and safely removed when no durable reference remains.
+
+### Phase 1B: Message Attachment Migration
+
 - Extend `MessageAttachment` with optional `assetId`, `role`, and `display`.
 - Let web and native send messages with `assetId` attachments.
-- Render existing and new attachments in the web message embed component.
+- Render existing URL/blob attachments and new asset attachments in the web
+  message embed component.
+- Preserve compatibility for `mediaType + url/blobKey` callers during migration.
+- Add rollback behavior for optimistic previews when asset creation fails.
 
 Done when a pasted screenshot can be stored as an asset, attached to a message,
 rendered inline, and reopened after broker restart.
@@ -465,6 +530,8 @@ rendered inline, and reopened after broker restart.
 - Include attachment refs in the invocation prompt context.
 - Project image assets into Pairing/Pi `Prompt.images` for image-capable
   adapters.
+- Reuse the existing Pairing prompt image shape, `images: { mimeType, data }[]`,
+  rather than inventing a second projection path.
 - Add text-only fallback from filename, media type, OCR, and a clear limitation
   note.
 
@@ -508,13 +575,11 @@ but the structured attachment is the source of truth.
 
 ## Open Questions
 
-- Should `assetId` be globally unique across mesh nodes, or scoped by authority
-  node with a composite identity?
 - Should `MessageAttachment.display` live on the join row only, or can an asset
   have a default display preference?
-- Which media classes need hard byte limits in phase 1?
-- How should local path imports handle very large files: copy, hard link,
-  symlink rejection, or external reference?
+- Which byte limits should later audio, document, and video asset classes use?
+- How should trusted local path imports handle very large files: copy, hard
+  link, symlink rejection, or external reference?
 - Should OCR be automatic for screenshots, opt-in, or lazy on first search?
 - How much metadata should be visible to agents by default when bytes cannot be
   projected?
@@ -530,7 +595,7 @@ but the structured attachment is the source of truth.
 
 ## Recommendation
 
-Proceed with Phase 1 as a narrow local image asset slice, then immediately wire
-Phase 2 for ask/invocation projection. That gets the Talkie and Grok use case
-working end to end while keeping the architecture general enough for audio,
-documents, search, and mesh.
+Proceed with Phase 1A and Phase 1B as narrow local image slices, then
+immediately wire Phase 2 for ask/invocation projection. That gets the Talkie and
+Grok use case working end to end while keeping the architecture general enough
+for audio, documents, search, and mesh.
