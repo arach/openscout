@@ -30,6 +30,11 @@ function formatExpiresIn(expiresAt: number | undefined, now: number): string | n
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+function pairingDeepLink(qrValue: string | null | undefined): string | null {
+  const payload = qrValue?.trim();
+  return payload ? `scoutnext://pair?payload=${encodeURIComponent(payload)}` : null;
+}
+
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   const onClick = useCallback(() => {
@@ -227,6 +232,7 @@ function PairingSettingsScreen() {
     if (!value) return null;
     return renderSVG(value, { border: 2, ecc: "M", pixelSize: 8 });
   }, [pairing?.pairing?.qrValue]);
+  const pairLink = useMemo(() => pairingDeepLink(pairing?.pairing?.qrValue), [pairing?.pairing?.qrValue]);
 
   const relayHost = relayHostLabel(pairing?.pairing?.relay ?? pairing?.relay ?? null);
   const expiresIn = formatExpiresIn(pairing?.pairing?.expiresAt, now);
@@ -361,6 +367,17 @@ function PairingSettingsScreen() {
                 <span className="sys-settings-kv-value">
                   <code>{relayHost}</code>
                   <CopyButton value={relayHost} />
+                </span>
+              </div>
+            )}
+            {pairLink && (
+              <div className="sys-settings-kv">
+                <span className="sys-settings-kv-label">Link</span>
+                <span className="sys-settings-kv-value">
+                  <a className="sys-settings-link" href={pairLink} title={pairLink} aria-label="Open ScoutNext pairing link">
+                    <code>scoutnext://pair</code>
+                  </a>
+                  <CopyButton value={pairLink} />
                 </span>
               </div>
             )}

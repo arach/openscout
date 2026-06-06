@@ -74,8 +74,7 @@ struct ConnectionView: View {
                     .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                     .foregroundStyle(isActiveRoute(label) ? HudPalette.accent : HudPalette.dim)
                 if label != "OSN" {
-                    Image(systemName: "arrow.right")
-                        .font(HudFont.ui(HudTextSize.micro))
+                    Glyphic.arrow(.trailing, size: 12)
                         .foregroundStyle(HudPalette.dim)
                 }
             }

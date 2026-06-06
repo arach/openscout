@@ -202,7 +202,8 @@ struct HomeSurface: View {
                     if index > 0 { rowSeparator() }
                     if group.agents.count == 1, let agent = group.agents.first {
                         // Single-agent project: the row *is* the agent — one tap to chat.
-                        AgentFleetRow(agent: agent, onTap: tap(agent))
+                        // The leaf rail lines its name up with the expandable projects.
+                        AgentFleetRow(agent: agent, leadingLeaf: true, onTap: tap(agent))
                     } else {
                         ProjectRow(group: group, isExpanded: expanded.contains(group.id)) {
                             toggle(group.id)
@@ -248,9 +249,7 @@ struct HomeSurface: View {
     @ViewBuilder
     private func listCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) { content() }
-            .background(RoundedRectangle(cornerRadius: HudRadius.card).fill(HudSurface.inset))
-            .overlay(RoundedRectangle(cornerRadius: HudRadius.card).stroke(HudHairline.subtle, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: HudRadius.card))
+            .scoutCard()
     }
 
     private func rowSeparator(inset: Bool = false) -> some View {
@@ -313,8 +312,15 @@ struct HomeSurface: View {
     // MARK: - Load
 
     private func load() async {
-        isLoading = true
-        agents = (try? await client.listAgents(query: nil, limit: 20)) ?? []
+        // Show the full-screen loading state only on the very first load. Later
+        // refreshes — pull-to-refresh, or the `.task` SwiftUI restarts when Home
+        // re-appears after popping a pushed conversation — update in place so the
+        // existing content never blanks back to "Loading". Returning to Home is a
+        // neutral step: the data that was there stays there while we refresh.
+        if agents.isEmpty && activity.isEmpty { isLoading = true }
+        // Don't clobber what's on screen if a refresh fails — keep the last good
+        // fleet rather than dropping to the empty state on a transient error.
+        if let fresh = try? await client.listAgents(query: nil, limit: 20) { agents = fresh }
         // Backfill recent activity — the live tail stream only delivers events
         // that arrive after we subscribe, so without this the section is empty
         // until something new happens.
@@ -477,8 +483,7 @@ private struct ActivityRow: View {
                     .foregroundStyle(HudPalette.muted)
             }
             if onTap != nil {
-                Image(systemName: "chevron.right")
-                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                Glyphic.chevron(.trailing, size: 13)
                     .foregroundStyle(HudPalette.dim)
                     .padding(.top, 4)
             }
@@ -551,8 +556,7 @@ private struct ProjectRow: View {
     var body: some View {
         Button(action: onToggle) {
             HStack(spacing: HudSpacing.md) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                Glyphic.chevron(isExpanded ? .bottom : .trailing, size: 13)
                     .foregroundStyle(HudPalette.muted)
                     .frame(width: 12)
                 Text(group.name)
@@ -591,13 +595,20 @@ private struct AgentFleetRow: View {
     let agent: AgentSummary
     /// Hidden when the row is already nested under its project header.
     var showsProject: Bool = true
+    /// When this row stands in for a single-agent *project* in the Projects list,
+    /// it reserves the same leading column as `ProjectRow`'s disclosure chevron so
+    /// its name aligns with the expandable projects around it.
+    var leadingLeaf: Bool = false
     let onTap: (() -> Void)?
 
     var body: some View {
         Button(action: { onTap?() }) {
-            VStack(alignment: .leading, spacing: HudSpacing.xxs) {
-                identityLine
-                if hasDetailLine { detailLine }
+            HStack(alignment: .top, spacing: HudSpacing.md) {
+                if leadingLeaf { leafRail }
+                VStack(alignment: .leading, spacing: HudSpacing.xxs) {
+                    identityLine
+                    if hasDetailLine { detailLine }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, HudSpacing.xl)
@@ -611,6 +622,18 @@ private struct AgentFleetRow: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
+    /// A leaf marker that occupies `ProjectRow`'s 12pt chevron column — a quiet
+    /// dot rather than a chevron, because the row is a terminal node (it *is* the
+    /// agent; there's nothing to expand). Centered to the title line.
+    private var leafRail: some View {
+        Circle()
+            .fill(HudPalette.dim)
+            .frame(width: 4, height: 4)
+            // 12pt column = ProjectRow's chevron width; ~19pt tall ≈ the md title
+            // line box, so the dot centers on the project name.
+            .frame(width: 12, height: 19, alignment: .center)
+    }
+
     // Line 1 — name, inline locator, right-edge signal.
     private var identityLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
@@ -619,7 +642,7 @@ private struct AgentFleetRow: View {
                 .foregroundStyle(HudPalette.ink)
                 .lineLimit(1)
                 .layoutPriority(1)
-            if let locator = locator {
+            if let locator = locator, !leadingLeaf {
                 Text(locator)
                     .font(HudFont.mono(HudTextSize.xs))
                     // Subordinate to the name: the mono locator was reading at full

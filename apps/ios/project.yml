@@ -110,6 +110,8 @@ targets:
         product: HudsonVoice       # Parakeet dictation via the local Vox daemon (HudVoxLiveSession)
       - package: Hudson
         product: HudsonTerminal    # Termini SSH/PTY surface — requires HUDSONKIT_WITH_TERMINAL=1 at SwiftPM eval
+      - package: Hudson
+        product: HudsonUIKeyboard   # HudHostedKeyboard — the in-app terminal keyboard (QWERTY + quick-tray + dictate keys)
       - package: Termini
         product: TerminiSSH        # TerminiConnectionConfig / TerminiSSHWorkspace for the live Terminal tab
       - package: ScoutNativeCore
@@ -122,6 +124,14 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        # Explicit, well-formed launch screen — a single empty top-level dict is
+        # the canonical opt-in to native rendering (default background, matches the
+        # dark app). Without it, OR if Xcode's generator double-wraps it into a
+        # nested UILaunchScreen/UILaunchScreen, iOS rejects it and renders the whole
+        # app in compatibility scaling — which looks "too wide" on the narrow 13
+        # mini. Paired with removing INFOPLIST_KEY_UILaunchScreen_Generation below
+        # so nothing re-wraps this one.
+        UILaunchScreen: {}
         # On-device dictation (HudDictation): mic capture + Apple Speech fallback.
         NSMicrophoneUsageDescription: Scout uses the microphone to dictate messages to your agents.
         NSSpeechRecognitionUsageDescription: Scout transcribes your dictation on-device.
@@ -151,7 +161,10 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: ScoutNext
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        # NOTE: no INFOPLIST_KEY_UILaunchScreen_Generation here — the launch screen
+        # is declared explicitly in info.properties (UILaunchScreen: {}). Enabling
+        # the generator alongside the custom Info.plist double-wraps it (nested
+        # UILaunchScreen) and triggers compatibility scaling on the 13 mini.
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         MARKETING_VERSION: "0.1.0"

@@ -123,8 +123,7 @@ struct NewSessionSurface: View {
                 showProjectPicker = true
             } label: {
                 HStack(spacing: HudSpacing.md) {
-                    Image(systemName: "folder")
-                        .font(HudFont.ui(HudTextSize.md))
+                    Glyphic(kind: .folder, size: 18)
                         .foregroundStyle(HudPalette.muted)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(projectLeaf.isEmpty ? "Choose a project" : projectLeaf)
@@ -140,17 +139,12 @@ struct NewSessionSurface: View {
                         }
                     }
                     Spacer(minLength: HudSpacing.md)
-                    Image(systemName: "chevron.right")
-                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                    Glyphic.chevron(.trailing, size: 14)
                         .foregroundStyle(HudPalette.muted)
                 }
                 .padding(HudSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                        .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
-                )
+                .scoutCard(cornerRadius: HudRadius.standard)
             }
             .buttonStyle(.plain)
         }
@@ -181,11 +175,7 @@ struct NewSessionSurface: View {
                 .focused($instructionsFocused)
                 .frame(minHeight: 120)
                 .padding(HudSpacing.lg)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                        .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
-                )
+                .scoutCard(cornerRadius: HudRadius.standard)
         }
     }
 
@@ -221,11 +211,7 @@ struct NewSessionSurface: View {
             }
             .padding(HudSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
-            )
+            .scoutCard(cornerRadius: HudRadius.standard)
             // The menus inherit the system blue tint by default; pull them onto
             // the cockpit accent so the open menu reads with the rest of the app.
             .tint(HudPalette.accent)
@@ -244,8 +230,7 @@ struct NewSessionSurface: View {
                 Text(value)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                     .foregroundStyle(HudPalette.ink)
-                Image(systemName: "chevron.down")
-                    .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                Glyphic.chevron(.bottom, size: 12)
                     .foregroundStyle(HudPalette.muted)
             }
         }
@@ -476,8 +461,7 @@ private struct ProjectPickerSheet: View {
             commit(project.path)
         } label: {
             HStack(spacing: HudSpacing.md) {
-                Image(systemName: "folder.fill")
-                    .font(HudFont.ui(HudTextSize.sm))
+                Glyphic(kind: .folder, size: 16)
                     .foregroundStyle(HudPalette.dim)
                 Text(project.name)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
@@ -485,8 +469,7 @@ private struct ProjectPickerSheet: View {
                     .lineLimit(1)
                 Spacer(minLength: HudSpacing.md)
                 if project.path == projectPath.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    Image(systemName: "checkmark")
-                        .font(HudFont.ui(HudTextSize.xs, weight: .bold))
+                    Glyphic(kind: .check, size: 14)
                         .foregroundStyle(HudPalette.accent)
                 }
             }

@@ -541,8 +541,7 @@ struct CommsThreadView: View {
     private var header: some View {
         HStack(spacing: HudSpacing.md) {
             Button { onClose() } label: {
-                Image(systemName: "chevron.left")
-                    .font(HudFont.ui(HudTextSize.md, weight: .semibold))
+                Glyphic.chevron(.leading, size: 17)
                     .foregroundStyle(HudPalette.ink)
                     .frame(width: 32, height: 32)
                     .background(Circle().fill(HudSurface.inset))
@@ -641,8 +640,7 @@ struct CommsThreadView: View {
                 .padding(.vertical, HudSpacing.xs)
 
             Button(action: send) {
-                Image(systemName: "arrow.up")
-                    .font(HudFont.ui(HudTextSize.sm, weight: .bold))
+                Glyphic.arrow(.top, size: 17)
                     .foregroundStyle(canSend ? HudPalette.bg : HudPalette.muted)
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(canSend ? HudPalette.accent : HudSurface.inset))
