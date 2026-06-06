@@ -38,3 +38,4 @@ export * from "./session-attention.js";
 export * from "./vantage-plan.js";
 export * from "./conversations/index.js";
 export * from "./knowledge/index.js";
+export * from "./repo-watch/index.js";

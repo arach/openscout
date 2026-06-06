@@ -185,6 +185,11 @@ import {
   type TailEvent,
 } from "./tail/index.js";
 import {
+  getRepoWatchSnapshot,
+  repoWatchHintsFromBrokerSnapshot,
+  repoWatchHintsFromTailDiscovery,
+} from "./repo-watch/index.js";
+import {
   isBrokerRunnableLocalAgentTransport,
   isDirectLocalAgentTransport,
 } from "./local-agent-transports.js";
@@ -5578,6 +5583,29 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "GET" && url.pathname === "/v1/tail/discover") {
     const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
     json(response, 200, await getTailDiscovery(force));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/repo-watch/snapshot") {
+    const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+    const includeTail = url.searchParams.get("includeTail") === "1" || url.searchParams.get("includeTail") === "true";
+    const includeDiff = url.searchParams.get("includeDiff") === "1" || url.searchParams.get("includeDiff") === "true";
+    const includeLastCommit = url.searchParams.get("includeLastCommit") === "1"
+      || url.searchParams.get("includeLastCommit") === "true";
+    const snapshot = await brokerService.readSnapshot();
+    const tailHints = includeTail
+      ? repoWatchHintsFromTailDiscovery(await getTailDiscovery(false))
+      : [];
+    const repoSnapshot = await getRepoWatchSnapshot({
+      force,
+      includeDiff,
+      includeLastCommit,
+      hints: [
+        ...repoWatchHintsFromBrokerSnapshot(snapshot),
+        ...tailHints,
+      ],
+    });
+    json(response, 200, repoSnapshot);
     return;
   }
 
