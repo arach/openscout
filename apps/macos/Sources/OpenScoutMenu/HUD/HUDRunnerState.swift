@@ -260,17 +260,17 @@ final class HUDRunnerState: ObservableObject {
     }
 
     func toggleDictation() async {
-        let vox = HudVoxService.shared
-        switch ScoutDictationController.toggleDecision(for: vox.state) {
+        let voice = HudVoiceService.shared
+        switch ScoutDictationController.toggleDecision(for: voice.state) {
         case .probeThenStartIfIdle:
-            await vox.probe()
-            if case .idle = vox.state {
-                vox.start()
+            await voice.probe()
+            if case .idle = voice.state {
+                voice.start()
             }
         case .start:
-            vox.start()
+            voice.start()
         case .stop:
-            vox.stop()
+            voice.stop()
         case .ignore:
             return
         }

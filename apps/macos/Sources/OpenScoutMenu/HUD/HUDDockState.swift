@@ -33,7 +33,7 @@ final class HUDDockState: ObservableObject {
     @Published private(set) var suggestions: [HUDDockSuggestion] = []
     @Published private(set) var selectedSuggestionIndex: Int = 0
 
-    private var voxSubscription: AnyCancellable?
+    private var voiceSubscription: AnyCancellable?
     private var currentSuggestionTrigger: HUDDockSuggestionTrigger?
     private var dismissedSuggestionSignature: String?
     private let log = Logger(subsystem: "dev.openscout.menu", category: "dock")
@@ -43,16 +43,16 @@ final class HUDDockState: ObservableObject {
     }
 
     private init() {
-        // Watch the Vox client for finalized transcripts and splice them
+        // Watch the shared voice service for finalized transcripts and splice them
         // into the text buffer. The service exposes `lastFinalText` as a
         // one-shot signal; we drain it via consumeFinalText() so the
         // same transcript isn't re-appended on subsequent state pushes.
-        voxSubscription = HudVoxService.shared.$lastFinalText
+        voiceSubscription = HudVoiceService.shared.$lastFinalText
             .receive(on: RunLoop.main)
             .sink { [weak self] text in
                 guard let self else { return }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                self.log.info("vox final received — len=\(trimmed.count)")
+                self.log.info("voice final received — len=\(trimmed.count)")
                 guard !trimmed.isEmpty else { return }
                 if CommsWindowController.shared.isPresented {
                     // Comms panel is foreground and owns dictation; its own
@@ -61,11 +61,11 @@ final class HUDDockState: ObservableObject {
                 }
                 if HUDRunnerState.shared.isPresented {
                     HUDRunnerState.shared.appendDictatedText(trimmed)
-                    HudVoxService.shared.consumeFinalText()
+                    HudVoiceService.shared.consumeFinalText()
                     return
                 }
                 self.appendDictatedText(trimmed)
-                HudVoxService.shared.consumeFinalText()
+                HudVoiceService.shared.consumeFinalText()
             }
     }
 
@@ -79,21 +79,21 @@ final class HUDDockState: ObservableObject {
 
     // MARK: - Dictation
 
-    /// Mic-tap action. Probes Vox if state is unknown / unavailable,
+    /// Mic-tap action. Warms HudsonKit voice if needed,
     /// otherwise toggles recording on/off. Errors surface as state on
-    /// HudVoxService.shared; the dock view reads them for tooltip copy.
+    /// HudVoiceService.shared; the dock view reads them for tooltip copy.
     func toggleDictation() async {
-        let vox = HudVoxService.shared
-        switch ScoutDictationController.toggleDecision(for: vox.state) {
+        let voice = HudVoiceService.shared
+        switch ScoutDictationController.toggleDecision(for: voice.state) {
         case .probeThenStartIfIdle:
-            await vox.probe()
-            if case .idle = vox.state {
-                vox.start()
+            await voice.probe()
+            if case .idle = voice.state {
+                voice.start()
             }
         case .start:
-            vox.start()
+            voice.start()
         case .stop:
-            vox.stop()
+            voice.stop()
         case .ignore:
             // already finalizing — ignore the second tap
             return
@@ -237,9 +237,9 @@ final class HUDDockState: ObservableObject {
         // Dictation in progress trumps everything — operator pressing ESC
         // while the mic is hot expects the recording to stop, not their
         // composed text to vanish.
-        let vox = HudVoxService.shared
-        if vox.state == .recording || vox.state == .starting {
-            vox.cancel()
+        let voice = HudVoiceService.shared
+        if voice.state == .recording || voice.state == .starting {
+            voice.cancel()
             return true
         }
         if !text.isEmpty {

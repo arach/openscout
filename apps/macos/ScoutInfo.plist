@@ -22,6 +22,10 @@
     <true/>
     <key>NSSupportsAutomaticTermination</key>
     <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Scout uses the microphone for HudsonKit-powered dictation in the message composer.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Scout uses speech recognition to provide live dictation previews and fallback transcription.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>

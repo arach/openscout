@@ -1871,7 +1871,7 @@ function AgentDetailWithRail({
   const currentWorkIsStale = currentWorkAgeMs > 30 * 60_000;
   const currentTaskStatus = currentWork
     ? currentWorkIsStale
-      ? `stale · ${timeAgo(currentWork.lastMeaningfulAt)}`
+      ? `no recent signal · ${timeAgo(currentWork.lastMeaningfulAt)}`
       : `${taskProgress}% · live`
     : "";
 
@@ -2027,7 +2027,7 @@ function AgentDetailWithRail({
                   )}
                   {agent.staleLocalRegistration && (
                     <span className="s-profile-identity-state-detail">
-                      stale hint
+                      superseded registration
                     </span>
                   )}
                 </span>

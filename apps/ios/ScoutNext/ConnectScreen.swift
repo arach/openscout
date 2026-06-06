@@ -67,7 +67,7 @@ struct ConnectScreen: View {
                 Button { model.continueWithoutPairing() } label: {
                     HStack(spacing: HudSpacing.xs) {
                         Text("Continue without pairing")
-                        Image(systemName: "arrow.right")
+                        Glyphic.arrow(.trailing, size: 13)
                     }
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                     .foregroundStyle(HudPalette.muted)

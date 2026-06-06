@@ -1,6 +1,9 @@
 import SwiftUI
 import HudsonUI
 import HudsonUICapture   // HudQRScanner moved here in the optional-iOS-features split
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Pair with a Mac by scanning the QR it shows in the desktop app. On a valid
 /// scan we run the Noise XX handshake, persist the trusted bridge to the
@@ -33,6 +36,18 @@ struct PairingView: View {
                         .stroke(HudPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.standard)
                 )
                 .padding(.horizontal, HudSpacing.xxl)
+
+                #if canImport(UIKit)
+                HudButton("Paste pairing link", icon: "doc.on.clipboard", style: .secondary) {
+                    guard let pasted = UIPasteboard.general.string, !pasted.isEmpty else {
+                        status = "No pairing link on clipboard."
+                        return
+                    }
+                    isScanning = false
+                    Task { await handleLink(pasted) }
+                }
+                .padding(.horizontal, HudSpacing.xxl)
+                #endif
 
                 if let status {
                     HStack(spacing: HudSpacing.sm) {
@@ -74,6 +89,19 @@ struct PairingView: View {
     private func handle(_ code: String) async {
         status = "Pairing…"
         let ok = await model.pair(scanned: code)
+        if ok {
+            dismiss()
+        } else {
+            status = {
+                if case .failed(let message) = model.connectionState { return message }
+                return "Pairing failed"
+            }()
+        }
+    }
+
+    private func handleLink(_ link: String) async {
+        status = "Pairing…"
+        let ok = await model.pairFromLink(link)
         if ok {
             dismiss()
         } else {

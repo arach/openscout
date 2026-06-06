@@ -153,7 +153,7 @@ struct ScoutSessionComposer: View {
     @State private var isSubmitting = false
     @State private var errorText: String?
     @FocusState private var instructionsFocused: Bool
-    @ObservedObject private var vox = ScoutVoxService.shared
+    @ObservedObject private var voice = ScoutVoiceService.shared
 
     init(
         draft: ScoutSessionDraft,
@@ -176,13 +176,13 @@ struct ScoutSessionComposer: View {
                 .padding(HudSpacing.xxl)
         }
         .onExitCommand { if !isSubmitting { onClose() } }
-        .onReceive(vox.$lastFinalText) { spliceDictatedFinal($0) }
+        .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
     }
 
-    private var isDictating: Bool { vox.state.isCaptureActive }
+    private var isDictating: Bool { voice.state.isCaptureActive }
 
     private var showDictationPreview: Bool {
-        draft.instructions.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
+        draft.instructions.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
     }
 
     private var messagePlaceholder: String {
@@ -199,14 +199,14 @@ struct ScoutSessionComposer: View {
     private func toggleDictation() {
         instructionsFocused = true
         Task {
-            switch ScoutDictationController.toggleDecision(for: vox.state) {
+            switch ScoutDictationController.toggleDecision(for: voice.state) {
             case .probeThenStartIfIdle:
-                await vox.probe()
-                if case .idle = vox.state { vox.start() }
+                await voice.probe()
+                if case .idle = voice.state { voice.start() }
             case .start:
-                vox.start()
+                voice.start()
             case .stop:
-                vox.stop()
+                voice.stop()
             case .ignore:
                 break
             }
@@ -217,7 +217,7 @@ struct ScoutSessionComposer: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         draft.instructions = ScoutDictationBuffer.appending(trimmed, to: draft.instructions)
-        ScoutVoxService.shared.consumeFinalText()
+        ScoutVoiceService.shared.consumeFinalText()
         instructionsFocused = true
     }
 
@@ -354,7 +354,7 @@ struct ScoutSessionComposer: View {
                     .frame(minHeight: 64, maxHeight: 132)
 
                 if showDictationPreview {
-                    ScoutDictationPreview(text: vox.partial)
+                    ScoutDictationPreview(text: voice.partial)
                         .padding(.horizontal, HudSpacing.sm)
                         .padding(.vertical, HudSpacing.md)
                         .allowsHitTesting(false)

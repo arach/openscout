@@ -33,7 +33,7 @@ The two broker surfaces (`/api/*` vs `mobile/*` tRPC) are genuinely different an
 ### 3.2 What is already shared (`scout-native-core`)
 
 - **ScoutNativeCore** (pure logic, iOS 17 / macOS 14, no Hudson, no transport): `ScoutComposeRouting` (mention parsing / envelope), `ScoutDictation` (dictation state machine), `ScoutNativeAppIdentity`. This is the seed of the capability layer.
-- **ScoutSharedUI** (cross-platform SwiftUI atoms): `MessageInputAtoms`, `MessageMarkupParser` (pure), `MessageSuggestions` (pure engine), `MessageSuggestionPopover`, `MessageCodeBlock`, `ScoutVoxService`. Recently extracted out of `apps/macos` (uncommitted move). **iOS already declares the dependency (`apps/ios/project.yml:50-53`) but has not meaningfully adopted the components.**
+- **ScoutSharedUI** (cross-platform SwiftUI atoms): `MessageInputAtoms`, `MessageMarkupParser` (pure), `MessageSuggestions` (pure engine), `MessageSuggestionPopover`, `MessageCodeBlock`, `ScoutVoiceService`. Recently extracted out of `apps/macos` (uncommitted move). **iOS already declares the dependency (`apps/ios/project.yml:50-53`) but has not meaningfully adopted the components.**
 - **mobile-keyboard-kit**: iOS-only custom keyboard. Correctly separated.
 
 ### 3.3 HudsonKit (presentation only)

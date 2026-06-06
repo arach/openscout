@@ -405,7 +405,12 @@ struct ScoutAgentsTree: View {
             Text("\(group.agents.count) agent\(group.agents.count == 1 ? "" : "s")")
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.dim)
-            if group.live > 0 { ScoutTreeStateDot(state: .working, size: 6) }
+                .lineLimit(1)
+                .frame(width: ScoutDesign.agentsStateColumnWidth, alignment: .trailing)
+            Group {
+                if group.live > 0 { ScoutTreeStateDot(state: .working, size: 6) }
+            }
+            .frame(width: ScoutDesign.agentsUpdatedColumnWidth, alignment: .trailing)
         }
     }
 
@@ -436,11 +441,14 @@ struct ScoutAgentsTree: View {
                 .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(stateLabelColor(agent.state))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: ScoutDesign.agentsStateColumnWidth, alignment: .trailing)
             Text(agent.updatedLabel)
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.dim)
                 .contentTransition(.numericText())
-                .frame(width: 48, alignment: .trailing)
+                .frame(width: ScoutDesign.agentsUpdatedColumnWidth, alignment: .trailing)
         }
     }
 
@@ -459,11 +467,13 @@ struct ScoutAgentsTree: View {
             Text(channel.cIdShort)
                 .font(HudFont.mono(HudTextSize.micro))
                 .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
+                .frame(width: ScoutDesign.agentsStateColumnWidth, alignment: .trailing)
             Text(channel.ageLabel)
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.dim)
                 .contentTransition(.numericText())
-                .frame(width: 40, alignment: .trailing)
+                .frame(width: ScoutDesign.agentsUpdatedColumnWidth, alignment: .trailing)
         }
     }
 

@@ -3316,7 +3316,7 @@ describe("broker daemon comms layer", () => {
     expect(body.question?.target?.reason).toBe("manual_wake_required");
   }, 15_000);
 
-  test("returns a broker question for stale direct targets before dispatch", async () => {
+  test("returns a broker question for superseded direct targets before dispatch", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -3373,8 +3373,8 @@ describe("broker daemon comms layer", () => {
     expect(body.accepted).toBe(false);
     expect(body.question?.kind).toBe("unavailable");
     expect(body.question?.target?.agentId).toBe("ranger.main.mini");
-    expect(body.question?.target?.reason).toBe("stale_registration");
-    expect(body.question?.target?.detail).toContain("stale local registration");
+    expect(body.question?.target?.reason).toBe("superseded_registration");
+    expect(body.question?.target?.detail).toContain("superseded local registration");
 
     const snapshot = await getJson<{ flights: Record<string, unknown> }>(
       harness.baseUrl,
@@ -3383,7 +3383,7 @@ describe("broker daemon comms layer", () => {
     expect(Object.keys(snapshot.flights)).toHaveLength(0);
   }, 15_000);
 
-  test("does not treat stale endpoints as card-only routing targets", async () => {
+  test("does not treat superseded endpoints as card-only routing targets", async () => {
     const harness = await startBroker();
     const staleAt = Date.now() - 5_000;
 
@@ -3464,7 +3464,7 @@ describe("broker daemon comms layer", () => {
     expect(Object.keys(snapshot.flights)).toHaveLength(1);
   }, 15_000);
 
-  test("returns a broker question when the requested session endpoint is stale", async () => {
+  test("returns a broker question when the requested session endpoint is not attachable", async () => {
     const harness = await startBroker();
     const staleAt = Date.now() - 5_000;
 
@@ -3538,10 +3538,10 @@ describe("broker daemon comms layer", () => {
     };
     expect(body.kind).toBe("question");
     expect(body.accepted).toBe(false);
-    expect(body.question?.target?.reason).toBe("stale_registration");
+    expect(body.question?.target?.reason).toBe("session_reference_not_attachable");
     expect(body.question?.target?.detail).toContain("endpoint endpoint-ranger-main");
     expect(body.question?.target?.detail).toContain("replacement agent is ranger.current.mini");
-    expect(body.remediation?.kind).toBe("stale_reference");
+    expect(body.remediation?.kind).toBe("session_reference_not_attachable");
 
     const snapshot = await getJson<{ flights: Record<string, unknown> }>(
       harness.baseUrl,
@@ -3550,7 +3550,7 @@ describe("broker daemon comms layer", () => {
     expect(Object.keys(snapshot.flights)).toHaveLength(0);
   }, 15_000);
 
-  test("reports replacement metadata for stale direct targets", async () => {
+  test("reports replacement metadata for superseded direct targets", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -3633,12 +3633,12 @@ describe("broker daemon comms layer", () => {
     expect(body.accepted).toBe(false);
     expect(body.question?.kind).toBe("unavailable");
     expect(body.question?.target?.agentId).toBe("ranger.main.mini");
-    expect(body.question?.target?.reason).toBe("stale_registration");
+    expect(body.question?.target?.reason).toBe("superseded_registration");
     expect(body.question?.target?.detail).toContain("replacement agent is ranger.codex-vox-getting-started.mini");
-    expect(body.remediation?.kind).toBe("stale_reference");
+    expect(body.remediation?.kind).toBe("use_current_registration");
   }, 15_000);
 
-  test("does not resolve stale label-only targets", async () => {
+  test("does not resolve superseded label-only targets", async () => {
     const harness = await startBroker();
 
     await postJson(harness.baseUrl, "/v1/agents", {
@@ -3701,7 +3701,7 @@ describe("broker daemon comms layer", () => {
     expect(Object.keys(snapshot.flights)).toHaveLength(0);
   }, 15_000);
 
-  test("returns a broker question for stale peer authority targets", async () => {
+  test("returns a broker question for last-seen-expired peer authority targets", async () => {
     const harness = await startBroker();
     const stalePeerNodeId = "mini-peer";
 
@@ -3769,7 +3769,7 @@ describe("broker daemon comms layer", () => {
     expect(body.question?.askedLabel).toBe("@arach");
     expect(body.question?.target?.agentId).toBe("arach.mini");
     expect(body.question?.target?.reason).toBe("unknown");
-    expect(body.question?.target?.detail).toContain("peer is stale");
+    expect(body.question?.target?.detail).toContain("peer has not been seen recently");
 
     const snapshot = await getJson<{ flights: Record<string, unknown> }>(
       harness.baseUrl,
@@ -4402,7 +4402,7 @@ describe("broker daemon comms layer", () => {
         staleLocalRegistration: true,
         staleAt,
         replacedByAgentId: "ranger.feature.test-node",
-        lastError: "stale local agent registration superseded by current setup",
+        lastError: "superseded local agent registration replaced by current setup",
         lastFailedAt: staleAt,
       },
     });
@@ -4438,7 +4438,7 @@ describe("broker daemon comms layer", () => {
     );
     const flight = snapshot.flights[accepted.flightId];
     if (typeof flight?.error === "string") {
-      expect(flight.error).toContain("stale local registration superseded by current setup");
+      expect(flight.error).toContain("superseded local registration replaced by current setup");
       expect(flight.error).toContain("replacement agent is ranger.feature.test-node");
     }
     if (flight?.metadata?.failureStage !== undefined) {
@@ -4494,7 +4494,7 @@ describe("broker daemon comms layer", () => {
         staleLocalRegistration: true,
         staleAt,
         replacedByAgentId: "ranger.feature.test-node",
-        lastError: "stale local agent registration superseded by current setup",
+        lastError: "superseded local agent registration replaced by current setup",
         lastFailedAt: staleAt,
       },
     });
@@ -4553,7 +4553,7 @@ describe("broker daemon comms layer", () => {
       (value) => value.flights["flt-ranger-already-queued"]?.state === "failed",
     );
     const flight = snapshot.flights["flt-ranger-already-queued"];
-    expect(flight?.error).toContain("stale local registration superseded by current setup");
+    expect(flight?.error).toContain("superseded local registration replaced by current setup");
     expect(flight?.metadata?.reconciledStaleFlight).toBe(true);
   }, 15_000);
 
@@ -4613,7 +4613,7 @@ describe("broker daemon comms layer", () => {
         staleLocalRegistration: true,
         staleAt,
         replacedByAgentId: "ranger.feature.test-node",
-        lastError: "stale local agent registration superseded by current setup",
+        lastError: "superseded local agent registration replaced by current setup",
         lastFailedAt: staleAt,
       },
     });

@@ -11,11 +11,13 @@ import UniformTypeIdentifiers
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
     @StateObject private var tail = ScoutTailStore()
-    @ObservedObject private var vox = ScoutVoxService.shared
+    @ObservedObject private var voice = ScoutVoiceService.shared
     @State private var section: ScoutSection = .comms
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
     @AppStorage("scout.inspector.collapsed") private var inspectorCollapsed = false
     @State private var agentContentMode: ScoutAgentContentMode = .roster
+    @State private var agentsFilterQuery = ""
+    @State private var agentsLiveOnly = false
     @State private var channelFilter: ScoutChannelFilter = .all
     @State private var draft = ""
     /// Per-conversation unsent drafts, so a message isn't lost when navigating
@@ -291,7 +293,23 @@ struct ScoutRootView: View {
     // MARK: Agents tree navigation
 
     private var treeGroups: [ScoutAgentsTreeModel.ProjectGroup] {
-        ScoutAgentsTreeModel.groups(agents: store.agents, channels: store.channels)
+        ScoutAgentsTreeModel.groups(agents: filteredTreeAgents, channels: store.channels)
+    }
+
+    /// Roster narrowed by the pane's All/Live scope and filter field.
+    private var filteredTreeAgents: [ScoutAgent] {
+        var agents = store.agents
+        if agentsLiveOnly {
+            agents = agents.filter { $0.state == .working || $0.state == .needsAttention }
+        }
+        let query = agentsFilterQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return agents }
+        return agents.filter { agent in
+            agent.displayName.lowercased().contains(query)
+                || agent.detail.lowercased().contains(query)
+                || (agent.project ?? "").lowercased().contains(query)
+                || agent.workspace.lowercased().contains(query)
+        }
     }
 
     /// Mirror the tree's selection into the store so the inspector follows.
@@ -324,7 +342,7 @@ struct ScoutRootView: View {
     }
 
     private func focusSearch() {
-        guard section == .comms else { return }
+        guard section == .comms || section == .agents else { return }
         searchFocused = true
     }
 
@@ -635,7 +653,7 @@ struct ScoutRootView: View {
                 .padding(.top, HudSpacing.xs)
             }
             .animation(.easeOut(duration: 0.16), value: isDictating)
-            .onChange(of: vox.state) { _, newState in
+            .onChange(of: voice.state) { _, newState in
                 guard pendingSendAfterDictation else { return }
                 switch newState {
                 case .idle:
@@ -706,7 +724,7 @@ struct ScoutRootView: View {
         .animation(.easeOut(duration: 0.12), value: suggestions.count)
         .onChange(of: draft) { _, _ in refreshSuggestions() }
         .onChange(of: store.agents.count) { _, _ in refreshSuggestions() }
-        .onReceive(vox.$lastFinalText) { spliceDictatedFinal($0) }
+        .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
         .background(
             ImagePasteCatcher(
                 isActive: { store.selectedCId != nil && sessionDraft == nil },
@@ -766,7 +784,7 @@ struct ScoutRootView: View {
                     }
 
                 if showDictationPreview {
-                    ScoutDictationPreview(text: vox.partial)
+                    ScoutDictationPreview(text: voice.partial)
                         .allowsHitTesting(false)
                 }
             }
@@ -943,8 +961,8 @@ struct ScoutRootView: View {
 
     private var composerStatusText: String? {
         if store.selectedChannel == nil { return "Select a conversation to message" }
-        if isDictating { return voxStatusLine }
-        if let reason = voxUnavailableReason { return reason }
+        if isDictating { return voiceStatusLine }
+        if let reason = voiceUnavailableReason { return reason }
         if store.isSending { return "Sending..." }
         if !pendingImages.isEmpty {
             let noun = pendingImages.count == 1 ? "image" : "images"
@@ -957,32 +975,32 @@ struct ScoutRootView: View {
     }
 
     private var showDictationPreview: Bool {
-        draft.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
+        draft.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
     }
 
     private var isDictating: Bool {
-        switch vox.state {
+        switch voice.state {
         case .starting, .recording, .processing: return true
         default: return false
         }
     }
 
     private var isDictationProcessing: Bool {
-        if case .processing = vox.state { return true }
+        if case .processing = voice.state { return true }
         return false
     }
 
-    private var voxStatusLine: String {
-        if !vox.partial.isEmpty { return vox.partial }
-        switch vox.state {
-        case .starting: return "Starting Vox..."
+    private var voiceStatusLine: String {
+        if !voice.partial.isEmpty { return voice.partial }
+        switch voice.state {
+        case .starting: return "Starting voice..."
         case .processing: return "Transcribing..."
         default: return "Listening..."
         }
     }
 
-    private var voxUnavailableReason: String? {
-        if case .unavailable(let reason) = vox.state { return reason }
+    private var voiceUnavailableReason: String? {
+        if case .unavailable(let reason) = voice.state { return reason }
         return nil
     }
 
@@ -993,7 +1011,7 @@ struct ScoutRootView: View {
         if isDictating {
             guard composerReady else { return }
             pendingSendAfterDictation = true
-            vox.stop()
+            voice.stop()
             return
         }
         sendDraft()
@@ -1015,14 +1033,14 @@ struct ScoutRootView: View {
     private func toggleDictation() {
         composerFocused = true
         Task {
-            switch ScoutDictationController.toggleDecision(for: vox.state) {
+            switch ScoutDictationController.toggleDecision(for: voice.state) {
             case .probeThenStartIfIdle:
-                await vox.probe()
-                if case .idle = vox.state { vox.start() }
+                await voice.probe()
+                if case .idle = voice.state { voice.start() }
             case .start:
-                vox.start()
+                voice.start()
             case .stop:
-                vox.stop()
+                voice.stop()
             case .ignore:
                 break
             }
@@ -1036,7 +1054,7 @@ struct ScoutRootView: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         draft = ScoutDictationBuffer.appending(trimmed, to: draft)
-        ScoutVoxService.shared.consumeFinalText()
+        ScoutVoiceService.shared.consumeFinalText()
         composerFocused = true
         moveComposerCaretToEnd()
     }
@@ -1153,42 +1171,165 @@ struct ScoutRootView: View {
                     store.loadObserve(agentId: agent.id, force: true)
                 }
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        ScoutAgentsTree(
-                            model: agentsTree,
-                            groups: treeGroups,
-                            onSelect: { pushTreeSelection() },
-                            onActivate: { openSelectedAgentChannel() },
-                            onObserve: { observeAgent($0) },
-                            onOpenDM: { agent in
-                                store.openAgentChannel(agent)
-                                section = .comms
+                // Complaint #1: the tree no longer drops straight onto the page
+                // background. It lives in a contained pane that mirrors the Comms
+                // list-bar idiom — header → controls → column header → surface —
+                // so Agents reads as a deliberate, structured panel.
+                VStack(spacing: 0) {
+                    agentsPaneHeader
+                    HudDivider(color: ScoutDesign.hairline)
+                    agentsPaneControls
+                    HudDivider(color: ScoutDesign.hairline)
+                    agentsColumnHeader
+                    HudDivider(color: ScoutDesign.hairline)
+                    if treeGroups.isEmpty {
+                        agentsPaneEmptyState
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                ScoutAgentsTree(
+                                    model: agentsTree,
+                                    groups: treeGroups,
+                                    onSelect: { pushTreeSelection() },
+                                    onActivate: { openSelectedAgentChannel() },
+                                    onObserve: { observeAgent($0) },
+                                    onOpenDM: { agent in
+                                        store.openAgentChannel(agent)
+                                        section = .comms
+                                    }
+                                )
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
                             }
-                        )
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                    }
-                    // Keep the keyboard-selected row in view, but only scroll the
-                    // minimum needed (no anchor → no constant re-centering), so
-                    // moves inside the viewport don't shift the list at all.
-                    .onChange(of: agentsTree.selectedID) { _, id in
-                        guard let id else { return }
-                        withAnimation(.easeOut(duration: 0.1)) {
-                            proxy.scrollTo(id)
+                            // Keep the keyboard-selected row in view, but only scroll the
+                            // minimum needed (no anchor → no constant re-centering), so
+                            // moves inside the viewport don't shift the list at all.
+                            .onChange(of: agentsTree.selectedID) { _, id in
+                                guard let id else { return }
+                                withAnimation(.easeOut(duration: 0.1)) {
+                                    proxy.scrollTo(id)
+                                }
+                            }
+                            // Follow selection arriving from elsewhere (e.g. Comms).
+                            .onChange(of: store.selectedAgentId) { _, id in
+                                agentsTree.syncToAgent(id, groups: treeGroups)
+                            }
+                            .onAppear {
+                                agentsTree.ensureSelection(groups: treeGroups, fallbackAgentID: store.selectedAgentId)
+                                pushTreeSelection()
+                            }
                         }
-                    }
-                    // Follow selection arriving from elsewhere (e.g. Comms).
-                    .onChange(of: store.selectedAgentId) { _, id in
-                        agentsTree.syncToAgent(id, groups: treeGroups)
-                    }
-                    .onAppear {
-                        agentsTree.ensureSelection(groups: treeGroups, fallbackAgentID: store.selectedAgentId)
-                        pushTreeSelection()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(ScoutDesign.chrome)
             }
         }
         .background(ScoutDesign.bg)
+    }
+
+    // MARK: Agents pane chrome (container for the tree)
+
+    /// Title + live/total census. Mirrors ScoutConversationListBar.header.
+    private var agentsPaneHeader: some View {
+        let live = store.agents.filter { $0.state == .working || $0.state == .needsAttention }.count
+        let total = store.agents.count
+        return HStack(spacing: HudSpacing.md) {
+            Text("Agents")
+                .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
+                .lineLimit(1)
+            if store.isLoading {
+                ProgressView().controlSize(.small)
+            }
+            Spacer(minLength: 0)
+            if live > 0 {
+                HudBadge("\(live) live", tint: ScoutPalette.accent, dot: true)
+            }
+            HudBadge("\(total) agent\(total == 1 ? "" : "s")", tint: ScoutPalette.muted, dot: false)
+        }
+        .padding(.horizontal, HudSpacing.xxl)
+        .frame(height: 42, alignment: .center)
+    }
+
+    /// Filter field + All/Live scope + fold controls. Mirrors the Comms
+    /// controls strip; the filter binds the shared `searchFocused` so the bare
+    /// j/k chords stay dead while typing.
+    private var agentsPaneControls: some View {
+        HStack(spacing: HudSpacing.md) {
+            HudField("Filter agents", text: $agentsFilterQuery, icon: "magnifyingglass")
+                .focused($searchFocused)
+            ScoutAgentScopeControl(liveOnly: $agentsLiveOnly)
+            Spacer(minLength: HudSpacing.md)
+            agentsFoldButton(title: "Expand", icon: "chevron.down") {
+                agentsTree.collapsedProjects.removeAll()
+            }
+            agentsFoldButton(title: "Collapse", icon: "chevron.right") {
+                for group in treeGroups { agentsTree.collapsedProjects.insert(group.key) }
+            }
+        }
+        .padding(.horizontal, HudSpacing.xxl)
+        .padding(.top, HudSpacing.md)
+        .padding(.bottom, HudSpacing.lg)
+    }
+
+    private func agentsFoldButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: icon)
+                    .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
+                Text(title)
+                    .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+            }
+            .foregroundStyle(ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.xs)
+            .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
+            .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .help("\(title) all projects")
+    }
+
+    /// Non-scrolling column header. Complaint #2: the trailing STATE / UPDATED
+    /// columns are now labeled, turning the old "pointless" right gap into a
+    /// real table. Padding + column widths match the tree rows so they align.
+    private var agentsColumnHeader: some View {
+        HStack(spacing: HudSpacing.sm) {
+            Text("AGENT")
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(ScoutPalette.dim)
+            Spacer(minLength: HudSpacing.sm)
+            Text("STATE")
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(ScoutPalette.dim)
+                .frame(width: ScoutDesign.agentsStateColumnWidth, alignment: .trailing)
+            Text("UPDATED")
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(ScoutPalette.dim)
+                .frame(width: ScoutDesign.agentsUpdatedColumnWidth, alignment: .trailing)
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, HudSpacing.lg)
+        .padding(.vertical, HudSpacing.xs)
+    }
+
+    /// Shown inside the pane when the roster is empty or the filter/scope
+    /// matches nothing — so the contained surface never goes blank.
+    private var agentsPaneEmptyState: some View {
+        let filtering = !agentsFilterQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentsLiveOnly
+        return HudEmptyState(
+            title: filtering ? "No agents match" : "No agents yet",
+            subtitle: filtering
+                ? "Clear the filter or switch back to All."
+                : "Agents connected to this broker will appear here.",
+            icon: "person.2"
+        )
     }
 
     private var tailContent: some View {
@@ -1263,6 +1404,7 @@ struct ScoutRootView: View {
                 ScoutAgentPreviewPanel(
                     agent: agent,
                     selectedChannel: store.selectedChannel,
+                    agentChannels: agentChannels(for: agent),
                     onClose: {
                         withAnimation(.easeOut(duration: 0.14)) {
                             closeAgentPreviewPanel()
@@ -1273,6 +1415,14 @@ struct ScoutRootView: View {
                     },
                     openProfile: {
                         ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile")
+                    },
+                    openConversation: {
+                        store.openAgentChannel(agent)
+                        section = .comms
+                    },
+                    openSession: { channel in
+                        store.selectChannel(channel.cId)
+                        section = .comms
                     },
                     startSession: { mode in
                         startSessionWithAgent(agent, mode: mode)
@@ -1300,6 +1450,14 @@ struct ScoutRootView: View {
         .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: fileViewer.target)
     }
 
+    /// Conversations attached to an agent, most-recent first — feeds the
+    /// inspector's Sessions list.
+    private func agentChannels(for agent: ScoutAgent) -> [ScoutChannel] {
+        store.channels
+            .filter { $0.agentId == agent.id }
+            .sorted { ($0.lastMessageAt ?? 0) > ($1.lastMessageAt ?? 0) }
+    }
+
     @ViewBuilder
     private var inspectorContent: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xl) {
@@ -1311,8 +1469,11 @@ struct ScoutRootView: View {
                         ScoutAgentInspector(
                             agent: agent,
                             selectedChannel: store.selectedChannel,
+                            agentChannels: agentChannels(for: agent),
                             openObserve: { observeAgent(agent) },
                             openProfile: { ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile") },
+                            openConversation: { store.openAgentChannel(agent); section = .comms },
+                            openSession: { channel in store.selectChannel(channel.cId); section = .comms },
                             startSession: { mode in startSessionWithAgent(agent, mode: mode) }
                         )
                     } else {
@@ -1322,16 +1483,22 @@ struct ScoutRootView: View {
                     ScoutAgentCardStack(
                         agents: channelAgentMembers,
                         selectedChannel: store.selectedChannel,
+                        channelsFor: { agentChannels(for: $0) },
                         openObserve: { observeAgent($0) },
                         openProfile: { ScoutWeb.open(path: "/agents/\($0.id)?tab=profile") },
+                        openConversation: { store.openAgentChannel($0); section = .comms },
+                        openSession: { channel in store.selectChannel(channel.cId); section = .comms },
                         startSession: { agent in startSessionWithAgent(agent, mode: .fresh) }
                     )
                 } else if let agent = store.selectedAgent {
                     ScoutAgentInspector(
                         agent: agent,
                         selectedChannel: store.selectedChannel,
+                        agentChannels: agentChannels(for: agent),
                         openObserve: { observeAgent(agent) },
                         openProfile: { ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile") },
+                        openConversation: { store.openAgentChannel(agent); section = .comms },
+                        openSession: { channel in store.selectChannel(channel.cId); section = .comms },
                         startSession: { mode in startSessionWithAgent(agent, mode: mode) }
                     )
                 } else if let channel = store.selectedChannel {
@@ -1618,6 +1785,12 @@ enum ScoutDesign {
     static let inspectorWidthRange: ClosedRange<CGFloat> = 260...520
     static let conversationResizeHandleWidth: CGFloat = 12
 
+    /// Agents-tree trailing columns. The STATE / UPDATED values right-align into
+    /// these fixed widths so they line up under the pane's column header
+    /// regardless of a row's depth indent.
+    static let agentsStateColumnWidth: CGFloat = 104
+    static let agentsUpdatedColumnWidth: CGFloat = 48
+
     static let theme = HudTheme(
         palette: HudThemePalette(
             bg: bg,
@@ -1880,6 +2053,39 @@ private struct ScoutConversationFilterControl: View {
         .padding(HudSpacing.xxs)
         .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
         .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+    }
+}
+
+/// Two-segment All/Live scope for the Agents pane. Visually matches
+/// ScoutConversationFilterControl (inset pill, accent-selected segment).
+private struct ScoutAgentScopeControl: View {
+    @Binding var liveOnly: Bool
+
+    var body: some View {
+        HStack(spacing: HudSpacing.xxs) {
+            segment(title: "All", active: !liveOnly) { liveOnly = false }
+            segment(title: "Live", active: liveOnly) { liveOnly = true }
+        }
+        .padding(HudSpacing.xxs)
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+    }
+
+    private func segment(title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                .foregroundStyle(active ? ScoutPalette.ink : ScoutPalette.muted)
+                .padding(.horizontal, HudSpacing.sm)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.standard - 2, style: .continuous)
+                        .fill(active ? HudSurface.selected(ScoutPalette.accent) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .help(title == "Live" ? "Only working / needs-attention agents" : "All agents")
     }
 }
 
@@ -2591,7 +2797,7 @@ private struct ScoutSendButton: View {
 }
 
 // Hand-drawn dictation mic, ported from the HUD's HudMessageDock. Tap to
-// toggle Vox dictation. Visual state mirrors ScoutVoxService.state:
+// toggle HudsonKit dictation. Visual state mirrors ScoutVoiceService.state:
 //   idle/probing → faint stroke · recording → accent stroke + pulsing halo
 //   processing   → muted stroke that breathes · unavailable → dim + dashed.
 // Lightweight equalizer-style waveform shown while dictating. Decorative
@@ -2628,12 +2834,12 @@ struct ScoutMicButton: View {
     let glyph: CGFloat
     let action: () -> Void
 
-    @ObservedObject private var vox = ScoutVoxService.shared
+    @ObservedObject private var voice = ScoutVoiceService.shared
     @State private var hovering = false
 
-    private var isRecording: Bool { vox.state.isCaptureActive }
-    private var isProcessing: Bool { vox.state.isProcessing }
-    private var isUnavailable: Bool { vox.state.isUnavailable }
+    private var isRecording: Bool { voice.state.isCaptureActive }
+    private var isProcessing: Bool { voice.state.isProcessing }
+    private var isUnavailable: Bool { voice.state.isUnavailable }
 
     private var strokeColor: Color {
         if isRecording { return ScoutPalette.accent }
@@ -2643,9 +2849,9 @@ struct ScoutMicButton: View {
     }
 
     private var tooltip: String {
-        switch vox.state {
-        case .probing:               return "Checking Vox companion…"
-        case .idle:                  return "Tap to dictate with Vox"
+        switch voice.state {
+        case .probing:               return "Preparing voice…"
+        case .idle:                  return "Tap to dictate"
         case .starting:              return "Starting recording…"
         case .recording:             return "Recording — tap to commit"
         case .processing:            return "Transcribing…"
@@ -2685,7 +2891,7 @@ struct ScoutMicButton: View {
         .buttonStyle(.plain).scoutPointerCursor()
         .help(tooltip)
         .onHover { hovering = $0 }
-        .task { if vox.state == .probing { await vox.probe() } }
+        .task { if voice.state == .probing { await voice.probe() } }
     }
 
     private var micFillColor: Color {
@@ -2969,8 +3175,11 @@ private struct ScoutDesignPreviewPanel: View {
 private struct ScoutAgentInspector: View {
     let agent: ScoutAgent
     let selectedChannel: ScoutChannel?
+    let agentChannels: [ScoutChannel]
     let openObserve: () -> Void
     let openProfile: () -> Void
+    let openConversation: () -> Void
+    let openSession: (ScoutChannel) -> Void
     let startSession: (ScoutSessionDraft.Mode) -> Void
 
     /// Conversation / work-requests / result-delivery / observe are table
@@ -3000,15 +3209,63 @@ private struct ScoutAgentInspector: View {
                     HudDivider(color: ScoutDesign.hairline)
                     sessionSection
                 }
+                if !agentChannels.isEmpty {
+                    HudDivider(color: ScoutDesign.hairline)
+                    sessionsList
+                }
                 if !specialCapabilities.isEmpty {
                     HudDivider(color: ScoutDesign.hairline)
                     skills
                 }
-                ScoutNewSessionLink(action: { startSession(.fresh) })
+                HudDivider(color: ScoutDesign.hairline)
+                actions
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scoutDepth()
+    }
+
+    /// Conversations attached to this agent — surfaced here (complaint #3) so
+    /// engaging an agent reveals where to pick up, not just static metadata.
+    /// Each opens straight into Comms.
+    private var sessionsList: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            HStack {
+                ScoutEyebrow(text: "Sessions")
+                Spacer(minLength: HudSpacing.sm)
+                Text("\(agentChannels.count)")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+            }
+            ForEach(agentChannels.prefix(6)) { channel in
+                Button { openSession(channel) } label: {
+                    HStack(spacing: HudSpacing.sm) {
+                        Circle().fill(ScoutPalette.dim).frame(width: 4, height: 4)
+                        Text(channel.rowTitle)
+                            .font(HudFont.ui(HudTextSize.xxs))
+                            .foregroundStyle(ScoutPalette.muted)
+                            .lineLimit(1)
+                        Spacer(minLength: HudSpacing.sm)
+                        Text(channel.ageLabel)
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutPalette.dim)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).scoutPointerCursor()
+                .help("Open \(channel.rowTitle)")
+            }
+        }
+    }
+
+    /// Primary engagement row: open the conversation (accent) or spin a fresh
+    /// session. Observe rides the Session block above when a session is live.
+    private var actions: some View {
+        HStack(spacing: HudSpacing.lg) {
+            ScoutMessageLink(action: openConversation)
+            ScoutNewSessionLink(action: { startSession(.fresh) })
+            Spacer(minLength: 0)
+        }
     }
 
     /// Clickable identity header → profile. State rides the presence dot on
@@ -3138,6 +3395,29 @@ private struct ScoutObserveChip: View {
     }
 }
 
+/// Primary "Message" action — accent at rest (it's the most common next step
+/// from the inspector), inking on hover. Opens the agent's conversation.
+private struct ScoutMessageLink: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: "bubble.left")
+                    .font(HudFont.ui(HudTextSize.micro, weight: .bold))
+                Text("MESSAGE")
+                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+            }
+            .foregroundStyle(hovering ? ScoutPalette.ink : ScoutPalette.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .onHover { hovering = $0 }
+        .help("Open conversation")
+    }
+}
+
 /// Unemphasized "New session" link — muted at rest, accent on hover, since
 /// continuing a conversation is already the default action in the sidebar.
 private struct ScoutNewSessionLink: View {
@@ -3165,8 +3445,11 @@ private struct ScoutNewSessionLink: View {
 private struct ScoutAgentCardStack: View {
     let agents: [ScoutAgent]
     let selectedChannel: ScoutChannel?
+    let channelsFor: (ScoutAgent) -> [ScoutChannel]
     let openObserve: (ScoutAgent) -> Void
     let openProfile: (ScoutAgent) -> Void
+    let openConversation: (ScoutAgent) -> Void
+    let openSession: (ScoutChannel) -> Void
     let startSession: (ScoutAgent) -> Void
 
     var body: some View {
@@ -3189,8 +3472,11 @@ private struct ScoutAgentCardStack: View {
         ScoutAgentInspector(
             agent: agent,
             selectedChannel: selectedChannel,
+            agentChannels: channelsFor(agent),
             openObserve: { openObserve(agent) },
             openProfile: { openProfile(agent) },
+            openConversation: { openConversation(agent) },
+            openSession: openSession,
             startSession: { _ in startSession(agent) }
         )
     }
@@ -3199,9 +3485,12 @@ private struct ScoutAgentCardStack: View {
 private struct ScoutAgentPreviewPanel: View {
     let agent: ScoutAgent
     let selectedChannel: ScoutChannel?
+    let agentChannels: [ScoutChannel]
     let onClose: () -> Void
     let openObserve: () -> Void
     let openProfile: () -> Void
+    let openConversation: () -> Void
+    let openSession: (ScoutChannel) -> Void
     let startSession: (ScoutSessionDraft.Mode) -> Void
 
     var body: some View {
@@ -3213,8 +3502,11 @@ private struct ScoutAgentPreviewPanel: View {
                 ScoutAgentInspector(
                     agent: agent,
                     selectedChannel: selectedChannel,
+                    agentChannels: agentChannels,
                     openObserve: openObserve,
                     openProfile: openProfile,
+                    openConversation: openConversation,
+                    openSession: openSession,
                     startSession: startSession
                 )
                 .padding(HudSpacing.xl)

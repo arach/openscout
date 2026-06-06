@@ -11,7 +11,7 @@ Status: v0 integration guidance. Use this as the current Scout-native target, no
 | stable identity | resolves to one exact agent target |
 | reachable endpoint | broker knows how to reach the agent |
 | runtime session | concrete harness conversation/process attached to an endpoint |
-| endpoint state | attachment state such as registered/attaching/waking/idle/working/unreachable/failed/stale/stopped |
+| endpoint state | attachment state such as registered/attaching/waking/idle/working/unreachable/failed/superseded/stopped |
 | message path | can receive durable messages with broker receipt ids |
 | invocation path | can receive ask/work and produce flight result ids |
 | reply context | replies preserve actor and conversation context |

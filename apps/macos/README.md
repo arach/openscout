@@ -17,15 +17,27 @@ The menu app is intentionally thin:
 
 ```bash
 cd apps/macos
-swift run
+HUDSONKIT_WITH_VOICE=1 HUDSON_SPEECH_ENGINE_SOURCE=path swift run
 ```
 
 ```bash
 cd apps/macos
-swift build
+HUDSONKIT_WITH_VOICE=1 HUDSON_SPEECH_ENGINE_SOURCE=path swift build
 ```
 
 You can also open `Package.swift` directly in Xcode.
+
+## Voice
+
+Current macOS voice is in-process. `ScoutVoiceService` in `ScoutSharedUI`
+wraps HudsonKit's `HudDictation`, which captures audio in the Scout app/HUD,
+uses Apple Speech for live preview/fallback, and uses `HudsonSpeechEngine` for
+embedded Parakeet transcription when the model is warm.
+
+Scout macOS does not require the standalone Vox app or a Vox companion daemon.
+There is no Scout voice daemon today. If this moves out of process later, the
+Scout-owned host process should be `scoutd`; Hudson can provide reusable
+`HudsonVoiceService` contracts, but the daemon identity belongs to Scout.
 
 ## Quick Launch
 

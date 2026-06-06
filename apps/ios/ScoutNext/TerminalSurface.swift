@@ -2,6 +2,7 @@ import SwiftUI
 import CryptoKit
 import HudsonUI
 import HudsonTerminal
+import HudsonVoice
 import TerminiSSH
 import ScoutCapabilities
 
@@ -26,11 +27,30 @@ struct TerminalSurface: View {
     @State private var phase: Phase = .preparing
     @State private var endpoint: String = ""
 
+    /// Height the hosted terminal keyboard reports for itself; it self-sizes and
+    /// can swipe between compact (full QWERTY) and minimal rows.
+    @State private var keyboardHeight: CGFloat = 262
+
+    /// On-device dictation, shared with the message composers (injected at the
+    /// app root). The terminal keyboard's mic toggles it; transcripts land at the
+    /// prompt. Engine is Parakeet (Vox) when warm, Apple Speech otherwise.
+    @Environment(HudDictation.self) private var voice
+    /// Ticks once per delivered transcript so the keyboard flashes a success check.
+    @State private var dictationSuccessPulse = 0
+
     /// Terminal presentation. Font size is the single knob here; it will move to
     /// a per-terminal setting (small/standard presets). 8pt ≈ 70 cols on this
     /// device, so `ls -la` fits without wrapping.
+    ///
+    /// `fontFamily: nil` is deliberate — it tells Termini NOT to override the
+    /// face, so Ghostty uses its built-in chain (JetBrains Mono + the embedded
+    /// "Symbols Nerd Font" fallback). That fallback renders the Mac's powerline /
+    /// Powerlevel10k prompt glyphs; forcing "SF Mono" (hudson's default) dropped
+    /// it and left the prompt as a bare floating cursor. Zero added bytes — the
+    /// Nerd symbols already ship inside the Ghostty binary, verified via
+    /// `strings` ("Symbols Nerd Font 3.4.0").
     private var terminalAppearance: HudTerminalAppearance {
-        HudTerminalAppearance(fontSize: 8)
+        HudTerminalAppearance(fontSize: 8, fontFamily: nil)
     }
 
     private enum Phase: Equatable {
@@ -57,15 +77,63 @@ struct TerminalSurface: View {
             content
         }
         .background(HudPalette.bg)
+        // The hosted keyboard IS the keyboard now (no system QWERTY underneath);
+        // it rides the bottom safe area and the terminal lays out above it.
+        .safeAreaInset(edge: .bottom, spacing: 0) { terminalKeyboard }
         .task(id: reloadToken) { await prepare() }
+        // Warm Parakeet on entry so the first mic tap is instant (no-op if already hot).
+        .task { voice.prepare() }
+        // Dictated text lands at the prompt (no trailing newline) — you review it
+        // and press RET yourself, so a misheard command never auto-executes. The
+        // pulse makes the keyboard's mic flash a success check.
+        .onChange(of: voice.finalCount) { _, _ in
+            let text = voice.finalText
+            guard !text.isEmpty else { return }
+            workspace?.controller.onTransportWrite?(Data(text.utf8))
+            dictationSuccessPulse += 1
+        }
+        .onDisappear { if voice.isListening { voice.cancel() } }
+    }
+
+    // MARK: - Keyboard
+
+    /// hudson's in-app terminal keyboard (`HudHostedKeyboard`, extracted from
+    /// talkie) — a full QWERTY that swipes down to a terminal quick-tray, both
+    /// with a mic that drives `HudDictation`. Mounted only once the PTY is live;
+    /// every key (and dictation transcript) writes straight to the channel.
+    @ViewBuilder
+    private var terminalKeyboard: some View {
+        if case .live = phase {
+            TerminalHostedKeyboard(
+                send: { workspace?.controller.onTransportWrite?($0) },
+                onDictate: { voice.toggle() },
+                dictationPhase: dictationPhase,
+                successPulse: dictationSuccessPulse,
+                preferredHeight: $keyboardHeight
+            )
+            .frame(height: keyboardHeight)
+            // The keyboard reflows to its width but renders full-bleed (3pt
+            // internal padding). On the 13 mini's narrow screen that's too wide,
+            // so inset it into a contained tray that lines up with the terminal
+            // grid (which is also inset) instead of running edge-to-edge.
+            .padding(.horizontal, HudSpacing.xxl)
+        }
+    }
+
+    /// Maps the live voice session onto the keyboard's dictate button.
+    private var dictationPhase: TerminalDictationPhase {
+        switch voice.state {
+        case .listening:    return .recording
+        case .transcribing: return .processing
+        default:            return .idle
+        }
     }
 
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: HudSpacing.md) {
-            Image(systemName: "terminal")
-                .font(HudFont.ui(HudTextSize.md, weight: .semibold))
+            Glyphic(kind: .terminal, size: 19)
                 .foregroundStyle(HudTint.green.color)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Terminal")
@@ -108,7 +176,7 @@ struct TerminalSurface: View {
                     // narrower width, so nothing is ever wider than the screen.
                     HudTerminalSurface(
                         controller: workspace.controller,
-                        showsSystemKeyboard: true,
+                        showsSystemKeyboard: false,
                         appearance: terminalAppearance
                     )
                     .padding(.horizontal, HudSpacing.sm)
@@ -244,8 +312,30 @@ struct TerminalSurface: View {
             workspace = ws
             phase = .live
             await ws.connect()
+            await paintPromptOnAttach(ws)
         } catch {
             phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// On attach, tmux holds the pane's content but the iOS terminal doesn't
+    /// repaint it until something nudges the stream — typing a key was enough to
+    /// make the whole prompt appear. So once connected, send a clear-screen (⌃L):
+    /// zsh repaints a clean prompt (no leftover input), which the emulator renders.
+    /// Without this the pane opens on a bare floating cursor even though the prompt
+    /// is right there in tmux. `onTransportWrite` is the session's own keystroke
+    /// path to the channel, so this is exactly a typed ⌃L — no shared-package change.
+    /// Two beats: the first kick can land before the inner shell is ready; the
+    /// second catches it.
+    private func paintPromptOnAttach(_ ws: TerminiSSHWorkspace) async {
+        for _ in 0..<24 {
+            if ws.isConnected { break }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        for delay in [450, 1100] {
+            try? await Task.sleep(for: .milliseconds(delay))
+            guard ws.isConnected else { return }
+            ws.controller.onTransportWrite?(Data([0x0C]))
         }
     }
 

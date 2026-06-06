@@ -236,6 +236,21 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Result-experience redesign: session cards, conversation-first inspector, rendered vs raw, ranking, next actions.",
   },
   {
+    href: "/studies/navigation-taxonomy",
+    label: "Navigation Taxonomy",
+    bucket: "studies",
+    surface: "web",
+    family: "navigation",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/navigation-taxonomy/page.tsx",
+      "packages/web/client/scout/topNavConfig.ts",
+      "packages/web/client/components/SecondaryNav.tsx",
+      "packages/web/client/lib/router.ts",
+    ],
+    blurb: "Before/after header model: primary intent, secondary surfaces, and route coverage.",
+  },
+  {
     href: "/studies/tree-viewer",
     label: "Tree Viewer",
     bucket: "studies",

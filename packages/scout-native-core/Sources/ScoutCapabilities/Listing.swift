@@ -111,9 +111,72 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
-/// Capability: list sessions and agents. The query/limit semantics are the
-/// app's need; the transport decides how to fulfill them.
+/// A project the connected machine knows about, carrying the harnesses it can
+/// actually run there — the machine-backed catalog the New-session composer reads
+/// so its harness list reflects what's installed on that Mac, not a hardcoded set.
+public struct WorkspaceSummary: Codable, Sendable, Identifiable, Equatable {
+    /// One harness available for this workspace, with the machine's readiness.
+    public struct Harness: Codable, Sendable, Identifiable, Equatable {
+        /// Mirrors the bridge's per-harness readiness for this workspace.
+        public enum Readiness: String, Codable, Sendable {
+            case ready, configured, installed, missing, unknown
+        }
+
+        public var harness: String        // e.g. "claude", "codex"
+        public var readiness: Readiness
+        public var detail: String?
+
+        public var id: String { harness }
+
+        public init(harness: String, readiness: Readiness = .unknown, detail: String? = nil) {
+            self.harness = harness
+            self.readiness = readiness
+            self.detail = detail
+        }
+
+        /// True when the harness can start a session now (installed + usable).
+        public var isUsable: Bool {
+            readiness == .ready || readiness == .configured || readiness == .installed
+        }
+    }
+
+    public var id: String          // workspace id
+    public var title: String
+    public var projectName: String
+    public var root: String
+    /// The harness the machine recommends for this workspace, if any.
+    public var defaultHarness: String?
+    public var harnesses: [Harness]
+
+    public init(
+        id: String,
+        title: String,
+        projectName: String,
+        root: String,
+        defaultHarness: String? = nil,
+        harnesses: [Harness] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.projectName = projectName
+        self.root = root
+        self.defaultHarness = defaultHarness
+        self.harnesses = harnesses
+    }
+}
+
+/// Capability: list sessions, agents, and the machine's known workspaces. The
+/// query/limit semantics are the app's need; the transport decides how to fulfill
+/// them.
 public protocol ListingCapability: Sendable {
     func listSessions(query: String?, limit: Int) async throws -> [SessionSummary]
     func listAgents(query: String?, limit: Int) async throws -> [AgentSummary]
+    func listWorkspaces(query: String?, limit: Int) async throws -> [WorkspaceSummary]
+}
+
+public extension ListingCapability {
+    /// Default: no machine-backed workspaces (e.g. a transport that doesn't expose
+    /// them). Conformers that can fetch them override this. Keeps existing
+    /// conformers source-compatible.
+    func listWorkspaces(query: String?, limit: Int) async throws -> [WorkspaceSummary] { [] }
 }
