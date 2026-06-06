@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
     @StateObject private var tail = ScoutTailStore()
+    @StateObject private var repos = ScoutRepoStore()
     @ObservedObject private var voice = ScoutVoiceService.shared
     @State private var section: ScoutSection = .comms
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
@@ -78,6 +79,10 @@ struct ScoutRootView: View {
     /// window-level keyboard chords drive it; selection is mirrored into
     /// `store.selectedAgentId` so the inspector follows.
     @StateObject private var agentsTree = ScoutAgentsTreeModel()
+
+    /// Expansion + selection for the Repos repo·worktree tree. Same chords; the
+    /// inspector reads its selection directly.
+    @StateObject private var reposTree = ScoutReposTreeModel()
 
     private var manifest: HudAppManifest {
         HudAppManifest(
@@ -151,10 +156,12 @@ struct ScoutRootView: View {
         .onAppear {
             store.start()
             tail.start()
+            repos.start()
         }
         .onDisappear {
             store.stop()
             tail.stop()
+            repos.stop()
         }
         .onChange(of: store.selectedCId) { oldCId, newCId in
             // Preserve the in-progress draft for the chat we're leaving and
@@ -271,6 +278,8 @@ struct ScoutRootView: View {
             store.selectChannel(channels[next].cId)
         case .agents:
             treeMove(delta)
+        case .repos:
+            reposTreeMove(delta)
         case .tail:
             break
         }
@@ -285,6 +294,8 @@ struct ScoutRootView: View {
             store.selectChannel(target.cId)
         case .agents:
             treeEdge(last: last)
+        case .repos:
+            reposTreeEdge(last: last)
         case .tail:
             break
         }
@@ -327,18 +338,44 @@ struct ScoutRootView: View {
         pushTreeSelection()
     }
 
+    // MARK: Repos tree navigation
+
+    private func reposTreeMove(_ delta: Int) {
+        reposTree.move(delta, projects: repos.projects, showClean: repos.showCleanIdle)
+    }
+
+    private func reposTreeEdge(last: Bool) {
+        reposTree.moveToEdge(last: last, projects: repos.projects, showClean: repos.showCleanIdle)
+    }
+
     /// `l` / →  — expand a collapsed node, else descend.
     private func moveRight() {
-        guard section == .agents else { moveSelection(1); return }
-        withAnimation(.easeOut(duration: 0.16)) { agentsTree.expandOrDescend(groups: treeGroups) }
-        pushTreeSelection()
+        switch section {
+        case .agents:
+            withAnimation(.easeOut(duration: 0.16)) { agentsTree.expandOrDescend(groups: treeGroups) }
+            pushTreeSelection()
+        case .repos:
+            withAnimation(.easeOut(duration: 0.16)) {
+                reposTree.expandOrDescend(projects: repos.projects, showClean: repos.showCleanIdle)
+            }
+        default:
+            moveSelection(1)
+        }
     }
 
     /// `h` / ←  — collapse an expanded node, else step to the parent.
     private func moveLeft() {
-        guard section == .agents else { moveSelection(-1); return }
-        withAnimation(.easeOut(duration: 0.16)) { agentsTree.collapseOrParent(groups: treeGroups) }
-        pushTreeSelection()
+        switch section {
+        case .agents:
+            withAnimation(.easeOut(duration: 0.16)) { agentsTree.collapseOrParent(groups: treeGroups) }
+            pushTreeSelection()
+        case .repos:
+            withAnimation(.easeOut(duration: 0.16)) {
+                reposTree.collapseOrParent(projects: repos.projects, showClean: repos.showCleanIdle)
+            }
+        default:
+            moveSelection(-1)
+        }
     }
 
     private func focusSearch() {
@@ -360,6 +397,10 @@ struct ScoutRootView: View {
     /// Jump into the selected row's conversation (⌘↩, Agents page) — the focused
     /// session if a session row is selected, else the agent's channel.
     private func openSelectedAgentChannel() {
+        if section == .repos {
+            revealSelectedRepoInFinder()
+            return
+        }
         guard section == .agents else { return }
         if let cId = agentsTree.selectedSessionCId {
             store.selectChannel(cId)
@@ -369,6 +410,21 @@ struct ScoutRootView: View {
         guard let agent = store.selectedAgent else { return }
         store.openAgentChannel(agent)
         section = .comms
+    }
+
+    /// ⌘↩ / double-click on the Repos page — reveal the focused worktree (or
+    /// project root) in Finder.
+    private func revealSelectedRepoInFinder() {
+        let path: String?
+        if let worktree = repos.worktree(id: reposTree.selectedWorktreeID) {
+            path = worktree.path
+        } else if let project = repos.project(id: reposTree.selectedProjectID) {
+            path = project.root
+        } else {
+            path = nil
+        }
+        guard let path, !path.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
     private func startNewConversation() {
@@ -447,6 +503,7 @@ struct ScoutRootView: View {
         [
             .item(HudSidebarItem(id: .comms, title: "Comms", icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill")),
             .item(HudSidebarItem(id: .agents, title: "Agents", icon: "person.2", selectedIcon: "person.2.fill")),
+            .item(HudSidebarItem(id: .repos, title: "Repos", icon: "arrow.triangle.branch", selectedIcon: "arrow.triangle.branch")),
             .item(HudSidebarItem(id: .tail, title: "Tail", icon: "waveform.path.ecg", selectedIcon: "waveform.path.ecg")),
         ]
     }
@@ -489,6 +546,8 @@ struct ScoutRootView: View {
             commsContent
         case .agents:
             agentsContent
+        case .repos:
+            reposContent
         case .tail:
             tailContent
         }
@@ -1339,16 +1398,46 @@ struct ScoutRootView: View {
         ScoutTailContent(tail: tail)
     }
 
+    private var reposContent: some View {
+        ScoutReposContent(repos: repos, tree: reposTree, onActivate: { revealSelectedRepoInFinder() })
+    }
+
     private var inspectorHeader: some View {
         let multiAgent = section == .comms && channelAgentMembers.count >= 2
         return HStack(spacing: HudSpacing.md) {
-            HudSectionLabel(section == .tail ? "Tail" : (multiAgent ? "Agents" : (store.selectedAgent == nil ? "Context" : "Agent")))
+            HudSectionLabel(inspectorTitle(multiAgent: multiAgent))
             Spacer()
-            if section == .tail {
-                HudBadge(tail.isFollowing ? "Live" : "Paused", tint: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted, dot: tail.isFollowing)
-            } else if !multiAgent, let agent = store.selectedAgent {
-                HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
+            inspectorHeaderBadge(multiAgent: multiAgent)
+        }
+    }
+
+    private func inspectorTitle(multiAgent: Bool) -> String {
+        switch section {
+        case .tail:
+            return "Tail"
+        case .repos:
+            if repos.worktree(id: reposTree.selectedWorktreeID) != nil { return "Worktree" }
+            if repos.project(id: reposTree.selectedProjectID) != nil { return "Repo" }
+            return "Context"
+        default:
+            return multiAgent ? "Agents" : (store.selectedAgent == nil ? "Context" : "Agent")
+        }
+    }
+
+    @ViewBuilder
+    private func inspectorHeaderBadge(multiAgent: Bool) -> some View {
+        if section == .tail {
+            HudBadge(tail.isFollowing ? "Live" : "Paused", tint: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted, dot: tail.isFollowing)
+        } else if section == .repos {
+            // No verdict pill for a worktree — the inspector's Position block
+            // carries current state calmly. Keep a project-level attention
+            // summary, which reads as a roll-up rather than a per-branch verdict.
+            if repos.worktree(id: reposTree.selectedWorktreeID) == nil,
+               let project = repos.project(id: reposTree.selectedProjectID) {
+                HudBadge(project.attention.rawValue, tint: reposAttentionColor(project.attention), dot: reposAttentionLive(project.attention))
             }
+        } else if !multiAgent, let agent = store.selectedAgent {
+            HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
         }
     }
 
@@ -1495,6 +1584,8 @@ struct ScoutRootView: View {
         VStack(alignment: .leading, spacing: HudSpacing.xl) {
             if section == .tail {
                 ScoutTailInspector(tail: tail)
+            } else if section == .repos {
+                ScoutReposInspector(repos: repos, tree: reposTree)
             } else {
                 if section == .agents {
                     if let agent = store.selectedAgent {
@@ -1771,6 +1862,14 @@ struct ScoutRootView: View {
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.muted)
 
+            Text("·")
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(ScoutPalette.dim)
+
+            Text("\(repos.totals.worktrees) trees")
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(ScoutPalette.muted)
+
             if let error = store.lastError {
                 Text("·")
                     .font(HudFont.mono(HudTextSize.xxs))
@@ -1792,6 +1891,16 @@ struct ScoutRootView: View {
             }
 
             if let error = tail.lastError {
+                Text("·")
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(ScoutPalette.dim)
+                Text(error)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(ScoutPalette.statusError)
+                    .lineLimit(1)
+            }
+
+            if let error = repos.lastError {
                 Text("·")
                     .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(ScoutPalette.dim)
