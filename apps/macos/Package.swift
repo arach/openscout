@@ -29,6 +29,7 @@ let package = Package(
         .target(
             name: "ScoutSharedUI",
             dependencies: [
+                .product(name: "HudsonVoice", package: "hudson"),
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
             ],
             path: "Sources/ScoutSharedUI"

@@ -10,7 +10,9 @@
         "args": ["build", "-c", "release"],
         "cwd": ".",
         "env": {
-          "OPENSCOUT_HUDSON_SOURCE": "path"
+          "OPENSCOUT_HUDSON_SOURCE": "path",
+          "HUDSONKIT_WITH_VOICE": "1",
+          "HUDSON_SPEECH_ENGINE_SOURCE": "path"
         }
       }
     ],

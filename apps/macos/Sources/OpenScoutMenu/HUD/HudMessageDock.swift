@@ -174,10 +174,10 @@ private struct CompactDock: View {
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
-    @ObservedObject private var vox = HudVoxService.shared
+    @ObservedObject private var voice = HudVoiceService.shared
 
     private var showDictationPreview: Bool {
-        text.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
+        text.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
     }
 
     var body: some View {
@@ -199,7 +199,7 @@ private struct CompactDock: View {
                         .focused($focused)
                         .onSubmit(onSubmit)
                     if showDictationPreview {
-                        DictationLivePreview(text: vox.partial)
+                        DictationLivePreview(text: voice.partial)
                             .allowsHitTesting(false)
                     }
                 }
@@ -237,7 +237,7 @@ private struct MediumLargeDock: View {
     @FocusState.Binding var focused: Bool
     let onSubmit: () -> Void
 
-    @ObservedObject private var vox = HudVoxService.shared
+    @ObservedObject private var voice = HudVoiceService.shared
 
     private var isLarge: Bool { size == .large }
     private var minInputH: CGFloat { isLarge ? 46 : 36 }
@@ -246,7 +246,7 @@ private struct MediumLargeDock: View {
     // Slightly smaller than the prior sans sizes — mono reads heavier.
     private var placeholderSize: CGFloat { isLarge ? 11.5 : 10.5 }
     private var showDictationPreview: Bool {
-        text.isEmpty && (vox.state.isCaptureActive || vox.state.isProcessing)
+        text.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
     }
 
     var body: some View {
@@ -278,7 +278,7 @@ private struct MediumLargeDock: View {
                 .focused($focused)
                 .onSubmit(onSubmit)
                 if showDictationPreview {
-                    DictationLivePreview(text: vox.partial, fontSize: placeholderSize)
+                    DictationLivePreview(text: voice.partial, fontSize: placeholderSize)
                         .allowsHitTesting(false)
                         .padding(.top, 1)
                 }
@@ -402,7 +402,7 @@ private extension MessageSendChipStyle {
 
 // ─── Mic button (hand-drawn glyph, no SF Symbols) ───────────────────
 
-/// Tap → toggle dictation. Visual state mirrors HudVoxService.state:
+/// Tap → toggle dictation. Visual state mirrors HudVoiceService.state:
 ///   idle/probing      → faint ink stroke
 ///   starting          → ink stroke + soft pulse
 ///   recording         → accent stroke + halo + pulse
@@ -413,19 +413,19 @@ private struct MicButton: View {
     let box: CGFloat
     let glyph: CGFloat
 
-    @ObservedObject private var vox = HudVoxService.shared
+    @ObservedObject private var voice = HudVoiceService.shared
     @State private var pulse = false
 
     private var isRecording: Bool {
-        vox.state.isCaptureActive
+        voice.state.isCaptureActive
     }
 
     private var isProcessing: Bool {
-        vox.state.isProcessing
+        voice.state.isProcessing
     }
 
     private var isUnavailable: Bool {
-        vox.state.isUnavailable
+        voice.state.isUnavailable
     }
 
     private var strokeColor: Color {
@@ -436,8 +436,8 @@ private struct MicButton: View {
     }
 
     private var tooltip: String {
-        switch vox.state {
-        case .probing:               return "Checking Vox companion…"
+        switch voice.state {
+        case .probing:               return "Preparing voice…"
         case .idle:                  return "Hold to dictate (or tap to start)"
         case .starting:              return "Starting recording…"
         case .recording:             return "Recording — tap to commit"
@@ -474,8 +474,8 @@ private struct MicButton: View {
         }
         .buttonStyle(.plain)
         .help(tooltip)
-        .task { if vox.state == .probing { await vox.probe() } }
-        .onChange(of: vox.state) { _, newValue in
+        .task { if voice.state == .probing { await voice.probe() } }
+        .onChange(of: voice.state) { _, newValue in
             // Drive the pulse based on whether we're hot/processing.
             pulse = false
             if newValue == .recording || newValue == .starting || newValue == .processing {

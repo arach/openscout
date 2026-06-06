@@ -5,7 +5,7 @@ import SwiftUI
 // "boing" when set; slides out cleanly on dismiss / auto-expire.
 //
 // Any component can fire one:
-//   HUDFlashState.shared.flash("vox companion unreachable.")
+//   HUDFlashState.shared.flash("Voice capture unavailable.")
 //
 // The state owns the auto-dismiss timer so callers don't have to.
 
@@ -30,7 +30,7 @@ final class HUDFlashState: ObservableObject {
         enum Kind { case error, info, success }
 
         struct Action {
-            let label: String       // e.g. "LAUNCH VOX"
+            let label: String       // e.g. "TRY AGAIN"
             let perform: () -> Void // ran on tap
         }
     }

@@ -59,7 +59,7 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
-        HudVoxService.shared.cancel()
+        HudVoiceService.shared.cancel()
         closeObserve()
         window?.orderOut(nil)
         service.stop()
@@ -208,7 +208,7 @@ final class CommsWindowController: NSObject, NSWindowDelegate {
     }
 
     /// True while the Comms panel is on screen. The HUD dock checks this so
-    /// the foreground Comms surface owns Vox dictation (splice + consume)
+    /// the foreground Comms surface owns voice dictation (splice + consume)
     /// rather than the dock stealing the final transcript.
     var isPresented: Bool { window?.isVisible == true }
 
@@ -344,7 +344,7 @@ struct CommsRootView: View {
     @State private var commandIndex = 0
     @State private var observeTarget: CommsObserveTarget?
     @FocusState private var focus: Field?
-    @ObservedObject private var vox = HudVoxService.shared
+    @ObservedObject private var voice = HudVoiceService.shared
 
     private let observeClosedPublisher = NotificationCenter.default.publisher(for: .commsObserveClosed)
 
@@ -744,7 +744,7 @@ struct CommsRootView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .help(isDictating ? "Stop dictation" : "Dictate with Vox")
+                .help(isDictating ? "Stop dictation" : "Dictate")
 
                 Button {
                     showCommands ? closeCommands() : openCommands()
@@ -808,14 +808,14 @@ struct CommsRootView: View {
                     Circle()
                         .fill(HUDChrome.accent)
                         .frame(width: 6, height: 6)
-                    Text(voxStatusLine)
+                    Text(voiceStatusLine)
                         .font(HUDType.mono(9))
                         .foregroundStyle(HUDChrome.inkMuted)
                         .lineLimit(1)
                         .truncationMode(.head)
                     Spacer()
                 }
-            } else if let reason = voxUnavailableReason {
+            } else if let reason = voiceUnavailableReason {
                 HStack(spacing: 6) {
                     Image(systemName: "mic.slash")
                         .font(.system(size: 9, weight: .semibold))
@@ -837,7 +837,7 @@ struct CommsRootView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .background(HUDChrome.canvasAlt)
-        .onReceive(vox.$lastFinalText) { text in
+        .onReceive(voice.$lastFinalText) { text in
             spliceDictatedFinal(text)
         }
     }
@@ -903,22 +903,21 @@ struct CommsRootView: View {
 
     // Routes to the focused field's editor via the standard responder action,
     // the same one Edit ▸ Start Dictation uses. No-op if nothing accepts it.
-    // ── Dictation (Vox companion, same path as the HUD dock) ────────────
-    // Routes to HudVoxService — the local Vox transcription daemon — via the
+    // ── Dictation (HudsonKit voice, same path as the HUD dock) ──────────
+    // Routes to HudVoiceService — the shared HudsonKit dictation service — via the
     // shared ScoutDictationController decision table, exactly like
-    // HUDDockState.toggleDictation(). No macOS system dictation, no extra
-    // mic-usage prompt (capture lives in the Vox process).
+    // HUDDockState.toggleDictation().
     private func toggleDictation() {
         focus = .composer
         Task {
-            switch ScoutDictationController.toggleDecision(for: vox.state) {
+            switch ScoutDictationController.toggleDecision(for: voice.state) {
             case .probeThenStartIfIdle:
-                await vox.probe()
-                if case .idle = vox.state { vox.start() }
+                await voice.probe()
+                if case .idle = voice.state { voice.start() }
             case .start:
-                vox.start()
+                voice.start()
             case .stop:
-                vox.stop()
+                voice.stop()
             case .ignore:
                 break
             }
@@ -926,31 +925,31 @@ struct CommsRootView: View {
     }
 
     private var isDictating: Bool {
-        switch vox.state {
+        switch voice.state {
         case .starting, .recording, .processing: return true
         default: return false
         }
     }
 
     private var micSymbol: String {
-        switch vox.state {
+        switch voice.state {
         case .recording: return "stop.fill"
         case .starting, .processing: return "waveform"
         default: return "mic.fill"
         }
     }
 
-    private var voxStatusLine: String {
-        if !vox.partial.isEmpty { return vox.partial }
-        switch vox.state {
-        case .starting: return "Starting Vox…"
+    private var voiceStatusLine: String {
+        if !voice.partial.isEmpty { return voice.partial }
+        switch voice.state {
+        case .starting: return "Starting voice…"
         case .processing: return "Transcribing…"
         default: return "Listening…"
         }
     }
 
-    private var voxUnavailableReason: String? {
-        if case .unavailable(let reason) = vox.state { return reason }
+    private var voiceUnavailableReason: String? {
+        if case .unavailable(let reason) = voice.state { return reason }
         return nil
     }
 
@@ -960,7 +959,7 @@ struct CommsRootView: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let cId = service.selectedCId else { return }
         drafts[cId] = ScoutDictationBuffer.appending(trimmed, to: drafts[cId] ?? "")
-        HudVoxService.shared.consumeFinalText()
+        HudVoiceService.shared.consumeFinalText()
         focus = .composer
     }
 
@@ -1042,7 +1041,7 @@ struct CommsRootView: View {
                 service.refresh(force: true)
                 service.loadMessages()
             },
-            CommsCommand(id: "dictate", title: "Dictate message", hint: "", systemImage: "mic", keywords: ["voice", "speak", "vox"]) { toggleDictation() },
+            CommsCommand(id: "dictate", title: "Dictate message", hint: "", systemImage: "mic", keywords: ["voice", "speak", "voice"]) { toggleDictation() },
             CommsCommand(id: "copy", title: "Copy cId", hint: "", systemImage: "doc.on.doc", keywords: ["clipboard", "id"]) { copyCId() },
         ]
         if let target = selectedObserveTarget {

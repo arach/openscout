@@ -73,9 +73,13 @@ function modeLabel(mode: BuildMode): string {
 }
 
 function swiftBuildEnvironment(mode: BuildMode): NodeJS.ProcessEnv {
+  const hudsonSource = mode === "dev" ? "path" : "git";
+  const defaultSpeechEngineSource = process.env.HUDSON_SPEECH_ENGINE_PATH ? "path" : hudsonSource;
   return {
     ...process.env,
-    OPENSCOUT_HUDSON_SOURCE: mode === "dev" ? "path" : "git",
+    OPENSCOUT_HUDSON_SOURCE: hudsonSource,
+    HUDSONKIT_WITH_VOICE: "1",
+    HUDSON_SPEECH_ENGINE_SOURCE: process.env.HUDSON_SPEECH_ENGINE_SOURCE ?? defaultSpeechEngineSource,
   };
 }
 
