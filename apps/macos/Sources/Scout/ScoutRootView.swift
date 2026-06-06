@@ -1458,6 +1458,35 @@ struct ScoutRootView: View {
             .sorted { ($0.lastMessageAt ?? 0) > ($1.lastMessageAt ?? 0) }
     }
 
+    /// Tail events scoped to one agent: by bound session id first, falling back
+    /// to the agent's working directory + harness when no session id matches.
+    private func scopedTail(for agent: ScoutAgent, limit: Int = 4) -> [ScoutTailEvent] {
+        let events = tail.events
+        if let sid = agent.harnessSessionId?.nilIfEmpty {
+            let bySession = events.filter { $0.sessionId == sid }
+            if !bySession.isEmpty { return Array(bySession.suffix(limit)) }
+        }
+        if let target = (agent.cwd ?? agent.projectRoot)?.nilIfEmpty {
+            let byCwd = events.filter {
+                !$0.cwd.isEmpty && $0.cwd == target
+                    && (agent.harness == nil || $0.harness.isEmpty || $0.harness == agent.harness)
+            }
+            return Array(byCwd.suffix(limit))
+        }
+        return []
+    }
+
+    /// The live-activity bundle for the Comms inspector: observe payload (slot-
+    /// guarded to this agent, like the Observe pane) + agent-scoped tail.
+    private func livePreview(for agent: ScoutAgent) -> ScoutAgentLivePreview {
+        ScoutAgentLivePreview(
+            observePayload: store.observeAgentId == agent.id ? store.observePayload : nil,
+            isObserveLoading: store.observeAgentId == agent.id && store.isObserveLoading,
+            observeError: store.observeAgentId == agent.id ? store.observeError : nil,
+            tailEvents: scopedTail(for: agent)
+        )
+    }
+
     @ViewBuilder
     private var inspectorContent: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xl) {
@@ -1474,7 +1503,9 @@ struct ScoutRootView: View {
                             openProfile: { ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile") },
                             openConversation: { store.openAgentChannel(agent); section = .comms },
                             openSession: { channel in store.selectChannel(channel.cId); section = .comms },
-                            startSession: { mode in startSessionWithAgent(agent, mode: mode) }
+                            startSession: { mode in startSessionWithAgent(agent, mode: mode) },
+                            livePreview: nil,
+                            openTail: nil
                         )
                     } else {
                         HudEmptyState(title: "Nothing selected", subtitle: "Select an agent to inspect context.", icon: "sidebar.right")
@@ -1499,8 +1530,15 @@ struct ScoutRootView: View {
                         openProfile: { ScoutWeb.open(path: "/agents/\(agent.id)?tab=profile") },
                         openConversation: { store.openAgentChannel(agent); section = .comms },
                         openSession: { channel in store.selectChannel(channel.cId); section = .comms },
-                        startSession: { mode in startSessionWithAgent(agent, mode: mode) }
+                        startSession: { mode in startSessionWithAgent(agent, mode: mode) },
+                        livePreview: livePreview(for: agent),
+                        openTail: { tail.query = agent.harnessSessionId ?? ""; section = .tail }
                     )
+                    .task(id: "\(agent.id)#\(agent.state == .working)") {
+                        if agent.state == .working {
+                            store.loadObserve(agentId: agent.id, force: true)
+                        }
+                    }
                 } else if let channel = store.selectedChannel {
                     ScoutChannelInspector(channel: channel)
                 } else {
@@ -3181,6 +3219,11 @@ private struct ScoutAgentInspector: View {
     let openConversation: () -> Void
     let openSession: (ScoutChannel) -> Void
     let startSession: (ScoutSessionDraft.Mode) -> Void
+    /// Live activity for a *working* agent (Observe preview + agent-scoped tail
+    /// + touched files). `nil` ⇒ no live well — every non-Comms inspector.
+    let livePreview: ScoutAgentLivePreview?
+    /// Opens the full Tail scoped to this agent. `nil` ⇒ hide the affordance.
+    let openTail: (() -> Void)?
 
     /// Conversation / work-requests / result-delivery / observe are table
     /// stakes every agent has — not "abilities". Only surface skills beyond
@@ -3219,6 +3262,13 @@ private struct ScoutAgentInspector: View {
                 }
                 HudDivider(color: ScoutDesign.hairline)
                 actions
+                if let livePreview, agent.state == .working {
+                    ScoutAgentLiveWell(
+                        preview: livePreview,
+                        openObserve: openObserve,
+                        openTail: openTail
+                    )
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -3361,6 +3411,330 @@ private struct ScoutAgentInspector: View {
     }
 }
 
+/// Everything the live well needs, pre-scoped to one agent by the caller.
+struct ScoutAgentLivePreview {
+    let observePayload: ScoutObservePayload?
+    let isObserveLoading: Bool
+    let observeError: String?
+    let tailEvents: [ScoutTailEvent]
+}
+
+/// The live data area for a working agent — same inspector card, different
+/// *material*: a recessed well (darker than the surface) with a faint CRT
+/// scanline texture, and a shimmering amber seam at the top. The seam IS the
+/// divider between metadata and live — its glimmer is the "something is
+/// happening" cue (echoing the Claude Code TUI shimmer). No "Live"/"turn"
+/// labels; the material conveys it. Bleeds to the card edges.
+private struct ScoutAgentLiveWell: View {
+    let preview: ScoutAgentLivePreview
+    let openObserve: () -> Void
+    let openTail: (() -> Void)?
+
+    private var payload: ScoutObservePayload? { preview.observePayload }
+    private var events: [ScoutObserveEvent] {
+        Array((payload?.data.events ?? []).suffix(4).reversed())
+    }
+    private var files: [ScoutObserveFile] {
+        Array((payload?.data.files ?? []).sorted { $0.lastT > $1.lastT }.prefix(5))
+    }
+    private var tailEvents: [ScoutTailEvent] {
+        Array(preview.tailEvents.suffix(4).reversed())
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.lg) {
+            nowSection
+            wellDivider
+            tailSection
+            wellDivider
+            filesSection
+        }
+        .padding(.horizontal, HudSpacing.xxl)
+        .padding(.top, HudSpacing.lg)
+        .padding(.bottom, HudSpacing.xxl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(wellBackground)
+        .overlay(alignment: .top) { ScoutShimmerSeam() }
+        .clipShape(
+            UnevenRoundedRectangle(
+                bottomLeadingRadius: HudRadius.card,
+                bottomTrailingRadius: HudRadius.card,
+                style: .continuous
+            )
+        )
+        .padding(.horizontal, -HudSpacing.xxl)
+        .padding(.bottom, -HudSpacing.xxl)
+    }
+
+    // NOW — condensed Observe timeline, newest-first.
+    private var nowSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            HStack {
+                ScoutEyebrow(text: "Now")
+                Spacer(minLength: HudSpacing.sm)
+                ScoutObserveChip(action: openObserve)
+            }
+            if preview.isObserveLoading && payload == nil {
+                HStack(spacing: HudSpacing.sm) {
+                    ProgressView().controlSize(.small)
+                    hint("Reading activity…")
+                }
+            } else if events.isEmpty {
+                hint(preview.observeError != nil ? "Observe unavailable" : "Waiting for activity")
+            } else {
+                ForEach(events) { event in nowRow(event) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func nowRow(_ event: ScoutObserveEvent) -> some View {
+        HStack(alignment: .top, spacing: HudSpacing.sm) {
+            Image(systemName: event.kind.liveIcon)
+                .font(.system(size: 9))
+                .foregroundStyle(event.kind.liveTint)
+                .frame(width: 12)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: HudSpacing.xs) {
+                    Text(event.kind.liveLabel)
+                        .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                        .foregroundStyle(event.kind.liveTint)
+                    if let tool = event.tool?.nilIfEmpty {
+                        Text(tool)
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutPalette.accent)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: HudSpacing.sm)
+                    Text(event.timelineLabel)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
+                }
+                if !event.text.isEmpty {
+                    Text(event.text)
+                        .font(HudFont.ui(HudTextSize.xxs))
+                        .foregroundStyle(event.kind == .think ? ScoutPalette.muted : ScoutPalette.ink)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    // TAIL — system events scoped to this agent, newest-first.
+    private var tailSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            HStack {
+                ScoutEyebrow(text: "Tail · this agent")
+                Spacer(minLength: HudSpacing.sm)
+                if let openTail {
+                    wellLink("Tail", icon: "list.bullet.indent", action: openTail)
+                }
+            }
+            if tailEvents.isEmpty {
+                hint("No tail events for this agent yet")
+            } else {
+                ForEach(tailEvents) { event in tailRow(event) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tailRow(_ event: ScoutTailEvent) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Text(event.kind.glyph)
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(event.kind.tint)
+                .frame(width: 10)
+            Text(event.summary)
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(ScoutPalette.muted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: HudSpacing.sm)
+            Text(event.ageLabel)
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(ScoutPalette.dim)
+        }
+    }
+
+    // FILES — recently touched files snapshot.
+    private var filesSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            HStack {
+                ScoutEyebrow(text: "Files")
+                Spacer(minLength: HudSpacing.sm)
+                if !files.isEmpty {
+                    Text("\(files.count) changed")
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
+                }
+            }
+            if files.isEmpty {
+                hint("No file touches yet")
+            } else {
+                ForEach(files) { file in fileRow(file) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fileRow(_ file: ScoutObserveFile) -> some View {
+        HStack(alignment: .center, spacing: HudSpacing.sm) {
+            Circle()
+                .fill(scoutFileStateTint(file.state))
+                .frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(file.path)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("\(file.state) · \(file.touches)× · \(file.ageLabel)")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+            }
+        }
+    }
+
+    private var wellDivider: some View {
+        Rectangle()
+            .fill(ScoutPalette.ink.opacity(0.08))
+            .frame(height: 1)
+    }
+
+    private var wellBackground: some View {
+        ZStack {
+            ScoutPalette.bg
+            ScoutScanlines()
+            LinearGradient(
+                colors: [Color.black.opacity(0.35), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text)
+            .font(HudFont.mono(HudTextSize.xxs))
+            .foregroundStyle(ScoutPalette.dim)
+    }
+
+    @ViewBuilder
+    private func wellLink(_ label: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: icon).font(.system(size: 8))
+                Text(label.uppercased())
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+            }
+            .foregroundStyle(ScoutPalette.dim)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .help("Open full \(label)")
+    }
+}
+
+/// The seam between metadata and live IS the activity cue: a static machined
+/// amber line with a bright glimmer that sweeps across it, echoing the Claude
+/// Code TUI working shimmer. Full-bleed across the top of the well.
+private struct ScoutShimmerSeam: View {
+    @State private var phase: CGFloat = -1
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            Rectangle()
+                .fill(ScoutPalette.statusWarn.opacity(0.32))
+                .overlay {
+                    LinearGradient(
+                        colors: [.clear, ScoutPalette.statusWarn, .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: max(w * 0.4, 48))
+                    .offset(x: phase * (w * 0.9))
+                }
+                .clipped()
+        }
+        .frame(height: 1.5)
+        .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) {
+                phase = 1
+            }
+        }
+    }
+}
+
+/// Faint CRT scanline texture for the live well.
+private struct ScoutScanlines: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let shading = GraphicsContext.Shading.color(ScoutPalette.ink.opacity(0.05))
+            var y: CGFloat = 0
+            while y < size.height {
+                ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: shading)
+                y += 3
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private extension ScoutObserveEventKind {
+    var liveLabel: String {
+        switch self {
+        case .think: return "THINK"
+        case .tool: return "TOOL"
+        case .ask: return "ASK"
+        case .message: return "MSG"
+        case .note: return "NOTE"
+        case .system: return "SYS"
+        case .boot: return "BOOT"
+        case .unknown: return "EVT"
+        }
+    }
+
+    var liveIcon: String {
+        switch self {
+        case .think: return "sparkles"
+        case .tool: return "wrench.and.screwdriver"
+        case .ask: return "questionmark.bubble"
+        case .message: return "bubble.left"
+        case .note: return "note.text"
+        case .system: return "gearshape"
+        case .boot: return "power"
+        case .unknown: return "circle"
+        }
+    }
+
+    var liveTint: Color {
+        switch self {
+        case .think: return ScoutPalette.dim
+        case .tool: return ScoutPalette.accent
+        case .ask: return ScoutPalette.statusWarn
+        case .message: return ScoutPalette.statusInfo
+        case .note: return ScoutPalette.statusOk
+        case .system, .boot: return ScoutPalette.muted
+        case .unknown: return ScoutPalette.dim
+        }
+    }
+}
+
+private func scoutFileStateTint(_ state: String) -> Color {
+    switch state.lowercased() {
+    case "created", "added", "new": return ScoutPalette.statusOk
+    case "modified", "changed", "edited": return ScoutPalette.accent
+    case "deleted", "removed": return ScoutPalette.statusError
+    default: return ScoutPalette.muted
+    }
+}
+
 /// Quiet-but-clearly-clickable Observe chip. At rest it reads as a button
 /// (hairline border + faint inset), warming to observe-green on hover —
 /// present without out-shouting the agent identity above it.
@@ -3477,7 +3851,9 @@ private struct ScoutAgentCardStack: View {
             openProfile: { openProfile(agent) },
             openConversation: { openConversation(agent) },
             openSession: openSession,
-            startSession: { _ in startSession(agent) }
+            startSession: { _ in startSession(agent) },
+            livePreview: nil,
+            openTail: nil
         )
     }
 }
@@ -3507,7 +3883,9 @@ private struct ScoutAgentPreviewPanel: View {
                     openProfile: openProfile,
                     openConversation: openConversation,
                     openSession: openSession,
-                    startSession: startSession
+                    startSession: startSession,
+                    livePreview: nil,
+                    openTail: nil
                 )
                 .padding(HudSpacing.xl)
                 .frame(maxWidth: .infinity, alignment: .leading)
