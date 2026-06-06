@@ -1076,9 +1076,17 @@ function normalizeRequestedProvider(value: string | undefined): string | undefin
   return trimmed ? trimmed : undefined;
 }
 
+function normalizePiLaunchProvider(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "grok" || normalized === "x-ai") {
+    return "xai";
+  }
+  return normalized || value;
+}
+
 function buildLaunchArgsForRequestedProvider(harness: AgentHarness, provider: string): string[] {
   if (harness === "pi") {
-    return ["--provider", provider];
+    return ["--provider", normalizePiLaunchProvider(provider)];
   }
   return [];
 }
@@ -1142,7 +1150,7 @@ function buildLaunchArgsForRequestedReasoningEffort(harness: AgentHarness, reaso
     return normalizeCodexAppServerLaunchArgs(["--reasoning-effort", reasoningEffort]);
   }
   if (harness === "pi") {
-    return ["--thinking", reasoningEffort];
+    return ["--thinking", reasoningEffort.trim().toLowerCase() === "none" ? "off" : reasoningEffort];
   }
   return [];
 }

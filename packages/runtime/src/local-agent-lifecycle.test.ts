@@ -485,6 +485,34 @@ describe("local agent lifecycle", () => {
     ]);
   });
 
+  test("normalizes Pi none reasoning requests to thinking off", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "gamma");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "gamma-grok",
+      harness: "pi",
+      provider: "grok",
+      model: "grok-4.3",
+      reasoningEffort: "none",
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(override?.harnessProfiles?.pi?.launchArgs).toEqual([
+      "--model",
+      "grok-4.3",
+      "--provider",
+      "xai",
+      "--thinking",
+      "off",
+    ]);
+  });
+
   test("explicit Pi startup migrates an existing Pi tmux profile to RPC", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");

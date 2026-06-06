@@ -303,9 +303,9 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     install: {
       binary: "pi",
       requires: ["node"],
-      macos: "npm install -g @mariozechner/pi-coding-agent",
-      linux: "npm install -g @mariozechner/pi-coding-agent",
-      windows: "npm install -g @mariozechner/pi-coding-agent",
+      macos: "npm install -g @earendil-works/pi-coding-agent",
+      linux: "npm install -g @earendil-works/pi-coding-agent",
+      windows: "npm install -g @earendil-works/pi-coding-agent",
     },
     readiness: {
       anyOf: [

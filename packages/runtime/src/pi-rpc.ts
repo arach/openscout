@@ -74,6 +74,27 @@ const PI_RPC_OPTION_KEYS: Record<string, keyof Omit<PiRpcLaunchOptions, "extensi
   "--session-dir": "sessionDir",
 };
 
+type CredentialEnvSource = Record<string, string | undefined>;
+
+type PiRpcCredentialEnvMapping = {
+  outputKey: string;
+  envKeys: readonly string[];
+  secretKeys?: readonly string[];
+};
+
+const PI_RPC_CREDENTIAL_ENV: Record<string, readonly PiRpcCredentialEnvMapping[]> = {
+  minimax: [{
+    outputKey: "MINIMAX_API_KEY",
+    envKeys: ["MINIMAX_API_KEY", "MINIMAX_TOKEN"],
+    secretKeys: ["MINIMAX_API_KEY"],
+  }],
+  xai: [{
+    outputKey: "XAI_API_KEY",
+    envKeys: ["XAI_API_KEY"],
+    secretKeys: ["XAI_API_KEY"],
+  }],
+};
+
 function normalizeOptionalString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
@@ -104,14 +125,31 @@ function resolveDefaultPiScoutExtension(): string | null {
   return null;
 }
 
+function normalizePiProvider(value: string | undefined): string | undefined {
+  const provider = normalizeOptionalString(value)?.toLowerCase();
+  if (!provider) {
+    return undefined;
+  }
+  if (provider === "grok" || provider === "x-ai") {
+    return "xai";
+  }
+  return provider;
+}
+
 function inferPiProvider(launch: Pick<PiRpcLaunchOptions, "provider" | "model">): string | undefined {
-  const provider = normalizeOptionalString(launch.provider)?.toLowerCase();
+  const provider = normalizePiProvider(launch.provider);
   if (provider) {
     return provider;
   }
   const model = normalizeOptionalString(launch.model)?.toLowerCase();
+  if (model?.includes("/")) {
+    return normalizePiProvider(model.split("/", 1)[0]);
+  }
   if (model?.startsWith("minimax")) {
     return "minimax";
+  }
+  if (model?.startsWith("grok")) {
+    return "xai";
   }
   return undefined;
 }
@@ -128,15 +166,52 @@ function readSecretValue(name: string): string | undefined {
   }
 }
 
-function buildPiRpcCredentialEnv(launch: Pick<PiRpcLaunchOptions, "provider" | "model">): Record<string, string> | undefined {
-  if (inferPiProvider(launch) !== "minimax") {
+function readMappedCredentialValue(
+  mapping: PiRpcCredentialEnvMapping,
+  env: CredentialEnvSource,
+  readSecret: (name: string) => string | undefined,
+): string | undefined {
+  for (const key of mapping.envKeys) {
+    const value = normalizeOptionalString(env[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  for (const key of mapping.secretKeys ?? []) {
+    const value = normalizeOptionalString(readSecret(key));
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+export function buildPiRpcCredentialEnv(
+  launch: Pick<PiRpcLaunchOptions, "provider" | "model">,
+  sources: {
+    env?: CredentialEnvSource;
+    readSecret?: (name: string) => string | undefined;
+  } = {},
+): Record<string, string> | undefined {
+  const provider = inferPiProvider(launch);
+  const mappings = provider ? PI_RPC_CREDENTIAL_ENV[provider] : undefined;
+  if (!mappings) {
     return undefined;
   }
 
-  const miniMaxKey = normalizeOptionalString(process.env.MINIMAX_API_KEY)
-    ?? normalizeOptionalString(process.env.MINIMAX_TOKEN)
-    ?? readSecretValue("MINIMAX_API_KEY");
-  return miniMaxKey ? { MINIMAX_API_KEY: miniMaxKey } : undefined;
+  const env: Record<string, string> = {};
+  const sourceEnv = sources.env ?? process.env;
+  const readSecret = sources.readSecret ?? readSecretValue;
+  for (const mapping of mappings) {
+    const value = readMappedCredentialValue(mapping, sourceEnv, readSecret);
+    if (value) {
+      env[mapping.outputKey] = value;
+    }
+  }
+
+  return Object.keys(env).length > 0 ? env : undefined;
 }
 
 export function parsePiRpcLaunchArgs(

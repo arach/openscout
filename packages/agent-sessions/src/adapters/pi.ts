@@ -121,7 +121,7 @@ function normalizeProvider(value: string | undefined): string | undefined {
   if (normalized === "azure-openai") return "azure";
   if (normalized === "aws" || normalized === "aws-bedrock") return "bedrock";
   if (normalized === "ai-gateway" || normalized === "ai_gateway") return "vercel";
-  if (normalized === "grok") return "xai";
+  if (normalized === "grok" || normalized === "x-ai") return "xai";
   return normalized;
 }
 
@@ -133,6 +133,7 @@ function inferProviderFromModel(model: string | undefined): string | undefined {
     return normalizeProvider(normalized.split("/", 1)[0]);
   }
   if (normalized.startsWith("minimax")) return "minimax";
+  if (normalized.startsWith("grok")) return "xai";
   if (normalized.startsWith("claude")) return "anthropic";
   if (
     normalized.startsWith("gpt")
@@ -143,6 +144,19 @@ function inferProviderFromModel(model: string | undefined): string | undefined {
   if (normalized.startsWith("gemini")) return "google";
   if (normalized.startsWith("mistral") || normalized.startsWith("codestral")) return "mistral";
   return undefined;
+}
+
+function normalizePiThinkingLevel(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  return normalized.toLowerCase() === "none" ? "off" : normalized;
+}
+
+function normalizePiProviderArgument(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  const lowered = normalized.toLowerCase();
+  return lowered === "grok" || lowered === "x-ai" ? "xai" : normalized;
 }
 
 function selectedProvider(options: AdapterConfig["options"] | undefined): string | undefined {
@@ -211,11 +225,11 @@ export class PiAdapter extends BaseAdapter {
     if (model) args.push("--model", model);
 
     // Provider override.
-    const provider = this.config.options?.["provider"] as string | undefined;
+    const provider = normalizePiProviderArgument(this.config.options?.["provider"] as string | undefined);
     if (provider) args.push("--provider", provider);
 
     // Thinking level.
-    const thinking = this.config.options?.["thinking"] as string | undefined;
+    const thinking = normalizePiThinkingLevel(this.config.options?.["thinking"] as string | undefined);
     if (thinking) args.push("--thinking", thinking);
 
     // Resume a previous session.
