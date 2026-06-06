@@ -53,11 +53,11 @@ function isAccentId(v: unknown): v is AccentId {
   return typeof v === "string" && ACCENTS.some((a) => a.id === v);
 }
 
-export function loadAppearance(): AppearancePrefs {
-  if (typeof window === "undefined") return { ...DEFAULT_APPEARANCE };
+function loadStoredAppearance(): AppearancePrefs | null {
+  if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_APPEARANCE };
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AppearancePrefs>;
     return {
       theme:
@@ -77,8 +77,12 @@ export function loadAppearance(): AppearancePrefs {
           : DEFAULT_APPEARANCE.markdownPreview,
     };
   } catch {
-    return { ...DEFAULT_APPEARANCE };
+    return null;
   }
+}
+
+export function loadAppearance(): AppearancePrefs {
+  return loadStoredAppearance() ?? { ...DEFAULT_APPEARANCE };
 }
 
 export function saveAppearance(prefs: AppearancePrefs): void {
@@ -103,16 +107,19 @@ function resolveTheme(theme: ThemePref): "dark" | "light" {
  * these dataset/custom-prop hooks; the accent vars use !important to win over
  * the inline --hud-accent set on the [data-scout-theme] wrapper.
  */
-export function applyAppearance(prefs: AppearancePrefs): void {
+export function applyAppearance(prefs: AppearancePrefs, options: { applyTheme?: boolean } = {}): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
+  const applyTheme = options.applyTheme ?? true;
   const theme = resolveTheme(prefs.theme);
 
   // Theme: mirror lib/theme.ts contract (data-scout-theme-mode + color-scheme)
   // and expose the operator preference + resolved value as data hooks.
   root.dataset.appTheme = prefs.theme;
-  root.dataset.scoutThemeMode = theme;
-  root.style.colorScheme = theme;
+  if (applyTheme) {
+    root.dataset.scoutThemeMode = theme;
+    root.style.colorScheme = theme;
+  }
 
   // Density + motion + markdown-preview as data hooks.
   root.dataset.appDensity = prefs.density;
@@ -134,20 +141,22 @@ export function applyAppearance(prefs: AppearancePrefs): void {
 let mediaListenerBound = false;
 
 /**
- * Apply once on boot and keep "system" theme in sync with the OS. Returns a
- * cleanup function. Safe to call multiple times — only one media listener is
- * registered per process.
+ * Apply once on boot. Saved appearance prefs own the theme; otherwise startup
+ * theme selection remains canonical and only non-theme defaults are applied.
+ * Returns a cleanup function. Safe to call multiple times — only one media
+ * listener is registered per process.
  */
 export function initAppearance(): () => void {
   if (typeof window === "undefined") return () => {};
-  const prefs = loadAppearance();
-  applyAppearance(prefs);
+  const storedPrefs = loadStoredAppearance();
+  const prefs = storedPrefs ?? { ...DEFAULT_APPEARANCE };
+  applyAppearance(prefs, { applyTheme: storedPrefs !== null });
 
   if (mediaListenerBound || !window.matchMedia) return () => {};
   const mql = window.matchMedia("(prefers-color-scheme: light)");
   const onChange = () => {
-    const current = loadAppearance();
-    if (current.theme === "system") applyAppearance(current);
+    const current = loadStoredAppearance();
+    if (current?.theme === "system") applyAppearance(current);
   };
   mql.addEventListener("change", onChange);
   mediaListenerBound = true;
